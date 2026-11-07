@@ -341,7 +341,7 @@ export class SearchController extends BaseController {
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
-- Hooks of one kind are awaited one after another. A rejected `onBefore` goes to the route's error handlers; a rejected `onAfter` turns the reply into an error reply; a rejected `onFinish` is logged.
+- `onBefore` and `onAfter` hooks are awaited one after another. A rejected `onBefore` goes to the route's error handlers; a rejected `onAfter` turns the reply into an error reply. `onFinish` hooks are started in order without waiting for each other, so a slow async `onFinish` (an audit write) does not hold back the others; a rejected one is logged.
 - `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change; headers a hook adds are not captured.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`).
@@ -349,12 +349,12 @@ export class SearchController extends BaseController {
 
 ## Migrating from the positional hooks
 
-The 4.x hooks take one context object; the positional arguments and `onResponse` are gone.
+The 4.x hooks take one context object; the positional arguments and `onResponse` are gone. A middleware that still defines `onResponse`, itself or through a base class, fails the route registration with `RouteRegistrationException`: it would otherwise compile and never run.
 
 | Before | Now |
 | --- | --- |
 | `onBefore(req, res, route, controller)` | `onBefore({ req, res, route, controller, path, storage })`; may return a `Response` |
-| `onResponse(response, route, controller)` | `onAfter(ctx)` with `ctx.response`; it now also runs for error replies: return early when `ctx.error !== undefined` to keep success-only behaviour |
+| `onResponse(response, route, controller)` | `onAfter(ctx)` with `ctx.response`; it now also runs for error replies: return early when `ctx.error !== undefined` to keep success-only behaviour. A leftover `onResponse` fails the registration |
 | `onAfter(req, res, route, controller)`, success only | `onAfter(ctx)`, for every reply, before it is sent |
 | `res.on('finish', …)` registered in `onBefore` | `onFinish(ctx)` |
 | `(response as any).responseData = …` | `ctx.response.data = …`; `ctx.response.statusCode = …`; `ctx.response.setHeader(…)` |
