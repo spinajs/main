@@ -78,6 +78,12 @@ describe('buildAppManifest', () => {
   it('records nothing about derivation when it is on', async () => {
     const { manifest } = await buildAppManifest(APP);
     expect(manifest).to.not.have.property('schemaDerivation');
+    expect(manifest).to.not.have.property('globalRouteMiddlewares');
+  });
+
+  it('records the http.routes.middlewares of the configuration it was given', async () => {
+    const { manifest } = await buildAppManifest({ ...APP, schemaDerivation: false, globalRouteMiddlewares: ['RouteTiming', { service: 'Audit', options: [1] }] });
+    expect(manifest.globalRouteMiddlewares).to.deep.equal([{ type: 'RouteTiming' }, { type: 'Audit', options: [1] }]);
   });
 
   it('merges the app and its dependency fragments without a schema $id collision', async () => {

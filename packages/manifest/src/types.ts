@@ -319,6 +319,11 @@ export interface Manifest extends Omit<ManifestFragment, 'package'> {
   buildEnv?: string;
   /** `false` for `spinajs build --no-schemas`: the app's own types then have no schemas, its socket contracts included. */
   schemaDerivation?: false;
+  /**
+   * `http.routes.middlewares` of the build's configuration, by type name, in config order: mounted on every route before the
+   * controller's and the route's own. Omitted by a build without configuration or with none.
+   */
+  globalRouteMiddlewares?: RouteEntry['middlewares'];
   /** Version of `@spinajs/compiler` that built the manifest; `manifest:diff` warns when base and head differ. Absent in manifests older than the field. */
   compilerVersion?: string;
   generatedAt: string;

@@ -18,6 +18,14 @@ describe('CFG004 unknown-route-middleware', () => {
     expect(unknownRouteMiddleware.run(m, base)).to.deep.equal([]);
   });
 
+  it('without config: checks the global route middlewares the build recorded', () => {
+    const built = { ...m, globalRouteMiddlewares: [{ type: 'RouteTiming' }, { type: 'RouteTimng', options: [1] }] };
+    expect(unknownRouteMiddleware.run(built, base)).to.deep.equal([
+      { code: 'CFG004', severity: 'error', message: "http.routes.middlewares[1] names 'RouteTimng', which no RouteMiddleware registers: did you mean 'RouteTiming'?" },
+    ]);
+    expect(unknownRouteMiddleware.run(built, { ...base, config: {} }), 'the loaded configuration wins').to.deep.equal([]);
+  });
+
   it('accepts names and { service } entries of registered RouteMiddleware types', () => {
     expect(run(['RouteTiming', { service: 'AcceptsMiddleware', options: [1] }])).to.deep.equal([]);
   });

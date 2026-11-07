@@ -199,6 +199,24 @@ export const manifestSchema: Record<string, any> = {
           "type": "boolean",
           "const": false
         },
+        "globalRouteMiddlewares": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
         "compilerVersion": {
           "type": "string"
         },

@@ -28,7 +28,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | CFG001 | warning | a configuration path read in code whose module has no schema |
 | CFG002 | error | a `system.dirs.*` entry that does not exist (`--config`) |
 | CFG003 | info / warning | a registration whose config condition is unmet (`--config`), or one the compiler could not decide |
-| CFG004 | error | a name in `http.routes.middlewares` (a string or `{ service }`) that no type registered as `RouteMiddleware` has (`--config`); the message names the closest registered one. The runtime refuses to start with such a name |
+| CFG004 | error | a name in `http.routes.middlewares` (a string or `{ service }`) that no type registered as `RouteMiddleware` has (`--config`, else the `globalRouteMiddlewares` the build recorded); the message names the closest registered one. The runtime refuses to start with such a name |
 | BLD001 | error | a dependency fragment older than its build output, or missing |
 | ORM001 | warning | a model loaded from the database by `@FromModel` (kind `FromDbModel`) that is not an `@AccessResource`. `@AsModel` (`AsDbModel`) builds the model from the request and is not reported |
 | SCH003 | warning | an explicit `@Schema` that differs structurally from the schema derived from its class |
