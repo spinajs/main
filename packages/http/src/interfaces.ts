@@ -1,4 +1,5 @@
 import * as express from 'express';
+import type { ResolvedIdempotentOptions } from './idempotency/options.js';
 import { Constructor, AsyncService, Class, DI, isPromise } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { fs, IFileInfo } from '@spinajs/fs';
@@ -823,6 +824,9 @@ export interface IRoute {
    * Why the route is public on purpose (`@Public`). Metadata only: it does not change request handling.
    */
   Public?: string;
+
+  /** `@Idempotent()` options; the route runs behind the Idempotency-Key gate. */
+  Idempotency?: ResolvedIdempotentOptions;
 }
 
 export interface IOnErrorDescriptor {
