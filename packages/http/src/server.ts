@@ -19,7 +19,7 @@ import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
 import { sendReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
-import { globalErrorReplier, isLegacyServerMiddleware, serverMiddlewareHandlers } from './server-middlewares.js';
+import { globalErrorReplier, isLegacyServerMiddleware, mountingWith, serverMiddlewareHandlers } from './server-middlewares.js';
 import { NotFoundMiddleware } from './middlewares/NotFound.js';
 import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
@@ -186,7 +186,7 @@ export class HttpServer extends AsyncService {
           { middleware: name },
           'Server middleware ${middleware} overrides before() or after(), which are deprecated and removed in the next major: implement onBefore, onAfter, onFinish, onAround or handler() instead',
         );
-        const f = m.before();
+        const f = mountingWith(options, () => m.before());
         if (f) {
           this.Log.info({ middleware: name }, 'Using server middleware ${middleware} through before()');
           this.use(f);
@@ -231,7 +231,8 @@ export class HttpServer extends AsyncService {
               if (isResponse(answer)) {
                 return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
               }
-              next(answer);
+              // a replacement answering nothing still gets the framework's 404, not express's
+              next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
               return undefined;
             })
             .catch(next);

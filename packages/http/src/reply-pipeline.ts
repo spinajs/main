@@ -3,7 +3,7 @@ import type express from 'express';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Response, ResponseFunction } from './interfaces.js';
+import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
 import { excludeFromCapture } from './response-capture.js';
 
@@ -52,6 +52,9 @@ interface IReplyState {
   replyError?: { error: unknown };
   /** The error the sent reply answers, after any onAfter turned it. */
   answered?: { error: unknown };
+  /** The one context every server hook of the request gets; with the route fields once a route matched. */
+  server?: IMiddlewareContext;
+  routedServer?: IMiddlewareContext;
 }
 
 const STATE = Symbol('replyPipeline');
@@ -123,13 +126,22 @@ export function answeredErrorOf(res: express.Response): unknown {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.answered?.error;
 }
 
+/** The context of the server hooks of this request, made once. */
+export function serverContextOf(req: express.Request, res: express.Response): IMiddlewareContext {
+  const state = stateOf(res);
+  return (state.server ??= { req, res, storage: (req as Request).storage });
+}
+
 // A server middleware is entered before routing; its onAfter and onFinish still get the route the request matched.
 function hookContext(state: IReplyState, entry: IEntered): IMiddlewareContext {
   if (entry.scope !== 'server' || !state.route) {
     return entry.context;
   }
   const { route, controller, path } = state.route.context;
-  return { ...entry.context, route, controller, path };
+  if (state.routedServer?.route !== route) {
+    state.routedServer = { ...entry.context, route, controller, path };
+  }
+  return state.routedServer;
 }
 
 function watchFinish(res: express.Response, state: IReplyState): void {

@@ -4,9 +4,9 @@ import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 
 import { ServerMiddleware } from './interfaces.js';
-import type { HttpMiddleware, IMiddlewareContext, LegacyServerHandler, Request, Response } from './interfaces.js';
+import type { HttpMiddleware, LegacyServerHandler, Request, Response } from './interfaces.js';
 import { createServerAroundHandler } from './around.js';
-import { enterMiddleware, sendReply } from './reply-pipeline.js';
+import { enterMiddleware, sendReply, serverContextOf } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 
@@ -35,8 +35,6 @@ const named = <T extends express.RequestHandler>(handler: T, name: string): T =>
   return handler;
 };
 
-const serverContext = (req: express.Request, res: express.Response): IMiddlewareContext => ({ req, res, storage: (req as Request).storage });
-
 const entersOnReach = (m: HttpMiddleware) => typeof m.onAfter === 'function' || typeof m.onFinish === 'function';
 
 /**
@@ -45,39 +43,40 @@ const entersOnReach = (m: HttpMiddleware) => typeof m.onAfter === 'function' || 
  */
 function createServerBeforeHandler(m: ServerMiddleware, enters: boolean, options: IServerMountOptions): express.RequestHandler {
   const name = m.constructor.name;
-  return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const ctx = serverContext(req, res);
-    const settle = (answer: unknown) => {
-      if (enters) {
-        enterMiddleware(res, 'server', m, ctx);
-      }
-      if (answer === undefined || answer === null) {
-        next();
-      } else if (!isResponse(answer)) {
-        next(new UnexpectedServerError(`${name}.onBefore returned something that is not a Response`));
-      } else {
-        sendReply(req, res, answer, { errorReply: options.errorReply(req) }).catch(next);
-      }
-    };
+  const settle = (req: express.Request, res: express.Response, next: express.NextFunction, answer: unknown) => {
+    if (enters) {
+      enterMiddleware(res, 'server', m, serverContextOf(req, res));
+    }
+    if (answer === undefined || answer === null) {
+      next();
+    } else if (!isResponse(answer)) {
+      next(new UnexpectedServerError(`${name}.onBefore returned something that is not a Response`));
+    } else {
+      sendReply(req, res, answer, { errorReply: options.errorReply(req) }).catch(next);
+    }
+  };
 
+  return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
     let result: unknown;
     try {
-      result = m.onBefore!(ctx);
+      result = m.onBefore!(serverContextOf(req, res));
     } catch (err) {
       next(err);
       return;
     }
     if (isThenable(result)) {
-      Promise.resolve(result).then(settle).catch(next);
+      Promise.resolve(result)
+        .then((answer) => settle(req, res, next, answer))
+        .catch(next);
     } else {
-      settle(result);
+      settle(req, res, next, result);
     }
   }, name);
 }
 
 function createServerEntryHandler(m: ServerMiddleware, handler?: express.RequestHandler): express.RequestHandler {
   return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    enterMiddleware(res, 'server', m, serverContext(req, res));
+    enterMiddleware(res, 'server', m, serverContextOf(req, res));
     if (handler) {
       return handler(req, res, next);
     }
@@ -99,7 +98,7 @@ export function serverMiddlewareHandlers(m: ServerMiddleware, options: IServerMo
   const around = typeof m.onAround === 'function';
   return [
     ...(around ? [createServerAroundHandler(m as HttpMiddleware & Required<Pick<HttpMiddleware, 'onAround'>>, options.log)] : []),
-    ...(typeof m.onBefore === 'function' ? [createServerBeforeHandler(m, !around, options)] : []),
+    ...(typeof m.onBefore === 'function' ? [createServerBeforeHandler(m, !around && entersOnReach(m), options)] : []),
     ...(!around && typeof m.onBefore !== 'function' && entersOnReach(m) ? [createServerEntryHandler(m)] : []),
   ];
 }
@@ -113,20 +112,36 @@ function inSequence(handlers: express.RequestHandler[], name: string): LegacySer
         next(err);
         return;
       }
-      void handler(req, res, step);
+      const result: unknown = handler(req, res, step);
+      // as express 5 does for an async handler
+      if (isThenable(result)) {
+        Promise.resolve(result).catch(step);
+      }
     };
     step();
   }, name) as LegacyServerHandler;
 }
 
+let mounting: IServerMountOptions | undefined;
+
+/** Runs `mount` with the options of the HttpServer mounting a deprecated middleware, which its base before() uses. */
+export function mountingWith<T>(options: IServerMountOptions, mount: () => T): T {
+  const previous = mounting;
+  mounting = options;
+  try {
+    return mount();
+  } finally {
+    mounting = previous;
+  }
+}
+
+const rootOptions: IServerMountOptions = {
+  get log() {
+    return DI.resolve(Log, ['http']);
+  },
+  errorReply: (req) => (error) => globalErrorReplier(DI.resolve(ErrorHandlerMiddleware), req)(error),
+};
+
 // The deprecated base before(): a subclass still mounted through before() keeps getting its hooks from super.before().
 (ServerMiddleware as unknown as Record<symbol, (m: ServerMiddleware) => LegacyServerHandler>)[Symbol.for('@spinajs/http.serverHooksHandler')] = (m) =>
-  inSequence(
-    serverMiddlewareHandlers(m, {
-      get log() {
-        return DI.resolve(Log, ['http']);
-      },
-      errorReply: (req) => (error) => globalErrorReplier(DI.resolve(ErrorHandlerMiddleware), req)(error),
-    }),
-    m.constructor.name,
-  );
+  inSequence(serverMiddlewareHandlers(m, mounting ?? rootOptions), m.constructor.name);

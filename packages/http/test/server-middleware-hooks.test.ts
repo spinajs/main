@@ -182,6 +182,44 @@ class SrvAround extends ServerMiddleware {
   }
 }
 
+class SrvThrowAfter extends ServerMiddleware {
+  public Order = 12;
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    if (ctx.req.headers['x-throw-after']) {
+      throw new Error('refused by a server onAfter');
+    }
+  }
+}
+
+class LegacyErrorAfter extends ServerMiddleware {
+  public Order = 28;
+
+  public after() {
+    return (err: unknown, _req: express.Request, _res: express.Response, next: express.NextFunction) => {
+      calls.push(`legacy-error:${errorName(err)}`);
+      next(err);
+    };
+  }
+}
+
+/** 3.x style: overrides before() but keeps its hooks through super.before(). */
+class LegacySuper extends ServerMiddleware {
+  public Order = 29;
+
+  public before() {
+    return super.before();
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    ctx.res.setHeader('x-legacy-super', 'entered');
+  }
+
+  public onFinish(): void {
+    state.legacySuperFinished = true;
+  }
+}
+
 class RouteRec extends RouteMiddleware {
   public async onBefore(): Promise<void> {
     calls.push('route:before');
@@ -200,6 +238,9 @@ class CustomNotFound extends NotFoundMiddleware {
   public reply(req: Request) {
     if (req.originalUrl.includes('custom-404')) {
       return new NotFound({ custom: 'not found' });
+    }
+    if (req.originalUrl.includes('empty-404')) {
+      return undefined as unknown as Error;
     }
     return super.reply(req);
   }
@@ -293,7 +334,7 @@ describe('Server middleware hooks', function () {
       configuration: ServerHooksConfiguration,
       register: (c) => {
         c.register(ServerHooksController).as(BaseController);
-        for (const type of [EarlyRec, SrvA, TieFirst, TieSecond, SrvB, SrvHandler, SrvDisabled, LegacyServer, SrvAnswer, SrvThrow, SrvAround]) {
+        for (const type of [EarlyRec, SrvA, SrvThrowAfter, TieFirst, TieSecond, SrvB, SrvHandler, SrvDisabled, LegacyServer, LegacyErrorAfter, LegacySuper, SrvAnswer, SrvThrow, SrvAround]) {
           c.register(type).as(ServerMiddleware);
         }
         c.register(CustomNotFound).as(NotFoundMiddleware);
@@ -370,12 +411,46 @@ describe('Server middleware hooks', function () {
     expect(calls).to.deep.eq([...BEFORE_ALL, ...afterAll(200, '-'), ...FINISH_ALL]);
   });
 
+  it('turns the reply into an error reply when a server onAfter throws (D8): route reply, 404 and early answer', async () => {
+    for (const [path, headers, status, error] of [
+      ['srv/ok', {}, 200, '-'],
+      ['srv/missing', {}, 404, 'ResourceNotFound'],
+      ['srv/ok', { 'x-answer': '1' }, 200, '-'],
+    ] as const) {
+      calls.length = 0;
+      let request = req().get(path).set('Accept', 'application/json').set('x-throw-after', '1');
+      for (const [name, value] of Object.entries(headers)) request = request.set(name, value);
+      const res = await request;
+      await until(() => calls.includes('early:finish:false'));
+
+      expect(res.status, path).to.eq(500);
+      expect(calls, path).to.include(`tie1:after:${status}:${error}`);
+      expect(calls, path).to.include('a:after:500:Error');
+      expect(calls.filter((c) => c.startsWith('tie1:after')), path).to.have.length(1);
+    }
+  });
+
+  it('enters a legacy middleware whose before() calls super.before(): its onAfter and onFinish run', async () => {
+    const res = await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => state.legacySuperFinished === true);
+
+    expect(header(res, 'x-legacy-super')).to.eq('entered');
+  });
+
+  it('answers the framework 404 when a NotFoundMiddleware replacement returns nothing', async () => {
+    const res = await req().get('srv/empty-404').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(404);
+    expect(header(res, 'x-error-handler')).to.eq('custom');
+    expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
+  });
+
   it('answers a throwing server onBefore with the global error answer; the thrower is not entered', async () => {
     const res = await req().get('srv/ok').set('Accept', 'application/json').set('x-throw', '1');
     await until(() => calls.includes('early:finish:false'));
 
     expect(res.status).to.eq(403);
-    expect(calls).to.deep.eq([...BEFORE_ALL, ...afterAll(403, 'Forbidden'), ...FINISH_ALL]);
+    expect(calls).to.deep.eq([...BEFORE_ALL, 'legacy-error:Forbidden', ...afterAll(403, 'Forbidden'), ...FINISH_ALL]);
     expect(calls).to.not.include('throw:after');
   });
 

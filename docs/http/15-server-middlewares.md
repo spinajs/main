@@ -33,8 +33,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | Hook | When | Context |
 | --- | --- | --- |
 | `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously. | `IMiddlewareContext`: `req`, `res`, `storage`; no `route` |
-| `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). | `IMiddlewareContext`, no `route` |
-| `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. A throw turns the reply into the global error answer's reply for that error. | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
+| `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). It rejects with `RouteClientGone` when the client went away first. | `IMiddlewareContext`, no `route` |
+| `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. A throw turns the reply into an error reply for that error: when a route matched, the route's (its `@OnError` handlers at the `'after'` stage, `http.errors.handlers`, the error map), else the global error answer's (`ErrorHandlerMiddleware.reply`). | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
 | `onFinish(ctx)` | Once, when the response finished or the client went away. A throw is logged. | `IFinishContext`: `aborted`; `route`, `controller`, `path` when a route matched |
 | `handler()` | Called once at mount. An Express handler mounted at `Order` in place of `onBefore`/`onAround`. | |
 
@@ -73,7 +73,7 @@ Replace either with `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServe
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.middlewares` | `express.RequestHandler[]` | see [HTTP server](01-http-server.md#configuration) | | Raw Express handlers, added before every server middleware. |
-| `http.compression.enabled` | `boolean` | `true` | | `false`: `Compression` mounts nothing, and nothing else compresses. |
+| `http.compression.enabled` | `boolean` | `true` | | `false`: `Compression` mounts nothing. The default `http.middlewares` hold no compression either; an app that lists `compression()` there itself still compresses. |
 | `http.compression.threshold` | `number` | `1024` | bytes | Smaller bodies are not compressed. |
 | `http.compression.level` | `number` | `-1` | zlib levels `-1` to `9` | Compression level; `-1` is the zlib default. |
 
@@ -157,12 +157,11 @@ DI.register(QuietAccessLog).as(AccessLog);
 
 ### Deprecated `before()` and `after()`
 
-A subclass that still overrides `before()` or `after()` keeps working until the next major, with one warning per class at startup naming it:
+A subclass that still overrides `before()` or `after()` keeps working until the next major, with a warning naming it each time `HttpServer` mounts it:
 
-- `before()` is mounted at the middleware's `Order`, `after()` after routing, before the 404, in descending `Order`, as in 3.x;
-- its hooks (`onBefore`, `onAfter`, ...) and `isEnabled()` are not used, and it is never entered, so it gets no `onAfter` or `onFinish`.
-
-`ServerMiddleware.before()` itself returns the middleware's hooks as one Express handler (null when `isEnabled()` is false), so a 3.x subclass calling `super.before()` on a shipped middleware still gets its behaviour.
+- `before()` is mounted at the middleware's `Order`, `after()` after routing, before the 404, in descending `Order`, as in 3.x; `HttpServer` itself does not call `isEnabled()` or mount the hooks for it.
+- `ServerMiddleware.before()` itself returns the middleware's hooks as one Express handler (null when `isEnabled()` is false). So a subclass whose `before()` calls `super.before()`, or that overrides only `after()`, still gets its hooks: it is entered and its `onAfter` and `onFinish` run. A 3.x subclass of a shipped middleware calling `super.before()` keeps its behaviour this way.
+- A `before()` that returns its own handler uses no hook: the middleware is never entered and gets no `onAfter` or `onFinish`.
 
 | 3.x | 4.x |
 | --- | --- |
@@ -235,7 +234,7 @@ export class PermissionsPolicyHeader extends ServerMiddleware {
 ```ts sample
 import { performance } from 'node:perf_hooks';
 import { Injectable } from '@spinajs/di';
-import { IMiddlewareContext, IRouteOutcome, ServerMiddleware } from '@spinajs/http';
+import { IMiddlewareContext, IRouteOutcome, RouteClientGone, ServerMiddleware } from '@spinajs/http';
 
 @Injectable(ServerMiddleware)
 export class RequestTimer extends ServerMiddleware {
@@ -246,8 +245,13 @@ export class RequestTimer extends ServerMiddleware {
 
   public async onAround({ req }: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>) {
     const started = performance.now();
-    const { reply, error } = await proceed();
-    console.log(req.method, req.originalUrl, reply?.status ?? '-', error ? 'failed' : 'ok', performance.now() - started);
+    try {
+      const { reply, error } = await proceed();
+      console.log(req.method, req.originalUrl, reply?.status ?? '-', error ? 'failed' : 'ok', performance.now() - started);
+    } catch (err) {
+      // the client went away (RouteClientGone): there is no reply to time; rethrown, it would be logged as a failure
+      if (!(err instanceof RouteClientGone)) throw err;
+    }
   }
 }
 ```

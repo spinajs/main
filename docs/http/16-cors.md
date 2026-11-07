@@ -47,7 +47,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `allowance(origin)`, which returns `{ allowOrigin, credentials }` or `undefined`. Or turn it off (no `http.cors`) and add your own `ServerMiddleware`. |
+| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `allowance(origin)`, which returns `{ allowOrigin, credentials }` or `undefined`; an overridden `allowance()` always sends `Vary: Origin`. A subclass that allows origins by a rule alone, without `http.cors.origins`, also overrides `isEnabled()` to return `true`. Or turn it off (no `http.cors`) and add your own `ServerMiddleware`. |
 | `parseOrigin(value)` | exported function | | | Returns the normalized origin, or `undefined` for anything that is not an origin. Reuse it to compare origins the same way. |
 
 ### `CorsMiddleware`: custom implementation

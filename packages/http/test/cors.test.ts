@@ -174,6 +174,27 @@ describe('CorsMiddleware (A31)', () => {
     expect(acHeaders(await simple({ origins: [PARTNER] }, 'https://shop.evil.test'))).to.deep.eq([]);
   });
 
+  it('an overridden allowance() varies by Origin even with only the wildcard configured, and can enable CORS by a rule alone', async () => {
+    class EchoCors extends CorsMiddleware {
+      protected allowance(origin: string) {
+        return origin.endsWith('.example.test') ? { allowOrigin: origin, credentials: true } : super.allowance(origin);
+      }
+    }
+    const SHOP = 'https://shop.example.test';
+    const starred = await chai.request(await app({ origins: ['*'] }, EchoCors)).get('/probe').set('Origin', SHOP);
+    const starredHeaders = starred.header as Record<string, string | undefined>;
+    expect(starredHeaders['access-control-allow-origin']).to.eq(SHOP);
+    expect(starredHeaders['vary']).to.match(/origin/i);
+
+    class RuleOnlyCors extends EchoCors {
+      public isEnabled() {
+        return true;
+      }
+    }
+    const ruled = await chai.request(await app(undefined, RuleOnlyCors)).get('/probe').set('Origin', SHOP);
+    expect((ruled.header as Record<string, string | undefined>)['access-control-allow-origin']).to.eq(SHOP);
+  });
+
   it('A31 an origin entry the schema lets through but URL refuses fails when the middleware is built', async () => {
     for (const entry of ['http://app.example.test:99999', 'http://app:port', 'http://[::1']) {
       const { mw } = await middleware({ origins: [entry] });

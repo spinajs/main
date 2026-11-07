@@ -59,6 +59,8 @@ interface ICorsPolicy {
   readonly allowed?: string;
 }
 
+const NO_ORIGINS: ICorsPolicy = Object.freeze({ any: false, listed: new Set<string>() });
+
 /** The answer to an allowed preflight: 204 without a body, with the CORS headers already set on `res`. */
 class PreflightResponse extends Response<null> {
   protected _errorCode = HTTP_STATUS_CODE.NO_CONTENT;
@@ -118,7 +120,7 @@ export class CorsMiddleware extends ServerMiddleware {
     await super.resolve();
   }
 
-  /** Off without origins in `http.cors.origins`. */
+  /** Off without origins in `http.cors.origins`; a subclass that allows origins by a rule alone may return true. */
   public isEnabled(): boolean {
     return this.corsPolicy() !== null;
   }
@@ -136,9 +138,9 @@ export class CorsMiddleware extends ServerMiddleware {
   }
 
   public onBefore({ req, res }: IMiddlewareContext): Response | undefined {
-    const policy = this.corsPolicy();
-    if (!policy) return undefined;
-    if (policy.listed.size > 0) res.vary('Origin');
+    const policy = this.corsPolicy() ?? NO_ORIGINS;
+    // an overridden allowance() may echo the origin, so the answer depends on it even with only '*' configured
+    if (policy.listed.size > 0 || this.allowance !== CorsMiddleware.prototype.allowance) res.vary('Origin');
 
     const origin = req.headers.origin;
     const allowance = typeof origin === 'string' ? this.allowance(origin) : undefined;

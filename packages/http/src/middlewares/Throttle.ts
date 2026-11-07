@@ -148,16 +148,17 @@ export class ThrottleMiddleware extends ServerMiddleware {
     return this.throttle() !== null;
   }
 
-  public async onBefore({ req, res, storage }: IMiddlewareContext): Promise<Response | void> {
+  /** Synchronous for a request no rule covers. */
+  public onBefore(ctx: IMiddlewareContext): Promise<Response | void> | undefined {
     const throttle = this.throttle();
-    const rule = throttle?.rules.find((r) => underPath(req.path, r.path) && (!r.methods || r.methods.some((m) => m.toUpperCase() === req.method)));
-    if (!throttle || !rule) {
-      return;
-    }
+    const rule = throttle?.rules.find((r) => underPath(ctx.req.path, r.path) && (!r.methods || r.methods.some((m) => m.toUpperCase() === ctx.req.method)));
+    return throttle && rule ? this.count(ctx, rule, throttle.prefix) : undefined;
+  }
 
+  private async count({ req, res, storage }: IMiddlewareContext, rule: IThrottleRule, prefix: number): Promise<Response | void> {
     // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).
     const ip = storage?.realIp ?? req.socket?.remoteAddress ?? 'unknown';
-    const key = `${throttleIp(ip, throttle.prefix)}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
+    const key = `${throttleIp(ip, prefix)}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
 
     // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
     // answers the request instead of the route (fail closed).
