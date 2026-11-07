@@ -2,7 +2,7 @@ import { Autoinject, DI } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { SortOrder, SqlOperator } from '@spinajs/orm';
+import { col, rel, SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, roleList, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
@@ -333,10 +333,10 @@ export class Users extends BaseController {
           this.select('Value', 'user:niceName');
         },
       )
-      .populate(include ?? [])
+      .populate((include ?? []).map(rel))
       .take(limit)
       .skip(limit * (pagination?.page ?? 0))
-      .order(column, order?.order ?? SortOrder.DESC)
+      .order(col(column), order?.order ?? SortOrder.DESC)
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
     const countQuery = userModel()
@@ -411,7 +411,7 @@ export class Users extends BaseController {
     })
     include?: string[],
   ) {
-    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Uuid', user).populate(include ?? []).first());
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Uuid', user).populate((include ?? []).map(rel)).first());
     return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
@@ -440,7 +440,7 @@ export class Users extends BaseController {
     })
     include?: string[],
   ) {
-    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Login', user).populate(include ?? []).first());
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Login', user).populate((include ?? []).map(rel)).first());
     return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 

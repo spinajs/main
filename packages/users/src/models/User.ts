@@ -27,7 +27,7 @@ export class UserQueryScopes implements QueryScope {
   public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
     const u = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
 
-    return this.where('Email', u instanceof User ? u.Email : userOrEmail);
+    return this.where('Email', u instanceof User ? u.Email : u);
   }
 
   public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
@@ -114,7 +114,8 @@ export class UserQueryScopes implements QueryScope {
         this.where('Id', id);
       },
       function () {
-        this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);
+        const key = String(identifier);
+        this.where('Uuid', key).orWhere('Email', key).orWhere('Login', key);
       },
     );
   }

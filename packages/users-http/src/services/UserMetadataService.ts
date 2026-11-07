@@ -2,6 +2,7 @@ import { Injectable } from '@spinajs/di';
 import { Forbidden, ResourceNotFound, InvalidArgument } from '@spinajs/exceptions';
 import { UserMetadataBase, assertNoProtectedMetadata, isReservedMetadataKey } from '@spinajs/users';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
+import type { ColumnName } from '@spinajs/orm';
 import type { IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
 import type { UserMetadataDto } from '../dto/metadata-dto.js';
@@ -23,17 +24,18 @@ const UPDATE = 'user.metadata:update';
 const DELETE = 'user.metadata:delete';
 
 // `order.column` reaches the query as an identifier: an unknown column would be a driver error (500), not a 400.
-const SORTABLE_COLUMNS = ['Id', 'Key', 'Type'];
+const SORTABLE_COLUMNS: ColumnName<FilterableUserMetadata>[] = ['Id', 'Key', 'Type'];
 
-function sortColumn(order?: OrderDTO): string {
+function sortColumn(order?: OrderDTO): ColumnName<FilterableUserMetadata> {
   const column = order?.column;
   if (!column) {
     return 'Id';
   }
-  if (!SORTABLE_COLUMNS.includes(column)) {
+  const sortable = SORTABLE_COLUMNS.find((c) => c === column);
+  if (!sortable) {
     throw new InvalidArgument(`Cannot sort by '${column}'. Sortable columns are: ${SORTABLE_COLUMNS.join(', ')}`);
   }
-  return column;
+  return sortable;
 }
 
 /**

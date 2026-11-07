@@ -1,6 +1,7 @@
 import { AccessDenied, SYSTEM, principalKey } from '@spinajs/authz';
 import type { Principal, PrincipalRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { col } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 
 import type { Page, Paged } from '../api.js';
@@ -33,7 +34,7 @@ export async function pageOf<M, V>(actor: Principal, page: Page, query: () => IS
   try {
     return await asActor(actor, async () => {
       const total = await query().selectCount();
-      const rows = (await query().orderBy('name').skip(page.offset).take(page.limit)) as M[];
+      const rows = (await query().orderBy(col('name')).skip(page.offset).take(page.limit)) as M[];
       return Object.freeze({ items: Object.freeze(rows.map(view)), total: Number(total) });
     });
   } catch (e) {
