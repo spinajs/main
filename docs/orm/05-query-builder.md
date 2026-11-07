@@ -134,7 +134,7 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | `clearColumns()` | Empties the column list. |
 | `distinct()` | `SELECT DISTINCT`. Throws `InvalidOperation` when the column list is empty or starts with `*`. |
 | `min` / `max` / `sum` / `avg(column, as?)` | Adds an aggregate column. |
-| `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as`. |
+| `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as` and drops the populated relations that have not compiled yet. |
 | `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the count as a `number` on every driver, or `0`. |
 | `asRaw<T>()` | Executes and resolves with the driver rows, skipping builder middlewares and hydration. |
 | `getColumns()` | The column statements. |
@@ -174,7 +174,7 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | `populate(relation, callback?)` | Loads a relation. See [Relations](06-relations.md). |
 | `all()` | Executes; resolves with the full result. Useful for typing after scopes. |
 | `resultExists()` | Executes; `true` for a non-empty array or a non-null value. |
-| `clone()` | Independent copy with its own execution. Query middlewares do not run again. The copy keeps `CorrelationSource`, the query a sub-query is correlated with. |
+| `clone()` | Independent copy with its own execution. Query middlewares do not run again. The copy keeps `CorrelationSource`, the query a sub-query is correlated with. A populate not compiled yet is copied too and compiles into the copy alone. |
 | `CorrelationSource` / `correlateWith(builder)` | The outer query this sub-query is correlated with, or `undefined`; set by `whereIn()`, `whereNotIn()`, `whereExist()` and `whereNotExists()`. |
 | `middleware(m)` | Adds an `IBuilderMiddleware`. |
 | `toDB()` | Compiles without executing. Returns `ICompilerOutput` (`expression`, `bindings`). |

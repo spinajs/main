@@ -8,7 +8,7 @@ A statement is one SQL fragment with its bindings: a `WHERE` predicate, a select
 2. **Collection.** The builder stores the statement in one of its lists: where statements (`builder.Statements`), columns, join statements, group statements, or the recursive CTE. A `where` statement gets the pending `AND` / `OR` connector as its `Boolean`.
 3. **Alias stamping.** `SelectQueryBuilder.setAlias()` writes the alias onto every column, join and where statement it owns. Statements that hold the builder read `builder.TableAlias` at build time instead.
 4. **Build.** At compile time the compiler calls `statement.build()`, which returns `IQueryStatementResult`: `{ Statements: string[]; Bindings: any[] }`. The `WHERE` compiler joins built fragments with each statement's own `Boolean`.
-5. **Clone.** `SelectQueryBuilder.clone()` and `WhereBuilder.clone()` call `statement.clone(newBuilder)` on every statement. A statement that holds a builder rebinds to the one it is handed.
+5. **Clone.** `SelectQueryBuilder.clone()` and `WhereBuilder.clone()` call `statement.clone(newBuilder)` on every statement. A statement that holds a builder rebinds to the one it is handed. `SelectQueryBuilder.clone()` calls `statement.clone()` with no builder for a statement merged in from a relation query, which keeps that query's alias.
 
 `IQueryStatement` (from `@spinajs/orm`):
 

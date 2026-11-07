@@ -243,8 +243,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public clone(): this {
+    return this._cloneOwnedBy(this._owner);
+  }
+
+  // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
+  protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner, false);
+    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
@@ -266,9 +271,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._statements = this._statements.map(copy);
     builder._groupStatements = this._groupStatements.map(copy);
 
-    // Carry relations and result middlewares over. These hold live objects and
-    // are shared the same way mergeRelations()/mergeBuilder() already share them.
-    builder._relations = [...this._relations];
+    builder._relations = this._relations.map((r) => r.cloneFor?.(builder, owner) ?? r);
     builder._middlewares = [...this._middlewares];
 
     /**
@@ -504,6 +507,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const a = as ?? 'count';
 
     this.clearColumns();
+    // a populated relation would join and select its columns next to the aggregate
+    this._relations = [];
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
 

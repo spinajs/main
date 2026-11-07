@@ -7,6 +7,7 @@ import { HasManyToManyRelationMiddleware, Orm, SelectQueryBuilder } from '@spina
 import type { IBuilderMiddleware, ICompilerOutput } from '@spinajs/orm';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db, migrations } from './common.js';
+import { Location } from './models/Location.js';
 import { Offer } from './models/Offer.js';
 import { OfferLocation } from './models/OfferLocation.js';
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
@@ -30,6 +31,16 @@ function junctionQuery(query: object): SelectQueryBuilder {
     throw new Error('the populate registered no HasManyToManyRelationMiddleware');
   }
   return (found as unknown as { _relationQuery: SelectQueryBuilder })._relationQuery;
+}
+
+function locationsWithNetworks() {
+  return OfferLocation.select().populate('Location', function () {
+    this.populate('Network');
+  });
+}
+
+function networksOf(rows: OfferLocation[]): string[] {
+  return rows.map((r) => `${r.Location.Value!.Name}/${r.Location.Value!.Network.Value!.Name}`);
 }
 
 function networkNames(offers: Offer[]): string[] {
@@ -113,5 +124,75 @@ describe('clone() of a populated query', function () {
     query.where('Offer_id', 2).skip(1);
     expect(sql(copy)).to.eq(copied);
     expect(copied).to.not.eq(sql(query));
+  });
+
+  describe('taken before the original compiles', () => {
+    it('loads a belongsTo nested in a belongsTo with the rows of the original', async () => {
+      const query = locationsWithNetworks();
+      const copy = query.clone();
+
+      expect(sql(copy)).to.eq(sql(query));
+      const cloned = await copy;
+      expect(networksOf(cloned)).to.deep.equal(networksOf(await query));
+      expect(networksOf(cloned)).to.deep.equal(['Loc 1/Network 1', 'Loc 2/Network 1']);
+    });
+
+    it('loads a hasMany with the rows of the original', async () => {
+      const query = Location.select().populate('Metadata');
+      const copy = query.clone();
+
+      const keys = (rows: Location[]) => rows.map((l) => [...l.Metadata].map((m) => m.Key).join());
+      const original = await query;
+      expect(keys(await copy)).to.deep.equal(keys(original));
+      expect(keys(original)).to.deep.equal(['meta 1', 'meta 2']);
+    });
+
+    it('loads a many-to-many with a nested belongsTo with the rows of the original', async () => {
+      const query = offerWithNetworks();
+      const copy = query.clone();
+
+      const cloned = await copy;
+      expect(networkNames(cloned)).to.deep.equal(networkNames(await query));
+      expect(networkNames(cloned)).to.deep.equal(['Network 1', 'Network 1']);
+    });
+
+    it('compiles the clone and the original independently, in either order', async () => {
+      const first = locationsWithNetworks();
+      const firstCopy = first.clone();
+      const second = locationsWithNetworks();
+      const secondCopy = second.clone();
+
+      const compiled = [sql(firstCopy), sql(first), sql(second), sql(secondCopy)];
+      expect(new Set(compiled).size).to.eq(1);
+      expect(String(compiled[0])).to.contain('LEFT JOIN `location_network` as `$Location$.$Network$` ON `$Location$`.`Network_id` = ');
+      expect(String(compiled[0]).match(/LEFT JOIN/g)).to.have.length(2);
+    });
+
+    it('narrowing a relation of the clone leaves the original alone', async () => {
+      const query = locationsWithNetworks();
+      const before = sql(query.clone());
+      const copy = query.clone().populate('Location', function () {
+        this.where('Name', 'Loc 1');
+      });
+
+      const cloned = await copy;
+      const original = await query;
+      expect(sql(query)).to.eq(before);
+      expect(networksOf(original)).to.deep.equal(['Loc 1/Network 1', 'Loc 2/Network 1']);
+      expect(networksOf(cloned)).to.deep.equal(['Loc 1/Network 1']);
+    });
+
+    it('counts like a query without the populate', async () => {
+      const query = locationsWithNetworks();
+      const count = query.clone().count();
+
+      expect(sql(count)).to.eq('SELECT COUNT(*) as `count` FROM `offer_location`');
+      expect(await query.clone().selectCount()).to.eq(2);
+      expect(await query).to.have.length(2);
+    });
+  });
+
+  it('a count of a populated query reads no relation', () => {
+    expect(sql(locationsWithNetworks().count())).to.eq('SELECT COUNT(*) as `count` FROM `offer_location`');
   });
 });
