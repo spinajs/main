@@ -94,6 +94,9 @@ export class SqliteOrmDriver extends SqlDriver {
 
   private _readCursor = -1;
 
+  /** Outside WAL a read in progress keeps the writer from committing, so a stream would lock out every write. */
+  private _walJournal = false;
+
   /** Resolves when the open transaction ends; `null` while none is open. */
   private _writerGate: Promise<void> | null = null;
 
@@ -358,7 +361,7 @@ export class SqliteOrmDriver extends SqlDriver {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
   }
 
   public async ping(): Promise<boolean> {
@@ -399,6 +402,8 @@ export class SqliteOrmDriver extends SqlDriver {
       });
     });
 
+    // read, never set: the journal mode is a persistent property of the file
+    this._walJournal = await new Promise<boolean>((resolve) => this.Db.get('PRAGMA journal_mode', (err: unknown, row?: { journal_mode?: string }) => resolve(!err && row?.journal_mode === 'wal')));
     await this.openReadPool(filename);
     this.setState(ConnectionState.Connected);
 

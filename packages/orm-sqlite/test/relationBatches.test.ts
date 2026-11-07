@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { BelongsToRelationRecursiveMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, IBuilderMiddleware } from '@spinajs/orm';
+import { BelongsToRelationRecursiveMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, IBuilderMiddleware, ModelBase } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
@@ -18,6 +18,15 @@ function relationMiddleware(query: object, type: Constructor<IBuilderMiddleware>
   return found;
 }
 
+/** Hands the middleware the owners with keys 1 and 2, one batch each. */
+async function twoBatches<M extends ModelBase>(middleware: IBuilderMiddleware, find: (id: number) => Promise<M>): Promise<[M, M]> {
+  const owners: [M, M] = [await find(1), await find(2)];
+  for (const owner of owners) {
+    await middleware.afterHydration([owner]);
+  }
+  return owners;
+}
+
 describe('relation middlewares over several batches', function () {
   this.timeout(10000);
 
@@ -34,11 +43,7 @@ describe('relation middlewares over several batches', function () {
   it('loads the second batch of owners after the first', async () => {
     const middleware = relationMiddleware(UowOrder.select().populate('Items'), HasManyRelationMiddleware);
 
-    const first = await UowOrder.where({ Id: 1 }).firstOrFail();
-    const second = await UowOrder.where({ Id: 2 }).firstOrFail();
-
-    await middleware.afterHydration([first]);
-    await middleware.afterHydration([second]);
+    const [first, second] = await twoBatches(middleware, (id) => UowOrder.where({ Id: id }).firstOrFail());
 
     expect(first.Items.map((i) => i.Sku)).to.deep.equal(['A']);
     expect(second.Items.map((i) => i.Sku)).to.deep.equal(['B']);
@@ -53,11 +58,7 @@ describe('relation middlewares over several batches', function () {
     ]);
     const middleware = relationMiddleware(UowOrder.select().populate('Tags'), HasManyToManyRelationMiddleware);
 
-    const first = await UowOrder.where({ Id: 1 }).firstOrFail();
-    const second = await UowOrder.where({ Id: 2 }).firstOrFail();
-
-    await middleware.afterHydration([first]);
-    await middleware.afterHydration([second]);
+    const [first, second] = await twoBatches(middleware, (id) => UowOrder.where({ Id: id }).firstOrFail());
 
     expect(first.Tags.map((t) => t.Name)).to.deep.equal(['T1']);
     expect(second.Tags.map((t) => t.Name)).to.deep.equal(['T2']);
@@ -73,11 +74,7 @@ describe('relation middlewares over several batches', function () {
     ]);
     const middleware = relationMiddleware(Category.query().whereNull('parent_id').populate('Children'), BelongsToRelationRecursiveMiddleware);
 
-    const first = await Category.where({ Id: 1 }).firstOrFail();
-    const second = await Category.where({ Id: 2 }).firstOrFail();
-
-    await middleware.afterHydration([first]);
-    await middleware.afterHydration([second]);
+    const [first, second] = await twoBatches(middleware, (id) => Category.where({ Id: id }).firstOrFail());
 
     expect(first.Children.map((c) => c.Name)).to.deep.equal(['A1']);
     expect(second.Children.map((c) => c.Name)).to.deep.equal(['B1']);

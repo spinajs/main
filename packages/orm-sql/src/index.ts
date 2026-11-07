@@ -88,24 +88,32 @@ export abstract class SqlDriver extends OrmDriver {
   }
 
   public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {
+    if (!(await this.canStreamNatively())) {
+      throw new StreamNotSupported(`driver ${this.Options.Driver} cannot hold a cursor here`);
+    }
+
     const compiled = builder.toDB() as ICompilerOutput;
     const expression = compiled.expression ?? '';
     const bindings = compiled.bindings ?? [];
     this.logQuery(expression, bindings, builder);
 
     const rows = this.executeStreamOnDb(expression, bindings, options)[Symbol.asyncIterator]();
-    // the cursor opens on the first read, which is what the span measures
-    let next = await Perf.measure('orm.query', () => rows.next(), {
-      labels: { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) },
-      fields: { sql: expression, bindings },
-    });
+    let next: IteratorResult<unknown> | undefined;
     try {
+      // the cursor opens on the first read, which is what the span measures
+      next = await Perf.measure('orm.query', () => rows.next(), {
+        labels: { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) },
+        fields: { sql: expression, bindings },
+      });
       while (next.done !== true) {
         yield next.value;
         next = await rows.next();
       }
+    } catch (err) {
+      this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during stream execution, model: ${model}, context: ${context}');
+      throw err;
     } finally {
-      if (next.done !== true) {
+      if (next?.done !== true) {
         await rows.return?.();
       }
     }
