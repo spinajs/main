@@ -1,3 +1,31 @@
+# Release notes — orm-mysql: TimeZone connection option, server zone by default
+
+## Behaviour change
+
+- `@spinajs/orm-mysql`: 3.0 pinned every connection to UTC (`SET time_zone = '+00:00'`, `mysql2` `timezone: 'Z'`,
+  datetimes written as the UTC wall clock, `driver.now()` = `UTC_TIMESTAMP(3)`). On a server running in a local zone
+  that moved every date computed in SQL: `FROM_UNIXTIME()`, `DATE()`, `NOW()` in views, events and raw queries gave
+  UTC results, so a value stored at local midnight on the 1st landed on the last day of the previous month.
+- New connection option `TimeZone`:
+  - `SYSTEM` (default): no `SET time_zone`; the session keeps the server's zone, `mysql2` reads and writes datetimes in
+    the node process zone, `driver.now()` is `NOW(3)`. The process and the server must run in the same zone. This is
+    how 2.x behaved.
+  - `UTC` (also `Z`, `+00:00`): the 3.0 behaviour.
+  - an offset `±HH:MM`: that offset on the session, in `mysql2` and in the datetime text. It does not follow daylight
+    saving time.
+  - anything else, a named zone included, fails the driver resolve with `OrmException`.
+- **Action needed:** a 3.0.x application that wants to keep UTC sessions sets `TimeZone: 'UTC'` on its MySQL
+  connections. Datetimes a 3.0.x application wrote in UTC into a server running in a local zone are read back shifted
+  by the zone offset under `SYSTEM`; set `TimeZone: 'UTC'` on that connection, or convert those rows.
+- `openDedicatedConnection()` now sets the session zone too (`UTC` or an offset), as pooled connections do.
+
+## Fixes
+
+- `@spinajs/orm-mysql`: `MySqlDatetimeValueConverter` is registered per connection, bound to its `TimeZone`; it writes
+  the session wall clock and reads text without an offset in the same zone. `MySqlSessionNowExpression` (`NOW(3)`)
+  is `driver.now()` outside UTC.
+- `@spinajs/orm`: `IDriverOptions.TimeZone`.
+
 # Release notes — orm-http: like filter values match literally
 
 ## Security fix
