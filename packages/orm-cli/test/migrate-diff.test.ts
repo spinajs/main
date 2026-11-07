@@ -243,29 +243,50 @@ describe('migrate-diff', function () {
     ]);
   });
 
-  it('stops on MIG006 before a sqlite column change that rebuilds a referenced table', async () => {
+  /** A sqlite parent table another table references, and models that make one of its columns NOT NULL. */
+  const referencedParent = async (prefix: string): Promise<{ lite: OrmDriver; manifest: string }> => {
     const lite = (await DI.resolve(Orm)).Connections.get('lite');
     if (!lite) throw new Error('no lite connection');
-    await lite.schema().createTable('cli_parent', (table) => {
+    await lite.schema().createTable(`${prefix}_parent`, (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.text('Name');
     });
-    await lite.schema().createTable('cli_child', (table) => {
+    await lite.schema().createTable(`${prefix}_child`, (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.int('ParentId');
-      table.foreignKey('ParentId').references('cli_parent', 'Id');
+      table.foreignKey('ParentId').references(`${prefix}_parent`, 'Id');
     });
-    const manifest = writeManifest('m', [model('Parent', 'cli_parent', [id(), col('Name', { family: 'text' })], { connection: 'lite' }), model('Child', 'cli_child', [id(), col('ParentId', { family: 'integer', inferred: true })], { connection: 'lite' })]);
-    const error = 'error MIG006: altering a column of cli_parent rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by cli_child';
+    const models = [model('Parent', `${prefix}_parent`, [id(), col('Name', { family: 'text' })], { connection: 'lite' }), model('Child', `${prefix}_child`, [id(), col('ParentId', { family: 'integer', inferred: true })], { connection: 'lite' })];
+    return { lite, manifest: writeManifest(prefix, models) };
+  };
+
+  it('stops on MIG006 before a sqlite column change that rebuilds a referenced table while foreign keys are enforced', async () => {
+    const { lite, manifest } = await referencedParent('cli_on');
+    const error = 'error MIG006: altering a column of cli_on_parent rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by cli_on_child';
     const migrations = join(dir, 'migrations');
-    for (const options of [{ out: migrations }, { out: migrations, sql: true }, { check: true }]) {
-      process.exitCode = undefined;
-      const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, ...options }));
-      expect(out).to.deep.equal([]);
-      expect(err).to.deep.equal([error]);
-      expect(process.exitCode).to.equal(1);
+    // the command introspects the same connection, so the pragma it reads is this one
+    await lite.schema().raw('PRAGMA foreign_keys = ON');
+    try {
+      for (const options of [{ out: migrations }, { out: migrations, sql: true }, { check: true }]) {
+        process.exitCode = undefined;
+        const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, ...options }));
+        expect(out).to.deep.equal([]);
+        expect(err).to.deep.equal([error]);
+        expect(process.exitCode).to.equal(1);
+      }
+    } finally {
+      await lite.schema().raw('PRAGMA foreign_keys = OFF');
     }
     expect(existsSync(migrations)).to.equal(false);
+  });
+
+  it('writes that column change when the connection does not enforce foreign keys', async () => {
+    const { manifest } = await referencedParent('cli_off');
+    const migrations = join(dir, 'migrations');
+    const { out, err } = await capture(() => command.execute(undefined, { connection: 'lite', manifest, out: migrations }));
+    expect(err).to.deep.equal([]);
+    expect(out).to.deep.equal([join(migrations, readdirSync(migrations)[0])]);
+    expect(process.exitCode).to.equal(undefined);
   });
 
   it('refuses an invalid name and an unknown connection', async () => {

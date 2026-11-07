@@ -90,7 +90,7 @@ export class MigrateDiffCommand extends CliCommand {
       .split(',')
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-    return { driver, changes: diffSchema(target, live.columns, live.extras, { base, prune, dialect: live.dialect, diagnostics }) };
+    return { driver, changes: diffSchema(target, live.columns, live.extras, { base, prune, dialect: live.dialect, foreignKeysEnforced: live.foreignKeysEnforced, allowDestructive: options.allowDestructive, diagnostics }) };
   }
 
   protected write(prefix: string, connection: string, actionable: ActionableChange[], options: IMigrateDiffCommandOptions): void {

@@ -68,6 +68,13 @@ describe('sqlite index and foreign-key introspection', function () {
     expect(posts.find((c) => c.Name === 'UserId')!.ForeignKeyDescription).to.deep.equal({ From: 'UserId', Table: 'in_users', To: 'Id' });
   });
 
+  it('reports whether the connection enforces foreign keys', async () => {
+    expect(await driver().foreignKeysEnforced()).to.equal(false);
+    await driver().schema().raw('PRAGMA foreign_keys = ON');
+    expect(await driver().foreignKeysEnforced()).to.equal(true);
+    await driver().schema().raw('PRAGMA foreign_keys = OFF');
+  });
+
   it('reads a default as a string, a number, or a RawQuery for an expression', async () => {
     await driver().schema().createTable('in_defaults', (t) => {
       t.int('Id').primaryKey().autoIncrement();
