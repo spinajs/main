@@ -123,8 +123,8 @@ export async function paginateStrict(computed: string): Promise<void> {
   assertType<Equal<(typeof page.items)[number]['Id'], number>>();
   // @ts-expect-error an unselected column is not on the row
   void page.items[0].Name;
-  const populated = await User.query().select('Id').populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
-  assertType<Equal<(typeof populated.items)[number]['Team']['Value'], Team>>();
+  const _populated = await User.query().select('Id').populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof _populated.items)[number]['Team']['Value'], Team>>();
   // @ts-expect-error strict mode refuses an undeclared column name
   void User.query().paginate({ orderBy: [['Nope', 'asc']], limit: 5 });
   void User.query().paginate({ orderBy: [[col(computed), 'asc']], limit: 5 });

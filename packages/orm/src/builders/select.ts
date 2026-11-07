@@ -695,7 +695,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._assertPageable(options);
 
     const descriptor = extractModelDescriptor(this._model);
-    const columns = keysetColumns(options.orderBy as ReadonlyArray<readonly [string, 'asc' | 'desc']>, descriptor ?? undefined);
+    const columns = keysetColumns(options.orderBy, descriptor ?? undefined);
     if (descriptor) {
       assertKeysetNotNull(columns, descriptor);
     }
@@ -710,7 +710,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       throw new InvalidOperation(`paginate() cannot keep ${blocker}`);
     }
     if (cursor !== undefined) {
-      applyKeysetPredicate(this as unknown as IWhereBuilder<unknown>, columns, decodeCursor(columns, cursor), backward ? 'before' : 'after');
+      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor), backward ? 'before' : 'after');
     }
     this.take(options.limit + 1);
 
