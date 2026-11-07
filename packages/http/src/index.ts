@@ -58,6 +58,7 @@ export * from './middlewares/ResponseTime.js';
 export * from './middlewares/RouteTiming.js';
 export * from './middlewares/CacheControl.js';
 export * from './middlewares/Deprecation.js';
+export * from './middlewares/Consumes.js';
 export * from './middlewares/ReqStorage.js';
 export { RequestId as RequestIdMiddleware } from './middlewares/RequestId.js';
 export * from './cookie.js';
