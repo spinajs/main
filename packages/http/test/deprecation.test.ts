@@ -5,6 +5,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 
 import { httpApp, req } from './common.js';
+import { NewInstance } from '@spinajs/di';
 import type { ClassInfo } from '@spinajs/di';
 import { BaseController, BasePath, CacheControllerMetadata, Controllers, Deprecated, DeprecationMiddleware, Get, HttpServer, Middleware, Ok, withDeprecatedRoutes } from '../src/index.js';
 
@@ -14,6 +15,9 @@ const EARLIER = new Date('2025-06-01T00:00:00Z');
 const SHARED = { since: SINCE, link: 'https://example.com/docs/shared' };
 
 class OwnDeprecation extends DeprecationMiddleware {}
+
+@NewInstance()
+class SwappedDeprecation extends DeprecationMiddleware {}
 
 class DeprecationFailure extends Error {}
 
@@ -79,6 +83,16 @@ class DeprecatedSharedController extends BaseController {
 class DeprecatedSubclassController extends BaseController {
   @Get()
   @Middleware(OwnDeprecation, { since: SINCE })
+  public own() {
+    return new Ok({ ok: true });
+  }
+}
+
+@BasePath('deprecated-swapped')
+@Deprecated({ since: EARLIER })
+class DeprecatedSwappedController extends BaseController {
+  @Get()
+  @Deprecated({ since: SINCE })
   public own() {
     return new Ok({ ok: true });
   }
@@ -223,5 +237,31 @@ describe('@Deprecated ( DeprecationMiddleware )', function () {
       const doc = await new CacheControllerMetadata().documentation(infoOf(PartlyDeprecatedController));
       expect(doc.methods.direct.deprecated).to.eq(true);
     });
+  });
+});
+
+describe('@Deprecated with DeprecationMiddleware swapped in DI', function () {
+  this.timeout(15000);
+
+  let swapped: TestApp;
+
+  before(async () => {
+    swapped = await httpApp({
+      register: (c) => {
+        c.register(SwappedDeprecation).as(DeprecationMiddleware);
+        c.register(DeprecatedSwappedController).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await swapped.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await swapped.dispose();
+  });
+
+  it("answers the route's own declaration over the controller's", async () => {
+    const res = await req().get('deprecated-swapped/own');
+    expect(headerOf(res, 'deprecation')).to.eq(`@${SINCE.getTime() / 1000}`);
   });
 });

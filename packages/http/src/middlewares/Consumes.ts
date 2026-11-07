@@ -18,7 +18,7 @@ export class ConsumesMiddleware extends RouteMiddleware {
   }
 
   public override isEnabled(route: IRoute, _controller: IController): boolean {
-    return !overriddenByRoute(route, this.constructor as typeof ConsumesMiddleware, this.types);
+    return !overriddenByRoute(route, this, this.types);
   }
 
   public onBefore({ req }: IMiddlewareContext): void {

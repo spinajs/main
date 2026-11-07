@@ -2,11 +2,12 @@ import 'mocha';
 import { expect } from 'chai';
 import { Intl } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { NewInstance } from '@spinajs/di';
 import type { TestApp } from '@spinajs/testing';
 
 import * as http from 'node:http';
 import { appPort, httpApp, req } from './common.js';
-import { BaseController, BasePath, Consumes, Controllers, Get, HttpServer, Ok, Post, Req } from '../src/index.js';
+import { BaseController, BasePath, Consumes, ConsumesMiddleware, Controllers, Get, HttpServer, Ok, Post, Req } from '../src/index.js';
 import type * as express from 'express';
 
 @BasePath('consumes')
@@ -25,6 +26,19 @@ class ConsumesController extends BaseController {
 
   @Get()
   public read() {
+    return new Ok({ ok: true });
+  }
+}
+
+@NewInstance()
+class SwappedConsumes extends ConsumesMiddleware {}
+
+@BasePath('consumes-swapped')
+@Consumes('application/json')
+class ConsumesSwappedController extends BaseController {
+  @Post()
+  @Consumes('text/csv')
+  public csv() {
     return new Ok({ ok: true });
   }
 }
@@ -113,5 +127,31 @@ describe('@Consumes ( ConsumesMiddleware )', function () {
   it('refuses a declaration without types', () => {
     expect(thrownBy(() => Consumes())).to.be.instanceOf(InvalidArgument);
     expect(thrownBy(() => Consumes(''))).to.be.instanceOf(InvalidArgument);
+  });
+});
+
+describe('@Consumes with ConsumesMiddleware swapped in DI', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+
+  before(async () => {
+    app = await httpApp({
+      register: (c) => {
+        c.register(SwappedConsumes).as(ConsumesMiddleware);
+        c.register(ConsumesSwappedController).as(BaseController);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await app.dispose();
+  });
+
+  it("checks the route's own declaration, not the controller's", async () => {
+    const res = await req().post('consumes-swapped/csv').set('Content-Type', 'text/csv').send('a,b');
+    expect(res).to.have.status(200);
   });
 });
