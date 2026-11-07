@@ -105,7 +105,8 @@ describe('authn-oidc: the limits of link and reauth', function () {
   });
 
   it('routes the adoption report leaves unlimited carry no @RateLimit', () => {
-    for (const [controller, method] of UNLIMITED) expect(limitsOf(controller, method), `${controller.name}.${method}`).to.deep.eq([]);
+    // back-channel logout declares @RateLimit({ config: false }): unlimited even under a global floor
+    for (const [controller, method] of UNLIMITED) expect(limitsOf(controller, method).filter((o) => o.config !== false), `${controller.name}.${method}`).to.deep.eq([]);
   });
 
   it('the schema fills authn.oidc.rateLimit with the shipped defaults', async () => {

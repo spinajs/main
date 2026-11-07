@@ -8,7 +8,7 @@ import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { AuthnSession, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, isTrustedPeer } from '@spinajs/http';
+import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, RateLimit, isTrustedPeer } from '@spinajs/http';
 import type { ErrorContext, Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
@@ -206,6 +206,8 @@ export class OidcController extends BaseController {
   }
 
   @CsrfExempt()
+  // A refused logout token leaves alive a session that should end, and IdPs rarely retry: never limited, not even by a global floor.
+  @RateLimit({ config: false })
   @OnError([ValidationFailed, InvalidArgument], () => new OidcResponse(OIDC_LOGOUT_INVALID), { stages: ['arguments'] })
   @Post(':provider/backchannel-logout')
   public async backchannelLogout(

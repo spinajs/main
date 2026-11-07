@@ -1,8 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
-import { CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware } from '@spinajs/http';
-import type { IController, IControllerDescriptor, IMiddlewareContext, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
+import { DI } from '@spinajs/di';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware, resolveRouteMiddlewares } from '@spinajs/http';
+import type { IController, IControllerDescriptor, IMiddlewareContext, IMiddlewareDescriptor, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import { appEnvOf } from '@spinajs/authn-session';
 import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
@@ -53,8 +54,22 @@ describe('the shipped rate limits of the OIDC routes', () => {
     });
   }
 
-  it('back-channel logout has no rate limit: the IdP sends one token per session, and a refused one leaves a session alive', () => {
-    expect(rateLimitsOf('backchannelLogout')).to.deep.eq([]);
+  it('back-channel logout is declared unlimited: the IdP sends one token per session, and a refused one leaves a session alive', () => {
+    expect(rateLimitsOf('backchannelLogout').map((m) => m.Options)).to.deep.eq([[{ config: false }]]);
+  });
+
+  it('back-channel logout mounts no limit under a global floor, nor under a controller-level @RateLimit', async () => {
+    const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, OidcController.prototype) as IControllerDescriptor;
+    const floor: IMiddlewareDescriptor[] = [{ Type: RateLimitMiddleware, Options: [1, 60] }];
+    const withControllerLimit = { ...descriptor, Middlewares: [...descriptor.Middlewares, { Type: RateLimitMiddleware, Options: [1, 60] }] } as IControllerDescriptor;
+    const enabledLimits = async (d: IControllerDescriptor, method: string) => {
+      const route = d.Routes.get(method)!;
+      const resolved = await resolveRouteMiddlewares(d, route, DI.RootContainer, floor);
+      return resolved.filter((m) => m instanceof RateLimitMiddleware && m.isEnabled(route, {} as IController)).map((m) => (m as RateLimitMiddleware).limit);
+    };
+    expect(await enabledLimits(descriptor, 'backchannelLogout')).to.deep.eq([]);
+    expect(await enabledLimits(withControllerLimit, 'backchannelLogout')).to.deep.eq([]);
+    expect(await enabledLimits(descriptor, 'beginLink'), 'a route with a limit of its own replaces the floor').to.deep.eq([AUTHN_OIDC_SESSION_RATE_LIMITS.link.limit]);
   });
 
   describe('the throttled answer', () => {
@@ -67,20 +82,26 @@ describe('the shipped rate limits of the OIDC routes', () => {
       expect(refused).to.be.instanceOf(OidcThrottledResponse);
       const retryAfter = (refused as OidcThrottledResponse).retryAfterSeconds;
       expect(retryAfter).to.be.within(1, 60);
-      const answer = (refused as OidcThrottledResponse).answerFor(request({ accept: 'application/json' }), undefined);
+      const answer = (refused as OidcThrottledResponse).answerFor(request({ accept: 'application/json' }), undefined, undefined);
       expect(answer).to.deep.eq(login('/').failure({ navigation: false }, retryAfter));
       expect([answer.status, answer.body, answer.headers]).to.deep.eq([401, AUTHN_FAILURE_BODY, { 'retry-after': String(retryAfter) }]);
       expect(set, 'nothing set by the limiter').to.deep.eq([]);
     });
 
-    it('sends a browser navigation to the configured failure page, as any OIDC failure', async () => {
+    it('takes the failure page and the env from the validated OidcProviders options', () => {
+      const providers = { options: { providers: new Map(), redirects: { success: '/', failure: '/validated-failure' } }, env: 'test' } as never;
+      const answer = new OidcThrottledResponse(7).answerFor(request({ 'sec-fetch-mode': 'navigate' }), providers, { get: () => '/not-this' } as never);
+      expect(answer).to.deep.eq(login('/validated-failure', 'test').failure({ navigation: true }, 7));
+    });
+
+    it('without OidcProviders, sends a browser navigation to the configured failure page, as any OIDC failure', async () => {
       const { config } = await createTestApp({
         scope: 'child',
         bootstrap: false,
         schemas: [AUTHN_OIDC_CONFIGURATION_SCHEMA],
         config: { authn: { oidc: { redirects: { failure: '/signin-failed' } } } },
       });
-      const answer = new OidcThrottledResponse(42).answerFor(request({ 'sec-fetch-mode': 'navigate' }), config as Configuration);
+      const answer = new OidcThrottledResponse(42).answerFor(request({ 'sec-fetch-mode': 'navigate' }), undefined, config as Configuration);
       expect(answer).to.deep.eq(login('/signin-failed', appEnvOf(config as Configuration)).failure({ navigation: true }, 42));
       expect([answer.status, answer.location, answer.headers]).to.deep.eq([303, '/signin-failed', { 'retry-after': '42' }]);
     });

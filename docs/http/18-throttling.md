@@ -78,7 +78,8 @@ export default {
       enabled: true,
       ipv6Prefix: 64,
       rules: [
-        // Above the sum of the shipped per-route limits a client can use in a minute: only floods reach it.
+        // Above what the shipped per-route limits let one client send in a minute: only floods reach it.
+        // Recompute it when more /auth routes get limits of their own.
         { path: '/auth', methods: ['POST'], limit: 300, windowSeconds: 60, headers: false },
       ],
     },

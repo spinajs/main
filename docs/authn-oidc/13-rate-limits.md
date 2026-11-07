@@ -1,13 +1,13 @@
 # Rate limits
 
 The two anonymous OIDC routes carry a [`@RateLimit`](../http/18-throttling.md#per-route-limits-ratelimit) of
-`@spinajs/http`, **on by default**: a fixed-window cap per client address. Back-channel logout has none.
+`@spinajs/http`, **on by default**: a fixed-window cap per client address. Back-channel logout is declared unlimited.
 
 | Route | Config key | Default | Throttled answer |
 | --- | --- | --- | --- |
 | `GET /auth/oidc/:provider` (begin) | `authn.oidc.rateLimit.begin` | 60 / 60 s | the one failure answer, with `Retry-After` |
 | `GET /auth/oidc/:provider/callback` | `authn.oidc.rateLimit.callback` | 60 / 60 s | the one failure answer, with `Retry-After` |
-| `POST /auth/oidc/:provider/backchannel-logout` | none | **no limit** | |
+| `POST /auth/oidc/:provider/backchannel-logout` | none | **no limit**, not even a global floor | |
 
 The counter is per route, not per provider: every provider's begin shares the begin budget of an address.
 
@@ -23,7 +23,8 @@ The counter is per route, not per provider: every provider's begin shares the be
 - Back-channel logout is never limited. The IdP sends one logout token per session, server to server, from a few
   addresses. A mass revocation (a disabled user, an IdP-wide logout) goes past any per-address cap, most IdPs do not
   retry a refused token, and each refusal leaves alive a session that should have ended. The signed logout token is
-  its guard.
+  its guard. The route declares `@RateLimit({ config: false })`, so a global floor in `http.routes.middlewares` does
+  not reach it either.
 - The defaults are generous on purpose: an office behind one NAT address signing in at 9 a.m. makes a begin and a
   callback per login. Raise them for a larger site rather than turning them off.
 
@@ -50,8 +51,8 @@ export default {
 
 - Read once, when the routes mount; a change needs a restart. A wrong value fails the boot.
 - There is no key for back-channel logout: the schema refuses `authn.oidc.rateLimit.backchannelLogout`.
-- A global floor in `http.routes.middlewares` (`RateLimitMiddleware` for every route) does reach back-channel logout,
-  which declares no limit of its own. Keep such a floor well above the logout volume of your IdP, or do not use one.
+- A global floor in `http.routes.middlewares` (`RateLimitMiddleware` for every route) does not reach back-channel
+  logout. A coarse `http.throttle` path rule over `/auth` does: path rules cannot be opted out from code ([the two layers](../http/18-throttling.md#rate-limits-for-the-authn-routes)).
 - Counters are per process with `MemoryThrottleStore`. Behind a proxy set `http.trustProxy` or `authn.http.trustProxy`, or
   every client shares the proxy's address and one budget.
 

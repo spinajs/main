@@ -9,6 +9,7 @@ import { isNavigation, oidcFailure } from './login.js';
 import type { OidcAnswer } from './login.js';
 import { OidcResponse } from './oidc-response.js';
 import { AUTHN_OIDC_RATE_LIMITS, AUTHN_OIDC_SESSION_RATE_LIMITS } from './options/schema.js';
+import { OidcProviders } from './providers.js';
 
 export type AuthnOidcRateLimitName = keyof typeof AUTHN_OIDC_RATE_LIMITS;
 
@@ -21,10 +22,19 @@ export class OidcThrottledResponse extends Response {
     super(null);
   }
 
-  // The config as the base Response reads http.AcceptHeaders: an answer given by a middleware has no container of its own.
-  public answerFor(req: { get(name: string): string | undefined }, config: Configuration | null | undefined = DI.get(Configuration)): OidcAnswer {
-    const failurePath = config?.get<string>('authn.oidc.redirects.failure') ?? '/';
-    const env = config ? appEnvOf(config) : undefined;
+  /**
+   * The failure path and the env come from the validated OidcProviders the controller uses, else the configuration.
+   * Both are read from the root container, as the base Response reads http.AcceptHeaders: an answer given by a
+   * middleware has no container of its own.
+   */
+  public answerFor(
+    req: { get(name: string): string | undefined },
+    providers: Pick<OidcProviders, 'options' | 'env'> | null | undefined = DI.get(OidcProviders),
+    config: Configuration | null | undefined = DI.get(Configuration),
+  ): OidcAnswer {
+    const validated = providers?.options?.redirects.failure;
+    const failurePath = validated ?? config?.get<string>('authn.oidc.redirects.failure') ?? '/';
+    const env = validated !== undefined ? providers!.env : config ? appEnvOf(config) : undefined;
     return oidcFailure(isNavigation(req.get('sec-fetch-mode'), req.get('accept')), failurePath, env, this.retryAfterSeconds);
   }
 

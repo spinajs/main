@@ -4,12 +4,12 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, HTTP_CONFIGURATION_SCHEMA, MemoryThrottleStore, RateLimitMiddleware } from '@spinajs/http';
-import type { IController, IControllerDescriptor, IRateLimitOptions, IRateLimitSettings, IRoute, Response } from '@spinajs/http';
+import type { IController, IControllerDescriptor, IMiddlewareContext, IRateLimitOptions, IRateLimitSettings, IRoute, Response } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
-import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_SESSION_RATE_LIMITS } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_SESSION_RATE_LIMITS, pendingSessionKey, pendingSessionKeyOf } from '../../src/index.js';
 import { AuthnActiveRoleController } from '../../src/v3/controllers/AuthnActiveRoleController.js';
 import { AuthnCredentialAdminController } from '../../src/v3/controllers/AuthnCredentialAdminController.js';
 import { AuthnImpersonationController } from '../../src/v3/controllers/AuthnImpersonationController.js';
@@ -105,7 +105,9 @@ interface Mounted {
 
 /** The route's RateLimitMiddleware as the server mounts it, against `config` checked by the shipped schemas. */
 async function mounted(controller: Ctor, method: string, config: Record<string, unknown> = {}): Promise<Mounted> {
-  const [options] = limitsOf(controller, method);
+  const [declared] = limitsOf(controller, method);
+  // pendingSessionKey reads http.cookie.secret from the root container; a child test app has none there.
+  const options = declared.key === pendingSessionKey ? { ...declared, key: (ctx: IMiddlewareContext) => pendingSessionKeyOf(ctx, COOKIE_SECRET) } : declared;
   const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config });
   const store = new MemoryThrottleStore();
   const mw = readingFrom(new RateLimitMiddleware(options), container);
@@ -122,7 +124,7 @@ async function mounted(controller: Ctor, method: string, config: Record<string, 
         return this;
       },
     };
-    const answer = (await mw.onBefore({ req: { socket: {}, params: {}, secret: COOKIE_SECRET } as never, res: res as never, storage: storage as never })) as Response | undefined;
+    const answer = (await mw.onBefore({ req: { socket: {}, params: {} } as never, res: res as never, storage: storage as never })) as Response | undefined;
     if (!answer) return { passed: true, set, own: {} };
     return { passed: false, status: answer.statusCode, body: answer.data, set, own: Object.fromEntries(answer.headers.map((h) => [h.Name, String(h.Value)])) };
   };
@@ -149,6 +151,7 @@ describe('authn-http: the limits of the routes with a session', function () {
       expect(limits, `${controller.name}.${method}`).to.have.length(1);
       expect(limits[0].config, `${controller.name}.${method}`).to.eq(`authn.http.rateLimit.${name}`);
       expect(limits[0].default, `${controller.name}.${method}`).to.deep.eq(settings);
+      expect(limits[0].key, `${controller.name}.${method} key`).to.eq(name === 'mfaVerify' || name === 'mfaChallenge' ? pendingSessionKey : undefined);
     }
   });
 
@@ -199,7 +202,7 @@ describe('authn-http: the limits of the routes with a session', function () {
       expect(keys[0]).to.match(/:key:pending:[0-9a-f]{64}$/);
       // keyed under the server secret: a bare hash of the handle would be recomputable by whoever saw it
       expect(keys[0]).to.not.contain(createHash('sha256').update('session-a').digest('hex'));
-      expect(keys[0]).to.contain(createHmac('sha256', COOKIE_SECRET).update('session-a').digest('hex'));
+      expect(keys[0]).to.contain(createHmac('sha256', COOKIE_SECRET).update('spinajs.authn-http.rate-limit.pending-session\0session-a').digest('hex'));
       expect(keys[11]).to.not.eq(keys[0]);
     });
 
