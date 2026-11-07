@@ -27,6 +27,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { AuthenticationStrategy, AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
@@ -442,6 +443,75 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
     it('the link routes need the session authn-http restores (N8a): without it they refuse', async () => {
       const res = await fetch(`${base}/auth/oidc/corp/link`, { method: 'POST', redirect: 'manual', headers: { accept: 'application/json' } });
       expect([401, 404]).to.include(res.status);
+    });
+
+    // Last: it rebuilds the server with tight limits and a global floor, which the suite's after() then stops.
+    describe('shipped rate limits over HTTP (RL-3)', () => {
+      const KEYS = ['authn.oidc.rateLimit', 'http.routes.middlewares'];
+      // A window per database kind and none other tests use: MemoryThrottleStore keys hold the limit and the window.
+      const W = kind === 'sqlite' ? 61 : 62;
+      const saved: unknown[] = [];
+      const rateLimitHeaders = (res: Response) => ['x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset'].filter((h) => res.headers.get(h) !== null);
+
+      before(async () => {
+        const config = DI.get(Configuration)!;
+        for (const key of KEYS) saved.push(config.get(key));
+        config.set('authn.oidc.rateLimit', { begin: { limit: 1, windowSeconds: W }, callback: { limit: 1, windowSeconds: W } });
+        config.set('http.routes.middlewares', [{ service: 'RateLimitMiddleware', options: [1, W] }]);
+        await DI.get(HttpServer)?.stop();
+        DI.uncache(HttpServer);
+        DI.uncache(Controllers);
+        for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+        DI.uncache(BaseController);
+        await DI.resolve(Controllers);
+        const server = (await DI.resolve(HttpServer)) as HttpServer;
+        await server.start();
+        base = `http://127.0.0.1:${(server.Server.address() as AddressInfo).port}`;
+      });
+
+      after(() => {
+        const config = DI.get(Configuration)!;
+        KEYS.forEach((key, i) => config.set(key, saved[i]));
+      });
+
+      it('a begin over the limit gets the OIDC failure answer with Retry-After: 401 for a fetch, 303 for a navigation, the flow cookie cleared', async () => {
+        expect((await get('/auth/oidc/corp')).status).to.eq(302);
+        const fetched = await get('/auth/oidc/corp');
+        expect(fetched.status).to.eq(401);
+        expect(await fetched.json()).to.deep.eq(AUTHN_FAILURE_BODY);
+        expect(Number(fetched.headers.get('retry-after'))).to.be.within(1, W);
+        expect(fetched.headers.get('cache-control')).to.eq('no-store');
+        expect(cookiesOf(fetched)).to.have.property(flowName, '');
+        expect(rateLimitHeaders(fetched)).to.deep.eq([]);
+
+        const navigated = await get('/auth/oidc/corp', {}, { accept: 'text/html', 'sec-fetch-mode': 'navigate' });
+        expect(navigated.status).to.eq(303);
+        expect(navigated.headers.get('location')).to.eq('/');
+        expect(Number(navigated.headers.get('retry-after'))).to.be.within(1, W);
+        expect(cookiesOf(navigated)).to.have.property(flowName, '');
+        expect(rateLimitHeaders(navigated)).to.deep.eq([]);
+      });
+
+      it('a callback over the limit adds Retry-After to the failure it would give anyway', async () => {
+        const first = await get('/auth/oidc/corp/callback?state=s&code=c');
+        expect([first.status, first.headers.get('retry-after')]).to.deep.eq([401, null]);
+        const limited = await get('/auth/oidc/corp/callback?state=s&code=c');
+        expect(limited.status).to.eq(401);
+        expect(await limited.json()).to.deep.eq(AUTHN_FAILURE_BODY);
+        expect(Number(limited.headers.get('retry-after'))).to.be.within(1, W);
+        expect(rateLimitHeaders(limited)).to.deep.eq([]);
+      });
+
+      it('back-channel logout is never limited, not even by the global floor that limits a route without a limit of its own', async () => {
+        for (let i = 0; i < 4; i++) {
+          const res = await fetch(`${base}/auth/oidc/corp/backchannel-logout`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'logout_token=a.b.c' });
+          expect(res.status, `logout token ${i + 1}`).to.eq(400);
+          expect(rateLimitHeaders(res)).to.deep.eq([]);
+        }
+        expect((await get('/auth/oidc/corp/reauth')).status).to.not.eq(429);
+        const floored = await get('/auth/oidc/corp/reauth');
+        expect(floored.status, 'the floor on reauth').to.eq(429);
+      });
     });
   });
 }

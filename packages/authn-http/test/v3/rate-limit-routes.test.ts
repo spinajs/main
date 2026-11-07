@@ -1,4 +1,5 @@
 import 'mocha';
+import { createHash, createHmac } from 'node:crypto';
 import { expect } from 'chai';
 import { BotCheckMiddleware, CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IMiddlewareContext, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
@@ -8,7 +9,9 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
-import { AUTHN_FAILURE_BODY, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, pendingSessionKey } from '../../src/index.js';
+import { AUTHN_FAILURE_BODY, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, pendingSessionKey, pendingSessionKeyOf } from '../../src/index.js';
+
+const SECRET = 'unit-' + 'Zx8q'.repeat(10);
 import type { AuthnHttpRateLimitName } from '../../src/index.js';
 import { AuthnIpThrottleMiddleware } from '../../src/middleware/ip-throttle.js';
 import { passkeyChallengeThrottled } from '../../src/password/fields.js';
@@ -195,16 +198,25 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
       expect(() => mw.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login')).to.throw(InvalidOption, 'authn.http.rateLimit.login.limit');
     });
 
-    it('counts a pending session on its hashed handle, apart from the address', async () => {
-      const options = rateLimitOf(AuthnPasskeyController, 'challenge');
+    it('counts a pending session on an HMAC of its id, apart from the address', async () => {
+      const options = { ...rateLimitOf(AuthnPasskeyController, 'challenge'), key: (ctx: IMiddlewareContext) => pendingSessionKeyOf(ctx, SECRET) };
       const { call } = mounted(options, '/auth/passkeys/challenge', { limit: 1 });
       const pending = (id: string) => ({ AuthnSession: { handle: { id, state: 'pending' } } });
       expect(await call(pending('raw-session-a'))).to.eq(undefined);
       expect(await call(pending('raw-session-b')), 'another pending session').to.eq(undefined);
       expect(await call(), 'the anonymous address').to.eq(undefined);
       expect(await call(pending('raw-session-a')), 'the same pending session').to.not.eq(undefined);
-      expect(pendingSessionKey({ storage: pending('raw-session-a') } as unknown as IMiddlewareContext)).to.match(/^pending:[0-9a-f]{64}$/);
-      expect(pendingSessionKey({ storage: { AuthnSession: { handle: { id: 'x', state: 'active' } } } } as unknown as IMiddlewareContext)).to.eq(undefined);
+    });
+
+    it('the pending-session key is a domain-separated HMAC under the secret, never the session store key; no secret counts by address', () => {
+      const ctx = (state: string) => ({ storage: { AuthnSession: { handle: { id: 'raw-session-a', state } } } }) as unknown as IMiddlewareContext;
+      const key = pendingSessionKeyOf(ctx('pending'), SECRET);
+      expect(key).to.eq('pending:' + createHmac('sha256', SECRET).update('spinajs.authn-http.rate-limit.pending-session\0raw-session-a').digest('hex'));
+      expect(key).to.not.include(createHash('sha256').update('raw-session-a').digest('hex'));
+      expect(pendingSessionKeyOf(ctx('pending'), 'another-secret')).to.not.eq(key);
+      expect(pendingSessionKeyOf(ctx('active'), SECRET)).to.eq(undefined);
+      expect(pendingSessionKeyOf(ctx('pending'), undefined)).to.eq(undefined);
+      expect(pendingSessionKeyOf(ctx('pending'), '')).to.eq(undefined);
     });
   });
 

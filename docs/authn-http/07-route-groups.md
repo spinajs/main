@@ -96,7 +96,7 @@ The credential admin paths above mount under `authn.http.admin.basePath` (defaul
 | 403 | `{ "error": "<code>", "message": "..." }` | A policy or route refused an authenticated caller. Codes: `session_required`, `impersonating`, `fresh_auth_required`, `mfa_required`, `already_authenticated`, `session_exists`, `role_not_held`, `impersonation_refused`, `mfa_not_pending`, `forbidden`, `protected_role`, `escalation`. |
 | 403 | `{ "error": { "code": "E_CSRF_ORIGIN", ... } }` | [CSRF origin guard](04-csrf-origin-guard.md). |
 | 404 | `{ "error": "not_found", "message": "..." }` | A switched-off group or route. |
-| 429 | `{ "error": "throttled", "message": "..." }` | A throttled or [rate-limited](25-rate-limits.md) password reset request, code request, verification, registration, token revocation, key challenge or passkey challenge; with `Retry-After`. |
+| 429 | `{ "error": "throttled", "message": "..." }` | A throttled or [rate-limited](25-rate-limits.md) password reset request, code request, verification, registration, key challenge or passkey challenge, or a throttled token revocation (no rate limit ships there); with `Retry-After`. |
 
 Bodies of thrown errors (`unauthenticated`, policy 403s, gate 404s) also carry `stack` outside production; see [Error handling](../http/11-error-handling.md). The login failure body is built as a response and never carries `stack`.
 

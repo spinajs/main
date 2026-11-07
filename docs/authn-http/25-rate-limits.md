@@ -32,16 +32,23 @@ No limit ships on `POST /auth/tokens/revoke` (its IP throttle already counts eve
 ## How it works
 
 - The limit is an `'outer'` route middleware: it runs after the policy gate and before `@BotCheck`, the IP throttle
-  gate, the body validation and the action. A refused request costs no bot verifier call, no throttle store read and
-  no password hash.
-- A refused client gets the **same answer** the route's IP throttle gives: the uniform 401 login failure body with
-  `Retry-After` on the credential routes (A02), the route's 429 `throttled` body with `Retry-After` elsewhere. The
-  answer does not tell which limiter refused.
+  gate, the body validation and the action. A refused request costs no bot verifier call, no authn throttle read (a
+  `DbAuthnThrottle` query) and no password hash; it costs one increment in the http `ThrottleStore`.
+- A refused client gets the **same answer** the route's IP throttle gives, with the same status, body and headers:
+  the uniform 401 login failure body with `Retry-After` on the credential routes (A02), the route's 429 `throttled`
+  body with `Retry-After` elsewhere. The `Retry-After` value differs (the rest of the window here, the backoff
+  there); both limiters count the address only, so neither tells anything about an account.
 - No response of these routes carries `X-RateLimit-*` headers (`headers: false`): they would tell a throttled client
   from a failed login.
 - `POST /auth/passkeys/challenge` also serves the WebAuthn step of a pending (pre-MFA) session. Such a request counts
-  on its own pending session, keyed by a SHA-256 of the session handle, not on the address, so users who passed their
-  password do not spend the anonymous budget of a shared address.
+  on its own pending session, not on the address, so users who passed their password do not spend the anonymous
+  budget of a shared address. The key is an HMAC of the session id under `http.cookie.secret`, domain separated, so
+  the throttle store (possibly shared) holds neither the id nor the session store's own key; without a secret the
+  request counts on the address.
+- Each pending session has its own 30 a minute. A client that holds the password of an account with a passkey step
+  can open one pending session per successful login (itself 30 a minute per address), so one address can ask for up
+  to about 900 such challenges a minute. Before 4.0 these challenges had no limit at all; a coarse `http.throttle`
+  rule on `/auth` caps the address as a whole.
 - Counters live in the `ThrottleStore` of `@spinajs/http`: `MemoryThrottleStore` counts per process. Behind several
   instances, register a shared store, or each instance allows the full limit.
 - The address is `req.storage.realIp`, the same client address the authn throttle counts: `authn.http.trustProxy`,
@@ -83,7 +90,7 @@ authentication; the split is in [Throttling: the authn routes](../http/18-thrott
 
 - Raise the NAT-sensitive defaults (login, the code and reset requests, registration) when many users share one
   address: an office, a campus, a mobile carrier-grade NAT.
-- Prefer raising a limit to `false`: the limit is what stops a flood before the bot check and the throttle store.
+- Prefer raising a limit to `false`: the limit is what stops a flood before the bot check and the authn throttle.
 - Keep the authn throttle on: the rate limit caps volume, it does not stop a slow guessing attack on one account.
 
 ## Related
