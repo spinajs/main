@@ -41,6 +41,8 @@ class Rewrite extends RouteMiddleware {
     ctx.response.data = { rewritten: true };
     ctx.response.statusCode = 202;
     ctx.res.setHeader('ETag', '"rewritten"');
+    ctx.res.setHeader('Location', '/capture/rewritten');
+    ctx.res.setHeader('X-Hook-Only', 'not-stored');
   }
 }
 
@@ -116,6 +118,9 @@ describe('ResponseCapture', function () {
     expect(captured).to.have.length(1);
     expect(captured[0]).to.deep.include({ status: 202, body: res.text });
     expect(captured[0].headers.etag).to.eq('"rewritten"');
+    // content-type, location and etag describe the body: kept even when a hook set them
+    expect(captured[0].headers.location).to.eq('/capture/rewritten');
+    expect(captured[0].headers).to.not.have.property('x-hook-only');
   });
 
   it('sees the headers the route set through its response options, but never Set-Cookie or a connection header', async () => {

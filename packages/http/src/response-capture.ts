@@ -15,6 +15,9 @@ export abstract class ResponseCapture {
 
 export const REPLAYED_HEADERS = ['content-type', 'location', 'etag'] as const;
 
+// they describe the body, which is replayed, so they are kept whoever set them
+const REPLAYED: ReadonlySet<string> = new Set(REPLAYED_HEADERS);
+
 const CAPTURE = Symbol('responseCapture');
 
 export function attachResponseCapture(res: express.Response, capture: ResponseCapture): void {
@@ -23,6 +26,15 @@ export function attachResponseCapture(res: express.Response, capture: ResponseCa
 
 export function responseCaptureOf(res: express.Response): ResponseCapture | undefined {
   return (res.locals as Record<symbol, ResponseCapture | undefined> | undefined)?.[CAPTURE];
+}
+
+const HOOK_HEADERS = Symbol('hookHeaders');
+
+/** Header names an onAfter hook added for this one request: a replay must not restore them. */
+export function excludeFromCapture(res: express.Response, names: Iterable<string>): void {
+  const locals = res.locals as Record<symbol, Set<string> | undefined>;
+  const excluded = (locals[HOOK_HEADERS] ??= new Set());
+  for (const name of names) excluded.add(name.toLowerCase());
 }
 
 /** Rebuilt with the app's json settings, so a replay sends the bytes express sent: res.json exposes no body to read back. */
@@ -41,13 +53,14 @@ const NEVER_CAPTURED = new Set(['set-cookie', 'connection', 'keep-alive', 'trans
 
 /**
  * Read after res.json(), when the status and headers are final. `routeHeaders` are the names the route set through
- * IResponseOptions.Headers.
+ * IResponseOptions.Headers; other names an onAfter hook added are left out.
  */
 export function capturedJsonReply(res: express.Response, model: unknown, routeHeaders: readonly string[] = []): CapturedJsonReply {
   const headers: Record<string, string> = {};
+  const fromHooks = (res.locals as Record<symbol, Set<string> | undefined> | undefined)?.[HOOK_HEADERS];
   for (const name of new Set([...REPLAYED_HEADERS, ...routeHeaders.map((n) => n.toLowerCase())])) {
     const value = res.getHeader(name);
-    if (value !== undefined && !NEVER_CAPTURED.has(name)) {
+    if (value !== undefined && !NEVER_CAPTURED.has(name) && (REPLAYED.has(name) || !fromHooks?.has(name))) {
       headers[name] = Array.isArray(value) ? value.join(', ') : String(value);
     }
   }

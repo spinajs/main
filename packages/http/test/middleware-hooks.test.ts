@@ -136,6 +136,40 @@ class CtxProbe extends RouteMiddleware {
   }
 }
 
+class SlowBefore extends RouteMiddleware {
+  public async onBefore(): Promise<void> {
+    await sleep(300);
+  }
+}
+
+class FinishOnly extends RouteMiddleware {
+  public onFinish(ctx: IFinishContext): void {
+    calls.push(`finish-only:${ctx.aborted}`);
+  }
+}
+
+class CachePublic extends RouteMiddleware {
+  public async onAfter({ res, error }: IReplyContext): Promise<void> {
+    if (error === undefined) res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}
+
+class SameHeader extends RouteMiddleware {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
+    res.setHeader('X-V', 'hook');
+  }
+
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    res.setHeader('X-V', 'hook');
+  }
+}
+
+class RefuseBefore extends RouteMiddleware {
+  public async onBefore(): Promise<void> {
+    throw new InvalidArgument('refused');
+  }
+}
+
 @BasePath('hooks')
 class HooksController extends BaseController {
   @Get()
@@ -265,6 +299,46 @@ class HooksController extends BaseController {
   @Get()
   @Middleware(CtxProbe)
   public ctx() {
+    return new Ok({});
+  }
+
+  // entry: SlowBefore, then FinishOnly
+  @Get()
+  @Middleware(FinishOnly)
+  @Middleware(SlowBefore)
+  public lateFinish() {
+    calls.push('action');
+    return new Ok({});
+  }
+
+  // entry: ThrowAfter, then CachePublic: CachePublic's onAfter runs first, on the success reply
+  @Get()
+  @Middleware(CachePublic)
+  @Middleware(ThrowAfter, 'thrower')
+  public d8Cache() {
+    return new Ok({});
+  }
+
+  @Get()
+  @Middleware(ThrowAfter, 'thrower')
+  @OnError(Forbidden, (_err, ctx) => {
+    ctx.res.setHeader('X-On-Error', 'kept');
+  })
+  public d8OnErrorHeader() {
+    return new Ok({});
+  }
+
+  @Get()
+  @Middleware(SameHeader)
+  public sameHeader() {
+    return new Ok({}, { Headers: [{ Name: 'X-V', Value: 'response' }] });
+  }
+
+  // entry: AlsProbe, then RefuseBefore
+  @Get()
+  @Middleware(RefuseBefore)
+  @Middleware(AlsProbe)
+  public alsOnError() {
     return new Ok({});
   }
 }
@@ -459,6 +533,41 @@ describe('Route middleware context hooks', function () {
     expect(res.status).to.eq(200);
     expect(res.text).to.eq('written by the action');
     expect(calls).to.deep.eq(['r:before', 'r:finish:false']);
+  });
+
+  it('runs onFinish once, aborted, for a middleware entered after the client left', async () => {
+    abandon('hooks/lateFinish', 100);
+    await until(() => calls.some((c) => c.startsWith('finish-only')));
+    await sleep(200);
+
+    expect(calls).to.deep.eq(['action', 'finish-only:true']);
+  });
+
+  it('sends the error reply of a throwing onAfter without the headers earlier hooks set for the success reply', async () => {
+    const res = await req().get('hooks/d8Cache').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(403);
+    expect(res.header['cache-control']).to.not.match(/public/);
+  });
+
+  it('keeps a header an @OnError handler sets while it turns a throwing onAfter into the error reply', async () => {
+    const res = await req().get('hooks/d8OnErrorHeader').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(403);
+    expect(res.header['x-on-error']).to.eq('kept');
+  });
+
+  it('lets a header an onAfter sets win over the response options even when the value did not change', async () => {
+    const res = await req().get('hooks/sameHeader').set('Accept', 'application/json');
+
+    expect(res.header['x-v']).to.eq('hook');
+  });
+
+  it('runs onAfter of an error reply inside the AsyncLocalStorage context too', async () => {
+    const res = await req().get('hooks/alsOnError').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(400);
+    expect(state.afterStore).to.eq(true);
   });
 
   it('gives no onAfter or onFinish to a middleware the chain never entered', async () => {

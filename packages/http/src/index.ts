@@ -4,7 +4,7 @@ export * from './decorators.js';
 export * from './idempotency/options.js';
 export { ResponseCapture, REPLAYED_HEADERS, attachResponseCapture } from './response-capture.js';
 export type { CapturedJsonReply } from './response-capture.js';
-export { IdempotencyMiddleware } from './idempotency/middleware.js';
+export { IdempotencyMiddleware, ReplayedResponse } from './idempotency/middleware.js';
 export { sendReply } from './reply-pipeline.js';
 export type { ErrorReplier, IErrorReply, ISendReplyOptions } from './reply-pipeline.js';
 export * from './errors/on-error.js';
