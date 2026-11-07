@@ -262,22 +262,25 @@ A config key that does not resolve to a registered `BasePolicy` throws `RouteReg
 
 ## Route middlewares
 
-Run before / after actions and can inspect the produced response. Every hook is optional; implement only what you need:
+Run before the action, on every reply before it is sent, and after the response finished. Every hook is optional and takes one context object; implement only what you need:
 
 ```ts
 import { RouteMiddleware, Middleware } from '@spinajs/http';
+import type { IMiddlewareContext, IReplyContext, IFinishContext } from '@spinajs/http';
 
 export class AuditMiddleware extends RouteMiddleware {
   public isEnabled(route: IRoute, controller: IController): boolean { return true; } // the default
-  public async onBefore(req, res, route, controller): Promise<void> { /* before action */ }
-  public async onResponse(response, route, controller): Promise<void> { /* inspect response object */ }
-  public async onAfter(req, res, route, controller): Promise<void> { /* after action, before the answer is sent */ }
+  public async onBefore(ctx: IMiddlewareContext): Promise<void | Response> { /* before the action; a returned Response answers */ }
+  public async onAfter(ctx: IReplyContext): Promise<void> { /* every reply, ctx.response / ctx.error, before it is sent */ }
+  public onFinish(ctx: IFinishContext): void { /* the response finished, or the client went away (ctx.aborted) */ }
   public async onAround(invocation, proceed): Promise<void> { /* wraps the rest of the chain */ await proceed(); }
 }
 
 @Middleware(AuditMiddleware)        // controller-wide or per-route
 export class OrdersController extends BaseController { ... }
 ```
+
+Every reply of a matched route (the action's, an error reply, an early answer, an idempotent replay) goes through one reply pipeline: the `onAfter` hooks of the entered middlewares, inner first, then `response.execute()`. See [Route middlewares](../../docs/http/14-route-middlewares.md).
 
 `RouteTiming` is a ready route middleware: `@Middleware(RouteTiming)` adds the route's execution time to `Server-Timing`.
 
