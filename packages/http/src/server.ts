@@ -137,7 +137,8 @@ export class HttpServer extends AsyncService {
     // Array.ofType lists instances in the order their async resolve() finished, not in registration order
     const registered = (this.Container.getRegisteredTypes(ServerMiddleware) ?? []) as unknown[];
     const index = new Map(this.Middlewares.map((m) => [m, registrationIndex(registered, m)]));
-    this.Middlewares = this.Middlewares.sort((a, b) => a.Order - b.Order || index.get(a)! - index.get(b)!);
+    // A copy: the injected array is the DI cache's own collection, which must stay in registration order
+    this.Middlewares = [...this.Middlewares].sort((a, b) => a.Order - b.Order || index.get(a)! - index.get(b)!);
     this.NotFound = await this.Container.resolve(NotFoundMiddleware);
     this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
     [...this.Middlewares, this.NotFound, this.ErrorHandler].forEach(refuseRemovedHooks);
