@@ -1,4 +1,5 @@
 import type Express from 'express';
+import _ from 'lodash';
 import { Autoinject, Container, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Logger } from '@spinajs/log';
@@ -90,26 +91,43 @@ const UNSTORED_4XX = new Set([401, 403, 408, 425, 429]);
 
 const storable = (status: number): boolean => (status >= 200 && status < 300) || (status >= 400 && status < 500 && !UNSTORED_4XX.has(status));
 
-/** A stored reply sent again: status, the restored headers and the JSON text as first sent. */
-class ReplayedReply extends Response<CapturedJsonReply> {
+/**
+ * The reply `@Idempotent` sends for a repeated key: the stored status, headers and JSON body, plus
+ * `Idempotent-Replayed: true`. Its `data` is the stored body, as the outer `onAfter` hooks already shaped it on the first
+ * answer: a hook that changes data checks `ctx.response instanceof ReplayedResponse` so it does not apply itself twice.
+ * The stored bytes are sent unless a hook changed `data`; then the stored ETag is dropped and express computes one.
+ */
+export class ReplayedResponse extends Response<unknown> {
+  public readonly replayed = true;
+
+  private readonly stored: CapturedJsonReply;
+
+  // a second parse, compared with data: a hook may change the parsed body in place
+  private readonly pristine: unknown;
+
   constructor(reply: CapturedJsonReply) {
-    super(reply, { StatusCode: reply.status });
+    const parse = () => (reply.body === null ? null : (JSON.parse(reply.body) as unknown));
+    super(parse(), { StatusCode: reply.status, Headers: Object.entries(reply.headers).map(([Name, Value]) => ({ Name, Value })) });
+    this.stored = reply;
+    this.pristine = parse();
   }
 
   public override async execute(): Promise<ResponseFunction> {
-    const reply = (await this.prepareResponse()) as CapturedJsonReply;
+    const data = await this.prepareResponse();
+    const changed = !_.isEqual(data, this.pristine);
+    // the stored ETag names the stored body; a hook's own ETag stays
+    const storedEtag = this.stored.headers.etag;
+    const headers = changed ? this.headers.filter((h) => h.Name.toLowerCase() !== 'etag' || h.Value !== storedEtag) : this.headers;
     return (_req, res) => {
       res.status(this.statusCode);
-      for (const [name, value] of Object.entries(reply.headers)) {
-        res.setHeader(name, value);
-      }
-      // headers an onAfter hook set or replaced
-      _setHeaders(res, this.options);
+      _setHeaders(res, { Headers: [...headers] });
       res.setHeader(IDEMPOTENT_REPLAYED_HEADER, 'true');
-      if (reply.body === null) {
+      if (changed) {
+        res.json(data);
+      } else if (this.stored.body === null) {
         res.json();
       } else {
-        res.send(reply.body);
+        res.send(this.stored.body);
       }
     };
   }
@@ -269,7 +287,7 @@ export class IdempotencyMiddleware extends RouteMiddleware {
     }
     if (outcome.replayed && outcome.value) {
       // a framework reply: the middlewares entered before this one see it in onAfter
-      await sendReply(req, res, new ReplayedReply(outcome.value));
+      await sendReply(req, res, new ReplayedResponse(outcome.value));
     }
   }
 

@@ -1,18 +1,19 @@
-import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
+import type { IFinishContext, IMiddlewareContext } from '../interfaces.js';
 import { redactUrl } from '../util/redact-url.js';
 
+const STARTED = Symbol('accessLogStarted');
+
 /**
- * Emits one structured log line per HTTP request.
+ * Emits one structured log line per HTTP request, once the response finished.
  *
- * Pairs with RequestId / RealIp / ResponseTime: the line includes
- * `requestId`, `ip`, and `ms` populated by those middlewares. The log is
- * emitted on the response's `finish` event so it captures the final status
- * code and reflects the actual time spent.
+ * Pairs with RequestId / RealIp: the line includes `requestId` and `ip` populated by those middlewares. A request the
+ * client went away from is logged too, with `aborted: true` and no status. Requests answered before this middleware
+ * (Order 2) ran, such as a CORS preflight, are not logged.
  *
  * Config:
  *   http.accessLog.enabled  (default true)
@@ -28,36 +29,42 @@ export class AccessLog extends ServerMiddleware {
 
   constructor() {
     super();
-    // Needs req.storage to exist (ReqStorage = -2), so any Order > -2 is fine.
-    // Sit alongside RealIp / RequestId.
     this.Order = 2;
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    if (!this.Enabled) return null;
-    const log = this.Log;
-    return (req, res, next) => {
-      const startedAt = Date.now();
-      res.on('finish', () => {
-        const path = redactUrl(req.originalUrl);
-        log.info(
-          {
-            method: req.method,
-            path,
-            status: res.statusCode,
-            ms: Date.now() - startedAt,
-            ip: req.storage?.realIp,
-            requestId: req.storage?.requestId,
-            userAgent: req.headers['user-agent'],
-          },
-          '${method} ${path} ${status} ${ms}ms',
-        );
-      });
-      next();
-    };
+  public isEnabled(): boolean {
+    return this.Enabled;
   }
 
-  public after(): null {
-    return null;
+  /** Whether the request gets a log line; every request by default. */
+  protected shouldLog(_ctx: IFinishContext): boolean {
+    return true;
+  }
+
+  public onBefore({ res }: IMiddlewareContext): void {
+    (res.locals as Record<symbol, number>)[STARTED] = Date.now();
+  }
+
+  public onFinish(ctx: IFinishContext): void {
+    if (!this.shouldLog(ctx)) {
+      return;
+    }
+
+    const { req, res, storage, aborted } = ctx;
+    const started = (res.locals as Record<symbol, number | undefined>)[STARTED] ?? Date.now();
+    const fields = {
+      method: req.method,
+      path: redactUrl(req.originalUrl),
+      ms: Date.now() - started,
+      ip: storage?.realIp,
+      requestId: storage?.requestId,
+      userAgent: req.headers['user-agent'],
+    };
+
+    if (aborted) {
+      this.Log.info({ ...fields, aborted: true }, '${method} ${path} aborted after ${ms}ms');
+    } else {
+      this.Log.info({ ...fields, status: res.statusCode }, '${method} ${path} ${status} ${ms}ms');
+    }
   }
 }

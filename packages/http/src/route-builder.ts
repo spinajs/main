@@ -206,8 +206,10 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   };
 }
 
-const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController): IRouteInvocation =>
-  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: `http:${String(route.Type).toUpperCase()} ${String(route.Path ?? route.Method)}` };
+const chainName = (route: IRoute, path: string) => `http:${String(route.Type).toUpperCase()} ${path}`;
+
+const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
+  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
 
 const named = <T extends Express.RequestHandler>(handler: T, name: string): T => {
   Object.defineProperty(handler, 'name', { value: name, writable: true });
@@ -218,7 +220,7 @@ const named = <T extends Express.RequestHandler>(handler: T, name: string): T =>
  * Express handler running `middleware.onBefore`: a resolved one enters the middleware (unless its around handler
  * already did), a returned `Response` answers the request, a rejection goes to the error handlers.
  */
-export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, controller: IController): Express.RequestHandler {
+export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, controller: IController, path: string): Express.RequestHandler {
   const enters = !wrapsRoute(middleware);
   return named((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
     if (answeredEarly(res)) {
@@ -226,7 +228,7 @@ export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, 
       return;
     }
     markStage(res, 'middleware');
-    const ctx = contextOf(req, res, route, controller);
+    const ctx = contextOf(req, res, route, controller, path);
     Promise.resolve(middleware.onBefore!(ctx))
       .then((answer) => {
         if (enters) {
@@ -244,10 +246,10 @@ export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, 
 }
 
 /** Enters a middleware that has only `onAfter`/`onFinish` once the chain reaches it. */
-export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, controller: IController): Express.RequestHandler {
+export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, controller: IController, path: string): Express.RequestHandler {
   return named((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
     if (!answeredEarly(res)) {
-      enterMiddleware(res, 'route', middleware, contextOf(req, res, route, controller));
+      enterMiddleware(res, 'route', middleware, contextOf(req, res, route, controller, path));
     }
     next();
   }, middleware.constructor.name);
@@ -324,7 +326,7 @@ export interface IRouteChainOptions {
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
   const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
-  const name = `http:${String(route.Type).toUpperCase()} ${options.path}`;
+  const name = chainName(route, options.path);
 
   for (const m of enabled) {
     if (!m.onRegister) {
@@ -368,8 +370,8 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     createPolicyGate(options.policies, route, controller, log, options.basePath),
     ...[...outer, ...inner].flatMap((m) => [
       ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
-      ...(m.onBefore ? [createBeforeHandler(m, route, controller)] : []),
-      ...(!wrapsRoute(m) && !m.onBefore && (m.onAfter || m.onFinish) ? [createEntryHandler(m, route, controller)] : []),
+      ...(m.onBefore ? [createBeforeHandler(m, route, controller, options.path)] : []),
+      ...(!wrapsRoute(m) && !m.onBefore && (m.onAfter || m.onFinish) ? [createEntryHandler(m, route, controller, options.path)] : []),
     ]),
     createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,

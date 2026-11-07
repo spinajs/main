@@ -10,6 +10,7 @@ import type express from 'express';
 
 import { appPort, httpApp, req, TestConfiguration } from './common.js';
 import {
+  AccessLog,
   BaseController,
   BasePath,
   Controllers,
@@ -23,7 +24,9 @@ import {
   Ok,
   Post,
   RouteMiddleware,
+  RouteTiming,
   ServerMiddleware,
+  SlowRequestWarning,
 } from '../src/index.js';
 import type { IFinishContext, IMiddlewareContext, IReplyContext, IRouteOutcome, Request, Response } from '../src/index.js';
 
@@ -237,6 +240,12 @@ class ServerHooksController extends BaseController {
   }
 
   @Get()
+  @Middleware(RouteTiming)
+  public timed() {
+    return new Ok({ timed: true });
+  }
+
+  @Get()
   public big() {
     return new Ok({ text: 'x'.repeat(5000) });
   }
@@ -370,6 +379,16 @@ describe('Server middleware hooks', function () {
     expect(calls).to.not.include('throw:after');
   });
 
+  it('runs server onAfter on a CORS preflight answered by a server middleware', async () => {
+    const res = await req().options('srv/ok').set('Origin', PARTNER).set('Access-Control-Request-Method', 'POST');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(204);
+    expect(header(res, 'access-control-allow-origin')).to.eq(PARTNER);
+    expect(header(res, 'x-server-after')).to.eq('early');
+    expect(calls).to.deep.eq(['early:before', 'early:after:204:-', 'early:finish:false']);
+  });
+
   it('runs server onFinish for a static file, without onAfter', async () => {
     const res = await req().get('public/index.html');
     await until(() => calls.includes('early:finish:false'));
@@ -421,6 +440,14 @@ describe('Server middleware hooks', function () {
     expect(state.errorStorage).to.be.an('object');
   });
 
+  it('sends Server-Timing with the route entry of RouteTiming and the total, and x-response-time', async () => {
+    const res = await req().get('srv/timed').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(200);
+    expect(header(res, 'server-timing')).to.match(/^route;dur=[\d.]+, total;dur=\d+$/);
+    expect(header(res, 'x-response-time')).to.match(/^\d+$/);
+  });
+
   it('does not compress with http.compression.enabled false and the shipped http.middlewares', async () => {
     const res = await rawGet('/srv/big', { Accept: 'application/json', 'Accept-Encoding': 'gzip' });
 
@@ -451,5 +478,44 @@ describe('Server middleware hooks: compression enabled', function () {
 
     expect(res.status).to.eq(200);
     expect(res.headers['content-encoding']).to.eq('gzip');
+  });
+});
+
+describe('Server middleware hooks: aborted requests', () => {
+  function recording<T extends AccessLog | SlowRequestWarning>(mw: T, values: Record<string, unknown>) {
+    const lines: unknown[][] = [];
+    const record = (...args: unknown[]) => lines.push(args);
+    for (const [key, value] of Object.entries({ ...values, Log: { info: record, warn: record } })) {
+      Object.defineProperty(mw, key, { value });
+    }
+    return lines;
+  }
+
+  const ctxOf = () => {
+    const req = { method: 'GET', originalUrl: '/slow', headers: {}, storage: { requestId: 'r1' } } as unknown as Request;
+    return { req, res: { statusCode: 200, locals: {} } as unknown as express.Response, storage: req.storage };
+  };
+
+  it('AccessLog logs an aborted request, marked aborted and without a status', () => {
+    const mw = new AccessLog();
+    const lines = recording(mw, { Enabled: true });
+    const ctx = ctxOf();
+    mw.onBefore(ctx);
+    mw.onFinish({ ...ctx, aborted: true });
+
+    expect(lines).to.have.length(1);
+    expect(lines[0][0]).to.include({ aborted: true, requestId: 'r1' });
+    expect(lines[0][0]).to.not.have.property('status');
+  });
+
+  it('SlowRequestWarning ignores an aborted request', () => {
+    const mw = new SlowRequestWarning();
+    const lines = recording(mw, { Enabled: true, ThresholdMs: 0 });
+    const ctx = ctxOf();
+    mw.onBefore(ctx);
+    mw.onFinish({ ...ctx, aborted: true });
+    mw.onFinish({ ...ctx, aborted: false });
+
+    expect(lines).to.have.length(1);
   });
 });

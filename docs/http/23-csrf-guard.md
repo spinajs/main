@@ -4,13 +4,13 @@
 
 ## How it works
 
-At startup (`CsrfGuard.before()`, Order 4, after `ThrottleMiddleware` and before any authentication middleware):
+When it is mounted (`CsrfGuard.isEnabled()`, Order 4, after `ThrottleMiddleware` and before any authentication middleware):
 
 1. Normalises `http.csrf.allowedOrigins` with `parseAllowedOrigins()` and compiles `http.csrf.exempt`. A bad entry throws `InvalidOption` naming the key, even while the guard is off.
-2. With `http.csrf.enabled: false` it adds no handler.
-3. When a subclass of `CsrfGuard` is registered as a `ServerMiddleware` (as `@spinajs/authn-http` does), the plain guard adds no handler and the subclass does the work.
+2. With `http.csrf.enabled: false`, `isEnabled()` is false and nothing is mounted.
+3. When a subclass of `CsrfGuard` is registered as a `ServerMiddleware` (as `@spinajs/authn-http` does), the plain guard's `isEnabled()` is false and the subclass does the work.
 
-Per request:
+Per request (`onBefore`):
 
 1. `GET`, `HEAD` and `OPTIONS` pass.
 2. A request with neither `Origin` nor `Sec-Fetch-Site` and none of the ambient cookies (`http.csrf.ambientCookies`) passes: it is a server, a CLI or a script, not a browser acting for a user.
@@ -80,7 +80,7 @@ Prefer the decorator for routes you own; the config list is for routes you canno
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CsrfGuard` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, Order 4 | `CsrfGuard` | `CsrfOriginGuard` (`@spinajs/authn-http`) | Subclass and register with `@Injectable(ServerMiddleware)`; the plain guard then steps aside. Override `ambientCookies()`, `allowedOrigins()`, `exemptPaths()`, `enabled()`, `ownOrigin(req)`, `controllers()` or `refuse(reason, req, res, next)`. |
+| `CsrfGuard` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, Order 4 | `CsrfGuard` | `CsrfOriginGuard` (`@spinajs/authn-http`) | Subclass and register with `@Injectable(ServerMiddleware)`; the plain guard then steps aside. Override `ambientCookies()`, `allowedOrigins()`, `exemptPaths()`, `enabled()`, `ownOrigin(req)`, `controllers()` or `refuse(reason, req)`, which returns the refusal `Response`. |
 | `@CsrfExempt()` | decorator | | | On a route method or a controller class. |
 | `isCsrfExempt(controller, member)` | exported function | | | Whether the decorator marks a route. |
 | `CSRF_REFUSED_BODY` | exported constant | | | The 403 body. |

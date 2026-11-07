@@ -13,7 +13,7 @@ An API whose clients branch on a stable error code throws a [`CodedHttpException
 Errors reach the handler from two places:
 
 - **Matched routes.** Every route's handler chain ends with the [route error handlers](#route-error-handlers), then `__handle_response__()`, then `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
-- **Everything else.** `NotFoundMiddleware.after()` turns an unmatched request into `ResourceNotFound`; `ErrorHandlerMiddleware.after()`, last in the Express stack, runs `__handle_error__()` for it and for errors from server middlewares.
+- **Everything else.** `HttpServer` ends the Express stack with a fixed tail: `NotFoundMiddleware.reply(req)` answers an unmatched request (by default with `ResourceNotFound`), and the global error answer runs `__handle_error__()` with `ErrorHandlerMiddleware.reply(error, req)` for it and for errors from server middlewares and body parsers. Both replies go through the reply pipeline, so the `onAfter` of the [server middlewares](15-server-middlewares.md) entered for the request see them.
 
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
@@ -61,8 +61,8 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Error map | String token `'__http_error_map__'`, a `Map<string, Constructor<Response>>` filled with `asMapValue`, read with `DI.get` | entries from the response classes (see [Responses](10-responses.md#response-classes)) | `OrmNotFound` maps `OrmNotFoundException` (`@spinajs/orm-http`) | `@HandleException` on your response class. Re-registering a name replaces its entry. Register before `Controllers` resolves. |
-| `NotFoundMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER` | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; see [Server middlewares](15-server-middlewares.md). |
-| `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
+| `NotFoundMiddleware` | Class, resolved by `HttpServer` when it resolves; singleton. Not a server middleware. | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; override `reply(req)`: return an error for the global error answer, or a `Response` to send. |
+| `ErrorHandlerMiddleware` | Class, resolved by `HttpServer` when it resolves; singleton. Not a server middleware. | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)` before `HttpServer` resolves; override `reply(error, req)`, which returns the `Response` (the error map's by default, and logs the error). A throw there falls back to the fatal answer. A 3.x replacement whose `after()` returns a 4-argument Express error handler is still mounted until the next major. |
 | `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
 
 The building blocks of the route error handlers are exported for custom route chains and error handlers (a custom controller base, a test, an `@OnError` handler):
@@ -383,4 +383,4 @@ export class Unavailable<T = any> extends Response<T> {
 - [HTTP error mapping](../exceptions/03-http-error-mapping.md): the exception side, every default entry.
 - [Responses](10-responses.md): the response classes and content negotiation.
 - [Data transformers](12-data-transformers.md): reshape error bodies with `x-error-transform`.
-- [Server middlewares](15-server-middlewares.md): where `NotFoundMiddleware` and `ErrorHandlerMiddleware` sit.
+- [Server middlewares](15-server-middlewares.md): where `NotFoundMiddleware` and `ErrorHandlerMiddleware` sit in the request timeline.
