@@ -7,6 +7,7 @@ import { buildRoutePath, CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
+import { AUTHZ_HTTP_ADMIN_RATE_LIMITS } from '../src/rate-limits.js';
 
 const SUFFIXES = ['commands', 'assignments', 'holders', 'links', 'rules', 'policies', 'assignments/:id', 'links/:id', 'rules/:id', 'policies/:id', 'scopes/:type/:id/attributes'];
 
@@ -48,9 +49,7 @@ describe('authz.http.admin.basePath', function () {
   });
 
   it('adds no default to the effective authz.http.admin', async () => {
-    const admin = (await boot(undefined)).get<Record<string, unknown>>('authz.http.admin');
-    expect(admin).to.not.have.property('basePath');
-    expect(admin.domain).to.eq('root');
+    expect((await boot(undefined)).get('authz.http.admin')).to.deep.eq({ domain: 'root', rateLimit: AUTHZ_HTTP_ADMIN_RATE_LIMITS });
   });
 
   it('refuses an empty basePath at boot, naming its full path', async () => {

@@ -502,16 +502,21 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         expect(rateLimitHeaders(limited)).to.deep.eq([]);
       });
 
-      // Every other OIDC route has a limit of its own, which replaces the floor; reauth's (lowered to 1 above) shows limits apply.
-      it('back-channel logout is never limited, not even by the global floor, while the other routes are', async () => {
+      // The floor configured above reaches no OIDC route: each has a limit of its own, or none declared. The unit test
+      // in rate-limit.test.ts pins that the floor itself is dropped; reauth's own limit, lowered to 1, shows limits apply.
+      it('back-channel logout is never limited, while the other routes are', async () => {
         for (let i = 0; i < 4; i++) {
           const res = await fetch(`${base}/auth/oidc/corp/backchannel-logout`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'logout_token=a.b.c' });
           expect(res.status, `logout token ${i + 1}`).to.eq(400);
           expect(rateLimitHeaders(res)).to.deep.eq([]);
         }
-        expect((await get('/auth/oidc/corp/reauth')).status).to.not.eq(429);
+        // Without a session reauth fails anyway; only the limit adds Retry-After.
+        expect((await get('/auth/oidc/corp/reauth')).headers.get('retry-after')).to.eq(null);
         const limited = await get('/auth/oidc/corp/reauth');
-        expect(limited.status, 'the limit of reauth').to.eq(429);
+        expect(limited.status, 'the limit of reauth: the OIDC failure answer').to.eq(401);
+        expect(await limited.json()).to.deep.eq(AUTHN_FAILURE_BODY);
+        expect(Number(limited.headers.get('retry-after'))).to.be.within(1, W);
+        expect(rateLimitHeaders(limited)).to.deep.eq([]);
       });
     });
   });

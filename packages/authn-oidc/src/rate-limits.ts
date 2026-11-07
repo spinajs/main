@@ -52,7 +52,7 @@ export function OidcRateLimit(name: AuthnOidcRateLimitName): ReturnType<typeof R
 
 export type AuthnOidcSessionRateLimitName = keyof typeof AUTHN_OIDC_SESSION_RATE_LIMITS;
 
-/** The shipped `@RateLimit` of an OIDC route with a session: the default 429, per principal; the flow has not started. */
+/** The shipped `@RateLimit` of an OIDC route with a session, per principal; refused as begin and callback are. */
 export function OidcSessionRateLimit(name: AuthnOidcSessionRateLimitName): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_SESSION_RATE_LIMITS[name] });
+  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_SESSION_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
 }

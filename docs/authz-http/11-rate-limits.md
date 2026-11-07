@@ -10,6 +10,7 @@ The batch check, the access event stream and the explain route carry a [`@RateLi
 
 - Every limit counts the principal (`by: 'principal'`): `req.storage.Principal`. An anonymous caller is counted per client address. While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**.
 - Over the limit the route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`; every counted response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`.
+- A browser's `EventSource` does not reconnect after a 429, so a multi-page app that opens the stream on every page view loses live updates past the 10th view a minute: raise `events` for such an app.
 - `GET /user/access` has no limit.
 - The limit runs after the policy gate: a request `HasPrincipal`, `IsAuthenticated` or `ExplainPolicy` refuses is not counted.
 - With `MemoryThrottleStore` every process counts apart; register a shared `ThrottleStore` for several instances.

@@ -1,6 +1,7 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { serviceTokenField } from '@spinajs/authz';
+import type { IRateLimitSettings } from '@spinajs/http';
 
 import { AUTHZ_HTTP_RATE_LIMITED_ROUTES, AUTHZ_HTTP_RATE_LIMITS, rateLimitsSchema } from './rate-limit/index.js';
 
@@ -44,7 +45,7 @@ export interface AuthzHttpConfig {
   /** Targets of WebhookChangeSink; empty: it posts nothing. */
   readonly webhooks: readonly { readonly url: string; readonly secret: { readonly secret: string }; readonly timeoutMs: number }[];
   /** The @RateLimit settings of the checks, events and explain routes; false: no limit. */
-  readonly rateLimit: Readonly<Record<keyof typeof AUTHZ_HTTP_RATE_LIMITS, { readonly limit: number; readonly windowSeconds: number; readonly by: 'ip' | 'principal' } | false>>;
+  readonly rateLimit: Readonly<Record<keyof typeof AUTHZ_HTTP_RATE_LIMITS, Readonly<Partial<IRateLimitSettings>> | false>>;
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };

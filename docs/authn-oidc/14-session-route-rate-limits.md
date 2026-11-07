@@ -9,7 +9,7 @@ The routes that need a signed-in session carry a [`@RateLimit`](../http/18-throt
 
 - Both count the principal (`by: 'principal'`): `req.storage.Principal`, else `req.storage.AuthnPrincipal`; a request without one is counted per client address. While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**.
 - Each route counts apart: `POST` and `DELETE .../link` each allow 10.
-- Over the limit a route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`, not the login failure redirect: the route is refused before the flow starts. Every counted response carries the `X-RateLimit-*` headers.
+- Over the limit a route gets the one failure answer of the OIDC routes, as begin and callback do ([Rate limits](13-rate-limits.md)): a browser navigation is redirected (303) to `authn.oidc.redirects.failure`, any other request gets 401 with the login failure body; both with `Retry-After`. No response carries `X-RateLimit-*` headers.
 - `POST /auth/oidc/:provider/backchannel-logout` is never limited: a refused logout token leaves alive a session that should have ended ([Back-channel logout](11-backchannel-logout.md)).
 - With `MemoryThrottleStore` every process counts apart; register a shared `ThrottleStore` for several instances.
 

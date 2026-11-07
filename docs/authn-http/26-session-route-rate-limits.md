@@ -8,29 +8,29 @@ These limits cap volume. The service-side `AuthnThrottle` backoff (the `mfa` and
 
 | Config key `authn.http.rateLimit.` | Routes | Default | Counted by | Throttled answer |
 | --- | --- | --- | --- | --- |
-| `mfaVerify` | `POST /auth/mfa/verify`, `POST /auth/mfa/recovery` | 10 per 300 s | the pending session; the client address without one | 401, the login failure body, `Retry-After`; no `X-RateLimit-*` |
-| `mfaChallenge` | `POST /auth/mfa/challenge` | 5 per 600 s | the pending session; the client address without one | 202 `{ Ok: true }`, what every challenge answers; no `X-RateLimit-*` |
-| `mfaStepUp` | `POST /auth/mfa/step-up` | 10 per 300 s | principal | 401, the login failure body, `Retry-After`; no `X-RateLimit-*` |
-| `reauth` | `POST /auth/reauth` | 10 per 300 s | principal | 401, the login failure body without `Retry-After`, as a throttled password; no `X-RateLimit-*` |
+| `mfaVerify` | `POST /auth/mfa/verify`, `POST /auth/mfa/recovery` | 10 per 300 s | the pending session; the client address without one | 401, the login failure body, `Retry-After` |
+| `mfaChallenge` | `POST /auth/mfa/challenge` | 5 per 600 s | the pending session; the client address without one | 202 `{ Ok: true }`, what every challenge answers |
+| `mfaStepUp` | `POST /auth/mfa/step-up` | 10 per 300 s | principal | 401, the login failure body, `Retry-After` |
+| `reauth` | `POST /auth/reauth` | 10 per 300 s | principal | 401, the login failure body without `Retry-After`, as a throttled password |
 | `activeRole` | `POST /auth/active-role` | 20 per 60 s | principal | 429 |
 | `impersonate` | `POST /auth/impersonate` | 10 per 600 s | principal | 429 |
-| `passwordChange` | `PATCH /user/password` | 10 per 600 s | principal | 429 |
+| `passwordChange` | `PATCH /user/password` | 10 per 600 s | principal | 401, the login failure body without `Retry-After`, as a throttled old password |
 | `verifyRequest` | `POST /auth/verify/request` | 5 per 3600 s | principal | 429, `too many verification requests` |
 | `tokens` | `POST /user/tokens`, `POST /user/tokens/:uuid/rotate` | 20 per 600 s | principal | 429 |
 | `keys` | `POST /user/keys` | 20 per 600 s | principal | 429 |
 | `passkeys` | `POST /user/passkeys/options`, `POST /user/passkeys` | 20 per 600 s | principal | 429 |
-| `mfaEnrolment` | `POST /user/mfa`, `/user/mfa/confirm`, `/user/mfa/disable`, `/user/mfa/recovery-codes` | 10 per 600 s | principal | 429 |
+| `mfaEnrolment` | `POST /user/mfa`, `/user/mfa/confirm`, `/user/mfa/disable`, `/user/mfa/recovery-codes` | 10 per 600 s | principal; on `POST /user/mfa` and `/user/mfa/confirm` a pending session forced to enrol counts on the session | 429 |
 | `adminPasswordReset` | `POST {admin}/:uuid/password-reset` | 30 per 600 s | principal | 429 |
 | `adminCredentials` | `POST {admin}/:uuid/mfa-reset`, `DELETE {admin}/:uuid/sessions`, `DELETE {admin}/:uuid/tokens` | 60 per 600 s | principal | 429 |
 
-- "429" is authn's own throttled body, `{ "error": "throttled", "message": "too many requests, try again later" }` with `Retry-After` and `Cache-Control: no-store`, the body a throttled reset or verification request gets. These routes also get the `X-RateLimit-*` headers.
-- The MFA and re-authentication routes keep the uniform answer (A02): a client cannot tell the limit from a wrong code, so they send no `X-RateLimit-*` headers.
+- "429" is authn's own throttled body, `{ "error": "throttled", "message": "too many requests, try again later" }` with `Retry-After` and `Cache-Control: no-store`, the body a throttled reset or verification request gets.
+- No route sends `X-RateLimit-*` headers, as on every authn route. The routes that check a code or a password keep the answer they give when the service throttles them (A02), so a client cannot tell the limit from a wrong code or password, and each route has one throttled answer.
 - Each route counts apart, also where two routes share a config key: `mfa/verify` and `mfa/recovery` each allow 10.
 - Reads and deletes of the caller's own tokens, keys, passkeys and sessions, `GET /user/mfa`, `GET` and `DELETE /auth/impersonate` and `GET /auth/active-role` have no limit.
 
 ## What is counted
 
-- **The pending session** (MFA routes): a pending session has no principal yet. The key is an HMAC-SHA-256 of the session `AuthnMiddleware` restored, under `http.cookie.secret`, so the store never holds a usable session id and every instance with the same secret counts on the same key. Nothing the client sends picks the key: a new key needs a new pending session, which only a successful first factor creates. Without a restored pending session, the request counts on its client address.
+- **The pending session** (the MFA routes, and `POST /user/mfa` and `/user/mfa/confirm` for a session the MFA policy forces to enrol): a pending session has no principal yet, and counting its address would make users behind one NAT share a budget for a step they cannot skip. The key is an HMAC-SHA-256 of the session `AuthnMiddleware` restored, under `http.cookie.secret`, so the store never holds a usable session id and every instance with the same secret counts on the same key. Nothing the client sends picks the key: a new key needs a new pending session, which only a successful first factor creates. Without a restored pending session, the request counts on its client address.
 - **The principal**: `req.storage.Principal` (from `@spinajs/authz-http`), else `req.storage.AuthnPrincipal`. While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**, not their own. Of these routes only `POST /auth/mfa/step-up`, `POST /auth/reauth` (which refuses an impersonation after counting) and `POST /auth/impersonate` admit an impersonating session; the others refuse it before the limit counts.
 - With `MemoryThrottleStore` every process counts apart. Register a shared `ThrottleStore` when the app runs on several instances ([Stores](../http/18-throttling.md)).
 

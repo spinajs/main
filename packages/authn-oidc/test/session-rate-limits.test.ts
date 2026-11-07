@@ -7,6 +7,8 @@ import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/index.js';
 import { OidcController } from '../src/controllers/OidcController.js';
+import { OidcThrottledResponse } from '../src/rate-limits.js';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 
 const SCHEMAS = [AUTHN_OIDC_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const DEFAULTS = AUTHN_OIDC_SESSION_RATE_LIMITS;
@@ -18,7 +20,7 @@ const CONTROLLER = {} as IController;
 const ALICE = { type: 'user', id: 'alice', authenticated: true, source: 'session', attributes: {} };
 const BOB = { type: 'user', id: 'bob', authenticated: true, source: 'session', attributes: {} };
 const signedIn = (principal: object) => ({ realIp: '192.0.2.10', Principal: principal });
-const TOO_MANY = { error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } };
+const request = (headers: Record<string, string>) => ({ get: (name: string) => headers[name.toLowerCase()] });
 
 const nest = (path: string, value: unknown): Record<string, unknown> => path.split('.').reduceRight<unknown>((inner, key) => ({ [key]: inner }), value) as Record<string, unknown>;
 
@@ -40,6 +42,7 @@ interface Hit {
   readonly status?: number;
   readonly body?: unknown;
   readonly set: Record<string, string>;
+  readonly answer?: Response;
 }
 
 /** The route's RateLimitMiddleware as the server mounts it, against `config` checked by the shipped schema. */
@@ -61,7 +64,7 @@ async function mounted(controller: Ctor, method: string, config: Record<string, 
       },
     };
     const answer = (await mw.onBefore({ req: { socket: {}, params: {} } as never, res: res as never, storage: storage as never })) as Response | undefined;
-    return answer ? { passed: false, status: answer.statusCode, body: answer.data, set } : { passed: true, set };
+    return answer ? { passed: false, status: answer.statusCode, body: answer.data, set, answer } : { passed: true, set };
   };
   return { mw, hit };
 }
@@ -128,14 +131,17 @@ describe('authn-oidc: the limits of link and reauth', function () {
   });
 
   for (const [controller, method, name] of GROUPS) {
-    it(`${name}: request ${DEFAULTS[name].limit + 1} of one principal answers 429 with Retry-After; another principal passes`, async () => {
+    it(`${name}: request ${DEFAULTS[name].limit + 1} of one principal gets the OIDC failure answer (303 for a navigation, 401 otherwise) with Retry-After, no X-RateLimit-*; another principal passes`, async () => {
       const m = await mounted(controller, method);
       const refused = await exhaust(m, DEFAULTS[name].limit, signedIn(ALICE));
 
-      expect(refused.status).to.eq(429);
-      expect(JSON.stringify(refused.body)).to.eq(JSON.stringify(TOO_MANY));
-      expect(refused.set['X-RateLimit-Limit']).to.eq(String(DEFAULTS[name].limit));
-      expect(Number(refused.set['Retry-After'])).to.be.within(1, DEFAULTS[name].windowSeconds);
+      expect(refused.answer).to.be.instanceOf(OidcThrottledResponse);
+      const throttled = refused.answer as OidcThrottledResponse;
+      expect(throttled.retryAfterSeconds).to.be.within(1, DEFAULTS[name].windowSeconds);
+      const fetched = throttled.answerFor(request({ accept: 'application/json' }), undefined, undefined);
+      expect([fetched.status, fetched.body, fetched.headers]).to.deep.eq([401, AUTHN_FAILURE_BODY, { 'retry-after': String(throttled.retryAfterSeconds) }]);
+      expect(throttled.answerFor(request({ 'sec-fetch-mode': 'navigate' }), undefined, undefined).status).to.eq(303);
+      expect(refused.set).to.deep.eq({});
       expect((await m.hit(signedIn(BOB))).passed).to.eq(true);
     });
   }
@@ -144,7 +150,7 @@ describe('authn-oidc: the limits of link and reauth', function () {
     const [controller, method, name] = GROUPS[0];
     const m = await mounted(controller, method, nest(`authn.oidc.rateLimit.${name}`, { limit: 1 }));
     expect([m.mw.limit, m.mw.windowSeconds, m.mw.by]).to.deep.eq([1, DEFAULTS[name].windowSeconds, 'principal']);
-    expect((await exhaust(m, 1, signedIn(ALICE))).status).to.eq(429);
+    expect((await exhaust(m, 1, signedIn(ALICE))).answer).to.be.instanceOf(OidcThrottledResponse);
   });
 
   it('false takes the limit off the route', async () => {

@@ -151,7 +151,9 @@ describe('authn-http: the limits of the routes with a session', function () {
       expect(limits, `${controller.name}.${method}`).to.have.length(1);
       expect(limits[0].config, `${controller.name}.${method}`).to.eq(`authn.http.rateLimit.${name}`);
       expect(limits[0].default, `${controller.name}.${method}`).to.deep.eq(settings);
-      expect(limits[0].key, `${controller.name}.${method} key`).to.eq(name === 'mfaVerify' || name === 'mfaChallenge' ? pendingSessionKey : undefined);
+      const pendingKeyed = name === 'mfaVerify' || name === 'mfaChallenge' || (controller === AuthnMfaEnrolmentController && (method === 'begin' || method === 'confirm'));
+      expect(limits[0].key, `${controller.name}.${method} key`).to.eq(pendingKeyed ? pendingSessionKey : undefined);
+      expect(limits[0].headers, `${controller.name}.${method} headers`).to.eq(false);
     }
   });
 
@@ -236,15 +238,20 @@ describe('authn-http: the limits of the routes with a session', function () {
       expect((await m.hit(signedIn(BOB))).passed).to.eq(true);
     });
 
-    it('reauth: the 11th answers the uniform login failure without Retry-After, as a throttled password does', async () => {
-      const m = await mounted(AuthnReauthController, 'reauth');
-      const refused = await exhaust(m, 10, signedIn(ALICE));
+    for (const [controller, method, name] of [
+      [AuthnReauthController, 'reauth', 'reauth'],
+      [AuthnPasswordController, 'change', 'passwordChange'],
+    ] as [Ctor, string, Name][]) {
+      it(`${name}: the 11th answers the uniform login failure without Retry-After, as a throttled password does`, async () => {
+        const m = await mounted(controller, method);
+        const refused = await exhaust(m, 10, signedIn(ALICE));
 
-      expect(refused.status).to.eq(401);
-      expect(refused.body).to.deep.eq(FAILURE_BODY);
-      expect(refused.own['Retry-After']).to.eq(undefined);
-      expect(refused.set).to.deep.eq({});
-    });
+        expect(refused.status).to.eq(401);
+        expect(refused.body).to.deep.eq(FAILURE_BODY);
+        expect(refused.own['Retry-After']).to.eq(undefined);
+        expect(refused.set).to.deep.eq({});
+      });
+    }
   });
 
   describe('credential and account routes', () => {
@@ -255,17 +262,28 @@ describe('authn-http: the limits of the routes with a session', function () {
       [AuthnMfaEnrolmentController, 'begin', 'mfaEnrolment', 10],
       [AuthnCredentialAdminController, 'mfaReset', 'adminCredentials', 60],
     ] as [Ctor, string, Name, number][]) {
-      it(`${name}: request ${limit + 1} of one principal answers authn's 429 throttled body`, async () => {
+      it(`${name}: request ${limit + 1} of one principal answers authn's 429 throttled body, without X-RateLimit-*`, async () => {
         const m = await mounted(controller, method);
         const refused = await exhaust(m, limit, signedIn(ALICE));
 
         expect(refused.status).to.eq(429);
         expect(refused.body).to.include({ error: 'throttled' });
         expect(Number(refused.own['Retry-After'])).to.be.within(1, AUTHN_HTTP_SESSION_RATE_LIMITS[name].windowSeconds);
-        expect(refused.set['X-RateLimit-Limit']).to.eq(String(limit));
+        expect(refused.set).to.deep.eq({});
         expect((await m.hit(signedIn(BOB))).passed).to.eq(true);
       });
     }
+
+    it('MFA enrolment counts a pending session (forced to enrol) on the session, an active one on its principal', async () => {
+      for (const method of ['begin', 'confirm']) {
+        const m = await mounted(AuthnMfaEnrolmentController, method);
+        const increment = sinon.spy(m.store, 'increment');
+        await m.hit(pending('session-a'));
+        await m.hit(signedIn(ALICE));
+        expect(increment.firstCall.args[0], method).to.match(/:key:pending:[0-9a-f]{64}$/);
+        expect(increment.secondCall.args[0], method).to.match(/:principal:user:alice$/);
+      }
+    });
 
     it('an impersonator spends the budget of the impersonated user (the principal is the target)', async () => {
       const m = await mounted(AuthnImpersonationController, 'start');

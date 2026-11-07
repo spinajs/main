@@ -54,7 +54,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/verify')
-  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async verify(@Body({ required: true }) body: AuthnMfaVerifyBody, @ClientContext() client: AuthnClientContext) {
@@ -70,7 +70,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/recovery')
-  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async recovery(@Body({ required: true }) body: AuthnMfaCodeBody, @ClientContext() client: AuthnClientContext) {
@@ -86,7 +86,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/step-up')
-  @AuthnSessionRateLimit('mfaStepUp', { answer: throttledLogin, headers: false })
+  @AuthnSessionRateLimit('mfaStepUp', { answer: throttledLogin })
   @Policy(ActiveSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async stepUp(@Body({ required: true }) body: AuthnMfaStepUpBody, @ClientContext() client: AuthnClientContext) {
@@ -111,7 +111,7 @@ export class AuthnMfaController extends BaseController {
    */
   @Post('mfa/challenge')
   // Refused as every challenge answers, so a throttled send tells nothing either.
-  @AuthnSessionRateLimit('mfaChallenge', { answer: accepted, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaChallenge', { answer: accepted, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(accepted)
   public async challenge(@Body() body: AuthnMfaChallengeBody, @ClientContext() client: AuthnClientContext) {
