@@ -39,8 +39,11 @@ export function buildRoutePath(basePath: string, route: IRoute, globalPrefix?: s
  * Resolves global ( `http.routes.middlewares` ) + controller-wise + route-wise middleware descriptors into instances.
  */
 export function resolveRouteMiddlewares(descriptor: IControllerDescriptor, route: IRoute, container: IContainer, globals: readonly IMiddlewareDescriptor[] = []): Promise<RouteMiddleware[]> {
+  const local = descriptor.Middlewares.concat(route.Middlewares || []);
+  // A class also declared with @Middleware would run twice; that declaration and its options win.
+  const notLocal = globals.filter((g) => !local.some((m) => m.Type === g.Type));
   return Promise.all<RouteMiddleware>(
-    globals.concat(descriptor.Middlewares, route.Middlewares || []).map((m: IMiddlewareDescriptor) => {
+    notLocal.concat(local).map((m: IMiddlewareDescriptor) => {
       return container.resolve(m.Type, m.Options);
     }),
   );

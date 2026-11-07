@@ -1,5 +1,5 @@
-import { AsyncService, Autoinject, Container, IContainer, Constructor } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import type { IContainer, Constructor } from '@spinajs/di';
+import type { Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { RouteMiddleware } from './interfaces.js';
@@ -39,6 +39,7 @@ function middlewareType(service: unknown, container: IContainer): Constructor<Ro
 /**
  * Checks the `http.routes.middlewares` entries and turns them into the descriptors `@Middleware` produces, in config
  * order. Instances are made per route, like those of `@Middleware`, so the class's own lifetime decides sharing.
+ * Called by every controller before it builds its routes.
  */
 export function globalRouteMiddlewareDescriptors(cfg: Configuration, container: IContainer): IMiddlewareDescriptor[] {
   const entries = cfg.get<unknown[]>(KEY, []) ?? [];
@@ -46,6 +47,9 @@ export function globalRouteMiddlewareDescriptors(cfg: Configuration, container: 
   return entries.map((entry) => {
     if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
       const { service, options } = entry as { service?: unknown; options?: unknown };
+      if (typeof service !== 'string' && typeof service !== 'function') {
+        throw new InvalidOption(`${KEY}: entry ${describeEntry(entry)} has no service ( a RouteMiddleware name or class )`);
+      }
       if (options !== undefined && !Array.isArray(options)) {
         throw new InvalidOption(`${KEY}: options of ${describeEntry(service)} must be an array of constructor arguments`);
       }
@@ -54,20 +58,4 @@ export function globalRouteMiddlewareDescriptors(cfg: Configuration, container: 
 
     return { Type: middlewareType(entry, container), Options: [] };
   });
-}
-
-/** The checked `http.routes.middlewares` descriptors, read once per container, before the first route is built. */
-export class GlobalRouteMiddlewares extends AsyncService {
-  @Autoinject(Configuration)
-  protected Cfg!: Configuration;
-
-  @Autoinject(Container)
-  protected Container!: IContainer;
-
-  public Descriptors: readonly IMiddlewareDescriptor[] = [];
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    this.Descriptors = globalRouteMiddlewareDescriptors(this.Cfg, this.Container);
-  }
 }

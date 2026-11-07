@@ -8,7 +8,8 @@ import type { TestApp } from '@spinajs/testing';
 import type * as express from 'express';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, globalRouteMiddlewareDescriptors } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, RouteTiming } from '../src/index.js';
+import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 import type { GlobalRouteMiddlewareEntry, IRoute, MiddlewareStage } from '../src/index.js';
 
 function trace(res: express.Response, label: string): void {
@@ -140,6 +141,15 @@ class GlobalPlainController extends BaseController {
   }
 }
 
+@BasePath('global-timed')
+@Middleware(RouteTiming)
+class GlobalTimedController extends BaseController {
+  @Get()
+  public timed() {
+    return new Ok({ ok: true });
+  }
+}
+
 function configWith(middlewares: unknown[]) {
   return class extends TestConfiguration {
     public async resolve(): Promise<void> {
@@ -236,7 +246,10 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
     before(async () => {
       app = await httpApp({
         configuration: configWith(['RouteTiming']),
-        register: (c) => c.register(GlobalPlainController).as(BaseController),
+        register: (c) => {
+          c.register(GlobalPlainController).as(BaseController);
+          c.register(GlobalTimedController).as(BaseController);
+        },
         resolve: [Intl, Controllers],
       });
       await (await app.resolve(HttpServer)).start();
@@ -252,6 +265,12 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
         expect(res.status, path).to.eq(200);
         expect(routeDuration(headerOf(res, 'server-timing')), path).to.be.a('number');
       }
+    });
+
+    it('runs it once on a route that also declares it with @Middleware', async () => {
+      const res = await req().get('global-timed/timed');
+      expect(res.status).to.eq(200);
+      expect(headerOf(res, 'server-timing')?.match(/route;dur=/g) ?? []).to.have.length(1);
     });
   });
 
@@ -287,6 +306,8 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
         expect(err, JSON.stringify(entry)).to.be.instanceOf(InvalidOption);
         expect((err as Error).message).to.contain('http.routes.middlewares');
       }
+      const err = thrownBy(() => globalRouteMiddlewareDescriptors(cfgOf([{ options: [] }]), DI.RootContainer));
+      expect((err as Error).message).to.contain('{"options":[]}');
     });
 
     it('gives @Middleware descriptors in config order, options included', () => {

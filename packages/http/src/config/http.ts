@@ -88,7 +88,7 @@ const http = {
       },
     },
     routes: {
-      // RouteMiddleware names, classes or { service, options } entries mounted on every route, see docs/http/14-route-middlewares.md
+      // see docs/http/14-route-middlewares.md#global-route-middlewares
       middlewares: [],
     },
     port: 1337,

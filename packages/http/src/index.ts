@@ -22,7 +22,7 @@ export * from './base-controller.js';
 export * from './controller-sources.js';
 export * from './manifest-controller-source.js';
 export * from './route-builder.js';
-export { globalRouteMiddlewareDescriptors, type GlobalRouteMiddlewareEntry } from './global-route-middlewares.js';
+export type { GlobalRouteMiddlewareEntry } from './global-route-middlewares.js';
 export * from './controllers.js';
 export * from './server.js';
 export * from './body-limits.js';

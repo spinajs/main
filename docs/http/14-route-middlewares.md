@@ -88,9 +88,10 @@ export default { http: { routes: { middlewares } } };
 ```
 
 - Order: the global entries in config order, then the controller's, then the route's. `Stage` still applies on top: an `'outer'` middleware runs before every `'inner'` one, and an outer global one before an outer controller one.
+- A class that is also declared with `@Middleware` on the controller or the route is skipped as a global entry there, so it runs once per request: the `@Middleware` declaration, its position and its options win.
 - `isEnabled(route, controller)` and `onRegister(route, path, controller)` are called per route, as for any route middleware. Use `isEnabled` to keep a global middleware off some routes.
 - An entry is instantiated exactly as the same class in `@Middleware(Class, ...options)` on every route: `container.resolve(Class, options)` per route, so the class's lifetime decides sharing. A `@NewInstance()` class gets its own instance on each route; a singleton (the default) serves every route, together with any `@Middleware` of that class. A middleware that keeps per-route state, set in `onRegister`, must be `@NewInstance()`. Per-request state goes on `req.storage` or `res.locals`.
-- The entries are checked once at startup, before any route is built. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
+- The entries are checked at startup, by each controller before it builds its routes. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
 - Routes only: a request that matches no route, a static file or anything answered before routing does not run them. Use a [server middleware](15-server-middlewares.md) for those.
 
 ## Services and extension points

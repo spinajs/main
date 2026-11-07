@@ -12,7 +12,7 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { __handle_error__ } from './error.js';
 import { resolveConfigErrorHandlers } from './errors/on-error.js';
-import { GlobalRouteMiddlewares } from './global-route-middlewares.js';
+import { globalRouteMiddlewareDescriptors } from './global-route-middlewares.js';
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, buildRouteHandlers, resolveRouteMiddlewares, resolveRoutePolicies, ControllerActionHost } from './route-builder.js';
@@ -99,7 +99,7 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
-    const globalMiddlewares = (await this._container.resolve(GlobalRouteMiddlewares)).Descriptors;
+    const globalMiddlewares = globalRouteMiddlewareDescriptors(this._cfg, this._container);
     const controller = this.constructor.name;
     const lineage = classLineage(this.constructor, ownSourceFile);
     this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
