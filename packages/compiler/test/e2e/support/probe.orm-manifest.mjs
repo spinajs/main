@@ -20,9 +20,9 @@ try {
 
   if (process.env.ORM_E2E_DRIFT !== '1') {
     const driver = orm.Connections.get('default');
-    await driver.insert().into('accounts').values({ Name: 'ada', Active: 1, Legacy: 'kept' });
+    await driver.insert().into('accounts').values({ Name: 'ada', Active: 1, Legacy: 'kept', SeenAt: '2026-11-07T10:00:00.000Z' });
     const loaded = await Account.where({ Name: 'ada' }).first();
-    result.active = loaded.Active;
+    result.seen = typeof loaded.SeenAt?.toISO === 'function';
     result.legacy = loaded.Legacy;
     loaded.Name = 'grace';
     loaded.Legacy = 'changed';

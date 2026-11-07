@@ -27,7 +27,7 @@ interface ProbeResult {
   columns?: string[];
   drift?: string[];
   schema?: { types: Record<string, string>; required: string[] };
-  active?: unknown;
+  seen?: unknown;
   legacy?: unknown;
   stored?: { name: string; legacy: string };
 }
@@ -55,19 +55,20 @@ describe('db.Models.Source = manifest in require mode', function () {
 
   it('boots with the manifest columns only: no table merge, native types named by ColumnType', () => {
     expect(clean.error).to.equal(undefined);
-    expect(clean.columns).to.deep.equal(['Active:boolean', 'Id:int', 'Name:string', 'Nickname:string']);
+    expect(clean.columns).to.deep.equal(['Active:boolean', 'Id:int', 'Name:string', 'Nickname:string', 'SeenAt:dateTime']);
     expect(clean.drift).to.deep.equal([]);
   });
 
   it('keeps the JSON schema types and derives required from TS optionality (Q18)', () => {
     // sqlite tableInfo would have given Id INTEGER -> integer as well; the family must not degrade it to string
-    expect(clean.schema?.types).to.deep.equal({ Id: 'integer', Name: 'string', Active: 'boolean', Nickname: 'string' });
+    expect(clean.schema?.types).to.deep.equal({ Id: 'integer', Name: 'string', Active: 'boolean', Nickname: 'string', SeenAt: 'string' });
     // Nickname?: is optional and the auto-increment Id is never required (schema.ts:81); under Source = 'database' required came from the table's NOT NULL flags instead
     expect(clean.schema?.required).to.deep.equal(['Active', 'Name']);
   });
 
   it('converts a column with the converter of its family', () => {
-    expect(clean.active).to.equal(true);
+    // dateTime, which no default converter key covers under db.Models.Source = 'database'
+    expect(clean.seen).to.equal(true);
   });
 
   it('declares db.Models.Source in the typed configuration declarations', async () => {
