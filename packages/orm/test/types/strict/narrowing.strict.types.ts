@@ -1,4 +1,4 @@
-import { rel } from '@spinajs/orm';
+import { col, rel } from '@spinajs/orm';
 import type { AggregateValue, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
 import { assertType } from '../assert.js';
 import type { Equal } from '../assert.js';
@@ -116,4 +116,16 @@ export async function streamStrict(): Promise<void> {
   for await (const _row of User.all().count('Id', 'total').stream({ batchSize: 100 })) {
     assertType<Equal<typeof _row.total, AggregateValue>>();
   }
+}
+
+export async function paginateStrict(computed: string): Promise<void> {
+  const page = await User.query().select('Id').paginate({ orderBy: [['CreatedAt', 'desc']], limit: 20 });
+  assertType<Equal<(typeof page.items)[number]['Id'], number>>();
+  // @ts-expect-error an unselected column is not on the row
+  void page.items[0].Name;
+  const populated = await User.query().select('Id').populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof populated.items)[number]['Team']['Value'], Team>>();
+  // @ts-expect-error strict mode refuses an undeclared column name
+  void User.query().paginate({ orderBy: [['Nope', 'asc']], limit: 5 });
+  void User.query().paginate({ orderBy: [[col(computed), 'asc']], limit: 5 });
 }

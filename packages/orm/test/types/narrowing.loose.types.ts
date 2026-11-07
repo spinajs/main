@@ -72,3 +72,14 @@ export async function streamLoose(): Promise<void> {
     assertType<Equal<typeof _user, User>>();
   }
 }
+
+export async function paginateLoose(computed: string): Promise<void> {
+  const page = await User.query().where('IsActive', true).paginate({ orderBy: [['CreatedAt', 'desc']], limit: 20 });
+  assertType<Equal<typeof page.items, User[]>>();
+  assertType<Equal<typeof page.next, string | null>>();
+  // loose mode accepts a name the model does not declare
+  const byComputed = await User.query().select('Id').paginate({ orderBy: [[computed, 'asc']], limit: 20, after: page.next ?? undefined });
+  assertType<Equal<typeof byComputed.items, User[]>>();
+  const populated = await User.query().populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof populated.items)[number]['Team']['Value'], Team>>();
+}

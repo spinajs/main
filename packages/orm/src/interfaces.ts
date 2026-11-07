@@ -1526,6 +1526,14 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   stream(options?: IStreamOptions): AsyncIterable<Unbox<T>>;
 
+  /**
+   * One keyset page: `options.orderBy` plus the primary key, `limit` rows past `after` or before `before`.
+   * The query must not carry its own `order()`, `take()`, `skip()` or `first()`.
+   */
+  // Spelled out instead of IKeysetPageOptions<Unbox<T>>: the interface reference would make T contravariant here
+  // by measured variance, and a query scope typed on the model would no longer accept a populated builder.
+  paginate(options: { orderBy: Array<[ColumnRef<Unbox<T>>, 'asc' | 'desc']>; limit: number; after?: string; before?: string }): Promise<KeysetPage<Unbox<T>>>;
+
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
 

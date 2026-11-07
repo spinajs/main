@@ -4,7 +4,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { IModelDescriptor, IStreamOptions, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
+import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
 import type { ColumnStatement, IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
@@ -16,7 +16,7 @@ import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
 import { StreamNotSupported } from '../exceptions.js';
-import { applyKeysetPredicate, assertKeysetNotNull, keysetColumns, keysetOfSorts, keysetValues } from '../keyset.js';
+import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
 import { hasPk } from '../primary-keys.js';
 import { executeRecorded } from '../schema-touches.js';
 import type { IRelationSort } from './internal.js';
@@ -688,6 +688,47 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const blocker = this._keysetBlocker();
     if (blocker) {
       throw new StreamNotSupported(`stream() pages by keyset here and cannot keep ${blocker}`);
+    }
+  }
+
+  public async paginate(options: IKeysetPageOptions<Unbox<T>>): Promise<KeysetPage<Unbox<T>>> {
+    this._assertPageable(options);
+
+    const descriptor = extractModelDescriptor(this._model);
+    const columns = keysetColumns(options.orderBy as ReadonlyArray<readonly [string, 'asc' | 'desc']>, descriptor ?? undefined);
+    if (descriptor) {
+      assertKeysetNotNull(columns, descriptor);
+    }
+    const backward = options.before !== undefined;
+    const cursor = options.before ?? options.after;
+
+    for (const { column, order } of columns) {
+      this.order(column, (order === 'asc') !== backward ? SortOrder.ASC : SortOrder.DESC);
+    }
+    const blocker = this._keysetBlocker();
+    if (blocker) {
+      throw new InvalidOperation(`paginate() cannot keep ${blocker}`);
+    }
+    if (cursor !== undefined) {
+      applyKeysetPredicate(this as unknown as IWhereBuilder<unknown>, columns, decodeCursor(columns, cursor), backward ? 'before' : 'after');
+    }
+    this.take(options.limit + 1);
+
+    const rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    return keysetPage(columns, rows, options.limit, { cursor, backward });
+  }
+
+  private _assertPageable(options: { limit: number; after?: string; before?: string }): void {
+    if (!Number.isSafeInteger(options.limit) || options.limit < 1) {
+      throw new InvalidArgument(`limit must be a positive integer, got ${String(options.limit)}`);
+    }
+
+    if (options.after !== undefined && options.before !== undefined) {
+      throw new InvalidArgument('give either after or before, not both');
+    }
+
+    if (this.getSorts().length !== 0 || this._first) {
+      throw new InvalidOperation('paginate() sets the order and the limit itself; remove order(), take(), skip() and first() from the query');
     }
   }
 
