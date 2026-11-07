@@ -65,7 +65,7 @@ export class DeprecationMiddleware extends RouteMiddleware {
   }
 
   public override isEnabled(route: IRoute, _controller: IController): boolean {
-    return !overriddenByRoute(route, this.constructor as typeof DeprecationMiddleware, this.options);
+    return !overriddenByRoute(route, this, this.options);
   }
 
   public onAfter({ res, response }: IReplyContext): void {
