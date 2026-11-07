@@ -36,6 +36,7 @@ A live column reports a native type (`int4`, `nvarchar`, `TEXT`). Which families
 | `untrustedNullability` | Families whose live `NOT NULL` says nothing about the model; sqlite lists `boolean` |
 | `caseInsensitiveIdentifiers` | The database compares unquoted identifiers ignoring case, so table and column names match ignoring case (`Id` and `id` are one column) and the generated code keeps the model's spelling; sqlite, mysql and mssql set it. Postgres and PGlite do not: the drivers quote names there, so `name` and `Name` are two columns |
 | `unboundedText` | A text column's declared length is not enforced, so re-stating one on a modify is not `DESTRUCTIVE`; sqlite sets it. A `binary` length still is |
+| `alterColumnRebuildsTable` | A column is altered by rebuilding its table, which fails while foreign keys are enforced and another table references it (`MIG006`); sqlite sets it. A driver that sets it should also implement `foreignKeysEnforced()`, or `MIG006` never fires for it |
 
 A type the profile does not list is not compared (`MIG003`), and without a profile no type is compared. A third-party driver adds the members that hold for its database to its own profile; the shipped drivers (`@spinajs/orm-postgres`, `-pglite`, `-sqlite`, `-mysql`, `-mssql`) list the types their schema builder creates.
 
@@ -60,6 +61,7 @@ const changes = diffSchema(target, columns, extras, { dialect: sqlDialectOf(Sqli
 | `MIG003` | info | An aspect was not compared (no lengths, no index or foreign-key introspection, unknown type or dialect) |
 | `MIG004` | warning | An unmanaged column is `NOT NULL` without a default |
 | `MIG005` | info | A declared foreign key is missing on an existing table |
+| `MIG006` | error | A column change that will run rebuilds a table that a live or a created table references, and the connection enforces foreign keys (`foreignKeysEnforced: true`), so the rebuild would fail. A `DESTRUCTIVE` change counts only with `allowDestructive`. Only tables a model or `--base` maps are checked; a referencing table no model maps is not, and the driver's own `NotSupported` stops that step when it runs |
 
 ## Generating the migration
 
@@ -81,7 +83,7 @@ export class SchemaDiff_2026_11_03_10_20_30 extends OrmMigration {
 }
 ```
 
-Tables are created before the tables that reference them, then columns are added, altered, indexed, and dropped. `down()` reverses created tables, added columns and added indexes. A `DESTRUCTIVE` step stays a comment unless `allowDestructive` is set. `introspectSchema(driver, tables)` reads `tableInfo()`, the driver's `tableIndexes()`/`tableForeignKeys()` where it has them, and whether each table has rows.
+Tables are created before the tables that reference them, then columns are added, altered, indexed, and dropped. `down()` reverses created tables, added columns and added indexes. A `DESTRUCTIVE` step stays a comment unless `allowDestructive` is set. `introspectSchema(driver, tables)` reads `tableInfo()`, the driver's `tableIndexes()`/`tableForeignKeys()` where it has them, whether each table has rows, and `foreignKeysEnforced()` where the driver has it (sqlite reads `PRAGMA foreign_keys` on the connection that runs migrations). Pass that value and `allowDestructive` to `diffSchema` in its options. The value is read on the CLI's own writer connection, so it reflects `PRAGMA foreign_keys` as the driver's `connect()` leaves it (`@spinajs/orm-sqlite` keeps sqlite's default, off); enforcement switched on elsewhere (an app bootstrap, an earlier migration in the same run) is not seen, and the driver's `NotSupported` is then the backstop.
 
 A `modify()` re-states the whole column, so it keeps what the spec does not state from the live column:
 - the nullability of an inferred column;
@@ -98,4 +100,8 @@ On a driver that reports no length (mysql), a modify of a text column whose spec
 
 Other limits of a modify:
 - A `uuid` column is re-stated as `binary(16)`: the schema builder has no other uuid type outside `createTable`, so on postgres a modify re-types a native `uuid` column to `bytea`. Review such a step before running it.
-- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it. Alter such a table in a hand-written migration.
+- sqlite modifies a column by rebuilding the table, and refuses to do so while `PRAGMA foreign_keys` is on and another table references it; `diffSchema` reports `MIG006` (error) for it, only while the connection enforces foreign keys. To proceed, take that column change out of the models, generate the rest, and alter the table in a hand-written migration with `public transaction = false` (sqlite ignores `PRAGMA foreign_keys` inside a transaction, and a configured [`Migration.Transaction.Mode`](10-migrations.md#transaction-modes) would wrap the migration in one) that runs `PRAGMA foreign_keys = OFF` through `connection.schema().raw()` before the change and turns it back `ON` in a `finally`; `PRAGMA foreign_key_check` afterwards lists any row the change left without its parent.
+
+## Running or printing the steps
+
+`runStep(driver, step)` runs one planned step (`planMigration(changes)[i].step`) on a driver, as the generated `up()` would. `renderSql(changes, driver, { allowDestructive })` returns the DDL those steps compile to on the driver's dialect without writing to the database: the steps run on a copy of the driver that records each statement, answers every query with no rows, and runs a transaction body without opening a transaction. A `DESTRUCTIVE` step is left out unless `allowDestructive` is set, as one `-- DESTRUCTIVE <kind> <table>: <reason> (left out; pass --allow-destructive)` line. A step that needs the live table to compile (a sqlite column change, which rebuilds the table and reads its definition, while the recorder answers no rows) yields one `-- <kind> <table> is not compiled offline: <driver error>` line instead. Statements carry no trailing `;`. The driver must send its DDL through `executeOnDb` and open transactions through `transaction()`; `renderSql` refuses a driver without `executeOnDb` with `NotSupported`. `spinajs migrate-diff --sql` prints this list; the command is described in [Generating migrations](../orm-cli/09-generating-migrations.md).

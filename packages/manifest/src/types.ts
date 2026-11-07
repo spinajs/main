@@ -276,6 +276,8 @@ export interface SqlDialectProfile {
   caseInsensitiveIdentifiers?: boolean;
   /** A text column's declared length is not enforced (sqlite stores it as TEXT), so re-stating one loses nothing. */
   unboundedText?: boolean;
+  /** Altering a column rebuilds the table, which fails while foreign keys are enforced and another table references it. */
+  alterColumnRebuildsTable?: boolean;
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */

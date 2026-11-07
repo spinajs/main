@@ -20,4 +20,5 @@ export const SQLITE_SQL_DIALECT: SqlDialectProfile = {
   untrustedNullability: ['boolean'],
   caseInsensitiveIdentifiers: true,
   unboundedText: true,
+  alterColumnRebuildsTable: true,
 };
