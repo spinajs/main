@@ -34,6 +34,11 @@ describe('manifest model source', () => {
     expect(() => manifestModelEntry(manifestOf([account]), 'Ghost', 'ghosts')).to.throw(ManifestMissing, 'model Ghost (table ghosts) is registered but not listed in the manifest models: rebuild the manifest ( spinajs build )');
   });
 
+  it('throws ManifestMissing when more than one manifest model has the class and table name', () => {
+    const subclass = model('Account', 'accounts', [id()], { id: '@acme/accounts:Account' });
+    expect(() => manifestModelEntry(manifestOf([account, subclass]), 'Account', 'accounts')).to.throw(ManifestMissing, 'model Account (table accounts) matches more than one manifest model (app:Account, @acme/accounts:Account)');
+  });
+
   it('builds descriptors whose native type is the nativeType or the ColumnType name of the family, which is also the converter key', () => {
     const defaults = manifestColumns(account).map((c): unknown => c.DefaultValue);
     expect(manifestColumns(account).map((c) => [c.Name, c.NativeType, c.MaxLength, c.Nullable, c.PrimaryKey, c.AutoIncrement, c.Unique, c.Unsigned])).to.deep.equal([

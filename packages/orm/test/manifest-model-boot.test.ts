@@ -71,12 +71,22 @@ function defineModels() {
     public Id: number;
   }
 
-  return { Flagged, Stamped, Ghost };
+  /** Two manifest models share its class and table name (an app subclass of a package model). */
+  @Connection(CONNECTION)
+  @Model('twins')
+  class Twin extends ModelBase {
+    @Primary()
+    public Id: number;
+  }
+
+  return { Flagged, Stamped, Ghost, Twin };
 }
 
 const MANIFEST = testManifest({
   models: [entry('Flagged', 'flagged', [col('Id', { family: 'integer', inferred: true }, { primary: true }), col('Ref', { family: 'text', inferred: true }), col('Note', { family: 'text', inferred: true })]),
     entry('Stamped', 'stamped', [col('Id', { family: 'integer', inferred: true }, { primary: true }), col('At', { family: 'datetime', inferred: true }), col('Flag', { family: 'boolean', inferred: true })]),
+    entry('Twin', 'twins', [col('Id', { family: 'integer', inferred: true }, { primary: true })]),
+    { ...entry('Twin', 'twins', [col('Id', { family: 'integer', inferred: true }, { primary: true })]), id: '@acme/twins:Twin' },
   ],
 });
 
@@ -105,6 +115,7 @@ describe('db.Models.Source = manifest at boot', () => {
     TABLES.set('flagged', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Ref', 'TEXT'), live('Note', 'TEXT')]);
     TABLES.set('stamped', [live('Id', 'INTEGER', { PrimaryKey: true }), live('At', 'TEXT'), live('Flag', 'INTEGER')]);
     TABLES.set('ghosts', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Legacy', 'TEXT')]);
+    TABLES.set('twins', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Legacy', 'TEXT')]);
   });
 
   afterEach(async () => {
@@ -146,5 +157,13 @@ describe('db.Models.Source = manifest at boot', () => {
     expect(warned()).to.deep.equal([]);
     await orm.reloadTableInfo({ models: [models.Stamped] });
     expect(warned()).to.deep.equal(['Column drift: "column stamped.Flag is INTEGER on connection manifest-source, model Stamped declares boolean"']);
+  });
+
+  it('warns and reads the columns from the database for a model more than one manifest model matches', async () => {
+    const orm = await boot();
+    const warn = sinon.spy((orm as unknown as { Log: { warn(...args: unknown[]): void } }).Log, 'warn');
+    await orm.reloadTableInfo({ models: [models.Twin] });
+    expect(extractModelDescriptor(models.Twin)!.Columns.map((c) => `${c.Name}:${c.NativeType}`)).to.deep.equal(['Id:INTEGER', 'Legacy:TEXT']);
+    expect(warn.getCalls().map(logText).filter((t) => t.includes('more than one manifest model'))).to.have.length(1);
   });
 });

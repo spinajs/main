@@ -14,7 +14,7 @@ export default {
 | `'database'` (default) | the decorators merged with `tableInfo()` | the merge |
 | `'manifest'`, in `require` mode | the decorators merged with the manifest's model columns | drift checks only |
 
-With `'manifest'` in any other manifest mode the ORM warns once and keeps reading the database. A model the manifest does not list (a stale manifest) is warned about and keeps the database merge; rebuild the manifest with `spinajs build`.
+With `'manifest'` in any other manifest mode the ORM warns once and keeps reading the database. A model the manifest does not list (a stale manifest) is warned about and keeps the database merge; rebuild the manifest with `spinajs build`. So is a model whose class and table name more than one manifest model has (an app subclass of a package model with the same name): the registered class does not say which entry it is.
 
 `db.Models.Source` is a typed configuration path: apps that keep generated declarations rerun `spinajs generate:config-types` after upgrading, and `config.get('db.Models.Source')` is typed `'database' | 'manifest'`.
 

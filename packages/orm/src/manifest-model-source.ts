@@ -35,10 +35,12 @@ export interface IColumnDrift {
   message: string;
 }
 
+/** Throws ManifestMissing unless exactly one manifest model has the class and table name: a registered class does not say which package declared it. */
 export function manifestModelEntry(manifest: Manifest, className: string, tableName: string): ModelEntry {
-  const entry = manifest.models.find((m) => m.className === className && m.tableName === tableName);
-  if (!entry) throw new ManifestMissing(`model ${className} (table ${tableName}) is registered but not listed in the manifest models: rebuild the manifest ( spinajs build )`);
-  return entry;
+  const entries = manifest.models.filter((m) => m.className === className && m.tableName === tableName);
+  if (entries.length === 0) throw new ManifestMissing(`model ${className} (table ${tableName}) is registered but not listed in the manifest models: rebuild the manifest ( spinajs build )`);
+  if (entries.length > 1) throw new ManifestMissing(`model ${className} (table ${tableName}) matches more than one manifest model (${entries.map((e) => e.id).join(', ')})`);
+  return entries[0];
 }
 
 /** The model's column descriptors from the manifest alone, shaped as a driver's `tableInfo()` shapes them. */
