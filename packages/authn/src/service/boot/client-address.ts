@@ -5,13 +5,24 @@ import type { AuthnConfigFinding } from './secrets.js';
 
 const set = (v: unknown): boolean => v !== undefined && v !== null;
 
-/** A trustProxy setting in one spelling: true and 1 agree, so do "a, b" and ["a", "b"]. */
+// The names RealIp of @spinajs/http accepts, so 'loopback' and its two ranges compare equal.
+const NAMED: Readonly<Record<string, readonly string[]>> = {
+  loopback: ['127.0.0.0/8', '::1/128'],
+  linklocal: ['169.254.0.0/16', 'fe80::/10'],
+  uniquelocal: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'],
+};
+
+/** A trustProxy setting in one spelling: true and 1 agree, so do "a, b", ["b", "a"] and a name and its ranges. */
 function trustSpelling(v: unknown): string {
   if (v === true) return '1';
   if (v === false) return '0';
   if (typeof v === 'string' || Array.isArray(v)) {
-    const entries = (typeof v === 'string' ? [v] : (v as unknown[])).flatMap((e) => (typeof e === 'string' ? e.split(',') : [JSON.stringify(e)]));
-    return JSON.stringify(entries.map((e) => e.trim()).filter((e) => e !== ''));
+    const entries = (typeof v === 'string' ? [v] : (v as unknown[]))
+      .flatMap((e) => (typeof e === 'string' ? e.split(',') : [JSON.stringify(e)]))
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e !== '')
+      .flatMap((e) => (Object.prototype.hasOwnProperty.call(NAMED, e) ? [...NAMED[e]] : [e]));
+    return JSON.stringify([...new Set(entries)].sort());
   }
   return JSON.stringify(v) ?? String(v);
 }
@@ -30,7 +41,7 @@ export function clientAddressFindings(config: AuthnConfigSource): AuthnConfigFin
     out.push({
       topic: 'proxy',
       level: 'warning',
-      message: 'authn.http.trustProxy and http.trustProxy are both set and differ: authn.http.trustProxy wins, for authn and for RealIp, @RateLimit and http.throttle alike. Set only one of them',
+      message: 'authn.http.trustProxy and http.trustProxy are both set and differ: with @spinajs/authn-http, authn.http.trustProxy wins, for authn and for RealIp, @RateLimit and http.throttle alike. Set only one of them',
     });
   }
 

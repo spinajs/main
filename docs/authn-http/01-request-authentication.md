@@ -1,6 +1,6 @@
 # Request authentication
 
-Three server middlewares find the caller of every request: `ClientIp` (order 1), [`CsrfOriginGuard`](04-csrf-origin-guard.md) (order 4) and `AuthnMiddleware` (order 5). `AuthnRealIp` (order 0) resolves the client address they use, the same one `@RateLimit` and `http.throttle` count. They leave the restored session in `req.storage.AuthnSession` and the authenticated principal, or `null`, in `req.storage.AuthnPrincipal`. Routes read these through [policies](05-policies.md) and [route arguments](06-route-arguments.md); [`@spinajs/authz-http`](../authz-http/README.md) reads the principal for authorization.
+Three server middlewares find the caller of every request: `ClientIp` (order 2), [`CsrfOriginGuard`](04-csrf-origin-guard.md) (order 4) and `AuthnMiddleware` (order 5). `AuthnRealIp` (order 1) resolves the client address they use, the same one `@RateLimit` and `http.throttle` count. They leave the restored session in `req.storage.AuthnSession` and the authenticated principal, or `null`, in `req.storage.AuthnPrincipal`. Routes read these through [policies](05-policies.md) and [route arguments](06-route-arguments.md); [`@spinajs/authz-http`](../authz-http/README.md) reads the principal for authorization.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 ```mermaid
 sequenceDiagram
   participant C as Client
-  participant IP as AuthnRealIp (0), ClientIp (1)
+  participant IP as AuthnRealIp (1), ClientIp (2)
   participant G as CsrfOriginGuard (4)
   participant M as AuthnMiddleware (5)
   participant S as SessionIssuer
@@ -111,8 +111,8 @@ A `trustProxy` entry that is no address or CIDR, and a malformed `publicOrigin`,
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthnRealIp` | `RealIp` of `@spinajs/http`, registered by `registerAuthnHttpV3()` at package load, `Order` 0 | `AuthnRealIp` | | Subclass and `DI.register(MyRealIp).as(RealIp)` before `HttpServer` resolves. Subclass `AuthnRealIp`, not `RealIp`, or `authn.http.trustProxy` stops counting. |
-| `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 1 | `ClientIp` | | Kept for `req.storage.ClientIp`; change the address in `AuthnRealIp` instead, so every limiter sees it. |
+| `AuthnRealIp` | `RealIp` of `@spinajs/http`, registered by `registerAuthnHttpV3()` at package load, `Order` 1 | `AuthnRealIp` | | Subclass and `DI.register(MyRealIp).as(RealIp)` before `HttpServer` resolves. Subclass `AuthnRealIp`, not `RealIp`: another `RealIp` ignores `authn.http.trustProxy`, so `ClientIp` fails the boot when that key is set and warns otherwise (`realIpOverrideFinding()`, also in `authn:check-config`). |
+| `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 2, after any `RealIp` | `ClientIp` | | Kept for `req.storage.ClientIp`; change the address in `AuthnRealIp` instead, so every limiter sees it. |
 | `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()`, `principalOf()` and `hookRequest()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
 | `SessionIssuer` | autoinjected by `AuthnMiddleware` | `DefaultSessionIssuer` from `@spinajs/authn-session` | | See [`@spinajs/authn-session`](../authn-session/README.md). |
 | `CredentialExtractor` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped extractors | your own | See [Credential extractors](02-credential-extractors.md). |
@@ -122,7 +122,7 @@ The package augments `IActionLocalStoregeContext` of `@spinajs/http` with:
 
 | Field | Written by | Meaning |
 | --- | --- | --- |
-| `ClientIp?: string` | `ClientIp` | `req.storage.realIp`: the client address from the trusted proxy chain. Without `RealIp`, the socket address. |
+| `ClientIp?: string` | `ClientIp` | `req.storage.realIp`: the client address from the trusted proxy chain. Without one, the socket address. |
 | `AuthnSession?: Session \| null` | `AuthnMiddleware` | The restored session, pending included; `null` without one. A session here is not authentication. |
 | `AuthnPrincipal?: Principal \| null` | `AuthnMiddleware` | The authenticated principal; `null` for anonymous, a pending session or rejected credentials. |
 

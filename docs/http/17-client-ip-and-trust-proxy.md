@@ -4,7 +4,7 @@
 
 ## How it works
 
-When it resolves, `RealIp` (Order 1; `AuthnRealIp`, which `@spinajs/authn-http` registers over it, Order 0) calls its protected `proxyTrust()` once, which parses `http.trustProxy` with `parseTrustProxy(value, 'http.trustProxy')`. A bad value throws `InvalidOption` and stops the boot.
+When it resolves, `RealIp` (Order 1, as `AuthnRealIp`, which `@spinajs/authn-http` registers over it) calls its protected `proxyTrust()` once, which parses `http.trustProxy` with `parseTrustProxy(value, 'http.trustProxy')`. A bad value throws `InvalidOption` and stops the boot.
 
 Per request (`onBefore`), RealIp stores that trust in `req.storage.proxyTrust`, so later middlewares and controllers read it with `requestProxyTrust(req)` instead of parsing a setting again. Then it computes `trustedClientAddress(socketAddress, xForwardedFor, trust)`:
 
@@ -47,11 +47,12 @@ export default {
 `@spinajs/authn-http` registers `AuthnRealIp` over `RealIp` (`DI.register(AuthnRealIp).as(RealIp)`), so the server mounts it in `RealIp`'s place, not next to it. `@spinajs/http` itself reads no authn key. Effects:
 
 1. The trust is `authn.http.trustProxy` when it is set (not `null`), else `http.trustProxy`. `realIp`, `req.storage.proxyTrust` and every limiter follow it.
-2. authn's `ClientIp` (Order 1) copies `realIp` into `req.storage.ClientIp`; it parses no trust of its own. `AuthnRealIp` runs at Order 0 so it always comes first.
+2. authn's `ClientIp` (Order 2, after any `RealIp`) copies `realIp` into `req.storage.ClientIp`; it parses no trust of its own.
 3. One IPv6 prefix: authn's ip keys use `authn.throttle.ipv6Prefix` when it is set, else `http.throttle.ipv6Prefix` (both default 64), the prefix `http.throttle` and `@RateLimit` count.
 4. The authn boot logs a warning (once per process, on the `authn-boot` logger, and in `authn:check-config`) when:
    - `authn.http.trustProxy` and `http.trustProxy` are both set and differ; `authn.http.trustProxy` wins;
    - `authn.throttle.ipv6Prefix` is set and differs from `http.throttle.ipv6Prefix` (or its default 64).
+5. A `RealIp` registered over `AuthnRealIp` that does not extend it ignores `authn.http.trustProxy`. `ClientIp` then fails the boot with `InvalidOption` when `authn.http.trustProxy` is set, and otherwise logs a warning on the `authn-http` logger; `authn:check-config` reports the same.
 
 Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to both.
 
@@ -59,7 +60,7 @@ Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to b
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (Order 0; reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
+| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
 | `parseTrustProxy(value, key)` | exported function | | | Returns a `ProxyTrust`: `{ hops }` or `{ list: BlockList }`. Throws `InvalidOption` naming `key`. |
 | `parseTrustProxyOverride(override, overrideKey, shared)` | exported function | | | `override` when it is not `null` or `undefined`, else `shared` (`http.trustProxy`). Throws `InvalidOption` naming the key whose value is bad. |
 | `requestProxyTrust(req)` | exported function | | | The trust RealIp stored for this request; no proxy (`{ hops: 0 }`) when RealIp did not run. |
@@ -92,6 +93,8 @@ export class CdnRealIp extends RealIp {
 DI.register(CdnRealIp).as(RealIp);
 ```
 
+With `@spinajs/authn-http`, extend `AuthnRealIp` instead of `RealIp`.
+
 ### `RealIp`: trust from another setting
 
 A package with its own trust key on top of `http.trustProxy` overrides `proxyTrust()`; the client address and `req.storage.proxyTrust` then both follow it:
@@ -112,6 +115,8 @@ export class AppRealIp extends RealIp {
 
 DI.register(AppRealIp).as(RealIp);
 ```
+
+With `@spinajs/authn-http`, extend `AuthnRealIp` instead of `RealIp`.
 
 ## Important behaviour
 
