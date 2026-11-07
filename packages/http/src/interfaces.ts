@@ -296,6 +296,8 @@ export interface IActionLocalStoregeContext {
    * Perf facade during the action and flushed by {@link PerfRollup} at finish.
    */
   perf?: IPerfScope;
+  /** `@SlowThreshold(ms)` of the route: {@link SlowRequestWarning} judges the request against it. */
+  slowThresholdMs?: number;
 }
 
 export interface IResponseHeader {

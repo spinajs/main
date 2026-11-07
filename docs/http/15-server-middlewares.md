@@ -49,7 +49,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `ResponseTime` | 2 | yes | onBefore, onAfter | | `x-response-time` header, `req.storage.responseTime`. |
 | `AccessLog` | 2 | yes | onBefore, onFinish | `http.accessLog.enabled` | One log line per request on `http.access`, aborted ones included: a streamed reply the client closed is logged with its status and `aborted: true`. |
 | `ServerTiming` | 2 | yes | onBefore, onAfter | `http.serverTiming.enabled` | `Server-Timing` header. |
-| `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
+| `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. `@SlowThreshold(ms)` replaces `http.slowRequest.thresholdMs` on a route ([route middlewares](14-route-middlewares.md#slowthreshold)). |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
