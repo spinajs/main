@@ -55,8 +55,7 @@ export const EXECUTION_LISTS = ['_statements', '_joinStatements', '_columns', '_
 
 /**
  * A copy of `query` for one more execution (a builder runs once): it owns the lists that the caller, a query
- * middleware or the execution appends to, and shares the statements. `clone()` rebinds every statement to the
- * copy, so a join or where merged in from a nested relation query would read the copy's alias instead of its own.
+ * middleware or the execution appends to, and shares the statements instead of cloning them as `clone()` does.
  * `setAlias()` on a copy writes through to the statements it shares with the original.
  */
 export function executionCopy<Q extends object>(query: Q): Q {

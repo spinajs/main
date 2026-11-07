@@ -106,6 +106,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   protected _owner: IOrmRelation | undefined;
 
+  // Statements taken over from another builder by mergeBuilder()/mergeStatements(): they read that
+  // builder's alias, so clone() copies them without rebinding them to the copy.
+  protected _merged = new WeakSet<IQueryStatement>();
+
   /**
    * The outer builder this query is correlated to, set when this query is the sub-select of a
    * correlated EXISTS ( see {@link ExistsRelationHandler} ).
@@ -248,18 +252,19 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._tableAlias = this._tableAlias;
     builder._correlationSource = this._correlationSource;
 
-    // Clone columns
-    builder._columns = this._columns.map(c => c.clone(builder));
+    const copy = (s: IQueryStatement) => {
+      if (!this._merged.has(s)) {
+        return s.clone(builder);
+      }
+      const merged = s.clone();
+      builder._merged.add(merged);
+      return merged;
+    };
 
-    // Clone joinStatements with mapped WhereBuilder references
-    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
-
-    // Clone statements with mapped WhereBuilder references
-    builder._statements = this._statements.map(c => c.clone(builder));
-
-    // Clone group-by statements (previously dropped, silently losing GROUP BY
-    // on a cloned query).
-    builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
+    builder._columns = this._columns.map(copy);
+    builder._joinStatements = this._joinStatements.map(copy);
+    builder._statements = this._statements.map(copy);
+    builder._groupStatements = this._groupStatements.map(copy);
 
     // Carry relations and result middlewares over. These hold live objects and
     // are shared the same way mergeRelations()/mergeBuilder() already share them.
@@ -396,6 +401,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
+    this._markMerged(builder._columns);
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
@@ -430,8 +436,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
+    this._markMerged(builder._joinStatements);
+    this._markMerged(stms);
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  private _markMerged(statements: IQueryStatement[]) {
+    for (const s of statements) this._merged.add(s);
   }
 
   /**
