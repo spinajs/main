@@ -32,7 +32,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Data transformers](12-data-transformers.md) | `DataTransformer`: reshape a JSON answer on request with `x-data-transform` and `x-error-transform` |
 | [Policies](13-policies.md) | `BasePolicy`, `@Policy`: AND groups, OR alternatives, controller and route scopes, policies named in configuration |
 | [Route middlewares](14-route-middlewares.md) | `RouteMiddleware`, `@Middleware`, `@Accepts`: code around one route or controller |
-| [Server middlewares](15-server-middlewares.md) | `ServerMiddleware` and `Order`: the global Express stack, the shipped middlewares, adding or replacing one |
+| [Server middlewares](15-server-middlewares.md) | `ServerMiddleware`, `Order` and the hooks: the request timeline, the shipped middlewares, the 404 and error tail, adding or replacing one |
 | [CORS](16-cors.md) | `CorsMiddleware`: allowed origins, credentials, preflight, header lists |
 | [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md) | `RealIp`, `http.trustProxy`, `parseTrustProxy`, `parseTrustProxyOverride`, `requestProxyTrust`, `trustedClientAddress`, `requestOrigin` |
 | [Throttling](18-throttling.md) | `ThrottleMiddleware` and the `ThrottleStore` seam: per-IP, per-path rate limits |

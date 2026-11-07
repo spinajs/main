@@ -6,20 +6,20 @@ It is off by default. It does **not** replace the login throttle of `@spinajs/au
 
 ## How it works
 
-At startup (`ThrottleMiddleware.before()`, Order 3, after `RealIp`):
+When it resolves (Order 3, after `RealIp`):
 
-1. Reads `http.throttle`. Not enabled: no handler.
+1. Reads `http.throttle`. Not enabled: `isEnabled()` is false and nothing is mounted.
 2. Checks every rule: `limit` must be a finite number ≥ 0 and `windowSeconds` a finite number > 0, else `InvalidOption` stops the boot.
-3. No rules: logs a warning and adds no handler.
+3. No rules: logs a warning and mounts nothing.
 
-Per request:
+Per request (`onBefore`):
 
-1. Finds the **first** rule whose `path` is a prefix of `req.path` on a segment boundary (case-insensitive) and whose `methods` include the request method (or that has no `methods`). No rule: `next()`.
+1. Finds the **first** rule whose `path` is a prefix of `req.path` on a segment boundary (case-insensitive) and whose `methods` include the request method (or that has no `methods`). No rule: the request goes on.
 2. Builds the key `<ip>:<rule.path>:<methods or *>`. The address is `req.storage.realIp`, else the socket address. An IPv6 address is replaced by its network, `<network>/<prefix>` with `http.throttle.ipv6Prefix`, so a client that owns a whole /64 cannot get a fresh window per address. IPv4 and IPv4-mapped addresses are keyed whole.
 3. Calls `ThrottleStore.increment(key, windowSeconds)`.
 4. Sets `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (Unix seconds).
-5. Over the limit: sets `Retry-After` (seconds, at least 1) and answers 429 with `{ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }`.
-6. A store that throws: the error goes to `next(err)` and the error handler answers it.
+5. Over the limit: sets `Retry-After` (seconds, at least 1) and returns the 429 `Response` with `{ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }`. It goes through the reply pipeline, so the `onAfter` of the server middlewares entered before it (timing headers, for one) see it.
+6. A store that throws: the request fails closed; the global error answer answers it.
 
 `MemoryThrottleStore` keeps fixed windows in a `Map`. A window starts at the first hit and resets after `windowSeconds`. Expired keys are dropped on their next hit and in a full sweep every 10,000 increments (`MemoryThrottleStore.SWEEP_INTERVAL`).
 
@@ -87,7 +87,7 @@ The counters are per process unless you register a shared `ThrottleStore`. Behin
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `ThrottleStore` (abstract) | Class `ThrottleStore`, autoinjected into `ThrottleMiddleware`; singleton | `MemoryThrottleStore` (`@Injectable(ThrottleStore)`) | none shipped | Register your store with `@Injectable(ThrottleStore)` (or `DI.register(Mine).as(ThrottleStore)`) before `HttpServer` resolves; the last registration wins. |
-| `ThrottleMiddleware` | `ServerMiddleware` list, Order 3 | `ThrottleMiddleware` | | Subclass and `DI.register(Mine).as(ThrottleMiddleware)` before `HttpServer` resolves; override `before()`. |
+| `ThrottleMiddleware` | `ServerMiddleware` list, Order 3 | `ThrottleMiddleware` | | Subclass and `DI.register(Mine).as(ThrottleMiddleware)` before `HttpServer` resolves; override `onBefore(ctx)`, calling `super.onBefore(ctx)` for the configured rules. |
 
 Members:
 

@@ -14,7 +14,7 @@ Registering it makes the plain `CsrfGuard` step aside, so one guard runs.
 
 ## How it works
 
-1. `CsrfOriginGuard.before()` runs once when `HttpServer` resolves. It normalises the allowed origins, compiles the exempt paths and the proxy trust, so a bad entry fails the boot even while the guard is off. With `http.csrf.enabled: false` or `authn.http.csrf.enabled: false` it adds no handler.
+1. `CsrfOriginGuard` is set up once when `HttpServer` mounts it. It normalises the allowed origins, compiles the exempt paths and the proxy trust, so a bad entry fails the boot even while the guard is off. With `http.csrf.enabled: false` or `authn.http.csrf.enabled: false` it adds no handler.
 2. Per request, `GET`, `HEAD` and `OPTIONS` pass.
 3. A request with neither `Origin` nor `Sec-Fetch-Site` and without the session cookie (or another `http.csrf.ambientCookies` entry) passes: it is a non-browser client (curl, a server-side caller).
 4. With an `Origin` header, the request passes when the origin is the app's own or an allowed one. The own origin is the connection scheme plus the `Host` header, or `X-Forwarded-Proto` and `X-Forwarded-Host` from a trusted proxy only.

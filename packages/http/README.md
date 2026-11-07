@@ -286,7 +286,7 @@ Every reply of a matched route (the action's, an error reply, an early answer, a
 
 `http.routes.middlewares` mounts route middlewares on every route ( names, classes or `{ service, options }` ), before the controller and route ones, eg. `routes: { middlewares: ['RouteTiming'] }`.
 
-Server-level middlewares ( whole express stack, not per-route ) ship in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `NotFound`, `ErrorHandler`.
+Server middlewares ( every request, before static files and routing ) have the same hooks as route middlewares ( `onBefore`, `onAfter`, `onFinish`, `onAround` ) plus `Order`, `isEnabled()` and `handler()`; their `onAfter` runs after the route's, in reverse `Order`, for every framework reply, the 404 and error replies included. Shipped in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `ThrottleMiddleware`, `CsrfGuard`. `NotFoundMiddleware` and `ErrorHandlerMiddleware` are the fixed tail of `HttpServer`, replaceable through DI. `before()` / `after()` are deprecated and removed in the next major.
 
 ## Controller discovery ( ControllerSource )
 
