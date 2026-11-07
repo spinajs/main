@@ -5,6 +5,8 @@ import { _check_arg, _is_string, _between } from '@spinajs/util';
 import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
 import type { IMiddlewareContext, IReplyContext } from '@spinajs/http';
 
+export * from './schema.js';
+
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
     language: string;
@@ -24,6 +26,15 @@ function extractLanguageFromRequest(req: sRequest, param: string) {
   }
 
   return null;
+}
+
+// RFC 5646 in its common shape: a 2-3 letter language, then subtags. `_` is taken for `-` (`pt_BR`).
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/;
+
+/** The language as a `Content-Language` value, or undefined when it is no language tag (a header must never fail). */
+function contentLanguageOf(language: string | undefined): string | undefined {
+  const tag = language?.replace(/_/g, '-');
+  return tag !== undefined && LANGUAGE_TAG.test(tag) ? tag : undefined;
 }
 
 export function Lang(allowedLanguages?: string[]) {
@@ -74,6 +85,11 @@ export class IntlHttpMiddleware extends ServerMiddleware {
   @Config('intl.defaultLocale')
   protected defaultLocale!: string;
 
+  @Config('intl.http.vary', { defaultValue: true })
+  protected Vary!: boolean;
+
+  protected varyFields?: string[];
+
   constructor() {
     super();
     this.Order = 1;
@@ -83,16 +99,26 @@ export class IntlHttpMiddleware extends ServerMiddleware {
     storage.language = this.detectLanguage(req as sRequest);
   }
 
-  /** `Content-Language` unless the answer set its own, and `Vary` on the request headers {@link varyHeaders} names. */
+  /**
+   * `Content-Language` when the language is a language tag and the answer set none, and, unless `intl.http.vary` is
+   * false, `Vary` on the request headers {@link varyHeaders} names.
+   */
   public onAfter({ res, response, storage }: IReplyContext): void {
-    if (storage.language && !res.hasHeader('Content-Language') && !response.headers.some((h) => h.Name.toLowerCase() === 'content-language')) {
-      res.setHeader('Content-Language', storage.language);
+    const contentLanguage = contentLanguageOf(storage.language);
+    if (contentLanguage && !res.hasHeader('Content-Language') && !response.headers.some((h) => h.Name.toLowerCase() === 'content-language')) {
+      res.setHeader('Content-Language', contentLanguage);
     }
-    const fields = this.varyHeaders();
+    if (!this.Vary) {
+      return;
+    }
+    const fields = (this.varyFields ??= this.varyHeaders());
     // a hook's header replaces the answer's own one of the same name, so a Vary the answer set is joined here
     const own = response.headers.find((h) => h.Name.toLowerCase() === 'vary');
     if (own) {
       const listed = String(own.Value).split(',').map((f) => f.trim()).filter(Boolean);
+      if (listed.includes('*')) {
+        return;
+      }
       const missing = fields.filter((f) => !listed.some((l) => l.toLowerCase() === f.toLowerCase()));
       response.setHeader('Vary', [...listed, ...missing].join(', '));
     } else {
@@ -102,7 +128,7 @@ export class IntlHttpMiddleware extends ServerMiddleware {
 
   /**
    * The request headers {@link detectLanguage} reads, for `Vary`: the cookie and the `x-<name>` header. A subclass that
-   * reads more (`Accept-Language`) adds them here.
+   * reads more (`Accept-Language`) adds them here. Called once, on the first reply.
    */
   protected varyHeaders(): string[] {
     return ['Cookie', `X-${this.LangQueryParameter.charAt(0).toUpperCase()}${this.LangQueryParameter.slice(1)}`];
