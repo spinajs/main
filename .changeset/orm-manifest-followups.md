@@ -4,6 +4,8 @@
 "@spinajs/orm-sqlite": patch
 "@spinajs/orm-mssql": patch
 "@spinajs/orm-mysql": patch
+"@spinajs/orm-postgres": patch
+"@spinajs/orm-pglite": patch
 "@spinajs/orm-cli": patch
 "@spinajs/compiler": patch
 ---
@@ -12,7 +14,7 @@
 
 `SqlDialectProfile` gains `uniquePrimaryKey` and `rowidType`: the manifest source flags a primary key column `Unique` only where the driver's `tableInfo()` does (sqlite: a single-column key that is not the `INTEGER` rowid; mssql: never), so an untargeted `onDuplicate()` targets the same columns under both sources.
 
-`@spinajs/orm-sqlite` and `@spinajs/orm-mysql`: the dialect profiles count a sqlite `TEXT` and a mysql `CHAR`/`VARCHAR` column as able to hold a `uuid` (packages store uuids as `string(name, 36)`), so `migrate-diff` and the drift check no longer report a type change for one.
+`@spinajs/orm-sqlite`, `@spinajs/orm-mysql`, `@spinajs/orm-postgres`, `@spinajs/orm-pglite` and `@spinajs/orm-mssql`: the dialect profiles count a sqlite `TEXT`, a mysql `CHAR`/`VARCHAR`, a postgres `varchar`/`bpchar` and an mssql `varchar`/`nvarchar`/`char` column as able to hold a `uuid` (packages store uuids as `string(name, 36)`), so `migrate-diff` and the drift check no longer report a type change for one.
 
 `@spinajs/orm-cli`: `migrate-diff --package <names>` and `--exclude-package <names>` choose the packages whose models count (the app's own always do under `--package`), for the base manifest too, so the tables of packages the app does not use are left out.
 
