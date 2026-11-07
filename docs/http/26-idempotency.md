@@ -78,7 +78,7 @@ the route started, the route does not run either.
 
 | Header | Replayed |
 |---|---|
-| `Content-Type`, `Location`, `ETag` | yes |
+| `Content-Type`, `Location`, `ETag` | yes, also when an `onAfter` hook set them; the stored `ETag` is dropped when an `onAfter` hook changed the replayed data, and express computes one for the new body |
 | headers the route set through `IResponseOptions.Headers` (`new Ok(body, { Headers: [...] })`) | yes |
 | `Set-Cookie`, also when the route set it through `IResponseOptions.Headers` | never |
 | `Connection`, `Keep-Alive`, `Transfer-Encoding`, `Trailer`, `Upgrade`, `Content-Length`, `Date` | never; the replay's own send sets those it needs |

@@ -95,7 +95,7 @@ const storable = (status: number): boolean => (status >= 200 && status < 300) ||
  * The reply `@Idempotent` sends for a repeated key: the stored status, headers and JSON body, plus
  * `Idempotent-Replayed: true`. Its `data` is the stored body, as the outer `onAfter` hooks already shaped it on the first
  * answer: a hook that changes data checks `ctx.response instanceof ReplayedResponse` so it does not apply itself twice.
- * The stored bytes are sent unless a hook changed `data`.
+ * The stored bytes are sent unless a hook changed `data`; then the stored ETag is dropped and express computes one.
  */
 export class ReplayedResponse extends Response<unknown> {
   public readonly replayed = true;
@@ -115,9 +115,12 @@ export class ReplayedResponse extends Response<unknown> {
   public override async execute(): Promise<ResponseFunction> {
     const data = await this.prepareResponse();
     const changed = !_.isEqual(data, this.pristine);
+    // the stored ETag names the stored body; a hook's own ETag stays
+    const storedEtag = this.stored.headers.etag;
+    const headers = changed ? this.headers.filter((h) => h.Name.toLowerCase() !== 'etag' || h.Value !== storedEtag) : this.headers;
     return (_req, res) => {
       res.status(this.statusCode);
-      _setHeaders(res, this.options);
+      _setHeaders(res, { Headers: [...headers] });
       res.setHeader(IDEMPOTENT_REPLAYED_HEADER, 'true');
       if (changed) {
         res.json(data);

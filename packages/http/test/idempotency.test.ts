@@ -270,6 +270,7 @@ describe('Idempotency-Key', function () {
     expect(first.body).to.deep.eq({ envelope: { call: 1 } });
     expect(again.status).to.eq(200);
     expect(again.text).to.eq(first.text);
+    expect(headersOf(again).etag).to.eq(headersOf(first).etag);
     expect(headersOf(again)['idempotent-replayed']).to.eq('true');
     expect(state.sawReplay).to.deep.eq([false, true]);
     expect(state.calls).to.eq(1);
@@ -285,6 +286,9 @@ describe('Idempotency-Key', function () {
     expect(again.body).to.deep.eq({ envelope: { envelope: { call: 1 } } });
     expect(third.body).to.deep.eq(again.body);
     expect(headersOf(again)['content-type']).to.match(/json/);
+    // the stored ETag names the stored body, not the changed one
+    expect(headersOf(first).etag).to.be.a('string');
+    expect(headersOf(again).etag).to.not.eq(headersOf(first).etag);
     expect(state.calls).to.eq(1);
   });
 

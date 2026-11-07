@@ -238,7 +238,7 @@ export class CatalogController extends BaseController {
 }
 ```
 
-Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`: the reply pipeline adds every header the hooks set on `ctx.res`, even to the value it already had, to the response's headers, which `execute()` applies last. When a throwing `onAfter` turns the reply into an error reply, the headers the earlier hooks set on `ctx.res` are put back as they were, so the error reply never carries a header meant for the success reply. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
+Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`: the reply pipeline adds every header the hooks set on `ctx.res`, even to the value it already had, to the response's headers, which `execute()` applies last. When a throwing `onAfter` turns the reply into an error reply, the headers the earlier hooks set on `ctx.res` are put back as they were, so the error reply never carries a header meant for the success reply; headers the error handlers set while making the error reply stay. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
 
 ## Around middlewares
 
@@ -259,7 +259,7 @@ When an error handler turns the error into another one, `error` is the last one.
 
 `@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it.
 
-On a replay `ctx.response.data` is the stored JSON body, which those outer hooks already shaped on the first answer. A hook that changes data checks `ctx.response instanceof ReplayedResponse` and leaves a replay alone; otherwise it applies itself a second time, and the client gets that. The stored bytes are sent unless a hook changed `data`. Headers a hook adds are never stored: a replay restores the route's own headers only ([Idempotency](26-idempotency.md#headers-of-a-replay)).
+On a replay `ctx.response.data` is the stored JSON body, which those outer hooks already shaped on the first answer. A hook that changes data checks `ctx.response instanceof ReplayedResponse` and leaves a replay alone; otherwise it applies itself a second time, and the client gets that. The stored bytes are sent unless a hook changed `data`; then the stored `ETag` is dropped. Headers a hook adds are never stored, except `Content-Type`, `Location` and `ETag`, which describe the body: a replay restores the route's own headers only ([Idempotency](26-idempotency.md#headers-of-a-replay)).
 
 ### Stage
 

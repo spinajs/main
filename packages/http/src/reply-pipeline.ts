@@ -201,11 +201,19 @@ export async function sendReply(req: express.Request, res: express.Response, res
             own = headerNamesOf(current);
           }
         } catch (err) {
-          const turned = await turnIntoErrorReply(req, res, state, entry, err, options);
-          if (turned) {
-            // headers the hooks set for the reply that failed must not go out with the error reply
+          // headers the hooks set for the reply that failed must not go out with the error reply; those the error
+          // handlers set are its own, so they are not watched
+          const turned = await turnIntoErrorReply(req, res, state, entry, err, options, async (makeReply) => {
             restoreHeaders(res, before, written.names);
             written.names.clear();
+            written.paused = true;
+            try {
+              return await makeReply();
+            } finally {
+              written.paused = false;
+            }
+          });
+          if (turned) {
             current = turned.response;
             own = headerNamesOf(current);
             error = turned.error;
@@ -227,16 +235,13 @@ export async function sendReply(req: express.Request, res: express.Response, res
 const headerNamesOf = (response: Response): Set<string> => new Set((typeof response.setHeader === 'function' ? response.headers : []).map((h) => h.Name.toLowerCase()));
 
 /** Records the names of the headers set on `res` until `stop()`; express's `set`, `header`, `append` and `cookie` all end in `setHeader`. */
-function watchHeaderWrites(res: express.Response): { names: Set<string>; stop: () => void } {
+function watchHeaderWrites(res: express.Response): { names: Set<string>; paused: boolean; stop: () => void } {
   const names = new Set<string>();
   const own = Object.prototype.hasOwnProperty.call(res, 'setHeader');
   const setHeader = res.setHeader;
-  res.setHeader = function (this: express.Response, name: string, value: number | string | readonly string[]) {
-    names.add(name.toLowerCase());
-    return setHeader.call(this, name, value);
-  } as express.Response['setHeader'];
-  return {
+  const watch = {
     names,
+    paused: false,
     stop: () => {
       if (own) {
         res.setHeader = setHeader;
@@ -245,6 +250,13 @@ function watchHeaderWrites(res: express.Response): { names: Set<string>; stop: (
       }
     },
   };
+  res.setHeader = function (this: express.Response, name: string, value: number | string | readonly string[]) {
+    if (!watch.paused) {
+      names.add(name.toLowerCase());
+    }
+    return setHeader.call(this, name, value);
+  } as express.Response['setHeader'];
+  return watch;
 }
 
 function restoreHeaders(res: express.Response, before: Record<string, unknown>, names: Iterable<string>): void {
@@ -280,7 +292,15 @@ function keepHeadersSetByHooks(res: express.Response, written: Set<string>, resp
   }
 }
 
-async function turnIntoErrorReply(req: express.Request, res: express.Response, state: IReplyState, entry: IEntered, err: unknown, options: ISendReplyOptions): Promise<IErrorReply | undefined> {
+async function turnIntoErrorReply(
+  req: express.Request,
+  res: express.Response,
+  state: IReplyState,
+  entry: IEntered,
+  err: unknown,
+  options: ISendReplyOptions,
+  around: (makeReply: () => Promise<IErrorReply>) => Promise<IErrorReply>,
+): Promise<IErrorReply | undefined> {
   const log = httpLog();
   if (state.converted) {
     log.error({ error: err, middleware: nameOf(entry.middleware), url: req.originalUrl }, 'onAfter of ${middleware} failed on the error reply of an earlier onAfter failure; that reply is sent as it is');
@@ -295,7 +315,7 @@ async function turnIntoErrorReply(req: express.Request, res: express.Response, s
   state.converted = true;
   markStage(res, 'after');
   try {
-    const turned = await errorReply(err);
+    const turned = await around(() => errorReply(err));
     noteRouteError(res, turned.error);
     return turned;
   } catch (replyError) {

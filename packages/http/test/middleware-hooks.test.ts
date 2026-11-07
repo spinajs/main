@@ -320,6 +320,15 @@ class HooksController extends BaseController {
   }
 
   @Get()
+  @Middleware(ThrowAfter, 'thrower')
+  @OnError(Forbidden, (_err, ctx) => {
+    ctx.res.setHeader('X-On-Error', 'kept');
+  })
+  public d8OnErrorHeader() {
+    return new Ok({});
+  }
+
+  @Get()
   @Middleware(SameHeader)
   public sameHeader() {
     return new Ok({}, { Headers: [{ Name: 'X-V', Value: 'response' }] });
@@ -539,6 +548,13 @@ describe('Route middleware context hooks', function () {
 
     expect(res.status).to.eq(403);
     expect(res.header['cache-control']).to.not.match(/public/);
+  });
+
+  it('keeps a header an @OnError handler sets while it turns a throwing onAfter into the error reply', async () => {
+    const res = await req().get('hooks/d8OnErrorHeader').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(403);
+    expect(res.header['x-on-error']).to.eq('kept');
   });
 
   it('lets a header an onAfter sets win over the response options even when the value did not change', async () => {
