@@ -1,12 +1,12 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
 import type { IController, IMiddlewareContext, IRoute, MiddlewareStage, Response } from '../interfaces.js';
-import { rateLimitAnswer, retryAfterSeconds, setRateLimitHeaders, tooManyRequests } from './rate-limit-answer.js';
+import { quietRateLimitAnswer, rateLimitAnswer, retryAfterSeconds, setRateLimitHeaders, tooManyRequests } from './rate-limit-answer.js';
 import { ThrottleStore } from './Throttle.js';
 
 /** What one request is counted against: its client address, or its authenticated principal. */
@@ -19,7 +19,10 @@ export interface IRateLimitSettings {
 }
 
 export interface IRateLimitOptions {
-  /** Config path read once when the route is mounted: an IRateLimitSettings object (merged over `default`), or `false` = this route has no limit. */
+  /**
+   * Config path read once when the route is mounted: an IRateLimitSettings object (merged over `default`), or `false` =
+   * this route has no limit, not even a global `http.routes.middlewares` one. `{ limit: 0 }` closes the route instead.
+   */
   config?: string;
   /** Used when `config` is absent or the key is not set. Required when `config` is given. */
   default?: IRateLimitSettings;
@@ -36,7 +39,9 @@ export interface IRateLimitOptions {
   headers?: boolean;
   /**
    * Custom counting key for this route (e.g. a session handle); undefined falls back to `by`. Prefixed with the route
-   * key; must not contain secrets in clear (hash them).
+   * key. A key read from the request limits per value the client sends, so a client that varies it is never limited:
+   * derive it from server-validated state, or keep an ip limit next to it. Stored in clear: hash secrets, with an HMAC
+   * keyed by a server secret for low-entropy values (login names, emails).
    */
   key?: (ctx: IMiddlewareContext) => string | undefined;
 }
@@ -48,6 +53,7 @@ interface IPrincipalLike {
 }
 
 const SETTINGS_KEYS: readonly string[] = ['limit', 'windowSeconds', 'by'];
+const OPTION_KEYS: readonly string[] = ['config', 'default', ...SETTINGS_KEYS, 'answer', 'headers', 'key'];
 
 const show = (v: unknown): string => (typeof v === 'string' ? `'${v}'` : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
@@ -136,7 +142,10 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
   public async onBefore(ctx: IMiddlewareContext): Promise<Response | void> {
     const settings = this.settings;
-    if (!settings) return;
+    if (settings === false) return;
+    if (settings === undefined || this.route === '') {
+      throw new InvalidOperation(`${this.constructor.name} was not registered on its route: a subclass overriding onRegister must call super.onRegister`);
+    }
 
     const { res } = ctx;
     const { answer } = this.options;
@@ -153,13 +162,13 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
     // A store failure rejects: the request fails closed through the error answer.
     const hit = await this.Store.increment(`${this.route}:${this.subject(ctx, settings.by)}`, settings.windowSeconds);
-    if (headers && !answer) return rateLimitAnswer(res, settings.limit, hit);
+    if (!answer) return headers ? rateLimitAnswer(res, settings.limit, hit) : quietRateLimitAnswer(settings.limit, hit);
     if (headers) setRateLimitHeaders(res, settings.limit, hit);
     if (hit.count <= settings.limit) return;
 
     const retryAfter = retryAfterSeconds(hit);
     if (headers) res.set('Retry-After', String(retryAfter));
-    return answer ? answer(retryAfter) : tooManyRequests().setHeader('Retry-After', String(retryAfter));
+    return answer(retryAfter);
   }
 
   private current(): Partial<IRateLimitSettings> {
@@ -170,6 +179,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
   private resolveSettings(): Required<IRateLimitSettings> | false {
     if (this.settings !== undefined) return this.settings;
 
+    this.checkOptions();
     const { config, limit, windowSeconds, by } = this.options;
     const inline = defined({ limit, windowSeconds, by });
     if (config === undefined) {
@@ -190,6 +200,22 @@ export class RateLimitMiddleware extends RouteMiddleware {
     if (unknown.length > 0) throw new InvalidOption(`${config} has unknown keys ${unknown.join(', ')}; allowed: ${SETTINGS_KEYS.join(', ')}`);
 
     return (this.settings = checkSettings({ ...fallback, ...defined(configured as Partial<IRateLimitSettings>) } as IRateLimitSettings, (name, problem) => new InvalidOption(`${config}.${name} ${problem}`)));
+  }
+
+  /** The options can come from JSON (`http.routes.middlewares`), where a typo or a string "false" would be ignored. */
+  private checkOptions(): void {
+    const { config, answer, key, headers } = this.options;
+    const unknown = Object.keys(this.options).filter((k) => !OPTION_KEYS.includes(k));
+    if (unknown.length > 0) throw new InvalidArgument(`@RateLimit has unknown options ${unknown.join(', ')}; allowed: ${OPTION_KEYS.join(', ')}`);
+    if (config !== undefined && (typeof config !== 'string' || config === '')) throw new InvalidArgument(`@RateLimit config must be a non-empty string, got ${show(config)}`);
+    if (answer !== undefined && typeof answer !== 'function') throw new InvalidArgument(`@RateLimit answer must be a function, got ${show(answer)}`);
+    if (key !== undefined && typeof key !== 'function') throw new InvalidArgument(`@RateLimit key must be a function, got ${show(key)}`);
+    if (headers !== undefined && typeof headers !== 'boolean') throw new InvalidArgument(`@RateLimit headers must be a boolean, got ${show(headers)}`);
+    const fallback = this.options.default;
+    if (typeof fallback === 'object' && fallback !== null) {
+      const unknownDefault = Object.keys(fallback).filter((k) => !SETTINGS_KEYS.includes(k));
+      if (unknownDefault.length > 0) throw new InvalidArgument(`@RateLimit default has unknown keys ${unknownDefault.join(', ')}; allowed: ${SETTINGS_KEYS.join(', ')}`);
+    }
   }
 
   private subject(ctx: IMiddlewareContext, by: RateLimitKey): string {
