@@ -1014,6 +1014,11 @@ export abstract class Response<T = any> {
     this.responseData = data;
   }
 
+  /** The cookies `execute` sets, from `IResponseOptions.Coockies`. */
+  public get cookies(): readonly ICookie[] {
+    return this.options?.Coockies ?? [];
+  }
+
   /** The headers `execute` sets, from `IResponseOptions.Headers`. */
   public get headers(): readonly IResponseHeader[] {
     return this.options?.Headers ?? [];

@@ -37,7 +37,7 @@ Your route stays a thin layer: take validated inputs, build the commands, call `
 | `respond` | `(status: number, body: unknown) => Response` | `Ok`, `ForbiddenResponse`, `NotFound`, `Conflict`, else `BadRequestResponse`. |
 | `adminErrorStatus` | `(code: string) => number` | `403` for `forbidden`, `escalation`, `last_holder`, `self_lockout`, `protected_role`; `404` for `not_found`; `409` for `conflict`; `400` for any other code. |
 | `resultsStatus` | `(results: readonly AuthzCommandResult[]) => number` | `200` when every result is ok, else the status of the failed one. |
-| `NoStore` | `RouteMiddleware` | Re-exported from `@spinajs/http`. Sets `Cache-Control: no-store` and `Pragma: no-cache` on every reply of the route, error replies included; use it with `@Middleware(NoStore)` on a route whose answer can hold a link token. See [Route middlewares](../http/14-route-middlewares.md#built-in-cachecontrol-and-nostore). |
+| `NoStore` | `RouteMiddleware` | Re-exported from `@spinajs/http`. Sets `Cache-Control: no-store` and `Pragma: no-cache` before the route runs and again on every framework reply, error replies included, so a reply the route writes to `res` itself has them too; use it with `@Middleware(NoStore)` on a route whose answer can hold a link token. See [Route middlewares](../http/14-route-middlewares.md#built-in-cachecontrol-and-nostore). |
 
 The DTOs check the types and caps (see [Input validation](01-admin-routes.md#input-validation)). The parsers throw `AuthzAdminFailure('invalid_query', message, field)` only for what a schema cannot say: a malformed `scope` or `subject`, `after` together with `offset`, and a holders query without `scope`.
 
@@ -69,7 +69,7 @@ The DTOs check the types and caps (see [Input validation](01-admin-routes.md#inp
 - **Keep the actor the request principal.** `AuthzAdmin` checks the actor's permission and runs the guard for it; passing `SYSTEM` or another principal skips what the caller may do.
 - **Validate before the route runs.** Take inputs through DTOs and `@Param(schema)`, with `adminInputAnswer` on the controller. Without that `@OnError`, an `AuthzAdminFailure` from `@AdminQuery()` is not answered as `{ error }`.
 - **Refuse with `AuthzAdminFailure`** in your own input checks, so the same `{ error: { code, message, field? } }` body and status come out.
-- **Set `Cache-Control: no-store`** (`@Middleware(NoStore)`) on a route whose answer can hold a link token: it goes out with every reply of the route, the refusal of an argument or a failed command too.
+- **Set `Cache-Control: no-store`** (`@Middleware(NoStore)`) on a route whose answer can hold a link token: it goes out with every reply of the route, the refusal of an argument, a failed command and a reply written to `res` too. Only the 401 of the authentication check, which comes before the route, does not carry it.
 
 ## Patterns and antipatterns
 

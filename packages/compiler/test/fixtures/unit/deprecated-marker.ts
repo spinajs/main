@@ -1,7 +1,7 @@
 import { BaseController, BasePath, Deprecated as Sunsetting, Get, Ok } from '@spinajs/http';
 
 @BasePath('legacy')
-@Sunsetting({ sunset: new Date('2026-12-31') })
+@Sunsetting({ since: new Date('2026-01-01'), sunset: new Date('2026-12-31') })
 export class LegacyController extends BaseController {
   @Get('list')
   public list(): Ok {
@@ -12,7 +12,7 @@ export class LegacyController extends BaseController {
 @BasePath('partly')
 export class PartlyController extends BaseController {
   @Get('old')
-  @Sunsetting()
+  @Sunsetting({ since: new Date('2026-01-01') })
   public old(): Ok {
     return new Ok();
   }

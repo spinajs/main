@@ -5,7 +5,8 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, CacheControl, Controllers, Get, HttpServer, Middleware, NO_STORE, NoStore, NotFound, Ok, Post } from '../src/index.js';
+import type * as express from 'express';
+import { BaseController, BasePath, CacheControl, Controllers, Get, HttpServer, Middleware, NO_STORE, NoStore, NotFound, Ok, Post, Redirect, Res } from '../src/index.js';
 
 class CacheControlFailure extends Error {}
 
@@ -42,6 +43,39 @@ class CacheControlController extends BaseController {
   public write() {
     return new Ok({ ok: true });
   }
+
+  @Get()
+  @Middleware(CacheControl, 300, { public: true })
+  public shared() {
+    return new Ok({ ok: true });
+  }
+
+  @Get()
+  public withCookie() {
+    return new Ok({ me: 'secret' }, { Coockies: [{ Name: 'sid', Value: 'abc', Options: {} }] });
+  }
+
+  @Get()
+  @Middleware(CacheControl, 300, { public: true })
+  public sharedWithCookie() {
+    return new Ok({ me: 'secret' }, { Coockies: [{ Name: 'sid', Value: 'abc', Options: {} }] });
+  }
+
+  @Get()
+  public moved() {
+    return new Redirect('/elsewhere', 302);
+  }
+
+  @Get()
+  @Middleware(CacheControl, 300, { redirects: true })
+  public movedForGood() {
+    return new Redirect('/elsewhere', 301);
+  }
+
+  @Get()
+  public lateFailure() {
+    return new Ok(Promise.reject(new CacheControlFailure('late')));
+  }
 }
 
 @BasePath('no-store')
@@ -60,6 +94,16 @@ class NoStoreController extends BaseController {
   @Get()
   public own() {
     return new Ok({ ok: true }, { Headers: [{ Name: 'Cache-Control', Value: 'public, max-age=60' }] });
+  }
+
+  @Get()
+  public direct(@Res() res: express.Response) {
+    res.json({ token: 'secret' });
+  }
+
+  @Get()
+  public lateFailure() {
+    return new Ok(Promise.reject(new CacheControlFailure('late')));
   }
 }
 
@@ -115,7 +159,41 @@ describe('CacheControl and NoStore route middlewares', function () {
     it('marks a success reply cacheable for maxAge seconds', async () => {
       const res = await req().get('cache-control/plain');
       expect(res.status).to.eq(200);
+      expect(headerOf(res, 'cache-control')).to.eq('max-age=300');
+    });
+
+    it('writes public only when asked', async () => {
+      const res = await req().get('cache-control/shared');
       expect(headerOf(res, 'cache-control')).to.eq('public, max-age=300');
+    });
+
+    it('downgrades a reply to a request with Authorization to private, even when public', async () => {
+      const plain = await req().get('cache-control/plain').set('Authorization', 'Bearer x');
+      expect(headerOf(plain, 'cache-control')).to.eq('private, max-age=300');
+      const shared = await req().get('cache-control/shared').set('Authorization', 'Bearer x');
+      expect(headerOf(shared, 'cache-control')).to.eq('private, max-age=300');
+    });
+
+    it('downgrades a reply that sets a cookie to private', async () => {
+      const res = await req().get('cache-control/withCookie');
+      expect(headerOf(res, 'cache-control')).to.eq('private, max-age=300');
+      const shared = await req().get('cache-control/sharedWithCookie');
+      expect(headerOf(shared, 'cache-control')).to.eq('private, max-age=300');
+    });
+
+    it('leaves a redirect alone unless redirects is set', async () => {
+      const moved = await req().get('cache-control/moved').redirects(0).ok(() => true);
+      expect(moved.status).to.eq(302);
+      expect(headerOf(moved, 'cache-control')).to.be.undefined;
+      const forGood = await req().get('cache-control/movedForGood').redirects(0).ok(() => true);
+      expect(forGood.status).to.eq(301);
+      expect(headerOf(forGood, 'cache-control')).to.eq('max-age=300');
+    });
+
+    it('drops the success Cache-Control when the reply fails to send', async () => {
+      const res = await req().get('cache-control/lateFailure');
+      expect(res.status).to.eq(500);
+      expect(headerOf(res, 'cache-control')).to.be.undefined;
     });
 
     it('writes the options, the route one winning over the controller one', async () => {
@@ -164,6 +242,19 @@ describe('CacheControl and NoStore route middlewares', function () {
       const res = await req().get('no-store/own');
       expect(headerOf(res, 'cache-control')).to.eq('no-store');
     });
+
+    it('NoStore marks a reply the action wrote to res itself', async () => {
+      const res = await req().get('no-store/direct');
+      expect(res.status).to.eq(200);
+      expect(headerOf(res, 'cache-control')).to.eq('no-store');
+      expect(headerOf(res, 'pragma')).to.eq('no-cache');
+    });
+
+    it('NoStore keeps no-store on a reply that fails to send', async () => {
+      const res = await req().get('no-store/lateFailure');
+      expect(res.status).to.eq(500);
+      expect(headerOf(res, 'cache-control')).to.eq('no-store');
+    });
   });
 
   describe('declared in http.routes.middlewares', () => {
@@ -192,6 +283,7 @@ describe('CacheControl and NoStore route middlewares', function () {
     expect(thrownBy(() => new CacheControl(-1))).to.be.instanceOf(InvalidArgument);
     expect(thrownBy(() => new CacheControl(1.5))).to.be.instanceOf(InvalidArgument);
     expect(thrownBy(() => new CacheControl(10, { staleWhileRevalidate: -1 }))).to.be.instanceOf(InvalidArgument);
+    expect(thrownBy(() => new CacheControl(10, { public: true, private: true }))).to.be.instanceOf(InvalidArgument);
   });
 
   it('exports one frozen NO_STORE header for per-answer use', () => {
