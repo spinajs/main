@@ -1,4 +1,5 @@
 import Express from 'express';
+import { Singleton } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { IController, IRoute } from './interfaces.js';
@@ -41,6 +42,8 @@ function* servingRoutes(stack: readonly RouteLayer[], method: string, path: stri
   for (const layer of stack) {
     let matched: boolean;
     try {
+      // match() overwrites the live layer's path and params; Express reads them synchronously after its own match(),
+      // so this must stay synchronous to never run between the two.
       matched = layer.match(path);
     } catch {
       throw new MalformedPath();
@@ -161,9 +164,11 @@ export interface IRouteMatch {
  * router it is actually served by. Best effort all the same: anything mounted ahead of the controllers (static files,
  * `http.middlewares`) may answer first.
  */
+@Singleton()
 export class RouteIndex {
   private readonly routes = new WeakMap<object, IRouteMatch>();
-  private readonly roots: RouterLike[] = [];
+  private root?: RouterLike;
+  private added = 0;
   private _version = 0;
 
   constructor() {
@@ -178,13 +183,20 @@ export class RouteIndex {
   /** Called by `BaseController.resolve()` with the Express route it mounts `route` on, at `path`. */
   public add(expressRoute: object, controller: IController, route: IRoute, path: string): void {
     this.routes.set(expressRoute, { route, controller, path: routeChainName(route, path) });
+    this.added++;
     this._version++;
   }
 
-  /** The router the controllers' routers are mounted on, as the app mounts it (at '/'). */
+  /** The router the controllers' routers are mounted on, as the app mounts it (at '/'); a later one replaces it. */
   public mount(router: Express.Router): void {
-    this.roots.push(router as unknown as RouterLike);
+    if (this.root === (router as unknown as RouterLike)) return;
+    this.root = router as unknown as RouterLike;
     this._version++;
+  }
+
+  /** Routes were added but no router was mounted: every lookup misses (the controllers router is not the one `Controllers` builds). */
+  public get unmounted(): boolean {
+    return this.added > 0 && this.root === undefined;
   }
 
   /** Called after a router was mounted below a root. */
@@ -194,11 +206,8 @@ export class RouteIndex {
 
   /** The route the router serves `method` `path` (the request's `req.path`) with; undefined for a route it does not know. */
   public match(method: string, path: string): IRouteMatch | undefined {
-    for (const root of this.roots) {
-      const found = first(servingRoutes(root.stack, method, path));
-      if (found) return this.routes.get(found);
-    }
-    return undefined;
+    const found = this.root ? first(servingRoutes(this.root.stack, method, path)) : undefined;
+    return found ? this.routes.get(found) : undefined;
   }
 
   /**
@@ -206,13 +215,14 @@ export class RouteIndex {
    * or one of them is a route the index does not know, so a caller requiring something of all of them fails closed.
    */
   public matchAll(method: string, path: string): IRouteMatch[] {
-    const serving = this.roots.flatMap((root) => all(servingRoutes(root.stack, method, path)));
+    const serving = this.root ? all(servingRoutes(this.root.stack, method, path)) : [];
     const known = serving.map((route) => this.routes.get(route));
     return known.every((m) => m !== undefined) ? (known as IRouteMatch[]) : [];
   }
 
   /** Every mounted route the index knows, in router order. */
   public all(): IRouteMatch[] {
-    return this.roots.flatMap((root) => [...mountedRoutes(root.stack)].map((route) => this.routes.get(route)).filter((m): m is IRouteMatch => m !== undefined));
+    if (!this.root) return [];
+    return [...mountedRoutes(this.root.stack)].map((route) => this.routes.get(route)).filter((m): m is IRouteMatch => m !== undefined);
   }
 }

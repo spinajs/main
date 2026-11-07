@@ -338,6 +338,9 @@ export class HttpServer extends AsyncService {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
+        if (this.Routes.unmounted) {
+          this.Log.warn('Controllers registered routes but no controllers router was mounted in the RouteIndex: server middlewares get no ctx.route before routing, @Cors routes keep the global CORS policy and @CsrfExempt() exempts nothing.');
+        }
         this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
         res();
       });

@@ -121,6 +121,28 @@ describe('RouteIndex', () => {
     expect(unknownFirst.match('GET', '/items/1')?.controller).to.eq(items);
   });
 
+  it('keeps one controllers router: the same one again changes nothing, a new one (a re-resolve) replaces it', () => {
+    const index = indexOf(items);
+    const version = index.version;
+    const fresh = express.Router();
+    index.mount(fresh);
+    expect(index.version).to.not.eq(version);
+    expect(index.match('GET', '/items/1')).to.eq(undefined);
+    const replaced = index.version;
+    index.mount(fresh);
+    expect(index.version).to.eq(replaced);
+  });
+
+  it('tells routes added without a mounted router apart', () => {
+    const index = new RouteIndex();
+    expect(index.unmounted).to.eq(false);
+    const [, route] = [...items.Descriptor.Routes][0];
+    index.add(express.Router().route('/items/:id'), items, route, '/items/:id');
+    expect(index.unmounted).to.eq(true);
+    index.mount(express.Router());
+    expect(index.unmounted).to.eq(false);
+  });
+
   it('matches a controller mounted after the first match, and changes its version', () => {
     const index = new RouteIndex();
     const before = index.version;
