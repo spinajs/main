@@ -3,7 +3,7 @@ import type { ISelectQueryBuilder } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import type { Relation, SingleRelation } from './relation-objects.js';
 import type { Wrap } from './statements.js';
-import type { ExcludedModelProperties } from './types.js';
+import type { ExcludedModelProperties, Unbox } from './types.js';
 
 /**
  * Compile-time switches of the query builder. A package opts into strict column checking with
@@ -73,9 +73,10 @@ export type Rebox<T, R> = unknown extends T ? T : T extends Array<any> ? R[] : R
 /** Members of a builder beyond ISelectQueryBuilder itself - the model's query scopes. */
 export type ScopesOf<B> = Omit<B, keyof ISelectQueryBuilder<any>>;
 export type Narrowed<B, T, R> = ISelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
-export type StrictNarrowed<B, T, R> = OrmStrict extends true ? Narrowed<B, T, R> : B;
+// A builder without a model (`any`/`unknown` row) has no row to narrow, so it keeps its own type.
+export type StrictNarrowed<B, T, R> = OrmStrict extends true ? (unknown extends Unbox<T> ? B : Narrowed<B, T, R>) : B;
 /** StrictNarrowed for a projection under an alias; a non-literal alias names no known column, so the row stays. */
-export type StrictAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : Narrowed<B, T, R>) : B;
+export type StrictAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : unknown extends Unbox<T> ? B : Narrowed<B, T, R>) : B;
 
 /** `count`, `sum` and `avg` under an alias: postgres returns COUNT and SUM/AVG of exact numbers as strings, and no converter runs on an alias. */
 export type AggregateValue = number | string;

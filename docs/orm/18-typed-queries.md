@@ -28,6 +28,8 @@ It is a declaration file, so `tsc` never copies it to `lib/`. Your package's con
 
 A column is a property the model class declares that is not a function or a relation. Members of `ModelBase` (`PrimaryKeyValue`, `IsDirty`, ...) are not columns. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`), and a model that declares no columns, accept any name in both modes.
 
+The model statics are typed the same way: `User.where('Email', x)`, `User.where('Id', '>', x)` and `User.where({ Email: x })` check the column and the value like the builder's `where`, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
+
 ## `col()`: columns the type cannot see
 
 `col('name')` passes a name through unchecked. Use it for a column the model does not declare (one another package added to the table), a name computed at runtime, or a column of a joined table you do not qualify.
@@ -81,11 +83,11 @@ In strict mode the row type follows the select list:
 
 `AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`. `MIN`, `MAX`, `SUM` and `AVG` over zero rows return `NULL`, so their aliases include `null`; `COUNT` never does.
 
-`where`, `orderBy` and the rest keep accepting every column of the model after a projection. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
+`where` (including its object form), `orderBy` and the rest keep accepting every column of the model after a projection. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`) is never narrowed and keeps its own type. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
 
 ## Important behaviour
 
-- Loose mode changes nothing at runtime and rejects nothing that compiled before.
+- Loose mode changes nothing at runtime and rejects nothing that compiled before, with one exception: a `first`, `last`, `newest`, `oldest` or `count` callback annotated with the class type (`User.first((b: IWhereBuilder<typeof User>) => ...)`) no longer compiles. Annotate it with the model instance, `IWhereBuilder<User>`, or leave the parameter unannotated.
 - Strict mode is types only: the same SQL runs either way.
 - A non-literal string column (`where(name, value)` with `name: string`) is an error in strict mode. Type the variable as a union of the columns it can hold, or use `col(name)`.
 - Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.

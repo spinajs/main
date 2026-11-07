@@ -1,12 +1,13 @@
-import type { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
+import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
 import type { IModelDescriptor, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
+import type { OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
-import type { Op } from './enums.js';
+import type { Op, SqlOperator } from './enums.js';
 import type { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
 import { OrmException } from './exceptions.js';
@@ -446,12 +447,12 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<InstanceType<T>> | Partial<ModelDataWithRelationDataSearchable<InstanceType<T>>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: C, operator: Op | SqlOperator, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: C, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+  public static where<T extends typeof ModelBase>(this: T, column: WhereCatchAllColumn<InstanceType<T>> | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | (OrmStrict extends true ? never : PickRelations<T>), operator?: WhereOperator<Op | SqlOperator>, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, _column: unknown, _operator?: unknown, _value?: unknown): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 
@@ -476,7 +477,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -486,7 +487,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -494,7 +495,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -502,7 +503,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -510,7 +511,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Returns total count of entries in db for this model
    */
-  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<number>;
+  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<number>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw new Error('Not implemented');
   }
@@ -1706,7 +1707,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return query;
   },
 
-  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SortOrder.ASC);
 
@@ -1717,7 +1718,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SortOrder.DESC);
 
@@ -1728,7 +1729,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -1744,7 +1745,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -1760,7 +1761,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number> {
+  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<number> {
     const { query } = createQuery(this as any, SelectQueryBuilder);
 
     query.count('*', 'count');
