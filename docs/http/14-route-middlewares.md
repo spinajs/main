@@ -107,6 +107,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | --- | --- | --- | --- |
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
+| `@Deprecated(options?)` | class or method | `{ since?: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 
 ### `@Accepts`
 
@@ -175,7 +176,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 
@@ -381,6 +382,37 @@ export class ProductsController extends BaseController {
 Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']` marks every route, `{ service: 'CacheControl', options: [60] }` every GET route. `CacheControl` is `@NewInstance()`, so each declaration keeps its own options.
 
 For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control', Value: 'no-store' }`) in its `IResponseOptions.Headers`: `new Ok(body, { Headers: [NO_STORE] })`.
+
+## Built-in: `@Deprecated`
+
+`@Deprecated(options?)` on a route, or on a controller for every route of it, mounts `DeprecationMiddleware`, which announces the deprecation on every reply, error replies included:
+
+| Option | Header |
+| --- | --- |
+| none | `Deprecation: true` |
+| `since: Date` | `Deprecation: @<unix seconds>` (RFC 9745) in place of `true` |
+| `sunset: Date` | `Sunset: <HTTP-date>` (RFC 8594): when the route stops answering |
+| `link: string` | `Link: <link>; rel="deprecation"` (RFC 9745): a page about the deprecation and the way off it |
+
+An invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route.
+
+```ts sample
+import { BaseController, BasePath, Deprecated, Get, Ok } from '@spinajs/http';
+
+@BasePath('orders')
+export class OrdersController extends BaseController {
+  @Get('legacy-list')
+  @Deprecated({ since: new Date('2026-01-01T00:00:00Z'), sunset: new Date('2026-12-31T23:59:59Z'), link: 'https://example.com/docs/orders-v2' })
+  public legacyList() {
+    return new Ok([]);
+  }
+}
+// Deprecation: @1767225600
+// Sunset: Thu, 31 Dec 2026 23:59:59 GMT
+// Link: <https://example.com/docs/orders-v2>; rel="deprecation"
+```
+
+The compiler records the decorator in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the generated OpenAPI document marks the operation `deprecated: true`.
 
 ## Important behaviour
 

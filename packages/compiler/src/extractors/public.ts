@@ -17,19 +17,28 @@ function packageNameOf(dir: string): string | undefined {
   return name;
 }
 
-/** The decorator is `Public` of `@spinajs/http`, whatever name it is imported under; a same-named local function is not. */
-function isHttpPublic(callee: ts.Expression, ctx: ExtractorContext): boolean {
-  const name = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
-  let symbol = ctx.checker.getSymbolAtLocation(name);
+/** The decorator is `name` of `@spinajs/http`, whatever name it is imported under; a same-named local function is not. */
+function isHttpDecorator(callee: ts.Expression, name: string, ctx: ExtractorContext): boolean {
+  const id = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
+  let symbol = ctx.checker.getSymbolAtLocation(id);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
   const declaration = symbol?.declarations?.[0];
-  return symbol?.name === 'Public' && !!declaration && packageNameOf(dirname(declaration.getSourceFile().fileName)) === HTTP_PACKAGE;
+  return symbol?.name === name && !!declaration && packageNameOf(dirname(declaration.getSourceFile().fileName)) === HTTP_PACKAGE;
+}
+
+function httpDecoratorOf(node: ts.HasDecorators, name: string, ctx: ExtractorContext) {
+  return decoratorsOf(node).find((d) => isHttpDecorator(ts.isCallExpression(d.node.expression) ? d.node.expression.expression : d.node.expression, name, ctx));
 }
 
 /** The reason given to `@Public(reason)` on the class or method, if the decorator is the one from `@spinajs/http`. */
 export function publicOf(node: ts.HasDecorators, ctx: ExtractorContext): string | undefined {
-  const decorator = decoratorsOf(node).find((d) => isHttpPublic(ts.isCallExpression(d.node.expression) ? d.node.expression.expression : d.node.expression, ctx));
+  const decorator = httpDecoratorOf(node, 'Public', ctx);
   if (!decorator) return undefined;
   const reason = literalValue(decorator.args[0], ctx);
   return typeof reason === 'string' ? reason : 'unknown';
+}
+
+/** Whether the class or method carries `@Deprecated()` of `@spinajs/http`. */
+export function isDeprecated(node: ts.HasDecorators, ctx: ExtractorContext): boolean {
+  return httpDecoratorOf(node, 'Deprecated', ctx) !== undefined;
 }
