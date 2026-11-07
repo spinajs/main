@@ -151,6 +151,14 @@ class PipelineOrderController extends BaseController {
   }
 
   @Post()
+  @Policy(RecordingPolicy)
+  @Middleware(BeforePolicyAnswer)
+  public answeredBeforeAllowingGate() {
+    calls.push('action');
+    return new Ok({});
+  }
+
+  @Post()
   @Middleware(OuterRefusingMiddleware)
   @OnError(OuterRefusal, (_err, ctx) => {
     refusalStage = ctx.stage;
@@ -221,9 +229,15 @@ describe('Route pipeline order', function () {
     expect(calls).to.deep.eq(['beforePolicy', 'policy', 'beforePolicy:after:Forbidden', 'beforePolicy:finish']);
   });
 
-  it('skips the policy gate when a beforePolicy middleware answered', async () => {
+  it('runs the policy gate after a beforePolicy answer: a refusal replaces the answer', async () => {
     const res = await req().post('order/answeredBeforeGate').send({});
+    expect(res.status).to.eq(403);
+    expect(calls).to.deep.eq(['beforePolicy:answer', 'policy']);
+  });
+
+  it('sends a beforePolicy answer once the policies allow the request, without running the action', async () => {
+    const res = await req().post('order/answeredBeforeAllowingGate').send({});
     expect(res.status).to.eq(204);
-    expect(calls).to.deep.eq(['beforePolicy:answer']);
+    expect(calls).to.deep.eq(['beforePolicy:answer', 'policy']);
   });
 });

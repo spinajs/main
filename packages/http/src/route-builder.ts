@@ -136,11 +136,7 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-    // a 'beforePolicy' middleware answered: the route is not run, so there is nothing to guard
-    if (answeredEarly(res)) {
-      next();
-      return;
-    }
+    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed).
     markStage(res, 'policy');
 
     // Only policies enabled for this concrete route participate in the gate.
