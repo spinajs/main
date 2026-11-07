@@ -51,6 +51,18 @@
     },
     {
       "path": "../tracing/tsconfig.json"
+    },
+    {
+      "path": "../principal/tsconfig.json"
+    },
+    {
+      "path": "../idempotency/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../orm-sqlite/tsconfig.json"
     }
   ]
 }

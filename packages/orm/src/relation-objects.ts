@@ -1,10 +1,12 @@
 /* eslint-disable prettier/prettier */
-import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
-import { DI, Constructor, NewInstance } from '@spinajs/di';
+import { InsertBehaviour } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
+import { DI, NewInstance } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { createQuery, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
-import { Orm } from './orm.js';
+import type { Orm } from './orm.js';
 import _ from 'lodash';
 import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
@@ -326,7 +328,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
   constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction | null, protected Relation: IRelationDescriptor | null, object?: R) {
     this.TargetModelDescriptor = model ? extractModelDescriptor(model) : null;
-    this.Orm = DI.get(Orm)!;
+    this.Orm = DI.get<Orm>('Orm')!;
 
     this.Value = object;
   }

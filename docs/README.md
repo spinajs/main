@@ -35,6 +35,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/util`](util/README.md) | Shared utilities |
 | [`@spinajs/threading`](threading/README.md) | Mutex, critical section, rate limit |
 | [`@spinajs/tasks`](tasks/README.md) | Bookkeeping for recurring work |
+| [`@spinajs/idempotency`](idempotency/README.md) | Run a call once per key, replay its reply, take over a dead replica's claim |
 | [`@spinajs/intl`](intl/README.md) | Translations |
 | [`@spinajs/internal-logger`](internal-logger/README.md) | Logger for code that runs before the real one |
 

@@ -16,7 +16,7 @@ Eager loading with `populate()`:
    - `RelationType.Virtual` → `VirtualRelation`
 3. `IOrmRelation.execute(callback)` runs the callback with `this` bound to the relation query (the target-side builder). A `QueryRelation` binds it to the owner query instead. A `VirtualRelation` stores it for later.
 4. When the query compiles, each relation's `compile()` runs once:
-   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares.
+   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares. A query that selects no columns (`Model.query()`) first selects `<sep><Model><sep>.*`, so the queried model keeps its own columns next to the joined ones.
    - `OneToManyRelation` adds `HasManyRelationMiddleware`. After the owners hydrate, it runs one query: `WHERE <ForeignKey> IN (<owner keys>)`.
    - `ManyToManyRelation` adds `HasManyToManyRelationMiddleware`. It runs one query on the junction table joined to the target table, filtered by `<JunctionModelSourceModelFKey_Name> IN (<owner keys>)`.
    - `QueryRelation` adds `QueryRelationMiddleware`. It calls the `@Query` callback once with all owners, then the mapper once per owner.

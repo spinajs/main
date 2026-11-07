@@ -60,6 +60,12 @@
     },
     {
       "path": "../tracing/tsconfig.build.json"
+    },
+    {
+      "path": "../principal/tsconfig.build.json"
+    },
+    {
+      "path": "../idempotency/tsconfig.build.json"
     }
   ]
 }

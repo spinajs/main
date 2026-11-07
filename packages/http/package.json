@@ -57,6 +57,9 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@spinajs/compiler": "3.0.23",
+    "@spinajs/idempotency": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@types/compression": "^1.7.2",
     "@types/cookie-parser": "^1.4.3",
@@ -74,9 +77,13 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
+    "@spinajs/idempotency": "3.0.23",
     "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
+    "@spinajs/idempotency": {
+      "optional": true
+    },
     "typescript": {
       "optional": true
     }
@@ -90,6 +97,7 @@
     "@spinajs/fs": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/manifest": "3.0.23",
+    "@spinajs/principal": "3.0.23",
     "@spinajs/reflection": "3.0.23",
     "@spinajs/templates": "3.0.23",
     "@spinajs/templates-pug": "3.0.23",

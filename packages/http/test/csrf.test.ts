@@ -2,7 +2,6 @@ import 'mocha';
 import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
-import express from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -10,6 +9,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, ServerMiddleware, isCsrfExempt } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { serverApp } from './support/server-app.js';
 
 chai.use(chaiHttp);
 
@@ -71,13 +71,9 @@ async function guardWith(csrf: Record<string, unknown> = {}, http: Record<string
 }
 
 function appOf(guard: CsrfGuard) {
-  const app = express();
-  const handler = guard.before();
-  if (handler) app.use(handler as express.RequestHandler);
-  app.use((_req, res) => {
+  return serverApp(guard, (_req, res) => {
     res.json({ ran: true });
   });
-  return app;
 }
 
 interface Sent {
@@ -158,15 +154,15 @@ describe('CsrfGuard (X1-X3)', function () {
 
   describe('configuration', () => {
     it('is off only for enabled: false', async () => {
-      expect((await guardWith({ enabled: false })).before()).to.eq(null);
-      expect((await guardWith()).before()).to.be.a('function');
+      expect((await guardWith({ enabled: false })).isEnabled()).to.eq(false);
+      expect((await guardWith()).isEnabled()).to.eq(true);
     });
 
     it('a bad allowed origin or exempt entry fails when the middleware is built, even while off', async () => {
       const badOrigin = await guardWith({ enabled: false, allowedOrigins: ['https://x.test:99999'] });
-      expect(() => badOrigin.before()).to.throw(InvalidOption, 'http.csrf.allowedOrigins');
+      expect(() => badOrigin.isEnabled()).to.throw(InvalidOption, 'http.csrf.allowedOrigins');
       const off = await guardWith({ enabled: false, exempt: ['/hooks/:'] });
-      expect(() => off.before()).to.throw(InvalidOption, 'http.csrf.exempt');
+      expect(() => off.isEnabled()).to.throw(InvalidOption, 'http.csrf.exempt');
     });
 
     it('the schema fills the defaults and names a bad value', async () => {
@@ -183,10 +179,10 @@ describe('CsrfGuard (X1-X3)', function () {
       class AppGuard extends CsrfGuard {}
       const base = { bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} };
       const replaced = await createTestApp({ ...base, register: (c) => c.register(AppGuard).as(ServerMiddleware) });
-      expect(readingFrom(new CsrfGuard(), replaced.container).before()).to.eq(null);
+      expect(readingFrom(new CsrfGuard(), replaced.container).isEnabled()).to.eq(false);
       await replaced.dispose();
       const plain = await createTestApp(base);
-      expect(readingFrom(new CsrfGuard(), plain.container).before()).to.be.a('function');
+      expect(readingFrom(new CsrfGuard(), plain.container).isEnabled()).to.eq(true);
     });
   });
 

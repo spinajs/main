@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { diffManifest, publishedManifest, validateManifest } from '../src/index.js';
 import type { Manifest } from '../src/index.js';
+import { manifestWith, profilesOverride } from './support.js';
 
 const fixture = fileURLToPath(new URL('../../compiler/test/fixtures/app-basic/app.manifest.json', import.meta.url));
 const load = (): Manifest => JSON.parse(readFileSync(fixture, 'utf8')) as Manifest;
@@ -58,5 +59,46 @@ describe('entries a registration has to serve', () => {
     const removed = diffManifest(base, flagged()).changes.filter((c) => c.section === 'routes' && c.kind === 'removed');
     expect(removed.length).to.equal(base.controllers.flatMap((c) => c.routes).length);
     expect(removed.every((c) => c.breaking)).to.equal(true);
+  });
+});
+
+describe('publishedManifest and overridden controllers', () => {
+  const { base, sub, registration } = profilesOverride;
+
+  it('drops a controller a subclass is registered over', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub], services: [registration()] }));
+    expect(published.controllers.map((c) => c.className)).to.deep.equal(['AppProfilesController']);
+  });
+
+  it('keeps both when the override is conditional, as only a boot can tell', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub], services: [registration({ kind: 'dynamic', reason: 'x' })] }));
+    expect(published.controllers).to.have.length(2);
+  });
+
+  it('keeps both when the subclass is not registered over the base', () => {
+    expect(publishedManifest(manifestWith({ controllers: [base, sub] })).controllers).to.have.length(2);
+  });
+
+  it('keeps a subclass outside the dirs registered over a base the manifest loads, which serves it in the base slot', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers.map((c) => c.className)).to.deep.equal(['AppProfilesController']);
+  });
+
+  it('reports a permission change on a published subclass outside the dirs once, as breaking', () => {
+    const at = (access?: string[]): Manifest =>
+      manifestWith({ controllers: [base, { ...sub, mountedBy: 'di', routes: [{ ...sub.routes[0], ...(access ? { access } : {}) }] }], services: [registration()] });
+    const changes = diffManifest(at(), at(['user:read'])).changes.filter((c) => c.section === 'permissions');
+    expect(changes).to.have.length(1);
+    expect(changes[0].breaking).to.equal(true);
+  });
+
+  it('keeps out a subclass outside the dirs when the base it replaces is outside them too', () => {
+    const published = publishedManifest(manifestWith({ controllers: [{ ...base, mountedBy: 'di' }, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers).to.deep.equal([]);
+  });
+
+  it('keeps out an abandoned copy of the subclass outside the dirs when the live one is under them', () => {
+    const published = publishedManifest(manifestWith({ controllers: [base, sub, { ...sub, mountedBy: 'di' }], services: [registration()] }));
+    expect(published.controllers).to.deep.equal([sub]);
   });
 });

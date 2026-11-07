@@ -1,6 +1,7 @@
 import { CONTROLLED_DESCRIPTOR_SYMBOL, ParameterType, Response } from '@spinajs/http';
 import type { ErrorStage, IController, IControllerDescriptor, IOnErrorDescriptor, IRoute, Request } from '@spinajs/http';
 import type { IContainer } from '@spinajs/di';
+import type * as express from 'express';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 
 import { AuthnIpThrottleMiddleware } from '../../src/middleware/ip-throttle.js';
@@ -102,7 +103,7 @@ export async function callRoute(controller: IController, method: string, req: Re
       if (m.Type !== AuthnIpThrottleMiddleware) continue;
       const gate = readingFrom(new AuthnIpThrottleMiddleware(...(m.Options as ConstructorParameters<typeof AuthnIpThrottleMiddleware>)), fakeContainer({}));
       Object.assign(gate, { Container: ctx.container });
-      await gate.onBefore(req);
+      await gate.onBefore({ req, res: req.res ?? ({ locals: {} } as unknown as express.Response), storage: req.storage, route, controller });
     }
   } catch (err) {
     return handled(err, 'middleware', handlers, ctx);

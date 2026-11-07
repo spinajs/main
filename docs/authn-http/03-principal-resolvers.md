@@ -71,7 +71,7 @@ DI.register(BlockedNetworkResolver).as(AuthnPrincipalResolver);
 - The key and token resolvers resolve `AuthnService` per call, so apps that register no token or key strategy still boot.
 - A pending session gives `null` from `SessionPrincipalResolver`, but only when no earlier resolver answered: a pending session plus a valid bearer token gives the token's principal.
 - An impersonation session gives the target, with `authn.impersonator` set to the impersonator.
-- Resolver errors (a store that fails) go to `next(err)` and answer 500; the request never continues as anonymous.
+- Resolver errors (a store that fails) reject `AuthnMiddleware.onBefore` and answer 500; the request never continues as anonymous.
 
 ## Best practices
 

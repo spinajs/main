@@ -1,4 +1,3 @@
-import compression from 'compression';
 import express from 'express';
 import type { RequestHandler } from 'express';
 import helmet from 'helmet';
@@ -48,7 +47,6 @@ export function defaultMiddlewares(): RequestHandler[] {
     // and parse them. Covers application/xml, text/xml and *+xml types.
     shipped('text body parser', express.text({ type: ['application/xml', 'text/xml', 'application/*+xml'], limit: '5mb' })),
     configuredCookieParser,
-    compression(),
   ];
 }
 

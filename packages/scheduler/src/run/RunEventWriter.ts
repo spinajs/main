@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { isTerminalStatus, type RunEvent, type RunEventPayload } from '../contract.js';
 import { RunLogModel } from '../models/RunLogModel.js';
 import { RunModel } from '../models/RunModel.js';
-import { DbClock } from '../time/clock.js';
+import { DbClock } from '@spinajs/durable';
 import { appendJournalRow } from './journal.js';
 import { RunEventHub } from './RunEventHub.js';
 

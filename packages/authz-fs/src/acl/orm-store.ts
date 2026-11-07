@@ -55,6 +55,7 @@ export class OrmFileAclStore extends FileAclStore {
     if (wanted.length === 0 || keys.length === 0) return false;
     const hashes = wanted.map(aclPathHash);
     const driver = await this.driver();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK subject keys
     for (const part of chunk(keys, IN_CHUNK)) {
       const rows = ((await driver.select().from(FS_ACL_TABLE).where({ fs: f, relation: r }).whereIn('path_hash', hashes).whereIn('subject_key', part)) ?? []) as Row[];
       if (rows.some((row) => row.fs === f && row.relation === r && wanted.includes(row.path) && part.includes(row.subject_key) && live(row, at))) return true;

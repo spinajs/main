@@ -18,12 +18,18 @@ export interface ISocketRateConfig {
 }
 
 export interface ISocketIdempotencyConfig {
-  /** Class name of the IdempotencyStore implementation; this whole object is its first constructor argument. */
-  service: string;
+  /**
+   * Class name of an IdempotencyStore of @spinajs/idempotency, or of a 3.x store of this package; this whole object is
+   * its first constructor argument. The shipped default names 'MemoryIdempotencyStore'. null: sockets claim on the
+   * store of IdempotencyService (`idempotency.store`).
+   */
+  service?: string | null;
   /** How long a completed key replays its reply. */
   ttlMs: number;
-  /** MemoryIdempotencyStore: completed keys kept at most; the least recently used go first. */
+  /** MemoryIdempotencyStore named by `service`: completed keys kept at most; the oldest go first. */
   maxEntries: number;
+  /** Lease of a running claim; a claim of a replica that died is taken over once it ends. Not set: `idempotency.lease`. */
+  lease?: string | number;
 }
 
 export interface ISocketCorsConfig {
@@ -264,6 +270,8 @@ export interface IRegisteredHandler {
   contractValidator?: (payload: unknown) => void;
   /** Set at registration when the manifest derived a schema for the `@Payload` type and no contract applies; an explicit schema wins over it */
   payloadValidator?: (payload: unknown) => void;
+  /** Set at registration from the stages' `refuseStream`: the word of the highest Order that refused. */
+  readonly streamRefusal?: string;
 }
 
 /**
@@ -323,23 +331,74 @@ export interface ISocketCommandContext extends ISocketCallContext {
   args?: unknown[];
   /** the refusal of the rate token the dispatcher took when the frame arrived; the rate stage throws it */
   rateRefusal?: unknown;
-  /** set by the idempotency stage when it runs the command under a key; the ordering stage settles it inside the queue place */
+  /** set by the idempotency stage when it runs the command under a key, for custom stages; it is also an outcome recorder */
   idempotency?: ISocketIdempotencyClaim;
   /** fires `signal`; the dispatcher replies with `reason` at once */
   abort(reason: SocketException): void;
   /** keeps the earliest of all armed deadlines, counted from `receivedAt` */
   armDeadline(ms: number | undefined): void;
+  /** True from the moment the dispatcher calls the handler. */
+  readonly handlerStarted: boolean;
+  /**
+   * Set by a stage whose handler may commit any moment once started: the shutdown drain's first abort
+   * ( abortAll with spareStarted ) leaves the command running once `handlerStarted`.
+   */
+  drainGrace: boolean;
+  addOutcomeRecorder(recorder: ISocketOutcomeRecorder): void;
+  /** Settles every recorder with the outcome; a recorder's failure is swallowed, because the stage that owns it answers it. */
+  recordOutcome(outcome: CommandOutcome): Promise<void>;
+  /** The pipeline gave up on a handler that still runs: every recorder settles once `running` does. */
+  detachOutcome(running: Promise<unknown>): void;
+}
+
+/** What a stage may declare about a command when it is registered. */
+export interface ISocketStageRegistration {
+  /**
+   * The command cannot reply with a stream while this stage applies. `what` completes both refusals:
+   * "Socket command X ( C::m ) is <what> and replies with a stream; <what> commands cannot stream" at registration,
+   * "<what> command X cannot reply with a stream" at run time. The stage with the highest Order wins.
+   */
+  refuseStream(what: string): void;
+}
+
+/** An outer stage's record of the command's outcome, which an inner stage that serialises commands settles before it lets the next one run. */
+export interface ISocketOutcomeRecorder {
+  settle(outcome: CommandOutcome): Promise<unknown>;
+  detach(running: Promise<unknown>): void;
 }
 
 /**
  * One step of the command pipeline. Stages run in ascending `Order` as an onion: call `next()` to
  * continue, return without calling it to answer early ( eg. an idempotent replay ), throw to fail.
  * Register with `@Injectable(SocketCommandStage)`.
+ *
+ * State is shared, never copied: every stage, the argument extractors, the policies and the handler see the same `ctx`
+ * and `ctx.storage` for the whole command. Typed per-call state goes on `ctx.storage` (declaration merging on
+ * {@link ISocketCallStorage}), untyped per-call state on its string index; a stage's private state in its own WeakMap.
+ * What a stage writes before `next()` is visible downstream; after `next()` settles it sees what the chain wrote.
+ * Unlike http, stages run inside the call's AsyncLocalStorage context, so a service called from a stage reads the same store.
  */
 export abstract class SocketCommandStage {
   public abstract get Order(): number;
 
+  /**
+   * Wraps the later stages and the handler. `next()` runs them once and settles with the handler's raw result or
+   * error; a second call rejects with `internal`. When the command was aborted before its handler started, it rejects
+   * with SocketClientGone ( `beforeHandler: true`, the abort reason as `cause` ), also when a later stage was waiting
+   * ( connect hooks, an idempotency join, the ordering queue, where it rejects only when the command's turn comes ).
+   * After the handler started, an abort does not interrupt it; only an ordered command cut loose after
+   * `ordering.abortGraceMs` rejects, with the bare abort reason. Not calling it ends the chain: the returned value is
+   * the result.
+   */
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
+
+  /**
+   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, once every controller
+   * registered ( names unique, policies resolved, contract and payload validators attached ) and before socket.io
+   * attaches. A throw fails the build with an InvalidOperation naming the stage and the
+   * command. Not called for events or hooks: stages never run for them.
+   */
+  public onRegister?(handler: IRegisteredHandler, registration: ISocketStageRegistration): void | Promise<void>;
 }
 
 /**
@@ -370,14 +429,20 @@ export type CommandOutcome = { readonly result: unknown } | { readonly error: un
 export interface ISocketIdempotencyClaim {
   /**
    * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
-   * abort releases the key, except a shutdown abort after `start()`, which leaves it running. Later calls get the first answer.
+   * abort releases the key, except a shutdown abort after the handler started, which leaves it running. Later calls get the first answer.
    * Null: released, left running, or detached.
    * A result is answered in its wire ( JSON ) form, and still answered when the store cannot keep it.
    */
   settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
   /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */
   detach(running: Promise<unknown>): void;
-  /** @internal Called right before the handler: from then on an abort marked by `outcomeUnknownAfter` keeps the key running. */
+  /** Aborted once the key's lease is lost, or a crash stopped its renewal: another instance may run the command now. */
+  readonly lease?: AbortSignal;
+  /**
+   * @internal From then on an abort marked by `outcomeUnknownAfter` keeps the key running.
+   * @deprecated The idempotency stage's claim reads `ctx.handlerStarted`; only a claim driven by hand needs it.
+   */
   start(): void;
+  /** `start()` was called, or the command's handler started. */
   readonly started: boolean;
 }

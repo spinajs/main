@@ -4,12 +4,11 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { isLenientAuthnEnv } from '@spinajs/authn/env';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
-import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin } from '@spinajs/http';
-import type { OriginRefusal, ProxyTrust, Request } from '@spinajs/http';
+import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, RawJsonResponse, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin } from '@spinajs/http';
+import type { OriginRefusal, ProxyTrust, Request, Response } from '@spinajs/http';
 import { SESSION_COOKIE_BASE_NAME, appEnvOf, sessionCookieSameSite } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
-import type * as express from 'express';
 
 import { proxyTrustOf } from './client-ip.js';
 import { CSRF_REFUSED_EVENT } from './csrf-log.js';
@@ -121,9 +120,9 @@ export class CsrfOriginGuard extends CsrfGuard {
     return ownOrigin(req, this.Trust);
   }
 
-  protected refuse(_reason: OriginRefusal, req: Request, res: express.Response, _next: express.NextFunction): void {
+  protected refuse(_reason: OriginRefusal, req: Request): Response {
     warnRefused(this.Log, req.headers.origin, req.headers['sec-fetch-site'], this.ownOrigin(req));
-    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+    return new RawJsonResponse(HTTP_STATUS_CODE.FORBIDDEN, CSRF_REFUSED_BODY);
   }
 
   public async resolve(): Promise<void> {
@@ -131,10 +130,11 @@ export class CsrfOriginGuard extends CsrfGuard {
     await super.resolve();
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
+  /** At mount: a bad trust setting fails the boot and the deprecated keys are reported even while the guard is off. */
+  public isEnabled(): boolean {
     this.Trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
     this.warnDeprecated();
-    return super.before();
+    return super.isEnabled();
   }
 
   private warnDeprecated(): void {

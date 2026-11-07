@@ -1,9 +1,10 @@
 import { BlockList, isIP } from 'node:net';
-import * as express from 'express';
+import type * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
+import type { IMiddlewareContext } from '../interfaces.js';
 
 /**
  * `http.trustProxy` (and `authn.http.trustProxy`): which proxies in front of the app are trusted.
@@ -132,26 +133,31 @@ export class RealIp extends ServerMiddleware {
   @Config('http.trustProxy')
   protected TrustProxy: TrustProxySetting;
 
+  private trust?: ProxyTrust;
+
   constructor() {
     super();
     this.Order = 1;
   }
 
-  public after(): ((_req: sRequest, _res: express.Response, _next: express.NextFunction) => void) | null {
-    return null;
+  /** Parses the trust, so a bad setting fails the boot. */
+  public async resolve(): Promise<void> {
+    this.effectiveTrust();
+    await super.resolve();
   }
 
-  /** The effective trust, parsed once when the middleware is built; override it to honour another setting. */
+  /** The effective trust, parsed once; override it to honour another setting. */
   protected proxyTrust(): ProxyTrust {
     return parseTrustProxy(this.TrustProxy, 'http.trustProxy');
   }
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    const trust = this.proxyTrust();
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-      req.storage.proxyTrust = trust;
-      req.storage.realIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
-      next();
-    };
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    const trust = this.effectiveTrust();
+    storage.proxyTrust = trust;
+    storage.realIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
+  }
+
+  private effectiveTrust(): ProxyTrust {
+    return (this.trust ??= this.proxyTrust());
   }
 }

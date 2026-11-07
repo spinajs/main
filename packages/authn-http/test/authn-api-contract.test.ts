@@ -5,10 +5,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
-import * as express from 'express';
 import { Container } from '@spinajs/di';
 import { BasePolicy, CsrfGuard, Ip, ServerMiddleware, Route } from '@spinajs/http';
-import type { IActionLocalStoregeContext, IController, IRoute, Request } from '@spinajs/http';
+import type { IActionLocalStoregeContext, IController, IMiddlewareContext, IRoute, Request } from '@spinajs/http';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 
 import * as api from '../src/api.js';
@@ -34,8 +33,6 @@ const DESIGN_NAMES = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...O
 const RUNTIME_EXPORTS = ['AuthnPrincipalResolver'];
 
 type ResolveResult = Promise<Principal | null | undefined>;
-type Handler = (req: Request, res: express.Response, next: express.NextFunction) => void;
-
 interface MemberShape {
   name: string;
   kind: 'constructor' | 'method' | 'property';
@@ -225,13 +222,16 @@ describe('authn-http contracts (api.ts)', function () {
       same<AuthnIdentity, { readonly identity: IdentityRef; readonly facts: AuthnFacts }>(true);
     });
 
-    it('middlewares type before() and after() exactly as ServerMiddleware does', () => {
-      same<ReturnType<ClientIp['before']>, ReturnType<ServerMiddleware['before']>>(true);
-      same<ReturnType<ClientIp['after']>, ReturnType<ServerMiddleware['after']>>(true);
-      same<ReturnType<CsrfOriginGuard['before']>, Handler | null>(true);
-      same<ReturnType<CsrfOriginGuard['after']>, Handler | express.ErrorRequestHandler | null>(true);
-      same<ReturnType<AuthnMiddleware['before']>, ReturnType<ServerMiddleware['before']>>(true);
-      same<ReturnType<AuthnMiddleware['after']>, ReturnType<ServerMiddleware['after']>>(true);
+    it('middlewares implement the ServerMiddleware hooks, none of the removed before()/after()', () => {
+      same<Parameters<ClientIp['onBefore']>, [IMiddlewareContext]>(true);
+      same<Parameters<CsrfOriginGuard['onBefore']>, [IMiddlewareContext]>(true);
+      same<Parameters<AuthnMiddleware['onBefore']>, [IMiddlewareContext]>(true);
+      same<ReturnType<AuthnMiddleware['onBefore']>, Promise<void>>(true);
+      same<ReturnType<CsrfOriginGuard['isEnabled']>, boolean>(true);
+      for (const m of [new ClientIp(), new CsrfOriginGuard(), new AuthnMiddleware()]) {
+        expect(m, m.constructor.name).to.not.have.property('before');
+        expect(m, m.constructor.name).to.not.have.property('after');
+      }
       const asBase: ServerMiddleware[] = [new ClientIp(), new CsrfOriginGuard(), new AuthnMiddleware()];
       expect(asBase).to.have.length(3);
     });

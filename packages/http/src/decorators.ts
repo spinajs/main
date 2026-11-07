@@ -1,6 +1,6 @@
-import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
+import { Constructor, DI, getInheritedDescriptor, NewInstance } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IMiddlewareContext } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import type { Options as CsvParseOptions } from 'csv-parse';
@@ -8,10 +8,12 @@ import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
-import * as express from 'express';
 import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 import { strictHeaderReader } from './headers.js';
 import type { StrictHeaderOptions } from './headers.js';
+import { resolveIdempotentOptions } from './idempotency/options.js';
+import type { IdempotentOptions } from './idempotency/options.js';
+import { IdempotencyMiddleware } from './idempotency/middleware.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -361,6 +363,29 @@ export function Public(reason: string) {
   });
 }
 
+/**
+ * Runs the route at most once per `Idempotency-Key` header, principal and route while its reply is kept: a repeat gets
+ * the stored JSON reply with `Idempotent-Replayed: true`. Needs `@spinajs/idempotency` installed. Options are checked
+ * here, so a wrong one fails at import. See docs/http/26-idempotency.md.
+ */
+export function Idempotent(options?: IdempotentOptions): MethodDecorator {
+  const resolved = resolveIdempotentOptions(options);
+  return Route((_: IControllerDescriptor, route: IRoute | null) => {
+    if (!route) {
+      throw new InvalidArgument('@Idempotent goes on a route method, not on a controller');
+    }
+    route.Idempotency = resolved;
+    // a second @Idempotent (or a subclass re-decorating an inherited route) must not nest another gate
+    const entry = { Type: IdempotencyMiddleware, Options: [resolved] };
+    const i = route.Middlewares.findIndex((m) => m.Type === IdempotencyMiddleware);
+    if (i >= 0) {
+      route.Middlewares[i] = entry;
+    } else {
+      route.Middlewares.push(entry);
+    }
+  }) as MethodDecorator;
+}
+
 export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any[]) {
   return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1?: string | symbol, _2?: number | PropertyDescriptor) => {
     const pDesc = {
@@ -376,32 +401,28 @@ export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any
   });
 }
 
+/** Refuses a request whose `Accept` header allows none of the given types; mounted by {@link Accepts}. */
+@NewInstance()
+export class AcceptsMiddleware extends RouteMiddleware {
+  constructor(public readonly accepts: HttpAcceptHeaders) {
+    super();
+  }
+
+  public async onBefore({ req, res, route }: IMiddlewareContext): Promise<void> {
+    const paramExtract = await DI.resolve(RequestTypeRouteArgs);
+    const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route!);
+
+    if (!(Args & this.accepts)) {
+      throw new ExpectedResponseUnacceptable(`Accepted content type ${this.accepts} is not supported`);
+    }
+  }
+}
+
 /**
- * 
- * Checks if incoming request is proper type ( accepts proper content type ) and answers 406 Not Acceptable if not
- * 
- * @param accepts 
- * @returns 
+ * Answers 406 Not Acceptable when the request's `Accept` header allows none of `accepts`.
  */
 export function Accepts(accepts: HttpAcceptHeaders) {
-  return Middleware(class implements RouteMiddleware {
-    public isEnabled(): boolean {
-      return true;
-    }
-    public async onBefore(req: express.Request, res: express.Response, route: IRoute, _controller: IController): Promise<void> {
-      const paramExtract = await DI.resolve(RequestTypeRouteArgs);
-      const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route);
-
-      if (!(Args & accepts)) {
-        throw new ExpectedResponseUnacceptable(`Accepted content type ${accepts} is not supported`);
-      }
-
-    }
-    public async onResponse(): Promise<void> {
-    }
-    public async onAfter(): Promise<void> {
-    }
-  });
+  return Middleware(AcceptsMiddleware, accepts);
 }
 
 /**

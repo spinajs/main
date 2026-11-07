@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { SqlFragment } from '@spinajs/orm';
+import type { IntervalUnit, SqlFragment } from '@spinajs/orm';
 
 export class MsSqlSqlExpressions extends SqlExpressions {
   public castText(expression: string, length?: number): string {
@@ -18,5 +18,19 @@ export class MsSqlSqlExpressions extends SqlExpressions {
   // BIN2 stops case and accent folding; `=` still pads trailing spaces, which the LEN of the value with a suffix catches.
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `(${left} = ${right.sql} COLLATE Latin1_General_BIN2 AND LEN(${left} + 'x') = LEN(${right.sql} + 'x'))`, bindings: [...right.bindings, ...right.bindings] };
+  }
+
+  public epochMillis(): string {
+    return "DATEDIFF_BIG(MILLISECOND, '19700101', SYSUTCDATETIME())";
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
+  }
+
+  public ago(amount: number, unit: IntervalUnit): string {
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(DATEADD(${checked.unit}, -${checked.amount}, SYSDATETIMEOFFSET()))`;
   }
 }

@@ -57,7 +57,7 @@ import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { Clock, DbClock, TimerHandle } from '../time/clock.js';
+import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from '../time/occurrences.js';
 import { ERROR_GROUP_STATUSES } from './statuses.js';
 import { nextOccurrence } from '../time/spec.js';
@@ -308,6 +308,7 @@ export class DefaultSchedulerService extends SchedulerService {
     if (!failed.length) return { runIds: [] };
 
     const retried = new Set<string>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per ID_BATCH failed run ids
     for (let i = 0; i < failed.length; i += ID_BATCH) {
       const ids = failed.slice(i, i + ID_BATCH).map((f) => f.Id);
       for (const child of await RunModel.query().whereIn('ParentRunId', ids)) {

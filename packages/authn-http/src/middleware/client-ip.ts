@@ -2,8 +2,9 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { ServerMiddleware, parseTrustProxy, trustedClientAddress } from '@spinajs/http';
-import type { ProxyTrust, Request } from '@spinajs/http';
-import type * as express from 'express';
+import type { IMiddlewareContext, ProxyTrust } from '@spinajs/http';
+// Declares req.storage.ClientIp.
+import type {} from '../api.js';
 
 /**
  * authn.http.trustProxy, else http.trustProxy (only when the former is null or absent). The schemas judge the types;
@@ -25,20 +26,24 @@ export class ClientIp extends ServerMiddleware {
   @Config('http.trustProxy')
   protected SharedTrust: unknown;
 
+  private trust?: ProxyTrust;
+
   constructor() {
     super();
     this.Order = 1;
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      req.storage.ClientIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
-      next();
-    };
+  /** Parses the trust, so a bad setting fails the boot. */
+  public async resolve(): Promise<void> {
+    this.proxyTrust();
+    await super.resolve();
   }
 
-  public after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
-    return null;
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    storage.ClientIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], this.proxyTrust());
+  }
+
+  private proxyTrust(): ProxyTrust {
+    return (this.trust ??= proxyTrustOf(this.OwnTrust, this.SharedTrust));
   }
 }

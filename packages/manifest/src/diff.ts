@@ -2,14 +2,21 @@ import { loadsFromManifest, publishedManifest } from './mounted.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import type { Finding } from './schema-compare.js';
-import type { ControllerEntry, Manifest, ParamEntry, PolicyRef, RouteEntry, TypeRef } from './types.js';
+import type { ColumnSqlSpec, ControllerEntry, Manifest, ModelColumn, ParamEntry, PolicyRef, RouteEntry, TypeRef, WorkflowEntry } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
-export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'services' | 'commands' | 'socket'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
-export interface ManifestDiff { base: string; head: string; changes: Change[]; breaking: boolean }
+export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket' | 'workflows'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
+export interface ManifestDiff {
+  base: string;
+  head: string;
+  changes: Change[];
+  breaking: boolean;
+  /** Reasons the changes may not all come from the code, such as base and head built by different compilers. Absent when there are none. */
+  warnings?: string[];
+}
 
 type Section = Change['section'];
-const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'services', 'commands', 'socket'];
+const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket', 'workflows'];
 
 interface Keyed<T> { key: string; item: T }
 
@@ -106,7 +113,10 @@ function diffPermissions(base: Manifest, head: Manifest): Change[] {
 
 /** A route only a registration serves is no part of the contract, but who may call it, if it runs, is worth a reviewer's eye. */
 function diffFlaggedPermissions(base: Manifest, head: Manifest): Change[] {
-  const flagged = (m: Manifest): Manifest => ({ ...m, controllers: m.controllers.filter((c) => !loadsFromManifest(c)) });
+  const flagged = (m: Manifest): Manifest => {
+    const published = new Set(publishedManifest(m).controllers);
+    return { ...m, controllers: m.controllers.filter((c) => !loadsFromManifest(c) && !published.has(c)) };
+  };
   return diffPermissions(flagged(base), flagged(head)).map((c) => ({ ...c, breaking: false, detail: `${c.detail ?? ''}; the route is served only if a registration runs` }));
 }
 
@@ -156,15 +166,102 @@ function diffMisc(base: Manifest, head: Manifest): Change[] {
       changed: (b, h) => changedIf([b.options, b.arguments], [h.options, h.arguments], 'options or arguments changed'),
     }),
     ...diffKeyed('socket', socketEntries(base), socketEntries(head), { changed: (b, h) => changedIf(b, h, 'payload or result changed') }),
+    // A removed version strands its unfinished instances, hence breaking.
+    ...diffKeyed('workflows', byKey(base.workflows ?? [], (w) => `${w.name}@${w.version}`), byKey(head.workflows ?? [], (w) => `${w.name}@${w.version}`), {
+      removedBreaking: true,
+      changed: workflowChanges,
+    }),
   ];
+}
+
+const signalKeys = (w: WorkflowEntry): string[] => w.signals.map((s) => `${s.name}\u0000${s.permission ?? ''}`).sort(compareCodeUnits);
+
+/** The permissions each signal is waited for with, `''` for none. */
+function signalPermissions(w: WorkflowEntry): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const s of w.signals) out.set(s.name, (out.get(s.name) ?? new Set<string>()).add(s.permission ?? ''));
+  return out;
+}
+
+/** A sender breaks when a signal it sends goes away or newly needs a permission; a new signal breaks no one. */
+function workflowChanges(b: WorkflowEntry, h: WorkflowEntry): Finding[] {
+  const findings: Finding[] = [];
+  if (b.className !== h.className) findings.push({ breaking: false, detail: 'class changed' });
+  if (differs(signalKeys(b), signalKeys(h))) {
+    const after = signalPermissions(h);
+    const breaking = [...signalPermissions(b)].some(([name, before]) => {
+      const now = after.get(name);
+      return !now || [...now].some((p) => p !== '' && !before.has(p));
+    });
+    findings.push({ breaking, detail: 'signals changed' });
+  }
+  return findings;
+}
+
+function compilerWarnings(base: Manifest, head: Manifest): string[] {
+  if (base.compilerVersion === head.compilerVersion) return [];
+  const version = (m: Manifest): string => m.compilerVersion ?? 'unrecorded';
+  return [
+    `base and head were built by different compilers (@spinajs/compiler ${version(base)} and ${version(head)}): a change in what the compiler records, such as inherited routes, shows up as a change. Rebuild the base with the head's compiler to compare like with like.`,
+  ];
+}
+
+const SIZES = ['length', 'precision', 'scale'] as const;
+
+function compareSpec(name: string, b: ColumnSqlSpec, h: ColumnSqlSpec): Finding[] {
+  if (!b.inferred && !h.inferred && b.family !== h.family) return [{ breaking: true, detail: `column ${name} changed from ${b.family} to ${h.family}` }];
+  const narrowed = SIZES.filter((k) => {
+    const before = b[k];
+    const after = h[k];
+    return before !== undefined && after !== undefined && after < before;
+  });
+  if (narrowed.length > 0) return [{ breaking: true, detail: `column ${name} narrowed (${narrowed.map((k) => `${k} ${String(b[k])} -> ${String(h[k])}`).join(', ')})` }];
+  return differs(b, h) ? [{ breaking: false, detail: `column ${name} SQL spec changed` }] : [];
+}
+
+function compareColumn(name: string, b: ModelColumn, h: ModelColumn): Finding[] {
+  const findings: Finding[] = [];
+  if (b.nullable && !h.nullable) findings.push({ breaking: true, detail: `column ${name} is now NOT NULL` });
+  if (!b.nullable && h.nullable) findings.push({ breaking: false, detail: `column ${name} is now nullable` });
+  if (b.sql && h.sql) findings.push(...compareSpec(name, b.sql, h.sql));
+  return findings;
+}
+
+function compareTable(b: Map<string, ModelColumn>, h: Map<string, ModelColumn>): Finding[] {
+  const findings: Finding[] = [];
+  for (const [name, column] of b) {
+    const next = h.get(name);
+    findings.push(...(next ? compareColumn(name, column, next) : [{ breaking: true, detail: `column ${name} removed` }]));
+  }
+  for (const [name, column] of h) {
+    if (!b.has(name)) findings.push({ breaking: false, detail: `column ${name} added${column.nullable ? '' : ' (NOT NULL)'}` });
+  }
+  return findings;
+}
+
+/** A table is the union of the models mapped to it (D19). */
+function tables(m: Manifest): Keyed<Map<string, ModelColumn>>[] {
+  const out = new Map<string, Map<string, ModelColumn>>();
+  for (const model of m.models) {
+    const key = `${model.connection ?? 'default'}:${model.tableName}`;
+    const columns = out.get(key) ?? new Map<string, ModelColumn>();
+    for (const c of model.columns) if (!columns.has(c.name)) columns.set(c.name, c);
+    out.set(key, columns);
+  }
+  return [...out].map(([key, item]) => ({ key, item }));
+}
+
+function diffModels(base: Manifest, head: Manifest): Change[] {
+  return diffKeyed('models', tables(base), tables(head), { removedBreaking: true, changed: compareTable });
 }
 
 export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {
   const base = publishedManifest(baseManifest);
   const head = publishedManifest(headManifest);
-  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head)];
+  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head), ...diffModels(base, head)];
   const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
-  return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking) };
+  const warnings = compilerWarnings(baseManifest, headManifest);
+  return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking), ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -175,7 +272,9 @@ export function renderMarkdown(diff: ManifestDiff): string {
   const breakingCount = diff.changes.filter((c) => c.breaking).length;
   const verdict = diff.changes.length === 0 ? 'no changes' : diff.breaking ? `**BREAKING** (${breakingCount} breaking of ${diff.changes.length} changes)` : `non-breaking (${diff.changes.length} changes)`;
 
-  lines.push('## Manifest diff', '', `Result: ${verdict}`, '', `\`${short(diff.base)}\` -> \`${short(diff.head)}\``);
+  lines.push('## Manifest diff', '', `Result: ${verdict}`, '');
+  for (const warning of diff.warnings ?? []) lines.push(`> **Warning:** ${warning}`, '');
+  lines.push(`\`${short(diff.base)}\` -> \`${short(diff.head)}\``);
 
   for (const section of SECTIONS) {
     const changes = diff.changes.filter((c) => c.section === section);
