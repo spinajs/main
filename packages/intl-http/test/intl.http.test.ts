@@ -13,6 +13,9 @@ import { req, TestConfiguration } from './common.js';
 import { IntlHttpMiddleware } from '../src/index.js';
 import { TestResponses } from './controllers/TestResponses.js';
 
+const headerOf = (res: unknown, name: string): string | undefined => (res as { header: Record<string, string | undefined> }).header[name];
+const varyOf = (res: unknown): string[] => (headerOf(res, 'vary') ?? '').split(/\s*,\s*/);
+
 describe('http & controller tests', function () {
   this.timeout(25000);
 
@@ -131,6 +134,30 @@ describe('http & controller tests', function () {
 
       expect(derived.storage.language).to.eq('de');
       expect(explicit.storage.language).to.eq('en');
+    });
+
+    it('answers Content-Language with the detected language, and Vary on what the detection reads', async () => {
+      const explicit = await req().get('responses/testLangFromParam?lang=en').set('Accept', 'application/json').send();
+      expect(headerOf(explicit, 'content-language')).to.eq('en');
+      expect(varyOf(explicit)).to.include.members(['Cookie', 'X-Lang']);
+
+      const fallback = await req().get('responses/testLangFromParam').set('Accept', 'application/json').send();
+      expect(headerOf(fallback, 'content-language')).to.eq('pl');
+    });
+
+    it("keeps the answer's own Content-Language", async () => {
+      const response = await req().get('responses/testOwnContentLanguage?lang=en').set('Accept', 'application/json').send();
+      expect(headerOf(response, 'content-language')).to.eq('de');
+    });
+
+    it('adds to a Vary set before it', async () => {
+      const response = await req().get('responses/testVaryOrigin').set('Accept', 'application/json').send();
+      expect(varyOf(response).slice(0, 3)).to.deep.eq(['Origin', 'Cookie', 'X-Lang']);
+    });
+
+    it("joins the answer's own Vary", async () => {
+      const response = await req().get('responses/testOwnVary').set('Accept', 'application/json').send();
+      expect(varyOf(response).slice(0, 3)).to.deep.eq(['Accept', 'cookie', 'X-Lang']);
     });
 
     it('answers 400 through the server for a bad language on any path', async () => {

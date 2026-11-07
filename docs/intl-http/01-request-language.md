@@ -17,6 +17,7 @@
    - `guessLanguage()` from `@spinajs/intl` returns `storage.language`;
    - `TemplateResponse` renders through `@spinajs/templates`, which calls `guessLanguage()` when no language is passed;
    - `@spinajs/intl-orm` models translate their fields with `guessLanguage()`.
+8. `IntlHttpMiddleware.onAfter()` runs on every framework reply (success, error, early answer) of a request it stored a language for. It sets `Content-Language: <storage.language>`, unless the answer or a route middleware set one, and adds the headers `varyHeaders()` names to `Vary` (by default `Cookie` and `X-<name>`, eg. `Vary: Cookie, X-Lang`), keeping the fields already there, such as the `Origin` of CORS. A shared cache then keeps one copy per language. A file served by the static middleware or a reply an action wrote to `res` itself gets neither header.
 
 ```mermaid
 sequenceDiagram
@@ -76,6 +77,7 @@ export default {
 | `defaultLocale` | `@Config('intl.defaultLocale')` | Fallback language. |
 | `Order` | constructor, `1` | Position among server middlewares. |
 | `detectLanguage(req)` | method | The language of the request; throws `InvalidArgument` for a malformed explicit value. Override it to change the rules and keep the stored value and the validation in one place. |
+| `varyHeaders()` | method | The request headers `detectLanguage(req)` reads, added to `Vary` on every reply: `['Cookie', 'X-<Name>']`. Override it together with `detectLanguage(req)` when the detection reads another header. |
 
 ### IntlHttpMiddleware: custom implementation
 
@@ -104,6 +106,11 @@ export class AcceptLanguageMiddleware extends IntlHttpMiddleware {
 
     return explicit ? detected : req.acceptsLanguages(...this.Locales) || detected;
   }
+
+  // Replies now depend on Accept-Language too: caches must key on it.
+  protected varyHeaders(): string[] {
+    return [...super.varyHeaders(), 'Accept-Language'];
+  }
 }
 
 // The default stays in the ServerMiddleware list unless it is removed.
@@ -121,6 +128,7 @@ DI.unregister(IntlHttpMiddleware);
 - **Plain cookies only:** the middleware reads `req.cookies`, not `req.signedCookies`. A signed language cookie is ignored or rejected.
 - **Cookie parser optional:** with no cookie parser in `http.middlewares`, the cookie source is skipped and the header is read next.
 - **Per request only:** the language is not written back to a cookie or session.
+- **`Vary` names what is read:** the default detection reads the query string, the cookie and the `x-<name>` header, never `Accept-Language`, so `Vary` lists `Cookie` and `X-<name>` (the query string is part of the URL a cache keys on). A `Vary` the answer set itself is kept: the fields join it.
 
 ## Best practices
 

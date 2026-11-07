@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _between } from '@spinajs/util';
 import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
-import type { IMiddlewareContext } from '@spinajs/http';
+import type { IMiddlewareContext, IReplyContext } from '@spinajs/http';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -81,6 +81,31 @@ export class IntlHttpMiddleware extends ServerMiddleware {
 
   public onBefore({ req, storage }: IMiddlewareContext): void {
     storage.language = this.detectLanguage(req as sRequest);
+  }
+
+  /** `Content-Language` unless the answer set its own, and `Vary` on the request headers {@link varyHeaders} names. */
+  public onAfter({ res, response, storage }: IReplyContext): void {
+    if (storage.language && !res.hasHeader('Content-Language') && !response.headers.some((h) => h.Name.toLowerCase() === 'content-language')) {
+      res.setHeader('Content-Language', storage.language);
+    }
+    const fields = this.varyHeaders();
+    // a hook's header replaces the answer's own one of the same name, so a Vary the answer set is joined here
+    const own = response.headers.find((h) => h.Name.toLowerCase() === 'vary');
+    if (own) {
+      const listed = String(own.Value).split(',').map((f) => f.trim()).filter(Boolean);
+      const missing = fields.filter((f) => !listed.some((l) => l.toLowerCase() === f.toLowerCase()));
+      response.setHeader('Vary', [...listed, ...missing].join(', '));
+    } else {
+      res.vary(fields.join(', '));
+    }
+  }
+
+  /**
+   * The request headers {@link detectLanguage} reads, for `Vary`: the cookie and the `x-<name>` header. A subclass that
+   * reads more (`Accept-Language`) adds them here.
+   */
+  protected varyHeaders(): string[] {
+    return ['Cookie', `X-${this.LangQueryParameter.charAt(0).toUpperCase()}${this.LangQueryParameter.slice(1)}`];
   }
 
   /**
