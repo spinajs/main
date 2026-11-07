@@ -1,7 +1,7 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedSessionSettingsCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported } from '@spinajs/orm';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported } from '@spinajs/orm';
 import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
@@ -49,6 +49,15 @@ export abstract class SqlDriver extends OrmDriver {
 
     const converter = this.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
     return params.map((p): unknown => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
+  }
+
+  /** The select builder always emits a FROM, so this statement goes straight to `executeOnDb`, which joins the transaction in scope. */
+  public async epochMillis(): Promise<number> {
+    const stmt = `SELECT ${this.Container.resolve(SqlExpressions).epochMillis()} AS ms`;
+    this.Log?.trace({ sql: stmt, bindings: [], context: String(QueryContext.Select) }, '%s', stmt);
+    const [row] = (await this.executeOnDb(stmt, [], QueryContext.Select)) as Array<{ ms: number | string }>;
+    // Postgres and MSSQL return a BIGINT as text.
+    return Number(row.ms);
   }
 
   public execute(builder: Builder<any>) {

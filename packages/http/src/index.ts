@@ -1,6 +1,10 @@
 export * from './interfaces.js';
 export * from './response-methods/index.js';
 export * from './decorators.js';
+export * from './idempotency/options.js';
+export { ResponseCapture, REPLAYED_HEADERS, attachResponseCapture } from './response-capture.js';
+export type { CapturedJsonReply } from './response-capture.js';
+export { IdempotencyMiddleware } from './idempotency/middleware.js';
 export * from './errors/on-error.js';
 export { answeredAsServerError } from './error.js';
 export * from './tokens.js';
