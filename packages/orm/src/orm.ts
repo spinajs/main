@@ -167,7 +167,8 @@ export class Orm extends AsyncService {
     }
 
     this.warnMissingTables(missing);
-    this.warnDrift(this.ColumnDrift);
+    // the drift of a model this call did not read was warned when it was read
+    this.warnDrift(options.models ? options.models.flatMap((m) => this.Drift.get(m) ?? []) : this.ColumnDrift);
   }
 
   /** Reads `models` ( default: all ); resolves with the tables it found missing. */

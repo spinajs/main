@@ -36,7 +36,7 @@ Only the columns a model declares are checked:
 
 Column names are compared ignoring case on drivers whose dialect profile sets `caseInsensitiveIdentifiers` (sqlite, mysql, mssql). Families are compared only for native types the driver's profile lists in `nativeTypes`.
 
-`Orm.ColumnDrift` lists what the last reads found.
+`Orm.ColumnDrift` lists what the last reads found. `reloadTableInfo({ models })` (what `migrate()` calls for the tables it touched) warns only the drift of the models it read.
 
 A column the table has and no model declares is normal (a partial model). `select *` still puts its value on the instance, without a converter, and `save()` never writes it.
 

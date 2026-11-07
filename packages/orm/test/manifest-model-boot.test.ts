@@ -4,11 +4,12 @@ import { DI } from '@spinajs/di';
 import type { ModelColumn, ModelEntry } from '@spinajs/manifest';
 import { expect } from 'chai';
 import 'mocha';
+import * as sinon from 'sinon';
 import '@spinajs/log';
 import { Connection, DatetimeValueConverter, extractModelDescriptor, Ignore, Model, ModelBase, Orm, ORM_DB_VALUE_CONVERTERS, Primary, SqlDialect, Uuid } from '../src/index.js';
 import type { IColumnDescriptor } from '../src/index.js';
 import { col, live } from './schema-diff/fixture.js';
-import { FakeSqliteDriver } from './misc.js';
+import { FakeSqliteDriver, logText } from './misc.js';
 
 const CONNECTION = 'manifest-source';
 
@@ -107,8 +108,14 @@ describe('db.Models.Source = manifest at boot', () => {
   });
 
   afterEach(async () => {
+    sinon.restore();
     await disposeTestApps();
   });
+
+  const driftWarnings = (orm: Orm) => {
+    const warn = sinon.spy((orm as unknown as { Log: { warn(...args: unknown[]): void } }).Log, 'warn');
+    return () => warn.getCalls().map(logText).filter((t) => t.startsWith('Column drift'));
+  };
 
   // first: the keys it registers stay in the process
   it("adds no datetime or date converter keys under 'database'", async () => {
@@ -130,5 +137,14 @@ describe('db.Models.Source = manifest at boot', () => {
     const columns = extractModelDescriptor(models.Flagged)!.Columns;
     expect(columns.find((c) => c.Name === 'Ref')!.Uuid).to.equal(true);
     expect(columns.find((c) => c.Name === 'Note')!.Ignore).to.equal(true);
+  });
+
+  it('warns again only the drift of the models a non-strict reload read', async () => {
+    const orm = await boot();
+    const warned = driftWarnings(orm);
+    await orm.reloadTableInfo({ models: [models.Flagged] });
+    expect(warned()).to.deep.equal([]);
+    await orm.reloadTableInfo({ models: [models.Stamped] });
+    expect(warned()).to.deep.equal(['Column drift: "column stamped.Flag is INTEGER on connection manifest-source, model Stamped declares boolean"']);
   });
 });
