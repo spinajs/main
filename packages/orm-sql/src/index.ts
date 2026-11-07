@@ -87,12 +87,28 @@ export abstract class SqlDriver extends OrmDriver {
     }
   }
 
-  public executeStream(compiled: ICompilerOutput, options: { batchSize: number }): AsyncIterable<unknown> {
+  public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {
+    const compiled = builder.toDB() as ICompilerOutput;
     const expression = compiled.expression ?? '';
     const bindings = compiled.bindings ?? [];
-    this.Log?.trace({ sql: expression, bindings, context: 'stream' }, '%s', expression);
+    this.logQuery(expression, bindings, builder);
 
-    return this.executeStreamOnDb(expression, bindings, options);
+    const rows = this.executeStreamOnDb(expression, bindings, options)[Symbol.asyncIterator]();
+    // the cursor opens on the first read, which is what the span measures
+    let next = await Perf.measure('orm.query', () => rows.next(), {
+      labels: { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) },
+      fields: { sql: expression, bindings },
+    });
+    try {
+      while (next.done !== true) {
+        yield next.value;
+        next = await rows.next();
+      }
+    } finally {
+      if (next.done !== true) {
+        await rows.return?.();
+      }
+    }
   }
 
   /** The cursor over one statement. A driver that sets `supportedFeatures().streaming` overrides it. */

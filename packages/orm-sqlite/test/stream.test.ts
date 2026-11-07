@@ -1,14 +1,19 @@
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Connection, HasManyRelationMiddleware, Model, ModelBase, OrmDriver, OrmException, Primary, StreamNotSupported } from '@spinajs/orm';
+import { Perf } from '@spinajs/log-common';
+import { Connection, ConnectionSessionSettings, HasManyRelationMiddleware, Model, ModelBase, OrmDriver, OrmException, Primary, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, StreamNotSupported } from '@spinajs/orm';
+import type { ICompilerOutput, ISelectQueryBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { existsSync, unlinkSync } from 'fs';
 import 'mocha';
 import sinon from 'sinon';
 import sqlite3 from 'sqlite3';
-import type { SqliteOrmDriver } from '../src/index.js';
-import { db } from './common.js';
+import { SqliteOrmDriver } from '../src/index.js';
+import { ConnectionConf, db } from './common.js';
 import { bootUow, registerUowConnection, rows, UowOrder } from './uowFixture.js';
+import { dir } from './util.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -21,6 +26,38 @@ class StreamScore extends ModelBase {
   public Id: number;
 
   public Score: number;
+}
+
+const POOL_FILE = dir('./stream-pool.sqlite');
+
+/** sqlite streams natively only from a read handle, and `:memory:` has none. */
+class PoolConnectionConf extends ConnectionConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const connections = (this.Config as { db: { Connections: Array<Record<string, unknown>> } }).db.Connections;
+    Object.assign(connections.find((c) => c.Name === 'sqlite')!, { Filename: POOL_FILE, Pool: { Max: 3 } });
+  }
+}
+
+class PageSettings extends ConnectionSessionSettings {
+  public settings(): Promise<Record<string, string>> {
+    return Promise.resolve({ 'app.user': '7' });
+  }
+}
+
+/** Applies the settings as a select that names them, so a test can count the statements. */
+class RecordingSettingsCompiler extends SessionSettingsQueryCompiler {
+  constructor(private builder: SessionSettingsQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    return { expression: `SELECT '${JSON.stringify(this.builder.Settings)}'`, bindings: [] };
+  }
+}
+
+function removePoolFiles(): void {
+  [POOL_FILE, `${POOL_FILE}-journal`].filter((f) => existsSync(f)).forEach((f) => unlinkSync(f));
 }
 
 function sqlite(): OrmDriver {
@@ -48,6 +85,16 @@ async function seedOrders(count: number): Promise<void> {
   }
 }
 
+async function seedItems(): Promise<void> {
+  await sqlite()
+    .insert()
+    .into('uow_order_item')
+    .values([
+      { Sku: 'A', Qty: 1, order_id: 1 },
+      { Sku: 'B', Qty: 1, order_id: 250 },
+    ]);
+}
+
 async function collect<T>(source: AsyncIterable<T>, stopAfter = Number.POSITIVE_INFINITY): Promise<T[]> {
   const out: T[] = [];
   for await (const item of source) {
@@ -59,27 +106,38 @@ async function collect<T>(source: AsyncIterable<T>, stopAfter = Number.POSITIVE_
   return out;
 }
 
-function withoutCursor(sandbox: sinon.SinonSandbox): void {
-  const driver = sqlite();
-  sandbox.stub(driver, 'supportedFeatures').returns({ ...driver.supportedFeatures(), streaming: false });
+/** `memory` is the writer-only `:memory:` database; `pool` a file database with read handles. */
+function useDatabase(sandbox: sinon.SinonSandbox, kind: 'memory' | 'pool'): void {
+  before(() => {
+    registerUowConnection();
+    if (kind === 'pool') {
+      DI.register(PoolConnectionConf).as(Configuration);
+    }
+  });
+  after(() => {
+    if (kind === 'pool') {
+      DI.unregister(PoolConnectionConf);
+    }
+  });
+  beforeEach(async () => {
+    removePoolFiles();
+    await bootUow();
+  });
+  afterEach(async () => {
+    sandbox.restore();
+    if (kind === 'pool') {
+      await db().dispose();
+    }
+    DI.clearCache();
+    removePoolFiles();
+  });
 }
 
 function streamSuite(mode: 'native' | 'keyset fallback'): void {
   describe(`stream() on sqlite, ${mode}`, function () {
     this.timeout(60000);
     const sandbox = sinon.createSandbox();
-
-    before(() => registerUowConnection());
-    beforeEach(async () => {
-      await bootUow();
-      if (mode === 'keyset fallback') {
-        withoutCursor(sandbox);
-      }
-    });
-    afterEach(() => {
-      sandbox.restore();
-      DI.clearCache();
-    });
+    useDatabase(sandbox, mode === 'native' ? 'pool' : 'memory');
 
     it('yields 10k rows once each, in order, as models', async () => {
       await seedOrders(10000);
@@ -101,13 +159,7 @@ function streamSuite(mode: 'native' | 'keyset fallback'): void {
 
     it('populates relations once per batch', async () => {
       await seedOrders(250);
-      await sqlite()
-        .insert()
-        .into('uow_order_item')
-        .values([
-          { Sku: 'A', Qty: 1, order_id: 1 },
-          { Sku: 'B', Qty: 1, order_id: 250 },
-        ]);
+      await seedItems();
       const populate = sandbox.spy(HasManyRelationMiddleware.prototype, 'afterHydration');
 
       const rows = await collect(UowOrder.select().order('Id').populate('Items').stream({ batchSize: 100 }));
@@ -148,16 +200,7 @@ streamSuite('keyset fallback');
 describe('stream() without a driver cursor', function () {
   this.timeout(60000);
   const sandbox = sinon.createSandbox();
-
-  before(() => registerUowConnection());
-  beforeEach(async () => {
-    await bootUow();
-    withoutCursor(sandbox);
-  });
-  afterEach(() => {
-    sandbox.restore();
-    DI.clearCache();
-  });
+  useDatabase(sandbox, 'memory');
 
   it('runs one select per batch and none after the loop breaks', async () => {
     await seedOrders(1000);
@@ -195,6 +238,41 @@ describe('stream() without a driver cursor', function () {
   it('refuses an order by a relation column', async () => {
     await expect(collect(UowOrder.select().order('Client.Name').order('Id').stream())).to.be.rejectedWith(StreamNotSupported);
   });
+
+  const unpageable: Array<[string, () => ISelectQueryBuilder<UowOrder[]>]> = [
+    ['groupBy()', () => UowOrder.select().order('Id').groupBy('Total')],
+    ['distinct()', () => UowOrder.select().columns(['Id', 'Total']).distinct().order('Id')],
+    ['an aggregate column', () => UowOrder.select().max('Total', 'top').order('Id')],
+  ];
+  for (const [name, query] of unpageable) {
+    it(`refuses ${name}`, async () => {
+      await expect(collect(query().stream())).to.be.rejectedWith(StreamNotSupported, /keyset/);
+    });
+  }
+
+  it('lets a transaction begun after the first batch run, and populates the next batch, on a writer-only database', async function () {
+    this.timeout(10000);
+    await seedOrders(250);
+    await seedItems();
+    const driver = sqlite();
+    const seen: UowOrder[] = [];
+    let tx: Promise<void> | undefined;
+
+    for await (const order of UowOrder.select().order('Id').populate('Items').stream({ batchSize: 100 })) {
+      seen.push(order);
+      if (seen.length === 100) {
+        tx = driver.transaction(async () => {
+          await driver.insert().into('uow_tag').values({ Name: 'mid-stream' });
+        });
+      }
+    }
+    await tx;
+
+    expect(driver.supportedFeatures().streaming).to.eq(false);
+    expect(seen).to.have.length(250);
+    expect(seen[249].Items.map((i) => i.Sku)).to.deep.equal(['B']);
+    expect(await rows('uow_tag')).to.have.length(1);
+  });
 });
 
 streamSuite('native');
@@ -202,18 +280,17 @@ streamSuite('native');
 describe('stream() on the sqlite statement cursor', function () {
   this.timeout(60000);
   const sandbox = sinon.createSandbox();
+  useDatabase(sandbox, 'pool');
 
-  before(() => registerUowConnection());
-  beforeEach(async () => {
-    await bootUow();
-  });
-  afterEach(() => {
-    sandbox.restore();
-    DI.clearCache();
-  });
+  it('declares a cursor on a database with read handles, and reads through it', async () => {
+    await seedOrders(10);
+    const cursor = sandbox.spy(SqliteOrmDriver.prototype, 'executeStreamOnDb');
 
-  it('declares a cursor', () => {
+    const rows = await collect(UowOrder.select().order('Id').stream());
+
     expect(sqlite().supportedFeatures().streaming).to.eq(true);
+    expect(rows).to.have.length(10);
+    expect(cursor.calledOnce).to.eq(true);
   });
 
   it('finalizes the statement when the loop breaks', async () => {
@@ -263,17 +340,38 @@ describe('stream() on the sqlite statement cursor', function () {
     expect((rows[0] as { Total: number }).Total).to.eq(1);
   });
 
+  it('logs and measures the stream like a query', async () => {
+    await seedOrders(10);
+    const logged = sandbox.spy(SqliteOrmDriver.prototype as unknown as { logQuery(sql: string): void }, 'logQuery');
+    const measured = sandbox.spy(Perf, 'measure');
+
+    await collect(UowOrder.select().order('Id').stream());
+
+    expect(logged.calledOnce).to.eq(true);
+    expect(logged.firstCall.args[0]).to.match(/FROM .uow_order./);
+    expect(measured.withArgs('orm.query').callCount).to.eq(1);
+  });
+
+  it('pages by keyset under session settings and applies them to every page', async () => {
+    await seedOrders(250);
+    sqlite().Container.register(PageSettings).as(ConnectionSessionSettings);
+    sqlite().Container.register(RecordingSettingsCompiler).as(SessionSettingsQueryCompiler);
+    const statements = sandbox.spy(SqliteOrmDriver.prototype, 'executeOnDb');
+    const cursor = sandbox.spy(SqliteOrmDriver.prototype, 'executeStreamOnDb');
+
+    const rows = await collect(UowOrder.select().order('Id').stream({ batchSize: 100 }));
+
+    expect(rows).to.have.length(250);
+    expect(cursor.callCount).to.eq(0);
+    const applied = statements.getCalls().filter((c) => c.args[0] === `SELECT '{"app.user":"7"}'`);
+    expect(applied).to.have.length(3);
+  });
+
   it('pages by keyset inside a transaction, populates every batch and runs statements in the loop body', async () => {
     await seedOrders(250);
-    await sqlite()
-      .insert()
-      .into('uow_order_item')
-      .values([
-        { Sku: 'A', Qty: 1, order_id: 1 },
-        { Sku: 'B', Qty: 1, order_id: 250 },
-      ]);
+    await seedItems();
     const driver = sqlite();
-    const cursor = sandbox.spy(driver as SqliteOrmDriver, 'executeStreamOnDb');
+    const cursor = sandbox.spy(SqliteOrmDriver.prototype, 'executeStreamOnDb');
     const populate = sandbox.spy(HasManyRelationMiddleware.prototype, 'afterHydration');
 
     const orders = await driver.transaction(async () => {
@@ -293,31 +391,5 @@ describe('stream() on the sqlite statement cursor', function () {
     expect(orders[0].Items.map((i) => i.Sku)).to.deep.equal(['A']);
     expect(orders[249].Items.map((i) => i.Sku)).to.deep.equal(['B']);
     expect((await rows<{ Id: number; Total: number }>('uow_order')).every((r) => r.Total === r.Id)).to.eq(true);
-  });
-
-  it('makes a transaction begun between two batches wait for the stream to end', async () => {
-    await seedOrders(300);
-    const driver = sqlite();
-    const seen: number[] = [];
-    let began = false;
-    let tx: Promise<void> | undefined;
-
-    for await (const row of UowOrder.select().order('Id').stream({ batchSize: 100 })) {
-      seen.push(row.Id);
-      if (seen.length === 100) {
-        // not awaited here: BEGIN waits for the stream, and an await would make the stream wait for BEGIN
-        tx = driver.transaction(async () => {
-          began = true;
-          await driver.insert().into('uow_order').values({ Total: 0 });
-        });
-        await new Promise((resolve) => setImmediate(resolve));
-        expect(began).to.eq(false);
-      }
-    }
-
-    await tx;
-    expect(began).to.eq(true);
-    expect(seen).to.have.length(300);
-    expect(await rows('uow_order')).to.have.length(301);
   });
 });

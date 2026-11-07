@@ -603,13 +603,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       throw new InvalidOperation('stream() cannot follow first() or takeFirst()');
     }
 
-    if (this._driver.CurrentTransaction === undefined && !this._wantsTransaction() && this._driver.supportedFeatures().streaming === true) {
+    if (!this._wantsTransaction() && (await this._driver.canStreamNatively())) {
       yield* this._streamFromCursor(batchSize);
       return;
     }
 
-    // a cursor would hold the transaction's connection, and the per-batch populate or any statement in the loop body
-    // would queue behind it for ever; a page is a whole statement, so the connection is free between pages
+    // a page is a whole statement through executeOnDb: it leaves the connection free between pages and carries the
+    // session settings, which a cursor outside a transaction cannot
     yield* this._streamByKeyset(batchSize);
   }
 
@@ -623,9 +623,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       await middleware.beforeQueryExecution(this);
     }
 
-    const compiled = this.toDB();
     // recorded like `_run`, so the migration tool's dry run sees the tables a stream reads
-    const rows = await executeRecorded(this._driver, () => this.schemaTouches(), () => Promise.resolve(this._driver.executeStream(compiled, { batchSize })));
+    const rows = await executeRecorded(this._driver, () => this.schemaTouches(), () => Promise.resolve(this._driver.executeStream(this, { batchSize })));
     let batch: unknown[] = [];
 
     for await (const row of rows) {
@@ -683,14 +682,28 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   private _assertKeysetPageable(sorts: ISort[], descriptor: IModelDescriptor | null | undefined): asserts descriptor is IModelDescriptor {
     if (sorts.length === 0 || !descriptor || !hasPk(descriptor)) {
-      const why = this._driver.CurrentTransaction !== undefined ? 'inside a transaction stream() pages by keyset' : `driver ${String(this._driver.Options.Driver)} has no cursor; stream() pages by keyset instead`;
-      throw new StreamNotSupported(`${why}, which needs order() on a model with a primary key`);
+      throw new StreamNotSupported(`stream() pages by keyset here (driver ${String(this._driver.Options.Driver)} without a cursor, a transaction or session settings), which needs order() on a model with a primary key`);
     }
 
-    const { limit = -1, offset = -1 } = this._limit;
-    if (limit > 0 || offset > 0 || (this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
-      throw new StreamNotSupported('stream() pages by keyset here and cannot keep take(), skip() or an order by a relation column');
+    const blocker = this._keysetBlocker();
+    if (blocker) {
+      throw new StreamNotSupported(`stream() pages by keyset here and cannot keep ${blocker}`);
     }
+  }
+
+  /** Each page is a fresh LIMIT past the last row of the page before, so the rows must be the table's rows in order. */
+  private _keysetBlocker(): string | undefined {
+    const { limit = -1, offset = -1 } = this._limit;
+    if (limit > 0 || offset > 0) {
+      return 'take() or skip()';
+    }
+    if (this._distinct || this._groupStatements.length !== 0 || this._columns.some((c) => c instanceof ColumnMethodStatement)) {
+      return 'distinct(), groupBy() or an aggregate column';
+    }
+    if ((this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
+      return 'an order by a relation column';
+    }
+    return undefined;
   }
 
   /**

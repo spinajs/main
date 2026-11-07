@@ -162,19 +162,22 @@ describe('Sqlite - relations test', function () {
     const sb = sinon.createSandbox();
     sb.spy(ModelBase.prototype);
 
-    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
-    const spy = set.Dataset[0].insert as any as sinon.SinonSpy;
-    await set.Dataset.sync();
-    expect(spy.called).to.be.false;
-    expect(spy.callCount).to.eq(0);
+    try {
+      const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
+      const spy = set.Dataset[0].insert as any as sinon.SinonSpy;
+      await set.Dataset.sync();
+      expect(spy.called).to.be.false;
+      expect(spy.callCount).to.eq(0);
 
-    set.Dataset[0].Val = 100;
+      set.Dataset[0].Val = 100;
 
-    await set.Dataset.sync();
+      await set.Dataset.sync();
 
-    expect(spy.called).to.be.true;
-    expect(spy.callCount).to.eq(1);
-    sb.restore();
+      expect(spy.called).to.be.true;
+      expect(spy.callCount).to.eq(1);
+    } finally {
+      sb.restore();
+    }
   });
 
   it('Static method populate on oneToMany', async () => {
