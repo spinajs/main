@@ -3,7 +3,7 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query
 import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { col, rel, SortOrder, SqlOperator } from '@spinajs/orm';
-import type { ISelectQueryBuilder } from '@spinajs/orm';
+import type { ColumnName, ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, roleList, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthzService, GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, SYSTEM } from '@spinajs/authz';
@@ -31,7 +31,7 @@ import { everyUserRow, requireEveryUser, userRowFor } from '../../../services/us
  * wrong. Whitelisting turns that into a 400 and keeps the sortable surface a
  * deliberate decision rather than "whatever columns the table happens to have".
  */
-const SORTABLE_COLUMNS = ['Uuid', 'Login', 'Email', 'IsActive', 'CreatedAt', 'LastLoginAt', 'DeletedAt'];
+const SORTABLE_COLUMNS: readonly string[] = ['Uuid', 'Login', 'Email', 'IsActive', 'CreatedAt', 'LastLoginAt', 'DeletedAt'] satisfies ColumnName<User>[];
 
 /**
  * Upper bound on `pagination.limit`. An admin list endpoint with no ceiling is

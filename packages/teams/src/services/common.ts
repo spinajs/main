@@ -30,7 +30,7 @@ export function ownerOf(actor: Principal, owner: unknown): PrincipalRef {
  * One page and the total of a list query. `query` builds a fresh builder each time (marks such as `.accessible()` are
  * per builder). `.accessible()` throws AccessDenied when the plan is `none`: a list the actor may see nothing of is empty.
  */
-export async function pageOf<M, V>(actor: Principal, page: Page, query: () => ISelectQueryBuilder<M[]>, view: (m: M) => V): Promise<Paged<V>> {
+export async function pageOf<M extends { name: string }, V>(actor: Principal, page: Page, query: () => ISelectQueryBuilder<M[]>, view: (m: M) => V): Promise<Paged<V>> {
   try {
     return await asActor(actor, async () => {
       const total = await query().selectCount();
