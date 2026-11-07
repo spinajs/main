@@ -27,6 +27,7 @@ It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-htt
 | [Claims mapping](04-claims-mapping.md) | Claim paths to subject, email, verified flag, name and groups; `requiredClaims` |
 | [Identity linking](05-identity-linking.md) | Map a `(provider, subject)` to a local identity: stored link, verified email, JIT, both switches |
 | [Account linking](06-account-linking.md) | `POST` and `DELETE /auth/oidc/:provider/link` for a signed-in user; the `OidcAccountLinks` extension point |
+| [Rate limits of the link and reauth routes](13-session-route-rate-limits.md) | The shipped `@RateLimit` of the link and reauth routes and their `authn.oidc.rateLimit.*` keys; back-channel logout is never limited |
 | [Login hooks](07-login-hooks.md) | `ActionHook` on `authn.login.identified`: run code with the mapped claims on every OIDC login, or refuse it; `authn.logout.backchannel` |
 | [Provider HTTP client, discovery and keys](08-http-client.md) | `OidcHttpClient` extension point; discovery and JWKS caching and validation |
 | [Security guarantees](09-security.md) | Every check of the flow, what is fixed, and the limits of 3.0 |

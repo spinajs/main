@@ -2,6 +2,8 @@ import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../contracts.js';
 import type { OidcReservedParam } from '../contracts.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
+import { AUTHN_OIDC_SESSION_RATE_LIMIT_SCHEMA } from '../session-rate-limits.js';
+
 export const OIDC_RESERVED_PARAMS: readonly OidcReservedParam[] = Object.freeze(['response_type', 'response_mode', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method', 'request', 'request_uri', 'max_age', 'acr_values'] satisfies OidcReservedParam[]);
 
 export const OIDC_PROVIDER_NAME_PATTERN = '^[a-z0-9_-]{1,59}$';
@@ -112,7 +114,7 @@ export const AUTHN_OIDC_CONFIGURATION_SCHEMA = {
   $configurationModule: 'authn.oidc',
   description: 'OpenID Connect providers and redirects (authn.oidc.*)',
   type: 'object',
-  propertyNames: { enum: ['providers', 'redirects'] },
+  propertyNames: { enum: ['providers', 'redirects', 'rateLimit'] },
   properties: {
     providers: {
       type: 'object',
@@ -128,6 +130,14 @@ export const AUTHN_OIDC_CONFIGURATION_SCHEMA = {
         success: { type: 'string', pattern: OIDC_APP_PATH_PATTERN, default: '/' },
         failure: { type: 'string', pattern: OIDC_APP_PATH_PATTERN, default: '/' },
       },
+    },
+    // Routes with a session (RL-4); begin and callback join them in this object.
+    rateLimit: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: [...Object.keys(AUTHN_OIDC_SESSION_RATE_LIMIT_SCHEMA)] },
+      properties: { ...AUTHN_OIDC_SESSION_RATE_LIMIT_SCHEMA },
+      description: 'Per-route @RateLimit settings: { limit, windowSeconds, by } over the shipped default, or false for no limit.',
     },
   },
 };

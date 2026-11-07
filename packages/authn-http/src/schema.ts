@@ -1,3 +1,5 @@
+import { AUTHN_SESSION_RATE_LIMIT_SCHEMA } from './v3/session-rate-limits.js';
+
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
 // @spinajs/http's parseOrigin, which also refuses a port above 65535 and a broken IPv6 literal.
 const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
@@ -62,6 +64,14 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
           description: 'The Clear-Site-Data directives of POST /auth/logout; [] sends no header. "storage" also clears what the app keeps in the browser across sessions.',
         },
       },
+    },
+    // Routes with a session (RL-4); the anonymous routes' entries join them in this object.
+    rateLimit: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: [...Object.keys(AUTHN_SESSION_RATE_LIMIT_SCHEMA)] },
+      properties: { ...AUTHN_SESSION_RATE_LIMIT_SCHEMA },
+      description: 'Per-route @RateLimit settings: { limit, windowSeconds, by } over the shipped default, or false for no limit.',
     },
   },
 };

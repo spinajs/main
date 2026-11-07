@@ -11,6 +11,7 @@ import { ExplainQueryArg } from '../dto/explain-query.js';
 import { forbidden, holdsExplain, unauthenticated } from '../access/policy.js';
 import { resolveExplainRequest } from './resolve.js';
 import { explainTree } from './tree.js';
+import { AuthzHttpRateLimit } from '../rate-limit/index.js';
 import '../storage.js';
 
 /** Allows a caller who holds `authz.http.explainRoute.permission` in the access domain. */
@@ -48,6 +49,7 @@ export class ExplainController extends BaseController {
   protected Domains: AuthzDomains;
 
   @Get('explain')
+  @AuthzHttpRateLimit('explain')
   @Policy(ExplainPolicy)
   public async explain(@AccessDomain() domain: string, @ExplainQueryArg('principal') principal: string, @ExplainQueryArg('permission') permission: string, @ExplainQueryArg('resource') resource?: string, @ExplainQueryArg('format') format?: string) {
     const authz = await this.Domains.service(domain);

@@ -12,6 +12,7 @@ import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { SessionRateLimit } from '../session-rate-limits.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -38,6 +39,7 @@ export class AuthnVerificationController extends BaseController {
    * @security cookieAuth
    */
   @Post('auth/verify/request')
+  @SessionRateLimit('verifyRequest', { answer: (retryAfter) => tooManyRequests('too many verification requests, try again later', retryAfter) })
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async request(@ClientContext() client: AuthnClientContext) {
     const session = activeSessionOf(client);

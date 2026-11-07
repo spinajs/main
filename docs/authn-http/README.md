@@ -42,6 +42,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Socket sessions](18-socket-sessions.md) | `@spinajs/authn-http/socket`: the session cookie as an `http-socket` principal source. |
 | [`authn:check-config` command](19-check-config-command.md) | Reports what the `authn.*` configuration gets wrong. |
 | [Recommended `http.throttle` rules](../http/18-throttling.md#recommended-rules-for-the-authn-routes) | Request-volume rules for the anonymous authn routes, and why they match the resolved path. |
+| [Rate limits of the routes with a session](25-session-route-rate-limits.md) | The shipped `@RateLimit` of every MFA, re-authentication, credential and credential admin route, its `authn.http.rateLimit.*` key and its throttled answer. |
 | [Webhooks](20-webhooks.md) | `WebhookAuthnEventSink`: signed POSTs of audit events to your endpoints; `WebhookChangeSink` for authz changes. |
 | [Action hooks](23-action-hooks.md) | The route actions (`authn.logout`, `authn.sessions.revoke`, `authn.role.switch`, `authn.admin.credentials`, `authn.registration`, `authn.code.request`, opt-in `authn.request`) and how a refusal of a service answers. |
 

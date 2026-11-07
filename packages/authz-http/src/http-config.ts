@@ -2,6 +2,8 @@ import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { serviceTokenField } from '@spinajs/authz';
 
+import { AUTHZ_HTTP_RATE_LIMITS, rateLimitsSchema } from './rate-limit/index.js';
+
 /** One `authz.http.services` entry as configured. */
 export interface ServiceEntry {
   readonly name: string;
@@ -41,6 +43,8 @@ export interface AuthzHttpConfig {
   readonly unguardedRoutes: 'warn' | 'throw' | 'off';
   /** Targets of WebhookChangeSink; empty: it posts nothing. */
   readonly webhooks: readonly { readonly url: string; readonly secret: { readonly secret: string }; readonly timeoutMs: number }[];
+  /** The @RateLimit settings of the checks, events and explain routes; false: no limit. */
+  readonly rateLimit: Readonly<Record<keyof typeof AUTHZ_HTTP_RATE_LIMITS, { readonly limit: number; readonly windowSeconds: number; readonly by: 'ip' | 'principal' } | false>>;
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
@@ -84,6 +88,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' }, basePath: nonEmpty } },
     events: { type: 'object', default: {}, properties: { maxStreamsPerPrincipal: { type: 'integer', minimum: 1, default: 5 } } },
     unguardedRoutes: { type: 'string', enum: ['warn', 'throw', 'off'], default: 'warn' },
+    rateLimit: rateLimitsSchema(AUTHZ_HTTP_RATE_LIMITS),
     webhooks: {
       type: 'array',
       default: [],

@@ -1,5 +1,6 @@
 export * from './contracts.js';
 export * from './options/schema.js';
+export * from './session-rate-limits.js';
 export * from './options/options.js';
 export * from './presets.js';
 export * from './http/client.js';

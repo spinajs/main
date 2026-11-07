@@ -21,6 +21,7 @@ import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../inde
 import { tooManyRequests } from '../../password/fields.js';
 import { NO_STORE, ServiceUnavailableResponse, badRequest, instant, refusedByHook } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
+import { SessionRateLimit } from '../session-rate-limits.js';
 
 const invalidResponse = invalid('invalid_response', 'challengeId and response are required');
 const invalidName = invalid('invalid_name', `name must be 1 to ${PASSKEY_NAME_CAP} characters without control characters`);
@@ -129,6 +130,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys/options')
+  @SessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure }, unknownField))
   public async options(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext) {
@@ -152,6 +154,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys')
+  @SessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, challengeId: invalidResponse, response: invalidResponse, name: invalidName }, unknownField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnPasskeyRegisterBody, @ClientContext() client: AuthnClientContext) {

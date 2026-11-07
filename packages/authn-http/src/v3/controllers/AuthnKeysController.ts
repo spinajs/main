@@ -31,6 +31,7 @@ import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
+import { SessionRateLimit } from '../session-rate-limits.js';
 
 /**
  * Public keys over the KeyRegistry contract (design §22.10, §22.11; A02, A13, A17). Off (404) while no KeyRegistry is
@@ -89,6 +90,7 @@ export class AuthnKeysController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/keys')
+  @SessionRateLimit('keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, jwk: invalidKey, kid: invalidKid, name: invalidKeyName, expiresAt: invalidKeyExpiry, proof: invalidProof }, unknownKeyField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnKeyRegisterBody, @ClientContext() client: AuthnClientContext) {

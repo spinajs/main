@@ -20,6 +20,7 @@ import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, refusedByHook } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { SessionRateLimit } from '../session-rate-limits.js';
 
 /**
  * The owner's TOTP enrolment over the MfaEnrolmentService, authn-totp's TotpService (design §22.8, §22.11; A09, A10,
@@ -79,6 +80,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa')
+  @SessionRateLimit('mfaEnrolment')
   // The groups are ORed. A caller who passes neither hears the group that authenticated it: an enrolled pending session
   // gets PendingMfaEnrolment's 403 enrolment_closed, an anonymous caller the 401.
   @Policy(PendingMfaEnrolment)
@@ -108,6 +110,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/confirm')
+  @SessionRateLimit('mfaEnrolment')
   @Policy(PendingMfaEnrolment)
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ code: uniformFailure }, unknownField))
@@ -132,6 +135,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/disable')
+  @SessionRateLimit('mfaEnrolment')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, code: uniformFailure }, unknownField))
   public async disable(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnMfaDisableBody, @ClientContext() client: AuthnClientContext) {
@@ -158,6 +162,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/recovery-codes')
+  @SessionRateLimit('mfaEnrolment')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure }, unknownField))
   public async recoveryCodes(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext) {

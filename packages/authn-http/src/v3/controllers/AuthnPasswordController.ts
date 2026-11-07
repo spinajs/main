@@ -13,6 +13,7 @@ import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { SessionRateLimit } from '../session-rate-limits.js';
 
 /**
  * Password routes of the 3.0 layer over the PasswordService contract (design §22.7, §22.11; A04, A11, A30, A32). Off
@@ -119,6 +120,7 @@ export class AuthnPasswordController extends BaseController {
    * @security cookieAuth
    */
   @Patch('user/password')
+  @SessionRateLimit('passwordChange')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ password: newPasswordRefused, confirmPassword: passwordMismatch, oldPassword: uniformFailure }, unknownField))
   public async change(@Body({ required: true }) body: AuthnPasswordChangeBody, @ClientContext() client: AuthnClientContext) {

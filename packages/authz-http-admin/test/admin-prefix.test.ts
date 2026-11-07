@@ -48,7 +48,9 @@ describe('authz.http.admin.basePath', function () {
   });
 
   it('adds no default to the effective authz.http.admin', async () => {
-    expect((await boot(undefined)).get('authz.http.admin')).to.deep.eq({ domain: 'root' });
+    const admin = (await boot(undefined)).get<Record<string, unknown>>('authz.http.admin');
+    expect(admin).to.not.have.property('basePath');
+    expect(admin.domain).to.eq('root');
   });
 
   it('refuses an empty basePath at boot, naming its full path', async () => {

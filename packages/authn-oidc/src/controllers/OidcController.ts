@@ -31,6 +31,7 @@ import type { OidcConnection } from '../args.js';
 // Registers the RP-initiated logout extension and the oidc:<name> strategies: the controller scan imports this file, and an app may never import the package entry.
 import '../logout-extension.js';
 import '../bootstrap.js';
+import { OidcSessionRateLimit } from '../session-rate-limits.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
 const FORM = 'application/x-www-form-urlencoded';
@@ -193,6 +194,7 @@ export class OidcController extends BaseController {
   }
 
   @Post(':provider/link')
+  @OidcSessionRateLimit('link')
   public async beginLink(
     @Param(PROVIDER) provider: string,
     @AuthnSession() session: SessionHandle | null,
@@ -212,6 +214,7 @@ export class OidcController extends BaseController {
   }
 
   @Del(':provider/link')
+  @OidcSessionRateLimit('link')
   public async unlink(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcUnlinkQuery,
@@ -255,6 +258,7 @@ export class OidcController extends BaseController {
 
   /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
   @Get(':provider/reauth')
+  @OidcSessionRateLimit('reauth')
   public async reauth(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcBeginQuery,
