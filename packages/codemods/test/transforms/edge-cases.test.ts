@@ -120,3 +120,16 @@ describe('problem-json-note edge cases', () => {
     expect(text).to.not.match(/[^\r]\n/);
   });
 });
+
+describe('notes', () => {
+  it('go above the JSDoc of the member, not between it and the member', () => {
+    const { text } = run('http-middleware-hooks', 'class S extends ServerMiddleware {\n  /** Adds a header. */\n  before() {}\n}\n');
+    expect(text).to.match(/ {2}\/\/ TODO\(spinajs-4\)[^\n]*\n {2}\/\*\* Adds a header\. \*\/\n {2}before\(\)/);
+    expect(run('http-middleware-hooks', text).changed, 'idempotent').to.equal(false);
+  });
+
+  it('keep the line ending most of the file uses', () => {
+    const { text } = run('http-middleware-hooks', 'class S extends ServerMiddleware {\n  before() {}\r\n  isEnabled() {}\n}\n');
+    expect(text).to.not.contain('\r\n');
+  });
+});
