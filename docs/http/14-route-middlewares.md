@@ -266,7 +266,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](27-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 
@@ -351,7 +351,7 @@ export class SearchController extends BaseController {
 
 `Audit` records each request of a route, with its body and query redacted, its status, error, principal and time, and
 writes the record to an `AuditSink` once the response finished; the default sink logs it on the `audit` logger. Mount it
-with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`. See [Audit](27-audit.md).
+with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`. See [Audit](30-audit.md).
 
 ## Important behaviour
 
@@ -401,7 +401,7 @@ public async onBefore({ req }: IMiddlewareContext) {
 
 ### Audit every write to an admin controller
 
-The shipped [`Audit`](27-audit.md) middleware does this with redaction and a pluggable sink; this hand-written one shows the hooks.
+The shipped [`Audit`](30-audit.md) middleware does this with redaction and a pluggable sink; this hand-written one shows the hooks.
 
 ```ts sample
 import { Log, Logger } from '@spinajs/log';
