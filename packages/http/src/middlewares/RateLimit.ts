@@ -6,7 +6,7 @@ import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext, IRoute, MiddlewareStage, Response } from '../interfaces.js';
-import { rateLimitAnswer } from './rate-limit-answer.js';
+import { rateLimitAnswer, tooManyRequests } from './rate-limit-answer.js';
 import { ThrottleStore } from './Throttle.js';
 
 /** What one request is counted against: its client address, or its authenticated principal. */
@@ -61,6 +61,12 @@ export class RateLimitMiddleware extends RouteMiddleware {
   }
 
   public async onBefore({ req, res, storage }: IMiddlewareContext): Promise<Response | void> {
+    // A closed route never opens, so a window reset or Retry-After would only invite a pointless retry.
+    if (this.limit === 0) {
+      res.set('X-RateLimit-Limit', '0');
+      res.set('X-RateLimit-Remaining', '0');
+      return tooManyRequests();
+    }
     // A store failure rejects: the request fails closed through the error answer.
     const hit = await this.Store.increment(`${this.route}:${this.subject(req, storage)}`, this.windowSeconds);
     return rateLimitAnswer(res, this.limit, hit);
@@ -71,7 +77,8 @@ export class RateLimitMiddleware extends RouteMiddleware {
       const s = storage as unknown as { Principal?: IPrincipalLike | null; AuthnPrincipal?: IPrincipalLike | null } | undefined;
       const principal = s?.Principal ?? s?.AuthnPrincipal;
       if (principal?.authenticated === true && typeof principal.id === 'string') {
-        return `principal:${String(principal.type)}:${principal.id}`;
+        // Escaped as @spinajs/principal's principalKey does, so the type/id split stays unambiguous.
+        return `principal:${String(principal.type).replace(/%/g, '%25').replace(/:/g, '%3A')}:${principal.id}`;
       }
     }
     // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).

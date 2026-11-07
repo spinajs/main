@@ -90,7 +90,7 @@ The counters are per process unless you register a shared `ThrottleStore`. Behin
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `limit` | `integer` | required | Requests allowed per window; `0` refuses every request. |
+| `limit` | `integer` | required | Requests allowed per window. `0` closes the route: every request gets the 429, without `Retry-After` or `X-RateLimit-Reset`, and nothing is counted. |
 | `windowSeconds` | `number` | required | Window length, > 0. |
 | `by` | `'ip' | 'principal'` | `'ip'` | `'ip'`: per client address, an IPv6 address per `http.throttle.ipv6Prefix` network, as `ThrottleMiddleware` counts. `'principal'`: per authenticated principal (`req.storage.Principal` from `@spinajs/authz-http`, else `req.storage.AuthnPrincipal`); an anonymous request is counted per address. |
 
@@ -119,8 +119,8 @@ export class ReportController extends BaseController {
 - It is an `'outer'` route middleware: it runs after the policy gate and before the route's other middlewares, the argument extraction and the action. A request a policy refuses is not counted.
 - Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`.
 - A store that throws fails the request closed, as for `ThrottleMiddleware`.
-- With two limits on a route, the `X-RateLimit-*` headers are those of the one that ran last (the inner one).
-- `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address.
+- With two limits on a route, the `X-RateLimit-*` headers are those of the top-most `@RateLimit`: decorators apply bottom-up, so the one nearest the method runs first and the top-most one last.
+- `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address. A route that declares its own `@RateLimit` (on the route or its controller) drops this global entry: a middleware type is mounted once per route, and the route's declaration wins, so the floor and the route's limit do not stack. With `MemoryThrottleStore` a floor keeps one key per route and client network (swept every 10,000 increments); with a shared store it adds one store round trip to every route.
 
 ## Services and extension points
 
