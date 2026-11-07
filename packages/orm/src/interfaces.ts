@@ -303,6 +303,9 @@ export interface IPoolOptions {
   AcquireTimeout?: number;
 }
 
+/** `db.Models.Source`: `'manifest'` takes model columns from `app.manifest.json` in `system.manifest.mode = 'require'` (D9). */
+export type ModelColumnSource = 'database' | 'manifest';
+
 /**
  * Configuration options to set in configuration file and used in OrmDriver
  */
