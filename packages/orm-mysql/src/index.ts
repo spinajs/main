@@ -223,63 +223,59 @@ export class MySqlOrmDriver extends SqlDriver {
         return;
       }
 
-      // Acquiring is the part that queues when the pool is saturated, so it is the part worth
-      // timing. Taking the connection explicitly, instead of letting `Pool.query` do it out of
-      // sight, is what makes `orm_pool_acquire_seconds` a real number instead of always zero.
-      const acquireStart = process.hrtime.bigint();
-
-      this.acquire((err, connection) => {
-        const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
-        this.observeAcquireSeconds(seconds);
-
-        if (err) {
+      void (async () => {
+        let connection: PoolConnection;
+        try {
+          connection = await this.acquireConnection();
+        } catch (err) {
           fail(err);
           return;
         }
 
         let released = false;
-        run(connection!, () => {
+        run(connection, () => {
           if (released) {
             return;
           }
           released = true;
-          connection!.release();
+          connection.release();
         });
-      });
+      })();
     });
   }
 
   /**
-   * The rows of one statement as mysql2 emits them, with the connection paused while a batch waits. Leaving early
-   * destroys a pooled connection instead of reading the rest of the result. A transaction's connection is drained,
-   * because the transaction still needs it.
+   * The rows of one statement as mysql2 emits them, with the connection paused while a batch waits. A connection whose
+   * result has ended goes back to the pool; one left before that is destroyed together with its socket.
    */
   public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
-    const txContext = this.TransactionStorage.getStore() as IMySqlTransactionContext | undefined;
-    const connection = txContext?.connection ?? (await this.acquireConnection());
+    const bound = this.toDriverParams(params);
+    const connection = await this.acquireConnection();
     const queue = new RowQueue(connection, options.batchSize);
 
-    connection
-      .query(stmt, this.toDriverParams(params))
-      .on('result', (row: unknown) => queue.push(row))
-      .on('error', (err: unknown) => queue.fail(mapMySqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params)))
-      .on('end', () => queue.end());
-
-    let complete = false;
     try {
+      connection
+        .query(stmt, bound)
+        .on('result', (row: unknown) => queue.push(row))
+        .on('error', (err: unknown) => queue.fail(mapMySqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params)))
+        .on('end', () => queue.end());
       yield* queue.read();
-      complete = true;
     } finally {
-      if (txContext) {
-        await queue.discard();
-      } else if (complete) {
+      if (queue.finished) {
         connection.release();
       } else {
         connection.destroy();
+        // mysql2's destroy() only half-closes the socket; a paused one never reads the rest, so the server would keep
+        // sending until net_write_timeout
+        (connection as unknown as { stream: Duplex }).stream.destroy();
       }
     }
   }
 
+  /**
+   * Acquiring is the part that queues when the pool is saturated, so it is the part worth timing. Taking the connection
+   * explicitly, instead of letting `Pool.query` do it out of sight, is what makes `orm_pool_acquire_seconds` a real number.
+   */
   private acquireConnection(): Promise<PoolConnection> {
     const acquireStart = process.hrtime.bigint();
     return new Promise((resolve, reject) => {

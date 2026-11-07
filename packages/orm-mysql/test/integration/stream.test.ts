@@ -103,9 +103,12 @@ describe('mysql stream (integration)', function () {
   });
 
   after(async () => {
-    await driver?.disconnect();
-    await admin?.executeOnDb(`DROP DATABASE IF EXISTS \`${database}\``, [], QueryContext.Schema);
-    await admin?.disconnect();
+    try {
+      await admin?.executeOnDb(`DROP DATABASE IF EXISTS \`${database}\``, [], QueryContext.Schema);
+    } finally {
+      await driver?.disconnect();
+      await admin?.disconnect();
+    }
   });
 
   it('streams every row in order', async () => {
@@ -120,6 +123,21 @@ describe('mysql stream (integration)', function () {
     expect(driver.poolMetrics().InUse).to.eq(0);
     const one = (await driver.executeOnDb('SELECT 1 AS one', [], QueryContext.Select)) as Array<{ one: number }>;
     expect(one[0].one).to.eq(1);
+  });
+
+  it('closes the socket when the loop breaks, so the server stops sending', async () => {
+    // about 1 GB: the server is still writing when the loop leaves
+    const huge = "SELECT a.Id, REPEAT('x', 1024) AS pad FROM stream_t a CROSS JOIN stream_t b";
+    await collect(driver.executeStreamOnDb(huge, [], { batchSize: 100 }), 150);
+
+    const stillSending = async () => {
+      const rows = (await admin.executeOnDb(`SELECT COUNT(*) AS n FROM information_schema.PROCESSLIST WHERE INFO LIKE '%CROSS JOIN stream_t b'`, [], QueryContext.Select)) as Array<{ n: number | string }>;
+      return Number(rows[0].n);
+    };
+    for (let attempt = 0; attempt < 30 && (await stillSending()) > 0; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(await stillSending()).to.eq(0);
   });
 
   it('refuses a raw select inside a transaction: no model, so no keyset page', async () => {
@@ -166,12 +184,15 @@ describe('mysql stream inside a transaction (integration)', function () {
   afterEach(() => sinon.restore());
 
   after(async () => {
-    await orm?.dispose();
-    DI.unregister(StreamMySqlConf);
-    DI.clearCache();
-    const admin = await driverOn('mysql');
-    await admin.executeOnDb(`DROP DATABASE IF EXISTS \`${TX_DATABASE}\``, [], QueryContext.Schema);
-    await admin.disconnect();
+    try {
+      await orm?.dispose();
+    } finally {
+      DI.unregister(StreamMySqlConf);
+      DI.clearCache();
+      const admin = await driverOn('mysql');
+      await admin.executeOnDb(`DROP DATABASE IF EXISTS \`${TX_DATABASE}\``, [], QueryContext.Schema);
+      await admin.disconnect();
+    }
   });
 
   it('pages by keyset inside a transaction, populates every batch and runs statements in the loop body', async () => {
