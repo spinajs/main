@@ -49,8 +49,8 @@ export class SocketCommandContext implements ISocketReplyContext, ISocketFinishC
   /** On the way out: the outcome the next `onAfter` sees. */
   public result?: unknown;
   public error?: unknown;
-  /** @internal The entered middlewares that have `onFinish`, in entry order. */
-  public readonly finishing: SocketMiddleware[] = [];
+  /** @internal The entered middlewares that have `onFinish`, in entry order; unset until one is entered. */
+  public finishing?: SocketMiddleware[];
   /** @internal Settles, never rejects, when the middleware chain has. */
   public chainSettled: Promise<void> = Promise.resolve();
 
@@ -73,7 +73,7 @@ export class SocketCommandContext implements ISocketReplyContext, ISocketFinishC
   /** @internal Called by the dispatcher when the chain enters a middleware. */
   public enter(middleware: SocketMiddleware): void {
     if (middleware.onFinish) {
-      this.finishing.push(middleware);
+      (this.finishing ??= []).push(middleware);
     }
   }
 

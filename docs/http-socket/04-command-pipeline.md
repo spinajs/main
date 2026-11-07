@@ -63,7 +63,7 @@ sequenceDiagram
 http runs the policy gate before every route middleware, so before `IdempotencyMiddleware`. A socket command runs idempotency (500) and ordering (550) before the policies (600), on purpose:
 
 - Ordering comes before the policies so that they, and the argument hydrators, see what the command's predecessors changed: a durable edit pipelined behind its create would otherwise be checked before the create ran, and its `not_found` stored as final.
-- Idempotency comes before the policies so that a resend gets the outcome of the run it repeats. A policy checks the state as it is now: once an idempotent `delete` committed, a `@SocketAccess` rule that loads the row refuses the resend, which would answer a lost ack of a committed command with an error. The stored reply belongs to the principal and `clientId` that ran it, after `AuthenticationStage` (350) checked the principal again, so a replay shows nothing that principal was not given. A refusal by a policy is itself an outcome of the key: a final one (`forbidden`) is stored and replayed, `unauthenticated` releases the key.
+- Idempotency comes before the policies so that a resend gets the outcome of the run it repeats. A key is bound to the request it was first sent with: its command name and payload are fingerprinted with the claim, and a reuse with another command or payload answers `failed_precondition` (`details.reason: 'idempotency_key_reuse'`), as http answers `idempotency.key-reuse`. So a replay is always the outcome of the very request that was checked when it first ran. A policy checks the state as it is now: once an idempotent `delete` committed, a `@SocketAccess` rule that loads the row refuses the resend, which would answer a lost ack of a committed command with an error. The stored reply belongs to the principal and `clientId` that ran it, after `AuthenticationStage` (350) checked the principal again, so a replay shows nothing that principal was not given. A refusal by a policy is itself an outcome of the key: a final one (`forbidden`) is stored and replayed, `unauthenticated` releases the key.
 
 ## Hooks
 
@@ -103,6 +103,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`. A middleware 
 
 An `onBefore` that returns a value other than `undefined` answers the command with it: no later middleware and no handler runs, and the `onAfter` of every entered middleware, the answering one included, sees it as `ctx.result`. `null` answers `null`. An async iterable answers a stream, as a handler's would.
 
+The return type is `unknown`, so the compiler does not catch a value returned by accident: `return this.metrics.inc(...)` in a middleware before 350 answers every command and skips authentication, the policies and the handler. Return nothing unless you mean to answer, and declare the hook `: void` (or `: Promise<void>`) when it never answers.
+
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '@spinajs/http-socket';
@@ -128,7 +130,7 @@ For a stream reply, `ctx.result` is the handler's async iterable when the stream
 
 ### `onFinish`
 
-`onFinish` runs once per command for each entered middleware, inner first, when both the reply is out (the ack sent; for a stream, its `end` or `fail` frame) and the chain has settled. After an abort that is when the handler settled, so it sees the real outcome in `ctx.result` or `ctx.error`, with `ctx.aborted` set. The calls are not awaited by each other; a throw or a rejection is logged on the `http-socket` logger. The shutdown drain waits for them, within `drainMs`.
+`onFinish` runs once per command for each entered middleware, inner first, when both the reply is out (the ack sent; for a stream, its `end` or `fail` frame) and the chain has settled. `ctx.result` or `ctx.error` is the chain's own outcome, whatever middlewares it has: what the outermost middleware returned or threw. After an abort that is when the handler settled, so it sees the real outcome, with `ctx.aborted` set; an abort before the handler shows as a `SocketClientGone` error. The calls are not awaited by each other; a throw or a rejection is logged on the `http-socket` logger. The shutdown drain waits for them, within `drainMs`.
 
 ### AsyncLocalStorage
 
@@ -157,7 +159,7 @@ Every hook runs inside the call's AsyncLocalStorage context, `onFinish` included
 | --- | --- | --- | --- |
 | `@UseSocketMiddleware(type, ...options)` | socket controller class or command method | `type`: a `SocketMiddleware` class; `options`: constructor arguments | Adds the middleware to every command of the controller (class) or to the command (method), at the middleware's `Order` |
 
-- The middleware is resolved per command with `container.resolve(type, options)`, so the class's lifetime decides sharing. Mark a middleware that takes options, or keeps per-command state set in `onRegister`, with `@NewInstance()`: a singleton (the default) is built once, with the options of the first command that resolves it.
+- The middleware is resolved per command with `container.resolve(type, options)`, so the class's lifetime decides sharing. Mark a middleware that takes options, or keeps per-command state set in `onRegister`, with `@NewInstance()`: a singleton (the default) is built once, with the options of the first command that resolves it. The registry logs a warning when one shared instance is declared with different options.
 - A class that is also a global middleware (`@Injectable(SocketMiddleware)`) runs once on a command that declares it: the declared instance, at its own `Order`.
 - Several declarations of one `Order` run in declaration order, the controller's before the command's; decorators apply bottom-up, so the lowest one of a list runs first.
 - Events and connect or disconnect hooks never run socket middlewares; the decorator applies to commands only.
@@ -204,7 +206,7 @@ export class CatalogSocket extends BaseSocketController {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `SocketMiddleware` (abstract, extends `AsyncService`) | Global: `SocketMiddleware`; every registered class, resolved once as `Array.ofType(SocketMiddleware)` by `SocketHandlerRegistry.build()`, a singleton each. Per command: by class in `@UseSocketMiddleware`, `container.resolve(Class, options)` | The eleven built-ins in the table above | Your middlewares | Add for every command: `@Injectable(SocketMiddleware)`. For some: `@UseSocketMiddleware`, or `isEnabled(handler)`. Replace a built-in: `DI.unregister(BuiltIn)` and register yours. All before `SocketServer` resolves |
-| `SocketHandlerRegistry` | `SocketHandlerRegistry` (self), singleton | `SocketHandlerRegistry` | none | Read `Middlewares` (the global ones, in `Order`) and `command(name).middlewares` (one command's chain) |
+| `SocketHandlerRegistry` | `SocketHandlerRegistry` (self), singleton | `SocketHandlerRegistry` | none | Read `Middlewares` (the global ones, in `Order`), `command(name).middlewares` (one command's chain) and `chainFor(name)` (the chain the dispatcher runs for a name) |
 | `SocketDispatcher` | `SocketDispatcher` (self), singleton, `AsyncService` | `SocketDispatcher` | Your subclass | Override `callStorage()` (the per-call store), `observe()` (per-command log and metric); `DI.register(Mine).as(SocketDispatcher)` |
 | `SocketCommandContext` | Not in DI; built per command | `SocketCommandContext` | none | Read and write it from a hook: `ctx.storage`, `ctx.args`, `ctx.result`, `ctx.handlerStarted`, `ctx.drainGrace`, `ctx.addOutcomeRecorder()`, `ctx.abort()`, `ctx.armDeadline()` |
 

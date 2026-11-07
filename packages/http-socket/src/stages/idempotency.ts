@@ -39,7 +39,7 @@ export class IdempotencyStage extends SocketMiddleware {
       throw new SocketException('failed_precondition', `command ${name} is not idempotent, so it cannot take an idempotencyKey`);
     }
 
-    const begun = await this.Idempotency.begin(this.Idempotency.scope(ctx.connection, key), name, ctx.signal, () => ctx.handlerStarted);
+    const begun = await this.Idempotency.begin(this.Idempotency.scope(ctx.connection, key), name, ctx.signal, () => ctx.handlerStarted, this.Idempotency.fingerprint(name, ctx.payload));
 
     if ('reply' in begun) {
       if (begun.reply.ok) {

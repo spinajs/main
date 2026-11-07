@@ -33,14 +33,18 @@ export const mwProbe = {
   handlerRuns: [] as string[],
   outsideAls: [] as string[],
   slow: gate(),
+  hold: gate(),
   removed: false,
+  finished: [] as string[],
   reset(): void {
     this.log = [];
     this.registered = [];
     this.handlerRuns = [];
     this.outsideAls = [];
     this.slow = gate();
+    this.hold = gate();
     this.removed = false;
+    this.finished = [];
   },
 };
 mwProbe.reset();
@@ -208,6 +212,60 @@ export class MwTag extends SocketMiddleware {
   }
 }
 
+/** Only onFinish: what it sees must not depend on another middleware having onAfter. */
+@Injectable(SocketMiddleware)
+export class MwFinishOnly extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Size - 50;
+
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    return handler.fullName.startsWith('fin.');
+  }
+
+  public onFinish(ctx: ISocketFinishContext): void {
+    if (!ctx.request.name.startsWith('fin.')) return;
+    const error = ctx.error === undefined ? 'none' : ((ctx.error as SocketException).code ?? (ctx.error as Error).constructor.name);
+    mwProbe.finished.push(`${ctx.request.name} result=${JSON.stringify(ctx.result)} error=${error} aborted=${ctx.aborted}`);
+  }
+}
+
+/** Holds fin.held before its handler until the test opens the gate. */
+@Injectable(SocketMiddleware)
+export class MwHold extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Policies + 5;
+
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    return handler.fullName === 'fin.held';
+  }
+
+  public async onBefore(): Promise<void> {
+    await mwProbe.hold.promise;
+  }
+}
+
+/** Inside the idempotency stage: what it writes is what the key stores. */
+@Injectable(SocketMiddleware)
+export class MwInsideIdempotency extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Idempotency + 10;
+
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    return handler.fullName === 'mw.slow-idem';
+  }
+
+  public onAfter(ctx: ISocketReplyContext): void {
+    if (ctx.error === undefined) ctx.result = `${String(ctx.result)}+inside`;
+  }
+}
+
+export class MwDeny extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {
+    throw new Forbidden('never');
+  }
+}
+
 /** Refuses once the resource is gone, as `@SocketAccess` refuses a row it can no longer load. */
 export class MwResourceExists extends BasePolicy {
   public isEnabled(): boolean {
@@ -274,6 +332,26 @@ export class MwSocket extends BaseSocketController {
     return 'late';
   }
 
+  @Command('slow-idem', { idempotent: true })
+  public async slowIdem() {
+    mwProbe.handlerRuns.push('slow-idem');
+    await mwProbe.slow.promise;
+    return 'late';
+  }
+
+  @Command('a', { idempotent: true })
+  public async a(@Payload() p: unknown) {
+    mwProbe.handlerRuns.push('a');
+    return { a: p };
+  }
+
+  @Command('b', { idempotent: true })
+  @SocketPolicy(MwDeny)
+  public async b() {
+    mwProbe.handlerRuns.push('b');
+    return 'B';
+  }
+
   @Command('wrap')
   public async wrap() {
     mwProbe.log.push('handler');
@@ -291,6 +369,25 @@ export class MwSocket extends BaseSocketController {
     mwProbe.handlerRuns.push('remove');
     mwProbe.removed = true;
     return 'removed';
+  }
+}
+
+@SocketController('fin')
+export class MwFinishSocket extends BaseSocketController {
+  @Command('ok')
+  public async ok() {
+    return { v: 1 };
+  }
+
+  @Command('boom')
+  public async boom() {
+    throw new SocketException('failed_precondition', 'boom');
+  }
+
+  @Command('held')
+  public async held() {
+    mwProbe.handlerRuns.push('held');
+    return 'never';
   }
 }
 
@@ -506,6 +603,75 @@ describe('SocketMiddleware', function () {
     it('calls onRegister of each declared instance for its commands', async () => {
       expect(mwProbe.registered).to.include.members(['tag ctrl tagged.plain', 'tag ctrl tagged.own', 'tag cmd tagged.own', 'tag first tagged.outer']);
       expect(mwProbe.registered).to.not.include('tag cmd tagged.plain');
+    });
+  });
+
+  describe('onFinish outcome', () => {
+    it('sees the result with no onAfter in the chain', async () => {
+      expect(resultOf(await command(socket, 'fin.ok'))).to.deep.equal({ v: 1 });
+      await waitFor(() => mwProbe.finished.length === 1);
+      expect(mwProbe.finished).to.deep.equal(['fin.ok result={"v":1} error=none aborted=false']);
+    });
+
+    it('sees the handler error', async () => {
+      expect(errorOf(await command(socket, 'fin.boom')).code).to.equal('failed_precondition');
+      await waitFor(() => mwProbe.finished.length === 1);
+      expect(mwProbe.finished).to.deep.equal(['fin.boom result=undefined error=failed_precondition aborted=false']);
+    });
+
+    it('sees the refusal of a name no command has', async () => {
+      expect(errorOf(await command(socket, 'fin.nope')).code).to.equal('unimplemented');
+      await waitFor(() => mwProbe.finished.length === 1);
+      expect(mwProbe.finished).to.deep.equal(['fin.nope result=undefined error=unimplemented aborted=false']);
+    });
+
+    it('sees SocketClientGone when the command was cancelled before its handler', async () => {
+      const id = nextId();
+      const reply = command(socket, 'fin.held', undefined, { id });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      socket.emit(WIRE_EVENTS.cancel, { id });
+
+      expect(errorOf(await reply).code).to.equal('cancelled');
+      mwProbe.hold.open();
+      await waitFor(() => mwProbe.finished.length === 1);
+      expect(mwProbe.finished).to.deep.equal(['fin.held result=undefined error=cancelled aborted=true']);
+      expect(mwProbe.handlerRuns).to.deep.equal([]);
+    });
+  });
+
+  describe('onAfter after an abort', () => {
+    it('still shapes what the idempotency stage stores once the client cancelled', async () => {
+      const id = nextId();
+      const reply = command(socket, 'mw.slow-idem', undefined, { id, idempotencyKey: 'cancelled-key' });
+      await waitFor(() => mwProbe.handlerRuns.includes('slow-idem'));
+      socket.emit(WIRE_EVENTS.cancel, { id });
+      expect(errorOf(await reply).code).to.equal('cancelled');
+
+      mwProbe.slow.open();
+      await waitFor(() => mwProbe.log.includes('outer finish aborted=true'));
+
+      expect(resultOf(await command(socket, 'mw.slow-idem', undefined, { idempotencyKey: 'cancelled-key' }))).to.equal('late+inside');
+      expect(mwProbe.handlerRuns).to.deep.equal(['slow-idem']);
+    });
+  });
+
+  describe('idempotency key reuse', () => {
+    it('refuses a key reused by another command instead of replaying the first one', async () => {
+      expect(resultOf(await command(socket, 'mw.a', 1, { idempotencyKey: 'shared' }))).to.deep.equal({ a: 1 });
+
+      const error = errorOf(await command(socket, 'mw.b', undefined, { idempotencyKey: 'shared' }));
+
+      expect(error.code).to.equal('failed_precondition');
+      expect(error.details).to.deep.equal({ reason: 'idempotency_key_reuse' });
+      expect(mwProbe.handlerRuns).to.deep.equal(['a']);
+    });
+
+    it('refuses a key reused with another payload, and replays the same request', async () => {
+      expect(resultOf(await command(socket, 'mw.a', 1, { idempotencyKey: 'once' }))).to.deep.equal({ a: 1 });
+
+      expect(errorOf(await command(socket, 'mw.a', 2, { idempotencyKey: 'once' })).code).to.equal('failed_precondition');
+      expect(resultOf(await command(socket, 'mw.a', 1, { idempotencyKey: 'once' }))).to.deep.equal({ a: 1 });
+      expect(mwProbe.handlerRuns).to.deep.equal(['a']);
     });
   });
 

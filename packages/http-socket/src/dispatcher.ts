@@ -203,7 +203,7 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /** Runs one command through its middlewares and the handler; never rejects. */
-  public async execute(ctx: SocketCommandContext): Promise<CommandReply> {
+  public async execute(ctx: SocketCommandContext, chain: readonly SocketMiddleware[] = this.chainOf(ctx)): Promise<CommandReply> {
     const runtime = ctx.runtime;
     const started = performance.now();
     runtime.running.set(ctx.request.id, ctx);
@@ -212,11 +212,18 @@ export class SocketDispatcher extends AsyncService {
 
     try {
       // D14: middlewares, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
-      const chain = this.Als.run(ctx.storage, () => this.next(ctx, this.chainOf(ctx), 0));
+      const running = this.Als.run(ctx.storage, () => this.next(ctx, chain, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
-      ctx.chainSettled = chain.then(
-        () => undefined,
-        () => undefined,
+      // onFinish sees the chain's own outcome, also when no onAfter wrote it and when an abort answered the client.
+      ctx.chainSettled = running.then(
+        (result) => {
+          ctx.result = result;
+          ctx.error = undefined;
+        },
+        (error: unknown) => {
+          ctx.result = undefined;
+          ctx.error = error;
+        },
       );
       this.track(this.chains, ctx.chainSettled);
       const abort = aborted(ctx.signal);
@@ -224,10 +231,10 @@ export class SocketDispatcher extends AsyncService {
 
       let result: unknown;
       try {
-        result = await Promise.race([chain, abort]);
+        result = await Promise.race([running, abort]);
       } catch (err) {
         // the answer is out already; a stream the handler returns later is closed instead of left open
-        void chain.then((late) => this.closeStream(late), () => undefined);
+        void running.then((late) => this.closeStream(late), () => undefined);
         throw err;
       }
       reply = await this.toReply(ctx, result);
@@ -306,23 +313,26 @@ export class SocketDispatcher extends AsyncService {
       // answered by the rate stage, so the size stage still comes first ( spec §5.2 )
       ctx.rateRefusal = limited;
     }
+    const chain = this.chainOf(ctx);
     // a stream acks at once, so its run is tracked too: the shutdown drain must see open streams
-    const replied = this.execute(ctx).then((answer) => {
+    const replied = this.execute(ctx, chain).then((answer) => {
       this.send(reply, answer, raw.name);
       // after the ack, so the client knows the id is a stream before its first chunk
       return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
     });
     this.track(this.replies, replied);
-    this.track(
-      this.chains,
-      replied.then(() => this.finish(ctx)),
-    );
+    if (chain.some((middleware) => middleware.onFinish)) {
+      this.track(
+        this.chains,
+        replied.then(() => this.finish(ctx)),
+      );
+    }
   }
 
   /** onFinish of the entered middlewares, inner first, once the reply is out and the chain settled; never rejects. */
   protected async finish(ctx: SocketCommandContext): Promise<void> {
     await ctx.chainSettled;
-    if (ctx.finishing.length === 0) {
+    if (!ctx.finishing) {
       return;
     }
 
@@ -545,7 +555,7 @@ export class SocketDispatcher extends AsyncService {
 
   /** Picked by name on arrival, so a command's own middlewares run before the lookup too. */
   protected chainOf(ctx: SocketCommandContext): readonly SocketMiddleware[] {
-    return this.Registry.command(ctx.request.name)?.middlewares ?? this.Registry.Middlewares;
+    return this.Registry.chainFor(ctx.request.name);
   }
 
   protected next(ctx: SocketCommandContext, chain: readonly SocketMiddleware[], index: number): Promise<unknown> {
@@ -579,7 +589,8 @@ export class SocketDispatcher extends AsyncService {
     };
 
     try {
-      return middleware.onAround(ctx, proceed);
+      // an untyped onAround may return a plain value
+      return Promise.resolve(middleware.onAround(ctx, proceed));
     } catch (err) {
       return Promise.reject(err);
     }
