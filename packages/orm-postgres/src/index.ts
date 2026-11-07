@@ -292,12 +292,31 @@ export class PostgresOrmDriver extends SqlDriver {
 
   public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
     const bound = this.toDriverParams(params);
-    const txContext = this.TransactionStorage.getStore() as IPostgresTransactionContext | undefined;
-    const client = txContext?.connection ?? (await this.acquireClient());
-    const cursor = client.query(new Cursor<unknown>(toDriverStatement(stmt, bound), bound));
+    const mapError = (err: unknown) => mapPostgresError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);
+    // pg hands its own parsers to a cursor that has none, but only through an internal; the pool's parsers read timestamp as UTC
+    const cursor = new Cursor<unknown>(toDriverStatement(stmt, bound), bound, { types: UTC_TYPES });
+    const client = await this.withReconnect(async () => {
+      try {
+        return await this.acquireClient();
+      } catch (err) {
+        throw mapError(err);
+      }
+    });
+
+    // a cursor closed on a dead connection waits for a readyForQuery that never comes
+    let connectionLost = false;
+    let onEnd: () => void = () => undefined;
+    const lost = new Promise<void>((resolve) => {
+      onEnd = () => {
+        connectionLost = true;
+        resolve();
+      };
+    });
+    client.once('end', onEnd);
     let failed = false;
 
     try {
+      client.query(cursor);
       for (;;) {
         const rows = await cursor.read(options.batchSize);
         if (rows.length === 0) {
@@ -307,14 +326,16 @@ export class PostgresOrmDriver extends SqlDriver {
       }
     } catch (err) {
       failed = true;
-      throw mapPostgresError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);
+      throw mapError(err);
     } finally {
-      await cursor.close().catch(() => {
-        failed = true;
-      });
-      if (!txContext) {
+      try {
+        if (!failed && !connectionLost) {
+          await Promise.race([cursor.close(), lost]);
+        }
+      } finally {
+        client.removeListener('end', onEnd);
         // pg destroys a client released with `true` instead of pooling a connection left mid-protocol
-        client.release(failed);
+        client.release(failed || connectionLost);
       }
     }
   }

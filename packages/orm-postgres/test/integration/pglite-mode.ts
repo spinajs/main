@@ -35,6 +35,8 @@ export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
   'postgres integration - transactions sees a concurrent commit under READ COMMITTED': 'second-session: commits from another session inside the transaction',
   'postgres integration - time (process zone Europe/Warsaw) reads an instant another client wrote in a non-UTC session, at millisecond precision': 'second-session: writes through another client session',
   'postgres stream (integration) streams every row in batches, parsed like a plain select (UTC timestamps)': 'pglite-gap: no pg cursor, so a select without a model cannot stream; orm-pglite/test/stream.test.ts covers PGlite',
+  'postgres stream (integration) rejects and drops the client when the backend dies mid-stream': 'server-admin: terminates the backend through an admin session',
+  'postgres stream (integration) settles a loop that leaves after the backend died between batches': 'server-admin: terminates the backend through an admin session',
 };
 
 export function pgliteSkip(title: string | undefined): string | undefined {

@@ -1,9 +1,13 @@
 import 'mocha';
-import { expect } from 'chai';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import { Connection, HasMany, Model, ModelBase, Primary, QueryContext, Relation } from '@spinajs/orm';
 import sinon from 'sinon';
 import { useProcessTimeZone } from './harness.js';
-import { bootPostgres, PgTestDb, requirePostgres } from './support.js';
+import { adminQuery, bootPostgres, PgTestDb, requirePostgres } from './support.js';
+
+const expect = chai.expect;
+chai.use(chaiAsPromised);
 
 @Connection('pg')
 @Model('pg_stream_note')
@@ -74,16 +78,33 @@ describe('postgres stream (integration)', function () {
   });
 
   it('hydrates models', async () => {
+    const cursor = sinon.spy(pgdb!.driver, 'executeStreamOnDb');
     const rows = await collect(PgStreamItem.select().order('Id').stream({ batchSize: 64 }));
 
     expect(rows).to.have.length(1000);
     expect(rows[999]).to.be.instanceOf(PgStreamItem);
     expect(rows[999].Name).to.eq('n1000');
+    expect(cursor.callCount).to.eq(1);
   });
 
   it('gives the client back to the pool when the loop breaks', async () => {
+    const cursor = sinon.spy(pgdb!.driver, 'executeStreamOnDb');
     await collect(PgStreamItem.select().order('Id').stream({ batchSize: 100 }), 150);
 
+    expect(cursor.callCount).to.eq(1);
+    expect(pgdb!.driver.poolMetrics().InUse).to.eq(0);
+  });
+
+  it('gives the client back to the pool when the loop body throws', async () => {
+    const loop = async () => {
+      for await (const item of PgStreamItem.select().order('Id').stream({ batchSize: 100 })) {
+        if (item.Id === 150) {
+          throw new Error('consumer failed');
+        }
+      }
+    };
+
+    await expect(loop()).to.be.rejectedWith('consumer failed');
     expect(pgdb!.driver.poolMetrics().InUse).to.eq(0);
   });
 
@@ -111,5 +132,29 @@ describe('postgres stream (integration)', function () {
     expect(renamed[0].n).to.eq(1001);
     await driver.executeOnDb('DELETE FROM pg_stream_item WHERE "Id" = 1001', [], QueryContext.Delete);
     await driver.executeOnDb(`UPDATE pg_stream_item SET "Name" = 'n' || "Id"`, [], QueryContext.Update);
+  });
+
+  const openStream = async () => {
+    const rows = pgdb!.driver.select().from('pg_stream_item').order('Id').stream({ batchSize: 100 })[Symbol.asyncIterator]();
+    await rows.next();
+    await adminQuery(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${pgdb!.name}'`);
+    return rows;
+  };
+
+  it('rejects and drops the client when the backend dies mid-stream', async function () {
+    this.timeout(10000);
+    const rows = await openStream();
+
+    await expect(collect({ [Symbol.asyncIterator]: () => rows })).to.be.rejected;
+    expect(pgdb!.driver.poolMetrics().InUse).to.eq(0);
+  });
+
+  it('settles a loop that leaves after the backend died between batches', async function () {
+    this.timeout(10000);
+    const rows = await openStream();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    await rows.return?.(undefined);
+    expect(pgdb!.driver.poolMetrics().InUse).to.eq(0);
   });
 });
