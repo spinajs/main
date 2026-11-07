@@ -19,8 +19,9 @@ const COUNTED = Symbol('concurrencyCounted');
 
 /**
  * Load shedding: at most `http.concurrency.max` requests are served at once by this process. A request over the limit
- * is answered 503 with `Retry-After` at Order -0.4, before it costs anything, and is not counted; a counted request
- * frees its slot when its response finished or its client went away.
+ * is answered 503 with `Retry-After` at Order 2.6 and is not counted: after the request id and the access log, so the
+ * refusal is correlated and logged, before throttling, authentication and routing. A counted request frees its slot
+ * when its response finished or its client went away.
  *
  * Config:
  *   http.concurrency.enabled     (default false)
@@ -37,7 +38,7 @@ export class ConcurrencyLimit extends ServerMiddleware {
 
   constructor() {
     super();
-    this.Order = -0.4;
+    this.Order = 2.6;
   }
 
   /** Requests counted now. */

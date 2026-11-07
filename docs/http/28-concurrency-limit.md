@@ -1,8 +1,8 @@
 # Concurrency limit
 
-`ConcurrencyLimit` is a server middleware for load shedding: it caps how many requests this process serves at once. A request over the cap is answered 503 with `Retry-After` before it costs anything, so an overloaded instance answers fast instead of queueing work it cannot finish in time, and a load balancer or client can retry elsewhere.
+`ConcurrencyLimit` is a server middleware for load shedding: it caps how many requests this process serves at once. A request over the cap is answered 503 with `Retry-After` before throttling, authentication, routing and the action, so an overloaded instance answers fast instead of queueing work it cannot finish in time, and a load balancer or client can retry elsewhere.
 
-It is off by default. When on, it runs at Order -0.4: after `MaintenanceMode` (-0.5) and CORS (-1), before compression and everything else.
+It is off by default. When on, it runs at Order 2.6: after CORS (-1), `RequestId` and `RealIp` (1), `AccessLog` and the timing middlewares (2) and `MaintenanceMode` (2.5), so a refusal carries `x-request-id` and is logged and counted like any reply; before throttling (3), CSRF (4), authentication (5) and routing.
 
 ## How it works
 
@@ -20,7 +20,7 @@ The count covers every request the server middlewares see: routes, 404s and stat
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.concurrency.enabled` | `boolean` | `false` | | Turns the middleware on; read once at mount. |
-| `http.concurrency.max` | `integer` | `500` | ≥ 0 | Requests served at once by this process. |
+| `http.concurrency.max` | `integer` | `500` | ≥ 1 | Requests served at once by this process. |
 | `http.concurrency.retryAfter` | `integer` | `1` | ≥ 0 | Seconds sent in `Retry-After`. |
 
 ```ts
@@ -42,9 +42,9 @@ export default {
 ## Important behaviour
 
 - The limit is per process. With several instances behind a load balancer, the cluster serves up to `max` times the instance count.
-- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped.
+- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped. With actions that ignore that, the cap bounds the requests being answered, not the work in progress.
+- Raw `http.middlewares` handlers (the body and cookie parsers, unless your version mounts them as server middlewares) run before every server middleware: a refused request's body has been read already.
 - A long-lived response (a server-sent event stream, a large download) holds a slot until it ends; size `max` for them or keep them on another instance.
-- `RequestId` (Order 1) has not run yet: the 503 has no `x-request-id`, and `AccessLog` (Order 2) does not log it. Count refusals from a server middleware's `onAfter` at a lower Order, or from your load balancer.
 
 ## Related
 
