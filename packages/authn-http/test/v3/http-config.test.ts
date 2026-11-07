@@ -10,6 +10,7 @@ import { AUTHN_HTTP_CONFIGURATION_SCHEMA, ClientIp, CsrfOriginGuard, AuthnMiddle
 import { registeredSchemasAfter } from '../support/registered-schemas.js';
 import { AuthnHttpConfigBootstrapper } from '../../src/bootstrap.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { mounted } from '../support/server-hooks.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const STRONG = 'unit-' + 'Zx8q'.repeat(10);
@@ -107,26 +108,30 @@ describe('authn http middlewares through @Config and the schemas', () => {
   describe('ClientIp', () => {
     it("takes the client behind the trusted proxies of its container's configuration", async () => {
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/8'] } } } });
-      const handler = readingFrom(new ClientIp(), child).before()!;
+      const handler = mounted(readingFrom(new ClientIp(), child))!;
       const req = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      handler(req, {} as never, () => undefined);
+      handler(req, {}, () => undefined);
       expect((req as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
     });
 
     it('falls back to http.trustProxy and reads the socket address with neither', async () => {
-      const shared = readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: 1 } } })).container).before()!;
+      const shared = mounted(readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: 1 } } })).container))!;
       const a = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      shared(a, {} as never, () => undefined);
+      shared(a, {}, () => undefined);
       expect((a as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
-      const none = readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).container).before()!;
+      const none = mounted(readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).container))!;
       const b = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      none(b, {} as never, () => undefined);
+      none(b, {}, () => undefined);
       expect((b as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('10.0.0.5');
     });
 
     it('still refuses a CIDR the schema cannot judge when the middleware is built', async () => {
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/33'] } } } });
-      expect(() => readingFrom(new ClientIp(), child).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
+      const err = await readingFrom(new ClientIp(), child).resolve().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).to.be.instanceOf(InvalidOption).with.property('message').that.contains('authn.http.trustProxy');
     });
   });
 
@@ -140,23 +145,23 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
     it('refuses a cross-origin unsafe request carrying the session cookie, passes a listed and the own origin', async () => {
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { allowedOrigins: ['HTTPS://Partner.Example.Org:443/'] } } } } });
-      const handler = guardOf(child).before()!;
+      const handler = mounted(guardOf(child))!;
       expect(run(handler, reqFrom('10.0.0.5', cookieHeaders('https://evil.example.org'), 'POST')), 'foreign').to.deep.eq({ passed: false, status: 403 });
       expect(run(handler, reqFrom('10.0.0.5', cookieHeaders('https://partner.example.org'), 'POST')).passed, 'listed, normalised').to.eq(true);
       expect(run(handler, reqFrom('10.0.0.5', cookieHeaders('http://app.example.org'), 'POST')).passed, 'own').to.eq(true);
     });
 
     it('is off only for enabled: false, and takes the session cookie name from authn.session.cookie', async () => {
-      expect(guardOf((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { enabled: false } } } } })).container).before()).to.eq(null);
+      expect(mounted(guardOf((await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { enabled: false } } } } })).container))).to.eq(null);
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { session: { cookie: { name: 'sid2' } } } } });
-      const handler = guardOf(child).before()!;
+      const handler = mounted(guardOf(child))!;
       expect(run(handler, reqFrom('10.0.0.5', { cookie: 'ssid=x', host: 'app.example.org' }, 'POST')).passed, 'another cookie').to.eq(true);
       expect(run(handler, reqFrom('10.0.0.5', { cookie: 'sid2=x', origin: 'https://evil.example.org', host: 'app.example.org' }, 'POST')).passed).to.eq(false);
     });
 
     it('still refuses an allowed origin the pattern cannot judge, naming the key', async () => {
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { csrf: { allowedOrigins: ['https://partner.example.org:99999'] } } } } });
-      expect(() => guardOf(child).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
+      expect(() => guardOf(child).isEnabled()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
   });
 

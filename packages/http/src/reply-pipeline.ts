@@ -65,7 +65,7 @@ const nameOf = (m: HttpMiddleware) => m.constructor.name;
 
 const newState = (): IReplyState => ({ entered: [], converted: false, watching: false });
 
-// A response without `locals` (a bare stub calling a deprecated before() handler) gets a state of its own.
+// A response without `locals` (a bare stub driving a hook directly) gets a state of its own.
 function stateOf(res: express.Response): IReplyState {
   const locals = res.locals as Record<symbol, IReplyState | undefined> | undefined;
   return locals ? (locals[STATE] ??= newState()) : newState();

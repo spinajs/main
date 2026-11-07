@@ -954,12 +954,6 @@ export abstract class RouteMiddleware extends HttpMiddleware {
   public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
-/** A handler of the deprecated `before()`/`after()` server middleware contract. */
-export type LegacyServerHandler = (req: Request, res: express.Response, next: express.NextFunction) => void;
-
-// Filled by server-middlewares.ts: importing it here would close an import cycle through the reply pipeline.
-const SERVER_HOOKS_HANDLER = Symbol.for('@spinajs/http.serverHooksHandler');
-
 /**
  * A middleware of every request, mounted by `HttpServer` before static files and routing, in ascending `Order` (ties in
  * DI registration order). Its `onAfter` and `onFinish` run after the route's, in the exact reverse of the order it was
@@ -976,25 +970,6 @@ export abstract class ServerMiddleware extends HttpMiddleware {
 
   /** A third-party Express handler (compression) mounted at `Order` in place of `onBefore`/`onAround`; null mounts the hooks. */
   public handler?(): express.RequestHandler | null;
-
-  /**
-   * @deprecated Implement the hooks; `before()` and `after()` are removed in the next major. A subclass that overrides
-   * `before()` or `after()` is mounted the old way: `before()` at its `Order`, `after()` after routing, and its hooks are
-   * not used. This base implementation returns the middleware's hooks as one Express handler, or null when
-   * `isEnabled()` is false, so a subclass calling `super.before()` keeps working.
-   */
-  public before(): LegacyServerHandler | null {
-    const hooksHandler = (ServerMiddleware as unknown as Record<symbol, ((m: ServerMiddleware) => LegacyServerHandler) | undefined>)[SERVER_HOOKS_HANDLER];
-    if (!hooksHandler) {
-      throw new Error('ServerMiddleware.before() needs @spinajs/http fully loaded: import it from the package root');
-    }
-    return this.isEnabled() ? hooksHandler(this) : null;
-  }
-
-  /** @deprecated See {@link before}. A handler mounted after routing, before the 404 and the global error answer. */
-  public after(): LegacyServerHandler | express.ErrorRequestHandler | null {
-    return null;
-  }
 }
 
 /**

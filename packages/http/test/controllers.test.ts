@@ -339,8 +339,7 @@ describe('http & controller tests', function () {
     const response = await req().get('extra/rid').set('Accept', 'application/json').send();
     expect(response).to.have.status(200);
     expect(response.body.rid).to.be.a('string').and.not.empty;
-    // x-request-id / x-response-time headers must actually reach the client on
-    // a normal matched route (regression guard: after() middleware never runs).
+    // regression guard: the headers of server middlewares reach a matched route's reply
     expect(response.header['x-request-id']).to.eq(response.body.rid);
     expect(response.header['x-response-time']).to.match(/^\d+$/);
   });
