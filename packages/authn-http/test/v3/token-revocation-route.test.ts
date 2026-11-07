@@ -12,6 +12,7 @@ import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import { TokenServiceRegistered } from '../../src/token/gate.js';
 import { AuthnTokenRevocationController } from '../../src/v3/controllers/AuthnTokenRevocationController.js';
 import { callRoute } from '../support/route-call.js';
+import { mounted } from '../support/server-hooks.js';
 import { fakeContainer, readingFrom } from '@spinajs/testing';
 
 const ROUTE = '/auth/tokens/revoke';
@@ -261,7 +262,7 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       const res = { status: () => res, json: () => res };
       const next = sinon.spy();
       const req = { method: 'POST', path: ROUTE, headers: { host: 'app.example.test', ...headers }, socket: { remoteAddress: '127.0.0.1' }, storage: {} } as any;
-      guard().before()!(req, res as any, next);
+      mounted(guard())!(req, res as any, next);
       return next.calledOnce;
     }
 

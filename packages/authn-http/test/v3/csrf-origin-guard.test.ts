@@ -23,6 +23,7 @@ import authnHttpConfig from '../../src/config/authn-http.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 import { fakeContainer } from '@spinajs/testing';
+import { mounted } from '../support/server-hooks.js';
 
 const PARTNER = 'https://partner.example.org';
 const EVIL = 'https://evil.example.net';
@@ -291,10 +292,10 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
 
   describe('built from configuration', () => {
     const run = (guard: CsrfOriginGuard, method: string, headers: Record<string, string>) => {
-      const handler = guard.before()!;
+      const handler = mounted(guard)!;
       const res = fakeRes();
       const next = sinon.spy();
-      handler(fakeReq(method, { cookie: 'ssid=x; __Host-ssid=x', ...headers }), res as any, next);
+      handler(fakeReq(method, { cookie: 'ssid=x; __Host-ssid=x', ...headers }), res, next);
       return { passed: next.calledOnce, status: res.statusCode };
     };
 
@@ -317,19 +318,18 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     });
 
     it('an allowed origin the schema pattern cannot judge fails when the middleware is built, naming the key', () => {
-      expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': ['https://partner.example.org:99999'] }).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
+      expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': ['https://partner.example.org:99999'] }).isEnabled()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
 
     it('a bad trust setting fails when the middleware is built, naming the key', () => {
-      expect(() => unitGuard({ 'authn.http.trustProxy': 'nope' }).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
+      expect(() => unitGuard({ 'authn.http.trustProxy': 'nope' }).isEnabled()).to.throw(InvalidOption, 'authn.http.trustProxy');
     });
 
     it('is off only for enabled: false', () => {
-      expect(unitGuard({ 'authn.http.csrf.enabled': false }).before()).to.eq(null);
-      expect(unitGuard({ 'authn.http.csrf.enabled': true }).before()).to.be.a('function');
-      expect(unitGuard({ 'authn.http.csrf.enabled': null }).before(), 'null').to.be.a('function');
-      expect(unitGuard({ 'authn.http.csrf.enabled': undefined }).before(), 'undefined').to.be.a('function');
-      expect(unitGuard({}).after()).to.eq(null);
+      expect(mounted(unitGuard({ 'authn.http.csrf.enabled': false }))).to.eq(null);
+      expect(mounted(unitGuard({ 'authn.http.csrf.enabled': true }))).to.be.a('function');
+      expect(mounted(unitGuard({ 'authn.http.csrf.enabled': null })), 'null').to.be.a('function');
+      expect(mounted(unitGuard({ 'authn.http.csrf.enabled': undefined })), 'undefined').to.be.a('function');
     });
 
     it('a cookie block without a name still watches ssid', () => {
@@ -350,8 +350,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       const guard = unitGuard({});
       const warn = sinon.spy();
       Object.defineProperty(guard, 'Log', { value: { warn } });
-      const handler = guard.before()!;
-      const hit = (headers: Record<string, string>) => handler(fakeReq('POST', { cookie: 'ssid=secret-cookie-value', host: 'app_upstream:1337', ...headers }), fakeRes() as any, sinon.spy());
+      const handler = mounted(guard)!;
+      const hit = (headers: Record<string, string>) => handler(fakeReq('POST', { cookie: 'ssid=secret-cookie-value', host: 'app_upstream:1337', ...headers }), fakeRes(), sinon.spy());
       hit({ origin: 'https://app.example.com' });
       hit({ origin: 'https://app.example.com' });
       expect(warn.callCount).to.eq(2);
@@ -384,8 +384,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
         const guard = unitGuard({});
         const { log, lines } = filteredLog(now);
         Object.defineProperty(guard, 'Log', { value: log });
-        const handler = guard.before()!;
-        const hit = (origin: string) => handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin }), fakeRes() as any, sinon.spy());
+        const handler = mounted(guard)!;
+        const hit = (origin: string) => handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin }), fakeRes(), sinon.spy());
         return { hit, lines };
       }
 
