@@ -82,7 +82,7 @@ export interface DefaultKeyRegistryDeps {
   readonly audit?: AuthnAuditor;
   /** Complete options that bypass the configuration. */
   readonly options?: KeysOptions;
-  /** `authn.throttle.ipv6Prefix`; default 64. */
+  /** Otherwise `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix`; default 64. */
   readonly ipv6Prefix?: number;
   /** Told about revoked keys, and evicts the key cache; otherwise the registered CredentialChangeBus. */
   readonly bus?: CredentialChangeBus;
@@ -101,6 +101,9 @@ export class DefaultKeyRegistry extends KeyRegistry {
 
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
+
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
 
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
@@ -319,7 +322,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
       }
       identity = owner;
     } else if (r.purpose === 'login' && typeof r.kid === 'string') {
-      const ip = ipKey(ctx, this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix));
+      const ip = ipKey(ctx, this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix));
       if (ip) {
         const t = await this.throttle.attempt([ip], 'login', ctx);
         if (!t.allowed) {

@@ -20,7 +20,7 @@ import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { answerFor, contextOf, onLiveSession, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 const invalidRole = (): BadRequestResponse => new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
 
@@ -73,7 +73,7 @@ export class AuthnActiveRoleController extends BaseController {
    * @security cookieAuth
    */
   @Post('active-role')
-  @SessionRateLimit('activeRole')
+  @AuthnSessionRateLimit('activeRole')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ role: invalidRole, password: uniformFailure }, unknownField))
   public async switch(@Body({ required: true, sensitive: ['password'] }) body: AuthnActiveRoleBody, @ClientContext() client: AuthnClientContext) {

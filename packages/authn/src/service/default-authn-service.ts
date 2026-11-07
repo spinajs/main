@@ -11,7 +11,7 @@ import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { restoreHandle, statusRefusal } from '../support/identity.js';
-import { DEFAULT_IPV6_PREFIX, throttleIp } from '../support/ip-key.js';
+import { throttleIp } from '../support/ip-key.js';
 import { IdentityStore } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
@@ -22,7 +22,7 @@ import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import type { Session } from '../contracts/session-state.js';
 import type { AuthenticationStrategy } from '../contracts/strategy.js';
-import { AuthnThrottle, identityThrottleKeys } from '../contracts/throttle.js';
+import { AuthnThrottle, identityThrottleKeys, ipv6PrefixOf } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import type { AuthnEventBody } from '../audit/authn-audit.js';
@@ -38,6 +38,7 @@ import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { isValidField, mfaResponseField, mfaStepField } from '../schemas/fields.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
+import { clientAddressFindings } from './boot/client-address.js';
 import { hookCopy, hookRefusalOf, hookView } from '../hooks.js';
 import { ACTIVE_ROLE_KEY } from '../impersonation/active-role.js';
 
@@ -197,8 +198,11 @@ export class DefaultAuthnService extends AuthnService {
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
 
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
+
   private get ipv6Prefix(): number {
-    return typeof this.ThrottleIpv6Prefix === 'number' ? this.ThrottleIpv6Prefix : DEFAULT_IPV6_PREFIX;
+    return ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix);
   }
 
   private get globalGate(): boolean {
@@ -207,6 +211,7 @@ export class DefaultAuthnService extends AuthnService {
 
   public async resolve(): Promise<void> {
     if (authnEnvFellBack(this.Configuration)) this.warnOnce(AUTHN_ENV_FALLBACK_WARNING);
+    for (const f of clientAddressFindings(this.Configuration)) this.warnOnce(f.message);
     await checkAuthnSecrets(this.Configuration, () => this.Policy.steps(), (m) => this.warnOnce(m));
     await this.Throttle.checkConfiguration?.(this.Configuration);
     await this.Sessions.checkConfiguration?.(this.Configuration);

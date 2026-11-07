@@ -9,7 +9,7 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
-import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_RATE_LIMITS } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_SESSION_RATE_LIMITS } from '../../src/index.js';
 import { AuthnActiveRoleController } from '../../src/v3/controllers/AuthnActiveRoleController.js';
 import { AuthnCredentialAdminController } from '../../src/v3/controllers/AuthnCredentialAdminController.js';
 import { AuthnImpersonationController } from '../../src/v3/controllers/AuthnImpersonationController.js';
@@ -23,7 +23,7 @@ import { AuthnSessionsController } from '../../src/v3/controllers/AuthnSessionsC
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
 import { AuthnVerificationController } from '../../src/v3/controllers/AuthnVerificationController.js';
 
-type Name = keyof typeof AUTHN_SESSION_RATE_LIMITS;
+type Name = keyof typeof AUTHN_HTTP_SESSION_RATE_LIMITS;
 type Ctor = abstract new (...args: never[]) => unknown;
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
@@ -196,10 +196,10 @@ describe('authn-http: the limits of the routes with a session', function () {
       const keys = increment.getCalls().map((c) => c.args[0]);
       expect(keys.every((k) => !k.includes('session-a') && !k.includes('session-b'))).to.eq(true);
       expect(new Set(keys.slice(0, 11)).size).to.eq(1);
-      expect(keys[0]).to.match(/:key:session:[A-Za-z0-9_-]{43}$/);
+      expect(keys[0]).to.match(/:key:pending:[0-9a-f]{64}$/);
       // keyed under the server secret: a bare hash of the handle would be recomputable by whoever saw it
-      expect(keys[0]).to.not.contain(createHash('sha256').update('session-a').digest('base64url'));
-      expect(keys[0]).to.contain(createHmac('sha256', COOKIE_SECRET).update('session-a').digest('base64url'));
+      expect(keys[0]).to.not.contain(createHash('sha256').update('session-a').digest('hex'));
+      expect(keys[0]).to.contain(createHmac('sha256', COOKIE_SECRET).update('session-a').digest('hex'));
       expect(keys[11]).to.not.eq(keys[0]);
     });
 
@@ -258,7 +258,7 @@ describe('authn-http: the limits of the routes with a session', function () {
 
         expect(refused.status).to.eq(429);
         expect(refused.body).to.include({ error: 'throttled' });
-        expect(Number(refused.own['Retry-After'])).to.be.within(1, AUTHN_SESSION_RATE_LIMITS[name].windowSeconds);
+        expect(Number(refused.own['Retry-After'])).to.be.within(1, AUTHN_HTTP_SESSION_RATE_LIMITS[name].windowSeconds);
         expect(refused.set['X-RateLimit-Limit']).to.eq(String(limit));
         expect((await m.hit(signedIn(BOB))).passed).to.eq(true);
       });

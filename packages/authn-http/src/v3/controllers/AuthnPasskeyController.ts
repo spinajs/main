@@ -15,13 +15,13 @@ import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit, AuthnSessionRateLimit, pendingSessionKey } from '../../rate-limits.js';
 import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { tooManyRequests } from '../../password/fields.js';
+import { passkeyChallengeThrottled } from '../../password/fields.js';
 import { NO_STORE, ServiceUnavailableResponse, badRequest, instant, refusedByHook } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
 
 const invalidResponse = invalid('invalid_response', 'challengeId and response are required');
 const invalidName = invalid('invalid_name', `name must be 1 to ${PASSKEY_NAME_CAP} characters without control characters`);
@@ -68,6 +68,9 @@ export class AuthnPasskeyController extends BaseController {
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
 
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
+
   private storeFullLogged = false;
 
   /**
@@ -80,6 +83,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/challenge')
+  @AuthnRateLimit('passkeysChallenge', passkeyChallengeThrottled, pendingSessionKey)
   @BotCheck('passkey_challenge')
   public async challenge(@ClientContext() client: AuthnClientContext) {
     const passkeys = await this.passkeys();
@@ -87,10 +91,10 @@ export class AuthnPasskeyController extends BaseController {
     if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(client, 'login', session.handle), session.identity));
 
     const ctx = contextOf(client, 'login');
-    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix));
+    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix));
     if (ip) {
       const gate = await (await this.Container.resolve(AuthnThrottle)).attempt([ip], 'login', ctx);
-      if (!gate.allowed) return tooManyRequests('too many passkey challenges, try again later', gate.retryAfterSeconds);
+      if (!gate.allowed) return passkeyChallengeThrottled(gate.retryAfterSeconds);
     }
     try {
       const ceremony = await passkeys.challenge(ctx);
@@ -116,6 +120,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/login')
+  @AuthnRateLimit('passkeysLogin', throttledLogin)
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnPasskeyLoginBody, @ClientContext() client: AuthnClientContext) {
@@ -130,7 +135,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys/options')
-  @SessionRateLimit('passkeys')
+  @AuthnSessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure }, unknownField))
   public async options(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext) {
@@ -154,7 +159,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys')
-  @SessionRateLimit('passkeys')
+  @AuthnSessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, challengeId: invalidResponse, response: invalidResponse, name: invalidName }, unknownField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnPasskeyRegisterBody, @ClientContext() client: AuthnClientContext) {

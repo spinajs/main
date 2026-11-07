@@ -1,10 +1,10 @@
 # Request authentication
 
-Three server middlewares find the caller of every request: `ClientIp` (order 1), [`CsrfOriginGuard`](04-csrf-origin-guard.md) (order 4) and `AuthnMiddleware` (order 5). They leave the restored session in `req.storage.AuthnSession` and the authenticated principal, or `null`, in `req.storage.AuthnPrincipal`. Routes read these through [policies](05-policies.md) and [route arguments](06-route-arguments.md); [`@spinajs/authz-http`](../authz-http/README.md) reads the principal for authorization.
+Three server middlewares find the caller of every request: `ClientIp` (order 1), [`CsrfOriginGuard`](04-csrf-origin-guard.md) (order 4) and `AuthnMiddleware` (order 5). `AuthnRealIp` (order 0) resolves the client address they use, the same one `@RateLimit` and `http.throttle` count. They leave the restored session in `req.storage.AuthnSession` and the authenticated principal, or `null`, in `req.storage.AuthnPrincipal`. Routes read these through [policies](05-policies.md) and [route arguments](06-route-arguments.md); [`@spinajs/authz-http`](../authz-http/README.md) reads the principal for authorization.
 
 ## How it works
 
-1. **`ClientIp.onBefore()`** writes `req.storage.ClientIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`.
+1. **`AuthnRealIp.onBefore()`**, registered over http's `RealIp`, writes `req.storage.realIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). **`ClientIp.onBefore()`** copies it into `req.storage.ClientIp`. Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`, so `@IpThrottle`, the authn services, the audit log, `@RateLimit` and `http.throttle` all count one client address. See [Client IP](../http/17-client-ip-and-trust-proxy.md#one-client-address-with-authn).
 2. **`CsrfOriginGuard.onBefore()`** refuses a cross-origin unsafe request from a browser, or one that carries the session cookie, with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
 3. **`AuthnMiddleware.authenticate()`** sets `req.storage.AuthnSession` and `req.storage.AuthnPrincipal` to `null`, then builds an `AuthnContext` with `contextOf(req, 'request')`: `ip` from `req.storage.ClientIp` and `userAgent`, each only when it is a string, `now` and purpose `'request'`.
 4. **`AuthnMiddleware.restoreSession()`** reads the session cookie (name from `authn.session.cookie`, see [`@spinajs/authn-session`](../authn-session/README.md)):
@@ -24,7 +24,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 ```mermaid
 sequenceDiagram
   participant C as Client
-  participant IP as ClientIp (1)
+  participant IP as AuthnRealIp (0), ClientIp (1)
   participant G as CsrfOriginGuard (4)
   participant M as AuthnMiddleware (5)
   participant S as SessionIssuer
@@ -33,7 +33,7 @@ sequenceDiagram
   participant Z as authz-http PrincipalMiddleware (10)
   participant A as Controller route
   C->>IP: request (cookie and/or Authorization)
-  IP->>IP: req.storage.ClientIp from trusted proxies
+  IP->>IP: req.storage.realIp = ClientIp, from trusted proxies
   IP->>G: next()
   G->>G: unsafe method + session cookie? check Origin
   G-->>C: 403 E_CSRF_ORIGIN (cross-origin)
@@ -64,7 +64,7 @@ sequenceDiagram
    - `HttpSignatureExtractor`, `AuthorizationBearerExtractor`, `ApiKeyHeaderExtractor` as `CredentialExtractor`;
    - `KeyPrincipalResolver`, `TokenPrincipalResolver`, `SessionPrincipalResolver` as `AuthnPrincipalResolver`;
    - the route argument classes `AuthnIdentityArg`, `AuthnSessionArg`, `AuthnSessionIdArg`, `AuthnSessionDataArg`.
-2. `ClientIp` and `CsrfOriginGuard` register themselves with `@Injectable(ServerMiddleware)` when their modules load, which the package entry does.
+2. `ClientIp` and `CsrfOriginGuard` register themselves with `@Injectable(ServerMiddleware)` when their modules load, which the package entry does. `registerAuthnHttpV3()` registers `AuthnRealIp` as `RealIp`, so the server mounts it in `RealIp`'s place.
 3. The shipped config file adds `lib/v3/controllers` and `lib/cli` under `node_modules/@spinajs/authn-http` (resolved against `WORKSPACE_ROOT_PATH`, else the working directory) to `system.dirs.controllers` and `system.dirs.cli`. The route controllers load only through that scan; importing the package loads none of them.
 4. A session issuer must be registered, from [`@spinajs/authn-session`](../authn-session/README.md): `AuthnMiddleware` autoinjects `SessionIssuer`.
 5. A cookie parser must fill `req.cookies`. The default `http.middlewares` of `@spinajs/http` contain one; see [Cookies](../http/20-cookies.md).
@@ -77,8 +77,9 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authn.http.trustProxy` | `string[]` or `integer` or `null` | unset | CIDR or address list, hop count `>= 0`, `null` | Proxies `ClientIp` trusts for `X-Forwarded-For`. `null` or unset falls back to `http.trustProxy`; `0` trusts no proxy. `true` coerces to 1 hop, `false` to 0. |
-| `http.trustProxy` | see [Client IP](../http/17-client-ip-and-trust-proxy.md#configuration) | | | Used when `authn.http.trustProxy` is `null` or unset. |
+| `authn.http.trustProxy` | `string[]` or `integer` or `null` | unset | CIDR or address list, hop count `>= 0`, `null` | Proxies `AuthnRealIp` trusts for `X-Forwarded-For`, for every reader of the client address. `null` or unset falls back to `http.trustProxy`; `0` trusts no proxy. `true` coerces to 1 hop, `false` to 0. Set together with a different `http.trustProxy`, it wins and the boot warns. |
+| `http.trustProxy` | see [Client IP](../http/17-client-ip-and-trust-proxy.md#configuration) | | | Used when `authn.http.trustProxy` is `null` or unset. Prefer setting only this key. |
+| `authn.throttle.ipv6Prefix` | `integer` | unset | 16 to 128 | The IPv6 prefix of authn's ip keys (`@IpThrottle`, the services). Unset: `http.throttle.ipv6Prefix`, else 64. Set to a value other than that, the boot warns. See [Throttling](../authn/05-throttling.md). |
 | `authn.http.publicOrigin` | `string` or `null` | unset | `scheme://host[:port]` | The app's public origin, never taken from `Host`: the origin clients put in an HTTP signature's `@target-uri`, and the origin of `@spinajs/authn-oidc`'s default `redirect_uri` and `post_logout_redirect_uri`. Unset: signed requests get no principal, and `AuthnMiddleware` warns at boot. |
 | `authn.http.hooks.request` | `boolean` | `false` | `true`, `false` | Runs the `authn.request` [action hooks](23-action-hooks.md) on every request once its principal is resolved; a refusal answers 403 `{ code }`. Any value but `true` is off. |
 | `http.cookie.secret` | `string` | `@spinajs/http` default | your own secret | Verifies the session cookie signature. Missing: boot fails. The public default: boot fails outside development and test, warns inside them. |
@@ -104,11 +105,14 @@ export default {
 
 A `trustProxy` entry that is no address or CIDR, and a malformed `publicOrigin`, fail when the middleware is built, naming the key.
 
+`authn.http.trustProxy` and `http.trustProxy` both set to different values, or an `authn.throttle.ipv6Prefix` other than the http one, each log one warning on the `authn-boot` logger at boot and show in `authn:check-config`.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 1 | `ClientIp` | | Subclass and `DI.register(MyClientIp).as(ClientIp)` before `HttpServer` resolves. |
+| `AuthnRealIp` | `RealIp` of `@spinajs/http`, registered by `registerAuthnHttpV3()` at package load, `Order` 0 | `AuthnRealIp` | | Subclass and `DI.register(MyRealIp).as(RealIp)` before `HttpServer` resolves. Subclass `AuthnRealIp`, not `RealIp`, or `authn.http.trustProxy` stops counting. |
+| `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 1 | `ClientIp` | | Kept for `req.storage.ClientIp`; change the address in `AuthnRealIp` instead, so every limiter sees it. |
 | `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()`, `principalOf()` and `hookRequest()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
 | `SessionIssuer` | autoinjected by `AuthnMiddleware` | `DefaultSessionIssuer` from `@spinajs/authn-session` | | See [`@spinajs/authn-session`](../authn-session/README.md). |
 | `CredentialExtractor` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped extractors | your own | See [Credential extractors](02-credential-extractors.md). |
@@ -118,7 +122,7 @@ The package augments `IActionLocalStoregeContext` of `@spinajs/http` with:
 
 | Field | Written by | Meaning |
 | --- | --- | --- |
-| `ClientIp?: string` | `ClientIp` | Client address from the trusted proxy chain. |
+| `ClientIp?: string` | `ClientIp` | `req.storage.realIp`: the client address from the trusted proxy chain. Without `RealIp`, the socket address. |
 | `AuthnSession?: Session \| null` | `AuthnMiddleware` | The restored session, pending included; `null` without one. A session here is not authentication. |
 | `AuthnPrincipal?: Principal \| null` | `AuthnMiddleware` | The authenticated principal; `null` for anonymous, a pending session or rejected credentials. |
 
@@ -136,7 +140,7 @@ The package augments `IActionLocalStoregeContext` of `@spinajs/http` with:
 
 ## Best practices
 
-- Set `authn.http.trustProxy` (or `http.trustProxy`) behind a proxy. Without it every client shares the proxy's address, and the login throttle keys on that one address.
+- Set `http.trustProxy` (or `authn.http.trustProxy`, not both) behind a proxy. Without it every client shares the proxy's address, and the login throttle and every rate limit key on that one address.
 - Read the caller with [`@Identity()`](06-route-arguments.md) or `req.storage.AuthnPrincipal`, never with `req.storage.AuthnSession`: a pending session is present there too.
 - Keep authorization decisions in [`@spinajs/authz-http`](../authz-http/README.md); this package answers only "who is calling".
 

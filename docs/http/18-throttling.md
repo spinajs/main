@@ -30,7 +30,7 @@ Per request (`onBefore`):
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.throttle.enabled` | `boolean` | `false` | | Turns the middleware on. |
-| `http.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | IPv6 clients are counted per prefix of this many bits. |
+| `http.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | IPv6 clients are counted per prefix of this many bits. `@RateLimit` counts the same; authn's ip keys take it unless `authn.throttle.ipv6Prefix` is set. |
 | `http.throttle.rules` | `IThrottleRule[]` | `[]` | | Checked in order; the first match wins. |
 | `http.throttle.rules[].path` | `string` | required | non-empty path prefix | Matched against the request path, including `http.controllers.route.prefix`. |
 | `http.throttle.rules[].methods` | `string[]` | all methods | HTTP methods | Methods the rule applies to. |
@@ -58,9 +58,18 @@ export default {
 
 A rule is compared with `req.path`, the path the client requested. A controller whose `@BasePath({ config, default })` is moved by configuration (the credential admin routes under `authn.http.admin.basePath`, the authz admin routes under `authz.http.admin.basePath`) answers on its configured path, so a rule written for the default path stops covering it. Write the rule for the path the app serves, and include `http.controllers.route.prefix`.
 
-### Recommended rules for the authn routes
+### Rate limits for the authn routes
 
-The authn throttle already limits guessing per account and per IP, but only on the routes that reach it. These rules cap the raw request volume per address before any handler runs. Start from them and adjust the numbers to your traffic; put the most specific rule first.
+The anonymous routes of `@spinajs/authn-http` (login, the code, key and passkey logins and challenges, the reset and
+code requests, the reset, verification and registration) and the OIDC begin and callback routes of
+`@spinajs/authn-oidc` ship a `@RateLimit` each, **on by default**, with numbers from configuration
+(`authn.http.rateLimit.*`, `authn.oidc.rateLimit.*`). The per-route numbers live there, not in path rules:
+[authn-http rate limits](../authn-http/25-rate-limits.md), [authn-oidc rate limits](../authn-oidc/13-rate-limits.md).
+They answer as the route's own throttle does (the uniform 401 login failure on credential routes) and send no
+`X-RateLimit-*` headers.
+
+What `http.throttle` adds is the coarse layer: one rule over the whole `/auth` prefix, refused before the session
+restore and the token checks run.
 
 ```ts
 export default {
@@ -69,23 +78,36 @@ export default {
       enabled: true,
       ipv6Prefix: 64,
       rules: [
-        { path: '/auth/register', methods: ['POST'], limit: 10, windowSeconds: 3600 },
-        { path: '/auth/password', methods: ['POST'], limit: 10, windowSeconds: 600 },
-        { path: '/auth/code', methods: ['POST'], limit: 10, windowSeconds: 600 },
-        { path: '/auth/verify', methods: ['POST'], limit: 20, windowSeconds: 600 },
-        { path: '/auth/passkeys/challenge', methods: ['POST'], limit: 30, windowSeconds: 60 },
-        { path: '/auth/keys/challenge', methods: ['POST'], limit: 30, windowSeconds: 60 },
-        { path: '/auth/tokens/revoke', methods: ['POST'], limit: 20, windowSeconds: 600 },
-        { path: '/auth', methods: ['POST'], limit: 60, windowSeconds: 60 },
+        // Above the sum of the shipped per-route limits a client can use in a minute: only floods reach it.
+        { path: '/auth', methods: ['POST'], limit: 300, windowSeconds: 60, headers: false },
       ],
     },
   },
 };
 ```
 
-Add `headers: false` to the rules that cover authn routes: their answers are uniform on purpose, and `X-RateLimit-*` headers would reveal the limiter.
+The two layers run at different points, and that is the trade-off:
 
-The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy`, or every client shares the proxy's address.
+| | `http.throttle` path rule (server, Order 3) | Shipped `@RateLimit` (route, `'outer'`) |
+| --- | --- | --- |
+| Runs before | CSRF, the session restore, bearer and signature checks, the principal preload, routing, the policy gate | the bot check, the IP throttle gate, the body validation and the action only |
+| Cost of a refused request | the lowest: no session or token work | the session restore and the token checks are already spent |
+| Sees | every path under the prefix, 404 probes included | the matched route only |
+| Follows a moved route (`http.controllers.route.prefix`) | no: rewrite the rule | yes |
+| Answer | the 429 `E_TOO_MANY_REQUESTS` with `Retry-After` | the route's own throttled answer, the uniform 401 on credential routes |
+| Configured by | app config only | shipped defaults, overridden per route in config |
+
+- Keep one coarse rule; tune the per-route numbers in `authn.http.rateLimit.*` and `authn.oidc.rateLimit.*`. A
+  request counts in both layers, which only throttles more.
+- Keep `headers: false` on the coarse rule: the authn answers are uniform on purpose, and `X-RateLimit-*` headers on
+  them would reveal the limiter. Its 429 keeps `Retry-After`; it is not the route's own throttled answer.
+- An app that copied the former per-path list (register, password, code, verify, the challenges, token revocation)
+  can drop those rules: the shipped limits cover each route with the same numbers.
+- Back-channel logout (`POST /auth/oidc/:provider/backchannel-logout`) sits under `/auth` and is a server-to-server
+  call from the IdP: a coarse rule counts it per IdP address. Exclude it (a more specific rule for it, listed first,
+  with a high limit) if your IdP sends logouts in bulk.
+
+The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy` (with `@spinajs/authn-http`, `authn.http.trustProxy` counts too), or every client shares the proxy's address.
 
 ## Per-route limits: `@RateLimit`
 
@@ -264,7 +286,7 @@ export class RedisThrottleStore extends ThrottleStore {
 - The first matching rule wins: a broad rule listed first shadows the specific ones after it.
 - Path matching is case-insensitive and on segment boundaries: `/auth` covers `/auth/login` but not `/authority`.
 - The path includes `http.controllers.route.prefix`; write it in the rule.
-- Counting is per client address. Set [`http.trustProxy`](17-client-ip-and-trust-proxy.md) behind a proxy, or every client shares the proxy's counter.
+- Counting is per client address, the one `RealIp` resolves for authn too. Set [`http.trustProxy`](17-client-ip-and-trust-proxy.md) behind a proxy, or every client shares the proxy's counter.
 - `MemoryThrottleStore` limits per process; with N instances the effective limit is N × `limit`.
 - A failing store answers the request with the store's error (500), it does not let the request through.
 - `limit: 0` refuses every matching request.

@@ -8,12 +8,12 @@ import { PasswordServiceRegistered, invalidLogin, mismatchOf, newPasswordRefused
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
 import { throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { contextOf } from '../routes.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
 
 /**
  * Password routes of the 3.0 layer over the PasswordService contract (design §22.7, §22.11; A04, A11, A30, A32). Off
@@ -57,6 +57,7 @@ export class AuthnPasswordController extends BaseController {
    * @security []
    */
   @Post('auth/password/reset-request')
+  @AuthnRateLimit('passwordResetRequest', resetRequestThrottled)
   @BotCheck('password_reset')
   @IpThrottle('reset', resetRequestThrottled)
   @OnInvalidInput(byField({ login: invalidLogin }, unknownField))
@@ -85,6 +86,7 @@ export class AuthnPasswordController extends BaseController {
    * @security []
    */
   @Post('auth/password/reset')
+  @AuthnRateLimit('passwordReset', throttledLogin)
   @IpThrottle('reset', throttledLogin)
   @OnInvalidInput(byField({ password: newPasswordRefused, confirmPassword: passwordMismatch, login: uniformFailure, secret: uniformFailure }, uniformFailure))
   public async reset(@Body({ required: true }) body: AuthnPasswordResetBody, @ClientContext() client: AuthnClientContext) {
@@ -120,7 +122,7 @@ export class AuthnPasswordController extends BaseController {
    * @security cookieAuth
    */
   @Patch('user/password')
-  @SessionRateLimit('passwordChange')
+  @AuthnSessionRateLimit('passwordChange')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ password: newPasswordRefused, confirmPassword: passwordMismatch, oldPassword: uniformFailure }, unknownField))
   public async change(@Body({ required: true }) body: AuthnPasswordChangeBody, @ClientContext() client: AuthnClientContext) {

@@ -18,7 +18,7 @@ import { isSessionPrincipal } from '../../policies/v3/principal.js';
 import { narrowedBySwitch } from '../../resolvers/session.js';
 import { NO_STORE, authnClearedSessionCookie, authnSessionCookie } from '../responses.js';
 import { answerFor, contextOf, stampClient } from '../routes.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 const invalidTarget = (): BadRequestResponse => new BadRequestResponse({ error: 'invalid_target', message: 'target must be a user id or { type, id }' });
 
@@ -72,7 +72,7 @@ export class AuthnImpersonationController extends BaseController {
    * @security cookieAuth
    */
   @Post('impersonate')
-  @SessionRateLimit('impersonate')
+  @AuthnSessionRateLimit('impersonate')
   @Policy([Authenticated, MfaSatisfied])
   @OnInvalidInput(byField({ target: invalidTarget, password: uniformFailure }, unknownField))
   public async start(@Body({ required: true, sensitive: ['password'] }) body: AuthnImpersonationBody, @ClientContext() client: AuthnClientContext) {

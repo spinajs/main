@@ -6,7 +6,7 @@ import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA, PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
-import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_RATE_LIMITS, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS, AuthnRealIp, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
 import { registeredSchemasAfter } from '../support/registered-schemas.js';
 import { AuthnHttpConfigBootstrapper } from '../../src/bootstrap.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -57,7 +57,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
     it('with no user config, the effective authn.http equals the defaults of the former single authn schema', async () => {
       const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
-      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true }, rateLimit: { ...AUTHN_SESSION_RATE_LIMITS } });
+      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true }, rateLimit: { ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS } });
     });
 
     it('fills the csrf and session cookie defaults', async () => {
@@ -105,29 +105,32 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
   });
 
-  describe('ClientIp', () => {
+  describe('AuthnRealIp and ClientIp', () => {
+    /** AuthnRealIp then ClientIp on one request, as the server mounts them. */
+    const chain = async (config: Record<string, unknown>) => {
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config });
+      const realIp = mounted(readingFrom(new AuthnRealIp(), child))!;
+      const clientIp = mounted(readingFrom(new ClientIp(), child))!;
+      return (req: never) => {
+        realIp(req, {}, () => undefined);
+        clientIp(req, {}, () => undefined);
+        return (req as { storage: { ClientIp?: string; realIp?: string } }).storage;
+      };
+    };
+
     it("takes the client behind the trusted proxies of its container's configuration", async () => {
-      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/8'] } } } });
-      const handler = mounted(readingFrom(new ClientIp(), child))!;
-      const req = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      handler(req, {}, () => undefined);
-      expect((req as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
+      const storage = (await chain({ authn: { http: { trustProxy: ['10.0.0.0/8'] } } }))(reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' }));
+      expect([storage.realIp, storage.ClientIp]).to.deep.eq(['203.0.113.7', '203.0.113.7']);
     });
 
     it('falls back to http.trustProxy and reads the socket address with neither', async () => {
-      const shared = mounted(readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { http: { trustProxy: 1 } } })).container))!;
-      const a = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      shared(a, {}, () => undefined);
-      expect((a as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
-      const none = mounted(readingFrom(new ClientIp(), (await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} })).container))!;
-      const b = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
-      none(b, {}, () => undefined);
-      expect((b as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('10.0.0.5');
+      expect((await chain({ http: { trustProxy: 1 } }))(reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' })).ClientIp).to.eq('203.0.113.7');
+      expect((await chain({}))(reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' })).ClientIp).to.eq('10.0.0.5');
     });
 
     it('still refuses a CIDR the schema cannot judge when the middleware is built', async () => {
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { trustProxy: ['10.0.0.0/33'] } } } });
-      const err = await readingFrom(new ClientIp(), child).resolve().then(
+      const err = await readingFrom(new AuthnRealIp(), child).resolve().then(
         () => undefined,
         (e: unknown) => e,
       );

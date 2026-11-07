@@ -35,6 +35,9 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
   @Config('authn.throttle.ipv6Prefix')
   protected Ipv6Prefix: unknown;
 
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
+
   constructor(
     public readonly flow: ThrottleFlow,
     public readonly answer: ThrottledAnswer,
@@ -45,7 +48,7 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
 
   public async onBefore({ req }: IMiddlewareContext): Promise<Response | void> {
     const ctx = contextOf(clientOf(req as Request), 'request');
-    const key = ipKey(ctx, ipv6PrefixOf(this.Ipv6Prefix)) ?? (this.mode === 'count' ? { kind: 'ip', value: 'unknown' } : null);
+    const key = ipKey(ctx, ipv6PrefixOf(this.Ipv6Prefix, this.HttpIpv6Prefix)) ?? (this.mode === 'count' ? { kind: 'ip', value: 'unknown' } : null);
     // Without an address there is no ip key to gate on: the service counts what it can.
     if (!key) return;
     const gate: Gate = { flow: this.flow, key, ctx };

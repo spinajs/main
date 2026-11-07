@@ -8,7 +8,7 @@ Per request, the server middlewares fill `req.storage` in `Order`:
 
 1. `HttpServer`'s first handler, before `http.bodyLimits` and `http.middlewares`, sets `req.storage = {}`. (`RequestStorage` is a deprecated class, no longer registered as a server middleware.)
 2. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header. It continues the inbound `traceparent` header, or starts a new trace, sets `traceId` and `spanId`, and the outbound `traceparent` response header.
-3. `RealIp` (Order 1) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
+3. `RealIp` (Order 1; `AuthnRealIp` at Order 0 with `@spinajs/authn-http`) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
 4. `ResponseTime` (Order 2) sets `responseStart` in `onBefore`; its `onAfter`, when the reply is ready, sets `responseEnd`, `responseTime` (ms) and the `x-response-time` header.
 5. `ServerTiming` (Order 2) creates `serverTiming = []` in `onBefore`; its `onAfter` appends `total` and writes the `Server-Timing` header from all entries, after the route middlewares' `onAfter` (`RouteTiming`'s `route` entry).
 6. `AccessLog` (Order 2) logs one line in `onFinish`, aborted requests too (`aborted: true`, no status).

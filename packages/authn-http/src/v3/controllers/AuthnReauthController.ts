@@ -14,7 +14,7 @@ import { uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, contextOf, onLiveSession } from '../routes.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 /**
  * Fresh authentication that lasts (A13): the password re-authenticates the active session, which then moves to a new
@@ -40,7 +40,7 @@ export class AuthnReauthController extends BaseController {
    */
   @Post('reauth')
   // As a throttled password: the login failure body without Retry-After (N3).
-  @SessionRateLimit('reauth', { answer: () => authnFailureResponse(), headers: false })
+  @AuthnSessionRateLimit('reauth', { answer: () => authnFailureResponse(), headers: false })
   @Policy(ActiveSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async reauth(@Body({ required: true }) body: AuthnReauthBody, @ClientContext() client: AuthnClientContext): Promise<Ok | Unauthorized> {

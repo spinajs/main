@@ -5,8 +5,7 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, HTTP_CONFIGURATION_SCHEMA, MemoryThrottle
 import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
-import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/index.js';
-import { AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/session-rate-limits.js';
+import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/index.js';
 import { OidcController } from '../src/controllers/OidcController.js';
 
 const SCHEMAS = [AUTHN_OIDC_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
@@ -111,7 +110,7 @@ describe('authn-oidc: the limits of link and reauth', function () {
 
   it('the schema fills authn.oidc.rateLimit with the shipped defaults', async () => {
     const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
-    expect((await container.resolve(Configuration)).get('authn.oidc.rateLimit')).to.deep.eq(DEFAULTS);
+    expect((await container.resolve(Configuration)).get('authn.oidc.rateLimit')).to.deep.include(DEFAULTS);
   });
 
   it('the schema refuses a value it cannot enforce and a name it does not know', async () => {

@@ -16,6 +16,7 @@ import { unauthenticated } from '../../policies/v3/errors.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
 import { OnInvalidInput } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit } from '../../rate-limits.js';
 import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../responses.js';
@@ -65,6 +66,7 @@ export class AuthnLoginController extends BaseController {
    */
   @Post('login')
   @Public('anyone may try to sign in; the credentials are the guard')
+  @AuthnRateLimit('login', throttledLogin)
   @BotCheck('login')
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)

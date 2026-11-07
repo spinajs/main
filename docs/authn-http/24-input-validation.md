@@ -9,7 +9,7 @@ on the credential routes, the route's own 400 code elsewhere.
 
 1. The global middlewares run first: `ClientIp`, the CSRF guard and `AuthnMiddleware` (see [Request authentication](01-request-authentication.md)).
 2. The route's policies run: the group gates (`PasswordServiceRegistered`, `KeyRoutesOn`, ...), `Authenticated`, and the session state policies `PendingSessionOnly` (MFA completion) and `ActiveSessionOnly` (step-up, re-authentication).
-3. The route middlewares run: on the anonymous routes that read a body, the [IP throttle gate](#the-ip-throttle-gate) first, then [`@BotCheck`](23-bot-checks.md).
+3. The route middlewares run: on the anonymous routes, the shipped [rate limit](25-rate-limits.md) first, then on those that read a body the [IP throttle gate](#the-ip-throttle-gate) and [`@BotCheck`](23-bot-checks.md).
 4. The arguments are extracted and validated. The DTO schemas have `authn.` ids, so `@spinajs/validation` checks them without type coercion: `{ "login": 123 }` fails. Every DTO is closed: an unknown field fails.
 5. A validation failure goes to the route's `@OnError` handler at the `arguments` stage, which answers it (see the table below). The action never runs.
 6. The action runs with typed, capped values.

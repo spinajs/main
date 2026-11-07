@@ -10,9 +10,8 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { OidcBootstrapper } from '../src/bootstrap.js';
 import { OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import { buildOidcOptions } from '../src/options/options.js';
-import { AUTHN_OIDC_CONFIGURATION_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/options/schema.js';
+import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_RATE_LIMITS, AUTHN_OIDC_SESSION_RATE_LIMITS, OIDC_RESERVED_PARAMS } from '../src/options/schema.js';
 import { OidcProviders } from '../src/providers.js';
-import { AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/session-rate-limits.js';
 import { withSchemaDefaults } from './support/oidc-config.js';
 import { recordingLog } from './support/recording-log.js';
 import { configurationOf, configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -56,13 +55,13 @@ describe('authn.oidc through its own schema', function () {
   describe('defaults', () => {
     it('gives an unconfigured authn.oidc no providers and the default redirects', async () => {
       const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
-      expect(configuration.get('authn.oidc')).to.deep.eq({ providers: {}, redirects: { success: '/', failure: '/' }, rateLimit: { ...AUTHN_OIDC_SESSION_RATE_LIMITS } });
+      expect(configuration.get('authn.oidc')).to.deep.eq({ providers: {}, redirects: { success: '/', failure: '/' }, rateLimit: { ...AUTHN_OIDC_RATE_LIMITS, ...AUTHN_OIDC_SESSION_RATE_LIMITS } });
     });
 
     it('fills every default of a provider, equal to the fixture the build tests use', async () => {
       const raw = { providers: { corp: generic() }, redirects: { success: '/app' } };
       const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { oidc: raw } } });
-      expect(configuration.get('authn.oidc')).to.deep.eq({ ...withSchemaDefaults(raw), rateLimit: { ...AUTHN_OIDC_SESSION_RATE_LIMITS } });
+      expect(configuration.get('authn.oidc')).to.deep.eq(withSchemaDefaults(raw));
       expect(configuration.get('authn.oidc.providers.corp.algorithms')).to.deep.eq([...OIDC_SIGNING_ALGORITHMS]);
       expect(configuration.get('authn.oidc.providers.corp.clockSkewSeconds')).to.eq(30);
       expect(configuration.get('authn.oidc.redirects.failure')).to.eq('/');

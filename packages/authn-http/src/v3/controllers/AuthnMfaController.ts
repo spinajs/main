@@ -16,7 +16,7 @@ import { throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, contextOf, pendingSteps, startedPrincipal } from '../routes.js';
-import { SessionRateLimit, pendingSessionKey } from '../session-rate-limits.js';
+import { AuthnSessionRateLimit, pendingSessionKey } from '../../rate-limits.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
@@ -54,7 +54,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/verify')
-  @SessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async verify(@Body({ required: true }) body: AuthnMfaVerifyBody, @ClientContext() client: AuthnClientContext) {
@@ -70,7 +70,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/recovery')
-  @SessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaVerify', { answer: throttledLogin, headers: false, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async recovery(@Body({ required: true }) body: AuthnMfaCodeBody, @ClientContext() client: AuthnClientContext) {
@@ -86,7 +86,7 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/step-up')
-  @SessionRateLimit('mfaStepUp', { answer: throttledLogin, headers: false })
+  @AuthnSessionRateLimit('mfaStepUp', { answer: throttledLogin, headers: false })
   @Policy(ActiveSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async stepUp(@Body({ required: true }) body: AuthnMfaStepUpBody, @ClientContext() client: AuthnClientContext) {
@@ -111,7 +111,7 @@ export class AuthnMfaController extends BaseController {
    */
   @Post('mfa/challenge')
   // Refused as every challenge answers, so a throttled send tells nothing either.
-  @SessionRateLimit('mfaChallenge', { answer: accepted, headers: false, key: pendingSessionKey })
+  @AuthnSessionRateLimit('mfaChallenge', { answer: accepted, headers: false, key: pendingSessionKey })
   @Policy(PendingSessionOnly)
   @OnInvalidInput(accepted)
   public async challenge(@Body() body: AuthnMfaChallengeBody, @ClientContext() client: AuthnClientContext) {

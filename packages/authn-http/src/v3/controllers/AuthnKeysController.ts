@@ -26,12 +26,12 @@ import { KeyRoutesOn } from '../../keys/gate.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
 import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
 
 /**
  * Public keys over the KeyRegistry contract (design §22.10, §22.11; A02, A13, A17). Off (404) while no KeyRegistry is
@@ -90,7 +90,7 @@ export class AuthnKeysController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/keys')
-  @SessionRateLimit('keys')
+  @AuthnSessionRateLimit('keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, jwk: invalidKey, kid: invalidKid, name: invalidKeyName, expiresAt: invalidKeyExpiry, proof: invalidProof }, unknownKeyField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnKeyRegisterBody, @ClientContext() client: AuthnClientContext) {
@@ -127,13 +127,14 @@ export class AuthnKeysController extends BaseController {
    * challenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the
    * same as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429
    * with Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)
-   * is a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.
+   * is a budget of the owner's own, which a burst of challenges would spend; the route's rate limit caps it per ip.
    * 400 `invalid_purpose`, `invalid_kid`.
    * @returns {AuthnKeyChallenge} The challenge to sign
    * @response 400 {AuthnError} invalid_purpose or invalid_kid
    * @security []
    */
   @Post('auth/keys/challenge')
+  @AuthnRateLimit('keysChallenge', challengeThrottled)
   @IpThrottle('login', challengeThrottled)
   @OnInvalidInput(byField({ purpose: invalidPurpose, kid: invalidKid }, unknownField))
   public async challenge(@Body({ required: true }) body: AuthnKeyChallengeBody, @ClientContext() client: AuthnClientContext) {
@@ -161,6 +162,7 @@ export class AuthnKeysController extends BaseController {
    * @security []
    */
   @Post('auth/keys/login')
+  @AuthnRateLimit('keysLogin', throttledLogin)
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnKeyLoginBody, @ClientContext() client: AuthnClientContext) {

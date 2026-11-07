@@ -25,7 +25,7 @@ import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../inde
 import { NO_STORE, hookRefusedAnswer } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-import { SessionRateLimit } from '../session-rate-limits.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 /** authn-local declares it, and is no dependency of this package. */
 const PASSWORD_EXPIRE: string = 'authn.password.expire';
@@ -89,7 +89,7 @@ export class AuthnCredentialAdminController extends BaseController {
    * @security cookieAuth
    */
   @Post(':uuid/password-reset')
-  @SessionRateLimit('adminPasswordReset')
+  @AuthnSessionRateLimit('adminPasswordReset')
   @Policy([PasswordServiceRegistered, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(refusedInput({ sendReset: invalidSendReset }))
   public async passwordReset(@Body({ sensitive: ['reauthPassword'] }) body: AuthnAdminPasswordResetBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
@@ -111,7 +111,7 @@ export class AuthnCredentialAdminController extends BaseController {
    * @security cookieAuth
    */
   @Post(':uuid/mfa-reset')
-  @SessionRateLimit('adminCredentials')
+  @AuthnSessionRateLimit('adminCredentials')
   @Policy([AdminMfaResetOn, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(refusedInput({}))
   public async mfaReset(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
@@ -130,7 +130,7 @@ export class AuthnCredentialAdminController extends BaseController {
    * @security cookieAuth
    */
   @Del(':uuid/sessions')
-  @SessionRateLimit('adminCredentials')
+  @AuthnSessionRateLimit('adminCredentials')
   @Policy([SessionIssuerRegistered, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(refusedInput({}))
   public async sessions(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
@@ -151,7 +151,7 @@ export class AuthnCredentialAdminController extends BaseController {
    * @security cookieAuth
    */
   @Del(':uuid/tokens')
-  @SessionRateLimit('adminCredentials')
+  @AuthnSessionRateLimit('adminCredentials')
   @Policy([TokenServiceRegistered, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(refusedInput({}))
   public async tokens(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext, @Param(USER_ID_PARAM) uuid: string) {
