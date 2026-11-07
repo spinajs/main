@@ -2,7 +2,7 @@ import type * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
-import type { IMiddlewareContext } from '../interfaces.js';
+import type { IMiddlewareContext, MiddlewareStage } from '../interfaces.js';
 
 const NO_COMPRESSION = Symbol.for('spinajs:http:no-compression');
 
@@ -17,6 +17,9 @@ export function isCompressionSkipped(res: express.Response): boolean {
  */
 @Injectable(RouteMiddleware)
 export class NoCompressionMiddleware extends RouteMiddleware {
+  // outer, so an answer an inner middleware's onBefore gives is uncompressed too
+  public override readonly Stage: MiddlewareStage = 'outer';
+
   public onBefore({ res }: IMiddlewareContext): void {
     (res.locals as Record<symbol, unknown>)[NO_COMPRESSION] = true;
   }

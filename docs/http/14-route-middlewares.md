@@ -155,7 +155,7 @@ export class ImportsController extends BaseController {
 
 ### `@NoCompression`
 
-`@NoCompression()` sends the replies of the route, or of every route of the controller, uncompressed whatever `Accept-Encoding` asks: its `onBefore` marks the response, and the `Compression` server middleware's filter, asked when the headers go out, leaves a marked response alone. Use it for a body that is already compressed (an archive, an image), one the client reads as it streams, or one that mixes a secret with input the client controls, where compression would leak the secret through the length (BREACH). An answer the chain gives before the middleware's `onBefore` ran, such as the policy gate's refusal, is still compressed.
+`@NoCompression()` sends the replies of the route, or of every route of the controller, uncompressed whatever `Accept-Encoding` asks: its `onBefore` marks the response, and the `Compression` server middleware's filter, asked when the headers go out, leaves a marked response alone. Use it for a body that is already compressed (an archive, an image), one the client reads as it streams, or one that mixes a secret with input the client controls, where compression would leak the secret through the length (BREACH). It is an `'outer'` middleware, so an answer an inner middleware gives is uncompressed too; an answer given before it ran, such as the policy gate's refusal, is still compressed.
 
 ```ts sample
 import { BaseController, BasePath, Get, NoCompression, Ok } from '@spinajs/http';
