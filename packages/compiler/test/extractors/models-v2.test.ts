@@ -53,6 +53,12 @@ describe('extractModels v2: SQL specs, relation keys, indexes', () => {
     });
   });
 
+  it('records the columns the ORM fills only on a lifecycle event as nullable, whatever their TS type', () => {
+    const nullable = (name: string) => byName(name).columns.filter((c) => c.nullable).map((c) => c.name);
+    expect(nullable('Event')).to.deep.equal(['Count', 'UpdatedAt', 'DeletedAt', 'ArchivedAt']);
+    expect(nullable('Author')).to.not.include('CreatedAt');
+  });
+
   it('records @Index, @Version and the exhaustive option on the model', () => {
     expect(byName('Author')).to.deep.include({
       exhaustive: true,

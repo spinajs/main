@@ -191,7 +191,7 @@ describe('db.Models.Source = manifest at boot', () => {
   it('warns about the nullability of a required column unless the ORM fills it on every new instance (@CreatedAt, @Uuid)', async () => {
     TABLES.set('filled', [live('Id', 'INTEGER', { PrimaryKey: true }), ...['Created', 'Updated', 'Ref', 'Plain'].map((name) => live(name, 'TEXT', { Nullable: true, DefaultValue: 'x' }))]);
     const orm = await boot();
-    // an insert never stamps @UpdatedAt, so a required one still fails the write-time NOT NULL check
+    // the compiler records @UpdatedAt nullable; a manifest entry that does not is still checked
     expect(orm.ColumnDrift.filter((d) => d.table === 'filled').map((d) => [d.kind, d.column])).to.deep.equal([
       ['nullability', 'Updated'],
       ['nullability', 'Plain'],
