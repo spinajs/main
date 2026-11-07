@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { Injectable } from '@spinajs/di';
 import { RouteMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext, IReplyContext, MiddlewareStage } from '../interfaces.js';
 
@@ -14,7 +15,10 @@ const STARTED = Symbol('routeTimingStarted');
  * @Middleware(RouteTiming)
  * public list() { ... }
  * ```
+ *
+ * Registered as `RouteMiddleware`, so `http.routes.middlewares: ['RouteTiming']` mounts it on every route.
  */
+@Injectable(RouteMiddleware)
 export class RouteTiming extends RouteMiddleware {
   // outer, so the inner middlewares are inside the measured span
   public override readonly Stage: MiddlewareStage = 'outer';

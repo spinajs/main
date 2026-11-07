@@ -284,6 +284,8 @@ Every reply of a matched route (the action's, an error reply, an early answer, a
 
 `RouteTiming` is a ready route middleware: `@Middleware(RouteTiming)` adds the route's execution time to `Server-Timing`.
 
+`http.routes.middlewares` mounts route middlewares on every route ( names, classes or `{ service, options }` ), before the controller and route ones, eg. `routes: { middlewares: ['RouteTiming'] }`.
+
 Server-level middlewares ( whole express stack, not per-route ) ship in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `NotFound`, `ErrorHandler`.
 
 ## Controller discovery ( ControllerSource )

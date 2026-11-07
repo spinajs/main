@@ -1,12 +1,12 @@
 # Route middlewares
 
-A route middleware runs code around one route, or around every route of a controller: before the action, on the reply before it is sent, and after the response finished. Use it for cross-cutting work that belongs to specific endpoints, such as audit logging, cache headers or a content-type check. For work on every request of the server, use a [server middleware](15-server-middlewares.md).
+A route middleware runs code around one route, around every route of a controller, or around every route of the app: before the action, on the reply before it is sent, and after the response finished. Use it for cross-cutting work that belongs to specific endpoints, such as audit logging, cache headers or a content-type check. For work on every request of the server, use a [server middleware](15-server-middlewares.md).
 
 ## How it works
 
 **At startup**, for each route, `BaseController.resolve()`:
 
-1. Resolves the controller's middlewares, then the route's, with `container.resolve(type, options)`.
+1. Resolves the [global middlewares](#global-route-middlewares), then the controller's, then the route's, with `container.resolve(type, options)`.
 2. Keeps those whose `isEnabled(route, controller)` returns `true`. This is decided once, not per request.
 3. Calls `onRegister(route, path, controller)` of each kept middleware that has one. A throw fails the registration.
 4. Builds the handler chain from the hooks each middleware implements; a middleware with no hook adds nothing to the chain.
@@ -28,7 +28,7 @@ The reply pipeline handles every framework reply of the route: the `Response` th
 
 ### Entered middlewares
 
-Only a middleware the chain entered gets `onAfter` and `onFinish`, and they run in the exact reverse of the entry order. The entry order is the chain order: `'outer'` before `'inner'`, and within a stage the controller's middlewares before the route's, each list in declaration order (decorators apply bottom-up, so the lowest `@Middleware` of a list is entered first). A middleware is entered when the chain reached it and its `onBefore` resolved, or when the chain reached it and it has no `onBefore`. An around middleware is entered when its `onAround` starts.
+Only a middleware the chain entered gets `onAfter` and `onFinish`, and they run in the exact reverse of the entry order. The entry order is the chain order: `'outer'` before `'inner'`, and within a stage the [global](#global-route-middlewares) ones in config order, then the controller's, then the route's, the last two in declaration order (decorators apply bottom-up, so the lowest `@Middleware` of a list is entered first). A middleware is entered when the chain reached it and its `onBefore` resolved, or when the chain reached it and it has no `onBefore`. An around middleware is entered when its `onAround` starts.
 
 | Case | Entered |
 | --- | --- |
@@ -124,11 +124,58 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 
 `*/*` or a missing header allows every type, so it sets every flag except `OTHER`. `@AcceptType()` gives an action the same value as an argument.
 
+## Global route middlewares
+
+`http.routes.middlewares` mounts route middlewares on every route of every controller, before the controller's and the route's own `@Middleware` ones. An entry is one of:
+
+- the class name of a type registered as `RouteMiddleware`, eg. with `@Injectable(RouteMiddleware)`;
+- a `RouteMiddleware` class;
+- `{ service, options }`: a name or a class, with `options` passed to the constructor as `@Middleware(Class, ...options)` passes them.
+
+```ts sample
+import { Injectable, NewInstance } from '@spinajs/di';
+import { GlobalRouteMiddlewareEntry, IReplyContext, RouteMiddleware } from '@spinajs/http';
+
+export class NoSniff extends RouteMiddleware {
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}
+
+@NewInstance()
+@Injectable(RouteMiddleware)
+export class ApiVersion extends RouteMiddleware {
+  constructor(protected Version: string = '1') {
+    super();
+  }
+
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    res.setHeader('Api-Version', this.Version);
+  }
+}
+
+const middlewares: GlobalRouteMiddlewareEntry[] = [
+  'RouteTiming', // by name: the built-in RouteTiming is registered as RouteMiddleware
+  NoSniff, // by class
+  { service: 'ApiVersion', options: ['2'] }, // as @Middleware(ApiVersion, '2')
+];
+
+// the app's config file
+export default { http: { routes: { middlewares } } };
+```
+
+- Order: the global entries in config order, then the controller's, then the route's. `Stage` still applies on top: an `'outer'` middleware runs before every `'inner'` one, and an outer global one before an outer controller one. On the way out it reverses: a global middleware's `onAfter` and `onFinish` run after the controller's and the route's.
+- A class that is also declared with `@Middleware` on the controller or the route is skipped as a global entry there, so it runs once per request: the `@Middleware` declaration, its position and its options win.
+- `isEnabled(route, controller)` and `onRegister(route, path, controller)` are called per route, as for any route middleware. Use `isEnabled` to keep a global middleware off some routes.
+- An entry is instantiated exactly as the same class in `@Middleware(Class, ...options)` on every route: `container.resolve(Class, options)` per route, so the class's lifetime decides sharing. A `@NewInstance()` class gets its own instance on each route; a singleton (the default) serves every route, together with any `@Middleware` of that class. A middleware that keeps per-route state, set in `onRegister`, must be `@NewInstance()`. Per-request state goes on `req.storage` or `res.locals`.
+- The entries are checked at startup, by each controller before it builds its routes. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
+- Routes only: a request that matches no route, a static file or anything answered before routing does not run them. Use a [server middleware](15-server-middlewares.md) for those.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default) | none | `RouteTiming`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 
@@ -287,6 +334,8 @@ export class SearchController extends BaseController {
 // Server-Timing: route;dur=3.42, total;dur=4
 ```
 
+`RouteTiming` is registered as `RouteMiddleware`, so `http.routes.middlewares: ['RouteTiming']` times every route.
+
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
@@ -294,7 +343,7 @@ export class SearchController extends BaseController {
 - `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`).
-- A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares.
+- A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
 
 ## Migrating from the positional hooks
 
