@@ -70,6 +70,7 @@ const PUBLIC_API = [
   'SocketAccessPushTransport',
   'SocketArg',
   'SocketArgumentResolver',
+  'SocketClientGone',
   'SocketCommandContext',
   'SocketCommandStage',
   'SocketConfigBootstrapper',

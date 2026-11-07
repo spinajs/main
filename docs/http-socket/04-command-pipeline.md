@@ -12,7 +12,7 @@ Every client command passes an ordered chain of `SocketCommandStage`s before its
 2. `SocketDispatcher.execute()` runs the stages in ascending `Order` inside the call's AsyncLocalStorage store. Each stage calls `next()` to continue.
 3. After the last stage, the handler runs with the arguments the arguments stage built.
 4. The result becomes the reply: `undefined` answers `null`; an async iterable answers `{ stream: true }` and becomes a [stream reply](06-stream-replies.md). A thrown error becomes an error reply through `SocketErrorMapper`.
-5. An abort (deadline, cancel, disconnect, shutdown) answers the client at once. The chain keeps running, and keeps its in-flight slot and queue place, until the handler settles.
+5. An abort (deadline, cancel, disconnect, shutdown) answers the client at once. Before the handler started, the chain stops: `next()` rejects with `SocketClientGone`, also when a later stage was waiting for the connect hooks, an idempotency join or its place in the ordering queue, and no later stage and no handler runs. A command queued behind an `ordered` predecessor stops only when its turn comes, and keeps its in-flight slot until then. After the handler started, the chain keeps running, and keeps its in-flight slot and queue place, until the handler settles. The exception is an `ordered` command whose handler still runs `http.socket.ordering.abortGraceMs` after the abort: it is cut loose and gives both back.
 
 | Order | `STAGE_ORDER` key | Stage | What it does | Refusal |
 | --- | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `SocketCommandStage` | `SocketCommandStage`; every registered class, resolved once as `Array.ofType(SocketCommandStage)` by `SocketDispatcher.resolve()` and sorted by `Order`; each stage a singleton | The eleven stages in the table above | Your stages | Add: `@Injectable(SocketCommandStage)`. Replace: `DI.unregister(BuiltInStage)` and register yours. Extend: subclass a built-in stage and swap it the same way. All before `SocketServer` resolves |
 | `SocketDispatcher` | `SocketDispatcher` (self), singleton, `AsyncService` | `SocketDispatcher` | Your subclass | Override `callStorage()` (the per-call store), `observe()` (per-command log and metric); `DI.register(Mine).as(SocketDispatcher)` |
-| `SocketCommandContext` | Not in DI; built per command | `SocketCommandContext` | none | Read and write it from a stage: `ctx.storage`, `ctx.args`, `ctx.abort()`, `ctx.armDeadline()` |
+| `SocketCommandContext` | Not in DI; built per command | `SocketCommandContext` | none | Read and write it from a stage: `ctx.storage`, `ctx.args`, `ctx.handlerStarted`, `ctx.drainGrace`, `ctx.addOutcomeRecorder()`, `ctx.abort()`, `ctx.armDeadline()` |
 
 ### `SocketCommandStage`: a stage of your own
 
@@ -61,6 +61,17 @@ What a stage sees depends on where it sits:
 - between 550 and 600, it runs inside the queue place of an `ordered` command;
 - before 700, `ctx.args` is not set yet;
 - for a stream reply, `await next()` returns the handler's async iterable when the stream starts, not when it ends.
+
+`next()` runs the later stages and the handler, and settles before the reply is built. It can be called once: a second call from the same stage rejects with `internal` `next() called twice by <Stage>`.
+
+| What happens | `next()` |
+| --- | --- |
+| The handler returned or threw | Resolves with its raw result (an async iterable for a stream, binary, a `toJSON` class) or rejects with its error. |
+| An abort came before the handler started | Rejects with `SocketClientGone`, `beforeHandler: true`, also when a later stage was waiting on the abort (connect hooks, an idempotency join, the ordering queue). No later stage and no handler ran. Behind an `ordered` predecessor it rejects only when the command's turn comes. |
+| An abort came after the handler started | Settles with the handler's real result or error. `ctx.handlerStarted` is `true`. The client has its answer already, so what the stage returns is not sent. |
+| An `ordered` command's handler still runs `http.socket.ordering.abortGraceMs` after the abort (cut loose) | In a stage before 550: rejects with the abort reason itself, not `SocketClientGone` and not the real result. `ctx.handlerStarted` is `true`. The ordering stage gives up the queue place, and the late result is dropped. Stages after the ordering stage still get the real outcome. |
+
+`SocketClientGone` is a `SocketException` with the code, message and retry hint of the abort reason (`cancelled`, `deadline_exceeded`, `unavailable`), which is also its `cause`. Rethrown, it answers as the abort did. A custom stage that compared the rejection with `ctx.signal.reason` should check `err instanceof SocketClientGone` instead, and read `err.cause` for the reason.
 
 ```ts sample
 import { Autoinject, Injectable } from '@spinajs/di';
@@ -90,6 +101,81 @@ export class MaintenanceStage extends SocketCommandStage {
     }
 
     return next();
+  }
+}
+```
+
+### `onRegister`
+
+`onRegister(handler, registration)` is optional. It runs once per command, when `SocketHandlerRegistry.build()` has registered every controller: in ascending `Order`, after the names were checked for duplicates, the policies resolved and the contract and payload validators were attached, and before socket.io attaches. It never runs for events or hooks, because stages never run for them. Check configuration or load an optional dependency there. A throw fails the build with `InvalidOperation`, which names the stage and the command: `Socket command audit.export ( AuditSocket::export ): stage AuditSinkStage refused the registration: no audit sink configured`. The original error is its `cause`.
+
+`registration.refuseStream(what)` declares that the command cannot reply with a stream while this stage applies:
+
+- an async-generator handler fails the build: `Socket command X ( C::m ) is <what> and replies with a stream; <what> commands cannot stream`;
+- any other async-iterable result is answered `failed_precondition`: `<what> command X cannot reply with a stream`.
+
+When several stages refuse, the word of the highest `Order` is used. It is kept as `handler.streamRefusal`. The built-in `ordered` and `idempotent` refusals are checked before it.
+
+### Per-command state
+
+- `ctx.handlerStarted` is `false` until the dispatcher calls the handler, and `true` from then on.
+- `ctx.drainGrace`: a stage sets it to `true` when its handler may commit at any moment once started. The first abort of the shutdown drain then leaves the command running if `handlerStarted` is `true` (see [Shutdown and recovery](14-shutdown-and-recovery.md)).
+- `ctx.addOutcomeRecorder(recorder)` registers an outer stage's record of the outcome, an object with `settle(outcome)` and `detach(running)`. An inner stage that serialises commands calls `ctx.recordOutcome(outcome)` before it lets the next command run. That settles every recorder. A failing recorder is ignored, because the stage that owns it answers the failure. `ctx.detachOutcome(running)` passes a handler the pipeline gave up on to every recorder, which settles once `running` does.
+
+### State between stages
+
+State is shared, never copied. Every stage, the argument extractors, the policies and the handler see the same `ctx` and `ctx.storage` objects for the whole command.
+
+- `ctx` is one `SocketCommandContext`. Cancel, credit, disconnect and shutdown reach the same object. The pipeline owns `handler` (set at 400), `idempotency` (500), `args` (700), `stream`, `rateRefusal`, `handlerStarted`, `drainGrace` and the recorders.
+- Typed per-call state goes on `ctx.storage` (`ISocketCallStorage`, extended by declaration merging), as http's goes on `req.storage`.
+- Untyped per-call state goes on `ctx.storage` too: it has a string index, so there is no `res.locals`. A stage's private state goes in its own `WeakMap<ISocketCommandContext, T>`.
+- What a stage writes before `next()` is visible to the later stages, the extractors, the policies and the handler. After `next()` settles, the stage sees what they wrote.
+- Unlike http, stages run inside the call's AsyncLocalStorage context, and so do stream steps. A service called from a stage reads the same store.
+
+```ts sample
+import { Autoinject, Injectable } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketClientGone, SocketCommandStage } from '@spinajs/http-socket';
+
+@Injectable()
+export class AuditSink {
+  public configured = false;
+  public readonly lines: string[] = [];
+
+  public write(command: string, outcome: string): void {
+    this.lines.push(`${command} ${outcome}`);
+  }
+}
+
+/** Commands under audit.* need an audit sink: fail the boot, not the first call, when none is configured. */
+@Injectable(SocketCommandStage)
+export class AuditSinkStage extends SocketCommandStage {
+  @Autoinject()
+  protected Sink: AuditSink;
+
+  public get Order(): number {
+    return STAGE_ORDER.Policies + 10;
+  }
+
+  public onRegister(handler: IRegisteredHandler): void {
+    if (handler.fullName.startsWith('audit.') && !this.Sink.configured) {
+      throw new InvalidOperation('no audit sink configured');
+    }
+  }
+
+  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+    if (!ctx.request.name.startsWith('audit.')) {
+      return next();
+    }
+
+    try {
+      const result = await next();
+      this.Sink.write(ctx.request.name, ctx.signal.aborted ? 'finished after the client left' : 'ok');
+      return result;
+    } catch (err) {
+      this.Sink.write(ctx.request.name, err instanceof SocketClientGone ? 'aborted before the handler' : 'failed');
+      throw err;
+    }
   }
 }
 ```
@@ -149,7 +235,8 @@ DI.register(TenantDispatcher).as(SocketDispatcher);
 - `Array.ofType` leaves `@NewInstance()` classes out of its result: a stage marked `@NewInstance()` never runs.
 - Stages with the same `Order` run in registration order.
 - Every `cmd` frame costs a rate token when it arrives, including frames without an ack, malformed frames and duplicate ids.
-- An abort answers the client at once; the in-flight slot is held until the handler settles, so cancel-and-resend cannot run unbounded handlers.
+- An abort answers the client at once, but the in-flight slot comes back only when the chain settles. A command whose handler started holds it until the handler settles, so cancel-and-resend cannot run unbounded handlers. A command queued behind an `ordered` predecessor holds it until its turn comes. A cut-loose `ordered` command gives it back after `http.socket.ordering.abortGraceMs`.
+- `onRegister` runs after every controller registered: an invalid name, a duplicate, a policy that fails to resolve or a contract problem fails the build first, and then no `onRegister` runs.
 - A client `deadline` of `0` or below aborts the call as `deadline_exceeded` before the handler runs; a `timeoutMs` of `0` or below is ignored.
 - The deadline is the earliest of the client's `deadline` and the command's `timeoutMs`, both counted from `receivedAt`. Deadlines above 2^31-1 ms are reached in several timer steps.
 - A handler reached without `ctx.handler` or `ctx.args` answers `internal` ("a built-in stage is missing"): keep `LookupStage` and `ArgumentsStage`, or set those fields yourself.

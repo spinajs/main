@@ -7,7 +7,9 @@ import { Log, Logger } from '@spinajs/log';
 import type { SocketContractEntry } from '@spinajs/manifest';
 import { BaseSocketController } from './controller.js';
 import { SocketContractEnforcer } from './contract.js';
-import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from './interfaces.js';
+import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketStageRegistration, SOCKET_CONTROLLER_DESCRIPTOR, SocketCommandStage } from './interfaces.js';
+
+const isAsyncGenerator = (controller: BaseSocketController, method: string | symbol): boolean => Object.prototype.toString.call(controller[method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]';
 
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(SOCKET_CONTROLLER_DESCRIPTOR, (type as { prototype: object }).prototype) as ISocketControllerDescriptor | undefined)?.SourceFile;
 
@@ -30,6 +32,8 @@ export class SocketHandlerRegistry {
   protected connectHooks: IRegisteredHandler[] = [];
   protected disconnectHooks: IRegisteredHandler[] = [];
 
+  protected Stages: SocketCommandStage[] = [];
+
   public get Commands(): ReadonlyMap<string, IRegisteredHandler> {
     return this.commands;
   }
@@ -40,9 +44,14 @@ export class SocketHandlerRegistry {
     this.connectHooks = [];
     this.disconnectHooks = [];
 
+    // the singletons the dispatcher runs, in its order
+    const stages = await DI.resolve(Array.ofType(SocketCommandStage));
+    this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
+
     checkPendingProperties(this.Container);
     const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
     const bound: SocketContractEntry[] = [];
+    const staged: Array<[IRegisteredHandler, string]> = [];
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;
@@ -61,17 +70,24 @@ export class SocketHandlerRegistry {
         await this.add(type.name, controller, descriptor, handler);
       }
 
+      const added = [...this.commands.values()].filter((h) => !before.commands.has(h));
       const contract = this.Contracts.bind(
         type.name,
         descriptor,
-        [...this.commands.values()].filter((h) => !before.commands.has(h)),
+        added,
         [...this.events.values()].filter((h) => !before.events.has(h)),
         lineage,
       );
       if (contract) bound.push(contract);
+      staged.push(...added.map((h) => [h, type.name] as [IRegisteredHandler, string]));
     }
 
     this.Contracts.reportUnvalidated(bound);
+
+    // last, so a stage sees only unique commands that carry their contract and payload validators
+    for (const [handler, controllerName] of staged) {
+      await this.registerWithStages(handler, controllerName);
+    }
   }
 
   public command(name: string): IRegisteredHandler | undefined {
@@ -97,7 +113,7 @@ export class SocketHandlerRegistry {
       throw new InvalidOperation(`Socket ${handler.Kind} ${fullName} ( ${controllerName}::${String(handler.Method)} ) is not a valid socket ${handler.Kind} name: at most ${MAX_NAME_LENGTH} characters of ${NAME_PATTERN.source}`);
     }
 
-    if (handler.Kind === 'command' && Object.prototype.toString.call(controller[handler.Method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]') {
+    if (handler.Kind === 'command' && isAsyncGenerator(controller, handler.Method)) {
       // its queue place would be released when the generator is returned, long before the stream ends
       if (handler.Options.ordered) {
         throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is ordered and replies with a stream; ordered commands cannot stream`);
@@ -130,6 +146,34 @@ export class SocketHandlerRegistry {
     }
 
     this.Log.trace({ kind: handler.Kind, name: fullName, controller: controllerName, method: handler.Method }, 'Registered socket ${kind} ${name} -> ${controller}::${method}');
+  }
+
+  protected async registerWithStages(registered: IRegisteredHandler, controllerName: string): Promise<void> {
+    const command = `Socket command ${registered.fullName} ( ${controllerName}::${String(registered.descriptor.Method)} )`;
+    let refusal: string | undefined;
+    const registration: ISocketStageRegistration = { refuseStream: (what) => (refusal = what) };
+
+    // ascending Order, so the last refusal is the highest Order's
+    for (const stage of this.Stages) {
+      if (!stage.onRegister) {
+        continue;
+      }
+
+      try {
+        await stage.onRegister(registered, registration);
+      } catch (err) {
+        throw new InvalidOperation(`${command}: stage ${stage.constructor.name} refused the registration: ${err instanceof Error ? err.message : String(err)}`, err);
+      }
+    }
+
+    if (refusal === undefined) {
+      return;
+    }
+
+    (registered as { streamRefusal?: string }).streamRefusal = refusal;
+    if (isAsyncGenerator(registered.controller, registered.descriptor.Method)) {
+      throw new InvalidOperation(`${command} is ${refusal} and replies with a stream; ${refusal} commands cannot stream`);
+    }
   }
 
   protected unique(map: Map<string, IRegisteredHandler>, registered: IRegisteredHandler, controllerName: string): void {

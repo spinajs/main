@@ -7,7 +7,7 @@ import { Log, Logger, newTraceContext } from '@spinajs/log';
 import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame, isStreamCredit } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
-import { SocketCommandContext } from './context.js';
+import { SocketClientGone, SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
 import { TokenBucket, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
@@ -162,12 +162,13 @@ export class SocketDispatcher extends AsyncService {
 
   /**
    * @internal Aborts every running command on every connection ( shutdown ). With `spareStarted`, a command whose
-   * idempotency claim already reached its handler keeps running: it may commit any moment, and only its real outcome tells.
+   * handler started under `drainGrace`, or under an idempotency claim, keeps running: it may commit any moment, and only
+   * its real outcome tells.
    */
   public abortAll(reason: SocketException, spareStarted = false): void {
     for (const runtime of this.runtimes.values()) {
       for (const ctx of runtime.running.values()) {
-        if (!(spareStarted && ctx.idempotency?.started)) {
+        if (!(spareStarted && (ctx.idempotency?.started || (ctx.drainGrace && ctx.handlerStarted)))) {
           ctx.abort(reason);
         }
       }
@@ -529,18 +530,36 @@ export class SocketDispatcher extends AsyncService {
   }
 
   protected next(ctx: SocketCommandContext, index: number): Promise<unknown> {
+    if (ctx.signal.aborted) {
+      return Promise.reject(new SocketClientGone({ beforeHandler: true }, ctx.signal.reason as SocketException));
+    }
+
     const stage = this.Stages[index];
 
     if (!stage) {
       return this.invoke(ctx);
     }
 
-    return stage.execute(ctx, () => this.next(ctx, index + 1));
+    let called = false;
+    return stage.execute(ctx, () => {
+      if (called) {
+        return Promise.reject(new SocketException('internal', `next() called twice by ${stage.constructor.name}`));
+      }
+      called = true;
+      return this.next(ctx, index + 1).catch((err: unknown) => {
+        throw this.goneBeforeHandler(ctx, err);
+      });
+    });
+  }
+
+  /** A later stage that waited on the signal ( ready, the ordering queue, an idempotency join ) throws the bare reason. */
+  protected goneBeforeHandler(ctx: SocketCommandContext, err: unknown): unknown {
+    return ctx.signal.aborted && err === ctx.signal.reason && !ctx.handlerStarted ? new SocketClientGone({ beforeHandler: true }, err as SocketException) : err;
   }
 
   protected async invoke(ctx: SocketCommandContext): Promise<unknown> {
     if (ctx.signal.aborted) {
-      throw ctx.signal.reason;
+      throw new SocketClientGone({ beforeHandler: true }, ctx.signal.reason as SocketException);
     }
 
     const handler = ctx.handler;
@@ -550,6 +569,7 @@ export class SocketDispatcher extends AsyncService {
       throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in stage is missing');
     }
 
+    ctx.markHandlerStarted();
     ctx.idempotency?.start();
 
     return handler.controller[handler.descriptor.Method as string](...args);
@@ -602,6 +622,11 @@ export class SocketDispatcher extends AsyncService {
 
     if (ctx.handler?.descriptor.Options.idempotent) {
       throw new SocketException('failed_precondition', `idempotent command ${name} cannot reply with a stream`);
+    }
+
+    const refusal = ctx.handler?.streamRefusal;
+    if (refusal) {
+      throw new SocketException('failed_precondition', `${refusal} command ${name} cannot reply with a stream`);
     }
 
     if (credits === undefined) {
