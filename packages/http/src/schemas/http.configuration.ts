@@ -168,6 +168,15 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         retryAfter: { type: 'integer', minimum: 0, default: 1, description: 'Seconds sent in Retry-After.' },
       },
     },
+    deadline: {
+      type: 'object',
+      default: {},
+      description: 'RequestDeadline: a deadline for every request. When it passes, req.storage.signal aborts and a request nothing was sent for yet is answered 504.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        ms: { type: 'integer', minimum: 1, default: 30000, description: 'Milliseconds a request may take. @Deadline(ms) on a route can only shorten it.' },
+      },
+    },
     bot: BOT_CONFIGURATION_SCHEMA,
   },
 };

@@ -50,6 +50,7 @@ export default {
 | `responseStart`, `responseEnd`, `responseTime` | `ResponseTime` | Timing; `responseEnd` and `responseTime` exist only once the reply is ready, and not for static files or replies an action wrote to `res` itself. |
 | `serverTiming` | `ServerTiming` | `IServerTimingEntry[]`: `{ name, dur?, desc? }`; push your own. |
 | `perf` | `PerfRollup` | `IPerfScope` accumulator filled by the `Perf` facade. |
+| `signal`, `deadline` | `RequestDeadline`, `@Deadline` | `AbortSignal` aborted at the deadline or when the client goes away, and the deadline in epoch ms; see [Request deadlines](29-request-deadlines.md). |
 
 The access log line carries `method`, `path` (query values redacted), `status`, `ms`, `ip`, `requestId` and `userAgent`.
 

@@ -18,7 +18,7 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { answerEarly, answeredEarly, beginRoute, enterMiddleware, repliedInPlace, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 
 /**
@@ -268,7 +268,7 @@ export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, c
  */
 export function createActionHandler(controller: ControllerActionHost, route: IRoute, storage: AsyncLocalStorage<IActionLocalStoregeContext>, derived?: DerivedArgValidators): Express.RequestHandler {
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
-    if (answeredEarly(res)) {
+    if (answeredEarly(res) || repliedInPlace(res)) {
       next();
       return;
     }

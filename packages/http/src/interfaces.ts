@@ -296,6 +296,13 @@ export interface IActionLocalStoregeContext {
    * Perf facade during the action and flushed by {@link PerfRollup} at finish.
    */
   perf?: IPerfScope;
+  /**
+   * Aborted when the request's deadline passed ({@link RequestDeadline}, `@Deadline`; reason a `TimeoutError`) or its
+   * client went away (an `AbortError`). Pass it to the I/O of the action. Set only while a deadline applies.
+   */
+  signal?: AbortSignal;
+  /** When the request's deadline passes, in epoch milliseconds. */
+  deadline?: number;
 }
 
 export interface IResponseHeader {
@@ -441,6 +448,11 @@ export enum HTTP_STATUS_CODE {
    * app is still starting up. Used by the telemetry readiness endpoint.
    */
   SERVICE_UNAVAILABLE = 503,
+
+  /**
+   * Nothing answered the request by its deadline ( see RequestDeadline )
+   */
+  GATEWAY_TIMEOUT = 504,
 }
 
 /**

@@ -106,6 +106,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
+| `@Deadline(ms)` | class or method | positive milliseconds | Adds `DeadlineMiddleware`, which moves the request's deadline earlier, never later; see [Request deadlines](29-request-deadlines.md). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
 
 ### `@Accepts`

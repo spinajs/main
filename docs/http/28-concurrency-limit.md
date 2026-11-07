@@ -42,7 +42,7 @@ export default {
 ## Important behaviour
 
 - The limit is per process. With several instances behind a load balancer, the cluster serves up to `max` times the instance count.
-- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped.
+- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped. Pass `req.storage.signal` from [`RequestDeadline`](29-request-deadlines.md) to its I/O to stop that work too.
 - A long-lived response (a server-sent event stream, a large download) holds a slot until it ends; size `max` for them or keep them on another instance.
 - `RequestId` (Order 1) has not run yet: the 503 has no `x-request-id`, and `AccessLog` (Order 2) does not log it. Count refusals from a server middleware's `onAfter` at a lower Order, or from your load balancer.
 

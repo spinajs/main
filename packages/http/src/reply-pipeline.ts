@@ -52,6 +52,10 @@ interface IReplyState {
   replyError?: { error: unknown };
   /** The error the sent reply answers, after any onAfter turned it. */
   answered?: { error: unknown };
+  /** A reply went into the pipeline. */
+  started?: boolean;
+  /** A reply was sent in place of the route's (a deadline answer): every later one is dropped. */
+  final?: boolean;
   /** The one context every server hook of the request gets; with the route fields once a route matched. */
   server?: IMiddlewareContext;
   routedServer?: IMiddlewareContext;
@@ -220,10 +224,42 @@ const isResponse = (value: unknown): value is Response => typeof (value as Respo
  *
  * A throwing onAfter turns the reply into the error reply for its error; the remaining hooks see that reply. A throw
  * once the reply was turned is logged. When the headers are already sent (an action answered `res` itself), no
- * onAfter runs. Rejects only when sending fails.
+ * onAfter runs. A reply coming after one sent in place of the route's (a `RequestDeadline` 504) is dropped. Rejects
+ * only when sending fails.
  */
-export async function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+export function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
   const state = stateOf(res);
+  if (state.final) {
+    httpLog().debug({ url: req.originalUrl }, 'A reply for ${url} was dropped: the request was already answered in its place');
+    return Promise.resolve();
+  }
+  state.started = true;
+  return send(req, res, state, response, options);
+}
+
+/** Whether a reply went into the pipeline, or the headers were sent. */
+export function replyStarted(res: express.Response): boolean {
+  return res.headersSent || stateOf(res).started === true;
+}
+
+/** Whether a reply was sent in place of the route's, so a later one is dropped. */
+export function repliedInPlace(res: express.Response): boolean {
+  return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.final === true;
+}
+
+/**
+ * Sends `response` in place of the reply still to come (a deadline answer): every later `sendReply()` of the request
+ * is dropped, so an action answering late does not write to a response already sent. Callers check `replyStarted()`
+ * first.
+ */
+export function sendReplyInPlace(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+  const state = stateOf(res);
+  state.final = true;
+  state.started = true;
+  return send(req, res, state, response, options);
+}
+
+async function send(req: express.Request, res: express.Response, state: IReplyState, response: Response, options: ISendReplyOptions): Promise<void> {
   let current = response;
   let error = options.error;
 
