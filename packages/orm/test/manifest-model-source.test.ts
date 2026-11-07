@@ -65,6 +65,14 @@ describe('manifest model source', () => {
     ]);
   });
 
+  it('warns when a column the model requires without a default is nullable or has a default in the table', () => {
+    const columns = [live('Id', 'int4'), live('Name', 'varchar', { Nullable: true }), live('Active', 'bool', { DefaultValue: true }), live('Seen', 'timestamptz', { Nullable: true }), live('Ref', 'bytea', { DefaultValue: 'x' }), live('Rank', 'int4', { DefaultValue: 0 })];
+    expect(columnDrift(account, columns, POSTGRES, 'default').map((d) => [d.kind, d.message])).to.deep.equal([
+      ['nullability', 'column accounts.Name is nullable on connection default, model Account requires a value and states no default: writes without one fail'],
+      ['nullability', 'column accounts.Active has a default on connection default, model Account requires a value and states no default: writes without one fail'],
+    ]);
+  });
+
   it('matches column names ignoring case on a dialect with caseInsensitiveIdentifiers, and compares no family on an unknown dialect', () => {
     const columns = [live('ID', 'int4'), live('name', 'varchar'), live('ACTIVE', 'int4'), live('seen', 'timestamptz'), live('ref', 'bytea'), live('rank', 'int4')];
     expect(columnDrift(account, columns, { ...POSTGRES, caseInsensitiveIdentifiers: true }, 'default').map((d) => d.message)).to.deep.equal(['column accounts.Active is int4 on connection default, model Account declares boolean']);

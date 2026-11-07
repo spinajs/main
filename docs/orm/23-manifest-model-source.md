@@ -22,6 +22,8 @@ With `'manifest'` in any other manifest mode the ORM warns once and keeps readin
 
 Column types in `Schema`/`ResponseSchema` (what `orm-http` validates request bodies with and `http-swagger` publishes) do not change: a manifest column is named by its `ColumnType` (`int`, `string`, `dateTime`, …), so `Id: number` is still `{ type: 'integer' }`. **`required` does change:** it follows the TypeScript optionality of the field (`Name!: string` is required, `Nickname?: string` is not) instead of the table's `NOT NULL` flags. That is the point of the models being the source of truth, and it is the cost of the opt-in: a column declared `!:` that the table allows to be `NULL` becomes required in request validation. Review the `?:` marks of the models you opt in.
 
+**Writes change too.** `Nullable` comes from the TypeScript optionality and `DefaultValue` only from `@Column({ default })`, so the write-time `NOT NULL` check and the defaults a new instance gets follow the model, not the table. With a table column `Rank INT NOT NULL DEFAULT 0` and a model field `Rank: number` without `@Column({ default: 0 })`, `Account.create({ Name })` throws `Field Rank cannot be null` under `'manifest'`, where `'database'` took the default from the table. The boot warns about every such column (drift kind `nullability`, below).
+
 A column default the model declares as raw SQL (`@Column({ default: { raw: 'CURRENT_TIMESTAMP' } })`) is left to the database on insert, as a default `tableInfo()` reads as an expression is.
 
 ## Drift
@@ -30,6 +32,7 @@ Only the columns a model declares are checked:
 
 - A declared column missing from its table fails the boot under `db.StrictTableCheck` (`Column drift (db.StrictTableCheck): column Nickname of model Account is missing from table accounts on connection default. …`) and is a warning otherwise. The check runs after the startup migrations, like the missing-table check, and is skipped when the `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). `reloadTableInfo({ strict: true })` fails on it too.
 - A declared column whose live type belongs to another family (a `boolean` stored as `int4`) is a warning.
+- A column the model requires (no `?`, no `@Column({ default })`) that the table allows to be `NULL` or fills with a default is a warning (`nullability`): writes without a value fail where the table would have accepted them.
 
 Column names are compared ignoring case on drivers whose dialect profile sets `caseInsensitiveIdentifiers` (sqlite, mysql, mssql). Families are compared only for native types the driver's profile lists in `nativeTypes`.
 

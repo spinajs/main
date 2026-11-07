@@ -1,8 +1,8 @@
-import { ManifestMissing, type ColumnFamily, type Manifest, type ModelEntry, type SqlDialectProfile } from '@spinajs/manifest';
+import { ManifestMissing, type ColumnFamily, type ColumnSqlSpec, type Manifest, type ModelColumn, type ModelEntry, type SqlDialectProfile } from '@spinajs/manifest';
 import { RawQuery } from './builders/raw.js';
 import { ColumnType } from './enums.js';
 import type { IColumnDescriptor } from './interfaces.js';
-import { familiesOf } from './schema-diff/families.js';
+import { familiesOf, reportsNullability } from './schema-diff/families.js';
 import { autoIncrementOf, columnSpecOf } from './schema-diff/target.js';
 
 // buildModelJsonSchema and the converter lookup read ColumnType names, not families; uuid has no ColumnType and keeps its name
@@ -27,8 +27,11 @@ export interface IColumnDrift {
   table: string;
   connection: string;
   column: string;
-  /** `missing`: the table has no such column; `family`: its live type is of another family. */
-  kind: 'missing' | 'family';
+  /**
+   * `missing`: the table has no such column; `family`: its live type is of another family; `nullability`: the model
+   * requires a value and states no default, while the table allows NULL or fills a default (D9: writes check the model).
+   */
+  kind: 'missing' | 'family' | 'nullability';
   message: string;
 }
 
@@ -67,6 +70,13 @@ export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
   });
 }
 
+/** How the table accepts a write without a value of a column the model requires without a default, if it does. */
+function looserInTable(column: ModelColumn, sql: ColumnSqlSpec, found: IColumnDescriptor, dialect: SqlDialectProfile | undefined): string | undefined {
+  if (column.nullable || column.primary || sql.default !== undefined) return undefined;
+  if (found.Nullable && reportsNullability(dialect, sql.family)) return 'is nullable';
+  return found.DefaultValue !== null && found.DefaultValue !== undefined ? 'has a default' : undefined;
+}
+
 /** D9: only declared columns are checked; a table column no model declares is a partial model (D19), never drift. */
 export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialect: SqlDialectProfile | undefined, connection: string): IColumnDrift[] {
   const fold = dialect?.caseInsensitiveIdentifiers ? (name: string) => name.toLowerCase() : (name: string) => name;
@@ -78,10 +88,14 @@ export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialec
       out.push({ ...base, kind: 'missing', message: `column ${column.name} of model ${entry.className} is missing from table ${entry.tableName} on connection ${connection}` });
       continue;
     }
-    const family = columnSpecOf(column).family;
+    const sql = columnSpecOf(column);
     const families = familiesOf(found.NativeType || found.Type, dialect);
-    if (families && !families.includes(family)) {
-      out.push({ ...base, kind: 'family', message: `column ${entry.tableName}.${column.name} is ${found.NativeType} on connection ${connection}, model ${entry.className} declares ${family}` });
+    if (families && !families.includes(sql.family)) {
+      out.push({ ...base, kind: 'family', message: `column ${entry.tableName}.${column.name} is ${found.NativeType} on connection ${connection}, model ${entry.className} declares ${sql.family}` });
+    }
+    const looser = looserInTable(column, sql, found, dialect);
+    if (looser) {
+      out.push({ ...base, kind: 'nullability', message: `column ${entry.tableName}.${column.name} ${looser} on connection ${connection}, model ${entry.className} requires a value and states no default: writes without one fail` });
     }
   }
   return out;
