@@ -164,6 +164,14 @@ class SameHeader extends RouteMiddleware {
   }
 }
 
+class SlowFinish extends RouteMiddleware {
+  public async onFinish(): Promise<void> {
+    calls.push('slow:finish:start');
+    await sleep(300);
+    calls.push('slow:finish:done');
+  }
+}
+
 class RefuseBefore extends RouteMiddleware {
   public async onBefore(): Promise<void> {
     throw new InvalidArgument('refused');
@@ -332,6 +340,14 @@ class HooksController extends BaseController {
   @Middleware(SameHeader)
   public sameHeader() {
     return new Ok({}, { Headers: [{ Name: 'X-V', Value: 'response' }] });
+  }
+
+  // entry: Rec a, then SlowFinish: SlowFinish's onFinish starts first
+  @Get()
+  @Middleware(SlowFinish)
+  @Middleware(Rec, 'a')
+  public slowFinish() {
+    return new Ok({});
   }
 
   // entry: AlsProbe, then RefuseBefore
@@ -568,6 +584,13 @@ describe('Route middleware context hooks', function () {
 
     expect(res.status).to.eq(400);
     expect(state.afterStore).to.eq(true);
+  });
+
+  it('does not hold back an onFinish behind a slow async onFinish of an inner middleware', async () => {
+    await req().get('hooks/slowFinish').set('Accept', 'application/json');
+    await until(() => calls.includes('slow:finish:done'));
+
+    expect(calls).to.deep.eq(['a:before', 'a:after:200:-', 'slow:finish:start', 'a:finish:false', 'slow:finish:done']);
   });
 
   it('gives no onAfter or onFinish to a middleware the chain never entered', async () => {

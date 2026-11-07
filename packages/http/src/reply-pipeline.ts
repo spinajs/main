@@ -5,7 +5,7 @@ import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
-import { excludeFromCapture } from './response-capture.js';
+import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -95,7 +95,7 @@ export function enterMiddleware(res: express.Response, scope: MiddlewareScope, m
   }
   if (state.aborted !== undefined) {
     const aborted = state.aborted;
-    setImmediate(() => void runFinish(state, [entry], aborted));
+    setImmediate(() => runFinish(state, [entry], aborted));
     return;
   }
   watchFinish(res, state);
@@ -152,14 +152,14 @@ function watchFinish(res: express.Response, state: IReplyState): void {
 
   const settle = (aborted: boolean) => {
     state.aborted = aborted;
-    return [...state.entered].reverse();
+    return state.entered.slice();
   };
 
   // finish and close fire once: a response that already ended (a client gone during an earlier onBefore) fires neither again
   if (res.writableFinished || res.destroyed || res.closed) {
     const entries = settle(!res.writableFinished);
     const aborted = state.aborted!;
-    setImmediate(() => void runFinish(state, entries, aborted));
+    setImmediate(() => runFinish(state, entries, aborted));
     return;
   }
 
@@ -167,7 +167,7 @@ function watchFinish(res: express.Response, state: IReplyState): void {
     res.off('finish', onFinish);
     res.off('close', onClose);
     const entries = settle(event === 'close' && !res.writableFinished);
-    void runFinish(state, entries, state.aborted!);
+    runFinish(state, entries, state.aborted!);
   };
   const onFinish = () => onEvent('finish');
   const onClose = () => onEvent('close');
@@ -175,17 +175,33 @@ function watchFinish(res: express.Response, state: IReplyState): void {
   res.once('close', onClose);
 }
 
-const ordered = (entries: IEntered[]): IEntered[] => [...entries.filter((e) => e.scope === 'route'), ...entries.filter((e) => e.scope === 'server')];
-
-async function runFinish(state: IReplyState, entries: IEntered[], aborted: boolean): Promise<void> {
-  for (const entry of ordered(entries)) {
-    if (!entry.middleware.onFinish) {
-      continue;
+/** The entries having `hook`, route ones then server ones, each inner (last entered) first. */
+function innerFirst(entries: readonly IEntered[], hook: 'onAfter' | 'onFinish'): IEntered[] {
+  const route: IEntered[] = [];
+  const server: IEntered[] = [];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.middleware[hook]) {
+      (entry.scope === 'route' ? route : server).push(entry);
     }
+  }
+  return server.length === 0 ? route : route.concat(server);
+}
+
+const isThenable = (value: unknown): value is PromiseLike<unknown> => typeof (value as PromiseLike<unknown> | null | undefined)?.then === 'function';
+
+// Started in order without awaiting each other: a slow async onFinish (an audit write) must not hold back the access
+// log or the metrics of the same request.
+function runFinish(state: IReplyState, entries: readonly IEntered[], aborted: boolean): void {
+  for (const entry of innerFirst(entries, 'onFinish')) {
+    const failed = (error: unknown) => httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
     try {
-      await inScope(state, entry, () => entry.middleware.onFinish!({ ...hookContext(state, entry), aborted }));
+      const result = inScope(state, entry, () => entry.middleware.onFinish!({ ...hookContext(state, entry), aborted }));
+      if (isThenable(result)) {
+        result.then(undefined, failed);
+      }
     } catch (error) {
-      httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
+      failed(error);
     }
   }
 }
@@ -209,52 +225,63 @@ const isResponse = (value: unknown): value is Response => typeof (value as Respo
 export async function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
   const state = stateOf(res);
   let current = response;
-  let own = headerNamesOf(current);
   let error = options.error;
 
-  const pending = (state.pending ??= ordered([...state.entered].reverse()).filter((e) => e.middleware.onAfter));
+  const pending = (state.pending ??= innerFirst(state.entered, 'onAfter'));
   if (!res.headersSent && pending.length > 0) {
-    const before = { ...res.getHeaders() };
-    const written = watchHeaderWrites(res);
+    // only a captured reply needs to know which of its headers are the route's own
+    const captured = responseCaptureOf(res) !== undefined;
+    let own = captured ? headerNamesOf(current) : undefined;
+    const watch = watchHeaderWrites(res);
+    // the hooks of one scope share one base context, so they share one reply context, updated between them
+    let ctx: (IReplyContext & { error?: unknown }) | undefined;
+    let ctxBase: IMiddlewareContext | undefined;
     try {
       for (let entry = pending.shift(); entry; entry = pending.shift()) {
-        if (!entry.middleware.onAfter) {
-          continue;
+        const base = hookContext(state, entry);
+        if (!ctx || ctxBase !== base) {
+          ctxBase = base;
+          ctx = { ...base, response: current, error };
+        } else {
+          ctx.response = current;
+          ctx.error = error;
         }
-        const ctx: IReplyContext = { ...hookContext(state, entry), response: current, error };
+        const replyCtx = ctx;
         try {
-          await inScope(state, entry, () => entry.middleware.onAfter!(ctx));
-          if (!isResponse(ctx.response)) {
+          const result = inScope(state, entry, () => entry.middleware.onAfter!(replyCtx));
+          if (isThenable(result)) {
+            await result;
+          }
+          if (!isResponse(replyCtx.response)) {
             throw new UnexpectedServerError(`${nameOf(entry.middleware)}.onAfter set ctx.response to something that is not a Response`);
           }
-          if (ctx.response !== current) {
-            current = ctx.response;
-            own = headerNamesOf(current);
+          if (replyCtx.response !== current) {
+            current = replyCtx.response;
+            own = captured ? headerNamesOf(current) : undefined;
           }
         } catch (err) {
           // headers the hooks set for the reply that failed must not go out with the error reply; those the error
           // handlers set are its own, so they are not watched
           const turned = await turnIntoErrorReply(req, res, state, entry, err, options, async (makeReply) => {
-            restoreHeaders(res, before, written.names);
-            written.names.clear();
-            written.paused = true;
+            restoreWatched(res, watch);
+            watch.paused = true;
             try {
               return await makeReply();
             } finally {
-              written.paused = false;
+              watch.paused = false;
             }
           });
           if (turned) {
             current = turned.response;
-            own = headerNamesOf(current);
+            own = captured ? headerNamesOf(current) : undefined;
             error = turned.error;
           }
         }
       }
     } finally {
-      written.stop();
+      stopWatching(res, watch);
     }
-    keepHeadersSetByHooks(res, written.names, current, own);
+    keepHeadersSetByHooks(res, watch.names, current, own);
   }
 
   if (error !== undefined) {
@@ -267,61 +294,110 @@ export async function sendReply(req: express.Request, res: express.Response, res
   }
 }
 
-const headerNamesOf = (response: Response): Set<string> => new Set((typeof response.setHeader === 'function' ? response.headers : []).map((h) => h.Name.toLowerCase()));
-
-/** Records the names of the headers set on `res` until `stop()`; express's `set`, `header`, `append` and `cookie` all end in `setHeader`. */
-function watchHeaderWrites(res: express.Response): { names: Set<string>; paused: boolean; stop: () => void } {
+function headerNamesOf(response: Response): Set<string> {
   const names = new Set<string>();
-  const own = Object.prototype.hasOwnProperty.call(res, 'setHeader');
-  const setHeader = res.setHeader;
-  const watch = {
-    names,
-    paused: false,
-    stop: () => {
-      if (own) {
-        res.setHeader = setHeader;
-      } else {
-        delete (res as Partial<express.Response>).setHeader;
-      }
-    },
-  };
-  res.setHeader = function (this: express.Response, name: string, value: number | string | readonly string[]) {
-    if (!watch.paused) {
-      names.add(name.toLowerCase());
+  if (typeof response.setHeader === 'function') {
+    for (const h of response.headers) {
+      names.add(h.Name.toLowerCase());
     }
-    return setHeader.call(this, name, value);
-  } as express.Response['setHeader'];
+  }
+  return names;
+}
+
+interface IHeaderWatch {
+  readonly setHeader: express.Response['setHeader'];
+  /** Lower-case names of the headers set on `res` while watched, and the value each had before its first write. */
+  readonly names: string[];
+  readonly previous: unknown[];
+  paused: boolean;
+}
+
+const WATCH = Symbol('headerWatch');
+
+type Watched = express.Response & { [WATCH]?: IHeaderWatch };
+
+// One function for every request, reading the watch from `res`: no closure is made per reply.
+function watchedSetHeader(this: Watched, name: string, value: number | string | readonly string[]): express.Response {
+  const watch = this[WATCH]!;
+  if (!watch.paused) {
+    const key = name.toLowerCase();
+    if (!watch.names.includes(key)) {
+      watch.names.push(key);
+      watch.previous.push(this.getHeader(key));
+    }
+  }
+  return watch.setHeader.call(this, name, value) as express.Response;
+}
+
+/**
+ * Records the headers set on `res` until `stopWatching()`; express's `set`, `header`, `append` and `cookie` all end in
+ * `setHeader`. `setHeader` is put back by assignment, never `delete`: a deleted property puts `res` into dictionary
+ * mode, which slows every later property access on it and Node's write path for every response.
+ */
+function watchHeaderWrites(res: Watched): IHeaderWatch {
+  const watch: IHeaderWatch = { setHeader: res.setHeader, names: [], previous: [], paused: false };
+  res[WATCH] = watch;
+  res.setHeader = watchedSetHeader as express.Response['setHeader'];
   return watch;
 }
 
-function restoreHeaders(res: express.Response, before: Record<string, unknown>, names: Iterable<string>): void {
-  for (const name of names) {
-    const value = before[name];
+function stopWatching(res: Watched, watch: IHeaderWatch): void {
+  res.setHeader = watch.setHeader;
+  res[WATCH] = undefined;
+}
+
+/** Puts back the value each watched header had before its first watched write, and forgets the writes. */
+function restoreWatched(res: express.Response, watch: IHeaderWatch): void {
+  watch.names.forEach((name, i) => {
+    const value = watch.previous[i];
     if (value === undefined) {
       res.removeHeader(name);
     } else {
-      res.setHeader(name, value as string | number | readonly string[]);
+      watch.setHeader.call(res, name, value as string | number | readonly string[]);
     }
-  }
+  });
+  watch.names.length = 0;
+  watch.previous.length = 0;
 }
 
 /**
  * `execute()` sets the response's own headers (`IResponseOptions.Headers`) on `res` and would overwrite a header a hook
- * set on `res`: the hooks' headers join the response's, so they win. The names the hooks added are kept out of a
- * response capture: an idempotent replay restores the route's own headers only.
+ * set on `res` under the same name: those hook headers join the response's, so they win. With a response capture
+ * (`own` given), the names the hooks added are kept out of it: an idempotent replay restores the route's own headers
+ * only.
  */
-function keepHeadersSetByHooks(res: express.Response, written: Set<string>, response: Response, own: Set<string>): void {
+function keepHeadersSetByHooks(res: express.Response, written: readonly string[], response: Response, own: Set<string> | undefined): void {
   if (typeof response.setHeader !== 'function') {
     return;
   }
-  for (const name of written) {
-    const value = res.getHeader(name);
-    // res.cookie() appends, so the response's own cookies never overwrite a hook's
-    if (name !== 'set-cookie' && value !== undefined) {
-      response.setHeader(name, value as string | number | readonly string[]);
+  const headers = response.headers;
+  if (headers.length > 0) {
+    for (const name of written) {
+      // res.cookie() appends, so the response's own cookies never overwrite a hook's
+      if (name === 'set-cookie' || !headers.some((h) => h.Name.toLowerCase() === name)) {
+        continue;
+      }
+      const value = res.getHeader(name);
+      if (value !== undefined) {
+        response.setHeader(name, value as string | number | readonly string[]);
+      }
     }
   }
-  const added = new Set([...written, ...headerNamesOf(response)].filter((name) => !own.has(name)));
+  if (!own) {
+    return;
+  }
+  const added = new Set<string>();
+  for (const name of written) {
+    if (!own.has(name)) {
+      added.add(name);
+    }
+  }
+  for (const h of response.headers) {
+    const name = h.Name.toLowerCase();
+    if (!own.has(name)) {
+      added.add(name);
+    }
+  }
   if (added.size > 0) {
     excludeFromCapture(res, added);
   }

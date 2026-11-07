@@ -12,7 +12,7 @@ import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
-import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, IOnErrorDescriptor, IRouteInvocation } from './interfaces.js';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, IOnErrorDescriptor, IRouteInvocation, Response } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './errors/on-error.js';
 import { __handle_response__ } from './response.js';
@@ -211,6 +211,8 @@ const chainName = (route: IRoute, path: string) => `http:${String(route.Type).to
 const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
   routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
 
+const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
 const named = <T extends Express.RequestHandler>(handler: T, name: string): T => {
   Object.defineProperty(handler, 'name', { value: name, writable: true });
   return handler;
@@ -234,10 +236,14 @@ export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, 
         if (enters) {
           enterMiddleware(res, 'route', middleware, ctx);
         }
-        if (answer !== undefined && answer !== null) {
+        if (answer === undefined || answer === null) {
+          next();
+        } else if (!isResponse(answer)) {
+          next(new UnexpectedServerError(`${middleware.constructor.name}.onBefore returned something that is not a Response`));
+        } else {
           answerEarly(res, answer);
+          next();
         }
-        next();
       })
       .catch((err: unknown) => {
         next(err);
@@ -314,6 +320,19 @@ export interface IRouteChainOptions {
 }
 
 /**
+ * A 3.x `onResponse` left on a middleware compiles (it is just another method) but is never called: a redaction or
+ * envelope middleware would serve the reply unchanged without a word.
+ */
+function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string): void {
+  const legacy = middlewares.find((m) => typeof (m as { onResponse?: unknown }).onResponse === 'function');
+  if (legacy) {
+    throw new RouteRegistrationException(
+      `Middleware ${legacy.constructor.name} of route ${route} defines onResponse, removed in @spinajs/http 4.0: implement onAfter(ctx) instead, with the reply in ctx.response and the error it answers in ctx.error`,
+    );
+  }
+}
+
+/**
  * Calls `onRegister` of the enabled middlewares, then assembles the route's handler chain:
  *
  * route entry → policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the
@@ -325,8 +344,9 @@ export interface IRouteChainOptions {
  */
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
-  const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
   const name = chainName(route, options.path);
+  refuseOnResponse(options.middlewares, name);
+  const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
 
   for (const m of enabled) {
     if (!m.onRegister) {

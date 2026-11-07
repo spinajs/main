@@ -288,10 +288,8 @@ export class Controllers extends AsyncService {
 
     // Mount the shared controllers router on the Express app ONCE. From here
     // on, anything added via `this.ControllersRouter.use(...)` (including
-    // future `add()` calls) is picked up by Express automatically.
-    // NotFound / Error handling is handled by NotFoundMiddleware and
-    // ErrorHandlerMiddleware (ServerMiddleware impls), attached to the
-    // Express stack tail during HttpServer.start().
+    // future `add()` calls) is picked up by Express automatically. The 404 and
+    // the global error answer are the fixed tail HttpServer.start() mounts.
     this.Server.use(this.ControllersRouter);
   }
 }

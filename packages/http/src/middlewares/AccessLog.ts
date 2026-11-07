@@ -12,7 +12,8 @@ const STARTED = Symbol('accessLogStarted');
  * Emits one structured log line per HTTP request, once the response finished.
  *
  * Pairs with RequestId / RealIp: the line includes `requestId` and `ip` populated by those middlewares. A request the
- * client went away from is logged too, with `aborted: true` and no status. Requests answered before this middleware
+ * client went away from is logged too, with `aborted: true`: with the status when the headers were already sent (a
+ * streamed reply the client closed), else without one. Requests answered before this middleware
  * (Order 2) ran, such as a CORS preflight, are not logged.
  *
  * Config:
@@ -61,7 +62,9 @@ export class AccessLog extends ServerMiddleware {
       userAgent: req.headers['user-agent'],
     };
 
-    if (aborted) {
+    if (aborted && res.headersSent) {
+      this.Log.info({ ...fields, status: res.statusCode, aborted: true }, '${method} ${path} ${status} ${ms}ms, closed early by the client');
+    } else if (aborted) {
       this.Log.info({ ...fields, aborted: true }, '${method} ${path} aborted after ${ms}ms');
     } else {
       this.Log.info({ ...fields, status: res.statusCode }, '${method} ${path} ${status} ${ms}ms');

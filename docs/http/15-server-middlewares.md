@@ -32,10 +32,10 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Hook | When | Context |
 | --- | --- | --- |
-| `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously. | `IMiddlewareContext`: `req`, `res`, `storage`; no `route` |
+| `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously; the chain then goes on in the same tick. | `IMiddlewareContext`: `req`, `res`, `storage`; no `route` |
 | `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). It rejects with `RouteClientGone` when the client went away first. | `IMiddlewareContext`, no `route` |
-| `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. A throw turns the reply into an error reply for that error: when a route matched, the route's (its `@OnError` handlers at the `'after'` stage, `http.errors.handlers`, the error map), else the global error answer's (`ErrorHandlerMiddleware.reply`). | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
-| `onFinish(ctx)` | Once, when the response finished or the client went away. A throw is logged. | `IFinishContext`: `aborted`; `route`, `controller`, `path` when a route matched |
+| `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. May return synchronously. A throw turns the reply into an error reply for that error: when a route matched, the route's (its `@OnError` handlers at the `'after'` stage, `http.errors.handlers`, the error map), else the global error answer's (`ErrorHandlerMiddleware.reply`). | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
+| `onFinish(ctx)` | Once, when the response finished or the client went away (`aborted`, also for a streamed reply the client closed after the headers were sent: `ctx.res.headersSent` tells them apart). Not awaited by the next one. A throw is logged. | `IFinishContext`: `aborted`; `route`, `controller`, `path` when a route matched |
 | `handler()` | Called once at mount. An Express handler mounted at `Order` in place of `onBefore`/`onAround`. | |
 
 ### Shipped middlewares
@@ -47,17 +47,17 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). |
 | `ResponseTime` | 2 | yes | onBefore, onAfter | | `x-response-time` header, `req.storage.responseTime`. |
-| `AccessLog` | 2 | yes | onBefore, onFinish | `http.accessLog.enabled` | One log line per request on `http.access`, aborted ones included. |
+| `AccessLog` | 2 | yes | onBefore, onFinish | `http.accessLog.enabled` | One log line per request on `http.access`, aborted ones included: a streamed reply the client closed is logged with its status and `aborted: true`. |
 | `ServerTiming` | 2 | yes | onBefore, onAfter | `http.serverTiming.enabled` | `Server-Timing` header. |
 | `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
-| `RequestStorage` | -2 | yes | | | Deprecated, mounts nothing: `HttpServer` creates `req.storage` itself. Removed in the next major. |
+| `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
 
 The request id and timing middlewares are on [Request storage and tracing](19-request-storage-and-tracing.md).
 
-Middlewares from other packages, for orientation: `ClientIp`, `CsrfOriginGuard`, `AuthnMiddleware` (`@spinajs/authn-http`), `PrincipalMiddleware`, `AccessEpochMiddleware` (`@spinajs/authz-http`), `IntHttpMiddleware` (`@spinajs/intl-http`), `TelemetryMiddleware` (`@spinajs/telemetry`).
+Middlewares from other packages, for orientation: `ClientIp`, `CsrfOriginGuard`, `AuthnMiddleware` (`@spinajs/authn-http`), `PrincipalMiddleware`, `AccessEpochMiddleware` (`@spinajs/authz-http`), `IntlHttpMiddleware` (`@spinajs/intl-http`), `TelemetryMiddleware` (`@spinajs/telemetry`).
 
 ### NotFound and the global error answer
 

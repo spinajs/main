@@ -21,6 +21,7 @@ import {
   NotFoundMiddleware,
   Ok,
   Post,
+  RequestStorage,
   RouteMiddleware,
   RouteTiming,
   ServerMiddleware,
@@ -425,6 +426,13 @@ describe('Server middleware hooks', function () {
     expect(arounds).to.deep.eq(['start:true', 'end:200:-', 'start:true', 'end:403:Forbidden', 'start:true', 'end:404:ResourceNotFound']);
   });
 
+  it('does not resolve the deprecated RequestStorage as a server middleware', async () => {
+    const mounted = ((await app.resolve(HttpServer)) as unknown as { Middlewares: ServerMiddleware[] }).Middlewares;
+
+    expect(mounted.some((m) => m instanceof SrvA)).to.eq(true);
+    expect(mounted.some((m) => m instanceof RequestStorage)).to.eq(false);
+  });
+
   it('mounts nothing for a middleware whose isEnabled() is false', async () => {
     await req().get('srv/ok').set('Accept', 'application/json');
     await until(() => calls.includes('early:finish:false'));
@@ -513,6 +521,19 @@ describe('Server middleware hooks: aborted requests', () => {
     expect(lines).to.have.length(1);
     expect(lines[0][0]).to.include({ aborted: true, requestId: 'r1' });
     expect(lines[0][0]).to.not.have.property('status');
+  });
+
+  it('AccessLog logs the sent status of a streamed reply the client closed, marked aborted', () => {
+    const mw = new AccessLog();
+    const lines = recording(mw, { Enabled: true });
+    const ctx = ctxOf();
+    Object.defineProperty(ctx.res, 'headersSent', { value: true });
+    mw.onBefore(ctx);
+    mw.onFinish({ ...ctx, aborted: true });
+
+    expect(lines).to.have.length(1);
+    expect(lines[0][0]).to.include({ aborted: true, status: 200, requestId: 'r1' });
+    expect(lines[0][1]).to.contain('${status}');
   });
 
   it('SlowRequestWarning ignores an aborted request', () => {

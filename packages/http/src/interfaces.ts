@@ -910,11 +910,11 @@ export abstract class HttpMiddleware extends AsyncService {
   /**
    * In the reply pipeline, for every framework reply (success, error, early answer, replay), before it is sent; inner
    * (last entered) first. Not called when the headers are already sent. A throw turns the reply into the error reply
-   * for that error.
+   * for that error. May return synchronously: the pipeline then goes on without a tick.
    */
-  public onAfter?(ctx: IReplyContext): Promise<void>;
+  public onAfter?(ctx: IReplyContext): void | Promise<void>;
 
-  /** Once the response finished, or the client went away (`aborted`). A throw is logged. */
+  /** Once the response finished, or the client went away (`aborted`); not awaited by the next one. A throw is logged. */
   public onFinish?(ctx: IFinishContext): void | Promise<void>;
 
   /**
@@ -935,8 +935,8 @@ export abstract class HttpMiddleware extends AsyncService {
  */
 export abstract class RouteMiddleware extends HttpMiddleware {
   /**
-   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, declaration order.
-   * Unset means 'inner'.
+   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, the global ones
+   * (`http.routes.middlewares`) first, then the controller's and the route's in declaration order. Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 

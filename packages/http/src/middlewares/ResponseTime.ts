@@ -19,7 +19,7 @@ export class ResponseTime extends ServerMiddleware {
     storage.responseStart = new Date();
   }
 
-  public async onAfter({ res, storage }: IReplyContext): Promise<void> {
+  public onAfter({ res, storage }: IReplyContext): void {
     if (!storage.responseStart) {
       return;
     }
