@@ -8,6 +8,7 @@ import { PasswordServiceRegistered, invalidLogin, mismatchOf, newPasswordRefused
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit } from '../../rate-limits.js';
 import { throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -56,6 +57,7 @@ export class AuthnPasswordController extends BaseController {
    * @security []
    */
   @Post('auth/password/reset-request')
+  @AuthnRateLimit('passwordResetRequest', resetRequestThrottled)
   @BotCheck('password_reset')
   @IpThrottle('reset', resetRequestThrottled)
   @OnInvalidInput(byField({ login: invalidLogin }, unknownField))
@@ -84,6 +86,7 @@ export class AuthnPasswordController extends BaseController {
    * @security []
    */
   @Post('auth/password/reset')
+  @AuthnRateLimit('passwordReset', throttledLogin)
   @IpThrottle('reset', throttledLogin)
   @OnInvalidInput(byField({ password: newPasswordRefused, confirmPassword: passwordMismatch, login: uniformFailure, secret: uniformFailure }, uniformFailure))
   public async reset(@Body({ required: true }) body: AuthnPasswordResetBody, @ClientContext() client: AuthnClientContext) {

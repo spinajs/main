@@ -15,10 +15,11 @@ import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit, pendingSessionKey } from '../../rate-limits.js';
 import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { tooManyRequests } from '../../password/fields.js';
+import { passkeyChallengeThrottled } from '../../password/fields.js';
 import { NO_STORE, ServiceUnavailableResponse, badRequest, instant, refusedByHook } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
 
@@ -79,6 +80,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/challenge')
+  @AuthnRateLimit('passkeysChallenge', passkeyChallengeThrottled, pendingSessionKey)
   @BotCheck('passkey_challenge')
   public async challenge(@ClientContext() client: AuthnClientContext) {
     const passkeys = await this.passkeys();
@@ -89,7 +91,7 @@ export class AuthnPasskeyController extends BaseController {
     const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix));
     if (ip) {
       const gate = await (await this.Container.resolve(AuthnThrottle)).attempt([ip], 'login', ctx);
-      if (!gate.allowed) return tooManyRequests('too many passkey challenges, try again later', gate.retryAfterSeconds);
+      if (!gate.allowed) return passkeyChallengeThrottled(gate.retryAfterSeconds);
     }
     try {
       const ceremony = await passkeys.challenge(ctx);
@@ -115,6 +117,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/login')
+  @AuthnRateLimit('passkeysLogin', throttledLogin)
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnPasskeyLoginBody, @ClientContext() client: AuthnClientContext) {
