@@ -2,9 +2,9 @@ import type express from 'express';
 import type { Log } from '@spinajs/log';
 import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 
-import type { HttpMiddleware, IMiddlewareContext, Request, Response, ServerMiddleware } from './interfaces.js';
+import type { HttpMiddleware, Request, Response, ServerMiddleware } from './interfaces.js';
 import { createServerAroundHandler } from './around.js';
-import { enterMiddleware, sendReply } from './reply-pipeline.js';
+import { enterMiddleware, sendReply, serverContextOf } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import type { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 
@@ -40,8 +40,6 @@ const named = <T extends express.RequestHandler>(handler: T, name: string): T =>
   return handler;
 };
 
-const serverContext = (req: express.Request, res: express.Response): IMiddlewareContext => ({ req, res, storage: (req as Request).storage });
-
 const entersOnReach = (m: HttpMiddleware) => typeof m.onAfter === 'function' || typeof m.onFinish === 'function';
 
 /**
@@ -50,39 +48,40 @@ const entersOnReach = (m: HttpMiddleware) => typeof m.onAfter === 'function' || 
  */
 function createServerBeforeHandler(m: ServerMiddleware, enters: boolean, options: IServerMountOptions): express.RequestHandler {
   const name = m.constructor.name;
-  return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const ctx = serverContext(req, res);
-    const settle = (answer: unknown) => {
-      if (enters) {
-        enterMiddleware(res, 'server', m, ctx);
-      }
-      if (answer === undefined || answer === null) {
-        next();
-      } else if (!isResponse(answer)) {
-        next(new UnexpectedServerError(`${name}.onBefore returned something that is not a Response`));
-      } else {
-        sendReply(req, res, answer, { errorReply: options.errorReply(req) }).catch(next);
-      }
-    };
+  const settle = (req: express.Request, res: express.Response, next: express.NextFunction, answer: unknown) => {
+    if (enters) {
+      enterMiddleware(res, 'server', m, serverContextOf(req, res));
+    }
+    if (answer === undefined || answer === null) {
+      next();
+    } else if (!isResponse(answer)) {
+      next(new UnexpectedServerError(`${name}.onBefore returned something that is not a Response`));
+    } else {
+      sendReply(req, res, answer, { errorReply: options.errorReply(req) }).catch(next);
+    }
+  };
 
+  return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
     let result: unknown;
     try {
-      result = m.onBefore!(ctx);
+      result = m.onBefore!(serverContextOf(req, res));
     } catch (err) {
       next(err);
       return;
     }
     if (isThenable(result)) {
-      Promise.resolve(result).then(settle).catch(next);
+      Promise.resolve(result)
+        .then((answer) => settle(req, res, next, answer))
+        .catch(next);
     } else {
-      settle(result);
+      settle(req, res, next, result);
     }
   }, name);
 }
 
 function createServerEntryHandler(m: ServerMiddleware, handler?: express.RequestHandler): express.RequestHandler {
   return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    enterMiddleware(res, 'server', m, serverContext(req, res));
+    enterMiddleware(res, 'server', m, serverContextOf(req, res));
     if (handler) {
       return handler(req, res, next);
     }
@@ -104,7 +103,7 @@ export function serverMiddlewareHandlers(m: ServerMiddleware, options: IServerMo
   const around = typeof m.onAround === 'function';
   return [
     ...(around ? [createServerAroundHandler(m as HttpMiddleware & Required<Pick<HttpMiddleware, 'onAround'>>, options.log)] : []),
-    ...(typeof m.onBefore === 'function' ? [createServerBeforeHandler(m, !around, options)] : []),
+    ...(typeof m.onBefore === 'function' ? [createServerBeforeHandler(m, !around && entersOnReach(m), options)] : []),
     ...(!around && typeof m.onBefore !== 'function' && entersOnReach(m) ? [createServerEntryHandler(m)] : []),
   ];
 }

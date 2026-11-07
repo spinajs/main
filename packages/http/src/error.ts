@@ -89,8 +89,8 @@ export interface IMappedErrorReply {
     readonly problem: ProblemDetails;
 }
 
-/** Builds the error map's reply for an error, logging the error; the route's error handlers do not run here. */
-export function errorReplyFactory(): (err: any, req: Express.Request) => IMappedErrorReply {
+/** Builds the error map's reply for an error, logging the error unless `quiet`; the route's error handlers do not run here. */
+export function errorReplyFactory(): (err: any, req: Express.Request, quiet?: boolean) => IMappedErrorReply {
     const logger = DI.resolve(Log, ['http']);
     const config = DI.get(Configuration);
 
@@ -106,12 +106,15 @@ export function errorReplyFactory(): (err: any, req: Express.Request) => IMapped
         isProduction: isProductionEnv,
     };
 
-    return (err: any, req: Express.Request) => {
+    const silent = { warn: () => undefined, error: () => undefined };
+
+    return (err: any, req: Express.Request, quiet = false) => {
+        const log = quiet ? silent : logger;
         const bodyFailure = bodyFailureMessage(err, errorMap);
         const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: urlPath(req.originalUrl) };
 
         if (bodyFailure) {
-            logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
+            log.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
 
             const badRequest = new BadRequest(bodyFailure);
             const ResponseClass: Constructor<HttpResponse> = (errorMap ? __resolve_error_response__(errorMap, badRequest) : null) ?? BadRequestResponse;
@@ -121,12 +124,12 @@ export function errorReplyFactory(): (err: any, req: Express.Request) => IMapped
             return { response, problem };
         }
 
-        logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
+        log.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
         const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
         const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
         if (!httpResponse) {
-            logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
+            log.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
         }
 
         const redact = isProductionEnv && (ResponseClass === ServerError || ResponseClass.prototype instanceof ServerError);
@@ -198,7 +201,8 @@ export function __handle_error__(container: IContainer = DI.RootContainer, reply
                 const ticketNo = randomstring.generate(7);
                 res.send(fatalTemplate.replace('{ticket}', ticketNo));
             } else {
-                res.type(PROBLEM_CONTENT_TYPE).json((mapped ?? replyFor(err, req)).problem);
+                // a reply function logs the error itself (ErrorHandlerMiddleware.reply does)
+                res.type(PROBLEM_CONTENT_TYPE).json((mapped ?? replyFor(err, req, true)).problem);
             }
         });
     }

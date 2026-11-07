@@ -206,7 +206,8 @@ export class HttpServer extends AsyncService {
           if (isResponse(answer)) {
             return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
           }
-          next(answer);
+          // a replacement answering nothing still gets the framework's 404, not express's
+          next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
           return undefined;
         })
         .catch(next);

@@ -6,7 +6,7 @@ import { RouteClientGone } from './exceptions.js';
 import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
 import { attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
-import { answeredErrorOf, answeredEarly, enterMiddleware, routeContextOf } from './reply-pipeline.js';
+import { answeredErrorOf, answeredEarly, enterMiddleware, routeContextOf, serverContextOf } from './reply-pipeline.js';
 
 const AROUNDS = Symbol('aroundsSettled');
 
@@ -48,6 +48,8 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
   const name = middleware.constructor.name;
   const server = scope === 'server';
   const ended = server ? 'the request' : `the route ${scope.path}`;
+  // entering only matters for onAfter and onFinish; a server one is not entered without them
+  const enters = !server || typeof middleware.onAfter === 'function' || typeof middleware.onFinish === 'function';
 
   const handler = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
     if (answeredEarly(res)) {
@@ -56,12 +58,14 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
     }
     let invocation: IMiddlewareContext;
     if (server) {
-      invocation = { req, res, storage: (req as Request).storage };
+      invocation = serverContextOf(req, res);
     } else {
       markStage(res, 'middleware');
       invocation = routeContextOf(res) ?? { req, res, storage: (req as Request).storage, ...scope };
     }
-    enterMiddleware(res, server ? 'server' : 'route', middleware, invocation);
+    if (enters) {
+      enterMiddleware(res, server ? 'server' : 'route', middleware, invocation);
+    }
 
     // proceed() settles after the around middlewares it wraps settled, so nesting holds on the way out too
     const arounds = aroundsOf(res);
