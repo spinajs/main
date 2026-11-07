@@ -6,7 +6,6 @@ import { Logger } from '@spinajs/log';
 import type { Log } from '@spinajs/log';
 import { InvalidConfiguration, registerConfigurationSchema } from '@spinajs/configuration';
 import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
-import { principalKey } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
 import { Response, RouteMiddleware } from '../interfaces.js';
@@ -56,6 +55,9 @@ interface IdempotencyGate {
   fingerprint: (data: string | Uint8Array) => string;
   /** Crash contract: an error with `crash: true` stands for a dead process, whose claim is neither stored nor released. */
   isCrash: (error: unknown) => boolean;
+  /** The principal part of the scope: the principal's key, plus its authority when it is restricted. */
+  scopeOf: (principal: Principal) => string;
+  isRestricted: (principal: Principal) => boolean;
 }
 
 const ANONYMOUS = 'anonymous';
@@ -64,10 +66,12 @@ const CLAIM_CONFLICT_RETRY_AFTER_S = 1;
 
 const clientGone = (res: Express.Response): boolean => res.destroyed || res.closed;
 
-function principalOf(req: Express.Request): string {
-  const principal = ((req as Request).storage as { Principal?: Principal } | undefined)?.Principal;
-  return principal?.authenticated ? principalKey(principal) : ANONYMOUS;
-}
+const principalOf = (req: Express.Request): Principal | undefined => ((req as Request).storage as { Principal?: Principal } | undefined)?.Principal;
+
+const scopeOf = (req: Express.Request, gate: IdempotencyGate): string => {
+  const principal = principalOf(req);
+  return principal?.authenticated ? gate.scopeOf(principal) : ANONYMOUS;
+};
 
 function bodyBytes(req: Express.Request): string | Uint8Array {
   const raw = (req as Request).rawBody;
@@ -199,6 +203,8 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
       outcomeUnknown: idempotency.IdempotencyOutcomeUnknown,
       fingerprint: idempotency.fingerprintOf,
       isCrash: idempotency.isCrash,
+      scopeOf: idempotency.idempotencyPrincipal,
+      isRestricted: idempotency.isRestrictedPrincipal,
     };
   }
 
@@ -243,22 +249,23 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
   }
 
   /**
-   * Runs before the policy gate: the stored reply of a completed key, when the caller is an authenticated principal and
-   * the request has the stored fingerprint, so a resend of a committed operation is not refused by policies that now
-   * see the changed state. Anything else (an anonymous caller, who shares one scope; no record; a key in flight; another
+   * Runs before the policy gate: the stored reply of a completed key, when the caller is an authenticated, unrestricted
+   * principal and the request has the stored fingerprint, so a resend of a committed operation is not refused by
+   * policies that now see the changed state. Anything else (an anonymous caller, who shares one scope; a ceiling, a
+   * delegation, an impersonation, a link, whose limits only the policies enforce; no record; a key in flight; another
    * request; a failing store) answers undefined and goes through the policies and the claim.
    */
   public async [REPLAY_BEFORE_POLICY]({ req }: IRouteInvocation): Promise<Response | undefined> {
     const gate = this.gate;
     const key = parseIdempotencyKey(req.headers[IDEMPOTENCY_KEY_HEADER]);
     const principal = principalOf(req);
-    if (!gate || key === undefined || principal === ANONYMOUS) {
+    if (!gate || key === undefined || !principal?.authenticated || gate.isRestricted(principal)) {
       return undefined;
     }
 
     let held: Awaited<ReturnType<IdempotencyGateService['peek']>>;
     try {
-      held = await gate.service.peek({ namespace: gate.namespace, principal }, key);
+      held = await gate.service.peek({ namespace: gate.namespace, principal: gate.scopeOf(principal) }, key);
     } catch (error) {
       this._log.warn({ error, route: gate.namespace }, 'Idempotent route ${route}: reading its key before the policies failed; the policies and the claim run');
       return undefined;
@@ -301,7 +308,7 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
 
     let outcome: { replayed: boolean; value: CapturedJsonReply | null };
     try {
-      outcome = await gate.service.run({ namespace: gate.namespace, principal: principalOf(req) }, key, route, {
+      outcome = await gate.service.run({ namespace: gate.namespace, principal: scopeOf(req, gate) }, key, route, {
         fingerprint,
         ttl: gate.ttlMs,
         toReply: (captured) => this.toReply(captured, gate),

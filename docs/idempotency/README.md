@@ -49,6 +49,11 @@ abandons itself. Use it when the claim and the settle happen in different places
 `leaseUntil`, or `undefined` for a free or expired key. `@spinajs/http` uses it to replay a completed key before the
 policies run.
 
+`idempotencyPrincipal(principal)` builds the `principal` of a scope from a `@spinajs/principal` principal: its
+`principalKey` when it is unrestricted, with its authority (`ceiling`, `onBehalfOf`, `delegation`,
+`authn.impersonator`, `companions`) when it is restricted (`isRestrictedPrincipal()`), so a narrower credential of one
+identity never shares stored replies with its full session. `@spinajs/http` and `@spinajs/http-socket` scope keys with it.
+
 ## Transactions
 
 Run `IdempotencyService.run` outside business transactions. A claim made inside a transaction joins it: it commits or

@@ -391,7 +391,9 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
   }
 
   const beforePolicy = enabled.filter((m) => m.Stage === 'beforePolicy');
-  const replayers = enabled.filter(replaysBeforePolicy);
+  // without policies the claim replays at no extra cost: there is nothing to skip
+  const guarded = options.policies.Controller.length > 0 || options.policies.Route.length > 0;
+  const replayers = guarded ? enabled.filter(replaysBeforePolicy) : [];
   const outer = enabled.filter((m) => m.Stage === 'outer');
   const inner = enabled.filter((m) => m.Stage !== 'outer' && m.Stage !== 'beforePolicy');
   const recorder = enabled.some(wrapsRoute) ? [recordRouteError] : [];

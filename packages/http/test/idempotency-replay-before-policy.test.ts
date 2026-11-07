@@ -28,14 +28,35 @@ class ReplayAuditSink extends AuditSink {
   }
 }
 
-/** Stands for the Authn/Principal server middlewares: the principal is known before the policy gate. */
+/**
+ * Stands for the Authn/Principal server middlewares: the principal is known before the policy gate. x-ceiling: a scoped
+ * token or a role switch; x-impersonator: an admin impersonating x-user; x-link: a share link bearer, x-companion the
+ * user signed in behind it.
+ */
 class SignIn extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'beforePolicy';
 
   public onBefore({ req, storage }: IMiddlewareContext): Ok | undefined {
     const id = req.headers['x-user'];
-    if (typeof id === 'string') {
-      Object.assign(storage, { Principal: { type: 'user', id, authenticated: true, source: 'test', attributes: {} } });
+    const link = req.headers['x-link'];
+    const header = (name: string) => (typeof req.headers[name] === 'string' ? (req.headers[name] as string) : undefined);
+    if (typeof id === 'string' || typeof link === 'string') {
+      const ceiling = header('x-ceiling');
+      const impersonator = header('x-impersonator');
+      const companion = header('x-companion');
+      Object.assign(storage, {
+        Principal: {
+          type: link ? 'link' : 'user',
+          id: link ?? id,
+          authenticated: true,
+          source: link ? 'link' : 'test',
+          attributes: {},
+          ...(ceiling ? { ceiling: { roles: [ceiling] } } : {}),
+          ...(link ? { ceiling: { resources: [{ type: 'item' }], reason: 'link_invalid' } } : {}),
+          ...(companion ? { companions: [{ type: 'user', id: companion }] } : {}),
+          ...(impersonator ? { authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(0), impersonator: { type: 'user', id: impersonator } } } : {}),
+        },
+      });
     }
     return req.headers['x-maintenance'] ? new Ok({ maintenance: true }) : undefined;
   }
@@ -81,6 +102,13 @@ class ReplayItemsController extends BaseController {
       await state.hold;
     }
     state.rows.delete(id);
+    return new Ok({ deleted: id, call: state.actionCalls });
+  }
+
+  @Del('open/:id')
+  @Idempotent()
+  public async removeOpen(@Param() id: string) {
+    state.actionCalls++;
     return new Ok({ deleted: id, call: state.actionCalls });
   }
 }
@@ -250,5 +278,72 @@ describe('Idempotency-Key replay before the policy gate', function () {
     expect(state.policyCalls).to.eq(2);
     expect(state.actionCalls).to.eq(1);
     expect(warn.args.some(([, message]) => String(message).includes('reading its key before the policies failed'))).to.eq(true);
+  });
+
+  for (const [tag, name, restricted] of [
+    ['ceiling', 'a scoped token or a role switch (ceiling)', { 'x-ceiling': 'viewer' }],
+    ['impersonator', 'an impersonating admin', { 'x-impersonator': 'admin' }],
+  ] as const) {
+    it(`judges ${name} of the same user by the policies, never replaying the full session's reply`, async () => {
+      await remove('a', `del-narrow-${tag}`, 'u1');
+      const narrowed = await remove('a', `del-narrow-${tag}`, 'u1', restricted);
+
+      expect(narrowed.status).to.eq(403);
+      expect(narrowed.headers['idempotent-replayed']).to.eq(undefined);
+      expect(state.policyCalls).to.eq(2);
+    });
+
+    it(`keeps ${name} in a key scope of its own, also after the policies`, async () => {
+      await remove('a', `del-scope-${tag}`, 'u1');
+      state.rows.add('a');
+      const narrowed = await remove('a', `del-scope-${tag}`, 'u1', restricted);
+      state.rows.add('a');
+      const full = await remove('a', `del-scope-${tag}`, 'u1');
+
+      expect(narrowed.status).to.eq(200);
+      expect(narrowed.headers['idempotent-replayed']).to.eq(undefined);
+      expect(narrowed.body).to.deep.eq({ deleted: 'a', call: 2 });
+      expect(full.headers['idempotent-replayed']).to.eq('true');
+      expect(full.body).to.deep.eq({ deleted: 'a', call: 1 });
+    });
+
+    it(`still replays ${name} its own reply, through the policies and the claim`, async () => {
+      await remove('a', `del-own-${tag}`, 'u1', restricted);
+      const gone = await remove('a', `del-own-${tag}`, 'u1', restricted);
+      state.rows.add('a');
+      const again = await remove('a', `del-own-${tag}`, 'u1', restricted);
+
+      expect(gone.status).to.eq(403);
+      expect(again.status).to.eq(200);
+      expect(again.headers['idempotent-replayed']).to.eq('true');
+      expect(state.actionCalls).to.eq(1);
+      expect(state.policyCalls).to.eq(3);
+    });
+  }
+
+  it('judges a link bearer by the policies, and keeps a bearer with a companion apart from one without', async () => {
+    await remove('a', 'del-link-1', undefined, { 'x-link': 'L1' });
+    const other = await remove('a', 'del-link-1', undefined, { 'x-link': 'L1' });
+    state.rows.add('a');
+    const withCompanion = await remove('a', 'del-link-1', undefined, { 'x-link': 'L1', 'x-companion': 'alice' });
+
+    expect(other.status).to.eq(403);
+    expect(state.policyCalls).to.eq(3);
+    expect(withCompanion.status).to.eq(200);
+    expect(withCompanion.headers['idempotent-replayed']).to.eq(undefined);
+    expect(state.actionCalls).to.eq(2);
+  });
+
+  it('does not read the key before a route without policies: the claim replays', async () => {
+    const service = await app.resolve(IdempotencyService);
+    const peek = sinon.spy(service, 'peek');
+
+    const first = await req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' });
+    const again = await req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' });
+
+    expect(first.status).to.eq(200);
+    expect(again.headers['idempotent-replayed']).to.eq('true');
+    expect(state.actionCalls).to.eq(1);
+    expect(peek.called).to.eq(false);
   });
 });

@@ -92,7 +92,8 @@ the route started, the route does not run either.
 Policies judge the current state. Once a request committed (a delete, a state change such as "submit" guarded by
 `status == 'draft'`), a policy refuses its resend with 403 or 404. A client whose first response was lost would then
 be told that its successful operation failed, which is the failure an idempotency key exists to prevent. So for an
-authenticated principal, a repeat of a completed key is replayed before the [policy gate](13-policies.md):
+authenticated, unrestricted principal, a repeat of a completed key is replayed before the
+[policy gate](13-policies.md):
 
 ```text
 'beforePolicy' middlewares → replay check → policy gate → outer and inner middlewares → claim → action
@@ -102,6 +103,9 @@ The check replays only when all of these hold:
 
 - the caller is an authenticated principal (`req.storage.Principal`), which the Authn and Principal server middlewares
   verify again on every request, before routing;
+- the principal is unrestricted: it has no `ceiling` (a scoped token, a signing key, a role switch), no `onBehalfOf`,
+  no `authn.impersonator`, no `companions`, and is not a share link (`type: 'link'`). The limits of those credentials
+  are enforced by the policies, so their repeats always go through them;
 - that principal has a completed record of the key on this route;
 - the request has the record's fingerprint: method, URL and, with `fingerprint: 'body'`, the body.
 
@@ -111,6 +115,8 @@ run. In every other case the request goes on to the policies and the claim, as b
 | Situation | Answer |
 |---|---|
 | anonymous caller | the policies run first: all anonymous callers share one scope, so their repeats are judged by the policies |
+| restricted principal (ceiling, delegation, impersonation, share link, companions) | the policies run first, then the claim in the principal's own [scope](#scope) |
+| route without policies | no check: the claim replays, there is nothing to skip |
 | no record, or the record expired | the policies, then the claim |
 | key in flight | the policies, then the claim: 409 `idempotency.in-flight`; a retry after the first run completed is replayed |
 | a different request on the key | the policies, then the claim: 422 `idempotency.key-reuse` |
@@ -120,15 +126,17 @@ run. In every other case the request goes on to the policies and the claim, as b
 
 The claim stays after the policies, so a 401 or 403 is still never stored. The check reads the principal as it is
 before the gate: an app that signs the caller in inside a policy, not in a server middleware, gets its replays after
-the policies.
+the policies. The check reads the store without a timeout of its own, as the claim does: a store that hangs holds the
+request before the policies instead of after them.
 
 ### Why the policies may be skipped
 
 On any other route the policies always run, even after a `'beforePolicy'` middleware answered
 ([Stage](14-route-middlewares.md#stage)). This replay is the single exception, and it holds because of three facts:
 
-- the same principal: the key's scope includes the principal, verified again before routing, so a replay never
-  crosses principals;
+- the same principal identity and authority: the key's scope holds the principal, verified again before routing, and
+  only a principal with the full authority of its identity is replayed early, so a replay never reaches another
+  principal or a narrower credential of the same one;
 - the same request: the fingerprint binds the key to the method, the URL and the body that were authorized the first
   time;
 - nothing executes: the client gets the reply it was already given, or would have been given, for that request.
@@ -136,7 +144,9 @@ On any other route the policies always run, even after a `'beforePolicy'` middle
 Two consequences follow:
 
 - Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
-  are not evaluated again on a replay. The replayed reply is the one they admitted the first time.
+  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant chosen by
+  a header is not part of the fingerprint either, so one user's request to tenant B with a key used for tenant A
+  replays A's reply, on the claim path too: put the tenant in the URL, or in the body with `fingerprint: 'body'`.
 - A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
   semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
 
@@ -145,7 +155,10 @@ Two consequences follow:
 A replay before the policies is an early answer: only the middlewares entered before the check see it. Those are the
 server middlewares and the route's `'beforePolicy'` middlewares; the shipped [`Audit`](30-audit.md) records it. The
 `'outer'` and `'inner'` route middlewares are not entered, so their `onAfter` does not run and they set no header on
-it. A middleware that must see every replay belongs in the `'beforePolicy'` stage or among the server middlewares.
+it. A replay that goes through the claim (an anonymous or restricted caller, a principal signed in inside a policy, a
+route without policies) is seen by the `'outer'` middlewares entered before `@Idempotent`, so one key can be replayed
+in two shapes. A middleware that decorates replies (adds headers, wraps the body) and must see every replay belongs
+in the `'beforePolicy'` stage or among the server middlewares.
 
 ## Scope
 
@@ -153,6 +166,13 @@ A key is one key per route and principal. The route is `http:<METHOD> <path>` wi
 `/orders/:id/pay`. The principal is the authenticated principal, or `anonymous`. The same key from two users runs
 twice. An anonymous route shares one key space between all its callers, so give anonymous routes `required: true`
 and have clients send random UUIDs.
+
+A restricted principal gets a scope of its own: its key (`principalKey`) together with its authority, which is its
+`ceiling`, `onBehalfOf` and `delegation`, `authn.impersonator` and `companions` (`idempotencyPrincipal()` of
+`@spinajs/idempotency`). A reply stored for the full session of a user never replays to a scoped token, a role switch
+or an admin impersonating that user, nor the other way round. An unrestricted principal keeps the plain
+`principalKey`. A share link is scoped by the link, its scope and expiry and the signed-in companion: two bearers of
+one link who are not signed in share its key space, as anonymous callers share theirs.
 
 The fingerprint covers the method, the full URL (path and query) and, by default, the body. A key reused on another
 resource of the same route template is refused with 422, never replayed. Send one key per operation.
