@@ -142,6 +142,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
               methods: { type: 'array', items: nonEmpty },
               limit: positiveInteger,
               windowSeconds: positiveInteger,
+              headers: { type: 'boolean', description: 'false: no X-RateLimit-* headers on the requests the rule counts (the 429 keeps Retry-After). Default true.' },
             },
           },
         },
