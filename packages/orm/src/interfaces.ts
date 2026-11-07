@@ -1539,6 +1539,22 @@ export interface IStreamOptions {
   batchSize?: number;
 }
 
+export interface KeysetPage<R> {
+  items: R[];
+  /** Cursor for `after`, or null on the last page. */
+  next: string | null;
+  /** Cursor for `before`, or null on the first page. */
+  previous: string | null;
+}
+
+export interface IKeysetPageOptions<M> {
+  /** The primary key is appended as the tie-breaker. Order columns must be NOT NULL. */
+  orderBy: Array<[ColumnRef<M>, 'asc' | 'desc']>;
+  limit: number;
+  after?: string;
+  before?: string;
+}
+
 export interface IQueryCompiler {
   compile(): ICompilerOutput | ICompilerOutput[];
 }

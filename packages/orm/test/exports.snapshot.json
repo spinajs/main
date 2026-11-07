@@ -98,6 +98,7 @@
   "InsertQueryExtension",
   "Int64",
   "Int64ValueConverter",
+  "InvalidCursor",
   "JoinBuilder",
   "JoinMethod",
   "JoinQueryCompiler",

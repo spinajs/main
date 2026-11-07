@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { DateTime } from 'luxon';
 import { SortOrder } from './enums.js';
-import type { IModelDescriptor, ISort, IWhereBuilder } from './interfaces.js';
+import { InvalidCursor } from './exceptions.js';
+import type { IModelDescriptor, ISort, IWhereBuilder, KeysetPage } from './interfaces.js';
 import { pkColumns } from './primary-keys.js';
 import type { WhereFunction } from './types.js';
 
@@ -91,4 +94,107 @@ export function applyKeysetPredicate(query: IWhereBuilder<unknown>, columns: Key
       }
     }
   });
+}
+
+interface CursorPayload {
+  h: string;
+  v: unknown[];
+}
+
+/** Names the order a cursor was made for, so a cursor from another listing is refused instead of misread. */
+export function keysetHash(columns: KeysetColumn[]): string {
+  return createHash('sha256')
+    .update(JSON.stringify(columns.map((c) => [c.column, c.order])))
+    .digest('base64url')
+    .slice(0, 16);
+}
+
+function encodeValue(column: string, value: unknown): unknown {
+  if (DateTime.isDateTime(value)) {
+    const iso = value.toUTC().toISO();
+    if (iso === null) {
+      throw new InvalidOperation(`keyset paging cannot put ${column} in a cursor: the datetime is invalid`);
+    }
+    return { $d: iso };
+  }
+
+  if (value instanceof Date) {
+    return { $d: value.toISOString() };
+  }
+
+  if (typeof value === 'bigint') {
+    return { $b: value.toString() };
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  throw new InvalidOperation(`keyset paging cannot put ${column} in a cursor: it holds a ${typeof value}`);
+}
+
+function decodeValue(value: unknown): unknown {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  const tagged = (typeof value === 'object' && value !== null ? value : {}) as { $d?: unknown; $b?: unknown };
+  if (typeof tagged.$d === 'string') {
+    const at = DateTime.fromISO(tagged.$d, { zone: 'utc' });
+    if (at.isValid) {
+      return at;
+    }
+  }
+
+  if (typeof tagged.$b === 'string' && /^-?\d+$/.test(tagged.$b)) {
+    return BigInt(tagged.$b);
+  }
+
+  throw new InvalidCursor('cursor holds a value of an unknown shape');
+}
+
+export function encodeCursor(columns: KeysetColumn[], row: unknown): string {
+  const values = keysetValues(columns, row);
+  const payload: CursorPayload = { h: keysetHash(columns), v: columns.map((c, i) => encodeValue(c.column, values.at(i))) };
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+export function decodeCursor(columns: KeysetColumn[], cursor: string): unknown[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  } catch {
+    throw new InvalidCursor('cursor is not a page cursor');
+  }
+
+  const { h, v } = (typeof payload === 'object' && payload !== null ? payload : {}) as Partial<CursorPayload>;
+  if (typeof h !== 'string' || !Array.isArray(v) || v.length !== columns.length) {
+    throw new InvalidCursor('cursor is not a page cursor');
+  }
+
+  if (h !== keysetHash(columns)) {
+    throw new InvalidCursor('cursor was made for another order');
+  }
+
+  return v.map(decodeValue);
+}
+
+/** One page out of `limit + 1` fetched rows: drops the probe row, restores a backward page's order, makes its cursors. */
+export function keysetPage<R>(columns: KeysetColumn[], rows: R[], limit: number, request: { cursor: string | undefined; backward: boolean }): KeysetPage<R> {
+  const more = rows.length > limit;
+  const items = rows.slice(0, limit);
+  if (request.backward) {
+    items.reverse();
+  }
+
+  const first = items.at(0);
+  const last = items.at(-1);
+  const hasNext = request.backward || more;
+  const hasPrevious = request.backward ? more : request.cursor !== undefined;
+
+  return {
+    items,
+    next: last !== undefined && hasNext ? encodeCursor(columns, last) : null,
+    previous: first !== undefined && hasPrevious ? encodeCursor(columns, first) : null,
+  };
 }
