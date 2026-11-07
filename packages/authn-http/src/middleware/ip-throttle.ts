@@ -3,11 +3,10 @@ import '@spinajs/authn/register-schema';
 import { Autoinject, Container, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Middleware, OnError, RouteMiddleware } from '@spinajs/http';
-import type { OnErrorHandler, Request, Response } from '@spinajs/http';
+import type { IMiddlewareContext, OnErrorHandler, Request, Response } from '@spinajs/http';
 import { canPeek } from '@spinajs/authn';
 import { AuthnThrottle, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
-import type * as express from 'express';
 
 import { clientOf } from '../v3/client.js';
 import { contextOf } from '../v3/context.js';
@@ -50,7 +49,7 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
     super();
   }
 
-  public async onBefore(req: express.Request): Promise<void> {
+  public async onBefore({ req }: IMiddlewareContext): Promise<void> {
     const ctx = contextOf(clientOf(req as Request), 'request');
     const key = ipKey(ctx, ipv6PrefixOf(this.Ipv6Prefix)) ?? (this.mode === 'count' ? { kind: 'ip', value: 'unknown' } : null);
     // Without an address there is no ip key to gate on: the service counts what it can.

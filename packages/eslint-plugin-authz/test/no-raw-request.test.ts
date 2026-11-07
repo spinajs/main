@@ -21,7 +21,7 @@ ruleTester.run('no-raw-request', noRawRequest, {
     code('class Service { public read(req: Request) { return bodyField(req, "x"); } }'),
     code('export function readLogin(req: Request) { return bodyField(req, "login"); }'),
     code('class C extends BaseController { @Post() public login(@Body() body: LoginDto) {} }\nconst x = bodyField(req, "x");'),
-    code('class Middleware extends RouteMiddleware { public onBefore(@Req() req: Request) {} }'),
+    code('class Audit extends RouteMiddleware { public async onBefore({ req }: IMiddlewareContext) { return bodyField(req, "x"); } }'),
     {
       code: code('class C extends BaseController { @Get() public list(@Session() s: unknown) {} }'),
       options: [{ decorators: ['Raw'] }],
