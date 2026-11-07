@@ -27,11 +27,11 @@ const model = (className: string, tableName: string, columns: ModelColumn[], ext
   ...extra,
 });
 
-function manifestOf(models: ModelEntry[]): Manifest {
+function manifestOf(models: ModelEntry[], packages: string[] = []): Manifest {
   return {
     manifestVersion: MANIFEST_VERSION,
     app: { name: 'app', version: '0.0.0', root: '.', outDir: 'lib' },
-    packages: [],
+    packages: packages.map((name) => ({ name, version: '1.0.0', entry: 'lib/index.js', outDir: 'lib', fragment: 'spinajs.manifest.json' })),
     generatedAt: '2026-11-03T00:00:00.000Z',
     hash: '0'.repeat(64),
     services: [],
@@ -98,9 +98,9 @@ describe('migrate-diff', function () {
   let dir: string;
   let command: MigrateDiffCommand;
 
-  const writeManifest = (name: string, models: ModelEntry[]): string => {
+  const writeManifest = (name: string, models: ModelEntry[], packages: string[] = []): string => {
     const file = join(dir, `${name}.json`);
-    writeFileSync(file, JSON.stringify(manifestOf(models)));
+    writeFileSync(file, JSON.stringify(manifestOf(models, packages)));
     return file;
   };
 
@@ -287,6 +287,34 @@ describe('migrate-diff', function () {
     expect(err).to.deep.equal([]);
     expect(out).to.deep.equal([join(migrations, readdirSync(migrations)[0])]);
     expect(process.exitCode).to.equal(undefined);
+  });
+
+  it('--package and --exclude-package choose the packages whose models count; the app models always count under --package', async () => {
+    const fromPackage = (className: string, tableName: string, pkg: string): ModelEntry => model(className, tableName, [id()], { id: `${pkg}:${className}`, source: { file: 'src/models.ts', line: 1, col: 1, package: pkg } });
+    const models = [model('Mine', 'cli_pkg_mine', [id()]), fromPackage('User', 'cli_pkg_users', '@acme/users'), fromPackage('Job', 'cli_pkg_jobs', '@acme/jobs')];
+    const manifest = writeManifest('m', models, ['@acme/users', '@acme/jobs']);
+    const check = async (options: { package?: string; excludePackage?: string }): Promise<string[]> => (await capture(() => command.execute(undefined, { connection: 'pg', manifest, check: true, ...options }))).out;
+    expect(await check({})).to.deep.equal(['createTable cli_pkg_jobs', 'createTable cli_pkg_mine', 'createTable cli_pkg_users']);
+    expect(await check({ excludePackage: '@acme/jobs' })).to.deep.equal(['createTable cli_pkg_mine', 'createTable cli_pkg_users']);
+    expect(await check({ package: '@acme/users' })).to.deep.equal(['createTable cli_pkg_mine', 'createTable cli_pkg_users']);
+    expect(await check({ package: '@acme/users,@acme/jobs', excludePackage: '@acme/users' })).to.deep.equal(['createTable cli_pkg_jobs', 'createTable cli_pkg_mine']);
+    const error = await thrownBy(() => command.execute(undefined, { connection: 'pg', manifest, check: true, excludePackage: '@acme/job' }));
+    expect(error).to.be.instanceOf(InvalidArgument);
+    expect((error as Error).message).to.equal('Unknown package @acme/job: the manifest lists the app and @acme/users, @acme/jobs');
+  });
+
+  it('applies the package filter to --base, so a table of an excluded package is never dropped', async () => {
+    const jobs = model('Job', 'cli_pkgb_jobs', [id()], { id: '@acme/jobs:Job', source: { file: 'src/models.ts', line: 1, col: 1, package: '@acme/jobs' } });
+    const base = writeManifest('base', [model('Mine', 'cli_pkgb_mine', [id()]), jobs], ['@acme/jobs']);
+    const manifest = writeManifest('m', [model('Mine', 'cli_pkgb_mine', [id()])], ['@acme/jobs']);
+    const driver = await pg();
+    for (const table of ['cli_pkgb_mine', 'cli_pkgb_jobs']) {
+      await driver.schema().createTable(table, (t) => {
+        t.int('Id').primaryKey().autoIncrement();
+      });
+    }
+    const { out } = await capture(() => command.execute(undefined, { connection: 'pg', manifest, base, check: true, excludePackage: '@acme/jobs' }));
+    expect(out).to.deep.equal([]);
   });
 
   it('refuses an invalid name and an unknown connection', async () => {
