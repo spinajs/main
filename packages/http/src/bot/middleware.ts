@@ -1,7 +1,7 @@
-import type * as express from 'express';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 
 import { RouteMiddleware } from '../interfaces.js';
+import type { IMiddlewareContext } from '../interfaces.js';
 import { BotCheckService } from './service.js';
 
 /** Runs `http.bot.checks.<check>` before the route arguments are extracted. Attach it with `@BotCheck(check)`. */
@@ -15,7 +15,7 @@ export class BotCheckMiddleware extends RouteMiddleware {
     super();
   }
 
-  public async onBefore(req: express.Request): Promise<void> {
+  public async onBefore({ req }: IMiddlewareContext): Promise<void> {
     await this.Service.check(this.check, req);
   }
 }

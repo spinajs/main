@@ -6,7 +6,7 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { useTestApp } from '@spinajs/testing';
 import { BaseController, BasePath, Controllers, ControllerSource, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
-import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
+import type { IControllerDescriptor, IRoute, IController } from '../src/interfaces.js';
 import { OtherFilePkgController } from './controller-inheritance-fixture.js';
 import { renderTemplate } from '@spinajs/log-common';
 
@@ -35,7 +35,6 @@ class ExtraPolicy extends BasePolicy {
 class SampleMiddleware extends RouteMiddleware {
   public isEnabled(_route: IRoute, _controller: IController): boolean { return true; }
   public async onBefore(): Promise<void> { /* noop */ }
-  public async onResponse(_response: Response): Promise<void> { /* noop */ }
   public async onAfter(): Promise<void> { /* noop */ }
 }
 

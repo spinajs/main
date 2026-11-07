@@ -54,10 +54,10 @@ describe('RouteTiming middleware', function () {
     expect(routeDuration(res.header['server-timing'])).to.be.at.least(20);
   });
 
-  it('adds no entry for a route that failed', async () => {
+  it('times an error reply too', async () => {
     const res = await req().get('route-timing/failing');
     expect(res.status).to.eq(500);
-    expect(routeDuration(res.header['server-timing'])).to.eq(undefined);
+    expect(routeDuration(res.header['server-timing'])).to.be.a('number');
   });
 
   it('appends its own header when ServerTiming collects no entries', async () => {
@@ -66,8 +66,9 @@ describe('RouteTiming middleware', function () {
     const request = { storage: {} } as unknown as sRequest;
     const timing = new RouteTiming();
 
-    await timing.onBefore(request, res);
-    await timing.onAfter(request, res);
+    const ctx = { req: request, res, storage: request.storage };
+    await timing.onBefore(ctx);
+    await timing.onAfter({ ...ctx, response: new Ok({}) });
 
     expect(appended).to.have.length(1);
     expect(appended[0][0]).to.eq('Server-Timing');
@@ -80,8 +81,9 @@ describe('RouteTiming middleware', function () {
     const request = { storage: { serverTiming: entries } } as unknown as sRequest;
     const timing = new RouteTiming();
 
-    await timing.onBefore(request, res);
-    await timing.onAfter(request, res);
+    const ctx = { req: request, res, storage: request.storage };
+    await timing.onBefore(ctx);
+    await timing.onAfter({ ...ctx, response: new Ok({}) });
 
     expect(entries.map((e) => e.name)).to.deep.eq(['route']);
   });

@@ -10,12 +10,18 @@ import type * as express from 'express';
 import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, RouteTiming } from '../src/index.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
-import type { GlobalRouteMiddlewareEntry, IRoute, MiddlewareStage } from '../src/index.js';
+import type { GlobalRouteMiddlewareEntry, IMiddlewareContext, IReplyContext, IRoute, MiddlewareStage } from '../src/index.js';
 
 function trace(res: express.Response, label: string): void {
   const labels = [...((res.locals.globalMwTrace as string[] | undefined) ?? []), label];
   res.locals.globalMwTrace = labels;
   res.setHeader('x-mw', labels.join(','));
+}
+
+function traceAfter({ res }: IReplyContext, label: string): void {
+  const labels = [...((res.locals.globalMwAfter as string[] | undefined) ?? []), label];
+  res.locals.globalMwAfter = labels;
+  res.setHeader('x-mw-after', labels.join(','));
 }
 
 @Injectable(RouteMiddleware)
@@ -26,13 +32,13 @@ class GlobalByName extends RouteMiddleware {
     GlobalByName.paths.push(path);
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'name');
   }
 }
 
 class GlobalByClass extends RouteMiddleware {
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'class');
   }
 }
@@ -47,7 +53,7 @@ class GlobalWithOptions extends RouteMiddleware {
     GlobalWithOptions.created++;
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, `options:${this.label}`);
   }
 }
@@ -61,7 +67,7 @@ class GlobalPerRoute extends RouteMiddleware {
     this.path = path;
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     res.setHeader('x-registered-path', this.path);
   }
 }
@@ -69,8 +75,12 @@ class GlobalPerRoute extends RouteMiddleware {
 class GlobalOuter extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'global-outer');
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    traceAfter(ctx, 'global-outer');
   }
 }
 
@@ -85,7 +95,7 @@ class GlobalSkippable extends RouteMiddleware {
     GlobalSkippable.paths.push(path);
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'skippable');
   }
 }
@@ -93,20 +103,24 @@ class GlobalSkippable extends RouteMiddleware {
 class ControllerOuter extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'controller-outer');
   }
 }
 
 class ControllerInner extends RouteMiddleware {
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'controller');
   }
 }
 
 class RouteInner extends RouteMiddleware {
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     trace(res, 'route');
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    traceAfter(ctx, 'route');
   }
 }
 
@@ -214,6 +228,11 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
       const res = await req().get('global-mw/ordered');
       expect(res.status).to.eq(200);
       expect(headerOf(res, 'x-mw')).to.eq('global-outer,controller-outer,name,class,options:opt,skippable,controller,route');
+    });
+
+    it('runs onAfter in the reverse order: the route ones before the global ones', async () => {
+      const res = await req().get('global-mw/ordered');
+      expect(headerOf(res, 'x-mw-after')).to.eq('route,global-outer');
     });
 
     it('keeps a middleware whose isEnabled is false off that route only', async () => {

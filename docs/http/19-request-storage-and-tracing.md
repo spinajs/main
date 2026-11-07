@@ -113,7 +113,7 @@ export class InvoiceRepository {
 
 ## Important behaviour
 
-- `AsyncLocalStorage.run()` wraps argument extraction and the action. Policies, `onBefore` route middlewares and server middlewares run outside it: read `req.storage` there.
+- `AsyncLocalStorage.run()` wraps argument extraction and the action, and the route middlewares' `onAfter` and `onFinish`. Policies, `onBefore` and `onAround` route middlewares and server middlewares run outside it: read `req.storage` (`ctx.storage`) there.
 - `x-request-id`, `traceparent`, `x-response-time` and `Server-Timing` are written in `before()` or by patching `res.end`, because `after()` handlers never run for matched routes.
 - An inbound `traceparent` is continued, so a client can choose the trace id of its request.
 - `Server-Timing` is on by default and reveals internal timings to every client.

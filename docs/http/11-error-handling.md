@@ -229,14 +229,14 @@ An `@OnError` handler can also return `new CodedHttpExceptionResponse(exception)
 | --- | --- |
 | `on` | One error class or an array of classes. The handler runs only when the error is an `instanceof` one of them. `Error` catches everything. |
 | `handler` | `(err, ctx: ErrorContext) => Error \| Response \| void`, sync or async. |
-| `stages` | Optional `ErrorStage[]`: `'policy'`, `'middleware'` (route middleware `onBefore`), `'arguments'` (input filters, required check, conversion, validation, hydration), `'action'` (the action and `onResponse`), `'after'` (route middleware `onAfter`). Omitted: every stage. |
+| `stages` | Optional `ErrorStage[]`: `'policy'`, `'middleware'` (route middleware `onBefore`), `'arguments'` (input filters, required check, conversion, validation, hydration), `'action'` (the action), `'after'` (a route middleware `onAfter` that threw while the reply was being sent). Omitted: every stage. |
 
 What the handler returns decides what happens next:
 
 | Return | Effect |
 | --- | --- |
 | an `Error` | It replaces the error. Later handlers match their `on` against the new error; the global handler answers what is left. |
-| a `Response` | The error is swallowed and this response is the answer. `onAfter` and `onResponse` do not run, as for any error answer. |
+| a `Response` | The error is swallowed and this response is the answer. It goes through the reply pipeline: route middlewares' `onAfter` see it, with `ctx.error` set to the error it answers. |
 | nothing | The handler did something else (log, audit, metrics) and the error continues unchanged. |
 
 `ErrorContext` carries `req`, `res`, `route`, `controller`, `stage` and `container` (the controller's DI container).

@@ -12,11 +12,14 @@ import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, IOnErrorDescriptor } from './interfaces.js';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, IOnErrorDescriptor, IRouteInvocation, Response } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
-import { createOnErrorHandler, markStage } from './errors/on-error.js';
+import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './errors/on-error.js';
 import { __handle_response__ } from './response.js';
+import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
+import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import type { ErrorReplier } from './reply-pipeline.js';
 
 /**
  * Controller shape needed by the route wiring helpers: the IController
@@ -203,50 +206,72 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   };
 }
 
+const chainName = (route: IRoute, path: string) => `http:${String(route.Type).toUpperCase()} ${path}`;
+
+const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
+  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
+
+const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
+const named = <T extends Express.RequestHandler>(handler: T, name: string): T => {
+  Object.defineProperty(handler, 'name', { value: name, writable: true });
+  return handler;
+};
+
 /**
- * Wraps a middleware onBefore/onAfter action into an express handler that
- * forwards both resolution and rejection to `next`.
+ * Express handler running `middleware.onBefore`: a resolved one enters the middleware (unless its around handler
+ * already did), a returned `Response` answers the request, a rejection goes to the error handlers.
  */
-export function wrapMiddlewareAction(
-  source: object,
-  action: (req: Express.Request, res: Express.Response, route: IRoute, controller: IController) => Promise<void>,
-  route: IRoute,
-  controller: IController,
-  stage: 'middleware' | 'after' = 'middleware',
-): Express.RequestHandler {
-  const wrapper = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-    markStage(res, stage);
-    action(req, res, route, controller)
-      .then(() => {
-        next();
+export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, controller: IController, path: string): Express.RequestHandler {
+  const enters = !wrapsRoute(middleware);
+  return named((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    if (answeredEarly(res)) {
+      next();
+      return;
+    }
+    markStage(res, 'middleware');
+    const ctx = contextOf(req, res, route, controller, path);
+    middleware.onBefore!(ctx)
+      .then((answer) => {
+        if (enters) {
+          enterMiddleware(res, 'route', middleware, ctx);
+        }
+        if (answer === undefined || answer === null) {
+          next();
+        } else if (!isResponse(answer)) {
+          next(new UnexpectedServerError(`${middleware.constructor.name}.onBefore returned something that is not a Response`));
+        } else {
+          answerEarly(res, answer);
+          next();
+        }
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         next(err);
       });
-  };
+  }, middleware.constructor.name);
+}
 
-  Object.defineProperty(wrapper, 'name', {
-    value: source.constructor.name,
-    writable: true,
-  });
-  return wrapper;
+/** Enters a middleware that has only `onAfter`/`onFinish` once the chain reaches it. */
+export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, controller: IController, path: string): Express.RequestHandler {
+  return named((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    if (!answeredEarly(res)) {
+      enterMiddleware(res, 'route', middleware, contextOf(req, res, route, controller, path));
+    }
+    next();
+  }, middleware.constructor.name);
 }
 
 /**
- * Express handler invoking the controller action: extracts route arguments,
- * runs the action inside the request-scoped AsyncLocalStorage context, lets
- * middlewares inspect the produced Response and stores it in
- * `res.locals.response` for the response pipeline. All sync and async errors
- * are forwarded to `next`.
+ * Express handler invoking the controller action: extracts route arguments, runs the action inside the request-scoped
+ * AsyncLocalStorage context and stores its result in `res.locals.response` for the route's sender. All sync and async
+ * errors are forwarded to `next`. Skipped when an `onBefore` answered.
  */
-export function createActionHandler(
-  controller: ControllerActionHost,
-  route: IRoute,
-  enabledMiddlewares: RouteMiddleware[],
-  storage: AsyncLocalStorage<IActionLocalStoregeContext>,
-  derived?: DerivedArgValidators,
-): Express.RequestHandler {
+export function createActionHandler(controller: ControllerActionHost, route: IRoute, storage: AsyncLocalStorage<IActionLocalStoregeContext>, derived?: DerivedArgValidators): Express.RequestHandler {
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
+    if (answeredEarly(res)) {
+      next();
+      return;
+    }
     try {
       await storage.run(req.storage, async () => {
         markStage(res, 'arguments');
@@ -261,12 +286,6 @@ export function createActionHandler(
           if (isPromise(result)) {
             result = await result;
           }
-
-          if (result instanceof Response) {
-            for (const x of enabledMiddlewares) {
-              await x.onResponse?.(result, route, controller);
-            }
-          }
         } catch (err) {
           next(err);
           return;
@@ -280,12 +299,7 @@ export function createActionHandler(
     }
   };
 
-  Object.defineProperty(actionHandler, 'name', {
-    value: controller.constructor.name,
-    writable: true,
-  });
-
-  return actionHandler as Express.RequestHandler;
+  return named(actionHandler as Express.RequestHandler, controller.constructor.name);
 }
 
 export interface IRouteChainOptions {
@@ -306,18 +320,33 @@ export interface IRouteChainOptions {
 }
 
 /**
+ * A 3.x `onResponse` left on a middleware compiles (it is just another method) but is never called: a redaction or
+ * envelope middleware would serve the reply unchanged without a word.
+ */
+function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string): void {
+  const legacy = middlewares.find((m) => typeof (m as { onResponse?: unknown }).onResponse === 'function');
+  if (legacy) {
+    throw new RouteRegistrationException(
+      `Middleware ${legacy.constructor.name} of route ${route} defines onResponse, removed in @spinajs/http 4.0: implement onAfter(ctx) instead, with the reply in ctx.response and the error it answers in ctx.error`,
+    );
+  }
+}
+
+/**
  * Calls `onRegister` of the enabled middlewares, then assembles the route's handler chain:
  *
- * policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the same way →
- * action → onAfter of every middleware, inner first → [error recorder] → error handlers → response →
- * [error recorder] → __handle_error__
+ * route entry → policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the
+ * same way → action → [error recorder] → error handlers → response → [error recorder] → __handle_error__
  *
- * The recorders are mounted only when a middleware has `onAround`; they give its `proceed()` the chain's error.
+ * The response and __handle_error__ send their reply through the reply pipeline, which runs the onAfter hooks of the
+ * entered middlewares. The recorders are mounted only when a middleware has `onAround`; they give its `proceed()` the
+ * chain's error.
  */
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
+  const name = chainName(route, options.path);
+  refuseOnResponse(options.middlewares, name);
   const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
-  const name = `http:${String(route.Type).toUpperCase()} ${options.path}`;
 
   for (const m of enabled) {
     if (!m.onRegister) {
@@ -332,19 +361,41 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
 
   const outer = enabled.filter((m) => m.Stage === 'outer');
   const inner = enabled.filter((m) => m.Stage !== 'outer');
-  const unwinding = [...inner, ...outer];
   const recorder = enabled.some(wrapsRoute) ? [recordRouteError] : [];
+  let mappedReply: ReturnType<typeof errorReplyFactory> | undefined;
+
+  // D8: the reply a throwing onAfter turns into, made as for an error of the action, at the 'after' stage
+  const routeErrorReply =
+    (req: Express.Request, res: Express.Response): ErrorReplier =>
+    async (err) => {
+      const handled = await runErrorHandlers(options.errorHandlers, err, { req: req as sRequest, res, route, controller, stage: stageOf(res), container: options.container }, log);
+      if (handled.response) {
+        return { response: handled.response, error: handled.error };
+      }
+      mappedReply ??= errorReplyFactory();
+      return { response: mappedReply(handled.error, req).response, error: handled.error };
+    };
+
+  const entry: Express.RequestHandler = (req, res, next) => {
+    beginRoute(res, {
+      context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
+      storage: options.storage,
+      errorReply: routeErrorReply(req, res),
+    });
+    next();
+  };
 
   return [
+    entry,
     createPolicyGate(options.policies, route, controller, log, options.basePath),
     ...[...outer, ...inner].flatMap((m) => [
       ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
-      ...(m.onBefore ? [wrapMiddlewareAction(m, m.onBefore.bind(m), route, controller, 'middleware')] : []),
+      ...(m.onBefore ? [createBeforeHandler(m, route, controller, options.path)] : []),
+      ...(!wrapsRoute(m) && !m.onBefore && (m.onAfter || m.onFinish) ? [createEntryHandler(m, route, controller, options.path)] : []),
     ]),
-    createActionHandler(controller, route, unwinding.filter((m) => m.onResponse), options.storage, options.derived),
-    ...unwinding.flatMap((m) => (m.onAfter ? [wrapMiddlewareAction(m, m.onAfter.bind(m), route, controller, 'after')] : [])),
+    createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,
-    createOnErrorHandler(options.errorHandlers, route, controller, options.container, log),
+    createOnErrorHandler(options.errorHandlers, route, controller, options.container, log, setErrorReply),
     __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
     ...recorder,
     options.handleError,
