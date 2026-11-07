@@ -127,11 +127,12 @@ describe('mysql stream (integration)', function () {
 
   it('closes the socket when the loop breaks, so the server stops sending', async () => {
     // about 1 GB: the server is still writing when the loop leaves
-    const huge = "SELECT a.Id, REPEAT('x', 1024) AS pad FROM stream_t a CROSS JOIN stream_t b";
+    const marker = `spinajs-stream-close-${randomUUID().slice(0, 8)}`;
+    const huge = `SELECT /* ${marker} */ a.Id, REPEAT('x', 1024) AS pad FROM stream_t a CROSS JOIN stream_t b`;
     await collect(driver.executeStreamOnDb(huge, [], { batchSize: 100 }), 150);
 
     const stillSending = async () => {
-      const rows = (await admin.executeOnDb(`SELECT COUNT(*) AS n FROM information_schema.PROCESSLIST WHERE INFO LIKE '%CROSS JOIN stream_t b'`, [], QueryContext.Select)) as Array<{ n: number | string }>;
+      const rows = (await admin.executeOnDb(`SELECT COUNT(*) AS n FROM information_schema.PROCESSLIST WHERE INFO LIKE ? AND ID <> CONNECTION_ID()`, [`%${marker}%`], QueryContext.Select)) as Array<{ n: number | string }>;
       return Number(rows[0].n);
     };
     for (let attempt = 0; attempt < 30 && (await stillSending()) > 0; attempt++) {

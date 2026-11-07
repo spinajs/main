@@ -267,7 +267,7 @@ export class MySqlOrmDriver extends SqlDriver {
         connection.destroy();
         // mysql2's destroy() only half-closes the socket; a paused one never reads the rest, so the server would keep
         // sending until net_write_timeout
-        (connection as unknown as { stream: Duplex }).stream.destroy();
+        (connection as unknown as { stream?: Duplex }).stream?.destroy();
       }
     }
   }
