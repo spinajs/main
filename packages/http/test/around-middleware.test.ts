@@ -11,7 +11,7 @@ import type express from 'express';
 
 import { appPort, httpApp, req } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
-import type { ControllerActionHost, IActionLocalStoregeContext, IController, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
+import type { ControllerActionHost, IActionLocalStoregeContext, IController, IMiddlewareContext, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
 import { createAroundHandler } from '../src/around.js';
 
 interface Deferred<T> {
@@ -53,13 +53,11 @@ class InnerProbe extends RouteMiddleware {
     return true;
   }
 
-  public async onBefore(req: express.Request, res: express.Response) {
+  public async onBefore({ req, res }: IMiddlewareContext) {
     calls.push('inner');
     state.innerX = bag((req as Request).storage)?.x;
     state.innerY = res.locals.y;
   }
-
-  public async onResponse() {}
 
   public async onAfter() {}
 }
@@ -555,18 +553,35 @@ describe('Route middleware hooks', () => {
     public async onAfter() {}
   }
 
+  class AfterOnly extends RouteMiddleware {
+    public async onAfter() {}
+  }
+
+  class FinishOnly extends RouteMiddleware {
+    public onFinish() {}
+  }
+
   class AroundOnly extends RouteMiddleware {
     public async onAround() {}
+  }
+
+  class AroundAndBefore extends RouteMiddleware {
+    public async onAround() {}
+
+    public async onBefore() {}
   }
 
   class NoHooks extends RouteMiddleware {}
 
   const mounted = async (m: RouteMiddleware) => (await buildRouteHandlers(chain([m]))).filter((h) => h?.name === m.constructor.name).length;
 
-  it('mounts only the hooks a middleware implements', async () => {
+  it('mounts one handler per hook that runs in the chain, and an entry handler for a middleware with reply hooks only', async () => {
     expect(await mounted(new BeforeOnly())).to.eq(1);
-    expect(await mounted(new BeforeAndAfter())).to.eq(2);
+    expect(await mounted(new BeforeAndAfter())).to.eq(1);
+    expect(await mounted(new AfterOnly())).to.eq(1);
+    expect(await mounted(new FinishOnly())).to.eq(1);
     expect(await mounted(new AroundOnly())).to.eq(1);
+    expect(await mounted(new AroundAndBefore())).to.eq(2);
     expect(await mounted(new NoHooks())).to.eq(0);
   });
 

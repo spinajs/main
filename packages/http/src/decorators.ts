@@ -1,6 +1,6 @@
-import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
+import { Constructor, DI, getInheritedDescriptor, NewInstance } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IMiddlewareContext } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import type { Options as CsvParseOptions } from 'csv-parse';
@@ -8,7 +8,6 @@ import { filePathOfUrl, toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable, InvalidArgument } from '@spinajs/exceptions';
-import * as express from 'express';
 import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 import { strictHeaderReader } from './headers.js';
 import type { StrictHeaderOptions } from './headers.js';
@@ -402,25 +401,28 @@ export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any
   });
 }
 
+/** Refuses a request whose `Accept` header allows none of the given types; mounted by {@link Accepts}. */
+@NewInstance()
+export class AcceptsMiddleware extends RouteMiddleware {
+  constructor(public readonly accepts: HttpAcceptHeaders) {
+    super();
+  }
+
+  public async onBefore({ req, res, route }: IMiddlewareContext): Promise<void> {
+    const paramExtract = await DI.resolve(RequestTypeRouteArgs);
+    const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route!);
+
+    if (!(Args & this.accepts)) {
+      throw new ExpectedResponseUnacceptable(`Accepted content type ${this.accepts} is not supported`);
+    }
+  }
+}
+
 /**
- * 
- * Checks if incoming request is proper type ( accepts proper content type ) and answers 406 Not Acceptable if not
- * 
- * @param accepts 
- * @returns 
+ * Answers 406 Not Acceptable when the request's `Accept` header allows none of `accepts`.
  */
 export function Accepts(accepts: HttpAcceptHeaders) {
-  return Middleware(class extends RouteMiddleware {
-    public async onBefore(req: express.Request, res: express.Response, route: IRoute, _controller: IController): Promise<void> {
-      const paramExtract = await DI.resolve(RequestTypeRouteArgs);
-      const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route);
-
-      if (!(Args & accepts)) {
-        throw new ExpectedResponseUnacceptable(`Accepted content type ${accepts} is not supported`);
-      }
-
-    }
-  });
+  return Middleware(AcceptsMiddleware, accepts);
 }
 
 /**

@@ -3,17 +3,10 @@ import type { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { IController, IRoute, IRouteInvocation, IRouteOutcome, Request, RouteMiddleware } from './interfaces.js';
 import { RouteClientGone } from './exceptions.js';
-import { markStage } from './errors/on-error.js';
+import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
 import { attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
-
-const ROUTE_ERROR = Symbol('routeError');
-
-const isCrash = (error: unknown): boolean => (error as { crash?: unknown } | null | undefined)?.crash === true;
-
-function routeErrorOf(res: Express.Response): unknown {
-  return (res.locals as Record<symbol, unknown>)[ROUTE_ERROR];
-}
+import { answeredEarly, enterMiddleware, routeContextOf } from './reply-pipeline.js';
 
 const AROUNDS = Symbol('aroundsSettled');
 
@@ -29,9 +22,7 @@ function aroundsOf(res: Express.Response): Promise<void>[] {
  * kept: an error handler that turned it into another error must not hide it.
  */
 export function recordRouteError(err: unknown, _req: Express.Request, res: Express.Response, next: Express.NextFunction): void {
-  if (!isCrash(routeErrorOf(res))) {
-    (res.locals as Record<symbol, unknown>)[ROUTE_ERROR] = err;
-  }
+  noteRouteError(res, err);
   next(err);
 }
 
@@ -44,7 +35,13 @@ export function createAroundHandler(middleware: AroundRouteMiddleware, route: IR
   const name = middleware.constructor.name;
 
   const handler = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    if (answeredEarly(res)) {
+      next();
+      return;
+    }
     markStage(res, 'middleware');
+    const invocation: IRouteInvocation = routeContextOf(res) ?? { req, res, storage: (req as Request).storage, route, controller, path };
+    enterMiddleware(res, 'route', middleware, invocation);
 
     // proceed() settles after the around middlewares it wraps settled, so nesting holds on the way out too
     const arounds = aroundsOf(res);
@@ -111,8 +108,6 @@ export function createAroundHandler(middleware: AroundRouteMiddleware, route: IR
         next();
       });
     };
-
-    const invocation: IRouteInvocation = { req, res, storage: (req as Request).storage, route, controller, path };
 
     const runAround = async () => {
       let failure: { error: unknown } | undefined;

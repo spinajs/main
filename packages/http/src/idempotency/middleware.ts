@@ -8,7 +8,10 @@ import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
 import { principalKey } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
-import { RouteMiddleware } from '../interfaces.js';
+import { Response, RouteMiddleware } from '../interfaces.js';
+import type { ResponseFunction } from '../interfaces.js';
+import { sendReply } from '../reply-pipeline.js';
+import { _setHeaders } from '../responses.js';
 import type { IRoute, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
 import { RouteClientGone, RouteRegistrationException } from '../exceptions.js';
 import type { CapturedJsonReply } from '../response-capture.js';
@@ -87,16 +90,28 @@ const UNSTORED_4XX = new Set([401, 403, 408, 425, 429]);
 
 const storable = (status: number): boolean => (status >= 200 && status < 300) || (status >= 400 && status < 500 && !UNSTORED_4XX.has(status));
 
-function replay(res: Express.Response, reply: CapturedJsonReply): void {
-  res.status(reply.status);
-  for (const [name, value] of Object.entries(reply.headers)) {
-    res.setHeader(name, value);
+/** A stored reply sent again: status, the restored headers and the JSON text as first sent. */
+class ReplayedReply extends Response<CapturedJsonReply> {
+  constructor(reply: CapturedJsonReply) {
+    super(reply, { StatusCode: reply.status });
   }
-  res.setHeader(IDEMPOTENT_REPLAYED_HEADER, 'true');
-  if (reply.body === null) {
-    res.json();
-  } else {
-    res.send(reply.body);
+
+  public override async execute(): Promise<ResponseFunction> {
+    const reply = (await this.prepareResponse()) as CapturedJsonReply;
+    return (_req, res) => {
+      res.status(this.statusCode);
+      for (const [name, value] of Object.entries(reply.headers)) {
+        res.setHeader(name, value);
+      }
+      // headers an onAfter hook set or replaced
+      _setHeaders(res, this.options);
+      res.setHeader(IDEMPOTENT_REPLAYED_HEADER, 'true');
+      if (reply.body === null) {
+        res.json();
+      } else {
+        res.send(reply.body);
+      }
+    };
   }
 }
 
@@ -253,7 +268,8 @@ export class IdempotencyMiddleware extends RouteMiddleware {
       throw mapped;
     }
     if (outcome.replayed && outcome.value) {
-      replay(res, outcome.value);
+      // a framework reply: the middlewares entered before this one see it in onAfter
+      await sendReply(req, res, new ReplayedReply(outcome.value));
     }
   }
 

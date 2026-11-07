@@ -229,8 +229,8 @@ export class FileResponse extends Response {
 }
 
 export class JsonFileResponse extends Response {
-  constructor(protected data: any, protected filename: string, protected responseOptions?: IResponseOptions) {
-    super(null);
+  constructor(data: any, protected filename: string, responseOptions?: IResponseOptions) {
+    super(data, responseOptions);
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
@@ -238,13 +238,13 @@ export class JsonFileResponse extends Response {
     const tmpPath = provider.tmppath();
     // Must await: sendFile below races the write otherwise and can hit the
     // path before it exists, producing an intermittent ENOENT / 500.
-    await provider.write(tmpPath, JSON.stringify(this.data));
+    await provider.write(tmpPath, JSON.stringify(await this.prepareResponse()));
 
     return new Promise((resolve, reject) => {
       const encodedFilename = encodeURIComponent(this.filename);
 
-      _setCoockies(res, this.responseOptions);
-      _setHeaders(res, this.responseOptions);
+      _setCoockies(res, this.options);
+      _setHeaders(res, this.options);
 
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);

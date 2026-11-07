@@ -863,15 +863,39 @@ export interface IController {
 
 export type MiddlewareStage = 'outer' | 'inner';
 
-/** What an around middleware gets for one request. */
-export interface IRouteInvocation {
+/**
+ * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware; a middleware that
+ * runs before routing has none.
+ */
+export interface IMiddlewareContext {
   readonly req: express.Request;
   readonly res: express.Response;
   /** The request's own store: the same object as `req.storage` and the action's AsyncLocalStorage context. */
   readonly storage: IActionLocalStoregeContext;
+  readonly route?: IRoute;
+  readonly controller?: IController;
+  /** `http:<METHOD> <mounted path>` */
+  readonly path?: string;
+}
+
+/** What `onAfter` gets: the reply about to be sent. */
+export interface IReplyContext extends IMiddlewareContext {
+  /** The action's reply, an error reply, or the `Response` an `onBefore` answered with. A hook may replace it; the final value is sent. */
+  response: Response;
+  /** The error the reply answers, when it is an error reply. */
+  readonly error?: unknown;
+}
+
+/** What `onFinish` gets. */
+export interface IFinishContext extends IMiddlewareContext {
+  /** The client went away before the response finished. */
+  readonly aborted: boolean;
+}
+
+/** What an around middleware gets for one request. */
+export interface IRouteInvocation extends IMiddlewareContext {
   readonly route: IRoute;
   readonly controller: IController;
-  /** `http:<METHOD> <mounted path>` */
   readonly path: string;
 }
 
@@ -879,20 +903,47 @@ export interface IRouteInvocation {
 export interface IRouteOutcome {
   /** The JSON reply as sent, or null when the answer was not a JSON reply. */
   readonly reply: CapturedJsonReply | null;
-  /** The error the chain raised, when the error handlers answered it; the reply is that error's answer. */
+  /** The error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`; the reply is that error's answer. */
   readonly error?: unknown;
 }
 
 /**
- * A route middleware implements only the hooks it needs; a hook it leaves out is not mounted.
+ * The hooks a middleware may implement; a hook it leaves out is not mounted. Only a middleware the chain entered (its
+ * `onBefore` resolved, or it has none, or its `onAround` started) gets `onAfter` and `onFinish`.
  *
- * State is shared, never copied: every hook, the action and the error handlers see the same `req`, `res` and
- * `req.storage` for the whole request. Typed per-request state goes on `req.storage` (declaration merging on
- * {@link IActionLocalStoregeContext}), untyped per-response state on `res.locals`. What an around middleware writes
- * before `proceed()` is visible downstream; after `proceed()` resolves it sees what the chain wrote. Hooks run outside
- * the action's AsyncLocalStorage context, so a service called from a hook gets `req` or `storage` passed in.
+ * State is shared, never copied: every hook sees the same `req`, `res` and `storage` for the whole request.
  */
-export abstract class RouteMiddleware {
+export abstract class HttpMiddleware extends AsyncService {
+  /** Before the handler. Returning a `Response` answers the request: nothing after this middleware runs; `onAfter` and `onFinish` still do. */
+  public onBefore?(ctx: IMiddlewareContext): Promise<void | Response>;
+
+  /**
+   * In the reply pipeline, for every framework reply (success, error, early answer, replay), before it is sent; inner
+   * (last entered) first. Not called when the headers are already sent. A throw turns the reply into the error reply
+   * for that error.
+   */
+  public onAfter?(ctx: IReplyContext): Promise<void>;
+
+  /** Once the response finished, or the client went away (`aborted`). A throw is logged. */
+  public onFinish?(ctx: IFinishContext): void | Promise<void>;
+
+  /**
+   * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the reply.
+   * `proceed()` runs that chain once and settles when the response finished; it rejects with RouteClientGone when the
+   * client went away first. Not calling it ends the chain: the middleware must then answer, with `sendReply()` (the
+   * entered middlewares' `onAfter` see the answer) or on `res` itself, and the answer must be sent, or its sending
+   * awaited, before the returned promise settles; otherwise the request is answered 500. A throw before `proceed()`
+   * goes to the route's error handlers.
+   */
+  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+}
+
+/**
+ * A middleware of one route, or of every route of a controller (`@Middleware`). Typed per-request state goes on
+ * `req.storage` (declaration merging on {@link IActionLocalStoregeContext}), untyped per-response state on `res.locals`.
+ * `onAfter` and `onFinish` run inside the action's AsyncLocalStorage context; `onBefore` and `onAround` outside it.
+ */
+export abstract class RouteMiddleware extends HttpMiddleware {
   /**
    * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, declaration order.
    * Unset means 'inner'.
@@ -909,29 +960,6 @@ export abstract class RouteMiddleware {
    * registration with RouteRegistrationException.
    */
   public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
-
-  /** Runs before the action, in stage order. A throw goes to the route's error handlers. */
-  public onBefore?(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
-
-  /** Runs when the action returned a `Response`, before it is sent, inner middleware first: it may change the data. */
-  public onResponse?(response: Response, route: IRoute, controller: IController): Promise<void>;
-
-  /**
-   * Runs after the action and every `onResponse` succeeded, before the response is sent, inner middleware first: the
-   * headers are still writable unless the action answered `res` itself. Skipped when the action or an earlier hook
-   * threw; `onAround` sees every outcome.
-   */
-  public onAfter?(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
-
-  /**
-   * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the response.
-   * `proceed()` runs that chain once and settles when the response finished; it rejects with RouteClientGone when the
-   * client went away first. Not calling it ends the chain: the middleware must then answer `res` itself,
-   * and the answer must be sent, or its sending awaited (`res.once('finish')` after `sendFile`/`pipe`), before the returned
-   * promise settles; otherwise the request is answered 500. A throw
-   * before `proceed()` goes to the route's error handlers.
-   */
-  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
 /**
@@ -958,9 +986,34 @@ export abstract class Response<T = any> {
 
   constructor(protected responseData?: T | Promise<T> | null, protected options?: IResponseOptions) { }
 
-  /** Status code `execute` answers with. */
+  /** Status code `execute` answers with. Setting it is what `IResponseOptions.StatusCode` does. */
   public get statusCode(): number {
     return this.options?.StatusCode ?? this._errorCode;
+  }
+
+  public set statusCode(status: number) {
+    this.options = { ...this.options, StatusCode: status };
+  }
+
+  /** The data `execute` sends; an `onAfter` hook may replace it. */
+  public get data(): T | Promise<T> | null | undefined {
+    return this.responseData;
+  }
+
+  public set data(data: T | Promise<T> | null | undefined) {
+    this.responseData = data;
+  }
+
+  /** The headers `execute` sets, from `IResponseOptions.Headers`. */
+  public get headers(): readonly IResponseHeader[] {
+    return this.options?.Headers ?? [];
+  }
+
+  /** Sets a header `execute` sends, replacing one of the same name (case-insensitive) the response already had. */
+  public setHeader(name: string, value: IResponseHeader['Value']): this {
+    const others = this.headers.filter((h) => h.Name.toLowerCase() !== name.toLowerCase());
+    this.options = { ...this.options, Headers: [...others, { Name: name, Value: value }] };
+    return this;
   }
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {

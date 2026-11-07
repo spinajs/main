@@ -6,26 +6,33 @@ import { IdempotencyClaimConflict, IdempotencyService } from '@spinajs/idempoten
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 import { httpApp, req, TestConfiguration } from './common.js';
-import type express from 'express';
 import { BaseController, BasePath, BasePolicy, Body, CodedHttpException, Controllers, Created, HttpServer, Idempotent, Middleware, Ok, Param, Policy, Post, RouteMiddleware } from '../src/index.js';
-import type { Request } from '../src/interfaces.js';
+import type { IMiddlewareContext, IReplyContext, MiddlewareStage, Request } from '../src/interfaces.js';
 
-const state = { calls: 0, afterCalls: 0, closed: false, inPolicy: false, hold: undefined as Promise<void> | undefined, policyHold: undefined as Promise<void> | undefined };
+const state = { calls: 0, afterCalls: 0, outerAfter: [] as string[], closed: false, inPolicy: false, hold: undefined as Promise<void> | undefined, policyHold: undefined as Promise<void> | undefined };
 
-/** Counts onAfter (a replay is the gate's own answer, so no middleware runs for it) and sees the connection close. */
+/** Counts onAfter (the inner middlewares are not entered for a replay, so it runs for the first answer only) and sees the connection close. */
 class AfterProbe extends RouteMiddleware {
   public isEnabled(): boolean {
     return true;
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     res.once('close', () => (state.closed = true));
   }
 
-  public async onResponse(): Promise<void> {}
-
-  public async onAfter(_req: express.Request, _res: express.Response): Promise<void> {
+  public async onAfter(): Promise<void> {
     state.afterCalls++;
+  }
+}
+
+/** Declared on the controller, so it is entered before the route's idempotency gate: it sees replays too. */
+class OuterAfterProbe extends RouteMiddleware {
+  public override readonly Stage: MiddlewareStage = 'outer';
+
+  public async onAfter({ response, res }: IReplyContext): Promise<void> {
+    state.outerAfter.push(String(response.statusCode));
+    res.setHeader('X-Outer-After', String(state.outerAfter.length));
   }
 }
 
@@ -51,6 +58,7 @@ class IdemTestPrincipal extends BasePolicy {
 @BasePath('idem')
 @Policy(IdemTestPrincipal)
 @Middleware(AfterProbe)
+@Middleware(OuterAfterProbe)
 class IdemController extends BaseController {
   @Post()
   @Idempotent()
@@ -166,6 +174,7 @@ describe('Idempotency-Key', function () {
   beforeEach(() => {
     state.calls = 0;
     state.afterCalls = 0;
+    state.outerAfter = [];
     state.closed = false;
     state.inPolicy = false;
     state.hold = undefined;
@@ -188,8 +197,18 @@ describe('Idempotency-Key', function () {
     expect(headersOf(first)['idempotent-replayed']).to.equal(undefined);
     expect(headersOf(again)['idempotent-replayed']).to.equal('true');
     expect(state.calls).to.equal(1);
-    // the replay is written by the gate: no middleware ran for it
+    // the inner middlewares were not entered for the replay
     expect(state.afterCalls).to.equal(1);
+  });
+
+  it('sends a replay through the reply pipeline: a middleware entered before the gate sees it in onAfter', async () => {
+    const first = await post('create', 'replay-outer-1', 'u1').send({ n: 1 });
+    const again = await post('create', 'replay-outer-1', 'u1').send({ n: 1 });
+
+    expect(headersOf(again)['idempotent-replayed']).to.equal('true');
+    expect(state.outerAfter).to.deep.equal(['201', '201']);
+    expect(headersOf(first)['x-outer-after']).to.equal('1');
+    expect(headersOf(again)['x-outer-after']).to.equal('2');
   });
 
   it('takes the quoted form of a key as the same key', async () => {
