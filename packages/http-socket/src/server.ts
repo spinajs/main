@@ -21,7 +21,8 @@ import { SocketHandlerRegistry } from './registry.js';
 import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
-import { assertIdempotencyConfig, outcomeUnknownAfter } from './idempotency.js';
+import { outcomeUnknownAfter } from './context.js';
+import { assertIdempotencyConfig } from './idempotency.js';
 import { SHUTDOWN_FLUSH_MS, SHUTDOWN_OVERRUN, assertShutdownConfig, shutdownOverrun } from './limits.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
@@ -254,7 +255,7 @@ export class SocketServer extends AsyncService {
 
     if (!(await this.Dispatcher.drained(this.Options.drainMs))) {
       this.Log.warn({ drainMs: this.Options.drainMs }, 'Socket commands still running after a ${drainMs} ms drain are answered unavailable');
-      // a keyed handler that already runs may commit any moment: it gets a grace to answer, and record, its real outcome
+      // a handler under drainGrace that already runs may commit any moment: it gets a grace to answer, and record, its real outcome
       this.Dispatcher.abortAll(unavailable, true);
 
       if (!(await this.Dispatcher.drained(SHUTDOWN_FLUSH_MS))) {

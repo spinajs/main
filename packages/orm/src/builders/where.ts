@@ -7,7 +7,7 @@ import { WhereBoolean, SqlOperator } from '../enums.js';
 import type { Op } from '../enums.js';
 import type { IWhereBuilder, ISelectQueryBuilder, IRelationDescriptor } from '../interfaces.js';
 import { BetweenStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, Wrap, LazyQueryStatement, ColumnCompareStatement } from '../statements.js';
-import type { IQueryStatement, OuterColumn } from '../statements.js';
+import type { ConcatExpression, IQueryStatement, OuterColumn } from '../statements.js';
 import type { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from '../types.js';
 import type { ModelBase } from '../model.js';
 import { Lazy } from '@spinajs/util';
@@ -442,7 +442,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this {
+  public whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn | ConcatExpression): this {
     if (!isWhereOperator(operator)) {
       throw new InvalidArgument(`operator ${operator} is invalid`);
     }

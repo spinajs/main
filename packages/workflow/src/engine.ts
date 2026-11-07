@@ -5,7 +5,7 @@ import { AsyncService, Autoinject, DI, Injectable, PerInstanceCheck, type IInsta
 import { Clock, DbClock, FaultInjector, Heartbeat, RowLease } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
-import { IdentifierQuoter, outer, qualifierOf, RawQuery, SqlExpressions, type ISelectQueryBuilder, type IWhereBuilder, type OrmDriver } from '@spinajs/orm';
+import { concat, outer, type ISelectQueryBuilder, type IWhereBuilder, type OrmDriver } from '@spinajs/orm';
 import { ActivationContext, type CompensationResult, type Park } from './context.js';
 import type { SerializedError } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, type AbortReason } from './errors.js';
@@ -61,18 +61,6 @@ function leaseFree(now: number) {
   return function (this: IWhereBuilder<unknown>) {
     this.whereNull('ClaimedBy').orWhere('ClaimedUntil', '<', now);
   };
-}
-
-/**
- * `step.Key` within the wait keys of `event.Name`. The builder cannot compare a column with an expression, so this is
- * the one raw predicate (D1a); its qualifiers are read from the two queries, as the builder's own statements read them.
- */
-function waitKeyRange(driver: OrmDriver, step: ISelectQueryBuilder<unknown>, event: ISelectQueryBuilder<unknown>): RawQuery {
-  const quoter = driver.Container.resolve(IdentifierQuoter);
-  const expressions = driver.Container.resolve(SqlExpressions);
-  const key = `${quoter.quote(qualifierOf(step))}.${quoter.quote('Key')}`;
-  const name = `${quoter.quote(qualifierOf(event))}.${quoter.quote('Name')}`;
-  return RawQuery.create(`${key} >= ${expressions.concat('?', name, '?')} AND ${key} < ${expressions.concat('?', name, '?')}`, ['wait:', '#', 'wait:', '$']);
 }
 
 function registeredVersions(defs: RegisteredWorkflow[]) {
@@ -251,8 +239,13 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
     const named = WorkflowEventModel.query().where('State', 'pending').whereColumn('InstanceId', '=', outer('Id')).whereColumn('Name', '=', outer('WaitingFor'));
     // '*' waits for several names: an event counts only if a wait of its name is pending (the exact-collation key range)
     const anyName = WorkflowEventModel.query().where('State', 'pending').whereColumn('InstanceId', '=', outer('Id'));
-    const pendingWait = WorkflowStepModel.query().whereColumn('InstanceId', '=', outer('Id', 2)).where('Kind', 'wait').where('Status', 'pending');
-    anyName.whereExist(pendingWait.where(waitKeyRange(this.store.driver, pendingWait, anyName)));
+    const pendingWait = WorkflowStepModel.query()
+      .whereColumn('InstanceId', '=', outer('Id', 2))
+      .where('Kind', 'wait')
+      .where('Status', 'pending')
+      .whereColumn('Key', '>=', concat('wait:', outer('Name'), '#'))
+      .whereColumn('Key', '<', concat('wait:', outer('Name'), '$'));
+    anyName.whereExist(pendingWait);
     // filtered before the LIMIT: unregistered versions must not take the reserved slots
     return WorkflowInstanceModel.query()
       .onPrimary()

@@ -39,6 +39,12 @@
       "path": "../exceptions/tsconfig.json"
     },
     {
+      "path": "../durable/tsconfig.json"
+    },
+    {
+      "path": "../idempotency/tsconfig.json"
+    },
+    {
       "path": "../http/tsconfig.json"
     },
     {
