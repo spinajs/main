@@ -4,9 +4,8 @@ import type { Class, IContainer, IInjectDescriptor } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { principalKey } from '@spinajs/authz';
 import { Clock, DbClock, DurableSystemClock, FaultInjector, parseDuration } from '@spinajs/durable';
-import { IdempotencyKeyReuse, IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, fingerprintOf, idempotencyKey, isCrash } from '@spinajs/idempotency';
+import { IdempotencyKeyReuse, IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, fingerprintOf, idempotencyKey, idempotencyPrincipal, isCrash } from '@spinajs/idempotency';
 import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply } from '@spinajs/idempotency';
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
@@ -356,9 +355,12 @@ export class SocketIdempotency {
     return this.bound.leases;
   }
 
-  /** A clientId is not a secret, so a stored reply must never reach another principal. */
+  /**
+   * A clientId is not a secret, so a stored reply must never reach another principal, nor a narrower credential of the
+   * same one: idempotency runs before the policies, which enforce a ceiling or an impersonation's limits.
+   */
   public scope(connection: SocketConnection, key: string): string {
-    const principal = principalKey(connection.principal);
+    const principal = idempotencyPrincipal(connection.principal);
     // a 3.x store keeps the 3.x key, so a reply it stored before the upgrade still replays
     if (this.Store instanceof LegacySocketIdempotencyStore) {
       return [principal, connection.clientId, key].map(encodeURIComponent).join(':');
