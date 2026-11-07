@@ -10,7 +10,7 @@ import type { TestApp } from '@spinajs/testing';
 import type express from 'express';
 
 import { appPort, httpApp, req } from './common.js';
-import { AroundMiddleware, BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
 import type { ControllerActionHost, IActionLocalStoregeContext, IController, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
 import { createAroundHandler } from '../src/around.js';
 
@@ -64,7 +64,7 @@ class InnerProbe extends RouteMiddleware {
   public async onAfter() {}
 }
 
-class OwnAnswer extends AroundMiddleware {
+class OwnAnswer extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround({ res }: IRouteInvocation) {
@@ -73,7 +73,7 @@ class OwnAnswer extends AroundMiddleware {
   }
 }
 
-class Observer extends AroundMiddleware {
+class Observer extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround(inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
@@ -92,7 +92,7 @@ class Observer extends AroundMiddleware {
 }
 
 /** Calls proceed() only after the client went away. */
-class LateProceed extends AroundMiddleware {
+class LateProceed extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround({ res }: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
@@ -106,7 +106,7 @@ class LateProceed extends AroundMiddleware {
 }
 
 @NewInstance()
-class Nest extends AroundMiddleware {
+class Nest extends RouteMiddleware {
   constructor(private readonly label: string) {
     super();
   }
@@ -118,7 +118,7 @@ class Nest extends AroundMiddleware {
   }
 }
 
-class Twice extends AroundMiddleware {
+class Twice extends RouteMiddleware {
   public async onAround(_inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
     await proceed();
     try {
@@ -130,7 +130,7 @@ class Twice extends AroundMiddleware {
   }
 }
 
-class Registering extends AroundMiddleware {
+class Registering extends RouteMiddleware {
   public onRegister(route: IRoute, path: string) {
     registered.push(`${String(route.Method)} ${path}`);
   }
@@ -140,7 +140,7 @@ class Registering extends AroundMiddleware {
   }
 }
 
-class DisabledRegistering extends AroundMiddleware {
+class DisabledRegistering extends RouteMiddleware {
   public override isEnabled() {
     return false;
   }
@@ -413,7 +413,7 @@ describe('Around middleware handler', () => {
   const route = { Method: 'probe', Type: 'get' } as unknown as IRoute;
   const controller = {} as IController;
 
-  class Probe extends AroundMiddleware {
+  class Probe extends RouteMiddleware {
     constructor(public around: (inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) => Promise<void>) {
       super();
     }
@@ -511,23 +511,25 @@ describe('Around middleware handler', () => {
   });
 });
 
+const chain = (middlewares: RouteMiddleware[]): IRouteChainOptions =>
+  ({
+    controller: {} as ControllerActionHost,
+    route: { Method: 'probe', Type: 'get' } as unknown as IRoute,
+    path: '/x/probe',
+    basePath: 'x',
+    middlewares,
+    policies: { Controller: [], Route: [] },
+    errorHandlers: [],
+  } as unknown as IRouteChainOptions);
+
 describe('Around middleware registration', () => {
-  class FailingRegister extends AroundMiddleware {
+  class FailingRegister extends RouteMiddleware {
     public onRegister() {
       throw new Error('missing peer');
     }
 
     public async onAround() {}
   }
-
-  const chain = (middlewares: RouteMiddleware[]): IRouteChainOptions =>
-    ({
-      controller: {} as ControllerActionHost,
-      route: { Method: 'probe', Type: 'get' } as unknown as IRoute,
-      path: '/x/probe',
-      basePath: 'x',
-      middlewares,
-    } as IRouteChainOptions);
 
   it('fails the route registration with RouteRegistrationException naming the middleware and the route', async () => {
     let error: unknown;
@@ -539,5 +541,36 @@ describe('Around middleware registration', () => {
 
     expect(error).to.be.instanceOf(RouteRegistrationException);
     for (const part of ['FailingRegister', 'http:GET /x/probe', 'missing peer']) expect((error as Error).message).to.contain(part);
+  });
+});
+
+describe('Route middleware hooks', () => {
+  class BeforeOnly extends RouteMiddleware {
+    public async onBefore() {}
+  }
+
+  class BeforeAndAfter extends RouteMiddleware {
+    public async onBefore() {}
+
+    public async onAfter() {}
+  }
+
+  class AroundOnly extends RouteMiddleware {
+    public async onAround() {}
+  }
+
+  class NoHooks extends RouteMiddleware {}
+
+  const mounted = async (m: RouteMiddleware) => (await buildRouteHandlers(chain([m]))).filter((h) => h?.name === m.constructor.name).length;
+
+  it('mounts only the hooks a middleware implements', async () => {
+    expect(await mounted(new BeforeOnly())).to.eq(1);
+    expect(await mounted(new BeforeAndAfter())).to.eq(2);
+    expect(await mounted(new AroundOnly())).to.eq(1);
+    expect(await mounted(new NoHooks())).to.eq(0);
+  });
+
+  it('enables a middleware on every route unless it says otherwise', () => {
+    expect(new NoHooks().isEnabled({} as IRoute, {} as never)).to.eq(true);
   });
 });

@@ -15,15 +15,7 @@ export class BotCheckMiddleware extends RouteMiddleware {
     super();
   }
 
-  public isEnabled(): boolean {
-    return true;
-  }
-
   public async onBefore(req: express.Request): Promise<void> {
     await this.Service.check(this.check, req);
   }
-
-  public async onResponse(): Promise<void> {}
-
-  public async onAfter(): Promise<void> {}
 }

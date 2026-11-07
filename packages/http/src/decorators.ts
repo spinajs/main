@@ -410,10 +410,7 @@ export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any
  * @returns 
  */
 export function Accepts(accepts: HttpAcceptHeaders) {
-  return Middleware(class implements RouteMiddleware {
-    public isEnabled(): boolean {
-      return true;
-    }
+  return Middleware(class extends RouteMiddleware {
     public async onBefore(req: express.Request, res: express.Response, route: IRoute, _controller: IController): Promise<void> {
       const paramExtract = await DI.resolve(RequestTypeRouteArgs);
       const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route);
@@ -422,10 +419,6 @@ export function Accepts(accepts: HttpAcceptHeaders) {
         throw new ExpectedResponseUnacceptable(`Accepted content type ${accepts} is not supported`);
       }
 
-    }
-    public async onResponse(): Promise<void> {
-    }
-    public async onAfter(): Promise<void> {
     }
   });
 }

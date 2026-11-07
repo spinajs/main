@@ -9,7 +9,7 @@ A route middleware runs code around one route, or around every route of a contro
 1. Resolves the controller's middlewares, then the route's, with `container.resolve(type, options)`.
 2. Keeps those whose `isEnabled(route, controller)` returns `true`. This is decided once, not per request.
 3. Calls `onRegister(route, path, controller)` of each kept middleware that has one. A throw fails the registration.
-4. Builds the handler chain:
+4. Builds the handler chain from the hooks each middleware implements; a hook it leaves out adds nothing to the chain:
 
 | Step | Runs | Can |
 | --- | --- | --- |
@@ -50,19 +50,19 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default) | none | the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement all four methods, or extend `AroundMiddleware` and implement `onAround` only. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default) | none | `RouteTiming`, the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 
-Members:
+Members, all optional:
 
 | Member | Meaning |
 | --- | --- |
-| `isEnabled(route, controller): boolean` | Whether the middleware runs on this route. Called once at startup. |
-| `onBefore(req, res, route, controller): Promise<void>` | Before the action. |
-| `onResponse(response, route, controller): Promise<void>` | With the `Response` the action returned; not called when the action returned something else. |
-| `onAfter(req, res, route, controller): Promise<void>` | After the action, before the answer is sent. |
-| `Stage?: 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Around middlewares](#around-middlewares). |
-| `onRegister?(route, path, controller)` | Optional. Called once when the route is mounted, with the mounted path. |
-| `onAround?(invocation, proceed): Promise<void>` | Optional. Wraps the rest of the chain. |
+| `isEnabled(route, controller): boolean` | Whether the middleware runs on this route. Called once at startup. Returns `true` unless overridden. |
+| `Stage?: 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Stage](#stage). |
+| `onRegister?(route, path, controller)` | Called once when the route is mounted, with the mounted path. |
+| `onBefore?(req, res, route, controller): Promise<void>` | Before the action. |
+| `onResponse?(response, route, controller): Promise<void>` | With the `Response` the action returned, before it is sent; not called when the action returned something else. |
+| `onAfter?(req, res, route, controller): Promise<void>` | After the action succeeded, before the answer is sent: headers can still be set. |
+| `onAround?(invocation, proceed): Promise<void>` | Wraps the rest of the chain. See [Around middlewares](#around-middlewares). |
 
 ### `RouteMiddleware`: custom implementation
 
@@ -70,7 +70,7 @@ Set `Cache-Control` per route, with the max age as a `@Middleware` option:
 
 ```ts sample
 import { NewInstance } from '@spinajs/di';
-import { BaseController, BasePath, Get, IController, IRoute, Middleware, Ok, Response, RouteMiddleware, RouteType } from '@spinajs/http';
+import { BaseController, BasePath, Get, IController, IRoute, Middleware, Ok, RouteMiddleware, RouteType } from '@spinajs/http';
 import * as express from 'express';
 
 /** NewInstance: each @Middleware(CacheControl, seconds) keeps its own max age. */
@@ -84,10 +84,6 @@ export class CacheControl extends RouteMiddleware {
     // Never cache writes.
     return route.Type === RouteType.GET || route.Type === RouteType.HEAD;
   }
-
-  public async onBefore(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
-
-  public async onResponse(_response: Response, _route: IRoute, _controller: IController): Promise<void> {}
 
   public async onAfter(_req: express.Request, res: express.Response, _route: IRoute, _controller: IController): Promise<void> {
     res.setHeader('Cache-Control', `public, max-age=${this.MaxAgeSeconds}`);
@@ -113,7 +109,7 @@ export class CatalogController extends BaseController {
 
 ## Around middlewares
 
-`onAround(invocation, proceed)` wraps everything after the middleware: the later middlewares, the action, the error handlers and the response. `AroundMiddleware` is a base class for a middleware that needs only `onAround`: it has no-op `onBefore`, `onResponse` and `onAfter`, and `isEnabled()` returns `true`.
+`onAround(invocation, proceed)` wraps everything after the middleware: the later middlewares, the action, the error handlers and the response. Use it when the code before and after the route needs one scope, when the middleware may answer instead of the route, or when it must see every outcome; `onBefore` and `onAfter` are enough for the rest.
 
 - `proceed()` runs the rest of the chain and settles when the response finished. It can be called once: a second call rejects, and so does a call after `onAround` settled, for example from a timer.
 - Not calling `proceed()` ends the chain, and the middleware answers `res` itself. A middleware that neither proceeds nor answers gets a 500. The answer must be sent, or its sending awaited, before the `onAround` promise settles, for example `await new Promise((r) => res.once('finish', r))` after `sendFile` or `pipe`; otherwise the request is answered 500.
@@ -150,7 +146,7 @@ Log how every route of a controller answered:
 ```ts sample
 import { randomUUID } from 'node:crypto';
 import { Log, Logger } from '@spinajs/log';
-import { AroundMiddleware, BaseController, BasePath, Get, IRouteInvocation, IRouteOutcome, Middleware, MiddlewareStage, Ok, RouteClientGone } from '@spinajs/http';
+import { BaseController, BasePath, Get, IRouteInvocation, IRouteOutcome, Middleware, MiddlewareStage, Ok, RouteClientGone, RouteMiddleware } from '@spinajs/http';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -158,7 +154,7 @@ declare module '@spinajs/http' {
   }
 }
 
-export class AnswerAudit extends AroundMiddleware {
+export class AnswerAudit extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   @Logger('audit')
@@ -184,6 +180,24 @@ export class ReportsController extends BaseController {
     return new Ok({ total: 3 });
   }
 }
+```
+
+## Built-in: `RouteTiming`
+
+`RouteTiming` adds a `route;dur=<ms>` entry to the `Server-Timing` header: the time from its `onBefore` to its `onAfter`, which covers the inner middlewares, the argument extraction and the action. It is an `'outer'` middleware. When the [`ServerTiming`](15-server-middlewares.md) server middleware is on, the entry joins its list, next to `total`; otherwise `RouteTiming` appends the header itself. A route that failed gets no entry, because `onAfter` runs only after a success.
+
+```ts sample
+import { BaseController, BasePath, Get, Middleware, Ok, RouteTiming } from '@spinajs/http';
+
+@BasePath('search')
+@Middleware(RouteTiming)
+export class SearchController extends BaseController {
+  @Get()
+  public query() {
+    return new Ok([]);
+  }
+}
+// Server-Timing: route;dur=3.42, total;dur=4
 ```
 
 ## Important behaviour
