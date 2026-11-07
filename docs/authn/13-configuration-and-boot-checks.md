@@ -71,7 +71,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.keys.algorithms` | `string[]` | `['EdDSA', 'ES256']` | `EdDSA`, `ES256` | [`authn-keys`](../authn-keys/README.md) |
 | `authn.keys.challenge.*`, `.assertion.*`, `.httpSignature.*` | object | see owner | | `authn-keys` |
 | `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md); also read by [`authn-oidc`](../authn-oidc/01-login-flow.md) |
-| `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy` | `authn-http`, `authn-oidc` |
+| `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy`. With `authn-http` it feeds http's `RealIp` | `authn-http`, `authn-oidc` |
 | `authn.http.csrf.enabled`, `.allowedOrigins`, `.unauthenticatedRoutes` | `boolean`, `string[]`, `string[]` | `true`, `[]`, not set | origins, absolute paths | `authn-http`; deprecated aliases of `http.csrf.*`, `unauthenticatedRoutes` is ignored |
 | `authn.http.logout.clearSiteData` | `string[]` | `['cache', 'cookies', 'storage']` | `cache`, `cookies`, `storage`, `executionContexts`, `*` | `authn-http` |
 
@@ -106,7 +106,9 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 | `secrets` | error, warning | The secret checks above |
 | `mfa` | error | The policy cannot be resolved; users enrolled in a step `authn.mfa.steps` does not list (asks every `MfaEnrolments` source, so it opens the authn store); a source that fails |
 | `throttle` | error | No throttle can be selected, or the selected one refuses the configuration |
+| `throttle` | warning | `authn.throttle.ipv6Prefix` is set and differs from `http.throttle.ipv6Prefix` (default 64): authn and the http limiters count different IPv6 networks |
 | `proxy` | warning | Neither `authn.http.trustProxy` nor `http.trustProxy` is set |
+| `proxy` | warning | Both are set and differ (`true` equals `1`, `"a, b"` equals `["a", "b"]`); `authn.http.trustProxy` wins |
 | `cors` | warning | `http.cors` is set with an empty or missing `origins` list, or `origins` is not a list |
 
 ## Services and extension points

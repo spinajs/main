@@ -44,8 +44,10 @@ No limit ships on `POST /auth/tokens/revoke` (its IP throttle already counts eve
   password do not spend the anonymous budget of a shared address.
 - Counters live in the `ThrottleStore` of `@spinajs/http`: `MemoryThrottleStore` counts per process. Behind several
   instances, register a shared store, or each instance allows the full limit.
-- The address is `req.storage.realIp`. Behind a reverse proxy, configure the proxy trust, or every client shares the
-  proxy's address and one budget: one client then locks everyone out of the route.
+- The address is `req.storage.realIp`, the same client address the authn throttle counts: `authn.http.trustProxy`,
+  else `http.trustProxy` ([one client address](../http/17-client-ip-and-trust-proxy.md#one-client-address-with-authn)).
+  Behind a reverse proxy set one of them, or every client shares the proxy's address and one budget: one client then
+  locks everyone out of the route.
 
 ## Configuration
 

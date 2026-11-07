@@ -1,10 +1,10 @@
 # Client IP and trusted proxies
 
-`RealIp` writes the client address into `req.storage.realIp` on every request. Behind a load balancer or reverse proxy it reads `X-Forwarded-For`, but only through the proxies you trust in `http.trustProxy`; with no trust configured it uses the socket address. `@Ip()`, the access log, the throttle and `@spinajs/authn-http` all read this value. The same trust rules are exported as functions for other packages.
+`RealIp` writes the client address into `req.storage.realIp` on every request. Behind a load balancer or reverse proxy it reads `X-Forwarded-For`, but only through the proxies you trust in `http.trustProxy`; with no trust configured it uses the socket address. It is the one source of the client address: `@Ip()`, the access log, `http.throttle`, `@RateLimit` and `@spinajs/authn-http` (its `ClientIp`, `@IpThrottle`, the authn services and the audit log) all read this value. With `@spinajs/authn-http` installed, `authn.http.trustProxy` feeds it too (see [One client address with authn](#one-client-address-with-authn)). The same trust rules are exported as functions for other packages.
 
 ## How it works
 
-When it resolves, `RealIp` (Order 1) calls its protected `proxyTrust()` once, which parses `http.trustProxy` with `parseTrustProxy(value, 'http.trustProxy')`. A bad value throws `InvalidOption` and stops the boot.
+When it resolves, `RealIp` (Order 1; `AuthnRealIp`, which `@spinajs/authn-http` registers over it, Order 0) calls its protected `proxyTrust()` once, which parses `http.trustProxy` with `parseTrustProxy(value, 'http.trustProxy')`. A bad value throws `InvalidOption` and stops the boot.
 
 Per request (`onBefore`), RealIp stores that trust in `req.storage.proxyTrust`, so later middlewares and controllers read it with `requestProxyTrust(req)` instead of parsing a setting again. Then it computes `trustedClientAddress(socketAddress, xForwardedFor, trust)`:
 
@@ -42,11 +42,24 @@ export default {
 
 `true` means one hop, never "trust everything". The schema refuses a string that is only a number (`"1"`): write the number.
 
+### One client address with authn
+
+`@spinajs/authn-http` registers `AuthnRealIp` over `RealIp` (`DI.register(AuthnRealIp).as(RealIp)`), so the server mounts it in `RealIp`'s place, not next to it. `@spinajs/http` itself reads no authn key. Effects:
+
+1. The trust is `authn.http.trustProxy` when it is set (not `null`), else `http.trustProxy`. `realIp`, `req.storage.proxyTrust` and every limiter follow it.
+2. authn's `ClientIp` (Order 1) copies `realIp` into `req.storage.ClientIp`; it parses no trust of its own. `AuthnRealIp` runs at Order 0 so it always comes first.
+3. One IPv6 prefix: authn's ip keys use `authn.throttle.ipv6Prefix` when it is set, else `http.throttle.ipv6Prefix` (both default 64), the prefix `http.throttle` and `@RateLimit` count.
+4. The authn boot logs a warning (once per process, on the `authn-boot` logger, and in `authn:check-config`) when:
+   - `authn.http.trustProxy` and `http.trustProxy` are both set and differ; `authn.http.trustProxy` wins;
+   - `authn.throttle.ipv6Prefix` is set and differs from `http.throttle.ipv6Prefix` (or its default 64).
+
+Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to both.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `ClientIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
+| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (Order 0; reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
 | `parseTrustProxy(value, key)` | exported function | | | Returns a `ProxyTrust`: `{ hops }` or `{ list: BlockList }`. Throws `InvalidOption` naming `key`. |
 | `parseTrustProxyOverride(override, overrideKey, shared)` | exported function | | | `override` when it is not `null` or `undefined`, else `shared` (`http.trustProxy`). Throws `InvalidOption` naming the key whose value is bad. |
 | `requestProxyTrust(req)` | exported function | | | The trust RealIp stored for this request; no proxy (`{ hops: 0 }`) when RealIp did not run. |
@@ -102,7 +115,7 @@ DI.register(AppRealIp).as(RealIp);
 
 ## Important behaviour
 
-- Without `http.trustProxy`, behind a proxy every request shows the proxy's address: rate limits and logs then treat all clients as one.
+- Without `http.trustProxy` (or `authn.http.trustProxy` with `@spinajs/authn-http`), behind a proxy every request shows the proxy's address: rate limits and logs then treat all clients as one, and one client can use up a route's whole budget.
 - Trusting too much lets clients forge their address: with `trustProxy: 2` and only one real proxy, a client-sent `X-Forwarded-For` entry is believed.
 - A hop count trusts any peer for that many steps; an address list trusts only listed peers. Prefer a list when proxy addresses are known.
 - A non-IP entry in `X-Forwarded-For` (eg. `unknown`, or `fe80::1%eth0` with a zone id) stops the walk at the last good address, so a zone id never reaches `realIp` or a throttle key. The zone id of a link-local socket address comes from the kernel, not the client, so it is dropped instead: the peer is a client address and a trusted peer like any other.
@@ -147,4 +160,4 @@ console.log(
 - [Throttling](18-throttling.md): counts per client address.
 - [Request storage and tracing](19-request-storage-and-tracing.md): `req.storage` and the access log.
 - [Same-origin guard](22-same-origin-guard.md): compares `Origin` with `requestOrigin()` under the stored trust.
-- `@spinajs/authn-http`: `ClientIp` and the CSRF origin check built on these functions.
+- `@spinajs/authn-http`: `AuthnRealIp`, `ClientIp` and the CSRF origin check built on these functions; see [Request authentication](../authn-http/01-request-authentication.md).

@@ -52,7 +52,8 @@ export default {
 - There is no key for back-channel logout: the schema refuses `authn.oidc.rateLimit.backchannelLogout`.
 - A global floor in `http.routes.middlewares` (`RateLimitMiddleware` for every route) does reach back-channel logout,
   which declares no limit of its own. Keep such a floor well above the logout volume of your IdP, or do not use one.
-- Counters are per process with `MemoryThrottleStore`; behind a proxy the address needs the proxy trust configured.
+- Counters are per process with `MemoryThrottleStore`. Behind a proxy set `http.trustProxy` or `authn.http.trustProxy`, or
+  every client shares the proxy's address and one budget.
 
 ## Related
 

@@ -55,6 +55,9 @@ export class AuthnRegistrationController extends BaseController {
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
 
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
+
   @Autoinject(Hooks)
   protected Hooks!: Hooks;
 
@@ -94,7 +97,7 @@ export class AuthnRegistrationController extends BaseController {
 
     const ctx = contextOf(client, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
-    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'register', ctx);
+    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'register', ctx);
     if (!gate.allowed) return registerThrottled(gate.retryAfterSeconds);
 
     const passwords = await this.Container.resolve(PasswordService);

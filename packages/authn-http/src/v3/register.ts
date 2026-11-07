@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { Controllers, HttpServer, RealIp, ServerMiddleware } from '@spinajs/http';
 import { Log } from '@spinajs/log';
 // The authn root registers its services (AuthnService, the MFA policy, the throttle, ...) in the root container.
 import '@spinajs/authn';
@@ -8,6 +8,7 @@ import { CredentialExtractor } from '@spinajs/authn/contracts';
 
 import { AuthnPrincipalResolver } from '../api.js';
 import { AuthnMiddleware } from '../middleware/authn.js';
+import { AuthnRealIp } from '../middleware/client-ip.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../extractors/bearer.js';
 import { HttpSignatureExtractor } from '../extractors/signature.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../resolvers/credential.js';
@@ -20,6 +21,8 @@ const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolve
 
 // Idempotent: a container's registry skips a class already registered under the same base.
 function register(container: IContainer): void {
+  // In RealIp's slot of the ServerMiddleware list, not a second entry: one middleware writes the client address.
+  container.register(AuthnRealIp).as(RealIp);
   container.register(AuthnMiddleware).as(ServerMiddleware);
   for (const extractor of [HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]) container.register(extractor).as(CredentialExtractor);
   for (const resolver of [KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]) container.register(resolver).as(AuthnPrincipalResolver);
@@ -45,8 +48,9 @@ function warnIfLoadedTooLate(root: IContainer): void {
 }
 
 /**
- * Registers the 3.0 authentication layer: AuthnMiddleware, the credential extractors and the principal resolvers in
- * `container`, and the 3.0 route args in the root container, where @spinajs/http looks them up by name.
+ * Registers the 3.0 authentication layer: AuthnRealIp over RealIp, AuthnMiddleware, the credential extractors and the
+ * principal resolvers in `container`, and the 3.0 route args in the root container, where @spinajs/http looks them up by
+ * name.
  *
  * Loading the package does this for the root container, which HttpServer and http-socket resolve their middlewares and
  * extractors from, so an app need not call it, but it must import the package before it resolves Controllers or

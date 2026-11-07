@@ -30,7 +30,7 @@ Per request (`onBefore`):
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.throttle.enabled` | `boolean` | `false` | | Turns the middleware on. |
-| `http.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | IPv6 clients are counted per prefix of this many bits. |
+| `http.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | IPv6 clients are counted per prefix of this many bits. `@RateLimit` counts the same; authn's ip keys take it unless `authn.throttle.ipv6Prefix` is set. |
 | `http.throttle.rules` | `IThrottleRule[]` | `[]` | | Checked in order; the first match wins. |
 | `http.throttle.rules[].path` | `string` | required | non-empty path prefix | Matched against the request path, including `http.controllers.route.prefix`. |
 | `http.throttle.rules[].methods` | `string[]` | all methods | HTTP methods | Methods the rule applies to. |
@@ -107,7 +107,7 @@ The two layers run at different points, and that is the trade-off:
   call from the IdP: a coarse rule counts it per IdP address. Exclude it (a more specific rule for it, listed first,
   with a high limit) if your IdP sends logouts in bulk.
 
-The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy`, or every client shares the proxy's address.
+The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy` (with `@spinajs/authn-http`, `authn.http.trustProxy` counts too), or every client shares the proxy's address.
 
 ## Per-route limits: `@RateLimit`
 
@@ -286,7 +286,7 @@ export class RedisThrottleStore extends ThrottleStore {
 - The first matching rule wins: a broad rule listed first shadows the specific ones after it.
 - Path matching is case-insensitive and on segment boundaries: `/auth` covers `/auth/login` but not `/authority`.
 - The path includes `http.controllers.route.prefix`; write it in the rule.
-- Counting is per client address. Set [`http.trustProxy`](17-client-ip-and-trust-proxy.md) behind a proxy, or every client shares the proxy's counter.
+- Counting is per client address, the one `RealIp` resolves for authn too. Set [`http.trustProxy`](17-client-ip-and-trust-proxy.md) behind a proxy, or every client shares the proxy's counter.
 - `MemoryThrottleStore` limits per process; with N instances the effective limit is N × `limit`.
 - A failing store answers the request with the store's error (500), it does not let the request through.
 - `limit: 0` refuses every matching request.

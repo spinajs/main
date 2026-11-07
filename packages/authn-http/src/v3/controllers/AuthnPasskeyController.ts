@@ -68,6 +68,9 @@ export class AuthnPasskeyController extends BaseController {
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
 
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
+
   private storeFullLogged = false;
 
   /**
@@ -88,7 +91,7 @@ export class AuthnPasskeyController extends BaseController {
     if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(client, 'login', session.handle), session.identity));
 
     const ctx = contextOf(client, 'login');
-    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix));
+    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix));
     if (ip) {
       const gate = await (await this.Container.resolve(AuthnThrottle)).attempt([ip], 'login', ctx);
       if (!gate.allowed) return passkeyChallengeThrottled(gate.retryAfterSeconds);
