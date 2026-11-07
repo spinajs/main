@@ -132,9 +132,10 @@ describe('configured services per key', () => {
     });
 
     it('keeps options an array of constructor arguments', () => {
-      const err = thrownBy(() => globalRouteMiddlewareDescriptors(cfgOf('http.routes.middlewares', [{ service: 'SelfOnlyRouteMiddleware', options: { a: 1 } }]), DI.RootContainer));
+      const err = thrownBy(() => globalRouteMiddlewareDescriptors(cfgOf('http.routes.middlewares', [{ service: 'SelfOnlyRouteMiddleware', options: { a: 1 } }, 'NoSuchRouteMiddleware']), DI.RootContainer));
       expect(err).to.be.instanceOf(InvalidOption);
-      expect(err.message).to.contain('http.routes.middlewares');
+      // entries are checked in config order: the first bad one is named
+      expect(err.message).to.contain('http.routes.middlewares').and.to.contain('options of "SelfOnlyRouteMiddleware"');
     });
   });
 

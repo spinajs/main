@@ -88,13 +88,14 @@ export async function resolveConfigErrorHandlers(cfg: Configuration, container: 
     return [];
   }
 
-  for (const entry of entries) {
+  const types = entries.map((entry) => {
     if (entry === null || typeof entry !== 'object' || typeof (entry as { service?: unknown }).service !== 'string') {
       throw new InvalidOption(`${ERROR_HANDLERS_KEY}: entry ${describeConfigEntry(entry)} is not { service: '<ErrorHandlerService name>' }`);
     }
-  }
+    return resolveConfiguredTypes(ERROR_HANDLERS_KEY, ErrorHandlerService, [entry], container)[0];
+  });
 
-  const services = await Promise.all(resolveConfiguredTypes(ERROR_HANDLERS_KEY, ErrorHandlerService, entries, container).map(({ type, entry }) => container.resolve<ErrorHandlerService>(type, [entry])));
+  const services = await Promise.all(types.map(({ type, entry }) => container.resolve<ErrorHandlerService>(type, [entry])));
 
   return services.map(toErrorDescriptor);
 }

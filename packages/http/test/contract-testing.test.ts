@@ -40,6 +40,13 @@ class ContractNotFound extends NotFound {}
 
 const NO_ID = { name: 'no id' };
 
+/** Fails before `res.json`: the route's guard is left armed when the error reply goes out. */
+class Exploding extends Ok {
+  public override async execute(): Promise<void> {
+    throw new Error('boom before res.json');
+  }
+}
+
 /** Entered before the route's idempotency gate, so it sees the replay, and breaks its body. */
 class BreakReplay extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
@@ -126,6 +133,11 @@ class ContractController extends BaseController {
   @Idempotent()
   public replayed() {
     return new Ok({ id: 1 });
+  }
+
+  @Get()
+  public explode() {
+    return new Exploding({ id: 1 });
   }
 }
 
@@ -253,6 +265,13 @@ describe('response contract validation', function () {
     expect(violations.count).to.eq(1);
   });
 
+  it('checks the error reply of a reply that failed before res.json once, as a problem document only', async () => {
+    await boot({ enabled: true, mode: 'throw' });
+    expect((await req().get('contract/explode')).status).to.eq(500);
+    expect(validator.problems).to.have.length(1);
+    expect(validator.responses).to.deep.eq([]);
+  });
+
   it('checks an error-map reply of a route only as a problem document, never against the route schema', async () => {
     await boot({ enabled: true, mode: 'throw' });
     expect((await req().get('contract/missing')).status).to.eq(404);
@@ -316,20 +335,49 @@ describe('response contract guard per container', () => {
 
   const containerWith = async (settings: Record<string, unknown>, withValidator = true) => {
     const violations = new Violations();
+    const validator = new StubValidator();
     const app = await createTestApp({
       scope: 'child',
       bootstrap: false,
       config: { http: { contractTesting: settings } },
       register: (c) => {
         if (withValidator) {
-          c.register(new StubValidator()).asValue(CONTRACT_VALIDATOR.key);
+          c.register(validator).asValue(CONTRACT_VALIDATOR.key);
           c.register(violations).asValue(CONTRACT_VIOLATIONS.key);
         }
       },
     });
     apps.push(app);
-    return { container: app.container, violations };
+    return { container: app.container, violations, validator };
   };
+
+  it('re-arms a guard not used yet with the rules of the last call instead of stacking a second one', async () => {
+    const { container, validator } = await containerWith({ enabled: true, mode: 'log' });
+    const { res, sent } = fakeRes();
+
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    guardResponseContract(res, container);
+    res.json({ x: 1 });
+    expect(validator.responses).to.have.length(0);
+
+    guardResponseContract(res, container);
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    res.json({ x: 2 });
+    expect(validator.responses).to.have.length(1);
+    expect(sent).to.have.length(2);
+  });
+
+  it('disarms an armed guard when called for a container with contract testing off', async () => {
+    const { container } = await containerWith({ enabled: true, mode: 'log' });
+    const { container: off } = await containerWith({ enabled: false });
+    const { res } = fakeRes();
+    const json = res.json;
+
+    guardResponseContract(res, container, { controller: 'C', handler: 'bad' });
+    expect(res.json).to.not.eq(json);
+    guardResponseContract(res, off, { controller: 'C', handler: 'bad' });
+    expect(res.json).to.eq(json);
+  });
 
   it('resolves validator, log and settings from the given container, not from root', async () => {
     const { container, violations } = await containerWith({ enabled: true, mode: 'throw' });

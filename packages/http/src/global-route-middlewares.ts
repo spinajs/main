@@ -22,9 +22,10 @@ const KEY = 'http.routes.middlewares';
 export function globalRouteMiddlewareDescriptors(cfg: Configuration, container: IContainer): IMiddlewareDescriptor[] {
   const entries = cfg.get<unknown[]>(KEY, []) ?? [];
 
-  return resolveConfiguredTypes(KEY, RouteMiddleware, entries, container).map(({ type, options }) => {
+  return entries.map((entry) => {
+    const [{ type, options }] = resolveConfiguredTypes(KEY, RouteMiddleware, [entry], container);
     if (options !== undefined && !Array.isArray(options)) {
-      throw new InvalidOption(`${KEY}: options of ${describeConfigEntry(type)} must be an array of constructor arguments`);
+      throw new InvalidOption(`${KEY}: options of ${describeConfigEntry((entry as { service: unknown }).service)} must be an array of constructor arguments`);
     }
     return { Type: type, Options: (options as unknown[] | undefined) ?? [] };
   });
