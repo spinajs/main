@@ -6,7 +6,7 @@ import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
 import { ServerMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext, Response } from '../interfaces.js';
-import { rateLimitAnswer } from './rate-limit-answer.js';
+import { quietRateLimitAnswer, rateLimitAnswer } from './rate-limit-answer.js';
 
 /**
  * One throttling rule. Matched against the incoming request path by PREFIX, on a
@@ -30,6 +30,12 @@ export interface IThrottleRule {
 
   /** Fixed window length in seconds */
   windowSeconds: number;
+
+  /**
+   * false: no `X-RateLimit-*` headers on the requests the rule counts; the 429 still carries `Retry-After`. For routes
+   * whose answers must not reveal a limiter (authn). Default true.
+   */
+  headers?: boolean;
 }
 
 /**
@@ -160,7 +166,8 @@ export class ThrottleMiddleware extends ServerMiddleware {
 
     // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
     // answers the request instead of the route (fail closed).
-    return rateLimitAnswer(res, rule.limit, await this.Store.increment(key, rule.windowSeconds));
+    const hit = await this.Store.increment(key, rule.windowSeconds);
+    return rule.headers === false ? quietRateLimitAnswer(rule.limit, hit) : rateLimitAnswer(res, rule.limit, hit);
   }
 
   private throttle(): { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null {
@@ -178,6 +185,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
     rules.forEach((r, i) => {
       if (!(Number.isFinite(r.limit) && r.limit >= 0)) throw new InvalidOption(`http.throttle.rules.${i}.limit must be a finite number >= 0`);
       if (!(Number.isFinite(r.windowSeconds) && r.windowSeconds > 0)) throw new InvalidOption(`http.throttle.rules.${i}.windowSeconds must be a finite positive number`);
+      if (r.headers !== undefined && typeof r.headers !== 'boolean') throw new InvalidOption(`http.throttle.rules.${i}.headers must be a boolean`);
     });
 
     const prefix = cfg.ipv6Prefix ?? DEFAULT_IPV6_PREFIX;

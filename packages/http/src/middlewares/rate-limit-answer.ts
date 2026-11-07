@@ -18,6 +18,11 @@ export function setRateLimitHeaders(res: express.Response, limit: number, hit: I
   res.set('X-RateLimit-Reset', String(Math.ceil(hit.resetAt / 1000)));
 }
 
+/** Over `limit`, the 429 answer carrying its own `Retry-After`; nothing is set on `res`. */
+export function quietRateLimitAnswer(limit: number, hit: IThrottleHit): Response | undefined {
+  return hit.count > limit ? tooManyRequests().setHeader('Retry-After', String(retryAfterSeconds(hit))) : undefined;
+}
+
 /** Sets the `X-RateLimit-*` headers for `hit`; over `limit`, also `Retry-After`, and returns the 429 answer. */
 export function rateLimitAnswer(res: express.Response, limit: number, hit: IThrottleHit): Response | undefined {
   setRateLimitHeaders(res, limit, hit);

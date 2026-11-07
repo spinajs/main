@@ -260,12 +260,31 @@ describe('RateLimitMiddleware', () => {
         [{ limit: 1 }, 'windowSeconds'],
         [{ windowSeconds: 60 }, 'limit'],
         [{ limit: 1, windowSeconds: 60, by: 'session' as 'ip' }, 'by'],
+        [{ limit: 1, windowSeconds: 60, answer: 'x' as never }, 'answer'],
+        [{ limit: 1, windowSeconds: 60, key: 1 as never }, 'key'],
+        [{ limit: 1, windowSeconds: 60, headers: 'false' as never }, 'headers'],
+        [{ limit: 1, windowSeconds: 60, header: false } as IRateLimitOptions, 'header'],
+        [{ config: '', default: { limit: 1, windowSeconds: 60 } }, 'config'],
+        [{ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60, limt: 2 } as never }, 'limt'],
       ];
       for (const [options, name] of bad) {
         const error = await registrationError(await makeObjectMiddleware(options));
         expect(error, JSON.stringify(options)).to.be.instanceOf(InvalidArgument);
         expect(error?.message, JSON.stringify(options)).to.contain(name);
       }
+    });
+
+    it('fails closed when a subclass skips super.onRegister', async () => {
+      class Forgetful extends RateLimitMiddleware {
+        public override onRegister(): void {}
+      }
+      const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
+      const mw = readingFrom(new Forgetful(1, 60), container);
+      Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
+
+      expect(mw.isEnabled(ROUTE, CONTROLLER)).to.eq(true);
+      mw.onRegister();
+      for (let i = 0; i < 2; i++) expect(((await run(mw)).error as Error)?.message).to.contain('super.onRegister');
     });
 
     it('answers with `answer` and, with headers: false, sets no X-RateLimit-* and no Retry-After of its own', async () => {
