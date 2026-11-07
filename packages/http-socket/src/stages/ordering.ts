@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { principalKey } from '@spinajs/authz';
 import { SocketException } from '@spinajs/http-socket-common';
-import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { IRegisteredHandler, ISocketCommandContext, ISocketServerConfig, ISocketStageRegistration, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 import { SerialQueue } from '../queue.js';
 import { isStreamResult } from '../stream.js';
@@ -31,6 +31,13 @@ export class OrderingStage extends SocketCommandStage {
 
   public get Order(): number {
     return STAGE_ORDER.Ordering;
+  }
+
+  public onRegister(handler: IRegisteredHandler, registration: ISocketStageRegistration): void {
+    // the queue place is released when the handler returns, long before the stream ends
+    if (handler.descriptor.Options.ordered) {
+      registration.refuseStream('ordered');
+    }
   }
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
@@ -81,8 +88,8 @@ export class OrderingStage extends SocketCommandStage {
 
       // cut loose: the dispatcher has answered the abort already, a late handler result is dropped there
       if (!(await settled)) {
-        // the key stays running until the handler settles, so a resend joins it instead of running it twice
-        ctx.idempotency?.detach(running);
+        // the recorders settle with the handler, not now: what they hold stays held, so a resend cannot run it twice
+        ctx.detachOutcome(running);
         // a stream the handler returns later will never be sent; close it so its resources are released
         void running.then(
           async (late) => {
@@ -96,13 +103,11 @@ export class OrderingStage extends SocketCommandStage {
       }
 
       // recorded before this place is released: the next command's after check must see it. A failed
-      // record is answered by the idempotency stage, whose settle gets the same answer.
-      await running
-        .then(
-          (result) => ctx.idempotency?.settle({ result }),
-          (error: unknown) => ctx.idempotency?.settle({ error }),
-        )
-        .catch(() => undefined);
+      // record is answered by the stage that owns the recorder, whose settle gets the same answer.
+      await running.then(
+        (result) => ctx.recordOutcome({ result }),
+        (error: unknown) => ctx.recordOutcome({ error }),
+      );
 
       return running;
     });

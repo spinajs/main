@@ -8,11 +8,11 @@
 2. **`HttpServer.resolve()`** creates the Express app and sorts the server middlewares by `Order`, ascending.
 3. It creates an HTTPS server when the top-level `https` key is `true` (reading `http.ssl.key` and `http.ssl.cert` from disk), otherwise an HTTP server. Both track open sockets and log server-level `error` events.
 4. It logs where response templates live (`__fs_http_response_templates__` file provider), or that HTML error pages are off when the provider is missing.
-5. It adds the per-path body limit gate when `http.bodyLimits` has rules (see [Body size limits](04-route-arguments.md#body-size-limits)), then the raw Express handlers from `http.middlewares`, in array order.
-6. It adds each server middleware's `before()` handler, lowest `Order` first.
+5. It adds its own first handler, which creates `req.storage = {}`, then the per-path body limit gate when `http.bodyLimits` has rules (see [Body size limits](04-route-arguments.md#body-size-limits)), then the raw Express handlers from `http.middlewares`, in array order.
+6. It mounts each enabled server middleware (`handler()`, or its `onAround` and `onBefore` handlers), lowest `Order` first.
 7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
-9. **`start()`** adds each server middleware's `after()` handler once per instance, highest `Order` first, so the error handler ends up last. Then it listens on `http.port` and emits `http.server.listening`.
+9. **`start()`** adds, once per instance, the `NotFoundMiddleware` and `ErrorHandlerMiddleware` tail. Then it listens on `http.port` and emits `http.server.listening`.
 10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
 
 ```mermaid
@@ -22,17 +22,17 @@ sequenceDiagram
   participant S as HttpServer
   participant C as Controllers
   App->>DI: resolve(Controllers)
-  DI->>S: resolve() — Express app, http.middlewares, before(), static
+  DI->>S: resolve() — Express app, req.storage, http.middlewares, server middlewares, static
   DI->>C: resolve() — discover, build routers
   C->>S: use(ControllersRouter)
   App->>S: start()
-  S->>S: after() handlers, listen(http.port)
+  S->>S: 404 and error tail, listen(http.port)
   S-->>DI: emit http.server.listening
   App->>S: stop()
   S-->>DI: emit http.server.closing / http.server.closed
 ```
 
-The resulting Express stack, top to bottom: the body limit gate (only when `http.bodyLimits` has rules) → `http.middlewares` → `ServerMiddleware.before()` by `Order` → static files → controllers router → `ServerMiddleware.after()` (404 handler, then error handler).
+The resulting Express stack, top to bottom: `req.storage` → the body limit gate (only when `http.bodyLimits` has rules) → `http.middlewares` → server middlewares by `Order` → static files → controllers router → the 404 → the global error answer. Every framework reply, the 404 and the error answer included, goes out through the [reply pipeline](15-server-middlewares.md#request-timeline).
 
 ### Lifecycle
 
@@ -53,7 +53,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `https` | `boolean` | `false` | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. `HTTPS_CONFIGURATION_SCHEMA` refuses anything else, `null` included. |
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
-| `http.middlewares` | `express.RequestHandler[]` | `defaultMiddlewares()`: `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Your list replaces the defaults; spread `defaultMiddlewares()` to keep them. |
+| `http.middlewares` | `express.RequestHandler[]` | `defaultMiddlewares()`: `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser` | any Express handlers | Raw handlers added first, before every server middleware. Your list replaces the defaults; spread `defaultMiddlewares()` to keep them. |
 | `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied before `http.middlewares`; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
@@ -62,6 +62,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.controllers.route.prefix` | `string` | `''` | path without slashes at the ends | Prefix for every controller route; see [Controllers and routing](02-controllers-and-routing.md#path-rules). |
 | `system.dirs.controllers` | `string[]` | not set | directories | Where controllers are scanned; see [Controller discovery](03-controller-discovery.md). |
 | `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers; see [Error handling](11-error-handling.md#app-wide-handlers). |
+| `http.routes.middlewares` | `GlobalRouteMiddlewareEntry[]` | `[]` | `RouteMiddleware` names or classes, `{ service, options }` | Route middlewares on every route, before the controller and route ones; see [Route middlewares](14-route-middlewares.md#global-route-middlewares). |
 | `http.csrf.*` | object | `enabled: true`, empty lists | | The default-deny `CsrfGuard`; see [CSRF guard](23-csrf-guard.md#configuration). |
 | `http.bot.*` | object | `enabled: false` | | `@BotCheck` verifiers and checks; see [Bot checks](23-bot-check.md#configuration). |
 | `http.throttle.*` | object | `enabled: false`, `ipv6Prefix: 64`, `rules: []` | | Per-IP, per-path rate limits; see [Throttling](18-throttling.md). |
@@ -75,7 +76,6 @@ The default `http.middlewares` are:
 | `express.urlencoded` | `extended: true` | form posts |
 | `express.text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
 | `configuredCookieParser` | secret from `http.cookie.secret` | signed cookies; see [Cookies](20-cookies.md) |
-| `compression()` | package defaults | gzip; the [`Compression`](15-server-middlewares.md) server middleware compresses as well |
 
 ```ts
 // config/http.ts in your app
@@ -178,7 +178,7 @@ void main();
 
 ## Important behaviour
 
-- `start()` is idempotent and restartable. A second call while listening does nothing; `stop()` then `start()` listens again on the same port without stacking the `after()` handlers twice.
+- `start()` is idempotent and restartable. A second call while listening does nothing; `stop()` then `start()` listens again on the same port without stacking the 404 and error tail twice.
 - `start()` rejects when `listen` fails. `EADDRINUSE` also logs `Port <port> is busy`.
 - `stop()` and `dispose()` share one shutdown. Concurrent or repeated calls get the same promise and never reject.
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
@@ -242,7 +242,7 @@ void main();
 ## Related
 
 - [Controllers and routing](02-controllers-and-routing.md): what the controllers router contains.
-- [Server middlewares](15-server-middlewares.md): the `before()` and `after()` handlers and their `Order`.
+- [Server middlewares](15-server-middlewares.md): their hooks, `Order` and the request timeline. Compression is the `Compression` server middleware (`http.compression.*`); the default `http.middlewares` hold none.
 - [Responses](10-responses.md): `http.AcceptHeaders` and `http.FatalTemplate` in use.
 - [`@spinajs/configuration`](../configuration/README.md): config files, schemas and defaults.
 - [`@spinajs/fs`](../fs/README.md): the file providers the server and responses read.

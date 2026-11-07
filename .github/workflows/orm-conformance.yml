@@ -1,0 +1,138 @@
+name: orm-conformance
+
+# One query corpus ( packages/orm-conformance ) on sqlite, PGlite, PostgreSQL 16.6 and MySQL 8.4 for every pull
+# request that touches the ORM, and on MSSQL 2022 every night. PGlite's results are the reference; accepted
+# differences are listed in packages/orm-conformance/divergences.json. The nightly job is not a required check.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-sqlite/**'
+      - 'packages/orm-postgres/**'
+      - 'packages/orm-pglite/**'
+      - 'packages/orm-mysql/**'
+      - 'packages/orm-mssql/**'
+      - 'packages/orm-conformance/**'
+      - '.github/workflows/orm-conformance.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-sqlite/**'
+      - 'packages/orm-postgres/**'
+      - 'packages/orm-pglite/**'
+      - 'packages/orm-mysql/**'
+      - 'packages/orm-mssql/**'
+      - 'packages/orm-conformance/**'
+      - '.github/workflows/orm-conformance.yml'
+  # GitHub runs schedules on the default branch only.
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build the drivers and the harness
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-conformance/tsconfig.build.json
+
+      # The only place a "pending" issue number fails the suite ( amendment 7 ); build.yml's npm test stays green.
+      - name: conformance (sqlite, PGlite, postgres 16.6, mysql 8.4)
+        working-directory: packages/orm-conformance
+        env:
+          ORM_CONFORMANCE_POSTGRES: postgres://postgres:postgres@127.0.0.1:15432/test
+          ORM_CONFORMANCE_MYSQL: mysql://root:root@127.0.0.1:13306/test
+          ORM_CONFORMANCE_REQUIRE_ISSUES: '1'
+        run: npm test
+
+  mssql-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'yourStrong(!)Password'
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build the drivers and the harness
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-conformance/tsconfig.build.json
+
+      # The image has no MSSQL_DATABASE setting, and no health check is declared on the service: the container's
+      # sqlcmd is polled until it can create the database.
+      - name: wait for SQL Server, create the test database
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -C -Q "IF DB_ID('test') IS NULL CREATE DATABASE [test]"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'SQL Server did not accept connections within 5 minutes' >&2
+          exit 1
+
+      - name: conformance (sqlite, PGlite, mssql 2022)
+        working-directory: packages/orm-conformance
+        env:
+          ORM_CONFORMANCE_MSSQL: mssql://sa:yourStrong(!)Password@127.0.0.1:1433/test
+        run: npm test

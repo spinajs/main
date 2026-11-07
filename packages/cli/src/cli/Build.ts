@@ -1,8 +1,8 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { Configuration, defaultMigrationDirs } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
-import { publishedManifest } from '@spinajs/manifest';
+import { publishedManifest, validateManifest } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { CliCommand, Command, Option } from '../index.js';
@@ -83,6 +83,15 @@ export class Build extends CliCommand {
     }
 
     const { manifest, written } = built;
+    // The runtime skips this check for a manifest whose hash matches, so a file that fails it must not be left behind.
+    const invalid = validateManifest(JSON.parse(JSON.stringify(manifest)));
+    if (invalid.length > 0) {
+      rmSync(written, { force: true });
+      this.write([...cwdWarnings, `error CLI002 - the manifest fails its JSON Schema and was not kept: ${invalid.join('; ')}`, ''].join('\n'));
+      process.exitCode = 1;
+      return;
+    }
+
     const lines = manifest.diagnostics.map((d) => `${d.severity} ${d.code} ${d.source ? `${d.source.file}:${d.source.line}` : '-'} ${d.message}`);
     const summarized = summarize(manifest.diagnostics);
     const counts = { ...summarized, warning: summarized.warning + cwdWarnings.length };

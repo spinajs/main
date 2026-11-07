@@ -7,6 +7,7 @@ import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOp
 import { DataValidator } from '@spinajs/validation';
 import { AccessDenied, FALSE, Unauthenticated } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
+import { IdempotencyClaimConflict } from '@spinajs/idempotency';
 import { ErrorCode, SocketException } from '@spinajs/http-socket-common';
 import { AccessDeniedMapping, ForbiddenMapping, HandleSocketException, SocketErrorMapper, codeMapping, resolveSocketErrorMapping } from '../src/errors.js';
 import { configure } from './harness.js';
@@ -82,6 +83,12 @@ describe('socket error mapping', function () {
       retryable: false,
       details: { permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, reason: { code: 'locked', model: 'm1', detail: 'd' } },
     });
+  });
+
+  it('maps IdempotencyClaimConflict to a retryable unavailable, so the client resends instead of failing', () => {
+    const wire = mapper.toWire(new IdempotencyClaimConflict('k', new Error('Deadlock found when trying to get lock')), 'test');
+
+    expect(wire).to.include({ code: 'unavailable', retryable: true });
   });
 
   it('puts the invalid field into details', () => {

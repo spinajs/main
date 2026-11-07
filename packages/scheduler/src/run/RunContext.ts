@@ -14,7 +14,7 @@ import { defined, jsonColumn } from '../models/converters.js';
 import type { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
 import type { RunProgressPatch } from '../store/LeaseStore.js';
-import type { DbClock } from '../time/clock.js';
+import type { DbClock } from '@spinajs/durable';
 import { safeJson, toStructuredError } from '../tracking/structured.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { computeRunProgress, normalizeProgress, ProgressInput } from './progress.js';

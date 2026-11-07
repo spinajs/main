@@ -3,8 +3,7 @@ import type { Constructor } from '@spinajs/di';
 import { AuthzConfigError, parsePermission } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 import { BasePolicy, Middleware, Route, RouteMiddleware } from '@spinajs/http';
-import type { IController, IControllerDescriptor, IPolicyGroup, IRoute, Request, Response } from '@spinajs/http';
-import type * as express from 'express';
+import type { IController, IControllerDescriptor, IMiddlewareContext, IPolicyGroup, IRoute, Request } from '@spinajs/http';
 
 import type { AccessOptions } from '../api.js';
 import { auditUnscoped } from '../domains.js';
@@ -59,7 +58,7 @@ export function Access(permission: Permission | readonly Permission[], opts?: Ac
     groups.push(group);
 
     const middlewares = route ? route.Middlewares : controller.Middlewares;
-    if (rule.options.fields === 'filter' && !middlewares.some((m) => m.Type === AuthzFieldsMiddleware)) {
+    if ((rule.options.fields === 'filter' || rule.options.fields === 'filter-rows') && !middlewares.some((m) => m.Type === AuthzFieldsMiddleware)) {
       middlewares.push({ Type: AuthzFieldsMiddleware, Options: [] });
     }
   }) as ClassDecorator & MethodDecorator;
@@ -97,29 +96,24 @@ export class UnscopedMiddleware extends RouteMiddleware {
     super();
   }
 
-  /** Called when http registers the route: an unguarded route must not run unscoped, so registration fails. */
-  public isEnabled(route: IRoute, controller: IController): boolean {
+  /** An unguarded route must not run unscoped, so its registration fails. */
+  public onRegister(route: IRoute, _path: string, controller: IController): void {
     const access = routeAccess(controller, route.Method);
     if (!access.route && !access.controller) {
       throw new AuthzConfigError(`@Unscoped on ${controller.constructor.name}.${String(route.Method)} needs an @Access on the route or its class`);
     }
-    return true;
   }
 
-  public async onBefore(req: express.Request, _res: express.Response, route: IRoute, controller: IController): Promise<void> {
+  public async onBefore({ req, route, controller }: IMiddlewareContext): Promise<void> {
     const r = req as Request;
     r.storage.Unscoped = this.reason;
     const principal = r.storage.Principal;
-    await auditUnscoped(r.storage.AuthzHttpRoute?.domain ?? routeDomain(routeAccess(controller, route.Method)), {
+    await auditUnscoped(r.storage.AuthzHttpRoute?.domain ?? routeDomain(routeAccess(controller!, route!.Method)), {
       kind: 'unscoped',
       principal: principal ? { type: principal.type, id: principal.id } : { type: 'unattended', id: 'unattended' },
       reason: this.reason,
     });
   }
-
-  public async onResponse(_response: Response): Promise<void> {}
-
-  public async onAfter(): Promise<void> {}
 }
 
 export function Unscoped(reason: string): MethodDecorator {

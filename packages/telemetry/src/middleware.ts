@@ -1,8 +1,8 @@
-import * as express from 'express';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
+import { ServerMiddleware } from '@spinajs/http';
+import type { IFinishContext, IMiddlewareContext } from '@spinajs/http';
 
 import { Counter, Gauge, Histogram } from 'prom-client';
 import { Metrics, MetricMap } from './metrics.js';
@@ -33,12 +33,9 @@ const START_KEY = '__telemetryStart';
  * against the DI-resolved {@link Metrics} registry, and feeds the shared
  * {@link TelemetryStore} that backs the JSON stats endpoints.
  *
- * All of the end-of-request work runs from a `res.on( 'finish' )` handler
- * registered in `before()` — `ServerMiddleware.after()` is never reached for a
- * normal matched route, the same reason http's own `AccessLog` / `PerfRollup`
- * middlewares work this way. A `res.on( 'close' )` handler balances the in-flight
- * gauge — and only the gauge — for requests the client aborted, where `'finish'`
- * never fires. Every bit of it is guarded so telemetry can never break a request.
+ * `onBefore` starts the clock and the in-flight gauge; `onFinish` balances the
+ * gauge and, unless the client aborted, records the request ( {@link record} ).
+ * Every bit of it is guarded so telemetry can never break a request.
  */
 @Injectable(ServerMiddleware)
 export class TelemetryMiddleware extends ServerMiddleware {
@@ -80,8 +77,7 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
   constructor() {
     super();
-    // Needs req.storage ( ReqStorage = -2 ) and sits alongside RequestId /
-    // AccessLog ( Order 2 ).
+    // Alongside RequestId / AccessLog.
     this.Order = 2;
   }
 
@@ -125,36 +121,56 @@ export class TelemetryMiddleware extends ServerMiddleware {
   }
 
   /**
-   * Derive a stable, low-cardinality route label. Prefers the matched route
-   * path ( `req.route.path` or `req.storage.route` ) over the raw request path.
+   * A stable, low-cardinality route label: the mounted path of the matched route, else the raw request path.
    */
-  protected routeLabel(req: sRequest): string {
-    const anyReq = req as any;
-    const matched = anyReq.route?.path ?? (req.storage as any)?.route;
+  protected routeLabel({ req, path }: IMiddlewareContext): string {
+    // `http:<METHOD> <mounted path>`
+    if (typeof path === 'string' && path.length > 0) return path.slice(path.indexOf(' ') + 1);
+    const matched: unknown = (req as { route?: { path?: unknown } }).route?.path;
     if (typeof matched === 'string' && matched.length > 0) return matched;
-    return req.path ?? anyReq.originalUrl ?? 'unknown';
+    return req.path ?? req.originalUrl ?? 'unknown';
+  }
+
+  public onBefore({ storage }: IMiddlewareContext): void {
+    try {
+      this.ensureMetrics();
+      this.inFlight.inc();
+      // Only once the gauge went up: onFinish balances a request it finds started.
+      (storage as unknown as Record<string, unknown>)[START_KEY] = process.hrtime.bigint();
+    } catch (err) {
+      this.Log?.warn(err as Error, 'telemetry onBefore failed');
+    }
   }
 
   /**
-   * Do the end-of-request accounting. Called from the response `finish` event,
-   * never from `after()`.
+   * Balances the in-flight gauge of a request `onBefore` started, then records it unless the client aborted: an
+   * aborted request's `res.statusCode` is the un-sent default.
    */
-  protected onFinish(req: sRequest, res: express.Response): void {
+  public onFinish(ctx: IFinishContext): void {
+    if (typeof startOf(ctx) !== 'bigint') return;
+
     try {
-      const start = (req.storage as any)?.[START_KEY] as bigint | undefined;
-      const durationMs = start !== undefined ? Number(process.hrtime.bigint() - start) / 1e6 : 0;
-
-      const method = req.method ?? 'GET';
-
-      // Read the route label HERE, not in before(): `req.route` is only
-      // populated once the router has matched.
-      const route = this.routeLabel(req);
-      const status = res.statusCode;
-      const labels = { method, route, status: String(status) };
-
-      // Balance before()'s inc() FIRST: a throw from anything below would
-      // otherwise strand the gauge one higher for the rest of the process.
       this.inFlight.dec();
+    } catch (err) {
+      this.Log?.warn(err as Error, 'telemetry in-flight gauge failed');
+    }
+    if (ctx.aborted) return;
+
+    try {
+      this.record(ctx);
+    } catch (err) {
+      this.Log?.warn(err as Error, 'telemetry finish handler failed');
+    }
+  }
+
+  /** The metrics and the store entry of one finished request. */
+  protected record(ctx: IFinishContext): void {
+    try {
+      const durationMs = Number(process.hrtime.bigint() - (startOf(ctx) as bigint)) / 1e6;
+      const method = ctx.req.method ?? 'GET';
+      const route = this.routeLabel(ctx);
+      const status = ctx.res.statusCode;
+      const labels = { method, route, status: String(status) };
 
       this.requestDuration.observe(labels, durationMs);
       this.requestsTotal.inc(labels);
@@ -164,54 +180,8 @@ export class TelemetryMiddleware extends ServerMiddleware {
       this.Log?.warn(err as Error, 'telemetry finish handler failed');
     }
   }
+}
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      try {
-        this.ensureMetrics();
-        (req.storage as any)[START_KEY] = process.hrtime.bigint();
-        this.inFlight.inc();
-
-        // The inc() above must be balanced exactly once, whichever event wins.
-        // 'finish' does NOT fire when the client disconnects mid-response, only
-        // 'close' does — without the 'close' arm the gauge drifts monotonically
-        // upward for the life of the process behind a load balancer with client
-        // timeouts. On a normal request both fire, 'finish' first, so the flag
-        // is what keeps the gauge from being decremented twice.
-        let settled = false;
-
-        res.on('finish', () => {
-          if (settled) return;
-          settled = true;
-          this.onFinish(req, res);
-        });
-
-        res.on('close', () => {
-          if (settled) return;
-          settled = true;
-
-          // Aborted request: balance the gauge and NOTHING else. `res.statusCode`
-          // is still the un-sent default here, so recording it would pollute the
-          // status-class counters and the route stats with a response that was
-          // never sent.
-          try {
-            this.inFlight.dec();
-          } catch (err) {
-            this.Log?.warn(err as Error, 'telemetry close handler failed');
-          }
-        });
-      } catch (err) {
-        this.Log?.warn(err as Error, 'telemetry before() failed');
-      }
-      next();
-    };
-  }
-
-  /**
-   * Nothing to do after the controllers — express does not run this for a
-   * matched route. See {@link onFinish}.
-   */
-  public after(): null {
-    return null;
-  }
+function startOf({ storage }: IMiddlewareContext): unknown {
+  return (storage as unknown as Record<string, unknown> | undefined)?.[START_KEY];
 }

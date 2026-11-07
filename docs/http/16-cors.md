@@ -4,19 +4,19 @@
 
 ## How it works
 
-At startup (`CorsMiddleware.before()`, Order -1, right after the request storage):
+When the middleware resolves (Order -1, before every shipped server middleware but those you place lower):
 
-1. Reads `http.cors`. Absent, `null`, `false` or `true`: no handler.
+1. Reads `http.cors`. Absent, `null`, `false` or `true`: `isEnabled()` is false and nothing is mounted.
 2. Normalizes every entry of `origins` except `'*'` with `parseOrigin()`: lower-case scheme and host, default port removed, trailing slash removed. An entry that is not `scheme://host[:port]` throws `InvalidOption` and stops the boot.
-3. With no origin and no `'*'`, it logs a warning and adds no handler.
+3. With no origin and no `'*'`, it logs a warning and mounts nothing.
 
-Per request:
+Per request (`onBefore`):
 
 1. When explicit origins are listed, adds `Vary: Origin`.
-2. Without an `Origin` header, or with an origin that is neither listed nor covered by `'*'`: calls `next()` with no CORS header.
+2. Asks `allowance(origin)` what the request's `Origin` gets. Without an `Origin` header, or with an origin that is neither listed nor covered by `'*'`: the request goes on with no CORS header.
 3. Listed origin: `Access-Control-Allow-Origin: <origin>` and `Access-Control-Allow-Credentials: true`. Unlisted origin under `'*'`: `Access-Control-Allow-Origin: *`, no credentials.
-4. **Preflight** (`OPTIONS` with `Access-Control-Request-Method`): adds `Access-Control-Allow-Methods: GET,HEAD,PUT,PATCH,POST,DELETE` and `Access-Control-Allow-Headers` (the configured `allowedHeaders`, or the requested headers echoed with `Vary: Access-Control-Request-Headers`), then answers 204 with an empty body.
-5. Other requests: adds `Access-Control-Expose-Headers` when `exposedHeaders` is set, then `next()`.
+4. **Preflight** (`OPTIONS` with `Access-Control-Request-Method`): adds `Access-Control-Allow-Methods: GET,HEAD,PUT,PATCH,POST,DELETE` and `Access-Control-Allow-Headers` (the configured `allowedHeaders`, or the requested headers echoed with `Vary: Access-Control-Request-Headers`), then answers 204 with an empty body. The answer goes through the reply pipeline: server middlewares entered before CORS (a lower `Order`) see it in `onAfter`.
+5. Other requests: adds `Access-Control-Expose-Headers` when `exposedHeaders` is set, and the request goes on.
 
 `Forwarded` and every `X-Forwarded-*` header are removed from the allowed headers, configured or echoed: a page on an allowed origin must not choose what the app believes a trusted proxy said. An echoed entry that is not an RFC 9110 header name (a space, `<`, a non-ASCII byte) is dropped too.
 
@@ -47,45 +47,30 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `before()`. Or turn it off (no `http.cors`) and add your own `ServerMiddleware`. |
+| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `allowance(origin)`, which returns `{ allowOrigin, credentials }` or `undefined`; an overridden `allowance()` always sends `Vary: Origin`. A subclass that allows origins by a rule alone, without `http.cors.origins`, also overrides `isEnabled()` to return `true`. Or turn it off (no `http.cors`) and add your own `ServerMiddleware`. |
 | `parseOrigin(value)` | exported function | | | Returns the normalized origin, or `undefined` for anything that is not an origin. Reuse it to compare origins the same way. |
 
 ### `CorsMiddleware`: custom implementation
 
-Allow every subdomain of your domain over HTTPS, a rule an exact list cannot express. The subclass decides per request and keeps the preflight answer of the default:
+Allow every subdomain of your domain over HTTPS, a rule an exact list cannot express. The subclass only changes the decision; `Vary`, the preflight answer and the exposed headers stay the default's. The middleware is on only with origins in `http.cors.origins`, so list at least the apex domain there:
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { CorsMiddleware, Request, parseOrigin } from '@spinajs/http';
-import * as express from 'express';
+import { CorsAllowance, CorsMiddleware, parseOrigin } from '@spinajs/http';
 
 const ALLOWED = /^https:\/\/([a-z0-9-]+\.)*example\.com$/;
 
 export class SubdomainCors extends CorsMiddleware {
-  public before() {
-    return (req: Request, res: express.Response, next: express.NextFunction) => {
-      res.vary('Origin');
-
-      const origin = parseOrigin(req.headers.origin);
-      if (!origin || !ALLOWED.test(origin)) {
-        return next();
-      }
-
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-      if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
-        res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
-        res.setHeader('Access-Control-Allow-Headers', 'content-type,authorization');
-        res.setHeader('Access-Control-Max-Age', '600');
-        res.status(204).end();
-        return;
-      }
-      next();
-    };
+  protected allowance(origin: string): CorsAllowance | undefined {
+    // Browsers send the serialized origin; anything else is not an origin a rule should match.
+    if (parseOrigin(origin) === origin && ALLOWED.test(origin)) {
+      return { allowOrigin: origin, credentials: true };
+    }
+    return super.allowance(origin);
   }
 }
 
+// with http.cors.origins: ['https://example.com']
 DI.register(SubdomainCors).as(CorsMiddleware);
 ```
 

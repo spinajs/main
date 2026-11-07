@@ -32,9 +32,8 @@ import config, { buildEnvironmentFlags } from './config/configuration.js';
 import { isLayeredSource, type ConfigLayers } from './sources.js';
 import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
 
-import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
-import { default as ajvKeywords } from 'ajv-keywords';
+import { addKeywordPluginsOnUse } from './ajv-plugins.js';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
@@ -742,20 +741,17 @@ export class FrameworkConfiguration extends Configuration {
       this.Validator = new Ajv(options);
     }
 
-    // add $merge & $patch for json schema
-    ajvMergePath(this.Validator);
-
     // add common formats validation eg: date time
     ajvFormats.default(this.Validator);
-
-    // add keywords
-    ajvKeywords.default(this.Validator);
 
     // in strict mode ajv will throw when
     // unknown keyword in schema is met
     // we use $configurationModule keyword to identify
     // to match config module with config schema
     this.Validator.addKeyword('$configurationModule');
+
+    // Last: the keywords added above would otherwise install the plugins at once.
+    addKeywordPluginsOnUse(this.Validator);
   }
 
   // A child that registers a schema of its own must not hide the schemas of its ancestors.

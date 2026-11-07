@@ -4,8 +4,8 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 
 ## How it works
 
-1. **`ClientIp.before()`** writes `req.storage.ClientIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`.
-2. **`CsrfOriginGuard.before()`** refuses a cross-origin unsafe request from a browser, or one that carries the session cookie, with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
+1. **`ClientIp.onBefore()`** writes `req.storage.ClientIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`.
+2. **`CsrfOriginGuard.onBefore()`** refuses a cross-origin unsafe request from a browser, or one that carries the session cookie, with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
 3. **`AuthnMiddleware.authenticate()`** sets `req.storage.AuthnSession` and `req.storage.AuthnPrincipal` to `null`, then builds an `AuthnContext` with `contextOf(req, 'request')`: `ip` from `req.storage.ClientIp` and `userAgent`, each only when it is a string, `now` and purpose `'request'`.
 4. **`AuthnMiddleware.restoreSession()`** reads the session cookie (name from `authn.session.cookie`, see [`@spinajs/authn-session`](../authn-session/README.md)):
    - a raw cookie in `req.cookies` is unsigned with `http.cookie.secret` (`cookie-signature`);
@@ -18,7 +18,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 6. **`AuthnMiddleware.principalOf()`** asks the [principal resolvers](03-principal-resolvers.md) in ascending `order`: `KeyPrincipalResolver` (45), `TokenPrincipalResolver` (50), `SessionPrincipalResolver` (100). The first answer that is not `undefined` wins, `null` included; all `undefined` gives `null`.
 7. The answer goes to `req.storage.AuthnPrincipal`. A principal sets `Cache-Control: no-store`. An active session that gave no principal (revoked, expired, refused account) is dropped from `req.storage.AuthnSession`, so no route acts on it.
    With `authn.http.hooks.request` set to `true`, **`AuthnMiddleware.hookRequest()`** then runs the `authn.request` [action hooks](23-action-hooks.md) with a frozen copy of the principal (or `null`), the method, the path without its query string and the client ip. A refusal, or a hook that failed, answers 403 `{ error: 'action_refused', code }`.
-8. Any store or resolver error goes to `next(err)` and fails the request (500). The request never continues as anonymous after an error.
+8. Any store or resolver error rejects `onBefore` and fails the request (500) through the `@spinajs/http` global error answer. The request never continues as anonymous after an error.
 9. `PrincipalMiddleware` of `@spinajs/authz-http` (order 10) runs next and copies `req.storage.AuthnPrincipal` into the authorization principal through its `AuthnPrincipalSource`; see [Principal resolution](../authz-http/03-principal-resolution.md).
 
 ```mermaid
@@ -163,28 +163,20 @@ public async invoices() {
 ```ts sample
 import '@spinajs/authn-http';
 import { ServerMiddleware } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import type { IFinishContext } from '@spinajs/http';
 import { Injectable } from '@spinajs/di';
-import type * as express from 'express';
 
 @Injectable(ServerMiddleware)
 export class SignedInAccessLog extends ServerMiddleware {
   constructor() {
     super();
-    // After AuthnMiddleware (5): the principal is known here.
+    // After AuthnMiddleware (5): a request it refused never enters this one.
     this.Order = 6;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      const principal = req.storage.AuthnPrincipal;
-      if (principal) console.log(`${principal.type}:${principal.id} from ${req.storage.ClientIp} ${req.method} ${req.originalUrl}`);
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+  public onFinish({ req, res, storage, aborted }: IFinishContext): void {
+    const principal = storage.AuthnPrincipal;
+    if (principal) console.log(`${principal.type}:${principal.id} from ${storage.ClientIp} ${req.method} ${req.originalUrl} ${aborted ? 'aborted' : res.statusCode}`);
   }
 }
 ```

@@ -93,6 +93,19 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    routes: {
+      type: 'object',
+      default: {},
+      properties: {
+        // No item schema: a class entry is a function, which no JSON schema type accepts. Entries are checked at boot.
+        middlewares: {
+          type: 'array',
+          default: [],
+          description:
+            'Route middlewares mounted on every route, before the controller and route @Middleware ones: a RouteMiddleware name, a RouteMiddleware class, or { service, options } with constructor options.',
+        },
+      },
+    },
     csrf: {
       type: 'object',
       default: {},

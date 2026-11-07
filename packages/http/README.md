@@ -262,23 +262,31 @@ A config key that does not resolve to a registered `BasePolicy` throws `RouteReg
 
 ## Route middlewares
 
-Run before / after actions and can inspect the produced response:
+Run before the action, on every reply before it is sent, and after the response finished. Every hook is optional and takes one context object; implement only what you need:
 
 ```ts
 import { RouteMiddleware, Middleware } from '@spinajs/http';
+import type { IMiddlewareContext, IReplyContext, IFinishContext } from '@spinajs/http';
 
 export class AuditMiddleware extends RouteMiddleware {
-  public isEnabled(route: IRoute, controller: IController): boolean { return true; }
-  public async onBefore(req, res, route, controller): Promise<void> { /* before action */ }
-  public async onResponse(response, route, controller): Promise<void> { /* inspect response object */ }
-  public async onAfter(req, res, route, controller): Promise<void> { /* after action */ }
+  public isEnabled(route: IRoute, controller: IController): boolean { return true; } // the default
+  public async onBefore(ctx: IMiddlewareContext): Promise<void | Response> { /* before the action; a returned Response answers */ }
+  public async onAfter(ctx: IReplyContext): Promise<void> { /* every reply, ctx.response / ctx.error, before it is sent */ }
+  public onFinish(ctx: IFinishContext): void { /* the response finished, or the client went away (ctx.aborted) */ }
+  public async onAround(invocation, proceed): Promise<void> { /* wraps the rest of the chain */ await proceed(); }
 }
 
 @Middleware(AuditMiddleware)        // controller-wide or per-route
 export class OrdersController extends BaseController { ... }
 ```
 
-Server-level middlewares ( whole express stack, not per-route ) ship in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `NotFound`, `ErrorHandler`.
+Every reply of a matched route (the action's, an error reply, an early answer, an idempotent replay) goes through one reply pipeline: the `onAfter` hooks of the entered middlewares, inner first, then `response.execute()`. See [Route middlewares](../../docs/http/14-route-middlewares.md).
+
+`RouteTiming` is a ready route middleware: `@Middleware(RouteTiming)` adds the route's execution time to `Server-Timing`.
+
+`http.routes.middlewares` mounts route middlewares on every route ( names, classes or `{ service, options }` ), before the controller and route ones, eg. `routes: { middlewares: ['RouteTiming'] }`.
+
+Server middlewares ( every request, before static files and routing ) have the same hooks as route middlewares ( `onBefore`, `onAfter`, `onFinish`, `onAround` ) plus `Order`, `isEnabled()` and `handler()`; their `onAfter` runs after the route's, in reverse `Order`, for every framework reply, the 404 and error replies included. Shipped in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `ThrottleMiddleware`, `CsrfGuard`. `NotFoundMiddleware` and `ErrorHandlerMiddleware` are the fixed tail of `HttpServer`, replaceable through DI. `before()` / `after()` are gone: a class that still defines one fails `HttpServer.resolve()`.
 
 ## Controller discovery ( ControllerSource )
 

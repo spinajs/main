@@ -10,13 +10,12 @@ import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
 import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
-import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
-import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
+import { resolveConfigErrorHandlers } from './errors/on-error.js';
+import { globalRouteMiddlewareDescriptors } from './global-route-middlewares.js';
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
-import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
-import { routeMarker } from './tracing.js';
+import { buildRoutePath, buildRouteHandlers, resolveRouteMiddlewares, resolveRoutePolicies, ControllerActionHost } from './route-builder.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
@@ -91,7 +90,8 @@ export abstract class BaseController extends AsyncService implements IController
   public async resolve() {
     await super.resolve();
 
-    if (!this.Descriptor) {
+    const descriptor = this.Descriptor;
+    if (!descriptor) {
       this._log.warn({ controller: this.constructor.name }, 'Controller ${controller} does not have descriptor. If its abstract or base class ignore this message.');
       return;
     }
@@ -99,39 +99,49 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
+    const globalMiddlewares = globalRouteMiddlewareDescriptors(this._cfg, this._container);
     const controller = this.constructor.name;
     const lineage = classLineage(this.constructor, ownSourceFile);
-    this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: this.Descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
+    this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
+
+    const prefix = this._cfg.get<string>('http.controllers.route.prefix');
+    // Read at the first route: a controller with no routes never reads its configured path, and an unknown route type still fails first.
+    let basePath: string | undefined;
+    let handleError: Express.ErrorRequestHandler | undefined;
 
     for (const [, route] of this._routes) {
       // Fail fast: an unknown route type means the route decorator never set a
       // valid express method — mounting the rest of the controller while
       // silently dropping this route would hide the bug.
       if (route.InternalType === 'unknown') {
-        throw new RouteRegistrationException(`Unknown route type for ${this.constructor.name}::${String(route.Method)}`);
+        throw new RouteRegistrationException(`Unknown route type for ${controller}::${String(route.Method)}`);
       }
 
-      const path = buildRoutePath(this.BasePath, route, this._cfg.get('http.controllers.route.prefix'));
+      basePath ??= this.BasePath;
+      const path = buildRoutePath(basePath, route, prefix);
 
-      const middlewares = await resolveRouteMiddlewares(this.Descriptor, route, this._container);
-      const policies = await resolveRoutePolicies(this.Descriptor, route, this._container, this._cfg, this._log, this.constructor.name, path);
-      const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
+      const middlewares = await resolveRouteMiddlewares(descriptor, route, this._container, globalMiddlewares);
+      const policies = await resolveRoutePolicies(descriptor, route, this._container, this._cfg, this._log, controller, path);
 
-      this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
+      this._log.trace({ httpMethod: route.Type.toUpperCase(), controller, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
-      const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
-      const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: this.BasePath, log: this._log });
+      const errorHandlers = [...(route.ErrorHandlers ?? []), ...(descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
+      const derived = derivedValidatorsOf({ container: this._container, controller, lineage, route, mountPath: basePath, log: this._log });
 
-      const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
-        routeMarker(path),
-        createPolicyGate(policies, route, this, this._log),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
-        createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage, derived),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
-        createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
-        __handle_response__(this._container, { controller: this.constructor.name, handler: String(route.Method) }),
-        __handle_error__(this._container),
-      ];
+      const handlers = await buildRouteHandlers({
+        controller: this as ControllerActionHost,
+        route,
+        path,
+        basePath,
+        middlewares,
+        policies,
+        errorHandlers,
+        storage: this._actionLocalStorage,
+        derived,
+        container: this._container,
+        log: this._log,
+        handleError: (handleError ??= __handle_error__(this._container)),
+      });
 
       (this._router as any)[route.InternalType as string](path, handlers);
     }

@@ -9,7 +9,7 @@ Versioned types, JSON Schema and helpers for the application manifest (`manifest
 | Export | Purpose |
 | --- | --- |
 | `MANIFEST_TOKEN` | `'__manifest__'`, the DI key the loaded manifest is registered under. |
-| `loadRuntimeManifest({ path, mode }, cwd?)` | Reads and validates the manifest. `off` never reads; `prefer` returns `undefined` when the file is missing; `require` throws `ManifestMissing`. Relative paths resolve against `cwd`. |
+| `loadRuntimeManifest({ path, mode, validate? }, cwd?)` | Reads the manifest and checks its version and hash. `off` never reads; `prefer` returns `undefined` when the file is missing; `require` throws `ManifestMissing`. Relative paths resolve against `cwd`. A file whose hash matches is not checked against the JSON Schema again: `spinajs build` checks the file it wrote and removes one that fails, and the hash proves it is unchanged. `buildAppManifest` called directly does not check it; `app.root`, which the hash leaves out, is checked whenever it is not a string. An edited or stale file is checked first, so a broken one still throws `ManifestValidationError`. `validate: true`, or `SPINAJS_MANIFEST_VALIDATE=1`, checks every file. |
 | `manifestFileFor(entry, manifest, cwd)` | Built `.js` file of an entry: `src/x/y.ts` of package P becomes `<root of P>/<outDir>/x/y.js`. |
 | `packageRootOf(name, manifest, cwd)` | Install root (real path) of a package listed in `manifest.packages`: `node_modules/<name>` of the nearest ancestor of the app root that has it, as node resolves it, also for an ESM-only package whose `exports` hide `package.json`; Node resolution is the fallback. |
 | `appRootOf(manifest, cwd)` | App root: `SPINAJS_MANIFEST_ROOT` if set (even when `app.root` exists), else `app.root` when it exists on this machine, else `cwd`. |
@@ -22,16 +22,17 @@ A manifest built on one machine and run on another (container image, bundle) kee
 
 The `system.manifest` configuration section (`path`, default `app.manifest.json`; `mode`, default `off`) selects the file and the mode; it is defined by `SYSTEM_CONFIGURATION_SCHEMA` in `@spinajs/configuration`.
 
-### Single-file bundle
+### Bundle
 
 `packages/http-socket-example` shows an esbuild bundle that boots in `require` mode from a directory with no `node_modules` at all (`npm run bundle`, output in `dist/bundle`):
 
-- `main.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies.
-- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `main.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
-- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `main.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
-- `main.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
-- Controller, socket controller, schedule and migration files the manifest lists are inlined into `main.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
+- `app.mjs` holds the app and every dependency. It sets `SPINAJS_MANIFEST_ROOT` and `SPINAJS_MANIFEST` to its own directory, so the manifest built from the source tree still verifies. `main.mjs` is the launcher: it turns on Node's compile cache and imports `app.mjs` (see [Compile cache](../http/README.md#compile-cache)).
+- `package-roots.json` maps each listed package to a directory under the bundle (`packages/<name>`); `app.mjs` points `SPINAJS_PACKAGE_ROOTS` at it. See "Package roots" below.
+- Package config files are separate small bundles at `packages/<pkg>/<outDir>/config/`, because the configuration source imports them by path. They are standalone module copies, not part of `app.mjs`: safe while they are plain data, but a config file that imports stateful modules would get its own instance of them.
+- `app.mjs` defaults `SPINAJS_MANIFEST_MODE` to `require`; the DI loader refuses a file under the bundle root that it did not bundle.
+- Controller, socket controller, schedule and migration files the manifest lists are inlined into `app.mjs` and handed to the runtime's import by path through the DI module loader (`__module_loader__`), so they are the same module instances as the app's own imports.
 - `typescript` is replaced by a stub that throws on use: manifest mode does not call it.
+- `glob` is not inlined: `off` mode, a package fragment without `configFiles`, glob syntax in a config dir path or a custom file pattern needs `glob` installed next to the bundle, and fails with an error naming that cause otherwise.
 
 ### Package roots
 
@@ -75,7 +76,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 
 Environment overrides: `SPINAJS_MANIFEST_MODE` and `SPINAJS_MANIFEST` (the file) beat the app's config; `SPINAJS_MANIFEST_ROOT` names the deployed app directory when `app.root` does not exist on the machine that runs it.
 
-With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` config walk (package config files come from `packages[].configFiles`; set `WORKSPACE_ROOT_PATH` to skip the hoisting-root detection too), the controller, migration, schedule, socket controller and CLI command directory scans, the `.d.ts` parsing of the controller cache, and the `typescript` load. `glob` is still imported by `@spinajs/configuration`, `@spinajs/orm`, `@spinajs/validation` and `@spinajs/intl`, and the app's own `config/` dirs are still globbed.
+With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` config walk (package config files come from `packages[].configFiles`; set `WORKSPACE_ROOT_PATH` to skip the hoisting-root detection too), the controller, migration, schedule, socket controller and CLI command directory scans, the `.d.ts` parsing of the controller cache, the `typescript` load, and `glob` and `minimatch`: the app's own `config/` dirs are listed with one `readdir` per directory, in the order `glob` gives, and `glob` loads only for a translation or schema dir that exists, a package fragment without `configFiles`, or a config dir whose path has glob syntax in it. Each package root is located once per loaded manifest. A manifest entry's file costs one `lstat` per path part below its package root, on every call: only when a part is a link or missing are the real paths of the root and the file taken, so a directory swapped for a link after an earlier lookup is still refused.
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` proves this on the `app-basic` fixture: it installs the compiled fixture next to only the `@spinajs` packages it depends on, boots it in `require` mode in a fresh process, and compares what it serves with an `off` boot that scans. Both boots serve the same controllers, schedules, commands, socket commands and migrations; only the order of the migrations differs (discovery lists the app's dir first, the manifest by package).
 
@@ -130,7 +131,7 @@ The build does not follow `await import()`, because such a call may never run. A
 
 The build records the `APP_ENV` it ran under as `buildEnv` (omitted by a build without configuration). At boot in `prefer` and `require`, a running `APP_ENV` that differs from it logs one warning naming both, with the advice to rebuild; `off` and a manifest without `buildEnv` stay silent. It is only a warning: the dirs may be the same in every environment, and a staging image promoted to production is legitimate. `buildEnv` is part of the manifest hash and `MANIFEST_VERSION` stays 2.
 
-The build records the `@spinajs/compiler` version that produced it as `compilerVersion`, which the hash leaves out like `generatedAt`, so upgrading the compiler alone does not change the hash.
+The build records the `@spinajs/compiler` version that produced it as `compilerVersion`, which the hash leaves out like `generatedAt`, so upgrading the compiler alone does not change the hash. `manifest:diff` warns when base and head record different versions (see [Diffing two manifests](#diffing-two-manifests)).
 
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 
@@ -139,6 +140,14 @@ A build with `--no-schemas` records `schemaDerivation: false`. Its socket contra
 **The CLI sees only what it can read.** `--app`, `--apppath` and `--config-path` stand in for the `app`, `appBaseDir` and `cfgCustomPaths` options. A value an app sets only in code (those options passed to `FrameworkConfiguration`, `configuration.set()`, a `Configuration` subclass) does not reach the build: pass the matching option, or put the value in a config file.
 
 A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
+
+### Diffing two manifests
+
+`manifest:diff` (`diffManifest`) matches routes by `METHOD fullPath`. A route a controller inherits is an ordinary route of that controller, so a change in its base, such as a new required field in the body type the subclass binds, shows on the subclass's path, and a class `@Access` a subclass adds shows on each inherited route. A controller a subclass replaces with an unconditional `DI.register(Sub).as(Base)` is left out, as the runtime mounts only the subclass. The subclass is kept even when it lives outside `system.dirs`, because the runtime serves it in the slot of the base the manifest loads. This is a static guess that assumes the module holding the registration runs; if nothing imports that module, the base serves instead.
+
+A registration inside a `Bootstrapper`'s `bootstrap()`, any other function, a loop, a `try` or behind an `if` counts as conditional, since only a boot decides it: both controllers are kept, so on a path both serve `generate:openapi` fails with `duplicate operation` and `spinajs doctor` reports HTTP001. Register an override at module top level.
+
+The first diff after upgrading to a compiler that records inherited routes shows them as added, and the routes of a subclass without its own `@BasePath`, recorded before under its class name, as removed and added under the inherited path. When base and head record different `compilerVersion` values, or only one records it, the report carries a warning: under the result line in Markdown, in `warnings` in JSON. Rebuild the base manifest with the new compiler to compare like with like.
 
 ### Building without decorator metadata
 
@@ -178,3 +187,24 @@ Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` r
 Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata. `orm-no-metadata.test.ts` does the same for a timestamped model with relations against sqlite.
+
+## Models (schema v2)
+
+`models[].columns[].sql` (`ColumnSqlSpec`) is the column's type family plus what `@Column` states (length, precision,
+scale, default, unique, autoIncrement, version). `inferred: true` marks a family taken from the TypeScript type
+because `@Column` did not state one (or is absent); the other members are never inferred. `enum` is never inferred.
+`relations[]` carry `foreignKey`, `primaryKey` and, for many-to-many, `junction { model, sourceKey, targetKey }`. A key
+that defaults to a primary key is left out: it is the primary key of the target (`belongsTo`) or of the owner
+(`hasMany`, `hasManyToMany`). `indexes`, `version` (the `@Version` column) and `exhaustive` are optional.
+
+`diffManifest` has a `models` section keyed `<connection>:<table>` over the union of the models on that table. A
+removed table or column, a column made NOT NULL, an explicit family change, or a smaller length, precision or scale
+is breaking.
+
+## SQL queries
+
+`sqlQueries[]` (`ModelSqlQuery`) lists every `sql` template of `@spinajs/orm` in the package: `text` with one `?` per
+interpolation, `placeholders`, `dynamic` (it interpolates a fragment or `sql.raw`), the declared row of `sql<R>` as
+`declaredRow` and `declaredColumns`, `lists` (interpolations bound to an array) and `connection` when the template is
+passed straight to `executeSql(…, { connection })`. Merged ids are `<package>:<file>:<line>:<col>`. The section is
+omitted when no package has a template.

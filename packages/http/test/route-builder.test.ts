@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildRoutePath, createActionHandler, resolveRoutePolicies } from '../src/route-builder.js';
 import { Ok } from '../src/response-methods/ok.js';
 import { RouteRegistrationException } from '../src/exceptions.js';
+import { answerEarly } from '../src/reply-pipeline.js';
 import type { IControllerDescriptor, IRoute } from '../src/interfaces.js';
 
 const route = (partial: Partial<IRoute>): IRoute => partial as IRoute;
@@ -78,26 +79,27 @@ describe('route-builder', () => {
   });
 
   describe('createActionHandler', () => {
-    it('waits for every async onResponse() before handing the response on', async () => {
-      const calls: string[] = [];
+    it('stores the action result for the route sender', async () => {
       const controller = { action: async () => new Ok() } as any;
-      const middleware = {
-        onResponse: async () => {
-          await new Promise((r) => setTimeout(r, 5));
-          calls.push('onResponse');
-        },
-      } as any;
+      const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
+      const res = { locals: {} } as any;
 
-      const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), [middleware], new AsyncLocalStorage());
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
 
-      await new Promise<void>((resolve) => {
-        handler({ storage: {} } as any, { locals: {} } as any, () => {
-          calls.push('next');
-          resolve();
-        });
-      });
+      expect(res.locals.response).to.be.instanceOf(Ok);
+    });
 
-      expect(calls).to.deep.eq(['onResponse', 'next']);
+    it('steps aside when an onBefore answered', async () => {
+      let ran = false;
+      const controller = { action: async () => (ran = true) } as any;
+      const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
+      const res = { locals: {} } as any;
+      answerEarly(res, new Ok({ early: true }));
+
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
+
+      expect(ran).to.eq(false);
+      expect(res.locals.response).to.be.instanceOf(Ok);
     });
   });
 });

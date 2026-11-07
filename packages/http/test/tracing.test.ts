@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import http from 'node:http';
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
@@ -9,7 +10,7 @@ import { ID_ONLY_TRACE_FLAGS, useInMemorySpans } from '@spinajs/tracing/testing'
 import type { InMemorySpans } from '@spinajs/tracing/testing';
 import { LogLevel, createLogMessageObject } from '@spinajs/log';
 
-import { httpApp, req } from './common.js';
+import { appPort, httpApp, req } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Ok } from '../src/index.js';
 
 const INBOUND_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
@@ -34,6 +35,12 @@ class TracedController extends BaseController {
   @Get()
   public boom() {
     throw new Error('boom');
+  }
+
+  @Get()
+  public async slow() {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return new Ok({});
   }
 }
 
@@ -81,6 +88,27 @@ describe('HTTP server span', function () {
       const server = await spans.waitFor('GET /tracing-t2/boom');
       expect(server.status.code).to.eq(SpanStatusCode.ERROR);
       expect(server.attributes).to.include({ 'http.response.status_code': 500, 'error.type': '500' });
+    });
+
+    it('keeps the method as the name of a request no route matched', async () => {
+      expect((await req().get('tracing-t2/nowhere')).status).to.eq(404);
+
+      const server = await spans.waitFor('GET');
+      expect(server.attributes).to.include({ 'url.path': '/tracing-t2/nowhere', 'http.response.status_code': 404 });
+      expect(server.attributes).to.not.have.property('http.route');
+      expect(server.status.code).to.eq(SpanStatusCode.UNSET);
+    });
+
+    it('ends the span of a request the client left as aborted', async () => {
+      const request = http.request({ host: 'localhost', port: appPort(), path: '/tracing-t2/slow', method: 'GET' });
+      request.on('error', () => {});
+      request.end();
+      setTimeout(() => request.destroy(), 50);
+
+      const server = await spans.waitFor('GET /tracing-t2/slow');
+      expect(server.attributes).to.include({ 'error.type': 'aborted' });
+      expect(server.attributes).to.not.have.property('http.response.status_code');
+      expect(server.status.code).to.eq(SpanStatusCode.ERROR);
     });
 
     it('continues an inbound traceparent and echoes the server span', async () => {

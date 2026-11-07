@@ -3,8 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { ceilingHash, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { ServerMiddleware } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
-import type * as express from 'express';
+import type { IReplyContext } from '@spinajs/http';
 
 import { PRINCIPAL_MIDDLEWARE_ORDER } from '../principals/middleware.js';
 import '../storage.js';
@@ -24,6 +23,7 @@ export function accessEpoch(principal: Principal): string {
     .slice(0, 16);
 }
 
+/** Stamps every framework reply, error replies included, with the epoch of the principal as it is when the reply leaves. */
 @Injectable(ServerMiddleware)
 export class AccessEpochMiddleware extends ServerMiddleware {
   constructor() {
@@ -31,16 +31,8 @@ export class AccessEpochMiddleware extends ServerMiddleware {
     this.Order = ACCESS_EPOCH_MIDDLEWARE_ORDER;
   }
 
-  // In before(): after() never runs for a matched controller route.
-  public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
-    return (req, res, next) => {
-      const principal = req.storage.Principal;
-      if (principal) res.setHeader(ACCESS_EPOCH_HEADER, accessEpoch(principal));
-      next();
-    };
-  }
-
-  public after(): null {
-    return null;
+  public async onAfter({ storage, res }: IReplyContext): Promise<void> {
+    const principal = storage.Principal;
+    if (principal) res.setHeader(ACCESS_EPOCH_HEADER, accessEpoch(principal));
   }
 }

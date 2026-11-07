@@ -11,6 +11,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 import * as barrel from '../../src/index.js';
 import { ClientIp } from '../../src/middleware/client-ip.js';
+import { mounted } from '../support/server-hooks.js';
 import { AUTHN_PROBE_PATH } from './probe.js';
 import { TestConfiguration, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 import { fakeContainer } from '@spinajs/testing';
@@ -33,9 +34,11 @@ async function startServer(): Promise<void> {
   await startHttpServer();
 }
 
-/** Restarts the server so ClientIp reads the given trust settings when the middleware is built. */
+/** Restarts the server with a new ClientIp, which reads the given trust settings when it is resolved. */
 async function restartWith(authnTrust: unknown, httpTrust: unknown): Promise<void> {
   await releaseHttpServer();
+  DI.uncache(ClientIp);
+  DI.uncache(ServerMiddleware);
   const config = DI.get(Configuration)!;
   config.set('authn.http.trustProxy', authnTrust);
   config.set('http.trustProxy', httpTrust);
@@ -128,16 +131,15 @@ describe('ClientIp (A05, SR-03)', function () {
   it('a link-local socket peer is the client, without the zone id Node appends, and matches linklocal', () => {
     const run = (values: Record<string, unknown>) => {
       const storage: Record<string, unknown> = {};
-      unitClientIp(values).before()!({ headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage } as never, {} as never, () => undefined);
+      mounted(unitClientIp(values))!({ headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage }, {}, () => undefined);
       return storage.ClientIp;
     };
     expect(run({})).to.eq('fe80::1');
     expect(run({ 'authn.http.trustProxy': 'linklocal' })).to.eq(SPOOF);
   });
 
-  it('a bad value fails when the middleware is built, naming the key', () => {
-    expect(() => unitClientIp({ 'authn.http.trustProxy': 'nope' }).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
-    expect(() => unitClientIp({ 'authn.http.trustProxy': null, 'http.trustProxy': -1 }).before()).to.throw(InvalidOption, 'http.trustProxy');
-    expect(unitClientIp({}).after()).to.eq(null);
+  it('a bad value fails when the middleware is resolved, naming the key', async () => {
+    await expect(unitClientIp({ 'authn.http.trustProxy': 'nope' }).resolve()).to.be.rejectedWith(InvalidOption, 'authn.http.trustProxy');
+    await expect(unitClientIp({ 'authn.http.trustProxy': null, 'http.trustProxy': -1 }).resolve()).to.be.rejectedWith(InvalidOption, 'http.trustProxy');
   });
 });

@@ -24,8 +24,11 @@ export interface ISocketAccessOptions {
   subject?: 'load' | 'none';
   /** 'load' ( default ): a conditional allow on a resource with an id is checked again against the row the domain's ResourceAdapter loads; 'action': the handler checks the residual itself */
   conditional?: 'load' | 'action';
-  /** 'filter': the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead` */
-  fields?: 'filter' | 'none';
+  /**
+   * 'filter': the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead`;
+   * 'filter-rows': each row keeps its own field set where authz-orm computed one ( G16 ), else that set
+   */
+  fields?: 'filter' | 'filter-rows' | 'none';
   /** why the payload skips authz-http's input field filter, as `@UnfilteredInput(reason)` */
   unfilteredInput?: string;
 }
