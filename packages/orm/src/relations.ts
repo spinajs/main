@@ -15,6 +15,7 @@ import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { registerRelation } from './relation-registry.js';
+import { cloneOwnedBy } from './builders/internal.js';
 
 
 /**
@@ -57,10 +58,6 @@ export interface IOrmRelation {
    * Without it a clone shares the relation, which compiles into the original query only.
    */
   cloneFor?(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation;
-}
-
-function cloneOwnedBy(query: ISelectQueryBuilder, owner: IOrmRelation): ISelectQueryBuilder {
-  return (query as unknown as { _cloneOwnedBy(owner: IOrmRelation): ISelectQueryBuilder })._cloneOwnedBy(owner);
 }
 
 function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {

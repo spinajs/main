@@ -16,7 +16,7 @@ A statement is one SQL fragment with its bindings: a `WHERE` predicate, a select
 interface IQueryStatement {
   TableAlias: string;
   Boolean: WhereBoolean; // connector before this statement in WHERE / HAVING
-  OnJoin?: boolean; // set by whereOnJoin(); does not survive clone()
+  OnJoin?: boolean; // set by whereOnJoin(); statement.clone() drops it, SelectQueryBuilder.clone() copies it with Boolean
   build(): IQueryStatementResult;
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
 }

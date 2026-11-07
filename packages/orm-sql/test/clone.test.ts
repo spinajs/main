@@ -217,4 +217,11 @@ describe('Query builder clone() statement rebinding', () => {
     expect(sql(query)).to.contain('ON `$group$`.`owner_id` = `$owner$`.`Id` WHERE `$users$`.`active` = ? AND `$group$`.`name` = ?');
     expect(sql(cloned)).to.contain('ON `$group$`.`owner_id` = `$owner$`.`Id` WHERE `$copy$`.`active` = ? AND `$group$`.`name` = ?');
   });
+
+  it('orWhere() stays OR on the clone', () => {
+    const query = sqb().select('*').from('users').where('id', 1).orWhere('id', 2);
+
+    expect(sql(query.clone())).to.equal('SELECT * FROM `users` WHERE `id` = ? OR `id` = ?');
+    expect(sql(query.clone())).to.equal(sql(query));
+  });
 });

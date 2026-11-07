@@ -257,13 +257,16 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._tableAlias = this._tableAlias;
     builder._correlationSource = this._correlationSource;
 
+    // a statement clone is built from scratch, so the connector and the whereOnJoin() flag are copied by hand
     const copy = (s: IQueryStatement) => {
-      if (!this._merged.has(s)) {
-        return s.clone(builder);
+      const merged = this._merged.has(s);
+      const c = merged ? s.clone() : s.clone(builder);
+      c.Boolean = s.Boolean;
+      c.OnJoin = s.OnJoin;
+      if (merged) {
+        builder._merged.add(c);
       }
-      const merged = s.clone();
-      builder._merged.add(merged);
-      return merged;
+      return c;
     };
 
     builder._columns = this._columns.map(copy);

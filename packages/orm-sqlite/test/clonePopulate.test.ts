@@ -195,4 +195,44 @@ describe('clone() of a populated query', function () {
   it('a count of a populated query reads no relation', () => {
     expect(sql(locationsWithNetworks().count())).to.eq('SELECT COUNT(*) as `count` FROM `offer_location`');
   });
+
+  it('a clone keeps a whereOnJoin() of a populate in the join, before and after the original compiles', async () => {
+    const query = OfferLocation.select().populate('Location', function () {
+      this.whereOnJoin(function () {
+        this.where('Name', 'Loc 1');
+      });
+    });
+    const early = query.clone();
+    const original = await query;
+    const late = query.clone();
+
+    expect(original).to.have.length(2);
+    expect((await early).map((r) => r.Id)).to.deep.equal(original.map((r) => r.Id));
+    expect((await late).map((r) => r.Id)).to.deep.equal(original.map((r) => r.Id));
+  });
+
+  it('a clone keeps orWhere() as OR, in the query and in a populate callback', async () => {
+    const query = OfferLocation.where('Id', 1).orWhere('Id', 2);
+    const populated = OfferLocation.select().populate('Location', function () {
+      this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
+    });
+
+    expect(await query.clone().selectCount()).to.eq(2);
+    expect(await query.clone()).to.have.length(2);
+    const copy = populated.clone();
+    expect(await populated).to.have.length(2);
+    expect(await copy).to.have.length(2);
+  });
+
+  it('a where inside a belongsTo populate narrows the rows but not the count', async () => {
+    const narrowed = () =>
+      OfferLocation.select().populate('Location', function () {
+        this.where('Name', 'Loc 1');
+      });
+    const query = narrowed();
+
+    expect(await query.clone().selectCount()).to.eq(2);
+    expect(await narrowed().selectCount()).to.eq(2);
+    expect(await query).to.have.length(1);
+  });
 });
