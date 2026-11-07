@@ -42,7 +42,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Class | `Order` | Exported | Hooks | Configuration | Effect |
 | --- | --- | --- | --- | --- | --- |
-| `CorsMiddleware` | -1 | yes | onBefore | `http.cors`, `@Cors` | CORS headers; answers an allowed preflight 204. See [CORS](16-cors.md). |
+| `CorsMiddleware` | -1 | yes | onBefore, onAfter | `http.cors`, `@Cors` | CORS headers; answers an allowed preflight 204; `onAfter` applies a `@Cors` route policy to framework replies. See [CORS](16-cors.md). |
 | `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`. |
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). |
