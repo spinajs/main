@@ -1,6 +1,6 @@
 # Server middlewares
 
-A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
+A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling, the body and cookie parsers, body limits and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
 
 ## How it works
 
@@ -13,8 +13,8 @@ A `ServerMiddleware` runs for every request the server gets, before static files
 
 ```
 req.storage = {}                        HttpServer's first handler, before everything else
-http.bodyLimits, http.middlewares       raw Express handlers: helmet, body parsers, cookie parser
-server middlewares, ascending Order     handler(), or onAround and onBefore
+http.middlewares                        raw Express handlers: helmet
+server middlewares, ascending Order     handler(), or onAround and onBefore; cookie parser 0.5, body limits 3.4, body parsers 3.5
 static files                            not a framework reply: onFinish only, no onAfter
 routing                                 policy gate, route middlewares, action, error handlers
 404 / global error answer               fixed tail of HttpServer
@@ -51,7 +51,10 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `ServerTiming` | 2 | yes | onBefore, onAfter | `http.serverTiming.enabled` | `Server-Timing` header. |
 | `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
+| `CookieParserMiddleware` | 0.5 | yes | handler | `http.bodyParsers.cookies`, `http.cookie.secret` | `req.cookies`, `req.signedCookies`; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers). |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
+| `BodyLimits` | 3.4 | yes | handler | `http.bodyLimits` | Per-path body limits; see [Body size limits](04-route-arguments.md#body-size-limits). |
+| `JsonBodyParser`, `UrlencodedBodyParser`, `TextBodyParser` | 3.5 | yes | handler | `http.bodyParsers.{json,urlencoded,text}` | `req.body`, `req.rawBody` for JSON. |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
 
@@ -64,7 +67,7 @@ Middlewares from other packages, for orientation: `ClientIp`, `CsrfOriginGuard`,
 They are not server middlewares: `HttpServer` mounts them last, after routing, and both replies go through the reply pipeline, so the entered server middlewares' `onAfter` see them.
 
 - `NotFoundMiddleware.reply(req)` answers a request nothing else answered. By default it returns `ResourceNotFound`, which the global error answer turns into a 404. A returned `Response` is sent as it is.
-- `ErrorHandlerMiddleware.reply(error, req)` makes the reply for an error no route answered: a 404, a throwing server middleware, a body parser failure. By default it is the error map's reply, and it logs the error.
+- `ErrorHandlerMiddleware.reply(error, req)` makes the reply for an error no route answered: a 404, a throwing server middleware, a malformed body or one over its limit. By default it is the error map's reply, and it logs the error.
 
 Replace either with `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; see [Error handling](11-error-handling.md).
 
@@ -176,7 +179,7 @@ DI.register(QuietAccessLog).as(AccessLog);
 - `onBefore` and `onAround` get no `route`: routing has not run yet. `onAfter` and `onFinish` get it when the request matched a route.
 - Static files and replies an action wrote to `res` itself get `onFinish` only, no `onAfter`: `ResponseTime` and `ServerTiming` headers are missing on them.
 - `onAfter` runs before the reply is serialised. A header it sets on `res` wins over the `Response`'s own `IResponseOptions.Headers`.
-- `http.bodyLimits` and the body parsers in `http.middlewares` run before every server middleware: a 413 or a 400 for a bad body is answered before any server `onBefore`, so no server middleware is entered for it. `req.storage` exists already.
+- The body parsers run at Order 3.5, after `BodyLimits` (3.4): a server middleware below 3.5 sees no `req.body`, one below the cookie parser (0.5) no `req.cookies`. A 400 for a malformed body or a 413 goes to the global error answer; the server middlewares entered before the parser (CORS, `RequestId`, `AccessLog`, ...) see it in `onAfter`/`onFinish`, the ones after it are not entered. A parser left in `http.middlewares` by a 3.x app still runs before every server middleware; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers).
 - Server hooks run outside the action's AsyncLocalStorage context: read `ctx.storage`.
 - `Array.ofType` drops `@NewInstance()` registrations: a server middleware decorated `@NewInstance()` never runs.
 - `RequestId` and `ResponseTime` have no configuration switch; the package entry exports them as `RequestIdMiddleware` and `ResponseTime`. `@RequestId()`, `@Ip()` and the access log depend on them.

@@ -53,11 +53,11 @@ function chain(handlers: express.RequestHandler[]): express.RequestHandler {
 }
 
 /**
- * Parses the body of requests under a `http.bodyLimits` path with that path's limit, before the `http.middlewares`
- * parsers run; they skip a body that is already read. The first matching rule wins. Returns null with no rules.
+ * Parses the body of requests under a `http.bodyLimits` path with that path's limit, before the body parsers run;
+ * they skip a body that is already read. The first matching rule wins. Returns null with no rules.
  *
  * A declared `Content-Length` over the limit answers 413 for any content type. JSON, urlencoded and XML text are
- * parsed here, so the JSON parser's `verify` of `http.middlewares` does not run for them; `req.rawBody` is still set.
+ * parsed here, so the `verify` of `http.bodyParsers.json` does not run for them; `req.rawBody` is still set.
  */
 export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): express.RequestHandler | null {
   if (rules.length === 0) {

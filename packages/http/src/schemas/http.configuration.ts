@@ -10,6 +10,7 @@ const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
 // anyOf with const null first: as a type union Ajv warns, and coerceTypes would turn null into '' or false.
 const headerList = { anyOf: [{ type: 'array', items: { type: 'string' } }, { const: null }, { type: 'string' }] };
 const positiveInteger = { type: 'integer', minimum: 1 };
+const bodySize = { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' };
 
 export const HTTP_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/http.configuration.schema.json',
@@ -55,15 +56,24 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       type: 'array',
       default: [],
       description:
-        'Per-path request body limits, applied before http.middlewares. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the 5mb default.',
+        'Per-path request body limits, applied by BodyLimits (Order 3.4) just before the body parsers. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the http.bodyParsers limits.',
       items: {
         type: 'object',
         required: ['path', 'limit'],
         properties: {
           path: nonEmpty,
-          limit: { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' },
+          limit: bodySize,
         },
       },
+    },
+    bodyParsers: {
+      type: 'object',
+      default: {},
+      description:
+        'The built-in parser server middlewares: json (JsonBodyParser, limit 5mb), urlencoded (UrlencodedBodyParser), text (TextBodyParser, XML types, limit 5mb), all at Order 3.5, and cookies (CookieParserMiddleware, Order 0.5, signed with http.cookie.secret). Each takes enabled (default true) and the options of its express or cookie-parser function.',
+      properties: Object.fromEntries(
+        ['json', 'urlencoded', 'text', 'cookies'].map((kind) => [kind, { type: 'object', properties: { enabled: { enum: [true, false] }, limit: { anyOf: [{ type: 'integer', minimum: 0 }, bodySize] } } }]),
+      ),
     },
     contractTesting: {
       type: 'object',

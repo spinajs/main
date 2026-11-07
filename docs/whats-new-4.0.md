@@ -119,7 +119,7 @@ export default { http: { socket: { transports: ['websocket'] } } };
 // 4.0: ['websocket']   (3.x: ['websocket', 'polling', 'websocket'])
 ```
 
-Some lists keep concatenating (`system.dirs.*`, `COMPOSED_CONFIG_ARRAYS`). `http.middlewares` is the one to check: a list of your own drops the shipped `helmet`, body parsers and cookie parser unless you start from `defaultMiddlewares()`. The full rules are in the [upgrade guide](upgrading/4.0.md#config-arrays-replace-the-default) and [Configuration](configuration/01-configuration-service.md).
+Some lists keep concatenating (`system.dirs.*`, `COMPOSED_CONFIG_ARRAYS`). `http.middlewares` is the one to check: a list of your own drops the shipped `helmet` unless you start from `defaultMiddlewares()`. The body and cookie parsers are server middlewares configured in `http.bodyParsers`. The full rules are in the [upgrade guide](upgrading/4.0.md#config-arrays-replace-the-default) and [Configuration](configuration/01-configuration-service.md).
 
 ### Decorator metadata is optional
 

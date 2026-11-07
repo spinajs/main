@@ -93,7 +93,7 @@ const http = {
     },
     port: 1337,
 
-    // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the parser limits below
+    // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the http.bodyParsers limits
     bodyLimits: [],
 
     contractTesting: { enabled: false, mode: 'throw' },

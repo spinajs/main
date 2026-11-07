@@ -69,7 +69,7 @@ public create(@Body() item: CreateItem) {} // { "name": "a", "count": "x" } answ
 
 ### Body size limits
 
-The default body parsers of `http.middlewares` accept JSON and XML bodies up to 5mb and urlencoded bodies up to 100kb (the Express default; that parser sets no limit). `http.bodyLimits` sets a smaller limit under a path prefix:
+The built-in body parsers (`http.bodyParsers`, see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers)) accept JSON and XML bodies up to 5mb and urlencoded bodies up to 100kb (the Express default; that parser sets no limit). `http.bodyLimits` sets a smaller limit under a path prefix:
 
 ```ts
 // config/http.ts in your app
@@ -84,8 +84,8 @@ export default {
 ```
 
 - A rule matches the path the client requests, on a segment boundary and case-insensitively: `/auth` covers `/auth` and `/auth/login`, not `/authority`. Include `http.controllers.route.prefix` in the path when the app sets one. A controller with `@BasePath({ config, default })` is matched at its configured path, the one it is served at.
-- Rules are checked in order and the first match wins, so list the more specific paths first. Other paths keep the limits of the `http.middlewares` parsers.
-- The limit gate runs before `http.middlewares`. On a matching path it parses JSON, urlencoded and XML text bodies itself with the rule's limit, sets `req.rawBody` for JSON like the default parser, and the `http.middlewares` parsers then skip the body. A `verify` hook of your own JSON parser does not run on these paths.
+- Rules are checked in order and the first match wins, so list the more specific paths first. Other paths keep the limits of `http.bodyParsers`.
+- The rules are the `BodyLimits` server middleware (Order 3.4), mounted just before the body parsers (3.5). On a matching path it parses JSON, urlencoded and XML text bodies itself with the rule's limit, sets `req.rawBody` for JSON like the built-in parser, and the parsers then skip the body. A `verify` of `http.bodyParsers.json` does not run on these paths. A 413 carries the `x-request-id` and CORS headers and is access-logged. When a 3.x `http.middlewares` list still holds a body parser, the rules run before that list instead.
 - A declared `Content-Length` over the limit answers 413 for any content type, before the body is read. A body that turns out larger while it is read answers 413 too (`EntityTooLargeException`).
 - The gate runs before routing, so a 413 never reaches `@OnError`.
 - A `limit` that is not a size throws `InvalidOption` when `HttpServer` resolves.
@@ -179,9 +179,9 @@ export class TenantController extends BaseController {
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.middlewares` | `express.RequestHandler[]` | includes `express.json`, `express.urlencoded`, `express.text` for XML | | The body parsers that fill `req.body` and `req.rawBody`; see [HTTP server](01-http-server.md#configuration). |
+| `http.bodyParsers` | object | JSON 5mb, urlencoded, XML text 5mb, cookies | | The body parsers that fill `req.body` and `req.rawBody`; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers). |
 | `http.trustProxy` | see [Client IP](17-client-ip-and-trust-proxy.md) | `null` | | Decides what `@Ip()` returns. |
-| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `512b`, `16kb`, `1.5mb`, `1gb` | Per-path body limits applied before `http.middlewares`; the first prefix match wins. See [Body size limits](#body-size-limits). |
+| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `512b`, `16kb`, `1.5mb`, `1gb` | Per-path body limits applied just before the body parsers; the first prefix match wins. See [Body size limits](#body-size-limits). |
 | `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schema `$id` prefixes validated without type coercion. |
 
 ## Services and extension points
