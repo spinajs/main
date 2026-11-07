@@ -17,7 +17,14 @@ export const TEAMS_HTTP_RATE_LIMITS = Object.freeze({
   accept: { limit: 10, windowSeconds: 600, by: 'principal' },
 } as const satisfies RateLimitDefaults);
 
-const { default: _root, ...settings } = rateLimitsSchema(TEAMS_HTTP_RATE_LIMITS);
+export const TEAMS_HTTP_RATE_LIMITED_ROUTES = Object.freeze({
+  create: 'POST /teams',
+  invite: 'POST /teams/:team/invitations',
+  resend: 'POST /teams/:team/invitations/:invitation/resend',
+  accept: 'POST /invitations/accept',
+});
+
+const { default: _root, ...settings } = rateLimitsSchema(TEAMS_HTTP_RATE_LIMITS, TEAMS_HTTP_RATE_LIMITED_ROUTES);
 
 export const TEAMS_HTTP_RATE_LIMIT_SCHEMA = {
   $id: 'spinajs/teams-http.rate-limit.configuration.schema.json',

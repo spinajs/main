@@ -12,7 +12,12 @@ export const AUTHZ_HTTP_ADMIN_RATE_LIMITS = Object.freeze({
   writes: { limit: 120, windowSeconds: 60, by: 'principal' },
 } as const satisfies RateLimitDefaults);
 
-const { default: _root, ...settings } = rateLimitsSchema(AUTHZ_HTTP_ADMIN_RATE_LIMITS);
+export const AUTHZ_HTTP_ADMIN_RATE_LIMITED_ROUTES = Object.freeze({
+  commands: 'POST {basePath}/commands',
+  writes: 'the {basePath} write routes (assignments, links, rules, policies, scope attributes)',
+});
+
+const { default: _root, ...settings } = rateLimitsSchema(AUTHZ_HTTP_ADMIN_RATE_LIMITS, AUTHZ_HTTP_ADMIN_RATE_LIMITED_ROUTES);
 
 export const AUTHZ_HTTP_ADMIN_RATE_LIMIT_SCHEMA = {
   $id: 'spinajs/authz-http-admin.rate-limit.configuration.schema.json',

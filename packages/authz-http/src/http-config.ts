@@ -2,7 +2,7 @@ import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { serviceTokenField } from '@spinajs/authz';
 
-import { AUTHZ_HTTP_RATE_LIMITS, rateLimitsSchema } from './rate-limit/index.js';
+import { AUTHZ_HTTP_RATE_LIMITED_ROUTES, AUTHZ_HTTP_RATE_LIMITS, rateLimitsSchema } from './rate-limit/index.js';
 
 /** One `authz.http.services` entry as configured. */
 export interface ServiceEntry {
@@ -88,7 +88,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' }, basePath: nonEmpty } },
     events: { type: 'object', default: {}, properties: { maxStreamsPerPrincipal: { type: 'integer', minimum: 1, default: 5 } } },
     unguardedRoutes: { type: 'string', enum: ['warn', 'throw', 'off'], default: 'warn' },
-    rateLimit: rateLimitsSchema(AUTHZ_HTTP_RATE_LIMITS),
+    rateLimit: rateLimitsSchema(AUTHZ_HTTP_RATE_LIMITS, AUTHZ_HTTP_RATE_LIMITED_ROUTES),
     webhooks: {
       type: 'array',
       default: [],

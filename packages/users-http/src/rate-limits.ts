@@ -15,7 +15,14 @@ export const USERS_HTTP_RATE_LIMITS = Object.freeze({
   metadata: { limit: 60, windowSeconds: 60, by: 'principal' },
 } as const satisfies RateLimitDefaults);
 
-const { default: _root, ...settings } = rateLimitsSchema(USERS_HTTP_RATE_LIMITS);
+export const USERS_HTTP_RATE_LIMITED_ROUTES = Object.freeze({
+  create: 'POST /users',
+  security: 'the /users/security lifecycle routes, DELETE /users/:user and PATCH /users/:uuid/restore',
+  list: 'GET /users',
+  metadata: 'the /user/metadata and /user/:user/metadata writes',
+});
+
+const { default: _root, ...settings } = rateLimitsSchema(USERS_HTTP_RATE_LIMITS, USERS_HTTP_RATE_LIMITED_ROUTES);
 
 export const USERS_HTTP_RATE_LIMIT_SCHEMA = {
   $id: 'spinajs/users-http.rate-limit.configuration.schema.json',
