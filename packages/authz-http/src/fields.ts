@@ -155,6 +155,4 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
     const data = holder.responseData;
     holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
   }
-
-  public async onAfter(): Promise<void> {}
 }

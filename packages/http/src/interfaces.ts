@@ -884,8 +884,7 @@ export interface IRouteOutcome {
 }
 
 /**
- * Middlewares are classes that can change request object or perform specific task before & after route execution
- * eg. route parameter logging / headers check etc.
+ * A route middleware implements only the hooks it needs; a hook it leaves out is not mounted.
  *
  * State is shared, never copied: every hook, the action and the error handlers see the same `req`, `res` and
  * `req.storage` for the whole request. Typed per-request state goes on `req.storage` (declaration merging on
@@ -896,40 +895,33 @@ export interface IRouteOutcome {
 export abstract class RouteMiddleware {
   /**
    * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, declaration order.
-   * Unset means 'inner'. Optional, so a class that `implements RouteMiddleware` still compiles.
+   * Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 
-  /**
-   * Inform, if middleware is enabled for given action
-   */
-  public abstract isEnabled(route: IRoute, controller: IController): boolean;
-
-  /**
-   * Called before action in middleware stack eg. to modify req or resp objects.
-   * Its express middleware func
-   */
-  public abstract onBefore(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
-
-  /**
-   * Called after action response, is framework middleware
-   * Used to modify response returned by actions in controller
-   * eg. filter out data
-   *
-   */
-  public abstract onResponse(response: Response, route: IRoute, controller: IController): Promise<void>;
-
-  /**
-   * Called after action in middleware stack eg. to modify express response.
-   * Its express middleware func
-   */
-  public abstract onAfter(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
+  /** Whether the middleware is mounted on this route at all; every route by default. */
+  public isEnabled(_route: IRoute, _controller: IController): boolean {
+    return true;
+  }
 
   /**
    * Called once when the route is mounted, for enabled middlewares only, with the mounted path. A throw fails the
    * registration with RouteRegistrationException.
    */
   public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
+
+  /** Runs before the action, in stage order. A throw goes to the route's error handlers. */
+  public onBefore?(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
+
+  /** Runs when the action returned a `Response`, before it is sent, inner middleware first: it may change the data. */
+  public onResponse?(response: Response, route: IRoute, controller: IController): Promise<void>;
+
+  /**
+   * Runs after the action and every `onResponse` succeeded, before the response is sent, inner middleware first: the
+   * headers are still writable unless the action answered `res` itself. Skipped when the action or an earlier hook
+   * threw; `onAround` sees every outcome.
+   */
+  public onAfter?(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
 
   /**
    * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the response.
@@ -940,21 +932,6 @@ export abstract class RouteMiddleware {
    * before `proceed()` goes to the route's error handlers.
    */
   public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
-}
-
-/** Base of a middleware that only wraps the route: no-op before/after hooks, enabled on every route. */
-export abstract class AroundMiddleware extends RouteMiddleware {
-  public isEnabled(_route: IRoute, _controller: IController): boolean {
-    return true;
-  }
-
-  public async onBefore(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
-
-  public async onResponse(_response: Response, _route: IRoute, _controller: IController): Promise<void> {}
-
-  public async onAfter(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
-
-  public abstract override onAround(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
 /**

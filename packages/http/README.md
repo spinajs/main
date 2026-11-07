@@ -262,21 +262,24 @@ A config key that does not resolve to a registered `BasePolicy` throws `RouteReg
 
 ## Route middlewares
 
-Run before / after actions and can inspect the produced response:
+Run before / after actions and can inspect the produced response. Every hook is optional; implement only what you need:
 
 ```ts
 import { RouteMiddleware, Middleware } from '@spinajs/http';
 
 export class AuditMiddleware extends RouteMiddleware {
-  public isEnabled(route: IRoute, controller: IController): boolean { return true; }
+  public isEnabled(route: IRoute, controller: IController): boolean { return true; } // the default
   public async onBefore(req, res, route, controller): Promise<void> { /* before action */ }
   public async onResponse(response, route, controller): Promise<void> { /* inspect response object */ }
-  public async onAfter(req, res, route, controller): Promise<void> { /* after action */ }
+  public async onAfter(req, res, route, controller): Promise<void> { /* after action, before the answer is sent */ }
+  public async onAround(invocation, proceed): Promise<void> { /* wraps the rest of the chain */ await proceed(); }
 }
 
 @Middleware(AuditMiddleware)        // controller-wide or per-route
 export class OrdersController extends BaseController { ... }
 ```
+
+`RouteTiming` is a ready route middleware: `@Middleware(RouteTiming)` adds the route's execution time to `Server-Timing`.
 
 Server-level middlewares ( whole express stack, not per-route ) ship in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `NotFound`, `ErrorHandler`.
 
