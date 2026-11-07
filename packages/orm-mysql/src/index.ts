@@ -9,7 +9,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
 import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
-import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
@@ -249,12 +249,57 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
+  /**
+   * The rows of one statement as mysql2 emits them, with the connection paused while a batch waits. Leaving early
+   * destroys a pooled connection instead of reading the rest of the result. A transaction's connection is drained,
+   * because the transaction still needs it.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
+    const txContext = this.TransactionStorage.getStore() as IMySqlTransactionContext | undefined;
+    const connection = txContext?.connection ?? (await this.acquireConnection());
+    const queue = new RowQueue(connection, options.batchSize);
+
+    connection
+      .query(stmt, this.toDriverParams(params))
+      .on('result', (row: unknown) => queue.push(row))
+      .on('error', (err: unknown) => queue.fail(mapMySqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params)))
+      .on('end', () => queue.end());
+
+    let complete = false;
+    try {
+      yield* queue.read();
+      complete = true;
+    } finally {
+      if (txContext) {
+        await queue.discard();
+      } else if (complete) {
+        connection.release();
+      } else {
+        connection.destroy();
+      }
+    }
+  }
+
+  private acquireConnection(): Promise<PoolConnection> {
+    const acquireStart = process.hrtime.bigint();
+    return new Promise((resolve, reject) => {
+      this.acquire((err, connection) => {
+        this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
+        if (err || !connection) {
+          reject(err ?? new Error(`mysql pool of ${this.Options.Name} returned no connection`));
+          return;
+        }
+        resolve(connection);
+      });
+    });
+  }
+
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch: a multi-row `INSERT ... VALUES` is a *simple insert* to InnoDB
     // ( row count known before execution ), so it reserves one contiguous block of
     // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
     // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
-    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true };
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true };
   }
 
   public resolve() {
