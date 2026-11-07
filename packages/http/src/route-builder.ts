@@ -227,7 +227,7 @@ export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, 
     }
     markStage(res, 'middleware');
     const ctx = contextOf(req, res, route, controller);
-    middleware.onBefore!(ctx)
+    Promise.resolve(middleware.onBefore!(ctx))
       .then((answer) => {
         if (enters) {
           enterMiddleware(res, 'route', middleware, ctx);

@@ -49,6 +49,8 @@ interface IReplyState {
   aborted?: boolean;
   early?: Response;
   replyError?: { error: unknown };
+  /** The error the sent reply answers, after any onAfter turned it. */
+  answered?: { error: unknown };
 }
 
 const STATE = Symbol('replyPipeline');
@@ -57,9 +59,12 @@ const httpLog = () => DI.resolve(Log, ['http']);
 
 const nameOf = (m: HttpMiddleware) => m.constructor.name;
 
+const newState = (): IReplyState => ({ entered: [], converted: false, watching: false });
+
+// A response without `locals` (a bare stub calling a deprecated before() handler) gets a state of its own.
 function stateOf(res: express.Response): IReplyState {
-  const locals = res.locals as Record<symbol, IReplyState | undefined>;
-  return (locals[STATE] ??= { entered: [], converted: false, watching: false });
+  const locals = res.locals as Record<symbol, IReplyState | undefined> | undefined;
+  return locals ? (locals[STATE] ??= newState()) : newState();
 }
 
 /** Called by the route chain's first handler: the context every route hook gets, the action's store and error replies. */
@@ -111,6 +116,20 @@ export function replyErrorOf(res: express.Response): { error: unknown } | undefi
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.replyError;
 }
 
+/** The error the reply sent through the pipeline answers, when it was an error reply. */
+export function answeredErrorOf(res: express.Response): unknown {
+  return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.answered?.error;
+}
+
+// A server middleware is entered before routing; its onAfter and onFinish still get the route the request matched.
+function hookContext(state: IReplyState, entry: IEntered): IMiddlewareContext {
+  if (entry.scope !== 'server' || !state.route) {
+    return entry.context;
+  }
+  const { route, controller, path } = state.route.context;
+  return { ...entry.context, route, controller, path };
+}
+
 function watchFinish(res: express.Response, state: IReplyState): void {
   if (state.watching) {
     return;
@@ -137,7 +156,7 @@ async function runFinish(state: IReplyState, entries: IEntered[], aborted: boole
       continue;
     }
     try {
-      await inScope(state, entry, () => entry.middleware.onFinish!({ ...entry.context, aborted }));
+      await inScope(state, entry, () => entry.middleware.onFinish!({ ...hookContext(state, entry), aborted }));
     } catch (error) {
       httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
     }
@@ -172,7 +191,7 @@ export async function sendReply(req: express.Request, res: express.Response, res
       if (!entry.middleware.onAfter) {
         continue;
       }
-      const ctx: IReplyContext = { ...entry.context, response: current, error };
+      const ctx: IReplyContext = { ...hookContext(state, entry), response: current, error };
       try {
         await inScope(state, entry, () => entry.middleware.onAfter!(ctx));
         if (!isResponse(ctx.response)) {
@@ -188,6 +207,10 @@ export async function sendReply(req: express.Request, res: express.Response, res
       }
     }
     keepHeadersSetByHooks(res, before, current);
+  }
+
+  if (error !== undefined) {
+    state.answered = { error };
   }
 
   const callback = (await current.execute(req, res)) as ResponseFunction | void;

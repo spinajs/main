@@ -13,15 +13,20 @@ import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
+import type { IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
+import { __handle_error__ } from './error.js';
+import { sendReply } from './reply-pipeline.js';
+import type { ErrorReplier } from './reply-pipeline.js';
+import { globalErrorReplier, isLegacyServerMiddleware, serverMiddlewareHandlers } from './server-middlewares.js';
+import { NotFoundMiddleware } from './middlewares/NotFound.js';
+import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
-import './middlewares/NotFound.js';
-import './middlewares/ErrorHandler.js';
 import './middlewares/AccessLog.js';
 import './middlewares/Compression.js';
 import './middlewares/Cors.js';
@@ -86,10 +91,14 @@ export class HttpServer extends AsyncService {
   protected _closePromise: Promise<void> | null = null;
 
   /**
-   * After-middlewares ( NotFound / ErrorHandler / ServerTiming ... ) attach to
-   * the Express app exactly once per instance. Restart must not re-stack them.
+   * The tail ( deprecated after() handlers, the 404, the global error answer ) attaches to the Express app exactly
+   * once per instance. Restart must not re-stack it.
    */
   protected _afterAttached = false;
+
+  protected NotFound!: NotFoundMiddleware;
+
+  protected ErrorHandler!: ErrorHandlerMiddleware;
 
   public get State(): LifecycleState {
     return this._state;
@@ -125,10 +134,13 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
+    // stable: equal Orders keep the DI registration order
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
     });
-  
+    this.NotFound = await this.Container.resolve(NotFoundMiddleware);
+    this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
+
     this._createServer();
 
     const f = getFs('__fs_http_response_templates__') as fsNative<IFsLocalOptions>;
@@ -138,6 +150,9 @@ export class HttpServer extends AsyncService {
       this.Log.info({ path: f.Options.basePath }, 'Response templates path at ${path}');
     }
 
+    // first, so a body limit or body parser failure is answered with the request storage in place
+    this.use(createRequestStorage);
+
     const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
     if (bodyLimits) {
       this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules )');
@@ -145,24 +160,84 @@ export class HttpServer extends AsyncService {
     }
 
     this.HttpConfig.middlewares?.forEach((m) => {
-      this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
+      this.Log.info({ middleware: m.name || 'anonymous' }, 'Using http.middlewares handler ${middleware}');
       this.use(m);
     });
     this.warnLostDefaults();
 
-    // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
-    // applied through the standard `Middlewares.before()` loop below).
+    this._mountServerMiddlewares();
 
-    // register other server middlewares
-    this.Middlewares.forEach((m) => {
-      const f = m.before();
+    this._serverStaticFiles();
+  }
+
+  /** The reply a throwing server `onAfter` turns into: the global error answer's. */
+  protected _errorReplier(req: Express.Request): ErrorReplier {
+    return globalErrorReplier(this.ErrorHandler, req);
+  }
+
+  private _mountServerMiddlewares() {
+    const options = { log: this.Log, errorReply: (req: Express.Request) => this._errorReplier(req) };
+
+    for (const m of this.Middlewares) {
+      const name = m.constructor.name;
+
+      if (isLegacyServerMiddleware(m)) {
+        this.Log.warn(
+          { middleware: name },
+          'Server middleware ${middleware} overrides before() or after(), which are deprecated and removed in the next major: implement onBefore, onAfter, onFinish, onAround or handler() instead',
+        );
+        const f = m.before();
+        if (f) {
+          this.Log.info({ middleware: name }, 'Using server middleware ${middleware} through before()');
+          this.use(f);
+        }
+        continue;
+      }
+
+      if (!m.isEnabled()) {
+        this.Log.info({ middleware: name }, 'Server middleware ${middleware} is disabled');
+        continue;
+      }
+
+      const handlers = serverMiddlewareHandlers(m, options);
+      if (handlers.length > 0) {
+        this.Log.info({ middleware: name }, 'Using server middleware ${middleware}');
+        handlers.forEach((h) => this.use(h));
+      }
+    }
+  }
+
+  /** The deprecated after() handlers, then the 404 and the global error answer, both sent through the reply pipeline. */
+  private _attachTail() {
+    [...this.Middlewares].reverse().forEach((m) => {
+      if (!isLegacyServerMiddleware(m)) {
+        return;
+      }
+      const f = m.after();
       if (f) {
-        this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
+        this.Log.info({ middleware: m.constructor.name }, 'Using server middleware ${middleware} through after()');
         this.use(f);
       }
     });
 
-    this._serverStaticFiles();
+    const notFound = this.NotFound;
+    const errorHandler = this.ErrorHandler;
+    this.use(
+      legacyTail(notFound) ??
+        ((req: Request, res: Express.Response, next: Express.NextFunction) => {
+          Promise.resolve()
+            .then(() => notFound.reply(req))
+            .then((answer) => {
+              if (isResponse(answer)) {
+                return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
+              }
+              next(answer);
+              return undefined;
+            })
+            .catch(next);
+        }),
+    );
+    this.use(legacyTail(errorHandler) ?? __handle_error__(this.Container, (err, req) => errorHandler.reply(err, req as Request)));
   }
 
   /**
@@ -257,17 +332,9 @@ export class HttpServer extends AsyncService {
       await this._closePromise;
     }
 
-    // add all after-middlewares once per instance ( not once per start ).
+    // after the controllers' routers, which mount while HttpServer is resolved; once per instance, not once per start
     if (!this._afterAttached) {
-      // Copy before reversing so we don't mutate the shared, already-sorted
-      // Middlewares array in place.
-      [...this.Middlewares].reverse().forEach((m) => {
-        const f = m.after();
-        if (f) {
-          this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::after() - ${middleware}');
-          this.use(f);
-        }
-      });
+      this._attachTail();
       this._afterAttached = true;
     }
 
@@ -395,8 +462,21 @@ export class HttpServer extends AsyncService {
    *
    * @param middleware - middleware function
    */
-  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the ReqStorage middleware. */
+  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the first handler HttpServer mounts. */
   public use(middleware: RequestHandler | ErrorRequestHandler | ((req: Request, res: Express.Response, next: Express.NextFunction) => void)): void {
     this.Express.use(middleware as RequestHandler | ErrorRequestHandler);
   }
+}
+
+function createRequestStorage(req: Express.Request, _res: Express.Response, next: Express.NextFunction): void {
+  (req as Request).storage = {} as IActionLocalStoregeContext;
+  next();
+}
+
+const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
+/** A replacement written for 3.x, whose `after()` returns the Express handler. */
+function legacyTail(tail: object): Express.RequestHandler | Express.ErrorRequestHandler | undefined {
+  const after = (tail as { after?: () => Express.RequestHandler | Express.ErrorRequestHandler | null }).after;
+  return typeof after === 'function' ? (after.call(tail) ?? undefined) : undefined;
 }

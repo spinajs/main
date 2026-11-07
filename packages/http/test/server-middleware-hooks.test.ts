@@ -1,0 +1,455 @@
+import 'mocha';
+import { expect } from 'chai';
+import http from 'node:http';
+import sinon from 'sinon';
+import { Forbidden } from '@spinajs/exceptions';
+import { Intl } from '@spinajs/intl';
+import { FrameworkLogger } from '@spinajs/log';
+import type { TestApp } from '@spinajs/testing';
+import type express from 'express';
+
+import { appPort, httpApp, req, TestConfiguration } from './common.js';
+import {
+  BaseController,
+  BasePath,
+  Controllers,
+  defaultMiddlewares,
+  ErrorHandlerMiddleware,
+  Get,
+  HttpServer,
+  Middleware,
+  NotFound,
+  NotFoundMiddleware,
+  Ok,
+  Post,
+  RouteMiddleware,
+  ServerMiddleware,
+} from '../src/index.js';
+import type { IFinishContext, IMiddlewareContext, IReplyContext, IRouteOutcome, Request, Response } from '../src/index.js';
+
+const PARTNER = 'https://partner.example.test';
+
+const calls: string[] = [];
+const arounds: string[] = [];
+const state: Record<string, unknown> = {};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function until(condition: () => boolean, ms = 2000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > end) throw new Error(`condition not met in ${ms} ms; calls: ${calls.join(', ')}`);
+    await sleep(5);
+  }
+}
+
+const errorName = (error: unknown) => (error === undefined ? '-' : (error as Error).constructor.name);
+
+/** Records each hook as `<label>:<hook>`; onAfter adds the reply status and error class and appends `x-server-after`. */
+abstract class Recording extends ServerMiddleware {
+  protected abstract readonly label: string;
+
+  public async onBefore(_ctx: IMiddlewareContext): Promise<void | Response> {
+    calls.push(`${this.label}:before`);
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    calls.push(`${this.label}:after:${ctx.response.statusCode}:${errorName(ctx.error)}`);
+    ctx.res.append('x-server-after', this.label);
+    if (this.label === 'a') {
+      state.afterPath = ctx.path;
+      state.afterRoute = ctx.route?.Method;
+    }
+  }
+
+  public onFinish(ctx: IFinishContext): void {
+    calls.push(`${this.label}:finish:${ctx.aborted}`);
+    if (this.label === 'a') {
+      state.finishPath = ctx.path;
+    }
+  }
+}
+
+class EarlyRec extends Recording {
+  protected readonly label = 'early';
+  public Order = -5;
+}
+
+class SrvA extends Recording {
+  protected readonly label = 'a';
+  public Order = 10;
+}
+
+class TieFirst extends Recording {
+  protected readonly label = 'tie1';
+  public Order = 15;
+}
+
+class TieSecond extends Recording {
+  protected readonly label = 'tie2';
+  public Order = 15;
+}
+
+class SrvB extends Recording {
+  protected readonly label = 'b';
+  public Order = 20;
+}
+
+class SrvHandler extends ServerMiddleware {
+  public Order = 25;
+
+  public handler(): express.RequestHandler {
+    return (_req, res, next) => {
+      calls.push('handler');
+      res.setHeader('x-handler', 'mounted');
+      next();
+    };
+  }
+}
+
+class SrvDisabled extends ServerMiddleware {
+  public Order = 26;
+
+  public isEnabled(): boolean {
+    return false;
+  }
+
+  public async onBefore(): Promise<void> {
+    calls.push('disabled');
+  }
+
+  public onFinish(): void {
+    calls.push('disabled:finish');
+  }
+}
+
+class LegacyServer extends ServerMiddleware {
+  public Order = 27;
+
+  public before() {
+    return (_req: Request, _res: express.Response, next: express.NextFunction) => {
+      calls.push('legacy:before');
+      next();
+    };
+  }
+
+  public after() {
+    return (_req: Request, _res: express.Response, next: express.NextFunction) => {
+      calls.push('legacy:after');
+      next();
+    };
+  }
+}
+
+class SrvAnswer extends Recording {
+  protected readonly label = 'answer';
+  public Order = 30;
+
+  public async onBefore(ctx: IMiddlewareContext): Promise<void | Response> {
+    await super.onBefore(ctx);
+    if (ctx.req.headers['x-answer']) {
+      return new Ok({ answered: 'server' });
+    }
+  }
+}
+
+class SrvThrow extends ServerMiddleware {
+  public Order = 31;
+
+  public async onBefore(ctx: IMiddlewareContext): Promise<void> {
+    if (ctx.req.headers['x-throw']) {
+      throw new Forbidden('refused by a server middleware');
+    }
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    if (ctx.req.headers['x-throw']) {
+      calls.push('throw:after');
+    }
+  }
+}
+
+class SrvAround extends ServerMiddleware {
+  public Order = 5;
+
+  public async onAround(invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    arounds.push(`start:${invocation.route === undefined}`);
+    const outcome = await proceed();
+    arounds.push(`end:${outcome.reply?.status ?? '-'}:${errorName(outcome.error)}`);
+  }
+}
+
+class RouteRec extends RouteMiddleware {
+  public async onBefore(): Promise<void> {
+    calls.push('route:before');
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    calls.push(`route:after:${ctx.response.statusCode}:${errorName(ctx.error)}`);
+  }
+
+  public onFinish(ctx: IFinishContext): void {
+    calls.push(`route:finish:${ctx.aborted}`);
+  }
+}
+
+class CustomNotFound extends NotFoundMiddleware {
+  public reply(req: Request) {
+    if (req.originalUrl.includes('custom-404')) {
+      return new NotFound({ custom: 'not found' });
+    }
+    return super.reply(req);
+  }
+}
+
+class RecordingErrorHandler extends ErrorHandlerMiddleware {
+  public async reply(error: unknown, req: Request): Promise<Response> {
+    state.errorStorage = req.storage;
+    const response = await super.reply(error, req);
+    response.setHeader('x-error-handler', 'custom');
+    return response;
+  }
+}
+
+@BasePath('srv')
+class ServerHooksController extends BaseController {
+  @Get()
+  @Middleware(RouteRec)
+  public ok() {
+    calls.push('action');
+    return new Ok({ ok: true });
+  }
+
+  @Get()
+  @Middleware(RouteRec)
+  public fail() {
+    throw new Forbidden('refused by the route');
+  }
+
+  @Post()
+  public echo() {
+    return new Ok({ echoed: true });
+  }
+
+  @Post()
+  public limited() {
+    return new Ok({ limited: false });
+  }
+
+  @Get()
+  public big() {
+    return new Ok({ text: 'x'.repeat(5000) });
+  }
+}
+
+class ServerHooksConfiguration extends TestConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const httpConfig = (this.Config as { http: Record<string, unknown> }).http;
+    httpConfig.cors = { origins: [PARTNER] };
+    httpConfig.bodyLimits = [{ path: '/srv/limited', limit: '8b' }];
+    httpConfig.compression = { enabled: false };
+    httpConfig.middlewares = defaultMiddlewares();
+  }
+}
+
+/** A GET without decompression: the headers as sent. */
+function rawGet(path: string, headers: Record<string, string>): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: 'localhost', port: appPort(), path, method: 'GET', headers }, (response) => {
+      response.resume();
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, headers: response.headers }));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+const header = (res: { header: unknown }, name: string) => (res.header as Record<string, string | undefined>)[name];
+
+const BEFORE_ALL = ['early:before', 'a:before', 'tie1:before', 'tie2:before', 'b:before', 'handler', 'legacy:before', 'answer:before'];
+const afterAll = (status: number, error: string) => [`answer:after:${status}:${error}`, `b:after:${status}:${error}`, `tie2:after:${status}:${error}`, `tie1:after:${status}:${error}`, `a:after:${status}:${error}`, `early:after:${status}:${error}`];
+const FINISH_ALL = ['answer:finish:false', 'b:finish:false', 'tie2:finish:false', 'tie1:finish:false', 'a:finish:false', 'early:finish:false'];
+
+describe('Server middleware hooks', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+  let warn: sinon.SinonSpy;
+
+  before(async () => {
+    // Controllers resolves HttpServer, which mounts the server middlewares, while the app is created
+    warn = sinon.spy(FrameworkLogger.prototype, 'warn');
+    app = await httpApp({
+      configuration: ServerHooksConfiguration,
+      register: (c) => {
+        c.register(ServerHooksController).as(BaseController);
+        for (const type of [EarlyRec, SrvA, TieFirst, TieSecond, SrvB, SrvHandler, SrvDisabled, LegacyServer, SrvAnswer, SrvThrow, SrvAround]) {
+          c.register(type).as(ServerMiddleware);
+        }
+        c.register(CustomNotFound).as(NotFoundMiddleware);
+        c.register(RecordingErrorHandler).as(ErrorHandlerMiddleware);
+      },
+      resolve: [Intl, Controllers],
+    });
+    warn.restore();
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await app.dispose();
+  });
+
+  beforeEach(() => {
+    calls.length = 0;
+    arounds.length = 0;
+    for (const key of Object.keys(state)) delete state[key];
+  });
+
+  it('runs server onBefore in ascending Order before routing, ties in registration order, handler() at its Order', async () => {
+    const res = await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(200);
+    expect(header(res, 'x-handler')).to.eq('mounted');
+    expect(calls).to.deep.eq([...BEFORE_ALL, 'route:before', 'action', 'route:after:200:-', ...afterAll(200, '-'), 'route:finish:false', ...FINISH_ALL]);
+  });
+
+  it('gives server onAfter and onFinish the matched route', async () => {
+    await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(state).to.include({ afterPath: 'http:GET /srv/ok', afterRoute: 'ok', finishPath: 'http:GET /srv/ok' });
+  });
+
+  it('runs server onAfter after the route onAfter on an error reply, and its header reaches the client', async () => {
+    const res = await req().get('srv/fail').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(403);
+    expect(calls).to.deep.eq([...BEFORE_ALL, 'route:before', 'route:after:403:Forbidden', ...afterAll(403, 'Forbidden'), 'route:finish:false', ...FINISH_ALL]);
+    expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
+  });
+
+  it('sends the 404 through the reply pipeline: server onAfter sees it, the replaced handlers answer it', async () => {
+    const res = await req().get('srv/missing').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(404);
+    expect(calls).to.deep.eq([...BEFORE_ALL, 'legacy:after', ...afterAll(404, 'ResourceNotFound'), ...FINISH_ALL]);
+    expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
+    expect(header(res, 'x-error-handler')).to.eq('custom');
+  });
+
+  it('keeps NotFoundMiddleware replaceable through DI', async () => {
+    const res = await req().get('srv/custom-404').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(404);
+    expect(res.body).to.deep.eq({ custom: 'not found' });
+    expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
+    expect(header(res, 'x-error-handler')).to.eq(undefined);
+    expect(calls).to.include('a:after:404:-');
+  });
+
+  it('answers with the Response a server onBefore returned: the route never runs, entered server onAfter see it', async () => {
+    const res = await req().get('srv/ok').set('Accept', 'application/json').set('x-answer', '1');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(200);
+    expect(res.body).to.deep.eq({ answered: 'server' });
+    expect(header(res, 'x-server-after')).to.eq('answer, b, tie2, tie1, a, early');
+    expect(calls).to.deep.eq([...BEFORE_ALL, ...afterAll(200, '-'), ...FINISH_ALL]);
+  });
+
+  it('answers a throwing server onBefore with the global error answer; the thrower is not entered', async () => {
+    const res = await req().get('srv/ok').set('Accept', 'application/json').set('x-throw', '1');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(403);
+    expect(calls).to.deep.eq([...BEFORE_ALL, ...afterAll(403, 'Forbidden'), ...FINISH_ALL]);
+    expect(calls).to.not.include('throw:after');
+  });
+
+  it('runs server onFinish for a static file, without onAfter', async () => {
+    const res = await req().get('public/index.html');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(res.status).to.eq(200);
+    expect(header(res, 'x-server-after')).to.eq(undefined);
+    expect(calls).to.deep.eq([...BEFORE_ALL, ...FINISH_ALL]);
+  });
+
+  it('wraps the request with a server onAround: proceed() resolves with the reply, or the error it answers', async () => {
+    await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => arounds.length === 2);
+    await req().get('srv/fail').set('Accept', 'application/json');
+    await until(() => arounds.length === 4);
+    await req().get('srv/missing').set('Accept', 'application/json');
+    await until(() => arounds.length === 6);
+
+    expect(arounds).to.deep.eq(['start:true', 'end:200:-', 'start:true', 'end:403:Forbidden', 'start:true', 'end:404:ResourceNotFound']);
+  });
+
+  it('mounts nothing for a middleware whose isEnabled() is false', async () => {
+    await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    expect(calls).to.not.include('disabled');
+    expect(calls).to.not.include('disabled:finish');
+  });
+
+  it('mounts a legacy before()/after() middleware and warns once that they are deprecated', () => {
+    const warnings = warn.getCalls().filter((c) => (c.args[0] as { middleware?: string } | undefined)?.middleware === 'LegacyServer');
+
+    expect(warnings).to.have.length(1);
+    const message = String(warnings[0].args[1]);
+    expect(message).to.contain('deprecated');
+    expect(message).to.contain('onBefore');
+  });
+
+  it('gives a body parser failure the request storage', async () => {
+    const res = await req().post('srv/echo').set('Content-Type', 'application/json').set('Accept', 'application/json').send('{"broken": ');
+
+    expect(res.status).to.eq(400);
+    expect(state.errorStorage).to.be.an('object');
+  });
+
+  it('gives a body over its http.bodyLimits limit the request storage', async () => {
+    const res = await req().post('srv/limited').set('Content-Type', 'application/json').set('Accept', 'application/json').send({ much: 'more than eight bytes' });
+
+    expect(res.status).to.eq(413);
+    expect(state.errorStorage).to.be.an('object');
+  });
+
+  it('does not compress with http.compression.enabled false and the shipped http.middlewares', async () => {
+    const res = await rawGet('/srv/big', { Accept: 'application/json', 'Accept-Encoding': 'gzip' });
+
+    expect(res.status).to.eq(200);
+    expect(res.headers['content-encoding']).to.eq(undefined);
+  });
+});
+
+describe('Server middleware hooks: compression enabled', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+
+  before(async () => {
+    app = await httpApp({
+      register: (c) => c.register(ServerHooksController).as(BaseController),
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await app.dispose();
+  });
+
+  it('compresses through the Compression middleware handler()', async () => {
+    const res = await rawGet('/srv/big', { Accept: 'application/json', 'Accept-Encoding': 'gzip' });
+
+    expect(res.status).to.eq(200);
+    expect(res.headers['content-encoding']).to.eq('gzip');
+  });
+});

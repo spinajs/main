@@ -138,7 +138,10 @@ export function errorReplyFactory(): (err: any, req: Express.Request) => IMapped
     };
 }
 
-export function __handle_error__(container: IContainer = DI.RootContainer) {
+/** Makes the reply for an error in place of the error map; see `ErrorHandlerMiddleware.reply`. */
+export type ErrorReplyFunction = (err: unknown, req: Express.Request) => HttpResponse | Promise<HttpResponse>;
+
+export function __handle_error__(container: IContainer = DI.RootContainer, reply?: ErrorReplyFunction) {
 
     const logger = DI.resolve(Log, ['http']);
     const config = DI.get(Configuration);
@@ -161,14 +164,25 @@ export function __handle_error__(container: IContainer = DI.RootContainer) {
             return;
         }
 
-        const { response, problem } = replyFor(err, req);
+        let mapped: IMappedErrorReply | undefined;
+        const send = (response: HttpResponse) => {
+            guardResponseContract(res, container);
 
-        guardResponseContract(res, container);
+            return sendReply(req, res, response, {
+                error: err,
+                errorReply: async (failure) => ({ response: reply ? await reply(failure, req) : replyFor(failure, req).response, error: failure }),
+            });
+        };
 
-        sendReply(req, res, response, {
-            error: err,
-            errorReply: async (failure) => ({ response: replyFor(failure, req).response, error: failure }),
-        }).catch((sendError: Error) => {
+        let sending: Promise<void>;
+        if (reply) {
+            sending = Promise.resolve().then(() => reply(err, req)).then(send);
+        } else {
+            mapped = replyFor(err, req);
+            sending = send(mapped.response);
+        }
+
+        sending.catch((sendError: Error) => {
             // last resort error handling
             logger.fatal(sendError, `Cannot send error response`);
             if (res.headersSent) {
@@ -181,7 +195,7 @@ export function __handle_error__(container: IContainer = DI.RootContainer) {
                 const ticketNo = randomstring.generate(7);
                 res.send(fatalTemplate.replace('{ticket}', ticketNo));
             } else {
-                res.type(PROBLEM_CONTENT_TYPE).json(problem);
+                res.type(PROBLEM_CONTENT_TYPE).json((mapped ?? replyFor(err, req)).problem);
             }
         });
     }
