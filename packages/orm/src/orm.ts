@@ -76,8 +76,11 @@ function strictMessage(missing: IMissingModelTable[], drift: IColumnDrift[]): st
   return parts.join(' ');
 }
 
-/** Defined values of `read` win over the declarations, and the columns only `read` has are added. */
-function mergeColumns(declared: IColumnDescriptor[], read: IColumnDescriptor[]): IColumnDescriptor[] {
+/** Only decorators set these; a manifest descriptor does not know them, so a value a decorator set wins over it. */
+const DECORATOR_FLAGS: ReadonlyArray<keyof IColumnDescriptor> = ['Ignore', 'Virtual', 'Aggregate', 'Uuid', 'Converter'];
+
+/** Defined values of `read` win over the declarations, except `kept` ones a declaration set; the columns only `read` has are added. */
+function mergeColumns(declared: IColumnDescriptor[], read: IColumnDescriptor[], kept: ReadonlyArray<keyof IColumnDescriptor> = []): IColumnDescriptor[] {
   const merged = _.uniqBy(read, 'Name').map((c) => {
     const own = declared.find((x) => x.Name === c.Name);
     if (!own) {
@@ -87,7 +90,7 @@ function mergeColumns(declared: IColumnDescriptor[], read: IColumnDescriptor[]):
     // Merge only defined properties from table info
     Object.keys(c).forEach((key) => {
       const columnKey = key as keyof typeof c;
-      if (c[columnKey] !== undefined) {
+      if (c[columnKey] !== undefined && !(kept.includes(columnKey) && own[columnKey])) {
         (own as any)[columnKey] = c[columnKey];
       }
     });
@@ -198,7 +201,7 @@ export class Orm extends AsyncService {
             // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
             // migration dropped or renamed, and the converters their old types mapped to.
             // D9: with the manifest as the source, tableInfo() only feeds the drift check below
-            d.Columns = mergeColumns(declaredColumns(m.type, d), entry ? manifestColumns(entry) : columns);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
 
             /**
              * Add coverters to columns set by decorators
@@ -246,7 +249,7 @@ export class Orm extends AsyncService {
           if (drift.length > 0) this.Drift.set(m.type, drift);
         } else {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry)) : declaredColumns(m.type, d);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : declaredColumns(m.type, d);
           });
 
           const missingTable = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };
