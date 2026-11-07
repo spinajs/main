@@ -13,6 +13,7 @@ export * from './statements.js';
 export * from './literals.js';
 export * from './views.js';
 export * from './converters.js';
+export * from './row-queue.js';
 
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
