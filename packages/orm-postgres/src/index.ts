@@ -6,6 +6,7 @@ import { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 export { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
+import Cursor from 'pg-cursor';
 import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler, PostgresSessionSettingsCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { mapPostgresError } from './errors.js';
@@ -247,16 +248,7 @@ export class PostgresOrmDriver extends SqlDriver {
         // land on another pooled connection.
         result = await txContext.connection.query(finalQuery, params);
       } else {
-        // Taking the client explicitly, instead of letting `Pool.query` do it out of
-        // sight, is what makes `orm_pool_acquire_seconds` a real number instead of zero.
-        if (!this.Pool) {
-          // A failed reconnect leaves no pool; 08003 ( connection does not exist ) lets withReconnect retry.
-          throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
-        }
-
-        const acquireStart = process.hrtime.bigint();
-        const client = await this.Pool.connect();
-        this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
+        const client = await this.acquireClient();
 
         try {
           result = await client.query(finalQuery, params);
@@ -298,6 +290,48 @@ export class PostgresOrmDriver extends SqlDriver {
     }
   }
 
+  public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
+    const bound = this.toDriverParams(params);
+    const txContext = this.TransactionStorage.getStore() as IPostgresTransactionContext | undefined;
+    const client = txContext?.connection ?? (await this.acquireClient());
+    const cursor = client.query(new Cursor<unknown>(toDriverStatement(stmt, bound), bound));
+    let failed = false;
+
+    try {
+      for (;;) {
+        const rows = await cursor.read(options.batchSize);
+        if (rows.length === 0) {
+          return;
+        }
+        yield* rows;
+      }
+    } catch (err) {
+      failed = true;
+      throw mapPostgresError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);
+    } finally {
+      await cursor.close().catch(() => {
+        failed = true;
+      });
+      if (!txContext) {
+        // pg destroys a client released with `true` instead of pooling a connection left mid-protocol
+        client.release(failed);
+      }
+    }
+  }
+
+  /** Taking the client explicitly, instead of letting `Pool.query` do it out of sight, is what makes `orm_pool_acquire_seconds` a real number. */
+  private async acquireClient(): Promise<pg.PoolClient> {
+    if (!this.Pool) {
+      // A failed reconnect leaves no pool; 08003 ( connection does not exist ) lets withReconnect retry.
+      throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
+    }
+
+    const acquireStart = process.hrtime.bigint();
+    const client = await this.Pool.connect();
+    this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
+    return client;
+  }
+
   public supportedFeatures(): ISupportedFeature {
     return {
       // No CREATE EVENT and no shared trigger dialect: scheduling on postgres is
@@ -310,6 +344,8 @@ export class PostgresOrmDriver extends SqlDriver {
       insertIdIsFirstOfBatch: false,
       concurrentTransactions: true,
       nativeJson: true,
+      // pg-cursor submits to a real pg client; a subclass that puts a pool-shaped adapter here (PGlite) pages by keyset instead
+      streaming: this.Pool instanceof pg.Pool,
     };
   }
 
