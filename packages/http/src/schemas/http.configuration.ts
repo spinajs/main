@@ -44,6 +44,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
             origins: { type: ['array', 'null'], items: { anyOf: [{ const: '*' }, { type: 'string', pattern: ORIGIN_PATTERN }] } },
             exposedHeaders: headerList,
             allowedHeaders: headerList,
+            allowRoutePolicies: { type: 'boolean', description: 'false: @Cors route policies are ignored. Default true.' },
           },
         },
         { const: null },

@@ -102,7 +102,6 @@ export abstract class BaseController extends AsyncService implements IController
     }
 
     this._router = Express.Router();
-    this._routeIndex?.remove(this);
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
     const globalMiddlewares = globalRouteMiddlewareDescriptors(this._cfg, this._container);
@@ -149,8 +148,10 @@ export abstract class BaseController extends AsyncService implements IController
         handleError: (handleError ??= __handle_error__(this._container)),
       });
 
-      (this._router as any)[route.InternalType as string](path, handlers);
-      this._routeIndex?.add(this, route, path);
+      // What router[method](path, ...) does, keeping the Express route the RouteIndex finds the route by.
+      const mounted = this._router.route(path);
+      (mounted as any)[route.InternalType as string](handlers);
+      this._routeIndex?.add(mounted, this, route, path);
     }
   }
 }

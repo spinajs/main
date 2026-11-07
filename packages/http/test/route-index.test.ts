@@ -1,11 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { DI } from '@spinajs/di';
+import express from 'express';
 
-import { BaseController, BasePath, Del, Get, Post, RouteIndex, RoutePathMatcher, buildRoutePath } from '../src/index.js';
-
-const noopLog = { trace: () => {}, debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, fatal: () => {}, security: () => {}, success: () => {} };
+import { BasePath, BaseController, Del, Get, Post, RouteIndex, RoutePathMatcher, checkRouterInternals } from '../src/index.js';
+import { controller, mountRoutes } from './support/route-index.js';
 
 @BasePath('items')
 class ItemsController extends BaseController {
@@ -38,22 +36,13 @@ class ShadowController extends BaseController {
   }
 }
 
-function controller<T extends BaseController>(type: new () => T): T {
-  const c = new type();
-  const cfg = { get: (_path: string, fallback?: unknown) => fallback };
-  for (const [name, value] of Object.entries({ _cfg: cfg, _log: noopLog, _container: DI, _actionLocalStorage: new AsyncLocalStorage() })) {
-    Object.defineProperty(c, name, { value });
-  }
-  return c;
-}
-
 function indexOf(...controllers: BaseController[]): RouteIndex {
   const index = new RouteIndex();
-  for (const c of controllers) {
-    for (const [, route] of c.Descriptor.Routes) index.add(c, route, buildRoutePath(c.BasePath, route));
-  }
+  mountRoutes(index, controllers);
   return index;
 }
+
+const names = (matches: readonly { controller: object; route: { Method: string | symbol } }[]) => matches.map((m) => `${m.controller.constructor.name}.${String(m.route.Method)}`);
 
 describe('RouteIndex', () => {
   const items = controller(ItemsController);
@@ -77,24 +66,68 @@ describe('RouteIndex', () => {
     expect(index.match('GET', '/other')).to.eq(undefined);
   });
 
-  it('gives the route the router would serve: the first one registered', () => {
+  it('gives the route the router serves: the first one mounted, whatever order the routes were added in', () => {
     expect(indexOf(items).match('GET', '/items/special')?.route.Method).to.eq('one');
     const shadow = controller(ShadowController);
+    expect(indexOf(shadow, items).match('GET', '/items/special')?.controller).to.eq(shadow);
+
+    // routes added B then A, routers mounted A then B: the router order wins
+    const index = new RouteIndex();
+    const root = express.Router();
+    index.mount(root);
+    const a = express.Router();
+    const b = express.Router();
+    const [, shadowRoute] = [...shadow.Descriptor.Routes][0];
+    const [, itemRoute] = [...items.Descriptor.Routes][0];
+    const bRoute = b.route('/items/special');
+    bRoute.get((_req, _res, next) => next());
+    index.add(bRoute, shadow, shadowRoute, '/items/special');
+    const aRoute = a.route('/items/:id');
+    aRoute.get((_req, _res, next) => next());
+    index.add(aRoute, items, itemRoute, '/items/:id');
+    root.use(a);
+    root.use(b);
+    index.mounted();
+    expect(index.match('GET', '/items/special')?.controller).to.eq(items);
+  });
+
+  it('lists every mounted route that could serve a request, in router order', () => {
+    const shadow = controller(ShadowController);
     const index = indexOf(shadow, items);
-    expect(index.match('GET', '/items/special')?.controller).to.eq(shadow);
+    expect(names(index.matchAll('GET', '/items/special'))).to.deep.eq(['ShadowController.special', 'ItemsController.one', 'ItemsController.special']);
+    expect(index.matchAll('GET', '/nowhere')).to.deep.eq([]);
+    expect(names(index.all())).to.deep.eq(['ShadowController.special', 'ItemsController.one', 'ItemsController.special', 'ItemsController.create', 'ItemsController.remove']);
   });
 
   it('matches nothing for a malformed percent-encoding the router answers 400', () => {
-    expect(indexOf(items).match('GET', '/items/%E0%A4%A')).to.eq(undefined);
+    const index = indexOf(items);
+    expect(index.match('GET', '/items/%E0%A4%A')).to.eq(undefined);
+    expect(index.matchAll('GET', '/items/%E0%A4%A')).to.deep.eq([]);
   });
 
-  it('follows routes added and controllers removed after the first match', () => {
+  it('gives nothing for a route mounted outside it, rather than a later one', () => {
+    const unknownFirst = new RouteIndex();
+    const unknownRoot = express.Router();
+    unknownFirst.mount(unknownRoot);
+    unknownRoot.get('/items/special', (_req, _res, next) => next());
+    const known = express.Router();
+    const [, route] = [...items.Descriptor.Routes][0];
+    const r = known.route('/items/:id');
+    r.get((_req, _res, next) => next());
+    unknownFirst.add(r, items, route, '/items/:id');
+    unknownRoot.use(known);
+    expect(unknownFirst.match('GET', '/items/special')).to.eq(undefined);
+    expect(unknownFirst.matchAll('GET', '/items/special')).to.deep.eq([]);
+    expect(unknownFirst.match('GET', '/items/1')?.controller).to.eq(items);
+  });
+
+  it('matches a controller mounted after the first match, and changes its version', () => {
     const index = new RouteIndex();
-    expect(index.match('GET', '/items/1')).to.eq(undefined);
-    for (const [, route] of items.Descriptor.Routes) index.add(items, route, buildRoutePath(items.BasePath, route, 'api'));
-    expect(index.match('GET', '/api/items/1')?.controller).to.eq(items);
-    index.remove(items);
+    const before = index.version;
     expect(index.match('GET', '/api/items/1')).to.eq(undefined);
+    mountRoutes(index, [items], 'api');
+    expect(index.version).to.not.eq(before);
+    expect(index.match('GET', '/api/items/1')?.controller).to.eq(items);
   });
 });
 
@@ -109,7 +142,21 @@ describe('RoutePathMatcher', () => {
     expect(m.match('POST', '/hooks/stripe/extra')).to.eq(undefined);
   });
 
-  it('throws for a path the router cannot compile', () => {
+  it('throws for a path the router cannot compile, and for a method it does not route, instead of matching every method', () => {
     expect(() => new RoutePathMatcher().add('/hooks/:', true)).to.throw();
+    expect(() => new RoutePathMatcher().add('/hooks', true, 'FILE')).to.throw('FILE');
+  });
+});
+
+describe('Express router internals the lookups rely on', () => {
+  it('are there: router.stack, layer.match, route._handlesMethod, HEAD served by GET, case and trailing slash ignored', () => {
+    expect(() => checkRouterInternals()).to.not.throw();
+    const router = express.Router();
+    router.route('/a/:b').get((_req, _res, next) => next());
+    const [layer] = (router as unknown as { stack: { match(p: string): boolean; route: { _handlesMethod(m: string): boolean } }[] }).stack;
+    expect(layer.match('/A/x/')).to.eq(true);
+    expect(layer.route._handlesMethod('HEAD')).to.eq(true);
+    expect(layer.route._handlesMethod('POST')).to.eq(false);
+    expect(layer.match('/a/x/y')).to.eq(false);
   });
 });

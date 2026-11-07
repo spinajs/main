@@ -2,11 +2,11 @@ import 'mocha';
 import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, RouteIndex, ServerMiddleware, buildRoutePath, isCsrfExempt } from '../src/index.js';
+import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, RouteIndex, ServerMiddleware, isCsrfExempt } from '../src/index.js';
+import { controller, mountRoutes } from './support/route-index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { serverApp } from './support/server-app.js';
@@ -54,24 +54,17 @@ class CsrfShadowController extends BaseController {
   }
 }
 
-/** A controller as the route builder sees it, reading `values` as its configuration. */
-function controller<T extends BaseController>(type: new () => T, values: Record<string, unknown> = {}): T {
-  const c = new type();
-  const cfg = { get: (path: string, fallback?: unknown) => (path in values ? values[path] : fallback) };
-  for (const [name, value] of Object.entries({ _cfg: cfg, _log: noopLog, _container: DI, _actionLocalStorage: new AsyncLocalStorage() })) {
-    Object.defineProperty(c, name, { value });
-  }
-  return c;
-}
-
 class TestGuard extends CsrfGuard {
   public readonly routes = new RouteIndex();
 
-  /** Indexes the routes of `controllers` as BaseController.resolve() does, behind `prefix`. */
+  constructor() {
+    super();
+    this.Routes = this.routes;
+  }
+
+  /** Mounts the routes of `controllers` behind `prefix`, in the given order. */
   public mount(controllers: BaseController[], prefix?: string): void {
-    for (const c of controllers) {
-      for (const [, route] of c.Descriptor.Routes) this.routes.add(c, route, buildRoutePath(c.BasePath, route, prefix));
-    }
+    mountRoutes(this.routes, controllers, prefix);
   }
 }
 
@@ -230,10 +223,13 @@ describe('CsrfGuard (X1-X3)', function () {
       refused(await send(guard, 'post', '/moved/hooks/inbound/1', { Origin: EVIL }));
     });
 
-    it('exempts by the route the router serves: an exempt route shadowed by an earlier one is not exempt', async () => {
-    const guard = await guardWith();
-    guard.mount([controller(CsrfShadowController), controller(CsrfHooksController)]);
-    refused(await send(guard, 'post', '/hooks/inbound/42', { Origin: EVIL }));
+    it('exempts only when every route that could serve the request is exempt, whichever the router picks', async () => {
+    const shadowedExempt = await guardWith();
+    shadowedExempt.mount([controller(CsrfShadowController), controller(CsrfHooksController)]);
+    refused(await send(shadowedExempt, 'post', '/hooks/inbound/42', { Origin: EVIL }));
+    const exemptFirst = await guardWith();
+    exemptFirst.mount([controller(CsrfHooksController), controller(CsrfShadowController)]);
+    refused(await send(exemptFirst, 'post', '/hooks/inbound/42', { Origin: EVIL }));
   });
 
   it('picks up a controller added after the server started', async () => {

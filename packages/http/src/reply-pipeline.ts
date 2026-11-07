@@ -140,11 +140,29 @@ export function serverContextOf(req: express.Request, res: express.Response): IM
   return (state.server ??= state.routes ? preRoutedContext(req, res, state.routes) : { req, res, storage: (req as Request).storage });
 }
 
-// Looked up on the first read: most requests have no server middleware asking. Own enumerable getters, so a spread copies the match.
+const preRouted = new WeakSet<IMiddlewareContext>();
+
+// A spread would run the pre-routing lookup of an unrouted request; copying the getters keeps it lazy.
+function extendContext<T extends object>(base: IMiddlewareContext, extra: T): IMiddlewareContext & T {
+  if (!preRouted.has(base)) return { ...base, ...extra };
+  return Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(base)), extra) as IMiddlewareContext & T;
+}
+
+// Looked up on read, not per request: most requests have no server middleware asking. Kept while method and path stay
+// the same, so a middleware rewriting req.url or req.method gets the route for the new one. Own enumerable getters, so a
+// spread copies the match.
 function preRoutedContext(req: express.Request, res: express.Response, routes: RouteIndex): IMiddlewareContext {
-  let match: IRouteMatch | undefined | null = null;
-  const matched = () => (match === null ? (match = routes.match(req.method, req.path)) : match);
-  return {
+  let match: IRouteMatch | undefined;
+  let key: string | undefined;
+  const matched = () => {
+    const current = `${req.method} ${req.path}`;
+    if (key !== current) {
+      key = current;
+      match = routes.match(req.method, req.path);
+    }
+    return match;
+  };
+  const context: IMiddlewareContext = {
     req,
     res,
     storage: (req as Request).storage,
@@ -158,6 +176,8 @@ function preRoutedContext(req: express.Request, res: express.Response, routes: R
       return matched()?.path;
     },
   };
+  preRouted.add(context);
+  return context;
 }
 
 // The route the router matched replaces the pre-routing match in the server onAfter and onFinish hooks.
@@ -225,7 +245,7 @@ function runFinish(state: IReplyState, entries: readonly IEntered[], aborted: bo
   for (const entry of innerFirst(entries, 'onFinish')) {
     const failed = (error: unknown) => httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
     try {
-      const result = inScope(state, entry, () => entry.middleware.onFinish!({ ...hookContext(state, entry), aborted }));
+      const result = inScope(state, entry, () => entry.middleware.onFinish!(extendContext(hookContext(state, entry), { aborted })));
       if (isThenable(result)) {
         result.then(undefined, failed);
       }
@@ -270,7 +290,7 @@ export async function sendReply(req: express.Request, res: express.Response, res
         const base = hookContext(state, entry);
         if (!ctx || ctxBase !== base) {
           ctxBase = base;
-          ctx = { ...base, response: current, error };
+          ctx = extendContext(base, { response: current, error });
         } else {
           ctx.response = current;
           ctx.error = error;

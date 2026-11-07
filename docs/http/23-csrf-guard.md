@@ -60,7 +60,7 @@ export default {
 
 ## Exempting a route
 
-`@CsrfExempt()` on a route method exempts that route; on a controller class it exempts every route of the controller, and subclasses inherit it. The guard reads the decorator from `ctx.route` and `ctx.controller`, the route the [`RouteIndex`](15-server-middlewares.md#the-route-before-routing) matches before routing at the path it is served at, so a controller moved by `@BasePath({ config, default })` or added later with `Controllers.add()` is matched at its actual path. An exempt route that an earlier route with the same method and path shadows never serves the request, so it exempts nothing.
+`@CsrfExempt()` on a route method exempts that route; on a controller class it exempts every route of the controller, and subclasses inherit it. The guard asks the [`RouteIndex`](15-server-middlewares.md#the-route-before-routing) for every mounted route that could serve the request (method and path, at the path each is served at), so a controller moved by `@BasePath({ config, default })` or added later with `Controllers.add()` is matched at its actual path. The request is exempt only when every one of them is `@CsrfExempt()`: a non-exempt route on the same method and path, before or after the exempt one, keeps the check, whichever the router picks.
 
 ```ts
 import { BaseController, BasePath, CsrfExempt, Post } from '@spinajs/http';

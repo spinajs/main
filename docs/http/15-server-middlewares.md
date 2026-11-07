@@ -85,7 +85,7 @@ The other keys are on the pages of each middleware.
 | --- | --- | --- | --- | --- |
 | `ServerMiddleware` (abstract, an `AsyncService`) | `ServerMiddleware` list, autoinjected into `HttpServer`; each a singleton | the table above | the classes from other packages listed above | Add one with `@Injectable(ServerMiddleware)`, imported before `HttpServer` resolves. Replace one with `DI.register(Mine).as(Theirs)` (eg. `.as(AccessLog)`). Remove one with `DI.unregister(Theirs)` before `HttpServer` resolves, or switch it off in configuration. |
 | `NotFoundMiddleware`, `ErrorHandlerMiddleware` | resolved by class when `HttpServer` resolves, singletons | themselves | | `DI.register(Mine).as(NotFoundMiddleware)`; override `reply()`. |
-| `RouteIndex` | resolved by class, singleton; autoinjected into `HttpServer`, `BaseController` and `CorsMiddleware` | itself | | Read it with `match(method, path)`; `BaseController.resolve()` fills it. |
+| `RouteIndex` | resolved by class, singleton; autoinjected into `HttpServer`, `Controllers`, `BaseController`, `CorsMiddleware` and `CsrfGuard` | itself | | Read it with `match(method, path)` or `matchAll(method, path)`; `BaseController.resolve()` adds the routes it mounts, `Controllers` the router it mounts them on. |
 
 Members of `ServerMiddleware`:
 
@@ -184,11 +184,11 @@ DI.register(QuietAccessLog).as(AccessLog);
 
 ## The route before routing
 
-Server middlewares run before routing, so `HttpServer` looks the request up in the `RouteIndex`: every route the controllers registered, by method and mounted path, compiled by an Express router so it matches as the router does (params, case, trailing slash, `HEAD` served by `GET`). `ctx.route`, `ctx.controller` and `ctx.path` (`http:<METHOD> <mounted path>`) of a server `onBefore` and `onAround` hold the match, looked up on the first read of one of them.
+Server middlewares run before routing, so `HttpServer` looks the request up in the `RouteIndex`. It walks the controllers router the app serves, in its order, with the router's own matching (params, case, trailing slash, `HEAD` served by `GET`), and knows each route a controller mounted. `ctx.route`, `ctx.controller` and `ctx.path` (`http:<METHOD> <mounted path>`) of a server `onBefore` and `onAround` hold the route the router will serve the request with, looked up when one of them is read; a middleware that rewrites `req.url` or `req.method` changes the answer for those read after it.
 
-It is a best-effort match; the real route is the router's. A static file or an `http.middlewares` handler mounted ahead of the controllers may answer the request instead, and a malformed percent-encoding in a parameter matches nothing. A controller added later with `Controllers.add()` is matched from its first request on.
+It is a best-effort match; the real route is the router's. A static file or an `http.middlewares` handler mounted ahead of the controllers may answer the request instead, and a malformed percent-encoding in a parameter matches nothing. A controller added later with `Controllers.add()` is matched once it is mounted. At boot the index checks that the installed Express router still works the way it reads it, and fails the boot with `InvalidOperation` when it does not.
 
-`RouteIndex.match(method, path)` answers the same for any method, for example the method a CORS preflight asks about:
+`RouteIndex.match(method, path)` gives the route for any method, for example the method a CORS preflight asks about; `matchAll(method, path)` gives every mounted route that could serve it, for a decision that must not depend on which one the router picks:
 
 ```ts sample
 import { Autoinject } from '@spinajs/di';
