@@ -20,11 +20,12 @@ action                              returns a Response, or throws
 error handlers                      on a throw: @OnError, http.errors.handlers, the error map
 reply pipeline                      once for the reply, whichever produced it:
   onAfter                             each entered middleware, inner (last entered) first
+  contract check                      with http.contractTesting on: the JSON body against its schema
   response.execute()                  serialisation, headers, send
 onFinish                            each entered middleware, inner first, once the response finished or the client went away
 ```
 
-The reply pipeline handles every framework reply of the route: the `Response` the action returned, an error reply (from an `@OnError` handler, an `http.errors.handlers` service or the error map), a `Response` an `onBefore` returned, and a reply an `@Idempotent` route replays. Every `onAfter` sees each of them.
+The reply pipeline handles every framework reply of the route: the `Response` the action returned, an error reply (from an `@OnError` handler, an `http.errors.handlers` service or the error map), a `Response` an `onBefore` returned, and a reply an `@Idempotent` route replays. Every `onAfter` sees each of them, and [contract testing](../testing/02-contract-tests.md) checks each of them once, after the last `onAfter`.
 
 ### Entered middlewares
 
