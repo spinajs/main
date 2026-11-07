@@ -62,8 +62,9 @@ export class ContainerCache {
   }
 
   /**
-   * Adds an `Array.ofType` element to the collection under `key` at its registration `slot`, or moves it there
-   * when the slot changed. Elements without a slot stay after the slotted ones.
+   * Adds an `Array.ofType` element to the collection under `key` at its registration `slot`. Elements without a slot
+   * stay after the slotted ones. An element already in the list is never moved: consumers hold this array and may
+   * have sorted it themselves.
    */
   private addToCollection(key: string, instance: unknown, slot?: number) {
     let slots = this.slots.get(key);
@@ -81,9 +82,8 @@ export class ContainerCache {
       return;
     }
 
-    const at = list.indexOf(instance);
-    if (at !== -1) {
-      list.splice(at, 1);
+    if (list.includes(instance)) {
+      return;
     }
 
     const rank = (x: unknown) => (slots && typeof x === 'object' && x !== null ? slots.get(x) : undefined) ?? Infinity;
@@ -217,7 +217,12 @@ export class ContainerCache {
         const epoch = this.epoch;
         return pending.then((resolved: T) => {
           if (epoch === this.epoch && getTypeName(targetType) !== sourceTypeKey) {
+            const isNew = !(this.get(sourceTypeKey) as unknown[]).includes(resolved);
             this.addToCollection(sourceTypeKey, resolved, slot);
+            // di.resolved.<target> was already emitted by the resolve that started the creation.
+            if (isNew) {
+              this.container.emit(`di.resolved.${sourceTypeKey}`, this.container, resolved);
+            }
           }
           return resolved;
         });
@@ -249,7 +254,7 @@ export class ContainerCache {
     const _checkCache = (resolvedInstance: T) => {
       if (isTypedArray(sourceType)) {
         // Through addToCollection(), never by pushing into get()'s result: that can be the registry's value list.
-        const isNew = !this.get(sourceTypeKey).includes(resolvedInstance);
+        const isNew = !(this.get(sourceTypeKey) as unknown[]).includes(resolvedInstance);
         this.addToCollection(sourceTypeKey, resolvedInstance, slot);
         if (isNew) {
           emit(resolvedInstance);
