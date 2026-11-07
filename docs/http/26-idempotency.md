@@ -68,7 +68,7 @@ All the errors are problem+json. A replay is answered by the gate itself: the ac
 not run for it. The outer middlewares entered before the gate (global and controller ones, and route ones written below
 `@Idempotent`, since decorators apply bottom-up) run for it: their `onAfter` gets a `ReplayedResponse`, whose `data` is
 the stored body they already shaped on the first answer. The entered server middlewares' `onAfter` run on it too, after
-the route's: `x-response-time` and `Server-Timing` are set on a replay as on any reply. A hook that changes data checks
+the route's: `x-response-time`, `Server-Timing` and `X-Access-Epoch` are set on a replay as on any reply. A hook that changes data checks
 `ctx.response instanceof ReplayedResponse`; a data change it makes is sent, and the stored bytes otherwise. See
 [Route middlewares](14-route-middlewares.md#around-middlewares).
 
