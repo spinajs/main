@@ -28,7 +28,7 @@ It is a declaration file, so `tsc` never copies it to `lib/`. Your package's con
 
 A column is a property the model class declares that is not a function or a relation. Members of `ModelBase` (`PrimaryKeyValue`, `IsDirty`, ...) are not columns. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`), and a model that declares no columns, accept any name in both modes.
 
-The model statics are typed the same way: `User.where('Email', x)` checks the column and value, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
+The model statics are typed the same way: `User.where('Email', x)`, `User.where('Id', '>', x)` and `User.where({ Email: x })` check the column and the value like the builder's `where`, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
 
 ## `col()`: columns the type cannot see
 
@@ -87,7 +87,7 @@ In strict mode the row type follows the select list:
 
 ## Important behaviour
 
-- Loose mode changes nothing at runtime and rejects nothing that compiled before.
+- Loose mode changes nothing at runtime and rejects nothing that compiled before, with one exception: a `first`, `last`, `newest`, `oldest` or `count` callback annotated with the class type (`User.first((b: IWhereBuilder<typeof User>) => ...)`) no longer compiles. Annotate it with the model instance, `IWhereBuilder<User>`, or leave the parameter unannotated.
 - Strict mode is types only: the same SQL runs either way.
 - A non-literal string column (`where(name, value)` with `name: string`) is an error in strict mode. Type the variable as a union of the columns it can hold, or use `col(name)`.
 - Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.

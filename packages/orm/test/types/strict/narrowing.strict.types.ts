@@ -116,3 +116,9 @@ export async function objectWhereAfterProjectionStrict(): Promise<void> {
   await User.query().columns(['Id']).where({ Email: 'a' }).orWhere({ IsActive: true }).andWhere({ Name: null });
   await User.query().select('Id').whereObject({ Email: 'a' });
 }
+
+export function untypedArrayStrict(rows: SelectQueryBuilder<any[]>): void {
+  // an array of `any` rows has no model either
+  const out: ICompilerOutput = rows.select('id').columns(['id']).count('id', 'c').toDB();
+  void out;
+}

@@ -3,5 +3,5 @@
   "notes": "bench.types.ts leaves out class-to-interface assignability (const i: ISelectQueryBuilder<User[]> = User.all()): in strict mode it costs 7078 instantiations, once per program. Most of the bench is one structural ISelectQueryBuilder<A> to ISelectQueryBuilder<B> comparison (a query scope after populate): the variance of T cannot be measured, so TypeScript compares the builders member by member and caches it per (model, populated-relation set) pair.",
   "enforce": true,
   "loose": 25704,
-  "strict": 28485
+  "strict": 28520
 }
