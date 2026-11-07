@@ -359,6 +359,13 @@ export interface IDriverOptions {
   Encoding?: string;
 
   /**
+   * Session time zone of the connection's datetimes: `SYSTEM` ( default ) keeps the server's zone and expects the
+   * node process to run in the same one, `UTC` or an offset such as `+02:00` is set on every session. Read by
+   * `@spinajs/orm-mysql`.
+   */
+  TimeZone?: string;
+
+  /**
    * Database filename eg. for Sqlite driver
    */
   Filename?: string;

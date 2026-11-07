@@ -7,13 +7,13 @@
 1. **Registration.** Importing `@spinajs/orm-mysql` runs `@Injectable('orm-driver-mysql') @NewInstance()` on `MySqlOrmDriver`: the class is registered in the root container under the string `orm-driver-mysql` and under itself.
 2. **Resolve.** `Orm.createConnections()` reads `db.Connections`, checks `Container.hasRegistered(c.Driver)`, and resolves `orm-driver-mysql` with the connection entry. `OrmDriver`'s constructor merges the entry into `Options`.
 3. **Dialect.** The container calls `MySqlOrmDriver.resolve()`: `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the child container `this.Container`, `SqlDriver.resolve()` registers the shared SQL classes, and `MySqlOrmDriver.resolve()` registers the MySQL dialect. See [Customizing the dialect](08-customizing-the-dialect.md#what-mysqlormdriverresolve-registers).
-4. **Connect.** `Orm` calls `connect()`. `openPool()` builds a `mysql2` pool from `poolConfig()` (`Options`, then `Host`, `User`, `Password`, `Port`, `Database`, `Encoding`, the resolved `Pool.*` values and `timezone: 'Z'`), pins the session zone of every new connection to UTC with `pinSessionZone()` (`SET time_zone = '+00:00'`), and proves the link by taking one connection with `acquire()` and releasing it. `connect()` then makes the pool `this.Pool` and sets `State` to `Connected`. A pool it replaces (a reconnect) is ended once every connection it lent out is back. A failed test connection, including a failed `SET time_zone`, ends the new pool, keeps the previous one and rejects; on the first connect `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
+4. **Connect.** `Orm` calls `connect()`. `openPool()` builds a `mysql2` pool from `poolConfig()` (`Options`, then `Host`, `User`, `Password`, `Port`, `Database`, `Encoding`, the resolved `Pool.*` values and the `timezone` of the connection's `TimeZone`), pins the session zone of every new connection with `pinSessionZone()` when `TimeZone` is not `SYSTEM` (eg. `SET time_zone = '+00:00'`), and proves the link by taking one connection with `acquire()` and releasing it. `connect()` then makes the pool `this.Pool` and sets `State` to `Connected`. A pool it replaces (a reconnect) is ended once every connection it lent out is back. A failed test connection, including a failed `SET time_zone`, ends the new pool, keeps the previous one and rejects; on the first connect `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
 5. **Health probe.** `Orm` calls `startHealthCheck()`. Every `Resilience.HealthCheckInterval` ms, `ping()` runs `SELECT 1` once, outside the retry loop. A failed probe sets `Degraded` and calls `connect()` again.
 6. **Execute.** An awaited builder calls `SqlDriver.execute()`, which compiles and calls `MySqlOrmDriver.executeOnDb(stmt, params, context)`:
    1. `toDriverParams()` writes every `Date` or luxon `DateTime` parameter through the connection's `DatetimeValueConverter`, so raw SQL binds datetimes as model writes do.
    2. `withReconnect()` wraps the attempt.
    3. Inside a transaction, the statement runs on the transaction's own connection. See [Transactions](03-transactions.md).
-   4. Otherwise `acquire()` takes a connection with `Pool.getConnection()` and waits until its `SET time_zone` has answered. A connection whose `SET` failed is destroyed and the statement fails with `could not set the session time zone of connection <Name> to UTC: ...`. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
+   4. Otherwise `acquire()` takes a connection with `Pool.getConnection()` and waits until its `SET time_zone` has answered, if one was sent. A connection whose `SET` failed is destroyed and the statement fails with `could not set the session time zone of connection <Name> to <zone>: ...`. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
    5. `connection.query(stmt, params)` runs with `?` placeholders; the connection is released exactly once, also when `query()` throws synchronously.
    6. The result is shaped by `QueryContext` (table below).
 7. **Errors.** `mapMySqlError()` turns every `mysql2` error into an ORM error (see [Errors](#errors)). `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries).
@@ -64,10 +64,20 @@ The `mysql2` error is `inner` on every one of them. `UniqueViolation` and `Const
 
 ### Dates and time zone
 
-- `poolConfig()` passes `timezone: 'Z'`, so `mysql2` writes and reads `DATETIME` and `TIMESTAMP` values as UTC.
-- `pinSessionZone()` runs `SET time_zone = '+00:00'` on every new pooled connection, so `NOW()`, `CURRENT_TIMESTAMP` and `TIMESTAMP` columns use UTC too. `acquire()` hands out a connection only after that `SET` succeeded.
-- `SqlDatetimeValueConverter` (from `@spinajs/orm-sql`) writes an instant as the UTC wall clock with milliseconds, `yyyy-MM-dd HH:mm:ss.SSS`, which `DATETIME(3)` and `TIMESTAMP(3)` columns keep exactly. See [Value converters and defaults](../orm-sql/05-value-converters-and-defaults.md).
-- `driver.now()` returns `RawQuery('UTC_TIMESTAMP(3)')` (`MySqlNowExpression`): the database's current instant in UTC, whatever the session zone.
+The connection's `TimeZone` option sets one zone for every layer that reads or writes a datetime. `mySqlSessionZone()` reads it into `driver.SessionZone`:
+
+| `TimeZone` | Session (`SET time_zone`) | `mysql2` `timezone` | `DATETIME` text written and read as | `driver.now()` |
+| --- | --- | --- | --- | --- |
+| `SYSTEM` (default, also when unset) | not sent: the server's own zone | `local` | the wall clock of the node process | `NOW(3)` |
+| `UTC`, `Z`, `+00:00` | `+00:00` | `Z` | the UTC wall clock | `UTC_TIMESTAMP(3)` |
+| an offset `±HH:MM`, eg. `+02:00` | the offset | the offset | the wall clock at that offset | `NOW(3)` |
+
+- `SYSTEM` is right only when the node process and the MySQL server run in the same zone (eg. both `Europe/Warsaw`): `FROM_UNIXTIME()`, `NOW()` and `DATE()` in SQL then agree with the dates the application writes. This is how 2.x behaved.
+- `UTC` suits a schema whose every datetime is written by this ORM. A legacy schema that stores local wall-clock datetimes, or views and events that compute dates in SQL, shift by the zone offset in a UTC session: a month that starts at local midnight starts the day before.
+- A named zone such as `Europe/Warsaw` is refused with `OrmException` when the driver resolves: `mysql2` reads datetimes only in the process zone, in UTC or at a fixed offset. A fixed offset does not follow daylight saving time.
+- `pinSessionZone()` runs the `SET time_zone` on every new pooled connection and `openDedicatedConnection()` on each dedicated one. `acquire()` hands out a pooled connection only after that `SET` succeeded.
+- `MySqlDatetimeValueConverter` extends `SqlDatetimeValueConverter` (from `@spinajs/orm-sql`): it writes an instant as the session wall clock with milliseconds, `yyyy-MM-dd HH:mm:ss.SSS`, which `DATETIME(3)` and `TIMESTAMP(3)` columns keep exactly, and reads text without an offset in the same zone. A `Date` from `mysql2` keeps its instant. See [Value converters and defaults](../orm-sql/05-value-converters-and-defaults.md).
+- `driver.now()` returns the session clock, the clock datetimes are written in, so a `where('At', '<=', driver.now())` compares like with like in every mode.
 
 ## Configuration
 
@@ -88,7 +98,8 @@ Connection keys are listed in [Connections](../orm/01-connections.md#configurati
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | `IConnectionResilienceOptions` | `30000`, `5`, `200`, `5000` | | Health probe interval and retry policy. |
 | `db.Connections[].Encoding` | `string` | `mysql2`: `UTF8MB4_UNICODE_CI` | a `mysql2` charset or collation name, eg. `utf8mb4`, `UTF8MB4_GENERAL_CI` | `charset` of the pool. An unknown name (eg. `utf-8`) makes `connect()` reject with `Unknown charset`. |
-| `db.Connections[].Options` | `object` | | `mysql2` pool options | Passed to `mysql2` as is: `ssl`, `connectTimeout`, `decimalNumbers` and so on. The keys above that have their own setting win over the same key here, and `timezone` is always `'Z'`. `mysql2` logs `Ignoring invalid configuration option` for a key it does not know. |
+| `db.Connections[].TimeZone` | `string` | `SYSTEM` | `SYSTEM`, `UTC` (`Z`, `+00:00`), an offset `±HH:MM` | Session zone, `mysql2` `timezone`, datetime text and `driver.now()`. See [Dates and time zone](#dates-and-time-zone). Anything else fails the resolve with `OrmException`. |
+| `db.Connections[].Options` | `object` | | `mysql2` pool options | Passed to `mysql2` as is: `ssl`, `connectTimeout`, `decimalNumbers` and so on. The keys above that have their own setting win over the same key here, and `timezone` always comes from `TimeZone`. `mysql2` logs `Ignoring invalid configuration option` for a key it does not know. |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases. |
 | `db.Connections[].Migration.*` | | | | See [Migrations](../orm/10-migrations.md) and [DDL is not transactional](06-schema-views-and-events.md#ddl-is-not-transactional). |
 
@@ -132,8 +143,8 @@ export class ShopConfiguration extends FrameworkConfiguration {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'` and `MySqlOrmDriver`; `@NewInstance()`, one instance per connection entry, resolved by `Orm` at boot from `Driver` | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`, see [SSH tunnel](02-ssh-tunnel.md)) | Subclass with `@Injectable('<string>') @NewInstance()`. Use a new string for chosen connections, or `'orm-driver-mysql'` to replace it everywhere. Register before `Orm` resolves. |
-| Connection setup | `poolConfig()` (protected), `connect()` (public) | `poolConfig()` maps the keys above; `connect()` opens and proves the pool | | Override `poolConfig()` to compute `mysql2` options that configuration cannot hold, eg. a CA read from a file; spread `super.poolConfig()` to keep `timezone: 'Z'`. Both connect paths use it, `MySqlSSHOrmDriver` included. Override `connect()` only to change how the pool is opened; call `setState(ConnectionState.Connected)` when the link is proven. |
-| Session zone | `pinSessionZone(pool)`, `acquire(done, pool?)` (protected) | `SET time_zone = '+00:00'` per new connection; `acquire()` waits for it and destroys a connection on which it failed | | `openPool()` calls both. A pool built without `pinSessionZone()` hands out connections in the server's zone. |
+| Connection setup | `poolConfig()` (protected), `connect()` (public) | `poolConfig()` maps the keys above; `connect()` opens and proves the pool | | Override `poolConfig()` to compute `mysql2` options that configuration cannot hold, eg. a CA read from a file; spread `super.poolConfig()` to keep the `timezone` of `TimeZone`. Both connect paths use it, `MySqlSSHOrmDriver` included. Override `connect()` only to change how the pool is opened; call `setState(ConnectionState.Connected)` when the link is proven. |
+| Session zone | `pinSessionZone(pool)`, `acquire(done, pool?)` (protected) | `SET time_zone` per new connection unless `TimeZone` is `SYSTEM`; `acquire()` waits for it and destroys a connection on which it failed | | `openPool()` calls both. A pool built without `pinSessionZone()` hands out connections in the server's zone, whatever `TimeZone` says. |
 | Error mapping | `mapMySqlError(err, driver, query, bindings)` (exported function) | the table in [Errors](#errors) | | Not a DI service. Catch the ORM errors instead; override `executeOnDb()` only to map more `errno` values. |
 | Retry policy | `isRetryableError(err)` (protected) | shared codes, `fatal` errors, never inside a transaction | | Override, call `super.isRetryableError(err)` first so the transaction guard stays. |
 | Pool gauges | `poolMetrics()` (public) | reads `mysql2`'s internal `_allConnections`, `_freeConnections`, `_connectionQueue`; zeros when they are absent | | Override when you swap the pool implementation. Must never throw. |
@@ -215,7 +226,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 
 - Importing the package registers both drivers. `DI.register(MySqlOrmDriver).as('orm-driver-mysql')` repeats what the decorator did; it is harmless.
 - `Pool.AcquireTimeout` is not applied: `mysql2` has no acquire timeout, and the pool queues without limit. Without `Options.ssl` there is no TLS.
-- The pool always passes `timezone: 'Z'` and sets `time_zone = '+00:00'` on every new connection, so `DATETIME` and `TIMESTAMP` values, `NOW()` and `CURRENT_TIMESTAMP` are UTC. A connection on which that `SET` fails is destroyed and the statement or transaction that took it fails.
+- By default (`TimeZone: 'SYSTEM'`) the driver sends no `SET time_zone` and reads and writes datetimes in the node process zone, so the process and the server must run in the same zone. With `UTC` or an offset, every new connection is pinned to it; a connection on which that `SET` fails is destroyed and the statement or transaction that took it fails.
 - `decimalNumbers` stays off unless `Options` turns it on: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema; a connection with `Options.decimalNumbers: true` needs a driver that redeclares it ([example](05-table-reflection.md#response-schema-types-custom-implementation)).
 - A reconnect by `withReconnect()` or the health probe ends the replaced pool once every connection it lent out is back (checked every second), so a transaction still running on it keeps its connection.
 - A failed `connect()` ends only the pool it just created; `this.Pool` stays the previous pool, so the next retry attempt fails with that pool's transport error and `withReconnect()` keeps retrying.
@@ -320,7 +331,7 @@ import { OrmDriver } from '@spinajs/orm';
 export async function purgeExpiredSessions(): Promise<void> {
   const shop = DI.resolve<OrmDriver>('OrmConnection', ['shop'])!;
 
-  // DELETE FROM `sessions` WHERE `ExpiresAt` < UTC_TIMESTAMP(3)
+  // DELETE FROM `sessions` WHERE `ExpiresAt` < NOW(3)
   await shop.del().from('sessions').where('ExpiresAt', '<', shop.now());
 }
 ```

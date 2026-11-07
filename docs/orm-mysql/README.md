@@ -2,7 +2,7 @@
 
 The MySQL and MariaDB driver for [`@spinajs/orm`](../orm/README.md), built on [`@spinajs/orm-sql`](../orm-sql/README.md) and `mysql2`. It ships `MySqlOrmDriver` (`orm-driver-mysql`) and `MySqlSSHOrmDriver` (`orm-driver-mysql-ssh`), which tunnels the pool through an SSH bastion.
 
-`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. Every connection runs in UTC: the driver's `timezone: 'Z'` wins over one in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
+`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. `TimeZone` picks the session zone of the connection's datetimes: `SYSTEM` (default) keeps the server's zone, `UTC` or an offset such as `+02:00` is set on every session; it wins over a `timezone` in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
 
 ## Install
 
@@ -14,7 +14,7 @@ npm install @spinajs/orm @spinajs/orm-mysql
 
 | Feature | What it does |
 | --- | --- |
-| [MySQL driver](01-mysql-driver.md) | Connection pool, UTC session zone, statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
+| [MySQL driver](01-mysql-driver.md) | Connection pool, session time zone (`TimeZone`), statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
 | [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, one forwarded channel per pooled connection. |
 | [Transactions](03-transactions.md) | One pooled connection per transaction, savepoints, all four isolation levels, no retries inside. |
 | [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, contiguous batch keys, `INSERT IGNORE`, `REPLACE`, `ON DUPLICATE KEY UPDATE`, the response mapper. |
@@ -75,9 +75,9 @@ export async function bootstrap(): Promise<Orm> {
 | Views | `OR REPLACE`, `ALGORITHM`, `SQL SECURITY`, every `CHECK OPTION`; no `IF NOT EXISTS`, no `TEMPORARY` |
 | Set membership | `FIND_IN_SET` |
 | `DECIMAL` values | strings |
-| Session time zone | UTC (`timezone: 'Z'` and `SET time_zone = '+00:00'`); a connection that cannot be pinned fails the acquire |
+| Session time zone | `TimeZone`: `SYSTEM` by default (the server's zone, no `SET`); `UTC` or an offset is set on every connection, and a connection that cannot be pinned fails the acquire |
 | `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)`; a `timestamp()` without `notNull()` is written `NULL`, so it stays nullable on MySQL 5.7 |
-| `driver.now()` | `UTC_TIMESTAMP(3)` |
+| `driver.now()` | `NOW(3)`; `UTC_TIMESTAMP(3)` with `TimeZone: 'UTC'` |
 | Duplicate key | `UniqueViolation`; NOT NULL, FK and CHECK failures `ConstraintViolation` |
 | Bind-parameter limit | `MaxBindings` `65535`; `mysql2` interpolates on the client, so `max_allowed_packet` bounds a statement |
 | `lockTableShared()` | `SELECT COUNT(*) ... FOR UPDATE` |
