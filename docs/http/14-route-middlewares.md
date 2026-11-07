@@ -175,7 +175,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 
@@ -193,35 +193,33 @@ export default { http: { routes: { middlewares } } };
 
 ### `RouteMiddleware`: custom implementation
 
-Set `Cache-Control` per route, with the max age as a `@Middleware` option:
+Set `X-Robots-Tag` per route, with the directive as a `@Middleware` option:
 
 ```ts sample
 import { NewInstance } from '@spinajs/di';
 import { BaseController, BasePath, Get, IController, IReplyContext, IRoute, Middleware, Ok, RouteMiddleware, RouteType } from '@spinajs/http';
 
-/** NewInstance: each @Middleware(CacheControl, seconds) keeps its own max age. */
+/** NewInstance: each @Middleware(RobotsTag, directive) keeps its own directive. */
 @NewInstance()
-export class CacheControl extends RouteMiddleware {
-  constructor(protected MaxAgeSeconds: number = 60) {
+export class RobotsTag extends RouteMiddleware {
+  constructor(protected Directive: string = 'noindex') {
     super();
   }
 
   public isEnabled(route: IRoute, _controller: IController): boolean {
-    // Never cache writes.
-    return route.Type === RouteType.GET || route.Type === RouteType.HEAD;
+    // Only pages a crawler fetches.
+    return route.Type === RouteType.GET;
   }
 
-  public async onAfter({ res, error }: IReplyContext): Promise<void> {
-    if (error !== undefined) {
-      res.setHeader('Cache-Control', 'no-store');
-    } else if (!res.hasHeader('Cache-Control')) {
-      res.setHeader('Cache-Control', `public, max-age=${this.MaxAgeSeconds}`);
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    if (!res.hasHeader('X-Robots-Tag')) {
+      res.setHeader('X-Robots-Tag', this.Directive);
     }
   }
 }
 
 @BasePath('catalog')
-@Middleware(CacheControl, 300)
+@Middleware(RobotsTag, 'noindex')
 export class CatalogController extends BaseController {
   @Get('categories')
   public categories() {
@@ -231,7 +229,7 @@ export class CatalogController extends BaseController {
   // The route-level middleware is entered after the controller-level one, so its onAfter runs first: its header
   // is set when the controller-level one looks.
   @Get('prices')
-  @Middleware(CacheControl, 10)
+  @Middleware(RobotsTag, 'noindex, nofollow')
   public prices() {
     return new Ok({ lamp: 49 });
   }
@@ -337,6 +335,52 @@ export class SearchController extends BaseController {
 ```
 
 `RouteTiming` is registered as `RouteMiddleware`, so `http.routes.middlewares: ['RouteTiming']` times every route.
+
+## Built-in: `CacheControl` and `NoStore`
+
+`CacheControl(maxAge, options?)` sets `Cache-Control` on the replies of a GET, HEAD or FILE route; other routes do not mount it. A success reply gets `public, max-age=<maxAge>`, an error reply or a reply with a status of 400 and above gets `no-store`, so a cache never keeps a failure.
+
+| Option | Directive |
+| --- | --- |
+| `private: true` | `private` in place of `public`: only the browser may keep the reply |
+| `staleWhileRevalidate: <seconds>` | `stale-while-revalidate=<seconds>` (RFC 5861) |
+| `immutable: true` | `immutable` (RFC 8246) |
+
+`maxAge` and `staleWhileRevalidate` must be non-negative integers; another value throws `InvalidArgument` when the route is built. A `Cache-Control` the answer set itself (`IResponseOptions.Headers`) or an earlier step set on `res` (the `no-store` of an authenticated request) is kept. With `CacheControl` on both the controller and the route, the route's wins: its `onAfter` runs first.
+
+`NoStore` sets `Cache-Control: no-store` and `Pragma: no-cache` on every reply of the route, error replies included, over a `Cache-Control` the answer set itself. Use it for answers that hold a secret: a token, a share link. A reply an action wrote to `res` itself gets neither header, since `onAfter` does not run for it.
+
+```ts sample
+import { BaseController, BasePath, CacheControl, Get, Middleware, NoStore, Ok, Post } from '@spinajs/http';
+
+@BasePath('products')
+@Middleware(CacheControl, 300)
+export class ProductsController extends BaseController {
+  @Get()
+  public list() {
+    return new Ok([]);
+  }
+  // Cache-Control: public, max-age=300
+
+  @Get('featured')
+  @Middleware(CacheControl, 60, { staleWhileRevalidate: 30 })
+  public featured() {
+    return new Ok([]);
+  }
+  // Cache-Control: public, max-age=60, stale-while-revalidate=30
+
+  @Post('share')
+  @Middleware(NoStore)
+  public share() {
+    return new Ok({ link: 'https://example.com/s/abc' });
+  }
+  // Cache-Control: no-store, Pragma: no-cache
+}
+```
+
+Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']` marks every route, `{ service: 'CacheControl', options: [60] }` every GET route. `CacheControl` is `@NewInstance()`, so each declaration keeps its own options.
+
+For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control', Value: 'no-store' }`) in its `IResponseOptions.Headers`: `new Ok(body, { Headers: [NO_STORE] })`.
 
 ## Important behaviour
 
