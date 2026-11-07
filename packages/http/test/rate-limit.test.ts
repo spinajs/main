@@ -79,6 +79,24 @@ class RateLimitedController extends BaseController {
   }
 }
 
+class BrokenStore extends ThrottleStore {
+  public increment(): Promise<never> {
+    return Promise.reject(new Error('store down'));
+  }
+}
+
+@BasePath('rate-limited-broken')
+class BrokenStoreController extends BaseController {
+  public static calls = 0;
+
+  @Post()
+  @RateLimit(5, 60)
+  public guarded() {
+    BrokenStoreController.calls++;
+    return new Ok({ ok: true });
+  }
+}
+
 describe('RateLimitMiddleware', () => {
   afterEach(async () => {
     sinon.restore();
@@ -185,6 +203,18 @@ describe('RateLimitMiddleware', () => {
       expect(store.increment('1.2.3.4:/auth/login:POST', 60).count).to.eq(1);
     });
 
+    it('closes the route with a limit of 0: 429 without a Retry-After or reset, and no store write', async () => {
+      const store = new MemoryThrottleStore();
+      const increment = sinon.spy(store, 'increment');
+      const mw = await registered(await makeMiddleware({ limit: 0, windowSeconds: 60 }, {}, store));
+
+      const closed = await run(mw);
+      expect(closed.status).to.eq(429);
+      expect(closed.headers).to.deep.eq({ 'X-RateLimit-Limit': '0', 'X-RateLimit-Remaining': '0' });
+      expect(JSON.stringify(closed.body)).to.eq(JSON.stringify({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }));
+      expect(increment.called).to.eq(false);
+    });
+
     it('hands a counter store failure to the error handler', async () => {
       const broken = { increment: () => Promise.reject(new Error('store down')) } as unknown as ThrottleStore;
       const mw = await registered(await makeMiddleware({ limit: 1, windowSeconds: 60 }, {}, broken));
@@ -200,6 +230,13 @@ describe('RateLimitMiddleware', () => {
       expect((await run(mw, { realIp: '1.1.1.1', Principal: user('a') })).passed).to.eq(true);
       expect((await run(mw, { realIp: '2.2.2.2', Principal: user('a') })).status).to.eq(429);
       expect((await run(mw, { realIp: '1.1.1.1', Principal: user('b') })).passed).to.eq(true);
+    });
+
+    it('keeps principals apart whose type and id differ only in where a colon falls', async () => {
+      const mw = await registered(await makeMiddleware({ limit: 1, windowSeconds: 60, by: 'principal' }));
+
+      expect((await run(mw, { Principal: { ...user('b:c'), type: 'a' } })).passed).to.eq(true);
+      expect((await run(mw, { Principal: { ...user('c'), type: 'a:b' } })).passed).to.eq(true);
     });
 
     it('reads the authn principal when no authz principal is set', async () => {
@@ -255,6 +292,34 @@ describe('RateLimitMiddleware', () => {
         expect(free.status).to.eq(200);
         expect(free.header['x-ratelimit-limit']).to.eq(undefined);
       }
+    });
+  });
+
+  describe('on a route whose counter store fails', function () {
+    this.timeout(15000);
+    let app: TestApp;
+
+    before(async () => {
+      app = await httpApp({
+        configuration: TestConfiguration,
+        register: (c) => {
+          c.register(BrokenStore).as(ThrottleStore);
+          c.register(BrokenStoreController).as(BaseController);
+        },
+        resolve: [Intl, Controllers],
+      });
+      await (await app.resolve(HttpServer)).start();
+    });
+
+    after(async () => {
+      await app.dispose();
+    });
+
+    it('answers the error reply and never runs the action (fail closed)', async () => {
+      const res = await req().post('rate-limited-broken/guarded');
+      expect(res.status).to.eq(500);
+      expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(BrokenStoreController.calls).to.eq(0);
     });
   });
 });
