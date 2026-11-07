@@ -32,6 +32,11 @@ export class FactoriesController extends BaseController {
   @Acceptable(HttpAcceptHeaders.HTML)
   public aliased(): void {}
 
+  @Get('computed')
+  @Middleware(Audit, Date.now())
+  @BotCheck(`check-${process.pid}`)
+  public computed(): void {}
+
   @Get('lookalike')
   @Deprecated({ link: 'https://example.com' })
   public lookalike(): void {}

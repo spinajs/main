@@ -41,8 +41,8 @@ export const unknownRouteMiddleware: DoctorRule = {
   code: 'CFG004',
   describe: 'Every name in http.routes.middlewares is a registered RouteMiddleware',
   run(manifest, ctx) {
-    // Without --config, the entries the build recorded from its own configuration.
-    const entries = ctx.config ? configAt(ctx.config, KEY) : manifest.globalRouteMiddlewares?.map((m) => m.type);
+    // Without --config, the entries the build recorded from its own configuration; a class entry needs no registration.
+    const entries = ctx.config ? configAt(ctx.config, KEY) : manifest.globalRouteMiddlewares?.map((m) => (m.fromClass ? undefined : m.type));
     if (!Array.isArray(entries)) return [];
     const known = [...new Set(manifest.services.filter((s) => s.registeredAs.includes('RouteMiddleware')).map((s) => s.className))].sort();
     const out: Diagnostic[] = [];
