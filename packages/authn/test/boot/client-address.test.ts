@@ -47,6 +47,7 @@ describe('one client address (authn.http.trustProxy, authn.throttle.ipv6Prefix)'
       expect(trust(0, false)).to.deep.eq([]);
       expect(trust(['10.0.0.0/8', 'loopback'], '10.0.0.0/8, loopback')).to.deep.eq([]);
       expect(trust([' 10.0.0.0/8 '], ['10.0.0.0/8'])).to.deep.eq([]);
+      expect(trust(['loopback', '10.0.0.0/8'], ['10.0.0.0/8', '::1/128', '127.0.0.0/8'])).to.deep.eq([]);
     });
 
     it('warns when both trust keys are set and differ, naming authn.http.trustProxy as the one that counts', () => {

@@ -101,7 +101,7 @@ describe('ClientIp (A05, SR-03)', function () {
   it('the barrel exports the lane ClientIp, registered as a ServerMiddleware, and AuthnRealIp', () => {
     expect(barrel.ClientIp).to.eq(ClientIp);
     expect(barrel.AuthnRealIp).to.eq(AuthnRealIp);
-    expect(new ClientIp().Order).to.eq(1);
+    expect(new ClientIp().Order).to.eq(2);
     expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(ClientIp);
   });
 

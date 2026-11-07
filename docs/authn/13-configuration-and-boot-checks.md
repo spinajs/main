@@ -108,7 +108,8 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 | `throttle` | error | No throttle can be selected, or the selected one refuses the configuration |
 | `throttle` | warning | `authn.throttle.ipv6Prefix` is set and differs from `http.throttle.ipv6Prefix` (default 64): authn and the http limiters count different IPv6 networks |
 | `proxy` | warning | Neither `authn.http.trustProxy` nor `http.trustProxy` is set |
-| `proxy` | warning | Both are set and differ (`true` equals `1`, `"a, b"` equals `["a", "b"]`); `authn.http.trustProxy` wins |
+| `proxy` | warning | Both are set and differ (`true` equals `1`, `"a, b"` equals `["b", "a"]`, `loopback` equals its ranges); with `authn-http`, `authn.http.trustProxy` wins |
+| `proxy` | warning, error | Reported by `authn-http`'s command: `RealIp` is registered as a class that does not extend `AuthnRealIp`; an error when `authn.http.trustProxy` is set |
 | `cors` | warning | `http.cors` is set with an empty or missing `origins` list, or `origins` is not a list |
 
 ## Services and extension points
