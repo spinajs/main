@@ -62,6 +62,11 @@ export class HttpServer extends AsyncService {
   })
   protected ShutdownTimeout!: number;
 
+  @Config('http.static.order', {
+    defaultValue: 4.5,
+  })
+  protected StaticOrder!: number;
+
   /**
    * Express app instance
    */
@@ -171,8 +176,6 @@ export class HttpServer extends AsyncService {
     this.warnLostDefaults();
 
     this._mountServerMiddlewares();
-
-    this._serverStaticFiles();
   }
 
   /** The reply a throwing server `onAfter` turns into: the global error answer's. */
@@ -180,11 +183,19 @@ export class HttpServer extends AsyncService {
     return globalErrorReplier(this.ErrorHandler, req);
   }
 
+  /** In ascending `Order`, the static files at `http.static.order`: after the middlewares of an equal `Order`. */
   private _mountServerMiddlewares() {
     const options = { log: this.Log, errorReply: (req: Express.Request) => this._errorReplier(req) };
+    const staticOrder = this.StaticOrder ?? 4.5;
+    let staticMounted = false;
 
     for (const m of this.Middlewares) {
       const name = m.constructor.name;
+
+      if (!staticMounted && m.Order > staticOrder) {
+        this._serverStaticFiles();
+        staticMounted = true;
+      }
 
       if (!m.isEnabled()) {
         this.Log.info({ middleware: name }, 'Server middleware ${middleware} is disabled');
@@ -196,6 +207,10 @@ export class HttpServer extends AsyncService {
         this.Log.info({ middleware: name }, 'Using server middleware ${middleware}');
         handlers.forEach((h) => this.use(h));
       }
+    }
+
+    if (!staticMounted) {
+      this._serverStaticFiles();
     }
   }
 
@@ -291,7 +306,7 @@ export class HttpServer extends AsyncService {
 
       const sRoute = s.Route ?? '/static';
 
-      this.Log.info({ path: s.Path, route: sRoute }, 'Serving static content from: ${path} at path: ${route}');
+      this.Log.info({ path: s.Path, route: sRoute, order: this.StaticOrder }, 'Serving static content from: ${path} at path: ${route}, Order ${order}');
       this.Express.use(sRoute, Express.static(s.Path));
     });
   }

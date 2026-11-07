@@ -406,13 +406,13 @@ describe('Server middleware hooks', function () {
     expect(calls).to.deep.eq(['early:before', 'early:after:204:-', 'early:finish:false']);
   });
 
-  it('runs server onFinish for a static file, without onAfter', async () => {
+  it('runs server onFinish for a static file, without onAfter; static files sit at Order 4.5', async () => {
     const res = await req().get('public/index.html');
     await until(() => calls.includes('early:finish:false'));
 
     expect(res.status).to.eq(200);
     expect(header(res, 'x-server-after')).to.eq(undefined);
-    expect(calls).to.deep.eq([...BEFORE_ALL, ...FINISH_ALL]);
+    expect(calls).to.deep.eq(['early:before', 'early:finish:false']);
   });
 
   it('wraps the request with a server onAround: proceed() resolves with the reply, or the error it answers', async () => {

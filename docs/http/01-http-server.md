@@ -10,7 +10,7 @@
 4. It logs where response templates live (`__fs_http_response_templates__` file provider), or that HTML error pages are off when the provider is missing.
 5. It adds its own first handler, which creates `req.storage = {}`, then the raw Express handlers from `http.middlewares` (helmet by default), in array order.
 6. It mounts each enabled server middleware (`handler()`, or its `onAround` and `onBefore` handlers), lowest `Order` first. The cookie parser (Order 0.5), the per-path body limits (3.4, see [Body size limits](04-route-arguments.md#body-size-limits)) and the body parsers (3.5) are server middlewares too: see [Body and cookie parsers](#body-and-cookie-parsers).
-7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
+7. Among them, at `http.static.order` (default 4.5: after `CsrfGuard`, before authentication), it serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning. See [Static files](#static-files).
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
 9. **`start()`** adds, once per instance, the `NotFoundMiddleware` and `ErrorHandlerMiddleware` tail. Then it listens on `http.port` and emits `http.server.listening`.
 10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
@@ -32,7 +32,7 @@ sequenceDiagram
   S-->>DI: emit http.server.closing / http.server.closed
 ```
 
-The resulting Express stack, top to bottom: `req.storage` → `http.middlewares` → server middlewares by `Order`, the parsers among them → static files → controllers router → the 404 → the global error answer. Every framework reply, the 404 and the error answer included, goes out through the [reply pipeline](15-server-middlewares.md#request-timeline).
+The resulting Express stack, top to bottom: `req.storage` → `http.middlewares` → server middlewares by `Order`, the parsers and the static files (4.5) among them → controllers router → the 404 → the global error answer. Every framework reply, the 404 and the error answer included, goes out through the [reply pipeline](15-server-middlewares.md#request-timeline).
 
 ### Lifecycle
 
@@ -57,6 +57,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.bodyParsers.{json,urlencoded,text,cookies}` | object | see [Body and cookie parsers](#body-and-cookie-parsers) | `enabled` plus the options of the express or cookie-parser function | The built-in parser server middlewares. |
 | `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied by `BodyLimits` (Order 3.4) just before the body parsers; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
+| `http.static.order` | `number` | `4.5` | any number, `Infinity` | The `Order` among the server middlewares at which `http.Static` mounts; see [Static files](#static-files). |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` (JSON and HTML) | bit flags `JSON` 1, `HTML` 2, `XML` 4 | Formats the response negotiation offers; see [Responses](10-responses.md#content-negotiation). |
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page | HTML with an optional `{ticket}` | Page sent when even the error page fails to render. |
@@ -119,9 +120,15 @@ export default {
 };
 ```
 
+### Static files
+
+`http.Static` directories mount among the server middlewares at `http.static.order`, after the middlewares of an equal `Order`. At the default 4.5 a static file gets CORS, the request id, the access log, the body parsers and the CSRF guard, and skips authentication (`AuthnMiddleware`, 5), `PrincipalMiddleware` (10) and `AccessEpochMiddleware` (11): no session lookup per asset. The server middlewares entered before it get `onFinish`, none gets `onAfter` (a static file is not a framework reply). A path under a static `Route` that is no file goes on to the later middlewares and routing.
+
+Static assets behind authentication need a higher order, for example `static: { order: 10.5 }` to serve them after the principal is known, with your own server middleware refusing unauthenticated requests. `Infinity` restores the 3.x placement after every server middleware.
+
 ### Configuration schema and file providers
 
-The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.bodyParsers` (`enabled` and `limit`), `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
+The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.bodyParsers` (`enabled` and `limit`), `http.static.order`, `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
 
 The package configuration also adds three `fs.providers` entries and two `system.dirs` entries:
 
@@ -194,6 +201,7 @@ void main();
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
 - Server middlewares are collected when `HttpServer` resolves. A `ServerMiddleware` module imported later is ignored.
 - The controllers router is mounted after the static files. A static file wins over a route with the same path.
+- At the default `http.static.order` a static file is served before authentication: never put private files in an `http.Static` directory without raising the order.
 - `http.middlewares` replaces the whole default array. To keep the defaults, spread them: `middlewares: [...defaultMiddlewares(), requestId]`. `defaultMiddlewares()` and `missingDefaultMiddlewares(list)` are exported from `@spinajs/http`. `HttpServer` logs one warning at boot when the list lost the shipped helmet. It recognises the shipped handler by a tag, so your own `helmet()` counts as missing: ignore the warning when your handler does that work.
 - `http.bodyParsers.json.enabled: false` turns off JSON bodies and `@RawBody()`; `http.bodyParsers.cookies.enabled: false` turns off `req.cookies` and `@Cookie()`.
 

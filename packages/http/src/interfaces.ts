@@ -101,6 +101,11 @@ export interface IHttpServerConfiguration {
    */
   Static: IHttpStaticFileConfiguration[];
 
+  static?: {
+    /** The `Order` among the server middlewares at which `Static` mounts. Default 4.5; `Infinity` mounts it after all of them. */
+    order?: number;
+  };
+
   /**
    * Whitch accept headers we support (default JSON & HTML)
    */

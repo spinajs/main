@@ -75,6 +75,18 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         ['json', 'urlencoded', 'text', 'cookies'].map((kind) => [kind, { type: 'object', properties: { enabled: { enum: [true, false] }, limit: { anyOf: [{ type: 'integer', minimum: 0 }, bodySize] } } }]),
       ),
     },
+    static: {
+      type: 'object',
+      default: {},
+      properties: {
+        // Ajv's number type refuses Infinity, the value that restores the 3.x placement.
+        order: {
+          anyOf: [{ type: 'number' }, { const: Infinity }],
+          default: 4.5,
+          description: 'The Order among the server middlewares at which the http.Static directories mount: after CsrfGuard (4), before authentication (5). Infinity: after every server middleware.',
+        },
+      },
+    },
     contractTesting: {
       type: 'object',
       default: {},

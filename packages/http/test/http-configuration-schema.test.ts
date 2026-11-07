@@ -27,6 +27,19 @@ describe('http configuration schema', () => {
     });
   });
 
+  describe('static.order', () => {
+    it('defaults to 4.5', async () => {
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
+      expect(configuration.get('http.static.order')).to.eq(4.5);
+    });
+
+    it('accepts a number and Infinity, refuses anything else', async () => {
+      expect(await bad({ static: { order: 4.5 } })).to.deep.eq([]);
+      expect(await bad({ static: { order: Infinity } })).to.deep.eq([]);
+      expect(await bad({ static: { order: 'late' } })).to.include('http.static.order');
+    });
+  });
+
   describe('trustProxy', () => {
     it('accepts a hop count, 0, a list and a comma-separated string unchanged', async () => {
       for (const value of [0, 2, ['10.0.0.0/8', 'loopback'], '10.0.0.1, 10.0.0.2', null]) {
