@@ -34,6 +34,8 @@ describe('Swagger @KeysetQuery()', function () {
       ['after', 'query', false],
       ['before', 'query', false],
     ]);
-    expect(op.parameters[0].schema).to.deep.equal({ type: 'integer', minimum: 1, maximum: 500 });
+    // the server clamps a larger limit instead of refusing it, so the schema states no maximum
+    expect(op.parameters[0].schema).to.deep.equal({ type: 'integer', minimum: 1 });
+    expect(op.parameters[0].description).to.eq('Rows per page; default 50, clamped to 500');
   });
 });

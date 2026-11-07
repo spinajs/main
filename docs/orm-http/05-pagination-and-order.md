@@ -340,7 +340,7 @@ public async list(@KeysetQuery() page: KeysetPaginationDTO) {
 
 A cursor that does not decode, or was made for another order, answers 400 `application/problem+json` with the title `Invalid Cursor`. Cursors are spec-checked, not signed: a crafted one moves the start of the page and nothing else, because the query's `where()` still applies.
 
-With `@spinajs/http-swagger`, the route documents `limit`, `after` and `before` as optional query parameters.
+With `@spinajs/http-swagger`, the route documents `limit`, `after` and `before` as optional query parameters; `limit` states no maximum because a larger one is clamped to 500, not refused.
 
 ## Related
 

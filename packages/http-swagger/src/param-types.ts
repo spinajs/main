@@ -44,7 +44,7 @@ registerOpenApiParamType('ContentDigestArg', (param) => ({
 
 // @spinajs/orm-http's @KeysetQuery(). Registered here because orm-http must not depend on http-swagger.
 registerOpenApiParamType('KeysetQueryRouteArg', () => [
-  { in: 'query', name: 'limit', required: false, description: 'Rows per page; default 50, at most 500', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+  { in: 'query', name: 'limit', required: false, description: 'Rows per page; default 50, clamped to 500', schema: { type: 'integer', minimum: 1 } },
   { in: 'query', name: 'after', required: false, description: 'The `next` cursor of the page before', schema: { type: 'string' } },
   { in: 'query', name: 'before', required: false, description: 'The `previous` cursor of the page after', schema: { type: 'string' } },
 ]);
