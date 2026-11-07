@@ -5,6 +5,7 @@ import { Connection, HasMany, Model, ModelBase, Primary, QueryContext, Relation 
 import sinon from 'sinon';
 import { useProcessTimeZone } from './harness.js';
 import { adminQuery, bootPostgres, PgTestDb, requirePostgres } from './support.js';
+import { PGLITE } from './pglite-mode.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -84,14 +85,14 @@ describe('postgres stream (integration)', function () {
     expect(rows).to.have.length(1000);
     expect(rows[999]).to.be.instanceOf(PgStreamItem);
     expect(rows[999].Name).to.eq('n1000');
-    expect(cursor.callCount).to.eq(1);
+    expect(cursor.callCount).to.eq(PGLITE ? 0 : 1);
   });
 
   it('gives the client back to the pool when the loop breaks', async () => {
     const cursor = sinon.spy(pgdb!.driver, 'executeStreamOnDb');
     await collect(PgStreamItem.select().order('Id').stream({ batchSize: 100 }), 150);
 
-    expect(cursor.callCount).to.eq(1);
+    expect(cursor.callCount).to.eq(PGLITE ? 0 : 1);
     expect(pgdb!.driver.poolMetrics().InUse).to.eq(0);
   });
 
