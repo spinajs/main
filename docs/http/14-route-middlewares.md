@@ -128,7 +128,7 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 
 ### `@Consumes`
 
-`@Consumes(...types)` checks the request's `Content-Type` against `types` with Express's `req.is()`, which ignores parameters such as `charset`, and takes wildcards (`text/*`) and extensions (`json`). A request without a body (no `Transfer-Encoding`, no `Content-Length` or `Content-Length: 0`) passes, whatever its method. A body without a `Content-Type` is refused. The 415 answer is the error answer of `UnsupportedMediaTypeException`, the same shape as the 406 of `@Accepts`: a problem document whose `detail` names the accepted types, or the HTML error page for an HTML client. `@Consumes()` without a type throws `InvalidArgument` at import.
+`@Consumes(...types)` checks the request's `Content-Type` against `types` with Express's `req.is()`, which ignores parameters such as `charset`, and takes wildcards (`text/*`) and extensions (`json`). A request without a body (no `Transfer-Encoding`, no `Content-Length` or `Content-Length: 0`) passes, whatever its method. A body without a `Content-Type` is refused, an empty one sent with `Transfer-Encoding: chunked` too: the request announces a body. Every 415 is logged on the `http` logger like any error of the route, as the 406 of `@Accepts` is. The 415 answer is the error answer of `UnsupportedMediaTypeException`, the same shape as the 406 of `@Accepts`: a problem document whose `detail` names the accepted types, or the HTML error page for an HTML client. `@Consumes()` without a type throws `InvalidArgument` at import.
 
 With `@Consumes` on both the controller and a route, the route's declaration replaces the controller's on that route.
 
