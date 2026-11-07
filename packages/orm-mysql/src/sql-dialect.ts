@@ -15,7 +15,7 @@ export const MYSQL_SQL_DIALECT: SqlDialectProfile = {
   predicates: 'number',
   nativeTypes: {
     int: ['integer'], smallint: ['integer'], mediumint: ['integer'], tinyint: ['integer', 'boolean'], bigint: ['bigint'], decimal: ['decimal'],
-    float: ['float'], double: ['float'], varchar: ['text'], char: ['text'], text: ['text'], tinytext: ['text'], mediumtext: ['text'], longtext: ['text'],
+    float: ['float'], double: ['float'], varchar: ['text', 'uuid'], char: ['text', 'uuid'], text: ['text'], tinytext: ['text'], mediumtext: ['text'], longtext: ['text'],
     enum: ['enum'], date: ['date'], datetime: ['datetime'], timestamp: ['datetime'], time: ['time'], json: ['json'],
     binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], blob: ['binary'], tinyblob: ['binary'], mediumblob: ['binary'], longblob: ['binary'],
   },
