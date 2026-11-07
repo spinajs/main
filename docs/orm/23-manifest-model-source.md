@@ -34,7 +34,7 @@ Only the columns a model declares are checked:
 
 - A declared column missing from its table fails the boot under `db.StrictTableCheck` (`Column drift (db.StrictTableCheck): column Nickname of model Account is missing from table accounts on connection default. …`) and is a warning otherwise. The check runs after the startup migrations, like the missing-table check, and is skipped when the `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). `reloadTableInfo({ strict: true })` fails on it too.
 - A declared column whose live type belongs to another family (a `boolean` stored as `int4`) is a warning.
-- A column the model requires (no `?`, no `@Column({ default })`) that the table allows to be `NULL` or fills with a default is a warning (`nullability`): writes without a value fail where the table would have accepted them.
+- A column the model requires (no `?`, no `@Column({ default })`) that the table allows to be `NULL` or fills with a default is a warning (`nullability`): writes without a value fail where the table would have accepted them. Columns every new instance gets a value for (`@Uuid`, `@CreatedAt`) are not reported. `@UpdatedAt` is: an insert does not stamp it, so a required one fails the insert whatever the table's default; declare it `?:`.
 
 Column names are compared ignoring case on drivers whose dialect profile sets `caseInsensitiveIdentifiers` (sqlite, mysql, mssql). Families are compared only for native types the driver's profile lists in `nativeTypes`.
 

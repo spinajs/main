@@ -95,6 +95,11 @@ describe('manifest model source', () => {
     ]);
   });
 
+  it('does not warn about the nullability of a column the ORM fills on every new instance', () => {
+    const columns = [live('Id', 'int4'), live('Name', 'varchar', { Nullable: true }), live('Active', 'bool', { DefaultValue: true }), live('Seen', 'timestamptz'), live('Ref', 'bytea'), live('Rank', 'int4')];
+    expect(columnDrift(account, columns, POSTGRES, 'default', ['Name']).map((d) => [d.kind, d.column])).to.deep.equal([['nullability', 'Active']]);
+  });
+
   it('matches column names ignoring case on a dialect with caseInsensitiveIdentifiers, and compares no family on an unknown dialect', () => {
     const columns = [live('ID', 'int4'), live('name', 'varchar'), live('ACTIVE', 'int4'), live('seen', 'timestamptz'), live('ref', 'bytea'), live('rank', 'int4')];
     expect(columnDrift(account, columns, { ...POSTGRES, caseInsensitiveIdentifiers: true }, 'default').map((d) => d.message)).to.deep.equal(['column accounts.Active is int4 on connection default, model Account declares boolean']);

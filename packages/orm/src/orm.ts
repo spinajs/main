@@ -65,6 +65,12 @@ function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor):
   return declared.map((c) => ({ ...c }));
 }
 
+/** What `setDefaults()` sets on every new instance. */
+function filledOnCreate(model: Class<ModelBase>, descriptor: IModelDescriptor): string[] {
+  const uuids = declaredColumns(model, descriptor).filter((c) => c.Uuid).map((c) => c.Name);
+  return descriptor.Timestamps.CreatedAt ? [...uuids, descriptor.Timestamps.CreatedAt] : uuids;
+}
+
 function missingTablesMessage(missing: IMissingModelTable[]): string {
   const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
   return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
@@ -247,7 +253,7 @@ export class Orm extends AsyncService {
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
 
-          const drift = entry ? columnDrift(entry, columns, dialect, descriptor.Connection!) : [];
+          const drift = entry ? columnDrift(entry, columns, dialect, descriptor.Connection!, filledOnCreate(m.type, descriptor)) : [];
           if (drift.length > 0) this.Drift.set(m.type, drift);
         } else {
           updateModelDescriptor(m.type, (d) => {

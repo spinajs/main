@@ -82,14 +82,17 @@ export function manifestColumns(entry: ModelEntry, dialect?: SqlDialectProfile):
 }
 
 /** How the table accepts a write without a value of a column the model requires without a default, if it does. */
-function looserInTable(column: ModelColumn, sql: ColumnSqlSpec, found: IColumnDescriptor, dialect: SqlDialectProfile | undefined): string | undefined {
-  if (column.nullable || column.primary || sql.default !== undefined) return undefined;
+function looserInTable(column: ModelColumn, sql: ColumnSqlSpec, found: IColumnDescriptor, dialect: SqlDialectProfile | undefined, filled: readonly string[]): string | undefined {
+  if (column.nullable || column.primary || sql.default !== undefined || filled.includes(column.name)) return undefined;
   if (found.Nullable && reportsNullability(dialect, sql.family)) return 'is nullable';
   return found.DefaultValue !== null && found.DefaultValue !== undefined ? 'has a default' : undefined;
 }
 
-/** D9: only declared columns are checked; a table column no model declares is a partial model (D19), never drift. */
-export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialect: SqlDialectProfile | undefined, connection: string): IColumnDrift[] {
+/**
+ * D9: only declared columns are checked; a table column no model declares is a partial model (D19), never drift. `filled`: columns
+ * the ORM sets on every new instance (`@Uuid`, `@CreatedAt`), whose nullability in the table never fails a write.
+ */
+export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialect: SqlDialectProfile | undefined, connection: string, filled: readonly string[] = []): IColumnDrift[] {
   const fold = dialect?.caseInsensitiveIdentifiers ? (name: string) => name.toLowerCase() : (name: string) => name;
   const out: IColumnDrift[] = [];
   for (const column of entry.columns) {
@@ -104,7 +107,7 @@ export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialec
     if (families && !families.includes(sql.family)) {
       out.push({ ...base, kind: 'family', message: `column ${entry.tableName}.${column.name} is ${found.NativeType} on connection ${connection}, model ${entry.className} declares ${sql.family}` });
     }
-    const looser = looserInTable(column, sql, found, dialect);
+    const looser = looserInTable(column, sql, found, dialect, filled);
     if (looser) {
       out.push({ ...base, kind: 'nullability', message: `column ${entry.tableName}.${column.name} ${looser} on connection ${connection}, model ${entry.className} requires a value and states no default: writes without one fail` });
     }
