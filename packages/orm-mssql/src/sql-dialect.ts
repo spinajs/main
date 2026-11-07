@@ -12,7 +12,7 @@ export const MSSQL_SQL_DIALECT: SqlDialectProfile = {
   predicates: 'unknown',
   nativeTypes: {
     int: ['integer'], smallint: ['integer'], tinyint: ['integer'], bigint: ['bigint'], bit: ['boolean'], decimal: ['decimal'], numeric: ['decimal'],
-    float: ['float'], real: ['float'], varchar: ['text', 'enum', 'uuid'], nvarchar: ['text', 'enum', 'json', 'uuid'], char: ['text', 'uuid'], text: ['text'], ntext: ['text'],
+    float: ['float'], real: ['float'], varchar: ['text', 'enum', 'uuid'], nvarchar: ['text', 'enum', 'json', 'uuid'], char: ['text', 'enum', 'uuid'], nchar: ['text', 'enum', 'json', 'uuid'], text: ['text'], ntext: ['text'],
     date: ['date'], datetime: ['datetime'], datetime2: ['datetime'], datetimeoffset: ['datetime'], time: ['time'],
     binary: ['binary', 'uuid'], varbinary: ['binary', 'uuid'], uniqueidentifier: ['uuid'],
   },

@@ -16,7 +16,8 @@ describe('mssql SQL dialect profile', () => {
   it('maps the native types tableInfo() reports to column families', () => {
     expect(familiesOf('nvarchar', MSSQL_SQL_DIALECT)).to.deep.equal(['text', 'enum', 'json', 'uuid']);
     expect(familiesOf('varchar', MSSQL_SQL_DIALECT)).to.include('uuid');
-    expect(familiesOf('char', MSSQL_SQL_DIALECT)).to.deep.equal(['text', 'uuid']);
+    expect(familiesOf('char', MSSQL_SQL_DIALECT)).to.deep.equal(['text', 'enum', 'uuid']);
+    expect(familiesOf('nchar', MSSQL_SQL_DIALECT)).to.deep.equal(familiesOf('nvarchar', MSSQL_SQL_DIALECT));
   });
 
   it('declares how migrate-diff compares names and text lengths', () => {
