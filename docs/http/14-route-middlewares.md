@@ -251,7 +251,7 @@ Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win o
 
 | What happens | `proceed()` |
 | --- | --- |
-| The response finished, with any status | Resolves `{ reply, error? }`. `reply` is the `CapturedJsonReply` that was sent, after every `onAfter` change, or `null` when the answer was not a JSON reply. `error` is the error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`. |
+| The response finished, with any status | Resolves `{ reply, error? }`. `reply` is the `CapturedJsonReply` that was sent, after every `onAfter` change, or `null` when the answer was not a JSON reply. It is built on its first read (a second JSON serialization of the body), so an `onAround` that does not read it costs nothing. `error` is the error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`. |
 | The client went away before `proceed()` | Rejects with `RouteClientGone`, `beforeRoute: true`. Nothing after the middleware ran. |
 | The client went away after the chain started, before the answer | Rejects with `RouteClientGone`, `beforeRoute: false`. The action may still be running. |
 
