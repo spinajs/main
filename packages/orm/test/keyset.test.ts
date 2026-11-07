@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
+import type { ColumnFamily } from '@spinajs/manifest';
 import { IModelDescriptor, InvalidCursor } from '../src/index.js';
 import { decodeCursor, encodeCursor, keysetColumns, keysetPage } from '../src/keyset.js';
 
@@ -114,5 +115,67 @@ describe('keysetPage', () => {
 
     expect(page.next).to.eq(null);
     expect(page.previous).to.be.a('string');
+  });
+
+  it('links an empty backward page forward to where it was asked from', () => {
+    const page = keysetPage(columns, [], 3, { cursor: 'c', backward: true });
+
+    expect(page.items).to.deep.equal([]);
+    expect(page.next).to.eq('c');
+    expect(page.previous).to.eq(null);
+  });
+});
+
+describe('cursor values against the column families', () => {
+  const columns = keysetColumns([['Score', 'asc']], descriptor);
+  const int4: ColumnFamily[][] = [['integer'], ['integer']];
+
+  function cursorWith(score: unknown): string {
+    const payload = JSON.parse(Buffer.from(encodeCursor(columns, { Score: 1, Id: 1 }), 'base64url').toString('utf8')) as { h: string; v: unknown[] };
+    payload.v[0] = score;
+    return Buffer.from(JSON.stringify(payload)).toString('base64url');
+  }
+
+  it('refuses a value an integer column cannot hold', () => {
+    for (const value of ['abc', 1.5, true, { $d: '2020-01-01' }, { $b: '99999999999999999999999' }, 2 ** 40]) {
+      expect(() => decodeCursor(columns, cursorWith(value), int4), JSON.stringify(value)).to.throw(InvalidCursor, /Score/);
+    }
+  });
+
+  it('takes a bigint within int64 where the column holds bigint', () => {
+    const wide: ColumnFamily[][] = [['integer', 'bigint'], ['integer']];
+
+    expect(decodeCursor(columns, cursorWith({ $b: '9007199254740993' }), wide)[0]).to.eq(9007199254740993n);
+    expect(decodeCursor(columns, cursorWith(2 ** 40), wide)[0]).to.eq(2 ** 40);
+    expect(() => decodeCursor(columns, cursorWith({ $b: '9223372036854775808' }), wide)).to.throw(InvalidCursor);
+  });
+
+  it('takes only the kinds of each family', () => {
+    const cases: Array<[ColumnFamily, unknown[], unknown[]]> = [
+      ['text', ['x'], [5, true]],
+      ['enum', ['open'], [{ $d: '2020-01-01T00:00:00.000Z' }]],
+      ['decimal', [1.5, '-12.50'], ['abc', true]],
+      ['float', [1.5], ['1.5']],
+      ['boolean', [true, false], ['true', 2]],
+      ['datetime', [{ $d: '2020-01-01T00:00:00.000Z' }], ['2020-01-01', 5]],
+      ['uuid', ['0b6f7c2e-3c1d-4a8e-9f0a-2b1c3d4e5f60'], ['nope', 5]],
+    ];
+
+    for (const [family, accepted, refused] of cases) {
+      for (const value of accepted) {
+        expect(() => decodeCursor(columns, cursorWith(value), [[family], ['integer']]), `${family} ${JSON.stringify(value)}`).to.not.throw();
+      }
+      for (const value of refused) {
+        expect(() => decodeCursor(columns, cursorWith(value), [[family], ['integer']]), `${family} ${JSON.stringify(value)}`).to.throw(InvalidCursor);
+      }
+    }
+  });
+
+  it('leaves a column of an unknown type unchecked', () => {
+    expect(decodeCursor(columns, cursorWith('abc'), [undefined, undefined])[0]).to.eq('abc');
+  });
+
+  it('refuses a cursor longer than 4096 characters before decoding it', () => {
+    expect(() => decodeCursor(columns, 'A'.repeat(4097))).to.throw(InvalidCursor, /long/);
   });
 });

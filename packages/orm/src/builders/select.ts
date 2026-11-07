@@ -5,8 +5,8 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
-import type { ColumnStatement, IQueryStatement } from '../statements.js';
+import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
 import type { AggregateValue, ColumnName, ColumnRef, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
@@ -16,7 +16,9 @@ import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
 import { StreamNotSupported } from '../exceptions.js';
-import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
+import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetFamilies, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
+import type { KeysetColumn } from '../keyset.js';
+import { sqlDialectOf } from '../sql-dialect.js';
 import { hasPk } from '../primary-keys.js';
 import { executeRecorded } from '../schema-touches.js';
 import type { IRelationSort } from './internal.js';
@@ -694,28 +696,53 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public async paginate(options: IKeysetPageOptions<Unbox<T>>): Promise<KeysetPage<Unbox<T>>> {
     this._assertPageable(options);
 
-    const descriptor = extractModelDescriptor(this._model);
-    const columns = keysetColumns(options.orderBy, descriptor ?? undefined);
+    const descriptor = extractModelDescriptor(this._model) ?? undefined;
+    const columns = keysetColumns(options.orderBy, descriptor);
     if (descriptor) {
       assertKeysetNotNull(columns, descriptor);
     }
     const backward = options.before !== undefined;
     const cursor = options.before ?? options.after;
 
-    for (const { column, order } of columns) {
-      this.order(column, (order === 'asc') !== backward ? SortOrder.ASC : SortOrder.DESC);
-    }
-    const blocker = this._keysetBlocker();
-    if (blocker) {
-      throw new InvalidOperation(`paginate() cannot keep ${blocker}`);
-    }
+    this._orderByKeyset(columns, backward);
+    this._selectKeysetColumns(columns, descriptor);
     if (cursor !== undefined) {
-      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor), backward ? 'before' : 'after');
+      const families = keysetFamilies(columns, descriptor, sqlDialectOf(this._driver.constructor as abstract new (...args: never[]) => unknown));
+      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor, families), backward ? 'before' : 'after');
     }
     this.take(options.limit + 1);
 
     const rows = (await this.execute()) as unknown as Array<Unbox<T>>;
     return keysetPage(columns, rows, options.limit, { cursor, backward });
+  }
+
+  private _orderByKeyset(columns: KeysetColumn[], backward: boolean): void {
+    for (const { column, order } of columns) {
+      this.order(column, (order === 'asc') !== backward ? SortOrder.ASC : SortOrder.DESC);
+    }
+
+    if ((this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
+      throw new InvalidArgument('paginate() cannot order by a relation column', 'orderBy');
+    }
+    const blocker = this._keysetBlocker();
+    if (blocker) {
+      throw new InvalidOperation(`paginate() cannot keep ${blocker}`);
+    }
+  }
+
+  /** Cursors are made from the rows, so a select narrowed to some columns gets the order columns added. */
+  private _selectKeysetColumns(columns: KeysetColumn[], descriptor: IModelDescriptor | undefined): void {
+    const selected = this._columns.filter((c): c is ColumnStatement => c instanceof ColumnStatement);
+    if (this._columns.length === 0 || selected.some((c) => c.Column === '*')) {
+      return;
+    }
+
+    for (const { column } of columns) {
+      const described = descriptor?.Columns.some((c) => c.Name === column && !c.Virtual);
+      if (described && !selected.some((c) => c.Column === column && !c.Alias)) {
+        this.select(column);
+      }
+    }
   }
 
   private _assertPageable(options: { limit: number; after?: string; before?: string }): void {

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import type { ColumnFamily, SqlDialectProfile } from '@spinajs/manifest';
 import { DateTime } from 'luxon';
 import { SortOrder } from './enums.js';
 import { InvalidCursor } from './exceptions.js';
 import type { IModelDescriptor, ISort, IWhereBuilder, KeysetPage } from './interfaces.js';
+import { familiesOf } from './schema-diff/families.js';
 import { pkColumns } from './primary-keys.js';
 import type { WhereFunction } from './types.js';
 
@@ -101,6 +103,52 @@ interface CursorPayload {
   v: unknown[];
 }
 
+const MAX_CURSOR_LENGTH = 4096;
+const INT32 = 2 ** 31;
+const INT64 = 2n ** 63n;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+
+const inInt64 = (value: bigint): boolean => value >= -INT64 && value < INT64;
+const isString = (value: unknown): boolean => typeof value === 'string';
+const isDateTime = (value: unknown): boolean => DateTime.isDateTime(value);
+
+/**
+ * The decoded values a column of each family may be compared with, so a crafted cursor is refused here instead of
+ * failing as a SQL data error. `integer` is 32-bit unless the native type also holds `bigint` (sqlite's INTEGER);
+ * `bigint` also takes a number and a digit string, which is how sqlite and pg hand int8 back; `boolean` also takes 0
+ * and 1, which sqlite returns without a converter. A family not listed here (json, binary) leaves the column unchecked.
+ */
+const FAMILY_VALUES: Partial<Record<ColumnFamily, (value: unknown, families: readonly ColumnFamily[]) => boolean>> = {
+  integer: (value, families) => Number.isSafeInteger(value) && (families.includes('bigint') || ((value as number) >= -INT32 && (value as number) < INT32)),
+  bigint: (value) => Number.isSafeInteger(value) || (typeof value === 'bigint' && inInt64(value)) || (typeof value === 'string' && /^-?\d+$/.test(value) && inInt64(BigInt(value))),
+  decimal: (value) => (typeof value === 'number' && Number.isFinite(value)) || (typeof value === 'string' && DECIMAL.test(value)),
+  float: (value) => typeof value === 'number' && Number.isFinite(value),
+  text: isString,
+  enum: isString,
+  time: isString,
+  boolean: (value) => typeof value === 'boolean' || value === 0 || value === 1,
+  date: isDateTime,
+  datetime: isDateTime,
+  uuid: (value) => typeof value === 'string' && UUID.test(value),
+};
+
+/** The families of each keyset column from the driver's dialect profile; undefined where the type is unknown. */
+export function keysetFamilies(columns: KeysetColumn[], descriptor: IModelDescriptor | undefined, dialect: SqlDialectProfile | undefined): Array<ColumnFamily[] | undefined> {
+  return columns.map(({ column }) => {
+    const described = descriptor?.Columns?.find((c) => c.Name === column);
+    const native = described?.NativeType || described?.Type;
+    return native ? familiesOf(native, dialect) : undefined;
+  });
+}
+
+function fitsFamilies(value: unknown, families: readonly ColumnFamily[] | undefined): boolean {
+  if (!families || families.some((f) => FAMILY_VALUES[f] === undefined)) {
+    return true;
+  }
+  return families.some((f) => FAMILY_VALUES[f]!(value, families));
+}
+
 /** Names the order a cursor was made for, so a cursor from another listing is refused instead of misread. */
 export function keysetHash(columns: KeysetColumn[]): string {
   return createHash('sha256')
@@ -159,7 +207,11 @@ export function encodeCursor(columns: KeysetColumn[], row: unknown): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
-export function decodeCursor(columns: KeysetColumn[], cursor: string): unknown[] {
+export function decodeCursor(columns: KeysetColumn[], cursor: string, families: ReadonlyArray<readonly ColumnFamily[] | undefined> = []): unknown[] {
+  if (cursor.length > MAX_CURSOR_LENGTH) {
+    throw new InvalidCursor('cursor is too long');
+  }
+
   let payload: unknown;
   try {
     payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
@@ -176,7 +228,14 @@ export function decodeCursor(columns: KeysetColumn[], cursor: string): unknown[]
     throw new InvalidCursor('cursor was made for another order');
   }
 
-  return v.map(decodeValue);
+  const values = v.map(decodeValue);
+  for (const [i, { column }] of columns.entries()) {
+    if (!fitsFamilies(values.at(i), families.at(i))) {
+      throw new InvalidCursor(`cursor value for ${column} does not fit the column`);
+    }
+  }
+
+  return values;
 }
 
 /** One page out of `limit + 1` fetched rows: drops the probe row, restores a backward page's order, makes its cursors. */
@@ -189,6 +248,11 @@ export function keysetPage<R>(columns: KeysetColumn[], rows: R[], limit: number,
 
   const first = items.at(0);
   const last = items.at(-1);
+  // an empty page before the first row still leads back to where it was asked from
+  if (request.backward && last === undefined) {
+    return { items, next: request.cursor ?? null, previous: null };
+  }
+
   const hasNext = request.backward || more;
   const hasPrevious = request.backward ? more : request.cursor !== undefined;
 
