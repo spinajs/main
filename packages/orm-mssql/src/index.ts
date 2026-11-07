@@ -155,8 +155,7 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   /** The rows of one statement in tedious's stream mode, with the request paused while a batch waits. Leaving early cancels the request. */
   public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
-    const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
-    const request = txContext ? txContext.transaction.request() : this._connectionPool.request();
+    const request = this._connectionPool.request();
     request.stream = true;
     this.toDriverParams(params).forEach((value, index) => request.input(`p${index}`, value));
 
