@@ -28,7 +28,7 @@ export class MySqlSqlExpressions extends SqlExpressions {
     return parts.length === 1 ? parts[0] : `CONCAT(${parts.join(', ')})`;
   }
 
-  // UTC_TIMESTAMP, as MySqlNowExpression: the driver writes datetimes in UTC
+  // UTC_TIMESTAMP, as MySqlNowExpression: a `TimeZone: 'UTC'` connection writes datetimes in UTC
   public ago(amount: number, unit: IntervalUnit): string {
     const checked = this.checkedInterval(amount, unit);
 
@@ -38,5 +38,14 @@ export class MySqlSqlExpressions extends SqlExpressions {
   // LOCK IN SHARE MODE, not FOR SHARE: MariaDB and MySQL 5.7 only know the former
   public rowLock(mode: RowLockMode): string {
     return mode === 'update' ? 'FOR UPDATE' : 'LOCK IN SHARE MODE';
+  }
+}
+
+/** The expressions of a connection not pinned to UTC: `ago()` counts back from the session wall clock, as `now()` does. */
+export class MySqlSessionSqlExpressions extends MySqlSqlExpressions {
+  public ago(amount: number, unit: IntervalUnit): string {
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(NOW(3) - INTERVAL ${checked.amount} ${checked.unit.toUpperCase()})`;
   }
 }
