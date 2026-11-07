@@ -456,7 +456,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       before(async () => {
         const config = DI.get(Configuration)!;
         for (const key of KEYS) saved.push(config.get(key));
-        config.set('authn.oidc.rateLimit', { begin: { limit: 1, windowSeconds: W }, callback: { limit: 1, windowSeconds: W } });
+        config.set('authn.oidc.rateLimit', { begin: { limit: 1, windowSeconds: W }, callback: { limit: 1, windowSeconds: W }, reauth: { limit: 1, windowSeconds: W } });
         config.set('http.routes.middlewares', [{ service: 'RateLimitMiddleware', options: [1, W] }]);
         await DI.get(HttpServer)?.stop();
         DI.uncache(HttpServer);
@@ -502,15 +502,16 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         expect(rateLimitHeaders(limited)).to.deep.eq([]);
       });
 
-      it('back-channel logout is never limited, not even by the global floor that limits a route without a limit of its own', async () => {
+      // Every other OIDC route has a limit of its own, which replaces the floor; reauth's (lowered to 1 above) shows limits apply.
+      it('back-channel logout is never limited, not even by the global floor, while the other routes are', async () => {
         for (let i = 0; i < 4; i++) {
           const res = await fetch(`${base}/auth/oidc/corp/backchannel-logout`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'logout_token=a.b.c' });
           expect(res.status, `logout token ${i + 1}`).to.eq(400);
           expect(rateLimitHeaders(res)).to.deep.eq([]);
         }
         expect((await get('/auth/oidc/corp/reauth')).status).to.not.eq(429);
-        const floored = await get('/auth/oidc/corp/reauth');
-        expect(floored.status, 'the floor on reauth').to.eq(429);
+        const limited = await get('/auth/oidc/corp/reauth');
+        expect(limited.status, 'the limit of reauth').to.eq(429);
       });
     });
   });
