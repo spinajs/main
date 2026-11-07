@@ -107,7 +107,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | --- | --- | --- | --- |
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
-| `@Deprecated(options?)` | class or method | `{ since?: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
+| `@Deprecated(options)` | class or method | `{ since: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 
 ### `@Accepts`
 
@@ -395,16 +395,15 @@ For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control
 
 ## Built-in: `@Deprecated`
 
-`@Deprecated(options?)` on a route, or on a controller for every route of it, mounts `DeprecationMiddleware`, which announces the deprecation on every reply, error replies included:
+`@Deprecated(options)` on a route, or on a controller for every route of it, mounts `DeprecationMiddleware`, which announces the deprecation on every reply, error replies included:
 
 | Option | Header |
 | --- | --- |
-| none | `Deprecation: true` |
-| `since: Date` | `Deprecation: @<unix seconds>` (RFC 9745) in place of `true` |
+| `since: Date`, required | `Deprecation: @<unix seconds>` (RFC 9745): when the route was deprecated |
 | `sunset: Date` | `Sunset: <HTTP-date>` (RFC 8594): when the route stops answering |
 | `link: string` | `Link: <link>; rel="deprecation"` (RFC 9745): a page about the deprecation and the way off it |
 
-An invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route.
+A missing `since` (RFC 9745 defines the header as a date only), an invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route; the same holds for a subclass of `DeprecationMiddleware` mounted with `@Middleware`. Mounted by name (`http.routes.middlewares`), `DeprecationMiddleware` needs its options too: `{ service: 'DeprecationMiddleware', options: [{ since }] }`.
 
 ```ts sample
 import { BaseController, BasePath, Deprecated, Get, Ok } from '@spinajs/http';
@@ -422,7 +421,10 @@ export class OrdersController extends BaseController {
 // Link: <https://example.com/docs/orders-v2>; rel="deprecation"
 ```
 
-The compiler records the decorator in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the generated OpenAPI document marks the operation `deprecated: true`.
+The route documentation says so too:
+
+- The compiler records `@Deprecated` on a route or a controller in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the OpenAPI document `@spinajs/openapi` generates from the manifest marks the operation `deprecated: true`. It does not see a `DeprecationMiddleware` mounted with `@Middleware`, nor the inherited routes of a `@Deprecated` subclass.
+- At runtime both controller metadata providers (`ManifestControllerMetadata` and `CacheControllerMetadata`, which http-swagger reads) mark every route whose own or controller middlewares include a `DeprecationMiddleware`, however it was mounted and inherited ones included, through `withDeprecatedRoutes(controller, documentation)`.
 
 ## Important behaviour
 
