@@ -6,7 +6,7 @@ A route middleware runs code around one route, around every route of a controlle
 
 **At startup**, for each route, `BaseController.resolve()`:
 
-1. Takes the [global middlewares](#global-route-middlewares), resolved once for all controllers, then resolves the controller's middlewares and the route's, with `container.resolve(type, options)`.
+1. Resolves the [global middlewares](#global-route-middlewares), then the controller's, then the route's, with `container.resolve(type, options)`.
 2. Keeps those whose `isEnabled(route, controller)` returns `true`. This is decided once, not per request.
 3. Calls `onRegister(route, path, controller)` of each kept middleware that has one. A throw fails the registration.
 4. Builds the handler chain from the hooks each middleware implements; a hook it leaves out adds nothing to the chain:
@@ -89,15 +89,15 @@ export default { http: { routes: { middlewares } } };
 
 - Order: the global entries in config order, then the controller's, then the route's. `Stage` still applies on top: an `'outer'` middleware runs before every `'inner'` one, and an outer global one before an outer controller one.
 - `isEnabled(route, controller)` and `onRegister(route, path, controller)` are called per route, as for any route middleware. Use `isEnabled` to keep a global middleware off some routes.
-- Each entry is resolved once, when the controllers start, and that one instance serves every route. Keep per-request state on `req.storage` or `res.locals`.
-- A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
+- An entry is instantiated exactly as the same class in `@Middleware(Class, ...options)` on every route: `container.resolve(Class, options)` per route, so the class's lifetime decides sharing. A `@NewInstance()` class gets its own instance on each route; a singleton (the default) serves every route, together with any `@Middleware` of that class. A middleware that keeps per-route state, set in `onRegister`, must be `@NewInstance()`. Per-request state goes on `req.storage` or `res.locals`.
+- The entries are checked once at startup, before any route is built. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
 - Routes only: a request that matches no route, a static file or anything answered before routing does not run them. Use a [server middleware](15-server-middlewares.md) for those.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved once | none | `RouteTiming`, the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 
 Members, all optional:
 

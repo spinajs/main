@@ -8,7 +8,7 @@ import type { TestApp } from '@spinajs/testing';
 import type * as express from 'express';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, resolveGlobalRouteMiddlewares } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, RouteMiddleware, globalRouteMiddlewareDescriptors } from '../src/index.js';
 import type { GlobalRouteMiddlewareEntry, IRoute, MiddlewareStage } from '../src/index.js';
 
 function trace(res: express.Response, label: string): void {
@@ -19,11 +19,9 @@ function trace(res: express.Response, label: string): void {
 
 @Injectable(RouteMiddleware)
 class GlobalByName extends RouteMiddleware {
-  public static readonly instances = new Set<RouteMiddleware>();
   public static readonly paths: string[] = [];
 
   public onRegister(_route: IRoute, path: string): void {
-    GlobalByName.instances.add(this);
     GlobalByName.paths.push(path);
   }
 
@@ -38,7 +36,6 @@ class GlobalByClass extends RouteMiddleware {
   }
 }
 
-// NewInstance: one instance per route would show here if the entry were resolved per route
 @NewInstance()
 @Injectable(RouteMiddleware)
 class GlobalWithOptions extends RouteMiddleware {
@@ -51,6 +48,20 @@ class GlobalWithOptions extends RouteMiddleware {
 
   public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
     trace(res, `options:${this.label}`);
+  }
+}
+
+// Keeps per-route state from onRegister, as IdempotencyMiddleware does
+@NewInstance()
+class GlobalPerRoute extends RouteMiddleware {
+  protected path = '';
+
+  public onRegister(_route: IRoute, path: string): void {
+    this.path = path;
+  }
+
+  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+    res.setHeader('x-registered-path', this.path);
   }
 }
 
@@ -146,6 +157,15 @@ function headerOf(res: unknown, name: string): string | undefined {
   return (res as { header: Record<string, string | undefined> }).header[name];
 }
 
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (err) {
+    return err;
+  }
+  return undefined;
+}
+
 function routeDuration(header: string | undefined): number | undefined {
   const match = /(?:^|,\s*)route;dur=([\d.]+)/.exec(header ?? '');
   return match ? Number(match[1]) : undefined;
@@ -158,7 +178,7 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
     let app: TestApp;
 
     before(async () => {
-      const entries: GlobalRouteMiddlewareEntry[] = ['GlobalByName', GlobalByClass, { service: 'GlobalWithOptions', options: ['opt'] }, GlobalOuter, { service: GlobalSkippable }];
+      const entries: GlobalRouteMiddlewareEntry[] = ['GlobalByName', GlobalByClass, { service: 'GlobalWithOptions', options: ['opt'] }, GlobalOuter, { service: GlobalSkippable }, GlobalPerRoute];
       app = await httpApp({
         configuration: configWith(entries),
         register: (c) => {
@@ -194,12 +214,19 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
       expect(GlobalSkippable.paths.some((p) => p.endsWith('global-mw/ordered'))).to.eq(true);
     });
 
-    it('shares one instance per entry across every route, calling onRegister per route', () => {
-      expect(GlobalByName.instances.size).to.eq(1);
+    it('calls onRegister per route', () => {
       for (const path of ['global-mw/ordered', 'global-mw/skipped', 'global-plain/plain', 'global-plain/other']) {
         expect(GlobalByName.paths.some((p) => p.endsWith(path)), path).to.eq(true);
       }
-      expect(GlobalWithOptions.created).to.eq(1);
+    });
+
+    it('instantiates an entry per route as @Middleware does, so onRegister state does not leak between routes', async () => {
+      for (const path of ['global-plain/plain', 'global-plain/other', 'global-mw/ordered']) {
+        const res = await req().get(path);
+        expect(res.status, path).to.eq(200);
+        expect(headerOf(res, 'x-registered-path'), path).to.match(new RegExp(`${path}$`));
+      }
+      expect(GlobalWithOptions.created).to.be.at.least(4);
     });
   });
 
@@ -247,23 +274,27 @@ describe('global route middlewares ( http.routes.middlewares )', function () {
       expect((error as Error).message).to.contain('NoSuchRouteMiddleware');
     });
 
-    it('refuses a class that is not a RouteMiddleware', async () => {
-      const err = await resolveGlobalRouteMiddlewares(cfgOf([NotAMiddleware]), DI.RootContainer).catch((e: unknown) => e);
+    it('refuses a class that is not a RouteMiddleware', () => {
+      const err = thrownBy(() => globalRouteMiddlewareDescriptors(cfgOf([NotAMiddleware]), DI.RootContainer));
       expect(err).to.be.instanceOf(InvalidOption);
       expect((err as Error).message).to.contain('http.routes.middlewares');
       expect((err as Error).message).to.contain('NotAMiddleware');
     });
 
-    it('refuses a { service } entry whose options are not an array, and an entry of another shape', async () => {
+    it('refuses a { service } entry whose options are not an array, and an entry of another shape', () => {
       for (const entry of [{ service: GlobalByClass, options: 'x' }, 42, { options: [] }]) {
-        const err = await resolveGlobalRouteMiddlewares(cfgOf([entry]), DI.RootContainer).catch((e: unknown) => e);
+        const err = thrownBy(() => globalRouteMiddlewareDescriptors(cfgOf([entry]), DI.RootContainer));
         expect(err, JSON.stringify(entry)).to.be.instanceOf(InvalidOption);
         expect((err as Error).message).to.contain('http.routes.middlewares');
       }
     });
 
-    it('resolves nothing for no entries', async () => {
-      expect(await resolveGlobalRouteMiddlewares(cfgOf([]), DI.RootContainer)).to.deep.eq([]);
+    it('gives @Middleware descriptors in config order, options included', () => {
+      expect(globalRouteMiddlewareDescriptors(cfgOf([]), DI.RootContainer)).to.deep.eq([]);
+      expect(globalRouteMiddlewareDescriptors(cfgOf(['GlobalWithOptions', { service: GlobalByClass, options: [1] }]), DI.RootContainer)).to.deep.eq([
+        { Type: GlobalWithOptions, Options: [] },
+        { Type: GlobalByClass, Options: [1] },
+      ]);
     });
   });
 });

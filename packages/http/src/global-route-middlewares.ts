@@ -3,6 +3,7 @@ import { Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { RouteMiddleware } from './interfaces.js';
+import type { IMiddlewareDescriptor } from './interfaces.js';
 
 /**
  * One `http.routes.middlewares` entry: the name of a type registered as `RouteMiddleware`, a `RouteMiddleware` class,
@@ -36,27 +37,26 @@ function middlewareType(service: unknown, container: IContainer): Constructor<Ro
 }
 
 /**
- * Resolves the `http.routes.middlewares` entries, in config order. Every entry is checked before any is resolved.
+ * Checks the `http.routes.middlewares` entries and turns them into the descriptors `@Middleware` produces, in config
+ * order. Instances are made per route, like those of `@Middleware`, so the class's own lifetime decides sharing.
  */
-export async function resolveGlobalRouteMiddlewares(cfg: Configuration, container: IContainer): Promise<RouteMiddleware[]> {
+export function globalRouteMiddlewareDescriptors(cfg: Configuration, container: IContainer): IMiddlewareDescriptor[] {
   const entries = cfg.get<unknown[]>(KEY, []) ?? [];
 
-  const resolvable = entries.map((entry) => {
+  return entries.map((entry) => {
     if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
       const { service, options } = entry as { service?: unknown; options?: unknown };
       if (options !== undefined && !Array.isArray(options)) {
         throw new InvalidOption(`${KEY}: options of ${describeEntry(service)} must be an array of constructor arguments`);
       }
-      return { type: middlewareType(service, container), options: options as unknown[] | undefined };
+      return { Type: middlewareType(service, container), Options: (options as unknown[] | undefined) ?? [] };
     }
 
-    return { type: middlewareType(entry, container), options: undefined };
+    return { Type: middlewareType(entry, container), Options: [] };
   });
-
-  return Promise.all(resolvable.map(({ type, options }) => container.resolve<RouteMiddleware>(type, options)));
 }
 
-/** The `http.routes.middlewares` instances, resolved once per container and shared by every route. */
+/** The checked `http.routes.middlewares` descriptors, read once per container, before the first route is built. */
 export class GlobalRouteMiddlewares extends AsyncService {
   @Autoinject(Configuration)
   protected Cfg!: Configuration;
@@ -64,10 +64,10 @@ export class GlobalRouteMiddlewares extends AsyncService {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  public Middlewares: readonly RouteMiddleware[] = [];
+  public Descriptors: readonly IMiddlewareDescriptor[] = [];
 
   public async resolve(): Promise<void> {
     await super.resolve();
-    this.Middlewares = await resolveGlobalRouteMiddlewares(this.Cfg, this.Container);
+    this.Descriptors = globalRouteMiddlewareDescriptors(this.Cfg, this.Container);
   }
 }
