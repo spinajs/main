@@ -15,7 +15,7 @@ A route middleware runs code around one route, around every route of a controlle
 
 ```
 policy gate                         refuses the request, or lets it through
-onAround / onBefore                 each 'outer' middleware, then each 'inner' one, in declaration order
+onAround / onBefore                 each 'outer' middleware, then each 'inner' one, in entry order (see below)
 action                              returns a Response, or throws
 error handlers                      on a throw: @OnError, http.errors.handlers, the error map
 reply pipeline                      once for the reply, whichever produced it:
@@ -238,7 +238,7 @@ export class CatalogController extends BaseController {
 }
 ```
 
-Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`: the reply pipeline adds every header the hooks set on `ctx.res` to the response's headers, which `execute()` applies last. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
+Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`: the reply pipeline adds every header the hooks set on `ctx.res`, even to the value it already had, to the response's headers, which `execute()` applies last. When a throwing `onAfter` turns the reply into an error reply, the headers the earlier hooks set on `ctx.res` are put back as they were, so the error reply never carries a header meant for the success reply. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
 
 ## Around middlewares
 
@@ -257,11 +257,13 @@ Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win o
 
 When an error handler turns the error into another one, `error` is the last one. The exception is an error with `crash: true`: once recorded, it is kept.
 
-`@Idempotent` replays a stored reply through `sendReply`: the `onAfter` of the middlewares entered before the idempotency gate (the `'outer'` ones declared before it) run for a replay too. The inner middlewares and the action do not run, so they see nothing of it.
+`@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it.
+
+On a replay `ctx.response.data` is the stored JSON body, which those outer hooks already shaped on the first answer. A hook that changes data checks `ctx.response instanceof ReplayedResponse` and leaves a replay alone; otherwise it applies itself a second time, and the client gets that. The stored bytes are sent unless a hook changed `data`. Headers a hook adds are never stored: a replay restores the route's own headers only ([Idempotency](26-idempotency.md#headers-of-a-replay)).
 
 ### Stage
 
-An `'outer'` middleware runs right after the policy gate, before every `'inner'` one. An outer middleware that answers alone therefore skips the inner middlewares as well as the action. Within a stage, declaration order holds. On the way out the order reverses: `onAfter` and `onFinish` of the inner middlewares run before those of the outer ones.
+An `'outer'` middleware runs right after the policy gate, before every `'inner'` one. An outer middleware that answers alone therefore skips the inner middlewares as well as the action. Within a stage, the [entry order](#entered-middlewares) holds. On the way out the order reverses: `onAfter` and `onFinish` of the inner middlewares run before those of the outer ones.
 
 ### `onRegister`
 
@@ -340,7 +342,7 @@ export class SearchController extends BaseController {
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
 - Hooks of one kind are awaited one after another. A rejected `onBefore` goes to the route's error handlers; a rejected `onAfter` turns the reply into an error reply; a rejected `onFinish` is logged.
-- `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change.
+- `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change; headers a hook adds are not captured.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`).
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.

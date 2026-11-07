@@ -172,6 +172,9 @@ export function __handle_error__(container: IContainer = DI.RootContainer) {
             // last resort error handling
             logger.fatal(sendError, `Cannot send error response`);
             if (res.headersSent) {
+                if (!res.writableEnded) {
+                    res.destroy();
+                }
                 return;
             }
             res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);

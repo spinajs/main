@@ -65,8 +65,11 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | reply that is not JSON (HTML, XML, text, file, stream, redirect) | not stored, a warning is logged, the key is released |
 
 All the errors are problem+json. A replay is answered by the gate itself: the action and the inner route middlewares do
-not run for it. Outer middlewares run in declaration order, so an outer middleware declared before `@Idempotent` still
-runs on a replay; one declared after it does not.
+not run for it. The outer middlewares entered before the gate (global and controller ones, and route ones written below
+`@Idempotent`, since decorators apply bottom-up) run for it: their `onAfter` gets a `ReplayedResponse`, whose `data` is
+the stored body they already shaped on the first answer. A hook that changes data checks
+`ctx.response instanceof ReplayedResponse`; a data change it makes is sent, and the stored bytes otherwise. See
+[Route middlewares](14-route-middlewares.md#around-middlewares).
 
 An optional route (`required: false`) without a key runs as usual. If its client left during the policy stage, before
 the route started, the route does not run either.
@@ -79,7 +82,7 @@ the route started, the route does not run either.
 | headers the route set through `IResponseOptions.Headers` (`new Ok(body, { Headers: [...] })`) | yes |
 | `Set-Cookie`, also when the route set it through `IResponseOptions.Headers` | never |
 | `Connection`, `Keep-Alive`, `Transfer-Encoding`, `Trailer`, `Upgrade`, `Content-Length`, `Date` | never; the replay's own send sets those it needs |
-| headers set by middlewares, server middlewares or `res.setHeader` in the action | no; server middlewares that run before the route (CORS, helmet) set theirs on the replay again |
+| headers set by middlewares (an `onAfter` hook included), server middlewares or `res.setHeader` in the action | no; server middlewares that run before the route (CORS, helmet) set theirs on the replay again, and an outer `onAfter` that runs on the replay sets its own again |
 
 ## Scope
 

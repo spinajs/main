@@ -5,6 +5,7 @@ import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
+import { excludeFromCapture } from './response-capture.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -85,7 +86,8 @@ export function enterMiddleware(res: express.Response, scope: MiddlewareScope, m
     return;
   }
   if (state.aborted !== undefined) {
-    setImmediate(() => void runFinish(state, [entry], true));
+    const aborted = state.aborted;
+    setImmediate(() => void runFinish(state, [entry], aborted));
     return;
   }
   watchFinish(res, state);
@@ -117,14 +119,27 @@ function watchFinish(res: express.Response, state: IReplyState): void {
   }
   state.watching = true;
 
-  const settle = (event: 'finish' | 'close') => {
+  const settle = (aborted: boolean) => {
+    state.aborted = aborted;
+    return [...state.entered].reverse();
+  };
+
+  // finish and close fire once: a response that already ended (a client gone during an earlier onBefore) fires neither again
+  if (res.writableFinished || res.destroyed || res.closed) {
+    const entries = settle(!res.writableFinished);
+    const aborted = state.aborted!;
+    setImmediate(() => void runFinish(state, entries, aborted));
+    return;
+  }
+
+  const onEvent = (event: 'finish' | 'close') => {
     res.off('finish', onFinish);
     res.off('close', onClose);
-    state.aborted = event === 'close' && !res.writableFinished;
-    void runFinish(state, [...state.entered].reverse(), state.aborted);
+    const entries = settle(event === 'close' && !res.writableFinished);
+    void runFinish(state, entries, state.aborted!);
   };
-  const onFinish = () => settle('finish');
-  const onClose = () => settle('close');
+  const onFinish = () => onEvent('finish');
+  const onClose = () => onEvent('close');
   res.once('finish', onFinish);
   res.once('close', onClose);
 }
@@ -163,31 +178,44 @@ const isResponse = (value: unknown): value is Response => typeof (value as Respo
 export async function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
   const state = stateOf(res);
   let current = response;
+  let own = headerNamesOf(current);
   let error = options.error;
 
   const pending = (state.pending ??= ordered([...state.entered].reverse()).filter((e) => e.middleware.onAfter));
   if (!res.headersSent && pending.length > 0) {
     const before = { ...res.getHeaders() };
-    for (let entry = pending.shift(); entry; entry = pending.shift()) {
-      if (!entry.middleware.onAfter) {
-        continue;
-      }
-      const ctx: IReplyContext = { ...entry.context, response: current, error };
-      try {
-        await inScope(state, entry, () => entry.middleware.onAfter!(ctx));
-        if (!isResponse(ctx.response)) {
-          throw new UnexpectedServerError(`${nameOf(entry.middleware)}.onAfter set ctx.response to something that is not a Response`);
+    const written = watchHeaderWrites(res);
+    try {
+      for (let entry = pending.shift(); entry; entry = pending.shift()) {
+        if (!entry.middleware.onAfter) {
+          continue;
         }
-        current = ctx.response;
-      } catch (err) {
-        const turned = await turnIntoErrorReply(req, res, state, entry, err, options);
-        if (turned) {
-          current = turned.response;
-          error = turned.error;
+        const ctx: IReplyContext = { ...entry.context, response: current, error };
+        try {
+          await inScope(state, entry, () => entry.middleware.onAfter!(ctx));
+          if (!isResponse(ctx.response)) {
+            throw new UnexpectedServerError(`${nameOf(entry.middleware)}.onAfter set ctx.response to something that is not a Response`);
+          }
+          if (ctx.response !== current) {
+            current = ctx.response;
+            own = headerNamesOf(current);
+          }
+        } catch (err) {
+          const turned = await turnIntoErrorReply(req, res, state, entry, err, options);
+          if (turned) {
+            // headers the hooks set for the reply that failed must not go out with the error reply
+            restoreHeaders(res, before, written.names);
+            written.names.clear();
+            current = turned.response;
+            own = headerNamesOf(current);
+            error = turned.error;
+          }
         }
       }
+    } finally {
+      written.stop();
     }
-    keepHeadersSetByHooks(res, before, current);
+    keepHeadersSetByHooks(res, written.names, current, own);
   }
 
   const callback = (await current.execute(req, res)) as ResponseFunction | void;
@@ -196,27 +224,71 @@ export async function sendReply(req: express.Request, res: express.Response, res
   }
 }
 
+const headerNamesOf = (response: Response): Set<string> => new Set((typeof response.setHeader === 'function' ? response.headers : []).map((h) => h.Name.toLowerCase()));
+
+/** Records the names of the headers set on `res` until `stop()`; express's `set`, `header`, `append` and `cookie` all end in `setHeader`. */
+function watchHeaderWrites(res: express.Response): { names: Set<string>; stop: () => void } {
+  const names = new Set<string>();
+  const own = Object.prototype.hasOwnProperty.call(res, 'setHeader');
+  const setHeader = res.setHeader;
+  res.setHeader = function (this: express.Response, name: string, value: number | string | readonly string[]) {
+    names.add(name.toLowerCase());
+    return setHeader.call(this, name, value);
+  } as express.Response['setHeader'];
+  return {
+    names,
+    stop: () => {
+      if (own) {
+        res.setHeader = setHeader;
+      } else {
+        delete (res as Partial<express.Response>).setHeader;
+      }
+    },
+  };
+}
+
+function restoreHeaders(res: express.Response, before: Record<string, unknown>, names: Iterable<string>): void {
+  for (const name of names) {
+    const value = before[name];
+    if (value === undefined) {
+      res.removeHeader(name);
+    } else {
+      res.setHeader(name, value as string | number | readonly string[]);
+    }
+  }
+}
+
 /**
  * `execute()` sets the response's own headers (`IResponseOptions.Headers`) on `res` and would overwrite a header a hook
- * set on `res`: the hooks' headers join the response's, so they win.
+ * set on `res`: the hooks' headers join the response's, so they win. The names the hooks added are kept out of a
+ * response capture: an idempotent replay restores the route's own headers only.
  */
-function keepHeadersSetByHooks(res: express.Response, before: Record<string, unknown>, response: Response): void {
+function keepHeadersSetByHooks(res: express.Response, written: Set<string>, response: Response, own: Set<string>): void {
   if (typeof response.setHeader !== 'function') {
     return;
   }
-  for (const [name, value] of Object.entries(res.getHeaders())) {
+  for (const name of written) {
+    const value = res.getHeader(name);
     // res.cookie() appends, so the response's own cookies never overwrite a hook's
-    if (name !== 'set-cookie' && value !== undefined && before[name] !== value) {
+    if (name !== 'set-cookie' && value !== undefined) {
       response.setHeader(name, value as string | number | readonly string[]);
     }
+  }
+  const added = new Set([...written, ...headerNamesOf(response)].filter((name) => !own.has(name)));
+  if (added.size > 0) {
+    excludeFromCapture(res, added);
   }
 }
 
 async function turnIntoErrorReply(req: express.Request, res: express.Response, state: IReplyState, entry: IEntered, err: unknown, options: ISendReplyOptions): Promise<IErrorReply | undefined> {
   const log = httpLog();
+  if (state.converted) {
+    log.error({ error: err, middleware: nameOf(entry.middleware), url: req.originalUrl }, 'onAfter of ${middleware} failed on the error reply of an earlier onAfter failure; that reply is sent as it is');
+    return undefined;
+  }
   const errorReply = state.route?.errorReply ?? options.errorReply;
-  if (state.converted || !errorReply) {
-    log.error({ error: err, middleware: nameOf(entry.middleware), url: req.originalUrl }, 'onAfter of ${middleware} failed on an error reply; the reply is sent as it is');
+  if (!errorReply) {
+    log.error({ error: err, middleware: nameOf(entry.middleware), url: req.originalUrl }, 'onAfter of ${middleware} failed and no error reply can be made here; the reply is sent as it is');
     return undefined;
   }
 
