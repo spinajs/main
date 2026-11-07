@@ -331,7 +331,7 @@ export interface ISocketCommandContext extends ISocketCallContext {
   args?: unknown[];
   /** the refusal of the rate token the dispatcher took when the frame arrived; the rate stage throws it */
   rateRefusal?: unknown;
-  /** set by the idempotency stage when it runs the command under a key; the ordering stage settles it inside the queue place */
+  /** set by the idempotency stage when it runs the command under a key, for custom stages; it is also an outcome recorder */
   idempotency?: ISocketIdempotencyClaim;
   /** fires `signal`; the dispatcher replies with `reason` at once */
   abort(reason: SocketException): void;
@@ -429,7 +429,7 @@ export type CommandOutcome = { readonly result: unknown } | { readonly error: un
 export interface ISocketIdempotencyClaim {
   /**
    * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
-   * abort releases the key, except a shutdown abort after `start()`, which leaves it running. Later calls get the first answer.
+   * abort releases the key, except a shutdown abort after the handler started, which leaves it running. Later calls get the first answer.
    * Null: released, left running, or detached.
    * A result is answered in its wire ( JSON ) form, and still answered when the store cannot keep it.
    */
@@ -438,7 +438,11 @@ export interface ISocketIdempotencyClaim {
   detach(running: Promise<unknown>): void;
   /** Aborted once the key's lease is lost, or a crash stopped its renewal: another instance may run the command now. */
   readonly lease?: AbortSignal;
-  /** @internal Called right before the handler: from then on an abort marked by `outcomeUnknownAfter` keeps the key running. */
+  /**
+   * @internal From then on an abort marked by `outcomeUnknownAfter` keeps the key running.
+   * @deprecated The idempotency stage's claim reads `ctx.handlerStarted`; only a claim driven by hand needs it.
+   */
   start(): void;
+  /** `start()` was called, or the command's handler started. */
   readonly started: boolean;
 }

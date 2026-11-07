@@ -44,3 +44,11 @@ export class IdempotencyClaimConflict extends Error {
     this.name = 'IdempotencyClaimConflict';
   }
 }
+
+/**
+ * The crash contract of the durable fault model: an error with `crash: true` stands for a dead process, which writes
+ * and releases nothing. A claim it held is neither stored nor released; it frees itself when its lease ends.
+ */
+export function isCrash(error: unknown): error is { readonly crash: true } {
+  return (error as { crash?: unknown } | null | undefined)?.crash === true;
+}

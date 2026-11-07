@@ -3,7 +3,7 @@ import { AutoinjectNamedService, Config } from '@spinajs/configuration';
 import { Clock, DbClock, FaultInjector, parseDuration } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { IdempotencyInFlight, IdempotencyOutcomeUnknown } from './errors.js';
+import { IdempotencyInFlight, IdempotencyOutcomeUnknown, isCrash } from './errors.js';
 import { idempotencyKey } from './key.js';
 import { IdempotencyLeases } from './leases.js';
 import type { IdempotencyAcquisition, IdempotencyHandle } from './leases.js';
@@ -15,9 +15,6 @@ export interface IdempotencyServiceAcquireOptions {
   fingerprint?: string;
   lease?: string | number;
 }
-
-/** Crash contract: an error with `crash: true` stands for a dead process, which writes and releases nothing. */
-const isCrash = (error: unknown): boolean => (error as { crash?: unknown } | null | undefined)?.crash === true;
 
 /**
  * Runs a function at most once per scoped key while its reply is kept: a repeat replays the reply, a concurrent call gets

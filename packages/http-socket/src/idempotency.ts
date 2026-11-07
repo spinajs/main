@@ -6,7 +6,7 @@ import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { principalKey } from '@spinajs/authz';
 import { Clock, DbClock, DurableSystemClock, FaultInjector, parseDuration } from '@spinajs/durable';
-import { IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, idempotencyKey } from '@spinajs/idempotency';
+import { IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, idempotencyKey, isCrash } from '@spinajs/idempotency';
 import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply } from '@spinajs/idempotency';
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
@@ -22,9 +22,6 @@ const DEFAULT_MAX_ENTRIES = 100_000;
 const DEFAULT_LEASE = '30s';
 // An instance built with `new` ( tests, a hand-wired server ) has no injected clock.
 const SYSTEM_CLOCK = new DurableSystemClock();
-
-/** Crash contract: an error with `crash: true` stands for a dead process, which writes and releases nothing. */
-const isCrash = (error: unknown): boolean => (error as { crash?: unknown } | null | undefined)?.crash === true;
 
 export type IdempotencyRecord = { readonly state: 'running' } | { readonly state: 'done'; readonly reply: IdempotentReply };
 
@@ -374,7 +371,8 @@ export class SocketIdempotency {
     return (await this.leases.peek(scoped))?.state === 'done';
   }
 
-  public async begin(scoped: string, name: string, signal: AbortSignal): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
+  /** `handlerStarted` tells the claim when its handler started, as `start()` does for a caller that drives it by hand. */
+  public async begin(scoped: string, name: string, signal: AbortSignal, handlerStarted?: () => boolean): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
     await this.syncClock();
     let lookedAgain = false;
 
@@ -382,7 +380,7 @@ export class SocketIdempotency {
       const held = await this.leases.acquire(scoped, { namespace: 'socket' });
 
       if (held.state === 'claimed') {
-        return { claim: this.claim(scoped, name, signal, held.handle) };
+        return { claim: this.claim(scoped, name, signal, held.handle, handlerStarted) };
       }
 
       if (held.state === 'done') {
@@ -433,7 +431,7 @@ export class SocketIdempotency {
     }
   }
 
-  protected claim(scoped: string, name: string, signal: AbortSignal, handle: IdempotencyHandle): ISocketIdempotencyClaim {
+  protected claim(scoped: string, name: string, signal: AbortSignal, handle: IdempotencyHandle, handlerStarted?: () => boolean): ISocketIdempotencyClaim {
     let publish!: (reply: IdempotentReply | null) => void;
     const mine = new Promise<IdempotentReply | null>((resolve) => (publish = resolve));
     this.local.set(scoped, mine);
@@ -441,6 +439,7 @@ export class SocketIdempotency {
     let answer: Promise<IdempotentReply | null> | null = null;
     let detached = false;
     let started = false;
+    const isStarted = () => started || handlerStarted?.() === true;
 
     // a released key can be claimed again before this cleanup runs: never drop the newer claim's entry
     const forget = () => {
@@ -450,7 +449,7 @@ export class SocketIdempotency {
     };
 
     const finish = (outcome: CommandOutcome): Promise<IdempotentReply | null> =>
-      (answer ??= this.record(handle, name, signal, outcome, started).then(
+      (answer ??= this.record(handle, name, signal, outcome, isStarted()).then(
         (reply) => {
           forget();
           publish(reply);
@@ -479,7 +478,7 @@ export class SocketIdempotency {
     return {
       lease: handle.signal,
       get started() {
-        return started;
+        return isStarted();
       },
       start: () => {
         started = true;

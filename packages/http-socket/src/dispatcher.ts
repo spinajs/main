@@ -91,7 +91,7 @@ export class SocketDispatcher extends AsyncService {
   /** From arrival to written reply, or to the end of its stream; the shutdown drain waits for them. */
   protected replies = new Set<Promise<void>>();
 
-  /** Stage chains, which can outlive an aborted reply; an idempotency claim settles only when its chain does. */
+  /** Stage chains, which can outlive an aborted reply; a stage records the outcome only when its chain settles. */
   protected chains = new Set<Promise<void>>();
 
   protected hookRuns = new Set<Promise<void>>();
@@ -162,13 +162,12 @@ export class SocketDispatcher extends AsyncService {
 
   /**
    * @internal Aborts every running command on every connection ( shutdown ). With `spareStarted`, a command whose
-   * handler started under `drainGrace`, or under an idempotency claim, keeps running: it may commit any moment, and only
-   * its real outcome tells.
+   * handler started under `drainGrace` keeps running: it may commit any moment, and only its real outcome tells.
    */
   public abortAll(reason: SocketException, spareStarted = false): void {
     for (const runtime of this.runtimes.values()) {
       for (const ctx of runtime.running.values()) {
-        if (!(spareStarted && (ctx.idempotency?.started || (ctx.drainGrace && ctx.handlerStarted)))) {
+        if (!(spareStarted && ctx.drainGrace && ctx.handlerStarted)) {
           ctx.abort(reason);
         }
       }
@@ -182,7 +181,7 @@ export class SocketDispatcher extends AsyncService {
 
   /**
    * @internal True once every command received so far has been answered, its stream ( if any ) has ended and its stage
-   * chain has settled, so its idempotency claim is recorded or released; false when `ms` passes first.
+   * chain has settled, so every stage has recorded its outcome; false when `ms` passes first.
    */
   public drained(ms: number): Promise<boolean> {
     return within([...this.replies, ...this.chains], ms);
@@ -570,7 +569,6 @@ export class SocketDispatcher extends AsyncService {
     }
 
     ctx.markHandlerStarted();
-    ctx.idempotency?.start();
 
     return handler.controller[handler.descriptor.Method as string](...args);
   }
@@ -615,15 +613,7 @@ export class SocketDispatcher extends AsyncService {
       throw ctx.signal.reason;
     }
 
-    // the queue place is released when the handler returns, long before the stream ends; the registry refuses async generators
-    if (ctx.handler?.descriptor.Options.ordered) {
-      throw new SocketException('failed_precondition', `ordered command ${name} cannot reply with a stream`);
-    }
-
-    if (ctx.handler?.descriptor.Options.idempotent) {
-      throw new SocketException('failed_precondition', `idempotent command ${name} cannot reply with a stream`);
-    }
-
+    // the registry refuses an async generator under a stage's refusal; this is any other async iterable
     const refusal = ctx.handler?.streamRefusal;
     if (refusal) {
       throw new SocketException('failed_precondition', `${refusal} command ${name} cannot reply with a stream`);

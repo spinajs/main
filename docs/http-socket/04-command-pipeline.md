@@ -22,8 +22,8 @@ Every client command passes an ordered chain of `SocketCommandStage`s before its
 | 320 | `Ready` | `ReadyStage` | Waits for the connection's connect hooks | the abort reason (deadline, cancel, disconnect) |
 | 350 | `Authentication` | `AuthenticationStage` | `SocketPrincipalGuard.ensure()`; refreshes `Principal` and `AuthnPrincipal` in the store | `unauthenticated` |
 | 400 | `Lookup` | `LookupStage` | Finds the handler, sets `ctx.handler`, arms `timeoutMs` | `unimplemented` |
-| 500 | `Idempotency` | `IdempotencyStage` | Replays, joins or claims an `idempotencyKey` | see [Durable commands](12-durable-commands.md) |
-| 550 | `Ordering` | `OrderingStage` | Serial queue for `ordered`; the `after` fence | `unavailable` with `details.after` |
+| 500 | `Idempotency` | `IdempotencyStage` | Replays, joins or claims an `idempotencyKey`. On a claim it sets `drainGrace` and adds the claim as an outcome recorder. `onRegister` refuses streams of `idempotent` commands | see [Durable commands](12-durable-commands.md) |
+| 550 | `Ordering` | `OrderingStage` | Serial queue for `ordered`, which records the outcome before it frees the place; the `after` fence. `onRegister` refuses streams of `ordered` commands | `unavailable` with `details.after` |
 | 600 | `Policies` | `PoliciesStage` | `@SocketPolicy` and `@SocketAccess` through `SocketPolicyGate` | `unauthenticated`, `forbidden`, `invalid_argument` |
 | 650 | `Policies + 50` | `AccessFieldsStage` | `@SocketAccess(…, { fields: 'filter' })` limits the result or each chunk | none |
 | 700 | `Arguments` | `ArgumentsStage` | `SocketArgumentResolver.resolve()` sets `ctx.args` | `invalid_argument` |
@@ -114,13 +114,13 @@ export class MaintenanceStage extends SocketCommandStage {
 - an async-generator handler fails the build: `Socket command X ( C::m ) is <what> and replies with a stream; <what> commands cannot stream`;
 - any other async-iterable result is answered `failed_precondition`: `<what> command X cannot reply with a stream`.
 
-When several stages refuse, the word of the highest `Order` is used. It is kept as `handler.streamRefusal`. The built-in `ordered` and `idempotent` refusals are checked before it.
+When several stages refuse, the word of the highest `Order` is used. It is kept as `handler.streamRefusal`. The built-in refusals work this way: `IdempotencyStage` (500) refuses `idempotent` commands and `OrderingStage` (550) refuses `ordered` ones, so a command that is both is refused as `ordered`.
 
 ### Per-command state
 
 - `ctx.handlerStarted` is `false` until the dispatcher calls the handler, and `true` from then on.
-- `ctx.drainGrace`: a stage sets it to `true` when its handler may commit at any moment once started. The first abort of the shutdown drain then leaves the command running if `handlerStarted` is `true` (see [Shutdown and recovery](14-shutdown-and-recovery.md)).
-- `ctx.addOutcomeRecorder(recorder)` registers an outer stage's record of the outcome, an object with `settle(outcome)` and `detach(running)`. An inner stage that serialises commands calls `ctx.recordOutcome(outcome)` before it lets the next command run. That settles every recorder. A failing recorder is ignored, because the stage that owns it answers the failure. `ctx.detachOutcome(running)` passes a handler the pipeline gave up on to every recorder, which settles once `running` does.
+- `ctx.drainGrace`: a stage sets it to `true` when its handler may commit at any moment once started. The first abort of the shutdown drain then leaves the command running if `handlerStarted` is `true` (see [Shutdown and recovery](14-shutdown-and-recovery.md)). `IdempotencyStage` sets it when it claims a key.
+- `ctx.addOutcomeRecorder(recorder)` registers an outer stage's record of the outcome, an object with `settle(outcome)` and `detach(running)`. An inner stage that serialises commands calls `ctx.recordOutcome(outcome)` before it lets the next command run. That settles every recorder. A failing recorder is ignored, because the stage that owns it answers the failure. `ctx.detachOutcome(running)` passes a handler the pipeline gave up on to every recorder, which settles once `running` does. `IdempotencyStage` adds its claim as a recorder, and `OrderingStage` records the outcome in the queue place, so neither stage refers to the other.
 
 ### State between stages
 
