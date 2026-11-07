@@ -1,4 +1,4 @@
-import { Archived, Bool, Column, DateTime, Model, ModelBase, Primary, SoftDelete, UpdatedAt } from '@spinajs/orm';
+import { Archived, Bool, Column, DateTime, Ignore, Model, ModelBase, Primary, SoftDelete, UpdatedAt } from '@spinajs/orm';
 import { DateTime as Instant } from 'luxon';
 
 @Model('events')
@@ -16,4 +16,5 @@ export class Event extends ModelBase<Event> {
   @Archived() public ArchivedAt: Instant;
   @Column({ unique: true }) public Code: string;
   @Column({ family: 'enum', enumValues: ['a', 'b'] }) public Grade: string;
+  @Ignore() public Draft: string;
 }

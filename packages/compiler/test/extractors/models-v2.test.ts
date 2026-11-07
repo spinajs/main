@@ -53,6 +53,10 @@ describe('extractModels v2: SQL specs, relation keys, indexes', () => {
     });
   });
 
+  it('lists no @Ignore property as a column: it is not persisted', () => {
+    expect(byName('Event').columns.map((c) => c.name)).to.not.include('Draft');
+  });
+
   it('records @Index, @Version and the exhaustive option on the model', () => {
     expect(byName('Author')).to.deep.include({
       exhaustive: true,

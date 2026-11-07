@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { Ignore, Uuid, DiscriminationMap, BelongsTo, Recursive } from '../src/decorators.js';
+import { Ignore, Uuid, DiscriminationMap, BelongsTo, Recursive, Primary } from '../src/decorators.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { ModelBase } from '../src/model.js';
 import { IColumnDescriptor } from '../src/interfaces.js';
@@ -20,28 +20,28 @@ describe('Model descriptor inheritance isolation', () => {
   it('a subclass @Ignore on an inherited column does not mutate the parent column', () => {
     class ParentColumnModel extends ModelBase {
       @Uuid()
-      public pk: string;
+      public Token: string;
     }
 
     class ChildColumnModel extends ParentColumnModel {
       // re-decorates the SAME column the parent already declared
       @Ignore()
-      public pk: string;
+      public Token: string;
     }
 
     const parent = extractModelDescriptor(ParentColumnModel)!;
     const child = extractModelDescriptor(ChildColumnModel)!;
 
-    const parentPk = parent.Columns.find((c: IColumnDescriptor) => c.Name === 'pk')!;
-    const childPk = child.Columns.find((c: IColumnDescriptor) => c.Name === 'pk')!;
+    const parentToken = parent.Columns.find((c: IColumnDescriptor) => c.Name === 'Token')!;
+    const childToken = child.Columns.find((c: IColumnDescriptor) => c.Name === 'Token')!;
 
     // the child sees its inherited column and its own change to it
-    expect(childPk.Uuid).to.eq(true);
-    expect(childPk.Ignore).to.eq(true);
+    expect(childToken.Uuid).to.eq(true);
+    expect(childToken.Ignore).to.eq(true);
 
     // but the parent's column object is untouched - and is a distinct object
-    expect(parentPk).to.not.equal(childPk);
-    expect(parentPk.Ignore).to.not.eq(true);
+    expect(parentToken).to.not.equal(childToken);
+    expect(parentToken.Ignore).to.not.eq(true);
   });
 
   it('a subclass @DiscriminationMap does not mutate the parent discrimination map', () => {
@@ -85,5 +85,44 @@ describe('Model descriptor inheritance isolation', () => {
     expect(childRel.Recursive).to.eq(true);
     expect(parentRel).to.not.equal(childRel);
     expect(parentRel.Recursive).to.eq(false);
+  });
+});
+
+describe('@Ignore() on a primary key', () => {
+  const message = /@Ignore\(\) cannot mark primary key Id of model \w+: a primary key is always persisted/;
+
+  it('throws whichever of @Ignore() and @Primary() runs first', () => {
+    expect(() => {
+      class IgnoredBelow extends ModelBase {
+        @Ignore()
+        @Primary()
+        public Id: number;
+      }
+      return IgnoredBelow;
+    }).to.throw(message);
+
+    expect(() => {
+      class IgnoredAbove extends ModelBase {
+        @Primary()
+        @Ignore()
+        public Id: number;
+      }
+      return IgnoredAbove;
+    }).to.throw(message);
+  });
+
+  it('throws on a primary key inherited from the parent model', () => {
+    class KeyedParent extends ModelBase {
+      @Primary()
+      public Id: number;
+    }
+
+    expect(() => {
+      class KeyedChild extends KeyedParent {
+        @Ignore()
+        public Id: number;
+      }
+      return KeyedChild;
+    }).to.throw(message);
   });
 });

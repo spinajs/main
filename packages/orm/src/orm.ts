@@ -157,10 +157,11 @@ export class Orm extends AsyncService {
                 return { ...c };
               }
 
-              // Merge only defined properties from table info
+              // Merge only defined properties from table info. Drivers report `Ignore: false` for every
+              // column, and only `@Ignore()` may decide it.
               Object.keys(c).forEach((key) => {
                 const columnKey = key as keyof typeof c;
-                if (c[columnKey] !== undefined) {
+                if (c[columnKey] !== undefined && columnKey !== 'Ignore') {
                   (own as any)[columnKey] = c[columnKey];
                 }
               });

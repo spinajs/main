@@ -101,7 +101,7 @@ sequenceDiagram
 | `AutoIncrement` | `boolean` | Reflected identity flag. |
 | `Unique` | `boolean` | Unique constraint. `fresh()` falls back to unique columns when the model has no key; `getOrCreate()` and `getOrNew()` match on them. |
 | `Uuid` | `boolean \| undefined` | Set by `@Uuid()`. |
-| `Ignore` | `boolean` | Set by `@Ignore()`. |
+| `Ignore` | `boolean` | Set by `@Ignore()`: the property is not persisted. Table info never changes it. |
 | `Converter` | `IValueConverter \| null \| undefined` | Resolved converter instance. |
 | `Schema` | `any` | Column JSON schema. |
 | `Aggregate` | `boolean` | Generated column, eg. `sum` or `group by`. |
@@ -143,7 +143,7 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@SoftDelete()` | property | none | Sets `SoftDelete.DeletedAt` and a `DatetimeValueConverter`. `destroy()` becomes an `UPDATE` of this column, and selects filter deleted rows out. |
 | `@Archived()` | property | none | Sets `Archived.ArchivedAt` and a `DatetimeValueConverter`. Selects filter archived rows out. `model.archive()` stamps it. |
 | `@Hidden()` | property or relation | none | Adds the name to `Hidden`. `dehydrate()` and `dehydrateWithRelations()` always omit it, and `ResponseSchema` drops it. `Schema` keeps it. |
-| `@Ignore()` | property | none | Sets `Ignore: true` on the column. `buildModelJsonSchema()` skips it, so it is absent from `Schema` and `ResponseSchema`. |
+| `@Ignore()` | property | none | Sets `Ignore: true` on the column: the property is not persisted. No insert, update, upsert, bulk insert or `save()` writes it, `dehydrate()` omits it, relation queries do not select it, and it is absent from `Schema` and `ResponseSchema`. Throws `InvalidArgument` on a `@Primary()` property. |
 | `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The constructor fills it with a v4 UUID. The converter stores 16-byte binary. |
 | `@Historical(targetModel)` | property | `targetModel: Constructor<ModelBase>` | Adds a `Many` relation to `targetModel`, joined on the source model's primary key column. |
 | `@JunctionTable()` | property | none | Records the property in `JunctionModelProperties`. See [Relations](06-relations.md). |
@@ -282,9 +282,9 @@ updateModelDescriptor(Invoice, (d) => {
   not load is not filtered.
 - `@UpdatedAt()` is stamped only when at least one other column changed. A no-op `update()` writes
   nothing.
-- `@Ignore()` is read only by `buildModelJsonSchema()`. It does **not** exclude the property from
-  `hydrate()`, `dehydrate()` or `toSql()`. An `@Ignore()` property with no table column is still in
-  `Columns` and is written on insert.
+- `@Ignore()` stops writes, not reads: a query that returns a column with the property's name
+  (`select *` on a table that has one) still hydrates it. Changing an `@Ignore()` property does not
+  make the model dirty, so `update()` and `save()` write nothing for it alone.
 - `model.archive()` does not check that `@Archived()` was declared. Call it only on models that
   declare it.
 - A model that never got `@Model()` is not in `Orm.Models`. Its static methods (`get`, `where`,
