@@ -146,7 +146,7 @@ export class ReportController extends BaseController {
 - Wrong arguments (a non-integer or negative `limit`, a window that is not a positive number, an unknown `by`) or an `http.throttle.ipv6Prefix` outside 16..128 fail the route registration with `RouteRegistrationException`. With the options form, wrong options in code (an unknown option, an `answer` or `key` that is not a function, a `headers` that is not a boolean, a missing `default` next to `config`) fail it with `InvalidArgument`, a wrong configured value with `InvalidOption` naming the key; both are wrapped in `RouteRegistrationException`.
 - A store that throws fails the request closed, as for `ThrottleMiddleware`.
 - With two limits on a route, the `X-RateLimit-*` headers are those of the top-most `@RateLimit`: decorators apply bottom-up, so the one nearest the method runs first and the top-most one last.
-- `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address. A route that declares its own `@RateLimit` (on the route or its controller) drops this global entry: a middleware type is mounted once per route, and the route's declaration wins, so the floor and the route's limit do not stack. With `MemoryThrottleStore` a floor keeps one key per route and client network (swept every 10,000 increments); with a shared store it adds one store round trip to every route.
+- `RateLimitMiddleware` is registered as `RouteMiddleware`: `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]` gives every route its own counter of 600 requests a minute per address. A route that declares its own `@RateLimit` (on the route or its controller) drops this global entry: a middleware type is mounted once per route, and the route's declaration wins, so the floor and the route's limit do not stack. A route that must never be limited, not even by the floor, declares `@RateLimit({ config: false })`. With `MemoryThrottleStore` a floor keeps one key per route and client network (swept every 10,000 increments); with a shared store it adds one store round trip to every route.
 
 ### The options form: configured limits, `answer`, `headers`, `key`
 
@@ -154,7 +154,7 @@ export class ReportController extends BaseController {
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `config` | `string` | none | Configuration key read once, when the route is mounted. Its value is `{ limit?, windowSeconds?, by? }`, merged over `default`, or `false`: the middleware is not mounted on the route at all, so the route has no `RateLimitMiddleware` limit, not even a global `http.routes.middlewares` floor. An unset key uses `default`. `{ limit: 0 }` is not "unlimited": it closes the route. |
+| `config` | `string` or `false` | none | `false` alone (`@RateLimit({ config: false })`, no other option): the route is declared unlimited in code. Nothing is mounted, the global floor is dropped, and a `@RateLimit` of the controller is off on that route. A string: the configuration key read once, when the route is mounted. Its value is `{ limit?, windowSeconds?, by? }`, merged over `default`, or `false`: the middleware is not mounted on the route at all, so the route has no `RateLimitMiddleware` limit, not even a global `http.routes.middlewares` floor. An unset key uses `default`. `{ limit: 0 }` is not "unlimited": it closes the route. |
 | `default` | `IRateLimitSettings` | required with `config` | `{ limit, windowSeconds, by? }` used when the key is not set (or when there is no `config`). |
 | `limit`, `windowSeconds`, `by` | as in the positional form | | Inline settings, without `config`. Combined with `config` they are refused. |
 | `answer` | `(retryAfterSeconds: number) => Response` | the 429 above | The throttled answer. It sets its own headers, such as `Retry-After`. A closed route (`limit: 0`) passes `windowSeconds`. |
@@ -223,6 +223,22 @@ export default {
 - The store key is the same as in the positional form, `rate:<METHOD> <path>:<limit>/<window>:<subject>`: changed numbers start fresh windows.
 - `RateLimitMiddleware`'s `limit`, `windowSeconds` and `by` hold the effective settings once the route is mounted.
 - In `http.routes.middlewares` the options form is `options: [{ limit: 600, windowSeconds: 60 }]`; `answer` and `key` need code, so they only come from a decorator or a subclass.
+- A package that ships configured limits describes each key with `rateLimitSchema(default, route)` in its configuration schema: `false` or `{ limit?, windowSeconds?, by? }`, with the default filled and unknown or out-of-range settings refused at boot.
+
+```ts sample
+import { BaseController, BasePath, Ok, Post, RateLimit } from '@spinajs/http';
+
+@BasePath('webhooks')
+@RateLimit(60, 60)
+export class WebhookController extends BaseController {
+  // Called by a partner in bursts from a few addresses: never limited, not even by a global floor.
+  @Post()
+  @RateLimit({ config: false })
+  public delivery() {
+    return new Ok();
+  }
+}
+```
 
 ## Services and extension points
 

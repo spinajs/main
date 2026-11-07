@@ -22,8 +22,10 @@ export interface IRateLimitOptions {
   /**
    * Config path read once when the route is mounted: an IRateLimitSettings object (merged over `default`), or `false` =
    * this route has no limit, not even a global `http.routes.middlewares` one. `{ limit: 0 }` closes the route instead.
+   * `config: false` itself (no other option) declares the route unlimited in code: on a route, it also takes the
+   * controller's `@RateLimit` off that route.
    */
-  config?: string;
+  config?: string | false;
   /** Used when `config` is absent or the key is not set. Required when `config` is given. */
   default?: IRateLimitSettings;
   /** Inline settings when no config is used. */
@@ -63,6 +65,38 @@ function checkSettings(settings: IRateLimitSettings, refuse: (name: string, prob
   if (!(typeof windowSeconds === 'number' && Number.isFinite(windowSeconds) && windowSeconds > 0)) throw refuse('windowSeconds', `must be a finite positive number, got ${show(windowSeconds)}`);
   if (by !== 'ip' && by !== 'principal') throw refuse('by', `must be 'ip' or 'principal', got ${show(by)}`);
   return { limit, windowSeconds, by };
+}
+
+/** The declaration `@RateLimit({ config: false })`. */
+function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
+  const type = m.Type as { prototype?: unknown } | undefined;
+  const isRateLimit = type === RateLimitMiddleware || (typeof type === 'function' && type.prototype instanceof RateLimitMiddleware);
+  const options = m.Options?.[0] as IRateLimitOptions | undefined;
+  return isRateLimit && m.Options?.length === 1 && typeof options === 'object' && options !== null && options.config === false;
+}
+
+/**
+ * The JSON schema of one configured limit (`<package>.rateLimit.<name>`, read by `@RateLimit({ config })`): settings merged
+ * over `defaults`, or `false` for none. Schema only: the middleware checks the value again when the route mounts.
+ */
+export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string): Record<string, unknown> {
+  return {
+    default: { ...defaults },
+    description: `The limit of ${route}: { limit, windowSeconds, by } merged over the default, or false for none.`,
+    anyOf: [
+      { enum: [false] },
+      {
+        type: 'object',
+        // propertyNames, not additionalProperties: removeAdditional would drop a misspelt key without a word.
+        propertyNames: { enum: [...SETTINGS_KEYS] },
+        properties: {
+          limit: { type: 'integer', minimum: 0 },
+          windowSeconds: { type: 'number', exclusiveMinimum: 0 },
+          by: { enum: ['ip', 'principal'] },
+        },
+      },
+    ],
+  };
 }
 
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
@@ -120,7 +154,9 @@ export class RateLimitMiddleware extends RouteMiddleware {
     return this.current().by ?? 'ip';
   }
 
-  public override isEnabled(_route: IRoute, _controller: IController): boolean {
+  public override isEnabled(route: IRoute, _controller: IController): boolean {
+    // A route declared unlimited drops the controller's limit; the global floor is dropped by the declaration itself.
+    if (this.options.config !== false && (route?.Middlewares ?? []).some(isDeclaredOff)) return false;
     try {
       return this.resolveSettings() !== false;
     } catch {
@@ -181,6 +217,11 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
     this.checkOptions();
     const { config, limit, windowSeconds, by } = this.options;
+    if (config === false) {
+      const others = Object.keys(this.options).filter((k) => k !== 'config');
+      if (others.length > 0) throw new InvalidArgument(`@RateLimit({ config: false }) declares no limit and takes no other option, got ${others.join(', ')}`);
+      return (this.settings = false);
+    }
     const inline = defined({ limit, windowSeconds, by });
     if (config === undefined) {
       return (this.settings = checkSettings({ ...this.options.default, ...inline } as IRateLimitSettings, (name, problem) => new InvalidArgument(`@RateLimit ${name} ${problem}`)));
@@ -207,7 +248,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
     const { config, answer, key, headers } = this.options;
     const unknown = Object.keys(this.options).filter((k) => !OPTION_KEYS.includes(k));
     if (unknown.length > 0) throw new InvalidArgument(`@RateLimit has unknown options ${unknown.join(', ')}; allowed: ${OPTION_KEYS.join(', ')}`);
-    if (config !== undefined && (typeof config !== 'string' || config === '')) throw new InvalidArgument(`@RateLimit config must be a non-empty string, got ${show(config)}`);
+    if (config !== undefined && config !== false && (typeof config !== 'string' || config === '')) throw new InvalidArgument(`@RateLimit config must be a non-empty string or false, got ${show(config)}`);
     if (answer !== undefined && typeof answer !== 'function') throw new InvalidArgument(`@RateLimit answer must be a function, got ${show(answer)}`);
     if (key !== undefined && typeof key !== 'function') throw new InvalidArgument(`@RateLimit key must be a function, got ${show(key)}`);
     if (headers !== undefined && typeof headers !== 'boolean') throw new InvalidArgument(`@RateLimit headers must be a boolean, got ${show(headers)}`);
