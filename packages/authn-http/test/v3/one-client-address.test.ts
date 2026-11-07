@@ -8,7 +8,7 @@ import type { IMiddlewareContext, IRoute, ProxyTrust } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
-import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AuthnRealIp, ClientIp } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AuthnRealIp, ClientIp, realIpOverrideFinding } from '../../src/index.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const PROXY = '10.0.0.5';
@@ -90,6 +90,33 @@ describe('one client address: authn.http.trustProxy feeds RealIp', function () {
     const req = reqFrom('::ffff:10.0.0.5', '203.0.113.7');
     clientIp.onBefore(ctxOf(req));
     expect(req.storage.ClientIp).to.eq(PROXY);
+  });
+
+  it('ClientIp copies realIp a RealIp subclass wrote without the stored trust', async () => {
+    const clientIp = readingFrom(new ClientIp(), await appWith({}));
+    const req = reqFrom(PROXY, '203.0.113.7');
+    req.storage.realIp = '203.0.113.9';
+    clientIp.onBefore(ctxOf(req));
+    expect(req.storage.ClientIp).to.eq('203.0.113.9');
+  });
+
+  describe('realIpOverrideFinding', () => {
+    class AppRealIp extends RealIp {}
+    class AppAuthnRealIp extends AuthnRealIp {}
+    const over = (...types: unknown[]) => ({ getRegisteredTypes: () => types }) as unknown as IContainer;
+
+    it('says nothing for AuthnRealIp or a subclass of it, nor when AuthnRealIp was never registered', () => {
+      expect(realIpOverrideFinding(over(RealIp, AuthnRealIp), 1)).to.eq(undefined);
+      expect(realIpOverrideFinding(over(RealIp, AuthnRealIp, AppAuthnRealIp), 1)).to.eq(undefined);
+      expect(realIpOverrideFinding(over(RealIp, AppRealIp), 1)).to.eq(undefined);
+    });
+
+    it('warns for another RealIp, and is an error when authn.http.trustProxy is set', () => {
+      const warning = realIpOverrideFinding(over(RealIp, AuthnRealIp, AppRealIp), null);
+      expect(warning).to.include({ topic: 'proxy', level: 'warning' });
+      expect(warning!.message).to.contain('AppRealIp').and.contain('AuthnRealIp');
+      expect(realIpOverrideFinding(over(RealIp, AuthnRealIp, AppRealIp), 0)).to.include({ level: 'error' });
+    });
   });
 
   describe('report §3.2: an app behind a proxy that sets only authn.http.trustProxy', () => {
