@@ -1,6 +1,6 @@
 # Server middlewares
 
-A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
+A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships maintenance answers, CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
 
 ## How it works
 
@@ -43,6 +43,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | Class | `Order` | Exported | Hooks | Configuration | Effect |
 | --- | --- | --- | --- | --- | --- |
 | `CorsMiddleware` | -1 | yes | onBefore | `http.cors` | CORS headers; answers an allowed preflight 204. See [CORS](16-cors.md). |
+| `MaintenanceMode` | -0.5 | yes | onBefore | `http.maintenance.*` | 503 during maintenance (but allowed paths) and, with `Connection: close`, while the server is closing; see [Maintenance mode](27-maintenance-mode.md). Always mounted. |
 | `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`. |
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). |
@@ -101,24 +102,23 @@ Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp
 
 ### `ServerMiddleware`: custom implementation
 
-Refuse requests during a maintenance window, except health checks. It needs nothing from `req.storage`, so it runs right after CORS (Order -1) and before compression. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
+Refuse writes during a database migration while reads go on. It needs nothing from `req.storage`, so it runs right after `MaintenanceMode` (Order -0.5) and before compression. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { IMiddlewareContext, Json, Response, ServerMiddleware } from '@spinajs/http';
 
-@Injectable(ServerMiddleware)
-export class MaintenanceMode extends ServerMiddleware {
-  @Config('app.maintenance.enabled', { defaultValue: false })
-  protected Enabled: boolean;
+const SAFE = ['GET', 'HEAD', 'OPTIONS'];
 
-  @Config('app.maintenance.retryAfterSeconds', { defaultValue: 600 })
-  protected RetryAfter: number;
+@Injectable(ServerMiddleware)
+export class ReadOnlyMode extends ServerMiddleware {
+  @Config('app.readOnly.enabled', { defaultValue: false })
+  protected Enabled: boolean;
 
   constructor() {
     super();
-    this.Order = -0.5;
+    this.Order = -0.4;
   }
 
   public isEnabled() {
@@ -126,13 +126,10 @@ export class MaintenanceMode extends ServerMiddleware {
   }
 
   public onBefore({ req }: IMiddlewareContext): Response | undefined {
-    if (req.path === '/health') {
+    if (SAFE.includes(req.method)) {
       return undefined;
     }
-    return new Json(
-      { error: { code: 'E_MAINTENANCE', message: 'down for maintenance' } },
-      { StatusCode: 503, Headers: [{ Name: 'Retry-After', Value: String(this.RetryAfter) }] },
-    );
+    return new Json({ error: { code: 'E_READ_ONLY', message: 'writes are paused, try again later' } }, { StatusCode: 503, Headers: [{ Name: 'Retry-After', Value: '120' }] });
   }
 }
 ```
@@ -256,5 +253,5 @@ export class RequestTimer extends ServerMiddleware {
 
 - [HTTP server](01-http-server.md): when the server middlewares and the tail are attached.
 - [Route middlewares](14-route-middlewares.md): the same hooks around specific routes; the reply pipeline.
-- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md): the shipped middlewares in detail.
+- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md), [Maintenance mode](27-maintenance-mode.md): the shipped middlewares in detail.
 - [Error handling](11-error-handling.md): `NotFoundMiddleware` and `ErrorHandlerMiddleware`.
