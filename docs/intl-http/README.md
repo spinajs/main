@@ -10,7 +10,7 @@ It does **not** translate anything itself: translations come from `@spinajs/intl
 npm install @spinajs/intl-http
 ```
 
-Importing the package registers its services. There is no bootstrapper and no config file of its own: it reads `intl.queryParameter` and `intl.defaultLocale` from the `@spinajs/intl` config.
+Importing the package registers its services and the schema of its one key, `intl.http.vary` (default `true`, also registered again by `IntlHttpConfigBootstrapper`). It ships no config file: it reads `intl.queryParameter` and `intl.defaultLocale` from the `@spinajs/intl` config.
 
 ## Features
 
