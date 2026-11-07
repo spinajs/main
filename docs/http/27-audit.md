@@ -45,7 +45,7 @@ own.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `methods` | unset: every method | HTTP methods audited, eg. `['POST', 'DELETE']`, in any case. A route whose method is not listed does not mount the middleware; a `HEAD` request to a `GET` route is judged by `HEAD`. |
-| `redact` | `['password', 'token', 'secret', 'authorization', 'cookie', 'card']` | Keys whose values are recorded as `[redacted]`. In `http.audit` the list replaces the default; in route options it adds to the configured list. |
+| `redact` | `['password', 'token', 'secret', 'authorization', 'cookie', 'card']` | Keys whose values are recorded as `[redacted]`. In `http.audit` the list replaces the default; in route options it adds to the configured list. Apps often add `apikey`, `privatekey`, `otp`, `cvv`, `cvc`, `credential`, `passwd` and `pwd`. |
 | `includeBody` | `true` | Whether the request body is recorded. |
 | `maxBodyBytes` | `16384` | A body larger than this, by its `Content-Length` or as JSON after redaction, is left out; `bodyTruncated` holds its size. |
 
@@ -81,9 +81,12 @@ export class PaymentsController extends BaseController {
   never changed.
 - A body that is not an object or an array, such as a text or XML body, has no keys to redact by, so it is recorded
   as `[redacted]`.
-- `url` keeps the path and replaces every query value with `[redacted]`, as the access log does. `query` holds the
+- `url` replaces every query value with `[redacted]`, as the access log does, and every path segment that holds a
+  route parameter with a sensitive name: `GET /reset/:token` is recorded as `/reset/[redacted]`. A parameter that
+  shares its segment with other text (`/:token.json`) is not found. `query` holds the
   parsed query, redacted by key, so a non-sensitive value such as `page` stays readable there.
 - An empty body or query is left out of the record.
+- A multipart body (`@Form`, `@File`) is parsed by the route arguments, after `Audit` ran, so it is not recorded.
 
 ## The record
 
@@ -98,18 +101,18 @@ export class PaymentsController extends BaseController {
 | `requestId`, `ip` | From `req.storage`, set by `RequestId` and `RealIp`. |
 | `principal` | `{ type, id, impersonator? }` of `req.storage.Principal` (set by `@spinajs/authz-http`), or of `req.storage.AuthnPrincipal` (set by `@spinajs/authn-http`) without authz. Read when the response finished, so a principal set by any middleware or the action counts. |
 | `query`, `body`, `bodyTruncated` | See [Redaction](#redaction) and `maxBodyBytes`. |
-| `error` | `{ name, message }` of the error an error reply answered: an exception of the action, an inner middleware's refusal, a throwing `onAfter`. |
+| `error` | The error an error reply answered: a policy refusal, a middleware's refusal, an exception of the action, a throwing `onAfter`. `name` always; `message` only when the error is not answered as a 500 (a mapped 4xx, eg. `Forbidden`), cut to 200 characters. The message of a 500 can carry internals or quote input (a `SyntaxError`, a driver error with bound values): find it in the `http` log by `requestId`. |
 
 A field with no value is left out of the record.
 
 ## When a request is recorded
 
-`Audit` runs in the `'outer'` [stage](14-route-middlewares.md#stage), so it records what the inner middlewares
-refuse. It records nothing for:
+`Audit` runs in the `'beforePolicy'` [stage](14-route-middlewares.md#stage), so it records the requests the route's
+[policies](13-policies.md) refuse (status 401 or 403, the refusal as `error`) and what every later middleware refuses.
+It records nothing for:
 
-- a request the route's [policies](13-policies.md) refused: the policy gate runs before every route middleware;
 - a request answered before routing: a server middleware's refusal, a 404, a static file;
-- a request refused or answered by an `'outer'` middleware that runs before `Audit` ([entry order](14-route-middlewares.md#entered-middlewares)).
+- a request refused or answered by a `'beforePolicy'` middleware that runs before `Audit` ([entry order](14-route-middlewares.md#entered-middlewares)).
 
 ## Sinks
 
@@ -119,7 +122,8 @@ refuse. It records nothing for:
 
 `write(record)` may return a promise. `Audit` awaits it after the response was sent, so a slow sink never delays the
 client. A sink that throws or rejects is logged on the `http` logger with the route, and never fails the request.
-One sink serves every route: a sink that must write to several stores fans out itself.
+One sink serves every route: a sink that must write to several stores fans out itself. A sink must settle: `Audit`
+does not time it out, and a promise that never settles keeps its record in memory.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';

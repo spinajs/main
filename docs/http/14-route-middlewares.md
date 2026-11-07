@@ -14,8 +14,9 @@ A route middleware runs code around one route, around every route of a controlle
 **Per request**, the route runs this timeline:
 
 ```
+onAround / onBefore                 each 'beforePolicy' middleware, in entry order (see below)
 policy gate                         refuses the request, or lets it through
-onAround / onBefore                 each 'outer' middleware, then each 'inner' one, in entry order (see below)
+onAround / onBefore                 each 'outer' middleware, then each 'inner' one, in entry order
 action                              returns a Response, or throws
 error handlers                      on a throw: @OnError, http.errors.handlers, the error map
 reply pipeline                      once for the reply, whichever produced it:
@@ -28,11 +29,11 @@ The reply pipeline handles every framework reply of the route: the `Response` th
 
 ### Entered middlewares
 
-Only a middleware the chain entered gets `onAfter` and `onFinish`, and they run in the exact reverse of the entry order. The entry order is the chain order: `'outer'` before `'inner'`, and within a stage the [global](#global-route-middlewares) ones in config order, then the controller's, then the route's, the last two in declaration order (decorators apply bottom-up, so the lowest `@Middleware` of a list is entered first). A middleware is entered when the chain reached it and its `onBefore` resolved, or when the chain reached it and it has no `onBefore`. An around middleware is entered when its `onAround` starts.
+Only a middleware the chain entered gets `onAfter` and `onFinish`, and they run in the exact reverse of the entry order. The entry order is the chain order: `'beforePolicy'`, then `'outer'`, then `'inner'`, and within a stage the [global](#global-route-middlewares) ones in config order, then the controller's, then the route's, the last two in declaration order (decorators apply bottom-up, so the lowest `@Middleware` of a list is entered first). A middleware is entered when the chain reached it and its `onBefore` resolved, or when the chain reached it and it has no `onBefore`. An around middleware is entered when its `onAround` starts.
 
 | Case | Entered |
 | --- | --- |
-| The policy gate refused the request | none |
+| The policy gate refused the request | the `'beforePolicy'` ones; none after the gate |
 | An `onBefore` threw | the middlewares before it; not this one, and none after it |
 | An `onBefore` returned a `Response` | the middlewares before it and this one; none after it |
 | The action threw | every enabled middleware |
@@ -184,7 +185,7 @@ export default { http: { routes: { middlewares } } };
 | Member | Meaning |
 | --- | --- |
 | `isEnabled(route, controller): boolean` | Whether the middleware runs on this route. Called once at startup. Returns `true` unless overridden. |
-| `Stage?: 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Stage](#stage). |
+| `Stage?: 'beforePolicy' \| 'outer' \| 'inner'` | Where the middleware runs in the chain; unset means `'inner'`. See [Stage](#stage). |
 | `onRegister?(route, path, controller)` | Called once when the route is mounted, with the mounted path. |
 | `onBefore?(ctx): void \| Response \| Promise<void \| Response>` | Before the action. A returned `Response` answers. |
 | `onAfter?(ctx): void \| Promise<void>` | On every reply, before it is sent: `ctx.response`, `ctx.error`. |
@@ -257,13 +258,21 @@ Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win o
 
 When an error handler turns the error into another one, `error` is the last one. The exception is an error with `crash: true`: once recorded, it is kept.
 
-`@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it.
+`@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'beforePolicy'` and `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it.
 
 On a replay `ctx.response.data` is the stored JSON body, which those outer hooks already shaped on the first answer. A hook that changes data checks `ctx.response instanceof ReplayedResponse` and leaves a replay alone; otherwise it applies itself a second time, and the client gets that. The stored bytes are sent unless a hook changed `data`; then the stored `ETag` is dropped. Headers a hook adds are never stored, except `Content-Type`, `Location` and `ETag`, which describe the body: a replay restores the route's own headers only ([Idempotency](26-idempotency.md#headers-of-a-replay)).
 
 ### Stage
 
-An `'outer'` middleware runs right after the policy gate, before every `'inner'` one. An outer middleware that answers alone therefore skips the inner middlewares as well as the action. Within a stage, the [entry order](#entered-middlewares) holds. On the way out the order reverses: `onAfter` and `onFinish` of the inner middlewares run before those of the outer ones.
+| `Stage` | Runs |
+| --- | --- |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](27-audit.md) uses it. An answer of its `onBefore` skips the gate as well as the route. |
+| `'outer'` | right after the policy gate, before every `'inner'` one |
+| `'inner'` (unset) | after every `'outer'` one |
+
+Keep `'beforePolicy'` for middlewares that must observe every request of the route, refused or not: logging, auditing, metrics. It runs for callers the policies would refuse, so it must not trust the principal or do work on its behalf.
+
+An `'outer'` middleware runs right after the policy gate, before every `'inner'` one. An outer middleware that answers alone therefore skips the inner middlewares as well as the action. Within a stage, the [entry order](#entered-middlewares) holds. On the way out the order reverses: `onAfter` and `onFinish` of the inner middlewares run before those of the outer ones, and those of the `'beforePolicy'` ones run last.
 
 ### `onRegister`
 

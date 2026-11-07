@@ -2,6 +2,15 @@ export const REDACTED = '[redacted]';
 
 const MAX_DEPTH = 32;
 
+/** Whether a key contains one of `keys`, ignoring case: `token` matches `accessToken` and `refresh_token`. */
+export function sensitiveKeyMatcher(keys: readonly string[]): (key: string) => boolean {
+  const needles = keys.map((k) => k.toLowerCase()).filter((k) => k !== '');
+  return (key) => {
+    const lower = key.toLowerCase();
+    return needles.some((n) => lower.includes(n));
+  };
+}
+
 /**
  * A copy of `value` fit for an audit trail or a log line: the value of every key that contains one of `keys`
  * (case-insensitive substring, so `token` also covers `accessToken` and `refresh_token`) becomes `[redacted]`,
@@ -9,11 +18,7 @@ const MAX_DEPTH = 32;
  * and anything nested deeper than 32 levels `[too deep]`. The input is never changed.
  */
 export function redactFields(value: unknown, keys: readonly string[]): unknown {
-  const needles = keys.map((k) => k.toLowerCase()).filter((k) => k !== '');
-  const sensitive = (key: string) => {
-    const lower = key.toLowerCase();
-    return needles.some((n) => lower.includes(n));
-  };
+  const sensitive = sensitiveKeyMatcher(keys);
   // Only the objects on the current path count as cycles: an object referenced twice side by side is copied twice.
   const path = new Set<object>();
 

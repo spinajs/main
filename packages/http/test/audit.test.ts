@@ -4,11 +4,11 @@ import http from 'node:http';
 import { DI } from '@spinajs/di';
 import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log';
-import { BadRequest } from '@spinajs/exceptions';
+import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 
 import { appPort, httpApp, req, TestConfiguration } from './common.js';
-import { Audit, AuditSink, BaseController, BasePath, Body, Controllers, Get, HttpServer, LogAuditSink, Middleware, Ok, Post, RouteMiddleware } from '../src/index.js';
+import { Audit, AuditSink, BaseController, BasePath, BasePolicy, Body, Controllers, Get, HttpServer, LogAuditSink, Middleware, Ok, Param, Policy, Post, RouteMiddleware } from '../src/index.js';
 import type { IAuditRecord, IMiddlewareContext } from '../src/index.js';
 import { REDACTED, redactFields } from '../src/util/redact.js';
 
@@ -30,6 +30,16 @@ class SignedIn extends RouteMiddleware {
     Object.assign(storage, {
       Principal: { type: 'user', id: '42', authenticated: true, source: 'session', attributes: {}, authn: { impersonator: { type: 'user', id: '1' } } },
     });
+  }
+}
+
+class Deny extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {
+    throw new Forbidden('not your account');
   }
 }
 
@@ -62,6 +72,27 @@ class AuditedController extends BaseController {
   @Middleware(Refuses)
   public refused() {
     return new Ok({ ok: true });
+  }
+
+  @Get()
+  @Policy(Deny)
+  public denied() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  public crashing(@Body() data: { payload: string }) {
+    return new Ok(JSON.parse(data.payload));
+  }
+
+  @Post()
+  public verbose() {
+    throw new BadRequest('x'.repeat(500));
+  }
+
+  @Get('reset/:token/:step')
+  public reset(@Param() token: string, @Param() step: string) {
+    return new Ok({ token: token.length, step });
   }
 
   @Get()
@@ -235,6 +266,40 @@ describe('Audit route middleware', function () {
     const record = await nextRecord();
     expect(record.status).to.eq(400);
     expect(record.error).to.deep.eq({ name: 'BadRequest', message: 'name is required' });
+  });
+
+  it('records a refusal of the policy gate, since it runs before it', async () => {
+    const res = await req().get('audited/denied');
+    expect(res.status).to.eq(403);
+
+    const record = await nextRecord();
+    expect(record.status).to.eq(403);
+    expect(record.error).to.deep.eq({ name: 'Forbidden', message: 'not your account' });
+  });
+
+  it('records only the name of an error answered as a 500: its message can quote input', async () => {
+    const res = await req().post('audited/crashing').send({ payload: 'hunter2-password-value' });
+    expect(res.status).to.eq(500);
+
+    const record = await nextRecord();
+    expect(record.status).to.eq(500);
+    expect(record.error).to.deep.eq({ name: 'SyntaxError' });
+    expect(JSON.stringify(record.error)).to.not.contain('hunter2');
+  });
+
+  it('cuts a long error message to 200 characters', async () => {
+    await req().post('audited/verbose').send({});
+    const record = await nextRecord();
+    expect(record.error?.message).to.eq(`${'x'.repeat(200)}...`);
+  });
+
+  it('redacts a path segment holding a route parameter with a sensitive name', async () => {
+    const res = await req().get('audited/reset/SUPERSECRETRESETTOKEN/confirm?token=SUPERSECRETRESETTOKEN');
+    expect(res.status).to.eq(200);
+
+    const record = await nextRecord();
+    expect(record.url).to.eq('/audited/reset/[redacted]/confirm?token=[redacted]');
+    expect(JSON.stringify(record)).to.not.contain('SUPERSECRET');
   });
 
   it('records a refusal of an inner middleware, since it runs in the outer stage', async () => {

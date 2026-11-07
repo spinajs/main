@@ -8,8 +8,9 @@ import type * as express from 'express';
 
 import { RouteMiddleware, RouteType } from '../interfaces.js';
 import type { IActionLocalStoregeContext, IFinishContext, IMiddlewareContext, IReplyContext, IRoute, MiddlewareStage } from '../interfaces.js';
-import { redactUrl } from '../util/redact-url.js';
-import { REDACTED, redactFields } from '../util/redact.js';
+import { answeredAsServerError } from '../error.js';
+import { redactUrl, urlPath } from '../util/redact-url.js';
+import { REDACTED, redactFields, sensitiveKeyMatcher } from '../util/redact.js';
 
 /** `http.audit`, and the options of `@Middleware(Audit, options)`. */
 export interface IAuditOptions {
@@ -34,7 +35,7 @@ export interface IAuditRecord {
   /** `http:<METHOD> <mounted path>` */
   route: string;
   method: string;
-  /** The requested URL, every query value replaced by `[redacted]`. */
+  /** The requested URL: every query value, and every path segment holding a sensitive route parameter, replaced by `[redacted]`. */
   url: string;
   /** Unset when the client went away before the headers were sent. */
   status?: number;
@@ -47,8 +48,13 @@ export interface IAuditRecord {
   body?: unknown;
   /** Size in bytes of a body over `maxBodyBytes`, which is then not recorded. */
   bodyTruncated?: number;
-  /** The error an error reply answered. */
-  error?: { name: string; message: string };
+  /** The error an error reply answered; `message` only for an error not answered as a 500, cut to 200 characters. */
+  error?: IAuditError;
+}
+
+export interface IAuditError {
+  name: string;
+  message?: string;
 }
 
 /**
@@ -73,6 +79,7 @@ export class LogAuditSink extends AuditSink {
 interface IAuditSettings {
   methods?: Set<string>;
   redact: string[];
+  sensitive: (key: string) => boolean;
   includeBody: boolean;
   maxBodyBytes: number;
 }
@@ -80,14 +87,17 @@ interface IAuditSettings {
 interface IAuditState {
   started: number;
   at: Date;
+  // req.params is the route layer's: an error handler mounted outside the route may see other params by onFinish
+  params: Record<string, unknown>;
   query?: unknown;
   body?: unknown;
   bodyTruncated?: number;
-  error?: { name: string; message: string };
+  error?: IAuditError;
 }
 
 export const DEFAULT_AUDIT_REDACT = ['password', 'token', 'secret', 'authorization', 'cookie', 'card'];
 const DEFAULT_MAX_BODY_BYTES = 16384;
+const MAX_ERROR_MESSAGE = 200;
 const STATE = Symbol('audit');
 
 const HTTP_METHOD_TYPES: ReadonlySet<string> = new Set([RouteType.GET, RouteType.POST, RouteType.PUT, RouteType.PATCH, RouteType.DELETE, RouteType.HEAD]);
@@ -122,8 +132,8 @@ function stringArray(value: unknown, name: string): string[] | undefined {
 @NewInstance()
 @Injectable(RouteMiddleware)
 export class Audit extends RouteMiddleware {
-  // outer, so a refusal of an inner middleware is recorded too
-  public override readonly Stage: MiddlewareStage = 'outer';
+  // before the policy gate, so a policy refusal is recorded too
+  public override readonly Stage: MiddlewareStage = 'beforePolicy';
 
   @Config('http.audit', { defaultValue: {} })
   protected Config!: IAuditOptions | null;
@@ -152,9 +162,11 @@ export class Audit extends RouteMiddleware {
       throw new InvalidOption('Audit: maxBodyBytes must be a number of bytes, 0 or more');
     }
 
+    const redact = [...(stringArray(cfg.redact, 'http.audit.redact') ?? DEFAULT_AUDIT_REDACT), ...(stringArray(options.redact, 'redact') ?? [])];
     return (this.settings = {
       methods: methods ? new Set(methods.map((m) => m.toUpperCase())) : undefined,
-      redact: [...(stringArray(cfg.redact, 'http.audit.redact') ?? DEFAULT_AUDIT_REDACT), ...(stringArray(options.redact, 'redact') ?? [])],
+      redact,
+      sensitive: sensitiveKeyMatcher(redact),
       includeBody: options.includeBody ?? cfg.includeBody ?? true,
       maxBodyBytes,
     });
@@ -169,7 +181,7 @@ export class Audit extends RouteMiddleware {
     const settings = this.Settings;
     if (settings.methods && !settings.methods.has(req.method.toUpperCase())) return;
 
-    const state: IAuditState = { started: performance.now(), at: new Date() };
+    const state: IAuditState = { started: performance.now(), at: new Date(), params: { ...req.params } };
     try {
       if (!isEmptyObject(req.query)) state.query = redactFields(req.query, settings.redact);
       if (settings.includeBody) this.captureBody(req, state, settings);
@@ -183,7 +195,7 @@ export class Audit extends RouteMiddleware {
   public onAfter({ res, error }: IReplyContext): void {
     const state = (res.locals as Record<symbol, IAuditState | undefined>)[STATE];
     if (state && error !== undefined) {
-      state.error = error instanceof Error ? { name: error.name !== 'Error' ? error.name : error.constructor.name, message: error.message } : { name: typeof error, message: String(error) };
+      state.error = describeError(error);
     }
   }
 
@@ -195,7 +207,7 @@ export class Audit extends RouteMiddleware {
       at: state.at,
       route: path ?? '',
       method: req.method,
-      url: redactUrl(req.originalUrl),
+      url: redactPathParams(redactUrl(req.originalUrl), state.params, this.Settings.sensitive),
       status: !aborted || res.headersSent ? res.statusCode : undefined,
       ms: Math.round((performance.now() - state.started) * 100) / 100,
       aborted,
@@ -241,6 +253,36 @@ export class Audit extends RouteMiddleware {
     } else {
       state.body = redacted;
     }
+  }
+}
+
+// A message of an error answered as a 500 can carry internals or quote input (a SyntaxError, a driver error with bound values).
+function describeError(error: unknown): IAuditError {
+  const name = error instanceof Error ? (error.name !== 'Error' ? error.name : error.constructor.name) : typeof error;
+  if (answeredAsServerError(error)) return { name };
+  const message = error instanceof Error ? error.message : String(error);
+  return { name, message: message.length > MAX_ERROR_MESSAGE ? `${message.slice(0, MAX_ERROR_MESSAGE)}...` : message };
+}
+
+function redactPathParams(url: string, params: Record<string, unknown> | undefined, sensitive: (key: string) => boolean): string {
+  const values = Object.entries(params ?? {})
+    .filter(([key, value]) => sensitive(key) && typeof value === 'string' && value !== '')
+    .map(([, value]) => value as string);
+  if (values.length === 0) return url;
+
+  const path = urlPath(url);
+  const redacted = path
+    .split('/')
+    .map((segment) => (values.includes(decodeSegment(segment)) ? REDACTED : segment))
+    .join('/');
+  return redacted + url.slice(path.length);
+}
+
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
   }
 }
 
