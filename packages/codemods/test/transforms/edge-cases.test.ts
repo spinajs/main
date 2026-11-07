@@ -85,3 +85,38 @@ describe('lib-mjs-imports edge cases', () => {
     expect(second.text).to.equal(first.text);
   });
 });
+
+describe('http-middleware-hooks edge cases', () => {
+  it('notes a class expression and leaves a one-context hook alone', () => {
+    const source = 'export const M = class extends RouteMiddleware {\n  onBefore(ctx) {}\n  onAfter(req, res) {}\n};\n';
+    const { text, changed } = run('http-middleware-hooks', source);
+    expect(changed).to.equal(true);
+    expect(text.split('\n').filter((l) => l.includes('TODO(spinajs-4)'))).to.have.length(1);
+    expect(text).to.match(/TODO\(spinajs-4\).*\n {2}onAfter\(req, res\)/);
+  });
+
+  it('keeps CRLF line endings', () => {
+    const { text } = run('http-middleware-hooks', 'class S extends ServerMiddleware {\r\n  before() {}\r\n}\r\n');
+    expect(text).to.contain('TODO(spinajs-4)');
+    expect(text).to.not.match(/[^\r]\n/);
+  });
+
+  it('notes the hooks of a subclass of a shipped server middleware the project resolves', () => {
+    const source = 'declare class ServerMiddleware {}\ndeclare class CorsMiddleware extends ServerMiddleware {}\nexport class MyCors extends CorsMiddleware {\n  before() {}\n}\n';
+    const { text } = run('http-middleware-hooks', source);
+    expect(text).to.contain('  // TODO(spinajs-4): before()/after() are removed');
+  });
+
+  it('does not note a static member or a class that is no middleware', () => {
+    const { changed } = run('http-middleware-hooks', 'class S extends ServerMiddleware {\n  static before() {}\n}\nclass Other extends Base {\n  before() {}\n  onResponse() {}\n}\n');
+    expect(changed).to.equal(false);
+  });
+});
+
+describe('problem-json-note edge cases', () => {
+  it('keeps CRLF line endings', () => {
+    const { text } = run('problem-json-note', '@HandleException(E)\r\nexport class C {}\r\n');
+    expect(text).to.contain('TODO(spinajs-4)');
+    expect(text).to.not.match(/[^\r]\n/);
+  });
+});
