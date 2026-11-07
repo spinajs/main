@@ -38,6 +38,7 @@ const INDEX_VALUES = [
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
   'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
   'stateClaim', 'validateIdToken', 'buildOidcOptions',
+  'AUTHN_OIDC_SESSION_RATE_LIMITS', 'OidcSessionRateLimit',
 ].sort();
 
 const secret: OidcSecretRef = { secret: 'env://OIDC_CORP_SECRET' };

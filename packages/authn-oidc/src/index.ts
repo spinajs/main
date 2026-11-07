@@ -1,6 +1,7 @@
 export * from './contracts.js';
 export * from './options/schema.js';
-export * from './session-rate-limits.js';
+export { AUTHN_OIDC_SESSION_RATE_LIMITS, OidcSessionRateLimit } from './session-rate-limits.js';
+export type { AuthnOidcSessionRateLimit } from './session-rate-limits.js';
 export * from './options/options.js';
 export * from './presets.js';
 export * from './http/client.js';
