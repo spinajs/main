@@ -1,12 +1,12 @@
 # Route middlewares
 
-A route middleware runs code around one route, or around every route of a controller: before the action, after it, and with the `Response` object the action returned. Use it for cross-cutting work that belongs to specific endpoints, such as audit logging, cache headers or a content-type check. For work on every request of the server, use a [server middleware](15-server-middlewares.md).
+A route middleware runs code around one route, around every route of a controller, or around every route of the app: before the action, after it, and with the `Response` object the action returned. Use it for cross-cutting work that belongs to specific endpoints, such as audit logging, cache headers or a content-type check. For work on every request of the server, use a [server middleware](15-server-middlewares.md).
 
 ## How it works
 
 **At startup**, for each route, `BaseController.resolve()`:
 
-1. Resolves the controller's middlewares, then the route's, with `container.resolve(type, options)`.
+1. Takes the [global middlewares](#global-route-middlewares), resolved once for all controllers, then resolves the controller's middlewares and the route's, with `container.resolve(type, options)`.
 2. Keeps those whose `isEnabled(route, controller)` returns `true`. This is decided once, not per request.
 3. Calls `onRegister(route, path, controller)` of each kept middleware that has one. A throw fails the registration.
 4. Builds the handler chain from the hooks each middleware implements; a hook it leaves out adds nothing to the chain:
@@ -15,7 +15,7 @@ A route middleware runs code around one route, or around every route of a contro
 | --- | --- | --- |
 | 1 | policy gate | refuse the request |
 | 2 | each `'outer'` middleware: its `onAround` (if it has one), then `onBefore(req, res, route, controller)` | answer alone, wrap the rest of the chain, change `req`, set headers, throw to refuse |
-| 3 | each `'inner'` middleware the same way, controller ones first | the same |
+| 3 | each `'inner'` middleware the same way: global ones, then controller ones, then route ones | the same |
 | 4 | action, then `onResponse(response, route, controller)` of each middleware, inner first | inspect the returned `Response` |
 | 5 | `onAfter(req, res, route, controller)` of each middleware, inner first | set headers; the answer is not sent yet |
 | 6 | response handler | sends the answer |
@@ -46,11 +46,58 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 
 `*/*` or a missing header allows every type, so it sets every flag except `OTHER`. `@AcceptType()` gives an action the same value as an argument.
 
+## Global route middlewares
+
+`http.routes.middlewares` mounts route middlewares on every route of every controller, before the controller's and the route's own `@Middleware` ones. An entry is one of:
+
+- the class name of a type registered as `RouteMiddleware`, eg. with `@Injectable(RouteMiddleware)`;
+- a `RouteMiddleware` class;
+- `{ service, options }`: a name or a class, with `options` passed to the constructor as `@Middleware(Class, ...options)` passes them.
+
+```ts sample
+import { Injectable, NewInstance } from '@spinajs/di';
+import { GlobalRouteMiddlewareEntry, RouteMiddleware } from '@spinajs/http';
+import * as express from 'express';
+
+export class NoSniff extends RouteMiddleware {
+  public async onAfter(_req: express.Request, res: express.Response): Promise<void> {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}
+
+@NewInstance()
+@Injectable(RouteMiddleware)
+export class ApiVersion extends RouteMiddleware {
+  constructor(protected Version: string = '1') {
+    super();
+  }
+
+  public async onAfter(_req: express.Request, res: express.Response): Promise<void> {
+    res.setHeader('Api-Version', this.Version);
+  }
+}
+
+const middlewares: GlobalRouteMiddlewareEntry[] = [
+  'RouteTiming', // by name: the built-in RouteTiming is registered as RouteMiddleware
+  NoSniff, // by class
+  { service: 'ApiVersion', options: ['2'] }, // as @Middleware(ApiVersion, '2')
+];
+
+// the app's config file
+export default { http: { routes: { middlewares } } };
+```
+
+- Order: the global entries in config order, then the controller's, then the route's. `Stage` still applies on top: an `'outer'` middleware runs before every `'inner'` one, and an outer global one before an outer controller one.
+- `isEnabled(route, controller)` and `onRegister(route, path, controller)` are called per route, as for any route middleware. Use `isEnabled` to keep a global middleware off some routes.
+- Each entry is resolved once, when the controllers start, and that one instance serves every route. Keep per-request state on `req.storage` or `res.locals`.
+- A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
+- Routes only: a request that matches no route, a static file or anything answered before routing does not run them. Use a [server middleware](15-server-middlewares.md) for those.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default) | none | `RouteTiming`, the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved once | none | `RouteTiming`, the anonymous class behind `@Accepts` | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 
 Members, all optional:
 
@@ -200,13 +247,16 @@ export class SearchController extends BaseController {
 // Server-Timing: route;dur=3.42, total;dur=4
 ```
 
+`RouteTiming` is registered as `RouteMiddleware`, so `http.routes.middlewares: ['RouteTiming']` times every route.
+
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
 - `onResponse()` calls are awaited one after another, before the response is sent. A rejection goes to the error handler instead of the response.
 - `onAfter()` runs before the response handler. It cannot see the status or body that will be sent, but it can still set headers.
 - An error in the action skips `onResponse()` and `onAfter()`. An around middleware still sees it, as `error` in the outcome of `proceed()`.
-- A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares.
+- A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
+
 ## Best practices
 
 - Prefer [policies](13-policies.md) for allow/deny decisions; a policy failure is reported consistently and policies combine with AND/OR.

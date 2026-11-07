@@ -36,14 +36,16 @@ export function buildRoutePath(basePath: string, route: IRoute, globalPrefix?: s
 }
 
 /**
- * Resolves controller-wise + route-wise middleware descriptors into instances.
+ * Resolves controller-wise + route-wise middleware descriptors into instances, after the already resolved global ones
+ * ( `http.routes.middlewares` ).
  */
-export function resolveRouteMiddlewares(descriptor: IControllerDescriptor, route: IRoute, container: IContainer): Promise<RouteMiddleware[]> {
-  return Promise.all<RouteMiddleware>(
+export async function resolveRouteMiddlewares(descriptor: IControllerDescriptor, route: IRoute, container: IContainer, globals: readonly RouteMiddleware[] = []): Promise<RouteMiddleware[]> {
+  const own = await Promise.all<RouteMiddleware>(
     descriptor.Middlewares.concat(route.Middlewares || []).map((m: IMiddlewareDescriptor) => {
       return container.resolve(m.Type, m.Options);
     }),
   );
+  return [...globals, ...own];
 }
 
 /**

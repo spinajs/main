@@ -87,6 +87,10 @@ const http = {
         prefix: '',
       },
     },
+    routes: {
+      // RouteMiddleware names, classes or { service, options } entries mounted on every route, see docs/http/14-route-middlewares.md
+      middlewares: [],
+    },
     port: 1337,
 
     // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the parser limits below
