@@ -3,24 +3,26 @@ import { BasePolicy, captureControllerSourceFile, IPolicyGroup } from '@spinajs/
 import type { ContractShape, SocketContract } from '@spinajs/http-socket-common';
 import { BaseSocketController } from './controller.js';
 import { ConnectionArg, FromDiArg, PayloadArg, ReasonArg, SignalArg } from './args.js';
-import { ICommandOptions, IEventOptions, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter, SOCKET_CONTROLLER_DESCRIPTOR, SocketArg, SocketHandlerKind } from './interfaces.js';
+import { ICommandOptions, IEventOptions, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter, SOCKET_CONTROLLER_DESCRIPTOR, SocketArg, SocketHandlerKind, SocketMiddleware } from './interfaces.js';
 
 type SocketDecorator = (target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => void;
 
 function createDefaultDescriptor(): ISocketControllerDescriptor {
-  return { Prefix: null, Policies: [], Handlers: new Map<string | symbol, ISocketHandlerDescriptor>() };
+  return { Prefix: null, Policies: [], Middlewares: [], Handlers: new Map<string | symbol, ISocketHandlerDescriptor>() };
 }
 
 // The inheritance collapse rebuilds arrays and Maps but shares their elements; copy them so a
 // subclass that redeclares a handler cannot rewrite its parent's ( as http's detachInheritedRoutes ).
 function detachInheritedHandlers(descriptor: ISocketControllerDescriptor): void {
   descriptor.Policies = descriptor.Policies.map((group) => [...group]);
+  descriptor.Middlewares = [...(descriptor.Middlewares ?? [])];
 
   for (const [member, handler] of descriptor.Handlers) {
     descriptor.Handlers.set(member, {
       ...handler,
       Options: { ...handler.Options },
       Policies: handler.Policies.map((group) => [...group]),
+      Middlewares: [...(handler.Middlewares ?? [])],
       Parameters: new Map([...handler.Parameters].map(([index, parameter]): [number, ISocketParameter] => [index, { ...parameter }])),
     });
   }
@@ -44,7 +46,7 @@ function handlerOf(descriptor: ISocketControllerDescriptor, member: string | sym
   let handler = descriptor.Handlers.get(member);
 
   if (!handler) {
-    handler = { Kind: 'unknown', Method: member, Name: String(member), Options: {}, Parameters: new Map(), Policies: [] };
+    handler = { Kind: 'unknown', Method: member, Name: String(member), Options: {}, Parameters: new Map(), Policies: [], Middlewares: [] };
     descriptor.Handlers.set(member, handler);
   }
 
@@ -130,6 +132,23 @@ export function SocketPolicyGroup(group: IPolicyGroup) {
  */
 export function SocketPolicy(policy: Class<BasePolicy> | string | (Class<BasePolicy> | string)[], ...options: unknown[]) {
   return SocketPolicyGroup((Array.isArray(policy) ? policy : [policy]).map((p) => ({ Type: p, Options: options })) as IPolicyGroup);
+}
+
+/**
+ * Mounts a socket middleware on every command of the controller ( class ) or on one command ( method ), at the middleware's
+ * `Order`. It is resolved per command with `container.resolve(type, options)`; a global middleware of the same class is
+ * left out of that command.
+ */
+export function UseSocketMiddleware(type: Class<SocketMiddleware>, ...options: unknown[]) {
+  return SocketDescriptor((descriptor, _target, propertyKey) => {
+    const declared = { Type: type, Options: options };
+
+    if (propertyKey === undefined) {
+      (descriptor.Middlewares ??= []).push(declared);
+    } else {
+      (handlerOf(descriptor, propertyKey).Middlewares ??= []).push(declared);
+    }
+  });
 }
 
 /** Declares a handler argument filled by the `SocketArg` extractor `type`; the base of all argument decorators. */

@@ -1,6 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
-import { IRegisteredHandler, ISocketCommandContext, ISocketIdempotencyClaim, ISocketStageRegistration, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { IRegisteredHandler, ISocketCommandContext, ISocketIdempotencyClaim, ISocketStageRegistration, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 
 /**
@@ -8,8 +8,8 @@ import { SocketIdempotency } from '../idempotency.js';
  * handler never runs twice for one principal, clientId and key. It comes after the authentication
  * stage, so an expired principal gets no replay.
  */
-@Injectable(SocketCommandStage)
-export class IdempotencyStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class IdempotencyStage extends SocketMiddleware {
   @Autoinject()
   protected Idempotency: SocketIdempotency;
 
@@ -24,14 +24,14 @@ export class IdempotencyStage extends SocketCommandStage {
     }
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, proceed: () => Promise<unknown>): Promise<unknown> {
     const { idempotencyKey: key, after, name } = ctx.request;
 
     if (key === undefined) {
       if (after !== undefined) {
         throw new SocketException('invalid_argument', 'a command with after needs an idempotencyKey');
       }
-      return next();
+      return proceed();
     }
 
     // the client would believe it is deduplicated
@@ -57,16 +57,16 @@ export class IdempotencyStage extends SocketCommandStage {
     const leaseLost = () => ctx.abort(new SocketException('unavailable', `command ${name} lost the lease of its idempotency key to another server instance`));
     claim.lease?.addEventListener('abort', leaseLost, { once: true });
     try {
-      return await this.run(claim, next);
+      return await this.run(claim, proceed);
     } finally {
       claim.lease?.removeEventListener('abort', leaseLost);
     }
   }
 
-  protected async run(claim: ISocketIdempotencyClaim, next: () => Promise<unknown>): Promise<unknown> {
+  protected async run(claim: ISocketIdempotencyClaim, proceed: () => Promise<unknown>): Promise<unknown> {
     let result: unknown;
     try {
-      result = await next();
+      result = await proceed();
     } catch (err) {
       // a failure to record is logged there; the caller still gets what the handler threw
       const reply = await claim.settle({ error: err }).catch(() => null);

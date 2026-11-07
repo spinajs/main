@@ -1,5 +1,5 @@
 import { CommandRequest, SocketException } from '@spinajs/http-socket-common';
-import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketCommandContext, ISocketIdempotencyClaim, ISocketOutcomeRecorder } from './interfaces.js';
+import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketFinishContext, ISocketIdempotencyClaim, ISocketOutcomeRecorder, ISocketReplyContext, SocketMiddleware } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import type { ServerStream } from './stream.js';
 
@@ -36,7 +36,7 @@ export class SocketClientGone extends SocketException {
   }
 }
 
-export class SocketCommandContext implements ISocketCommandContext {
+export class SocketCommandContext implements ISocketReplyContext, ISocketFinishContext {
   public readonly kind = 'command' as const;
   public readonly receivedAt = Date.now();
   public handler?: IRegisteredHandler;
@@ -46,6 +46,13 @@ export class SocketCommandContext implements ISocketCommandContext {
   /** set when the handler returned an async iterable: the reply is a stream and this sends it */
   public stream?: ServerStream;
   public drainGrace = false;
+  /** On the way out: the outcome the next `onAfter` sees. */
+  public result?: unknown;
+  public error?: unknown;
+  /** @internal The entered middlewares that have `onFinish`, in entry order. */
+  public readonly finishing: SocketMiddleware[] = [];
+  /** @internal Settles, never rejects, when the middleware chain has. */
+  public chainSettled: Promise<void> = Promise.resolve();
 
   protected readonly controller = new AbortController();
   protected timer: ReturnType<typeof setTimeout> | null = null;
@@ -57,6 +64,17 @@ export class SocketCommandContext implements ISocketCommandContext {
 
   public get handlerStarted(): boolean {
     return this.started;
+  }
+
+  public get aborted(): boolean {
+    return this.controller.signal.aborted;
+  }
+
+  /** @internal Called by the dispatcher when the chain enters a middleware. */
+  public enter(middleware: SocketMiddleware): void {
+    if (middleware.onFinish) {
+      this.finishing.push(middleware);
+    }
   }
 
   /** @internal Called by the dispatcher right before the handler. */

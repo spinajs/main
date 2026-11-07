@@ -84,7 +84,7 @@ A bad `idempotency` value makes `SocketServer.resolve()` throw `RangeError`.
 | `IdempotencyStore` | `IdempotencyStore`; one class picked by name from `http.socket.idempotency.service` (`@AutoinjectService`) and built with that config object; singleton | `MemoryIdempotencyStore` (process memory, LRU over completed keys) | A shared store of your own (Redis, ORM) | Extend `IdempotencyStore`, `@Injectable(IdempotencyStore)`, set `http.socket.idempotency.service` to the class name |
 | `MemoryIdempotencyStore` | registered under `IdempotencyStore` | `MemoryIdempotencyStore` | Your subclass | Override `claim()`, `complete()`, `release()`, `get()` and call `super`; register under `IdempotencyStore` with its own class name and select it in config |
 | `SocketIdempotency` | `SocketIdempotency` (self), singleton; shared by both stages | `SocketIdempotency` | Your subclass | Override `scope()` (the key scheme), `record()` (what is kept); `DI.register(Mine).as(SocketIdempotency)` |
-| `IdempotencyStage`, `OrderingStage` | `SocketCommandStage`, orders 500 and 550 | as named | Your stages | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage). A replacement of `IdempotencyStage` that still claims keys sets `ctx.drainGrace` and adds its claim with `ctx.addOutcomeRecorder`: the drain and the ordering queue rely on them. A replacement (not a subclass) of either stage also calls `refuseStream` in `onRegister`, and a replacement `OrderingStage` settles the recorders with `ctx.recordOutcome` / `ctx.detachOutcome`: those checks live only in the stages |
+| `IdempotencyStage`, `OrderingStage` | `SocketMiddleware` (`onAround`), orders 500 and 550 | as named | Your middlewares | Replace as any built-in stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage). A replacement of `IdempotencyStage` that still claims keys sets `ctx.drainGrace` and adds its claim with `ctx.addOutcomeRecorder`: the drain and the ordering queue rely on them. A replacement (not a subclass) of either stage also calls `refuseStream` in `onRegister`, and a replacement `OrderingStage` settles the recorders with `ctx.recordOutcome` / `ctx.detachOutcome`: those checks live only in the stages |
 
 ### `IdempotencyStore`: a store shared by several instances
 
@@ -194,6 +194,7 @@ DI.register(TenantScopedIdempotency).as(SocketIdempotency);
 ## Important behaviour
 
 - A completed key replays its reply whatever the new request's name or payload: never reuse a key for another command.
+- A replay is answered before the policies run, unlike http, where the policy gate comes before `IdempotencyMiddleware`: a resend gets the outcome of the run it repeats, even when a policy would refuse the command now (its row deleted, its owner changed). See [Idempotency before policies](04-command-pipeline.md#idempotency-before-policies).
 - An `after` on an `idempotent` command that is not `ordered: 'client'` gets the fence check alone, without a queue place.
 - `idempotencyKey` and `after` are 1 to 256 printable ASCII characters; anything else is a malformed request (`invalid_argument`).
 - A result JSON cannot represent (a BigInt, a cycle) answers `internal` and releases the key. A value JSON drops (a function) is answered and stored as `undefined`.
