@@ -21,6 +21,11 @@ export class RowQueue {
     private readonly highWaterMark: number,
   ) {}
 
+  /** The source ended without a failure, so a connection behind it is idle again. */
+  public get finished(): boolean {
+    return this.ended && this.failure === null;
+  }
+
   public push(row: unknown): void {
     if (this.discarding) {
       return;

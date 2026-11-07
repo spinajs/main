@@ -95,4 +95,42 @@ describe('RowQueue', () => {
     await discarded;
     expect(settled).to.eq(true);
   });
+
+  it('wakes a reader that waits after a resume when the source ends', async () => {
+    const source = new FakeSource();
+    const queue = new RowQueue(source, 1);
+    queue.push(1);
+    const rows = queue.read();
+    expect((await rows.next()).value).to.eq(1);
+    expect(source.resumes).to.eq(1);
+
+    const waiting = rows.next();
+    queue.end();
+    expect((await waiting).done).to.eq(true);
+  });
+
+  it('pauses and resumes the source once per drained batch, over many batches', async () => {
+    const source = new FakeSource();
+    const queue = new RowQueue(source, 3);
+    const reading = readAll(queue);
+    for (let batch = 0; batch < 50; batch++) {
+      queue.push(batch * 3);
+      queue.push(batch * 3 + 1);
+      queue.push(batch * 3 + 2);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    queue.end();
+
+    expect(await reading).to.deep.equal(Array.from({ length: 150 }, (_, i) => i));
+    expect([source.pauses, source.resumes]).to.deep.equal([50, 50]);
+  });
+
+  it('is finished only once the source ended without a failure', () => {
+    const ended = new RowQueue(new FakeSource(), 1);
+    ended.end();
+    const failed = new RowQueue(new FakeSource(), 1);
+    failed.fail(new Error('connection reset'));
+
+    expect([ended.finished, failed.finished, new RowQueue(new FakeSource(), 1).finished]).to.deep.equal([true, false, false]);
+  });
 });
