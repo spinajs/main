@@ -304,8 +304,8 @@ export function SoftDelete() {
  * Marks the integer column that versions the row. `update()`, `destroy()` and `save()` write only a row still at the
  * version the model was read at, and throw `OptimisticLockError` otherwise. One per model.
  */
-export function Version() {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: { prototype: object; name: string }, propertyKey: string) => {
+export function Version(): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: { prototype: object; name: string }, propertyKey: string) => {
     // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey) as { name: string } | undefined;
     if (type && type.name !== 'Number') {
@@ -318,6 +318,7 @@ export function Version() {
 
     model.VersionColumn = propertyKey;
   });
+  return decorator;
 }
 
 /**

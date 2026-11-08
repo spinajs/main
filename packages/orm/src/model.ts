@@ -793,7 +793,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     const lock = versionLock(this);
     const query = (this.constructor as typeof ModelBase).destroy(pk) as unknown as DeleteQueryBuilder<ModelBase> | UpdateQueryBuilder<ModelBase>;
     if (lock && query instanceof UpdateQueryBuilder) {
-      query.update(withVersion(lock, query.Value as Record<string, unknown>));
+      query.update(withVersion(lock, query.Value));
     }
     whereVersion(lock, query);
 
