@@ -104,6 +104,22 @@ describe('http configuration schema', () => {
     });
   });
 
+  describe('routes.middlewares', () => {
+    it('defaults to no global route middleware', async () => {
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
+      expect(configuration.get('http.routes.middlewares')).to.deep.eq([]);
+    });
+
+    it('accepts names, classes and { service, options } entries', async () => {
+      class SomeMiddleware {}
+      expect(await bad({ routes: { middlewares: ['RouteTiming', SomeMiddleware, { service: 'CacheControl', options: [60] }] } })).to.deep.eq([]);
+    });
+
+    it('names http.routes.middlewares when it is not a list', async () => {
+      expect(await bad({ routes: { middlewares: { service: 'RouteTiming' } } })).to.include('http.routes.middlewares');
+    });
+  });
+
   it('leaves http.socket to the http-socket schema', async () => {
     expect(await bad({ socket: { maxPayloadBytes: 0 } })).to.deep.eq([]);
   });
