@@ -147,6 +147,15 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    maintenance: {
+      type: 'object',
+      default: {},
+      description: 'MaintenanceMode: answers 503 with Retry-After to every request but the allowed paths. MaintenanceMode.enable() and disable() switch it at runtime.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        retryAfter: { type: 'integer', minimum: 0, default: 60, description: 'Seconds sent in Retry-After.' },
+        allow: { type: 'array', default: [], items: { type: 'string', pattern: '^/' }, description: 'Path prefixes answered as usual, on a segment boundary, case-insensitively (health checks, an admin API).' },
+        message: { ...nonEmpty, description: 'The error message of the 503 body.' },
     audit: {
       type: 'object',
       default: {},

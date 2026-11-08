@@ -46,6 +46,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Raw request bodies and digests](24-raw-body-and-digests.md) | `@RequestStream()`, `@ContentDigest()`, `parseContentDigest()`: the raw body as a capped stream, RFC 9530 digests, the 413 and 415 answers |
 | [Untrusted request headers](25-untrusted-headers.md) | Every request header the framework reads, its risk and how it is parsed; what Node's parser refuses first; open questions |
 | [Idempotency-Key](26-idempotency.md) | `@Idempotent()`: a retried request replays the stored JSON reply; 409 while in flight, 422 for a reused key, the ORM store's app-entry import |
+| [Maintenance mode](27-maintenance-mode.md) | `MaintenanceMode`, `http.maintenance`: 503 with `Retry-After` during maintenance (runtime `enable()`/`disable()`), 503 with `Connection: close` while the server shuts down |
 | [Audit](30-audit.md) | `Audit`, `AuditSink`, `LogAuditSink`, `http.audit`: record each request of a route with its redacted body and query, status, error and principal |
 
 ## Quick start
