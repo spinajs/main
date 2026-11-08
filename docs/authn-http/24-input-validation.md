@@ -108,7 +108,9 @@ removes `reauthPassword` itself for routes that use it.
 
 `AuthnIpThrottleMiddleware`, put on a route with `@IpThrottle(flow, answer, mode)`, keys the client ip with
 `ipKey` (`authn.throttle.ipv6Prefix`) in a throttle flow. Both are internal to the package's own routes and not
-exported; cap your own routes with `http.throttle` ([Throttling](../http/18-throttling.md)).
+exported; cap your own routes with `@RateLimit` or `http.throttle` ([Throttling](../http/18-throttling.md)). A refused
+request gets the route's `answer`, returned from the middleware's `onBefore` through the reply pipeline: no error is
+raised, so no `@OnError` handler or error log sees it.
 
 - `gate` (default): it peeks the ip key of the flow and refuses while it is held, before the bot check and before the
   body is read. It counts nothing for a request it lets through, because the service behind counts the requests it

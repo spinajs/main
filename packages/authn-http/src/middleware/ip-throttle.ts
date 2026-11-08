@@ -20,19 +20,12 @@ interface Gate {
   readonly ctx: AuthnContext;
 }
 
-/** The IP throttle refused the request; `IpThrottle` turns it into the route's own throttled answer. */
-export class AuthnIpThrottled extends Error {
-  constructor(public readonly retryAfterSeconds: number) {
-    super('too many requests from this client');
-    this.name = 'AuthnIpThrottled';
-  }
-}
-
 /**
  * The IP throttle of an anonymous route, ahead of the bot check and of argument validation (D11(a)). `gate`: refuses
  * while the `ip` key of `flow` is held, counting nothing, since the service behind counts the requests it takes; an
  * input the route's schema refuses is counted by `IpThrottle`'s handler. `count`: counts every request, for a route
- * whose service counts none. The account keys stay with the services, which need the validated login.
+ * whose service counts none. A refused request gets the route's `answer`. The account keys stay with the services, which
+ * need the validated login.
  */
 @NewInstance()
 export class AuthnIpThrottleMiddleware extends RouteMiddleware {
@@ -44,12 +37,13 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
 
   constructor(
     public readonly flow: ThrottleFlow,
+    public readonly answer: ThrottledAnswer,
     public readonly mode: 'gate' | 'count' = 'gate',
   ) {
     super();
   }
 
-  public async onBefore({ req }: IMiddlewareContext): Promise<void> {
+  public async onBefore({ req }: IMiddlewareContext): Promise<Response | void> {
     const ctx = contextOf(clientOf(req as Request), 'request');
     const key = ipKey(ctx, ipv6PrefixOf(this.Ipv6Prefix)) ?? (this.mode === 'count' ? { kind: 'ip', value: 'unknown' } : null);
     // Without an address there is no ip key to gate on: the service counts what it can.
@@ -58,13 +52,12 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
     const throttle = await this.Container.resolve(AuthnThrottle);
     if (this.mode === 'count') {
       const verdict = await throttle.attempt([gate.key], gate.flow, gate.ctx);
-      if (!verdict.allowed) throw new AuthnIpThrottled(verdict.retryAfterSeconds);
-      return;
+      return verdict.allowed ? undefined : this.answer(verdict.retryAfterSeconds);
     }
     (req as unknown as Record<symbol, Gate>)[GATE] = gate;
     if (!canPeek(throttle)) return;
     const verdict = await throttle.peek([gate.key], gate.flow, gate.ctx);
-    if (!verdict.allowed) throw new AuthnIpThrottled(verdict.retryAfterSeconds);
+    if (!verdict.allowed) return this.answer(verdict.retryAfterSeconds);
   }
 }
 
@@ -87,12 +80,10 @@ function countedInvalidInput(answer: ThrottledAnswer): OnErrorHandler {
  * input is counted before the route answers it.
  */
 export function IpThrottle(flow: ThrottleFlow, answer: ThrottledAnswer, mode: 'gate' | 'count' = 'gate') {
-  const middleware = Middleware(AuthnIpThrottleMiddleware, flow, mode);
+  const middleware = Middleware(AuthnIpThrottleMiddleware, flow, answer, mode);
   const counted = OnError(INVALID_INPUT, countedInvalidInput(answer), { stages: ['arguments'] });
-  const refused = OnError(AuthnIpThrottled, (err) => answer(err.retryAfterSeconds), { stages: ['middleware'] });
   return (target: object, propertyKey?: string | symbol, descriptor?: PropertyDescriptor): void => {
     middleware(target, propertyKey, descriptor);
     counted(target, propertyKey, descriptor);
-    refused(target, propertyKey, descriptor);
   };
 }
