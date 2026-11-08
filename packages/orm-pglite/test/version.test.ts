@@ -32,6 +32,18 @@ class PglVerDoc extends ModelBase {
   public Revision: number;
 }
 
+@Connection('pglite-version')
+@Model('pgl_ver_big')
+class PglVerBig extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Title: string;
+
+  @Version()
+  public Revision: number;
+}
+
 describe('@Version optimistic locking on PGlite', function () {
   this.timeout(60000);
 
@@ -44,6 +56,7 @@ describe('@Version optimistic locking on PGlite', function () {
     orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('pglite-version') as PgliteOrmDriver;
     await driver.executeOnDb('CREATE TABLE pgl_ver_doc ("Id" serial PRIMARY KEY, "Title" text, "Revision" int NOT NULL)', [], QueryContext.Schema);
+    await driver.executeOnDb('CREATE TABLE pgl_ver_big ("Id" serial PRIMARY KEY, "Title" text, "Revision" bigint NOT NULL)', [], QueryContext.Schema);
     await orm.reloadTableInfo();
   });
 
@@ -83,5 +96,18 @@ describe('@Version optimistic locking on PGlite', function () {
     const [, b] = await stalePair();
 
     await expect(b.destroy()).to.be.rejectedWith(OptimisticLockError);
+  });
+
+  it('versions a bigint column, which pg returns as a string', async () => {
+    const row = new PglVerBig({ Title: 'draft' });
+    await row.insert();
+    const a = await PglVerBig.where({ Id: row.Id }).firstOrFail();
+    const b = await PglVerBig.where({ Id: row.Id }).firstOrFail();
+
+    a.Title = 'from a';
+    await a.update();
+    expect(a.Revision).to.eq(2);
+    b.Title = 'from b';
+    await expect(b.update()).to.be.rejectedWith(OptimisticLockError);
   });
 });

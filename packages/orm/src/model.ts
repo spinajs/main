@@ -29,7 +29,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
-import { settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
+import { refuseReplace, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
 
 /**
  *
@@ -814,11 +814,14 @@ export class ModelBase<M = unknown> implements IModelBase {
       throw new OrmException('archived at column not exists in model');
     }
 
+    const lock = versionLock(this);
     const { query } = this.createUpdateQuery();
-    query.update(this.toSql());
+    query.update(withVersion(lock, this.toSql()));
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    whereVersion(lock, query);
 
     const result = await query;
+    settleVersion(lock, result, this);
 
     // The whole model is in the database now - that is the baseline for the next update().
     this.writeBackRelationKeys();
@@ -890,9 +893,10 @@ export class ModelBase<M = unknown> implements IModelBase {
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
     // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
     // without touching the database.
+    refuseReplace(this.ModelDescriptor!, insertBehaviour);
     generateClientSideKeys(this, this.ModelDescriptor!);
     assertAssignedKeys(this, this.ModelDescriptor!);
-    startVersion(this);
+    const undoVersion = startVersion(this);
 
     const { query, description } = this.createInsertQuery();
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
@@ -942,7 +946,10 @@ export class ModelBase<M = unknown> implements IModelBase {
     // Awaited here, not by the caller: the afterQuery middleware above backfills a generated key
     // during execution, and the snapshot must include it. Taken only after the await - a throw
     // leaves the model exactly as dirty as it was.
-    const result = await query.values(this.toSql());
+    const result = await query.values(this.toSql()).catch((err: unknown) => {
+      undoVersion();
+      throw err;
+    });
 
     this.writeBackRelationKeys();
     this.takeSnapshot();
@@ -1407,7 +1414,10 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     }
 
     const { query, description } = createQuery(this, UpdateQueryBuilder);
-    return query.update(_toColumnValues(data, description));
+    const values = _toColumnValues(data, description);
+    // a bulk update has no old version to match, but it must still invalidate every copy read before it
+    const version = description.VersionColumn;
+    return version ? query.update(_.omit(values, version)).increment(version) : query.update(values);
   },
 
   all(page?: number, perPage?: number) {
@@ -1428,6 +1438,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
 
     const { query, description, container } = createQuery(this, InsertQueryBuilder);
+    refuseReplace(description, insertBehaviour);
 
     const converter = container.resolve(ObjectToSqlConverter);
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
@@ -1446,7 +1457,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       (data as Array<InstanceType<T>>).forEach((d) => {
         generateClientSideKeys(d, description);
         assertAssignedKeys(d, description);
-        startVersionOf(description, d);
+        startVersionOf(description, d, d instanceof ModelBase);
       });
 
       query.values(
@@ -1472,7 +1483,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
       generateClientSideKeys(data, description);
       assertAssignedKeys(data, description);
-      startVersionOf(description, data);
+      startVersionOf(description, data, data instanceof ModelBase);
 
       if (data instanceof ModelBase) {
         query.values(data.toSql());
