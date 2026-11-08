@@ -5,6 +5,7 @@ import type { Log } from '@spinajs/log';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { Response } from '../interfaces.js';
+import { describeConfigEntry, resolveConfiguredTypes } from '../configured-types.js';
 import type { Request, IRoute, IController, IOnErrorDescriptor } from '../interfaces.js';
 
 /**
@@ -35,6 +36,8 @@ export abstract class ErrorHandlerService {
   readonly stages?: readonly ErrorStage[];
   abstract handle(err: Error, ctx: ErrorContext): OnErrorResult | Promise<OnErrorResult>;
 }
+
+const ERROR_HANDLERS_KEY = 'http.errors.handlers';
 
 const STAGE = Symbol('errorStage');
 
@@ -74,26 +77,24 @@ export function toErrorDescriptor(service: ErrorHandlerService): IOnErrorDescrip
 }
 
 /**
- * Resolves the `http.errors.handlers` entries ( `{ service: '<ClassName>', ...options }` ), in config order.
+ * Resolves the `http.errors.handlers` entries ( `{ service: '<ClassName>', ...options }` ), in config order; each
+ * service gets its whole entry as its options.
  *
  * Not `@AutoinjectService`: it refuses an empty list when no ErrorHandlerService is registered, and `[]` is the default.
  */
 export async function resolveConfigErrorHandlers(cfg: Configuration, container: IContainer): Promise<IOnErrorDescriptor[]> {
-  const entries = cfg.get<{ service: string }[]>('http.errors.handlers', []) ?? [];
+  const entries = cfg.get<unknown[]>(ERROR_HANDLERS_KEY, []) ?? [];
   if (entries.length === 0) {
     return [];
   }
 
-  const types = container.getRegisteredTypes(ErrorHandlerService) ?? [];
-  const services = await Promise.all(
-    entries.map((entry) => {
-      const type = types.find((t) => (t as { name?: string }).name === entry.service);
-      if (!type) {
-        throw new InvalidOption(`http.errors.handlers: no ErrorHandlerService named ${entry.service} is registered`);
-      }
-      return container.resolve<ErrorHandlerService>(type as any, [entry]);
-    }),
-  );
+  for (const entry of entries) {
+    if (entry === null || typeof entry !== 'object' || typeof (entry as { service?: unknown }).service !== 'string') {
+      throw new InvalidOption(`${ERROR_HANDLERS_KEY}: entry ${describeConfigEntry(entry)} is not { service: '<ErrorHandlerService name>' }`);
+    }
+  }
+
+  const services = await Promise.all(resolveConfiguredTypes(ERROR_HANDLERS_KEY, ErrorHandlerService, entries, container).map(({ type, entry }) => container.resolve<ErrorHandlerService>(type, [entry])));
 
   return services.map(toErrorDescriptor);
 }

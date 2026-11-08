@@ -27,6 +27,8 @@ export * from './manifest-controller-source.js';
 export { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, buildRouteHandlers, extractRouteArgs } from './route-builder.js';
 export type { ControllerActionHost, IResolvedRoutePolicies, IRouteChainOptions } from './route-builder.js';
 export type { GlobalRouteMiddlewareEntry } from './global-route-middlewares.js';
+export { resolveConfiguredTypes } from './configured-types.js';
+export type { IConfiguredType, ServiceBase } from './configured-types.js';
 export * from './controllers.js';
 export * from './server.js';
 export * from './body-limits.js';
