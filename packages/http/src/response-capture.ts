@@ -13,6 +13,18 @@ export abstract class ResponseCapture {
   public abstract capture(reply: CapturedJsonReply): void;
 }
 
+/**
+ * Takes the reply as a reader instead: an around middleware's proceed() always captures, and most never read
+ * `outcome.reply`, so the second JSON serialization is paid only on the first read.
+ */
+export abstract class DeferredCapture extends ResponseCapture {
+  public abstract defer(read: () => CapturedJsonReply | null): void;
+
+  public capture(reply: CapturedJsonReply): void {
+    this.defer(() => reply);
+  }
+}
+
 export const REPLAYED_HEADERS = ['content-type', 'location', 'etag'] as const;
 
 // they describe the body, which is replayed, so they are kept whoever set them

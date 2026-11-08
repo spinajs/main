@@ -156,6 +156,20 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         retryAfter: { type: 'integer', minimum: 0, default: 60, description: 'Seconds sent in Retry-After.' },
         allow: { type: 'array', default: [], items: { type: 'string', pattern: '^/' }, description: 'Path prefixes answered as usual, on a segment boundary, case-insensitively (health checks, an admin API).' },
         message: { ...nonEmpty, description: 'The error message of the 503 body.' },
+    audit: {
+      type: 'object',
+      default: {},
+      description: 'The Audit route middleware, mounted with @Middleware(Audit) or http.routes.middlewares. @Middleware(Audit, options) overrides these per route; its redact list adds to this one.',
+      properties: {
+        methods: { type: 'array', items: nonEmpty, description: 'HTTP methods audited, eg. ["POST", "PUT", "PATCH", "DELETE"]; unset audits every method.' },
+        redact: {
+          type: 'array',
+          default: ['password', 'token', 'secret', 'authorization', 'cookie', 'card'],
+          items: nonEmpty,
+          description: 'Keys whose values are recorded as [redacted], matched as case-insensitive substrings at any depth of the body and the query. Replaces the default list.',
+        },
+        includeBody: { type: 'boolean', default: true },
+        maxBodyBytes: { type: 'integer', minimum: 0, default: 16384, description: 'A larger body, as JSON after redaction, is left out and only its size recorded.' },
       },
     },
     concurrency: {

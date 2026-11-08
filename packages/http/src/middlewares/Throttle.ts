@@ -4,9 +4,9 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
-import { ServerMiddleware, HTTP_STATUS_CODE } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext, Response } from '../interfaces.js';
-import { RawJsonResponse } from '../response-methods/rawJson.js';
+import { rateLimitAnswer } from './rate-limit-answer.js';
 
 /**
  * One throttling rule. Matched against the incoming request path by PREFIX, on a
@@ -87,8 +87,6 @@ export class MemoryThrottleStore extends ThrottleStore {
   }
 }
 
-const TOO_MANY_REQUESTS_BODY = Object.freeze({ error: Object.freeze({ code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' }) });
-
 // Express matches routes case-insensitively, so a rule must too, or `/AUTH/login` reaches the route unthrottled.
 const underPath = (path: string, prefix: string): boolean => {
   const p = path.toLowerCase();
@@ -162,16 +160,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
 
     // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
     // answers the request instead of the route (fail closed).
-    const hit = await this.Store.increment(key, rule.windowSeconds);
-    res.set('X-RateLimit-Limit', String(rule.limit));
-    res.set('X-RateLimit-Remaining', String(Math.max(0, rule.limit - hit.count)));
-    res.set('X-RateLimit-Reset', String(Math.ceil(hit.resetAt / 1000)));
-
-    if (hit.count > rule.limit) {
-      const retryAfter = Math.max(1, Math.ceil((hit.resetAt - Date.now()) / 1000));
-      res.set('Retry-After', String(retryAfter));
-      return new RawJsonResponse(HTTP_STATUS_CODE.TOO_MANY_REQUESTS, TOO_MANY_REQUESTS_BODY);
-    }
+    return rateLimitAnswer(res, rule.limit, await this.Store.increment(key, rule.windowSeconds));
   }
 
   private throttle(): { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null {
