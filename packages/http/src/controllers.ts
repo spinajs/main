@@ -39,8 +39,8 @@ export class Controllers extends AsyncService {
    * It occupies one fixed position in the parent Express stack, so
    * dynamically-added controllers (via {@link add}) land at the right place
    * automatically — Express evaluates sub-router stacks lazily on each
-   * request. NotFound / Error middleware live AFTER this router via the
-   * standard ServerMiddleware.after() lifecycle.
+   * request. The 404 and the global error answer, HttpServer's tail, live AFTER this
+   * router.
    */
   protected ControllersRouter!: Express.Router;
 

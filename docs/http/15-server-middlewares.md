@@ -95,7 +95,7 @@ Members of `ServerMiddleware`:
 | `handler?(): express.RequestHandler \| null` | A third-party handler mounted in place of `onBefore`/`onAround`. |
 | `resolve()` | `AsyncService` hook, awaited before `HttpServer` mounts the middleware; read and validate configuration here. |
 | `onBefore`, `onAfter`, `onFinish`, `onAround` | The hooks above. |
-| `before()`, `after()` | Deprecated; see [Deprecated before() and after()](#deprecated-before-and-after). |
+| `before()`, `after()` | Removed; see [Migrating from before() and after()](#migrating-from-before-and-after). |
 
 Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp`, below -1 to answer before CORS. `req.storage` exists for every `Order`.
 
@@ -155,13 +155,9 @@ export class QuietAccessLog extends AccessLog {
 DI.register(QuietAccessLog).as(AccessLog);
 ```
 
-### Deprecated `before()` and `after()`
+### Migrating from `before()` and `after()`
 
-A subclass that still overrides `before()` or `after()` keeps working until the next major, with a warning naming it each time `HttpServer` mounts it:
-
-- `before()` is mounted at the middleware's `Order`, `after()` after routing, before the 404, in descending `Order`, as in 3.x; `HttpServer` itself does not call `isEnabled()` or mount the hooks for it.
-- `ServerMiddleware.before()` itself returns the middleware's hooks as one Express handler (null when `isEnabled()` is false). So a subclass whose `before()` calls `super.before()`, or that overrides only `after()`, still gets its hooks: it is entered and its `onAfter` and `onFinish` run. A 3.x subclass of a shipped middleware calling `super.before()` keeps its behaviour this way.
-- A `before()` that returns its own handler uses no hook: the middleware is never entered and gets no `onAfter` or `onFinish`.
+`ServerMiddleware` has no `before()` or `after()` in 4.x. A server middleware, or a `NotFoundMiddleware` or `ErrorHandlerMiddleware` replacement, that still defines one fails `HttpServer.resolve()` with an `InvalidOperation` naming the class, rather than being ignored. A subclass of a shipped middleware that wrapped `super.before()` overrides the hook instead and calls `super.onBefore(ctx)`, or overrides the protected decision method the middleware offers (`allowance()`, `shouldLog()`, `refuse()`, `proxyTrust()`).
 
 | 3.x | 4.x |
 | --- | --- |
@@ -172,7 +168,7 @@ A subclass that still overrides `before()` or `after()` keeps working until the 
 | `res.on('finish')` in `before()` | `onFinish(ctx)`, with `aborted` for a client that went away |
 | a header set by patching `res.end` | `onAfter(ctx)` |
 | `before()` returning a third-party handler | `handler()` |
-| `after()` | `onAfter(ctx)` for a reply, or replace `NotFoundMiddleware` / `ErrorHandlerMiddleware` |
+| `after()` | `onAfter(ctx)` for a reply, or replace `NotFoundMiddleware` / `ErrorHandlerMiddleware` and override `reply()` |
 
 ## Important behaviour
 

@@ -19,7 +19,7 @@ import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
 import { sendReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
-import { globalErrorReplier, isLegacyServerMiddleware, mountingWith, serverMiddlewareHandlers } from './server-middlewares.js';
+import { globalErrorReplier, refuseRemovedHooks, serverMiddlewareHandlers } from './server-middlewares.js';
 import { NotFoundMiddleware } from './middlewares/NotFound.js';
 import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
@@ -91,7 +91,7 @@ export class HttpServer extends AsyncService {
   protected _closePromise: Promise<void> | null = null;
 
   /**
-   * The tail ( deprecated after() handlers, the 404, the global error answer ) attaches to the Express app exactly
+   * The tail ( the 404 and the global error answer ) attaches to the Express app exactly
    * once per instance. Restart must not re-stack it.
    */
   protected _afterAttached = false;
@@ -140,6 +140,7 @@ export class HttpServer extends AsyncService {
     });
     this.NotFound = await this.Container.resolve(NotFoundMiddleware);
     this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
+    [...this.Middlewares, this.NotFound, this.ErrorHandler].forEach(refuseRemovedHooks);
 
     this._createServer();
 
@@ -181,19 +182,6 @@ export class HttpServer extends AsyncService {
     for (const m of this.Middlewares) {
       const name = m.constructor.name;
 
-      if (isLegacyServerMiddleware(m)) {
-        this.Log.warn(
-          { middleware: name },
-          'Server middleware ${middleware} overrides before() or after(), which are deprecated and removed in the next major: implement onBefore, onAfter, onFinish, onAround or handler() instead',
-        );
-        const f = mountingWith(options, () => m.before());
-        if (f) {
-          this.Log.info({ middleware: name }, 'Using server middleware ${middleware} through before()');
-          this.use(f);
-        }
-        continue;
-      }
-
       if (!m.isEnabled()) {
         this.Log.info({ middleware: name }, 'Server middleware ${middleware} is disabled');
         continue;
@@ -207,38 +195,24 @@ export class HttpServer extends AsyncService {
     }
   }
 
-  /** The deprecated after() handlers, then the 404 and the global error answer, both sent through the reply pipeline. */
+  /** The 404 and the global error answer, both sent through the reply pipeline. */
   private _attachTail() {
-    [...this.Middlewares].reverse().forEach((m) => {
-      if (!isLegacyServerMiddleware(m)) {
-        return;
-      }
-      const f = m.after();
-      if (f) {
-        this.Log.info({ middleware: m.constructor.name }, 'Using server middleware ${middleware} through after()');
-        this.use(f);
-      }
-    });
-
     const notFound = this.NotFound;
     const errorHandler = this.ErrorHandler;
-    this.use(
-      legacyTail(notFound) ??
-        ((req: Request, res: Express.Response, next: Express.NextFunction) => {
-          Promise.resolve()
-            .then(() => notFound.reply(req))
-            .then((answer) => {
-              if (isResponse(answer)) {
-                return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
-              }
-              // a replacement answering nothing still gets the framework's 404, not express's
-              next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
-              return undefined;
-            })
-            .catch(next);
-        }),
-    );
-    this.use(legacyTail(errorHandler) ?? __handle_error__(this.Container, (err, req) => errorHandler.reply(err, req as Request)));
+    this.use((req: Request, res: Express.Response, next: Express.NextFunction) => {
+      Promise.resolve()
+        .then(() => notFound.reply(req))
+        .then((answer) => {
+          if (isResponse(answer)) {
+            return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
+          }
+          // a replacement answering nothing still gets the framework's 404, not express's
+          next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
+          return undefined;
+        })
+        .catch(next);
+    });
+    this.use(__handle_error__(this.Container, (err, req) => errorHandler.reply(err, req as Request)));
   }
 
   /**
@@ -475,9 +449,3 @@ function createRequestStorage(req: Express.Request, _res: Express.Response, next
 }
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
-
-/** A replacement written for 3.x, whose `after()` returns the Express handler. */
-function legacyTail(tail: object): Express.RequestHandler | Express.ErrorRequestHandler | undefined {
-  const after = (tail as { after?: () => Express.RequestHandler | Express.ErrorRequestHandler | null }).after;
-  return typeof after === 'function' ? (after.call(tail) ?? undefined) : undefined;
-}

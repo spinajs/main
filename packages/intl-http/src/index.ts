@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _between } from '@spinajs/util';
 import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
-import * as express from 'express';
+import type { IMiddlewareContext } from '@spinajs/http';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -76,24 +76,21 @@ export class IntlHttpMiddleware extends ServerMiddleware {
 
   constructor() {
     super();
-    // Must run AFTER RequestStorage (Order -2) which creates req.storage;
-    // otherwise `req.storage.language = ...` dereferences undefined and every
-    // request 500s. Sit alongside RealIp / RequestId.
     this.Order = 1;
   }
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-      const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
-
-      _validate(lang);
-
-      req.storage.language = lang ?? this.defaultLocale;
-      next();
-    };
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    storage.language = this.detectLanguage(req as sRequest);
   }
-  public after(): ((req: express.Request, res: express.Response, next: express.NextFunction) => void) | null {
-    return null;
+
+  /**
+   * The language of the request: query, cookie, then `x-<name>` header, else `intl.defaultLocale`. Throws
+   * InvalidArgument for an explicit value that is not 2 to 5 characters.
+   */
+  protected detectLanguage(req: sRequest): string {
+    const lang = extractLanguageFromRequest(req, this.LangQueryParameter) as string | null;
+    _validate(lang);
+    return lang ?? this.defaultLocale;
   }
 }
 

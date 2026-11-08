@@ -104,6 +104,10 @@ See [`@spinajs/testing`](testing/README.md), [createTestApp](testing/01-create-t
 
 HTTP errors follow RFC 9457: `type`, `title`, `status`, `detail`, `instance` and, when present, `code` or `errors`. Other fields of an exception are not copied into the body; declare the ones a client needs in a static `problemFields`. In production an unmapped 500 answers `detail: "Internal server error"`. See [Error handling](http/11-error-handling.md) and the [upgrade note](upgrading/4.0.md#error-bodies-are-applicationproblemjson).
 
+### One middleware contract for routes and the server
+
+Route and server middlewares implement the same optional hooks with one context object: `onBefore(ctx)` (may answer with a `Response`), `onAfter(ctx)` on every framework reply, error replies included, `onFinish(ctx)` once the response finished or the client left, and `onAround(ctx, proceed)`. `http.routes.middlewares` mounts route middlewares on every route of the app. See [Route middlewares](http/14-route-middlewares.md), [Server middlewares](http/15-server-middlewares.md) and the [upgrade note](upgrading/4.0.md#http-middlewares).
+
 ### Config arrays replace
 
 An array your app configures replaces the array a package sets, as a scalar does. 3.x concatenated them.
