@@ -70,6 +70,14 @@ describe('inheritController', () => {
     expect(merged.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
   });
 
+  it('lets an own @Idempotent replace the inherited one in place, as the decorator does', () => {
+    const idempotent = (ttl: number) => ({ type: 'IdempotencyMiddleware', options: [{ ttl }] });
+    const ancestor = controller('Base', { routes: [route('save', '', { middlewares: [idempotent(60), { type: 'Audit', options: [] }] })] });
+    const override: RouteOverride = { handler: 'save', params: [], policies: [], middlewares: [{ type: 'Trace', options: [] }, idempotent(5)], source: src('src/Sub.ts', 4) };
+    const merged = inheritController(ancestor, controller('Sub'), [override]);
+    expect(merged.routes[0].middlewares).to.deep.equal([idempotent(5), { type: 'Audit', options: [] }, { type: 'Trace', options: [] }]);
+  });
+
   it('carries every field of an overridden route it does not merge', () => {
     const inherited = { ...route('get', ':id'), future: { kept: true } } as RouteEntry;
     const override: RouteOverride = { handler: 'get', params: [], policies: [], middlewares: [], source: src('src/Sub.ts', 4) };
