@@ -28,6 +28,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | CFG001 | warning | a configuration path read in code whose module has no schema |
 | CFG002 | error | a `system.dirs.*` entry that does not exist (`--config`) |
 | CFG003 | info / warning | a registration whose config condition is unmet (`--config`), or one the compiler could not decide |
+| CFG004 | error | a name in `http.routes.middlewares` (a string or `{ service }`) that no type registered as `RouteMiddleware` has (`--config`); the message names the closest registered one. The runtime refuses to start with such a name |
 | BLD001 | error | a dependency fragment older than its build output, or missing |
 | ORM001 | warning | a model loaded from the database by `@FromModel` (kind `FromDbModel`) that is not an `@AccessResource`. `@AsModel` (`AsDbModel`) builds the model from the request and is not reported |
 | SCH003 | warning | an explicit `@Schema` that differs structurally from the schema derived from its class |
@@ -66,6 +67,14 @@ carries a real cycle path found by breadth-first search: `Dependency cycle: A ->
 A config path is covered when it equals a declared module or starts with `<module>.`. Modules may be dotted
 (`authn.oidc`), so the match is by prefix on whole segments, not on the first segment alone. The `system` and
 `app` roots are filled by the configuration itself and are never reported. Each distinct path is reported once.
+
+### CFG004 details
+
+The registered `RouteMiddleware` types are the manifest's services whose `registeredAs` includes `RouteMiddleware`, from the
+app and every dependency with a fragment. Like DI001, the rule cannot see a type registered only at runtime
+(`DI.register(X).as(RouteMiddleware)` in code) or by a dependency without a manifest fragment: such a name is reported although
+the app boots. A class entry (`[MyAudit]` in a JS config) is not checked: the runtime accepts any `RouteMiddleware` subclass
+without registration.
 
 ### SOCK001-SOCK006 details
 
