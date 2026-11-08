@@ -136,6 +136,7 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed).
     markStage(res, 'policy');
 
     // Only policies enabled for this concrete route participate in the gate.
@@ -335,8 +336,8 @@ function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string
 /**
  * Calls `onRegister` of the enabled middlewares, then assembles the route's handler chain:
  *
- * route entry → policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the
- * same way → action → [error recorder] → error handlers → response → [error recorder] → __handle_error__
+ * route entry → each 'beforePolicy' middleware (its around handler, then onBefore) → policy gate → each 'outer' one,
+ * the same way → each 'inner' one → action → [error recorder] → error handlers → response → [error recorder] → __handle_error__
  *
  * The response and __handle_error__ send their reply through the reply pipeline, which runs the onAfter hooks of the
  * entered middlewares. The recorders are mounted only when a middleware has `onAround`; they give its `proceed()` the
@@ -359,8 +360,9 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     }
   }
 
+  const beforePolicy = enabled.filter((m) => m.Stage === 'beforePolicy');
   const outer = enabled.filter((m) => m.Stage === 'outer');
-  const inner = enabled.filter((m) => m.Stage !== 'outer');
+  const inner = enabled.filter((m) => m.Stage !== 'outer' && m.Stage !== 'beforePolicy');
   const recorder = enabled.some(wrapsRoute) ? [recordRouteError] : [];
   let mappedReply: ReturnType<typeof errorReplyFactory> | undefined;
 
@@ -376,6 +378,7 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
       return { response: mappedReply(handled.error, req).response, error: handled.error };
     };
 
+  const contract = { controller: controller.constructor.name, handler: String(route.Method) };
   const entry: Express.RequestHandler = (req, res, next) => {
     // answered in place before routing (a deadline during a slow server onBefore): no part of the route runs
     if (repliedInPlace(res)) {
@@ -383,24 +386,30 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     }
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
+      container: options.container,
+      contract,
       storage: options.storage,
       errorReply: routeErrorReply(req, res),
     });
     next();
   };
 
-  return [
-    entry,
-    createPolicyGate(options.policies, route, controller, log, options.basePath),
-    ...[...outer, ...inner].flatMap((m) => [
+  const middlewareHandlers = (stage: RouteMiddleware[]) =>
+    stage.flatMap((m) => [
       ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
       ...(m.onBefore ? [createBeforeHandler(m, route, controller, options.path)] : []),
       ...(!wrapsRoute(m) && !m.onBefore && (m.onAfter || m.onFinish) ? [createEntryHandler(m, route, controller, options.path)] : []),
-    ]),
+    ]);
+
+  return [
+    entry,
+    ...middlewareHandlers(beforePolicy),
+    createPolicyGate(options.policies, route, controller, log, options.basePath),
+    ...middlewareHandlers([...outer, ...inner]),
     createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,
     createOnErrorHandler(options.errorHandlers, route, controller, options.container, log, setErrorReply),
-    __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
+    __handle_response__(options.container),
     ...recorder,
     options.handleError,
   ];

@@ -860,7 +860,7 @@ export interface IController {
   BasePath: string;
 }
 
-export type MiddlewareStage = 'outer' | 'inner';
+export type MiddlewareStage = 'beforePolicy' | 'outer' | 'inner';
 
 /**
  * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
@@ -947,8 +947,9 @@ export abstract class HttpMiddleware extends AsyncService {
  */
 export abstract class RouteMiddleware extends HttpMiddleware {
   /**
-   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, the global ones
-   * (`http.routes.middlewares`) first, then the controller's and the route's in declaration order. Unset means 'inner'.
+   * 'beforePolicy' runs before the policy gate, so its onAfter and onFinish see a policy refusal; 'outer' runs right
+   * after the gate, before every 'inner' middleware. Within a stage, the global ones (`http.routes.middlewares`) first,
+   * then the controller's and the route's in declaration order. Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 

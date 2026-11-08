@@ -4,7 +4,7 @@ import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IController, IMiddlewareContext, IRoute, IRouteOutcome, Request, RouteMiddleware } from './interfaces.js';
 import { RouteAnsweredInPlace, RouteClientGone } from './exceptions.js';
 import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
-import { attachResponseCapture, responseCaptureOf } from './response-capture.js';
+import { DeferredCapture, attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
 import { answeredErrorOf, answeredEarly, enterMiddleware, repliedInPlace, routeContextOf, serverContextOf } from './reply-pipeline.js';
 
@@ -107,15 +107,25 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
           return;
         }
 
-        let reply: CapturedJsonReply | null = null;
+        let read: () => CapturedJsonReply | null = () => null;
         // an enclosing around middleware captured first: it must see the reply too
         const enclosing = responseCaptureOf(res);
-        attachResponseCapture(res, {
-          capture: (captured) => {
-            reply = captured;
-            enclosing?.capture(captured);
-          },
-        });
+        attachResponseCapture(
+          res,
+          new (class extends DeferredCapture {
+            public defer(reader: () => CapturedJsonReply | null): void {
+              read = reader;
+              if (enclosing instanceof DeferredCapture) {
+                enclosing.defer(reader);
+              } else if (enclosing) {
+                const reply = reader();
+                if (reply) {
+                  enclosing.capture(reply);
+                }
+              }
+            }
+          })(),
+        );
 
         onFinish = () => {
           release();
@@ -126,7 +136,8 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
             return;
           }
           const error = server ? (routeErrorOf(res) ?? answeredErrorOf(res)) : routeErrorOf(res);
-          afterInner(() => resolve(error === undefined ? { reply } : { reply, error }));
+          const outcome: IRouteOutcome = error === undefined ? { get reply() { return read(); } } : { get reply() { return read(); }, error };
+          afterInner(() => resolve(outcome));
         };
         onGone = () => {
           release();
