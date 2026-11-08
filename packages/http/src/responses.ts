@@ -19,7 +19,8 @@ import * as cs from 'cookie-signature';
 import { loadedFastXmlParser, loadXmlBuilder } from './lazy-modules.js';
 import { FIELD_NAME_PATTERN, strictHeader } from './headers.js';
 import { isProblem, PROBLEM_CONTENT_TYPE } from './problem.js';
-import { capturedJsonReply, responseCaptureOf } from './response-capture.js';
+import { DeferredCapture, capturedJsonReply, responseCaptureOf } from './response-capture.js';
+import type { CapturedJsonReply } from './response-capture.js';
 
 const TRANSFORMER_HEADER_MAX_LENGTH = 256;
 // RFC 9110 token: only such a name is repeated back in the 400 for an unknown transformer.
@@ -96,10 +97,28 @@ function captureReply(res: express.Response, model: unknown, options?: IResponse
   if (!capture) {
     return;
   }
+  const failed = (err: unknown) => DI.resolve(Log, ['http']).error({ error: err }, 'A response capture failed; the reply was sent but not captured');
+  const read = () => capturedJsonReply(res, model, options?.Headers?.map((h) => h.Name));
   try {
-    capture.capture(capturedJsonReply(res, model, options?.Headers?.map((h) => h.Name)));
+    if (capture instanceof DeferredCapture) {
+      // the headers are sent and can no longer change, so a later read gives the reply as sent
+      let reply: CapturedJsonReply | null | undefined;
+      capture.defer(() => {
+        if (reply === undefined) {
+          try {
+            reply = read();
+          } catch (err) {
+            failed(err);
+            reply = null;
+          }
+        }
+        return reply;
+      });
+    } else {
+      capture.capture(read());
+    }
   } catch (err) {
-    DI.resolve(Log, ['http']).error({ error: err }, 'A response capture failed; the reply was sent but not captured');
+    failed(err);
   }
 }
 
