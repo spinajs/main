@@ -1,7 +1,7 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
+import { _between, _custom, _finite, _gte, _integer, _is_number, _is_object, _is_string, _non_empty, _one_of, _or, _positive, _try_check_arg, DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
@@ -59,11 +59,35 @@ const OPTION_KEYS: readonly string[] = ['config', 'default', ...SETTINGS_KEYS, '
 
 const show = (v: unknown): string => (typeof v === 'string' ? `'${v}'` : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
-function checkSettings(settings: IRateLimitSettings, refuse: (name: string, problem: string) => Error): Required<IRateLimitSettings> {
+type Refuse = (message: string) => Error;
+type ArgCheck = (arg: any, name: string) => unknown;
+
+const argument: Refuse = (message) => new InvalidArgument(message);
+const option: Refuse = (message) => new InvalidOption(message);
+
+/** The util checks throw InvalidArgument; a value read from config is refused with InvalidOption instead. */
+function check(validator: ArgCheck, value: unknown, name: string, refuse: Refuse): void {
+  const [valid, error] = _try_check_arg(validator)(value, name);
+  if (!valid) throw refuse(`${(error as Error).message}, got ${show(value)}`);
+}
+
+const optional =
+  (validator: ArgCheck): ArgCheck =>
+  (arg, name) =>
+    arg === undefined ? arg : validator(arg, name);
+
+const isFunction = (name: string) => optional(_custom((v) => typeof v === 'function', new InvalidArgument(`${name} should be a function`)));
+
+// The types do not hold for options given in JSON config, and `number` admits NaN, 1.5 and -1.
+const LIMIT = _is_number(_integer(), _gte(0));
+const WINDOW_SECONDS = _is_number(_finite(), _positive());
+const BY = _one_of(['ip', 'principal']);
+
+function checkSettings(settings: IRateLimitSettings, label: string, refuse: Refuse): Required<IRateLimitSettings> {
   const { limit, windowSeconds, by = 'ip' } = settings;
-  if (!(Number.isInteger(limit) && limit >= 0)) throw refuse('limit', `must be an integer >= 0, got ${show(limit)}`);
-  if (!(typeof windowSeconds === 'number' && Number.isFinite(windowSeconds) && windowSeconds > 0)) throw refuse('windowSeconds', `must be a finite positive number, got ${show(windowSeconds)}`);
-  if (by !== 'ip' && by !== 'principal') throw refuse('by', `must be 'ip' or 'principal', got ${show(by)}`);
+  check(LIMIT, limit, `${label}limit`, refuse);
+  check(WINDOW_SECONDS, windowSeconds, `${label}windowSeconds`, refuse);
+  check(BY, by, `${label}by`, refuse);
   return { limit, windowSeconds, by };
 }
 
@@ -170,7 +194,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
     if (settings === false) return;
 
     const prefix = this.Ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
-    if (!(Number.isInteger(prefix) && (prefix as number) >= 16 && (prefix as number) <= 128)) throw new InvalidOption('http.throttle.ipv6Prefix must be an integer from 16 to 128');
+    check(_is_number(_integer(), _between(16, 128)), prefix, 'http.throttle.ipv6Prefix', option);
     this.prefix = prefix as number;
 
     this.route = `rate:${String(route.InternalType).toUpperCase()} ${path}:${settings.limit}/${settings.windowSeconds}`;
@@ -224,23 +248,23 @@ export class RateLimitMiddleware extends RouteMiddleware {
     }
     const inline = defined({ limit, windowSeconds, by });
     if (config === undefined) {
-      return (this.settings = checkSettings({ ...this.options.default, ...inline } as IRateLimitSettings, (name, problem) => new InvalidArgument(`@RateLimit ${name} ${problem}`)));
+      return (this.settings = checkSettings({ ...this.options.default, ...inline } as IRateLimitSettings, '@RateLimit ', argument));
     }
 
     if (Object.keys(inline).length > 0) throw new InvalidArgument(`@RateLimit({ config: '${config}' }) takes its settings from config and default, not inline ${Object.keys(inline).join(', ')}`);
     const fallback = this.options.default;
-    if (typeof fallback !== 'object' || fallback === null) throw new InvalidArgument(`@RateLimit({ config: '${config}' }) needs a default`);
-    const base = checkSettings(fallback, (name, problem) => new InvalidArgument(`@RateLimit default.${name} ${problem}`));
+    check(_is_object(), fallback, `@RateLimit({ config: '${config}' }) default`, argument);
+    const base = checkSettings(fallback as IRateLimitSettings, '@RateLimit default.', argument);
 
     const configured = this.Configuration.get<unknown>(config);
     if (configured === false) return (this.settings = false);
     if (configured === undefined || configured === null) return (this.settings = base);
 
-    if (typeof configured !== 'object' || Array.isArray(configured)) throw new InvalidOption(`${config} must be { limit, windowSeconds, by } or false, got ${show(configured)}`);
+    check(_is_object(), configured, config, option);
     const unknown = Object.keys(configured).filter((k) => !SETTINGS_KEYS.includes(k));
     if (unknown.length > 0) throw new InvalidOption(`${config} has unknown keys ${unknown.join(', ')}; allowed: ${SETTINGS_KEYS.join(', ')}`);
 
-    return (this.settings = checkSettings({ ...fallback, ...defined(configured as Partial<IRateLimitSettings>) } as IRateLimitSettings, (name, problem) => new InvalidOption(`${config}.${name} ${problem}`)));
+    return (this.settings = checkSettings({ ...fallback, ...defined(configured as Partial<IRateLimitSettings>) } as IRateLimitSettings, `${config}.`, option));
   }
 
   /** The options can come from JSON (`http.routes.middlewares`), where a typo or a string "false" would be ignored. */
@@ -248,10 +272,11 @@ export class RateLimitMiddleware extends RouteMiddleware {
     const { config, answer, key, headers } = this.options;
     const unknown = Object.keys(this.options).filter((k) => !OPTION_KEYS.includes(k));
     if (unknown.length > 0) throw new InvalidArgument(`@RateLimit has unknown options ${unknown.join(', ')}; allowed: ${OPTION_KEYS.join(', ')}`);
-    if (config !== undefined && config !== false && (typeof config !== 'string' || config === '')) throw new InvalidArgument(`@RateLimit config must be a non-empty string or false, got ${show(config)}`);
-    if (answer !== undefined && typeof answer !== 'function') throw new InvalidArgument(`@RateLimit answer must be a function, got ${show(answer)}`);
-    if (key !== undefined && typeof key !== 'function') throw new InvalidArgument(`@RateLimit key must be a function, got ${show(key)}`);
-    if (headers !== undefined && typeof headers !== 'boolean') throw new InvalidArgument(`@RateLimit headers must be a boolean, got ${show(headers)}`);
+    check(optional(_or(_one_of([false]), _is_string(_non_empty()))), config, '@RateLimit config', argument);
+    check(isFunction('@RateLimit answer'), answer, '@RateLimit answer', argument);
+    check(isFunction('@RateLimit key'), key, '@RateLimit key', argument);
+    // not _is_boolean: it passes 0 and 1, and `headers: 0` would leave the headers on
+    check(optional(_one_of([true, false])), headers, '@RateLimit headers', argument);
     const fallback = this.options.default;
     if (typeof fallback === 'object' && fallback !== null) {
       const unknownDefault = Object.keys(fallback).filter((k) => !SETTINGS_KEYS.includes(k));
