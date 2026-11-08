@@ -1,7 +1,7 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
+import { InvalidOption } from '@spinajs/exceptions';
+import { _between, _check_arg, _finite, _gte, _integer, _is_number, _one_of, _positive, _try_check_arg, DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
@@ -49,12 +49,14 @@ export class RateLimitMiddleware extends RouteMiddleware {
   }
 
   public onRegister(route: IRoute, path: string): void {
-    if (!(Number.isInteger(this.limit) && this.limit >= 0)) throw new InvalidArgument(`@RateLimit limit must be an integer >= 0, got ${this.limit}`);
-    if (!(Number.isFinite(this.windowSeconds) && this.windowSeconds > 0)) throw new InvalidArgument(`@RateLimit windowSeconds must be a finite positive number, got ${this.windowSeconds}`);
-    if (this.by !== 'ip' && this.by !== 'principal') throw new InvalidArgument(`@RateLimit by must be 'ip' or 'principal', got ${String(this.by)}`);
+    // The types do not hold for options given in http.routes.middlewares config, and `number` admits NaN, 1.5 and -1.
+    _check_arg(_is_number(_integer(), _gte(0)))(this.limit, '@RateLimit limit');
+    _check_arg(_is_number(_finite(), _positive()))(this.windowSeconds, '@RateLimit windowSeconds');
+    _check_arg(_one_of(['ip', 'principal']))(this.by, '@RateLimit by');
 
     const prefix = this.Ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
-    if (!(Number.isInteger(prefix) && (prefix as number) >= 16 && (prefix as number) <= 128)) throw new InvalidOption('http.throttle.ipv6Prefix must be an integer from 16 to 128');
+    const [validPrefix] = _try_check_arg(_is_number(_integer(), _between(16, 128)))(prefix);
+    if (!validPrefix) throw new InvalidOption('http.throttle.ipv6Prefix must be an integer from 16 to 128');
     this.prefix = prefix as number;
 
     this.route = `rate:${String(route.InternalType).toUpperCase()} ${path}:${this.limit}/${this.windowSeconds}`;
