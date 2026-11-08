@@ -12,7 +12,7 @@ import { SocketClientGone, SocketCommandContext } from '../src/context.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SocketErrorMapper } from '../src/errors.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
-import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketCommandContext, ISocketOutcomeRecorder, ISocketStageRegistration, STAGE_ORDER, SocketArg, SocketCommandStage } from '../src/interfaces.js';
+import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketCommandContext, ISocketOutcomeRecorder, ISocketStageRegistration, STAGE_ORDER, SocketArg, SocketMiddleware } from '../src/interfaces.js';
 import { ITestServer, TestHttpHost, command, configure, connect, connected, delay, errorOf, nextId, open, resultOf, startServer, waitFor } from './harness.js';
 
 interface IGate {
@@ -74,8 +74,8 @@ hookProbe.reset();
 
 const ours = (name: string) => name.startsWith('hook.') || name.startsWith('hook-gen.');
 
-@Injectable(SocketCommandStage)
-export class HookOuterStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class HookOuterStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Size + 50;
   }
@@ -92,7 +92,7 @@ export class HookOuterStage extends SocketCommandStage {
     }
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     switch (ctx.request.name) {
       case 'hook.state': {
         ctx.storage.hookX = 'x';
@@ -132,8 +132,8 @@ export class HookOuterStage extends SocketCommandStage {
   }
 }
 
-@Injectable(SocketCommandStage)
-export class HookInnerStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class HookInnerStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Lookup + 5;
   }
@@ -153,7 +153,7 @@ export class HookInnerStage extends SocketCommandStage {
     }
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     const name = ctx.request.name;
     if (!ours(name)) {
       return next();
@@ -345,7 +345,7 @@ describe('socket command stage hooks', function () {
       );
 
       expect(err).to.be.instanceOf(InvalidOperation);
-      expect(err.message).to.equal('Socket command hook.echo ( HookSocket::echo ): stage HookInnerStage refused the registration: no audit sink configured');
+      expect(err.message).to.equal('Socket command hook.echo ( HookSocket::echo ): middleware HookInnerStage refused the registration: no audit sink configured');
       expect((err.cause as Error).message).to.equal('no audit sink configured');
       expect(host!.Http.listenerCount('upgrade')).to.equal(0);
     });
@@ -501,11 +501,11 @@ describe('socket command stage hooks', function () {
       expect(hookProbe.handlerRuns).to.not.include('queued');
     });
 
-    it('rejects a second next() call of one stage with internal', async () => {
+    it('rejects a second proceed() call of one middleware with internal', async () => {
       const error = errorOf(await command(socket, 'hook.twice'));
 
       expect(error.code).to.equal('internal');
-      expect(error.message).to.equal('next() called twice by HookOuterStage');
+      expect(error.message).to.equal('proceed() called twice by HookOuterStage');
       expect(hookProbe.handlerRuns).to.deep.equal(['twice']);
     });
 

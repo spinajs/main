@@ -2,6 +2,7 @@ import type { IncomingHttpHeaders, Server as HttpNodeServer } from 'http';
 import type { Server as HttpsNodeServer } from 'https';
 import { principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import { AsyncService } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
 import type { Decision, IAuthnPrincipalStorage, IAuthzAsyncStorage } from '@spinajs/authz';
@@ -238,6 +239,12 @@ export interface ISocketParameter {
   Options?: unknown;
 }
 
+/** One `@UseSocketMiddleware(Type, ...options)` declaration. */
+export interface ISocketMiddlewareDescriptor {
+  Type: Class<SocketMiddleware>;
+  Options: unknown[];
+}
+
 export interface ISocketHandlerDescriptor {
   /** 'unknown' until a handler decorator runs; registration refuses it */
   Kind: SocketHandlerKind;
@@ -248,11 +255,15 @@ export interface ISocketHandlerDescriptor {
   Parameters: Map<number, ISocketParameter>;
   /** one group per @SocketPolicy call: AND inside a group, OR across groups */
   Policies: IPolicyGroup[];
+  /** `@UseSocketMiddleware` on the method, in decorator application order */
+  Middlewares?: ISocketMiddlewareDescriptor[];
 }
 
 export interface ISocketControllerDescriptor {
   Prefix: string | null;
   Policies: IPolicyGroup[];
+  /** `@UseSocketMiddleware` on the class, in decorator application order */
+  Middlewares?: ISocketMiddlewareDescriptor[];
   Handlers: Map<string | symbol, ISocketHandlerDescriptor>;
   /** Set by `@SocketController(prefix, { contract })`; checked against the manifest when `system.manifest.mode` is not `off` */
   Contract?: SocketContract<ContractShape>;
@@ -270,8 +281,10 @@ export interface IRegisteredHandler {
   contractValidator?: (payload: unknown) => void;
   /** Set at registration when the manifest derived a schema for the `@Payload` type and no contract applies; an explicit schema wins over it */
   payloadValidator?: (payload: unknown) => void;
-  /** Set at registration from the stages' `refuseStream`: the word of the highest Order that refused. */
+  /** Set at registration from the middlewares' `refuseStream`: the word of the highest Order that refused. */
   readonly streamRefusal?: string;
+  /** Set at registration: the command's middleware chain, the enabled ones in Order. */
+  readonly middlewares?: readonly SocketMiddleware[];
 }
 
 /**
@@ -351,7 +364,23 @@ export interface ISocketCommandContext extends ISocketCallContext {
   detachOutcome(running: Promise<unknown>): void;
 }
 
-/** What a stage may declare about a command when it is registered. */
+/** What a middleware's `onAfter` sees: the outcome so far, on the way out of the chain. */
+export interface ISocketReplyContext extends ISocketCommandContext {
+  /** The result so far; set it to change what the outer middlewares and the client get. Ignored on an error. */
+  result?: unknown;
+  /** The error the outcome is, when it is one. */
+  readonly error?: unknown;
+}
+
+/** What a middleware's `onFinish` sees once the reply is out and the chain settled. */
+export interface ISocketFinishContext extends ISocketCommandContext {
+  /** An abort ( cancel, deadline, disconnect, shutdown, a lost lease ) answered the command or ended its stream. */
+  readonly aborted: boolean;
+  readonly result?: unknown;
+  readonly error?: unknown;
+}
+
+/** What a middleware may declare about a command when it is registered. */
 export interface ISocketStageRegistration {
   /**
    * The command cannot reply with a stream while this stage applies. `what` completes both refusals:
@@ -361,50 +390,70 @@ export interface ISocketStageRegistration {
   refuseStream(what: string): void;
 }
 
-/** An outer stage's record of the command's outcome, which an inner stage that serialises commands settles before it lets the next one run. */
+/** An outer middleware's record of the command's outcome, which an inner one that serialises commands settles before it lets the next one run. */
 export interface ISocketOutcomeRecorder {
   settle(outcome: CommandOutcome): Promise<unknown>;
   detach(running: Promise<unknown>): void;
 }
 
 /**
- * One step of the command pipeline. Stages run in ascending `Order` as an onion: call `next()` to
- * continue, return without calling it to answer early ( eg. an idempotent replay ), throw to fail.
- * Register with `@Injectable(SocketCommandStage)`.
+ * A step of the command pipeline, with the hook meanings of http's `HttpMiddleware`. Global ones register with
+ * `@Injectable(SocketMiddleware)`; `@UseSocketMiddleware(Type, ...options)` mounts one on a controller or a command.
+ * Each command's chain is its enabled middlewares in ascending `Order`.
  *
- * State is shared, never copied: every stage, the argument extractors, the policies and the handler see the same `ctx`
- * and `ctx.storage` for the whole command. Typed per-call state goes on `ctx.storage` (declaration merging on
- * {@link ISocketCallStorage}), untyped per-call state on its string index; a stage's private state in its own WeakMap.
- * What a stage writes before `next()` is visible downstream; after `next()` settles it sees what the chain wrote.
- * Unlike http, stages run inside the call's AsyncLocalStorage context, so a service called from a stage reads the same store.
+ * State is shared, never copied: every middleware, the argument extractors, the policies and the handler see the same
+ * `ctx` and `ctx.storage` for the whole command. Unlike http, every hook runs inside the call's AsyncLocalStorage
+ * context, so a service called from a hook reads the same store.
  */
-export abstract class SocketCommandStage {
-  public abstract get Order(): number;
+export abstract class SocketMiddleware extends AsyncService {
+  /** Ascending; the built-in stages sit at {@link STAGE_ORDER}. */
+  public abstract readonly Order: number;
+
+  /** Whether the middleware runs on this command; called once per command at startup. */
+  public isEnabled(_handler: IRegisteredHandler): boolean {
+    return true;
+  }
 
   /**
-   * Wraps the later stages and the handler. `next()` runs them once and settles with the handler's raw result or
-   * error; a second call rejects with `internal`. When the command was aborted before its handler started, it rejects
-   * with SocketClientGone ( `beforeHandler: true`, the abort reason as `cause` ), also when a later stage was waiting
-   * ( connect hooks, an idempotency join, the ordering queue, where it rejects only when the command's turn comes ).
-   * After the handler started, an abort does not interrupt it; only an ordered command cut loose after
-   * `ordering.abortGraceMs` rejects, with the bare abort reason. Not calling it ends the chain: the returned value is
-   * the result.
-   */
-  public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
-
-  /**
-   * Called once for every registered command by SocketHandlerRegistry.build(), in ascending Order, once every controller
-   * registered ( names unique, policies resolved, contract and payload validators attached ) and before socket.io
-   * attaches. A throw fails the build with an InvalidOperation naming the stage and the
-   * command. Not called for events or hooks: stages never run for them.
+   * Called once for every command it is enabled on by SocketHandlerRegistry.build(), in ascending Order, once every
+   * controller registered ( names unique, policies resolved, contract and payload validators attached ) and before
+   * socket.io attaches. A throw fails the build with an InvalidOperation naming the middleware and the command.
    */
   public onRegister?(handler: IRegisteredHandler, registration: ISocketStageRegistration): void | Promise<void>;
+
+  /**
+   * Before the later middlewares and the handler. A returned value other than `undefined` ( `null` included ) answers
+   * the command: nothing after this middleware runs; the `onAfter` of every entered middleware, this one included, sees it.
+   */
+  public onBefore?(ctx: ISocketCommandContext): unknown;
+
+  /**
+   * On the way out, inner first, before the outer middlewares see the outcome; also after an abort answered the client.
+   * Set `ctx.result` to change the result; a throw turns the outcome into that error.
+   */
+  public onAfter?(ctx: ISocketReplyContext): void | Promise<void>;
+
+  /** Once the reply is sent ( a stream: once it ended ) and the chain settled, inner first; not awaited by the next one. A throw is logged. */
+  public onFinish?(ctx: ISocketFinishContext): void | Promise<void>;
+
+  /**
+   * Wraps this middleware's `onBefore`, the later middlewares, the handler and its own `onAfter`. `proceed()` runs them
+   * once and settles with the result or the error; a second call rejects with `internal`. When the command was aborted
+   * before its handler started, it rejects with SocketClientGone ( `beforeHandler: true`, the abort reason as `cause` ),
+   * also when a later middleware was waiting ( connect hooks, an idempotency join, the ordering queue, where it rejects
+   * only when the command's turn comes ). After the handler started, an abort does not interrupt it; only an ordered
+   * command cut loose after `ordering.abortGraceMs` rejects, with the bare abort reason. Not calling it ends the chain:
+   * the returned value is the result.
+   */
+  public onAround?(ctx: ISocketCommandContext, proceed: () => Promise<unknown>): Promise<unknown>;
 }
 
 /**
  * Spec §5.2 order. 320 waits for the connect hooks; 350 is W1's principal re-check ( Task 10A, D16 ); 500 is W3's idempotency stage.
  * Ordering ( 550 ) comes before policies and arguments, so they see the state the command's predecessors left: a durable edit
  * pipelined behind its create would otherwise be hydrated before the create ran, and its not_found stored as final.
+ * Idempotency comes before the policies too, unlike http's policy gate: a resend must get the outcome of the run it
+ * repeats, which a policy checking the state as it is now ( a committed delete's row is gone ) would refuse.
  */
 export const STAGE_ORDER = {
   Size: 100,
