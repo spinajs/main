@@ -378,9 +378,12 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
       return { response: mappedReply(handled.error, req).response, error: handled.error };
     };
 
+  const contract = { controller: controller.constructor.name, handler: String(route.Method) };
   const entry: Express.RequestHandler = (req, res, next) => {
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
+      container: options.container,
+      contract,
       storage: options.storage,
       errorReply: routeErrorReply(req, res),
     });
@@ -402,7 +405,7 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,
     createOnErrorHandler(options.errorHandlers, route, controller, options.container, log, setErrorReply),
-    __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
+    __handle_response__(options.container),
     ...recorder,
     options.handleError,
   ];

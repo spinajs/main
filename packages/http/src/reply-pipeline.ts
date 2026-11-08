@@ -1,11 +1,14 @@
 import type { AsyncLocalStorage } from 'node:async_hooks';
 import type express from 'express';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
 import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
+import { guardResponseContract } from './contract.js';
+import type { ContractRoute } from './contract.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -26,6 +29,17 @@ export interface ISendReplyOptions {
   readonly errorReply?: ErrorReplier;
 }
 
+/** What only the framework's own senders say about a reply. */
+export interface IDeliverOptions extends ISendReplyOptions {
+  /** The container whose `http.contractTesting` checks the reply; else the route's, else the root container. */
+  readonly container?: IContainer;
+  /**
+   * false: the reply is not the route's own answer (the error map's or the global error answer), so the contract check
+   * holds it to the problem document schema only, never to the route's response schema.
+   */
+  readonly routeContract?: boolean;
+}
+
 interface IEntered {
   readonly scope: MiddlewareScope;
   readonly middleware: HttpMiddleware;
@@ -34,6 +48,9 @@ interface IEntered {
 
 interface IRouteScope {
   readonly context: IRouteInvocation;
+  readonly container?: IContainer;
+  /** The route whose response schema contract testing applies. */
+  readonly contract?: ContractRoute;
   readonly storage?: AsyncLocalStorage<IActionLocalStoregeContext>;
   readonly errorReply?: ErrorReplier;
 }
@@ -222,7 +239,12 @@ const isResponse = (value: unknown): value is Response => typeof (value as Respo
  * once the reply was turned is logged. When the headers are already sent (an action answered `res` itself), no
  * onAfter runs. Rejects only when sending fails.
  */
-export async function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+export function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+  return deliverReply(req, res, response, options);
+}
+
+/** {@link sendReply} for the framework's own senders. */
+export async function deliverReply(req: express.Request, res: express.Response, response: Response, options: IDeliverOptions = {}): Promise<void> {
   const state = stateOf(res);
   let current = response;
   let error = options.error;
@@ -287,6 +309,8 @@ export async function sendReply(req: express.Request, res: express.Response, res
   if (error !== undefined) {
     state.answered = { error };
   }
+
+  guardResponseContract(res, options.container ?? state.route?.container ?? DI.RootContainer, options.routeContract === false ? undefined : state.route?.contract);
 
   const callback = (await current.execute(req, res)) as ResponseFunction | void;
   if (callback) {

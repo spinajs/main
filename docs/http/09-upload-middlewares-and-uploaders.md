@@ -5,11 +5,11 @@ Two seams shape what happens to an uploaded file between the multipart parser an
 ## How it works
 
 1. `FromFile` builds the list of middleware descriptors: `http.upload.middlewares` first, then `options.middlewares` of the `@File()`.
-2. It resolves each descriptor:
+2. It resolves each descriptor from the root container:
    - a string or a class: `DI.resolve(descriptor)`;
    - `{ service, options }`: `DI.resolve(service, [options])`, so `options` is the first constructor argument.
 
-   A name in `http.upload.middlewares` is the class name of a `FileUploadMiddleware` registered under that name (`@Injectable()`) or as `FileUploadMiddleware` (`@Injectable(FileUploadMiddleware)`).
+   An entry of `http.upload.middlewares` is first turned into its class: a name is the class name of a `FileUploadMiddleware` registered under that name (`@Injectable()`) or as `FileUploadMiddleware` (`@Injectable(FileUploadMiddleware)`). The route's own `options.middlewares` are resolved as written. Register upload middlewares in the root container: the startup check also sees the controller's container, the request does not.
 3. For each middleware in order, for each file, it awaits `beforeUpload(file, uploadOptions)` and merges the returned object into the file with `Object.assign`.
 4. When `options.fs` differs from the default upload provider, `ImmediateFileUploader` copies every file from the upload directory to `file.Provider` and deletes the temporary copy.
 5. When `options.uploader` is set, it resolves it like a middleware descriptor (`DI.resolve(service, [options ?? {}])`) and awaits `upload(file)` for every file. The returned files replace the ones the action receives.
