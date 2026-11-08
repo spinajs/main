@@ -110,4 +110,14 @@ describe('@Version optimistic locking on PGlite', function () {
     b.Title = 'from b';
     await expect(b.update()).to.be.rejectedWith(OptimisticLockError);
   });
+
+  it('treats a version that is not a safe integer as no version: 409, not a database error', async () => {
+    const [, b] = await stalePair();
+
+    for (const version of [1.5, Infinity]) {
+      Reflect.set(b, 'Revision', version);
+      b.Title = `from b at ${version}`;
+      await expect(b.update()).to.be.rejectedWith(OptimisticLockError);
+    }
+  });
 });

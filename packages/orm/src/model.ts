@@ -3,7 +3,7 @@ import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
-import type { IModelDescriptor, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import type { Op } from './enums.js';
@@ -29,7 +29,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
-import { refuseReplace, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
+import { bulkVersionColumn, refuseReplace, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
 
 /**
  *
@@ -808,11 +808,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    * If model can be in achived state - sets archived at date and saves it to db
    */
   public async archive() {
-    if (this.ModelDescriptor!.Archived) {
-      (this as ModelBase & Record<string, unknown>)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
-    } else {
+    if (!this.ModelDescriptor!.Archived) {
       throw new OrmException('archived at column not exists in model');
     }
+
+    const archivedAt = this.ModelDescriptor!.Archived.ArchivedAt;
+    const previous: unknown = Reflect.get(this, archivedAt);
+    Reflect.set(this, archivedAt, DateTime.utc());
 
     const lock = versionLock(this);
     const { query } = this.createUpdateQuery();
@@ -820,8 +822,14 @@ export class ModelBase<M = unknown> implements IModelBase {
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
     whereVersion(lock, query);
 
-    const result = await query;
-    settleVersion(lock, result, this);
+    let result: IUpdateResult;
+    try {
+      result = await query;
+      settleVersion(lock, result, this);
+    } catch (err) {
+      Reflect.set(this, archivedAt, previous);
+      throw err;
+    }
 
     // The whole model is in the database now - that is the baseline for the next update().
     this.writeBackRelationKeys();
@@ -1416,8 +1424,8 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     const { query, description } = createQuery(this, UpdateQueryBuilder);
     const values = _toColumnValues(data, description);
     // a bulk update has no old version to match, but it must still invalidate every copy read before it
-    const version = description.VersionColumn;
-    return version ? query.update(_.omit(values, version)).increment(version) : query.update(values);
+    const version = bulkVersionColumn(description, values);
+    return version ? query.update(values).increment(version) : query.update(values);
   },
 
   all(page?: number, perPage?: number) {

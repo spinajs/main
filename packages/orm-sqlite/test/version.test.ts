@@ -1,6 +1,5 @@
 import { DI } from '@spinajs/di';
-import { ConcurrencyConflict } from '@spinajs/exceptions';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { ConcurrencyConflict, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Archived, Connection, HasMany, InsertBehaviour, Model, ModelBase, OptimisticLockError, OrmDriver, Primary, QueryContext, Relation, SoftDelete, Version } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -236,7 +235,9 @@ describe('@Version optimistic locking on sqlite', function () {
     row.Title = 'b';
     await row.update();
 
+    const archivedAt = stale.ArchivedAt;
     await expect(stale.archive()).to.be.rejectedWith(OptimisticLockError);
+    expect(stale.ArchivedAt).to.eq(archivedAt);
     expect((await rows<{ Revision: number; ArchivedAt: unknown }>('ver_soft'))[0]).to.include({ Revision: 2, ArchivedAt: null });
   });
 
@@ -338,5 +339,46 @@ describe('@Version optimistic locking on sqlite', function () {
     const stored = await load(doc.Id);
     expect(stored.Title).to.eq('v2');
     expect(stored.Revision).to.eq(2);
+  });
+
+  it('a bulk Model.update() refuses a version column in its data', () => {
+    expect(() => VerDoc.update({ Title: 'bulk', Revision: 5 })).to.throw(InvalidArgument, /Revision/);
+  });
+
+  it('a failed save() gives the models it inserted their auto keys back', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    const elsewhere = await VerNote.where({ doc_id: doc.Id }).firstOrFail();
+    elsewhere.Body = 'changed elsewhere';
+    await elsewhere.update();
+
+    const added = new VerNote({ Body: 'added' });
+    const keyBefore = added.Id;
+    graph.Notes.push(added);
+    graph.Notes[0].Body = 'changed here';
+    await expect(graph.save()).to.be.rejectedWith(OptimisticLockError);
+
+    expect(added.Id).to.eq(keyBefore);
+    expect(added.IsNew).to.eq(true);
+
+    graph.Notes[0].Revision = elsewhere.Revision;
+    await graph.save();
+    const bodies = (await VerNote.where({ doc_id: doc.Id })).map((n) => n.Body);
+    expect(bodies.sort()).to.deep.equal(['added', 'changed here']);
+  });
+
+  it('a save({ reload: true }) that throws part-way leaves the models as they were', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    await sqlite().update().in('ver_doc').update({ Title: 'elsewhere' }).where('Id', doc.Id);
+    await sqlite().del().from('ver_note').where('doc_id', doc.Id);
+
+    graph.Notes[0].Body = 'edited';
+    await expect(graph.save({ reload: true })).to.be.rejectedWith(OptimisticLockError);
+
+    expect(graph.Title).to.eq('v1');
+    expect(graph.Snapshot!.Columns.get('Title')).to.eq('v1');
   });
 });

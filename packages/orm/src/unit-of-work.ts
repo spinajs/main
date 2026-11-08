@@ -50,12 +50,12 @@ export class UnitOfWork {
 
         const models = builder.collect(root);
         UnitOfWork.assertSingleConnection(models, descriptor, driver);
+        rollbacks.push(captureWriteState(models));
 
         if (options?.reload) {
           await UnitOfWork.reloadSnapshots(models, driver);
         }
 
-        rollbacks.push(captureWriteState(models));
         const set = builder.buildFrom(models);
         const plan = new SubjectSorter().sort(set);
         const result = await new SubjectExecutor(options ?? {}, driver).execute(plan);
