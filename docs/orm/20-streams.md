@@ -40,4 +40,4 @@ On a driver without a cursor, inside a transaction and under session settings, `
 - no `take()`, `skip()`, `distinct()`, `groupBy()`, aggregate column or order by a relation column;
 - NOT NULL order columns. The check reads the table description before the first page and throws `InvalidArgument` for a nullable column, because the dialects do not agree on where NULLs sort (first ascending on sqlite and mysql, last on postgres) and a walk would fail only when it reached them.
 
-Rows inserted or changed while the stream runs may or may not appear, depending on where they sort. A row present for the whole stream appears exactly once.
+Rows inserted or changed while the stream runs may or may not appear, depending on where they sort. A row present for the whole stream appears exactly once. Every page of one stream runs on the same connection, also where the connection has [read replicas](24-read-replicas.md): the stream picks it once, before the first page.
