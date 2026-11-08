@@ -567,6 +567,9 @@ export interface IModelDescriptor {
    */
   Archived: IModelArchivedDescriptor;
 
+  /** The `@Version()` column: writes through the model match only the row at the version the model carries. */
+  VersionColumn?: string;
+
   /**
    * Column  / fields list in model
    */

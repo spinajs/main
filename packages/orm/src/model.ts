@@ -29,6 +29,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
+import { settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
 
 /**
  *
@@ -789,7 +790,16 @@ export class ModelBase<M = unknown> implements IModelBase {
       return;
     }
 
-    const result = await (this.constructor as any).destroy(pk);
+    const lock = versionLock(this);
+    const query = (this.constructor as typeof ModelBase).destroy(pk) as unknown as DeleteQueryBuilder<ModelBase> | UpdateQueryBuilder<ModelBase>;
+    if (lock && query instanceof UpdateQueryBuilder) {
+      query.update(withVersion(lock, query.Value as Record<string, unknown>));
+    }
+    whereVersion(lock, query);
+
+    // `any` as before: the early return above resolves to undefined, which IModelBase.destroy() does not declare
+    const result: any = await query;
+    settleVersion(lock, result, this);
 
     return result;
   }
@@ -839,10 +849,11 @@ export class ModelBase<M = unknown> implements IModelBase {
       this.hydrate(data);
     }
 
+    const lock = versionLock(this);
     const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
     const changed = this.changeSet()
       .map((c) => c.Column)
-      .filter((c) => !keyColumns.includes(c));
+      .filter((c) => !keyColumns.includes(c) && c !== lock?.column);
 
     // Nothing to write. Checked against the diff, so re-assigning a column its current value
     // no longer produces an UPDATE that sets it to what it already was.
@@ -859,10 +870,12 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    query.update(_.pick(this.toSql() as Record<string, unknown>, changed));
+    query.update(withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed)));
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    whereVersion(lock, query);
 
     const updateResult = await query;
+    settleVersion(lock, updateResult, this);
 
     this.writeBackRelationKeys();
     this.takeSnapshot();
@@ -879,6 +892,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     // without touching the database.
     generateClientSideKeys(this, this.ModelDescriptor!);
     assertAssignedKeys(this, this.ModelDescriptor!);
+    startVersion(this);
 
     const { query, description } = this.createInsertQuery();
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
@@ -888,7 +902,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && c.Name !== description.VersionColumn).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -1432,6 +1446,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       (data as Array<InstanceType<T>>).forEach((d) => {
         generateClientSideKeys(d, description);
         assertAssignedKeys(d, description);
+        startVersionOf(description, d);
       });
 
       query.values(
@@ -1448,7 +1463,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && c.Name !== description.VersionColumn).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
@@ -1457,6 +1472,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
       generateClientSideKeys(data, description);
       assertAssignedKeys(data, description);
+      startVersionOf(description, data);
 
       if (data instanceof ModelBase) {
         query.values(data.toSql());
