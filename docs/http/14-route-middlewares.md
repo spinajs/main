@@ -61,7 +61,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) |
 | `IRouteInvocation` | `IMiddlewareContext` with `route`, `controller` and `path` always set |
 
-A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing.
+A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing and get only a [best-effort match](15-server-middlewares.md#the-route-before-routing).
 
 ### Answering in `onBefore`
 

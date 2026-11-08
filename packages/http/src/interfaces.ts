@@ -864,7 +864,8 @@ export type MiddlewareStage = 'beforePolicy' | 'outer' | 'inner';
 
 /**
  * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
- * has none in `onBefore` and `onAround`; in `onAfter` and `onFinish` it has them when the request matched a route.
+ * gets in `onBefore` and `onAround` the route the `RouteIndex` matches before routing (best effort: the real route is
+ * the router's); in `onAfter` and `onFinish` the route the router matched, else that pre-routing match.
  */
 export interface IMiddlewareContext {
   readonly req: express.Request;
