@@ -12,7 +12,7 @@ import { Command, Connection, OnDisconnect, OnEvent, Payload, Signal, SocketCont
 import { SocketConnection } from '../src/connection.js';
 import { SocketHub } from '../src/hub.js';
 import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage, type IdempotentReply } from '../src/interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware, type IdempotentReply } from '../src/interfaces.js';
 import { SHUTDOWN_FLUSH_MS, assertShutdownConfig, shutdownOverrun } from '../src/limits.js';
 import { ITestServer, command, connect, connected, delay, errorOf, nextEvent, open, refusalOf, resultOf, startServer, waitFor } from './harness.js';
 import { logText } from './log-text.js';
@@ -609,13 +609,13 @@ describe('socket graceful shutdown', function () {
 });
 
 /** A custom stage, not idempotency, asks for the drain's grace. */
-@Injectable(SocketCommandStage)
-export class ShutGraceStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class ShutGraceStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Lookup + 10;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     if (ctx.request.name === 'shut-grace.slow') {
       ctx.drainGrace = true;
     }

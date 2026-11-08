@@ -51,8 +51,13 @@ const errorName = (error: unknown) => (error === undefined ? '-' : (error as Err
 abstract class Recording extends ServerMiddleware {
   protected abstract readonly label: string;
 
-  public async onBefore(_ctx: IMiddlewareContext): Promise<void | Response> {
+  public async onBefore(ctx: IMiddlewareContext): Promise<void | Response> {
     calls.push(`${this.label}:before`);
+    if (this.label === 'a') {
+      state.beforePath = ctx.path;
+      state.beforeRoute = ctx.route?.Method;
+      state.beforeController = ctx.controller?.constructor.name;
+    }
   }
 
   public async onAfter(ctx: IReplyContext): Promise<void> {
@@ -321,6 +326,19 @@ describe('Server middleware hooks', function () {
     expect(state).to.include({ afterPath: 'http:GET /srv/ok', afterRoute: 'ok', finishPath: 'http:GET /srv/ok' });
   });
 
+  it('gives server onBefore the route the request will match, looked up before routing', async () => {
+    await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+    expect(state).to.include({ beforePath: 'http:GET /srv/ok', beforeRoute: 'ok', beforeController: 'ServerHooksController' });
+
+    for (const key of Object.keys(state)) delete state[key];
+    calls.length = 0;
+    await req().get('srv/missing').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+    expect(state.beforeRoute).to.eq(undefined);
+    expect(state.beforePath).to.eq(undefined);
+  });
+
   it('runs server onAfter after the route onAfter on an error reply, and its header reaches the client', async () => {
     const res = await req().get('srv/fail').set('Accept', 'application/json');
     await until(() => calls.includes('early:finish:false'));
@@ -423,7 +441,7 @@ describe('Server middleware hooks', function () {
     await req().get('srv/missing').set('Accept', 'application/json');
     await until(() => arounds.length === 6);
 
-    expect(arounds).to.deep.eq(['start:true', 'end:200:-', 'start:true', 'end:403:Forbidden', 'start:true', 'end:404:ResourceNotFound']);
+    expect(arounds).to.deep.eq(['start:false', 'end:200:-', 'start:false', 'end:403:Forbidden', 'start:true', 'end:404:ResourceNotFound']);
   });
 
   it('does not resolve the deprecated RequestStorage as a server middleware', async () => {
@@ -493,6 +511,62 @@ describe('Server middleware hooks: compression enabled', function () {
 
     expect(res.status).to.eq(200);
     expect(res.headers['content-encoding']).to.eq('gzip');
+  });
+});
+
+const ONCE_MODEL = { serialized: 'once' };
+
+class NoopAround extends ServerMiddleware {
+  public Order = 5;
+
+  public async onAround(_invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    await proceed();
+  }
+}
+
+@BasePath('srv-once')
+class SerializeOnceController extends BaseController {
+  @Get()
+  public model() {
+    return new Ok(ONCE_MODEL);
+  }
+}
+
+describe('Server middleware hooks: an onAround that does not read the reply', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+
+  before(async () => {
+    app = await httpApp({
+      register: (c) => {
+        c.register(SerializeOnceController).as(BaseController);
+        c.register(NoopAround).as(ServerMiddleware);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await app.dispose();
+  });
+
+  it('serializes a JSON reply once', async () => {
+    const stringify = JSON.stringify;
+    let serialized = 0;
+    JSON.stringify = ((value: unknown, ...rest: unknown[]) => {
+      if (value === ONCE_MODEL) serialized++;
+      return (stringify as (...args: unknown[]) => string)(value, ...rest);
+    }) as typeof JSON.stringify;
+    try {
+      const res = await req().get('srv-once/model').set('Accept', 'application/json');
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq(ONCE_MODEL);
+    } finally {
+      JSON.stringify = stringify;
+    }
+    expect(serialized).to.eq(1);
   });
 });
 
