@@ -15,7 +15,6 @@ import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import compression from 'compression';
 
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
@@ -151,7 +150,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             limit: '5mb',
           }),
           cookieParser(TEST_COOKIE_SECRET),
-          compression(),
         ],
 
         /**

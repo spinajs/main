@@ -3,12 +3,12 @@ import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import sinon from 'sinon';
-import express from 'express';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { serverApp } from './support/server-app.js';
 
 chai.use(chaiHttp);
 
@@ -16,22 +16,19 @@ const PARTNER = 'https://partner.example.test';
 const EVIL = 'https://evil.example.test';
 
 /** A CorsMiddleware reading `http.cors` (absent when undefined) from a Configuration the http schema checked. */
-async function middleware(cors: unknown) {
+async function middleware(cors: unknown, type: new () => CorsMiddleware = CorsMiddleware) {
   const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: cors === undefined ? {} : { http: { cors } } });
-  const mw = readingFrom(new CorsMiddleware(), child);
+  const mw = readingFrom(new type(), child);
   const warn = sinon.stub();
   Object.defineProperty(mw, 'Log', { value: { warn } });
   return { mw, warn };
 }
 
-async function app(cors: unknown) {
-  const handler = (await middleware(cors)).mw.before();
-  const a = express();
-  if (handler) a.use(handler as express.RequestHandler);
-  a.all('/probe', (_req, res) => {
+async function app(cors: unknown, type?: new () => CorsMiddleware) {
+  return serverApp((await middleware(cors, type)).mw, (req, res, next) => {
+    if (req.path !== '/probe') return next();
     res.json({ ok: true });
   });
-  return a;
 }
 
 const simple = async (cors: unknown, origin: string) => chai.request(await app(cors)).get('/probe').set('Origin', origin);
@@ -46,7 +43,7 @@ describe('CorsMiddleware (A31)', () => {
   it('A31 without http.cors installs no middleware and warns', async () => {
     for (const cors of [undefined, null, false, true]) {
       const { mw, warn } = await middleware(cors);
-      expect(mw.before(), String(cors)).to.eq(null);
+      expect(mw.isEnabled(), String(cors)).to.eq(false);
       expect(warn.calledOnce).to.eq(true);
     }
   });
@@ -159,10 +156,49 @@ describe('CorsMiddleware (A31)', () => {
     expect(await configurationViolations({ schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { cors: { origins: 'https://a.example' } } } })).to.include('http.cors.origins');
   });
 
+  it('a subclass allows origins by a rule through allowance(), with the default preflight answer', async () => {
+    class SubdomainCors extends CorsMiddleware {
+      protected allowance(origin: string) {
+        return /^https:\/\/[a-z0-9-]+\.example\.test$/.test(origin) ? { allowOrigin: origin, credentials: true } : super.allowance(origin);
+      }
+    }
+    const SHOP = 'https://shop.example.test';
+    const simpleRes = await chai.request(await app({ origins: [PARTNER] }, SubdomainCors)).get('/probe').set('Origin', SHOP);
+    const simpleHeaders = simpleRes.header as Record<string, string | undefined>;
+    expect(simpleHeaders['access-control-allow-origin']).to.eq(SHOP);
+    expect(simpleHeaders['access-control-allow-credentials']).to.eq('true');
+
+    const preflightRes = await chai.request(await app({ origins: [PARTNER] }, SubdomainCors)).options('/probe').set('Origin', SHOP).set('Access-Control-Request-Method', 'POST');
+    expect(preflightRes.status).to.eq(204);
+    expect((preflightRes.header as Record<string, string | undefined>)['access-control-allow-origin']).to.eq(SHOP);
+    expect(acHeaders(await simple({ origins: [PARTNER] }, 'https://shop.evil.test'))).to.deep.eq([]);
+  });
+
+  it('an overridden allowance() varies by Origin even with only the wildcard configured, and can enable CORS by a rule alone', async () => {
+    class EchoCors extends CorsMiddleware {
+      protected allowance(origin: string) {
+        return origin.endsWith('.example.test') ? { allowOrigin: origin, credentials: true } : super.allowance(origin);
+      }
+    }
+    const SHOP = 'https://shop.example.test';
+    const starred = await chai.request(await app({ origins: ['*'] }, EchoCors)).get('/probe').set('Origin', SHOP);
+    const starredHeaders = starred.header as Record<string, string | undefined>;
+    expect(starredHeaders['access-control-allow-origin']).to.eq(SHOP);
+    expect(starredHeaders['vary']).to.match(/origin/i);
+
+    class RuleOnlyCors extends EchoCors {
+      public isEnabled() {
+        return true;
+      }
+    }
+    const ruled = await chai.request(await app(undefined, RuleOnlyCors)).get('/probe').set('Origin', SHOP);
+    expect((ruled.header as Record<string, string | undefined>)['access-control-allow-origin']).to.eq(SHOP);
+  });
+
   it('A31 an origin entry the schema lets through but URL refuses fails when the middleware is built', async () => {
     for (const entry of ['http://app.example.test:99999', 'http://app:port', 'http://[::1']) {
       const { mw } = await middleware({ origins: [entry] });
-      expect(() => mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
+      expect(() => mw.isEnabled(), entry).to.throw(InvalidOption, 'http.cors.origins');
     }
   });
 });

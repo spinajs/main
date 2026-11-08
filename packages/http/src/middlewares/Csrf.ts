@@ -5,6 +5,8 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
 import { HTTP_STATUS_CODE, ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import type { IMiddlewareContext, Response } from '../interfaces.js';
+import { RawJsonResponse } from '../response-methods/rawJson.js';
 import { BaseController } from '../base-controller.js';
 import { isCsrfExempt } from '../decorators.js';
 import { buildRoutePath } from '../route-builder.js';
@@ -113,7 +115,8 @@ class ExemptRoutes {
  * Origin, `Sec-Fetch-Site: same-origin`. Else 403 {@link CSRF_REFUSED_BODY}. A request with none of these (a server, a
  * CLI) passes. Routes marked `@CsrfExempt()` and paths in `http.csrf.exempt` are never refused.
  *
- * A registered subclass (authn-http's guard, which adds the session cookie) replaces this one.
+ * A registered subclass (authn-http's guard, which adds the session cookie) replaces this one: `isEnabled()` is then
+ * false.
  */
 @Injectable(ServerMiddleware)
 export class CsrfGuard extends SameOriginGuard {
@@ -134,6 +137,8 @@ export class CsrfGuard extends SameOriginGuard {
 
   @Logger('http')
   protected Log!: Log;
+
+  private csrf?: { readonly options: SameOriginOptions; readonly cookies: readonly string[]; readonly exempt: ExemptRoutes };
 
   constructor() {
     super();
@@ -170,9 +175,10 @@ export class CsrfGuard extends SameOriginGuard {
     return parseOrigin(requestOrigin(req, requestProxyTrust(req)));
   }
 
-  protected refuse(reason: OriginRefusal, req: sRequest, res: Express.Response, _next: Express.NextFunction): void {
+  /** The answer to a refused request: 403 with {@link CSRF_REFUSED_BODY} by default. */
+  protected refuse(reason: OriginRefusal, req: sRequest): Response {
     this.Log?.debug({ reason, method: req.method, path: req.path }, 'CsrfGuard refused ${method} ${path}: ${reason}');
-    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+    return new RawJsonResponse(HTTP_STATUS_CODE.FORBIDDEN, CSRF_REFUSED_BODY);
   }
 
   private superseded(): boolean {
@@ -189,21 +195,28 @@ export class CsrfGuard extends SameOriginGuard {
     return checkSameOrigin(req.headers, origin === undefined ? undefined : this.ownOrigin(req), options);
   }
 
-  public before(): ((req: sRequest, res: Express.Response, next: Express.NextFunction) => void) | null {
-    if (this.superseded()) return null;
-
+  /** False when a registered subclass replaces this guard, or with `http.csrf.enabled: false`. */
+  public isEnabled(): boolean {
+    if (this.superseded()) return false;
     // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
-    const options: SameOriginOptions = { allowedOrigins: this.allowedOrigins(), missingOrigin: 'same-origin-fetch' };
-    const cookies = this.ambientCookies();
-    const exempt = new ExemptRoutes(this.exemptPaths(), this.RoutePrefix, () => this.controllers());
-    if (!this.enabled()) return null;
+    this.csrfSettings();
+    return this.enabled();
+  }
 
-    return (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
-      if (!this.appliesTo(req)) return next();
-      const decision = this.decide(req, cookies, options);
-      if (decision === undefined || decision.allowed) return next();
-      if (exempt.has(req)) return next();
-      this.refuse(decision.reason, req, res, next);
-    };
+  public onBefore({ req }: IMiddlewareContext): Response | undefined {
+    const request = req as sRequest;
+    if (!this.appliesTo(request)) return undefined;
+    const { options, cookies, exempt } = this.csrfSettings();
+    const decision = this.decide(request, cookies, options);
+    if (decision === undefined || decision.allowed || exempt.has(request)) return undefined;
+    return this.refuse(decision.reason, request);
+  }
+
+  private csrfSettings() {
+    return (this.csrf ??= {
+      options: { allowedOrigins: this.allowedOrigins(), missingOrigin: 'same-origin-fetch' },
+      cookies: this.ambientCookies(),
+      exempt: new ExemptRoutes(this.exemptPaths(), this.RoutePrefix, () => this.controllers()),
+    });
   }
 }
