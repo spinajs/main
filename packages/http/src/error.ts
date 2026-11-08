@@ -5,7 +5,7 @@ import { DI, Constructor } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
-import { deliverReply } from './reply-pipeline.js';
+import { deliverReply, repliedInPlace } from './reply-pipeline.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
 import { BadRequest, CodedHttpException } from '@spinajs/exceptions';
@@ -154,6 +154,12 @@ export function __handle_error__(container: IContainer = DI.RootContainer, reply
     return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         if (!err) {
             return next();
+        }
+
+        // an action failing after the deadline answered for it, most often on the aborted signal: expected, not a fault
+        if (repliedInPlace(res)) {
+            logger.debug({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url} after the request was answered in its place');
+            return;
         }
 
         // the reply already started: a second one cannot be sent. As express does, a reply cut short is not ended

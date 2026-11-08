@@ -48,6 +48,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Idempotency-Key](26-idempotency.md) | `@Idempotent()`: a retried request replays the stored JSON reply; 409 while in flight, 422 for a reused key, the ORM store's app-entry import |
 | [Maintenance mode](27-maintenance-mode.md) | `MaintenanceMode`, `http.maintenance`: 503 with `Retry-After` during maintenance (runtime `enable()`/`disable()`), 503 with `Connection: close` while the server shuts down |
 | [Concurrency limit](28-concurrency-limit.md) | `ConcurrencyLimit`, `http.concurrency`: load shedding, 503 with `Retry-After` over a cap of requests in flight |
+| [Request deadlines](29-request-deadlines.md) | `RequestDeadline`, `@Deadline(ms)`, `http.deadline`: `req.storage.signal` aborted at the deadline, 504 when nothing was sent by then |
 | [Audit](30-audit.md) | `Audit`, `AuditSink`, `LogAuditSink`, `http.audit`: record each request of a route with its redacted body and query, status, error and principal |
 
 ## Quick start

@@ -18,7 +18,7 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { answerEarly, answeredEarly, beginRoute, enterMiddleware, repliedInPlace, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 
 /**
@@ -380,6 +380,10 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
 
   const contract = { controller: controller.constructor.name, handler: String(route.Method) };
   const entry: Express.RequestHandler = (req, res, next) => {
+    // answered in place before routing (a deadline during a slow server onBefore): no part of the route runs
+    if (repliedInPlace(res)) {
+      return;
+    }
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
       container: options.container,

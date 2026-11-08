@@ -42,7 +42,7 @@ export default {
 ## Important behaviour
 
 - The limit is per process. With several instances behind a load balancer, the cluster serves up to `max` times the instance count.
-- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped. With actions that ignore that, the cap bounds the requests being answered, not the work in progress.
+- A client that goes away frees its slot at once, even while its action still runs: the action is not stopped. With actions that ignore that, the cap bounds the requests being answered, not the work in progress. Pass `req.storage.signal` from [`RequestDeadline`](29-request-deadlines.md) to its I/O to stop that work too.
 - Raw `http.middlewares` handlers (the body and cookie parsers, unless your version mounts them as server middlewares) run before every server middleware: a refused request's body has been read already.
 - A long-lived response (a server-sent event stream, a large download) holds a slot until it ends; size `max` for them or keep them on another instance.
 

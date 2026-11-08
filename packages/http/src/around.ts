@@ -2,11 +2,11 @@ import type Express from 'express';
 import type { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IController, IMiddlewareContext, IRoute, IRouteOutcome, Request, RouteMiddleware } from './interfaces.js';
-import { RouteClientGone } from './exceptions.js';
+import { RouteAnsweredInPlace, RouteClientGone } from './exceptions.js';
 import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
 import { DeferredCapture, attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
-import { answeredErrorOf, answeredEarly, enterMiddleware, routeContextOf, serverContextOf } from './reply-pipeline.js';
+import { answeredErrorOf, answeredEarly, enterMiddleware, repliedInPlace, routeContextOf, serverContextOf } from './reply-pipeline.js';
 
 const AROUNDS = Symbol('aroundsSettled');
 
@@ -129,6 +129,12 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
 
         onFinish = () => {
           release();
+          // the 504 of a deadline finished the response while the route runs on: a gate holding a claim must not
+          // release it as if the route were done (an @Idempotent retry would run the action twice)
+          if (!server && repliedInPlace(res)) {
+            afterInner(() => reject(new RouteAnsweredInPlace()));
+            return;
+          }
           const error = server ? (routeErrorOf(res) ?? answeredErrorOf(res)) : routeErrorOf(res);
           const outcome: IRouteOutcome = error === undefined ? { get reply() { return read(); } } : { get reply() { return read(); }, error };
           afterInner(() => resolve(outcome));
