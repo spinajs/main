@@ -47,6 +47,7 @@
   "DatetimeValueConverter",
   "DbPropertyHydrator",
   "DefaultMigrationService",
+  "DefaultReplicaRouter",
   "DefaultValueBuilder",
   "DeleteQueryBuilder",
   "DeleteQueryCompiler",
@@ -210,6 +211,7 @@
   "ReferentialAction",
   "Relation",
   "RelationType",
+  "ReplicaRouter",
   "SAFE_ENV_NAME_REGEXP",
   "SCHEMA_SYMBOL",
   "SET_DELIMITER",
@@ -341,6 +343,7 @@
   "isRetryableErrorCode",
   "isSqlFragment",
   "lookupValue",
+  "markWrite",
   "mergeInsertResults",
   "mergeMigrationEnv",
   "migrationChecksum",
@@ -364,6 +367,7 @@
   "qualifierOf",
   "queryOf",
   "quoterOf",
+  "readYourWrites",
   "referentialRule",
   "rel",
   "renderStep",
@@ -388,5 +392,6 @@
   "whereAnyPk",
   "whereInGroups",
   "whereNotAnyPk",
-  "wherePk"
+  "wherePk",
+  "wroteInScope"
 ]

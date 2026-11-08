@@ -341,6 +341,21 @@ export interface IDriverOptions {
   SharedServer?: string;
 
   /**
+   * Read-only copies of this connection. Each entry is merged over these options ( `Options` as a whole ) and opened
+   * as its own driver. Model selects go to a healthy replica, in turn, unless they must see the primary.
+   */
+  Replicas?: Array<Partial<IDriverOptions>>;
+
+  /** Where model selects go while replicas exist. Default `replica`. */
+  ReadPreference?: 'primary' | 'replica';
+
+  /**
+   * `context` (default): once a read-your-writes scope wrote through this connection, the scope's selects read the
+   * primary. `off`: they keep reading replicas.
+   */
+  StickyPrimary?: 'context' | 'off';
+
+  /**
    * User associatet with this connection
    */
   User?: string;
