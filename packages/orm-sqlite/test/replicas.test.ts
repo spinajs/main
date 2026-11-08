@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { DI, IContainer } from '@spinajs/di';
+import { Class, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Connection, ConnectionSessionSettings, ConnectionState, DefaultReplicaRouter, Model, ModelBase, Orm, OrmDriver, Primary, readYourWrites, ReplicaRouter } from '@spinajs/orm';
+import { Connection, ConnectionSessionSettings, ConnectionState, DefaultReplicaRouter, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, Primary, readYourWrites, ReplicaRouter } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -61,6 +61,28 @@ async function readName(): Promise<string> {
   return (await RoutedItem.where({ Id: 1 }).firstOrFail()).Name;
 }
 
+/** What a migration's `data()` and its non-transactional `down()` read through the model, right after the DDL. */
+const migrationReads: Record<string, string> = {};
+
+function defineSeedMigration(): Class<OrmMigration> {
+  @Migration('routed')
+  class RoutedSeed_2026_11_08_00_00_00 extends OrmMigration {
+    public transaction = false;
+
+    public async up(): Promise<void> {}
+
+    public async down(): Promise<void> {
+      migrationReads.down = await readName();
+    }
+
+    public async data(): Promise<void> {
+      migrationReads.data = await readName();
+    }
+  }
+
+  return RoutedSeed_2026_11_08_00_00_00;
+}
+
 async function writePrimary(name: string): Promise<void> {
   const item = await RoutedItem.where({ Id: 1 }).onPrimary().firstOrFail();
   item.Name = name;
@@ -78,8 +100,10 @@ describe('read replicas on sqlite', function () {
   let orm: Orm;
   let primary: OrmDriver;
   let replica: OrmDriver;
+  let seed: Class<OrmMigration>;
 
   before(async () => {
+    seed = defineSeedMigration();
     removeFiles();
     DI.clearCache();
     container = DI.child({ isolateSingletons: true });
@@ -110,6 +134,7 @@ describe('read replicas on sqlite', function () {
 
   after(async () => {
     await orm?.dispose();
+    DI.unregister(seed);
     container.unregister(RoutedConf);
     container.clearCache();
     DI.clearCache();
@@ -175,6 +200,17 @@ describe('read replicas on sqlite', function () {
     }
   });
 
+  it('reads the primary for a row-locking select outside a transaction', async () => {
+    expect((await RoutedItem.where({ Id: 1 }).forUpdate().firstOrFail()).Name).to.eq('primary');
+  });
+
+  it("reads the primary in a migration's data() and in its down() outside a transaction", async () => {
+    await orm.Migrator.migrate({ name: seed.name });
+    await orm.Migrator.Runner.down(seed.name);
+
+    expect(migrationReads).to.deep.equal({ data: 'primary', down: 'primary' });
+  });
+
   it('runs a raw driver select on the driver it was taken from', async () => {
     const rows = (await primary.select().from('routed_item').where({ Id: 1 })) as Array<{ Name: string }>;
 
@@ -216,5 +252,41 @@ describe('read replicas on sqlite', function () {
     await readName();
 
     expect(RecordingSettings.asked).to.include(replica.Options.Name);
+  });
+});
+
+class MixedDriverConf extends FrameworkConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    _.mergeWith(
+      this.Config,
+      {
+        logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
+        db: {
+          StrictTableCheck: false,
+          Connections: [{ Driver: 'orm-driver-sqlite', Name: 'mixed', Filename: ':memory:', Replicas: [{ Driver: 'orm-driver-postgres' }], Migration: { OnStartup: false } }],
+        },
+      },
+      mergeArrays,
+    );
+  }
+}
+
+describe('read replicas of another driver', () => {
+  it('refuses a replica whose driver is not its primary’s, before any connection opens', async () => {
+    DI.clearCache();
+    const container = DI.child({ isolateSingletons: true });
+    container.register(MixedDriverConf).as(Configuration);
+    container.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    try {
+      let error: unknown;
+      await Promise.resolve(container.resolve(Orm)).catch((err: unknown) => (error = err));
+
+      expect(error).to.be.instanceOf(Error);
+      expect((error as Error).message).to.contain('replica 0 of connection mixed');
+    } finally {
+      container.clearCache();
+      DI.clearCache();
+    }
   });
 });

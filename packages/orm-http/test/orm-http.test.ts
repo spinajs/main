@@ -442,6 +442,18 @@ describe('Http orm tests', function () {
     });
   });
 
+  describe('read-your-writes scope', function () {
+    it('marks the write in the request that made it, and only there', async () => {
+      const first = (await req().get('read-your-writes/write').set('Accept', 'application/json')).body as { before: boolean; after: boolean };
+      const second = (await req().get('read-your-writes/write').set('Accept', 'application/json')).body as { before: boolean; after: boolean };
+
+      expect([first, second]).to.deep.equal([
+        { before: false, after: true },
+        { before: false, after: true },
+      ]);
+    });
+  });
+
   describe('keyset pages', function () {
     interface KeysetBody {
       items: Array<{ Id: number }>;

@@ -23,6 +23,7 @@ import { MigrationSource } from './migration-sources.js';
 import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
 import { installQueryExtensions, resolveQueryExtensions } from './extension-install.js';
 import { ReplicaRouter } from './replica-router.js';
+import { runAsMigration } from './schema-touches.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -66,6 +67,15 @@ function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor):
 function missingTablesMessage(missing: IMissingModelTable[]): string {
   const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
   return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
+}
+
+// a replica executes builders compiled by its primary's dialect
+function assertReplicaDrivers(c: IDriverOptions): void {
+  for (const [index, replica] of (c.Replicas ?? []).entries()) {
+    if (replica.Driver !== undefined && replica.Driver !== c.Driver) {
+      throw new OrmException(`read replica ${index} of connection ${c.Name} names driver ${replica.Driver}; a replica must use its primary's driver, ${c.Driver}`);
+    }
+  }
 }
 
 export class Orm extends AsyncService {
@@ -448,6 +458,7 @@ export class Orm extends AsyncService {
       if (!this.Container.hasRegistered(c.Driver)) {
         throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
       }
+      assertReplicaDrivers(c);
 
       let driver: OrmDriver | null = null;
       try {
@@ -681,7 +692,11 @@ export class OrmMigrator extends AsyncService {
    * runs on any later pass. The tracking table has no "applied but unseeded" state, so `data()` must be safe to rerun
    * by hand ( docs/orm/10-migrations.md ).
    */
-  protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
+  protected runDataPhase(executed: OrmMigration[]): Promise<void> {
+    return runAsMigration(() => this.runDataHooks(executed));
+  }
+
+  private async runDataHooks(executed: OrmMigration[]): Promise<void> {
     const errors: Array<{ name: string; reason: string; error: unknown }> = [];
 
     for (const m of executed) {

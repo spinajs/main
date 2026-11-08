@@ -97,9 +97,15 @@ export function touchAllTables(touches: SchemaTouches, driver: OrmDriver): void 
   note(touches, driver, 'all');
 }
 
-/** `MigrationRunner.up()` is running on this async path. */
+const migrating = new AsyncLocalStorage<true>();
+
+/** Runs a migration step (`up`, `down` or the `data()` seeds); a model select inside it reads the primary. */
+export function runAsMigration<R>(fn: () => Promise<R>): Promise<R> {
+  return migrating.run(true, fn);
+}
+
 export function inMigrationRun(): boolean {
-  return storage.getStore()?.touches !== undefined;
+  return migrating.getStore() === true;
 }
 
 /** Called by every builder right before its driver round trip. */

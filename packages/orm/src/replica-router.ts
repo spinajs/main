@@ -34,9 +34,10 @@ export abstract class ReplicaRouter {
 
 @Injectable(ReplicaRouter)
 export class DefaultReplicaRouter extends ReplicaRouter {
-  private readonly replicas = new Map<OrmDriver, OrmDriver[]>();
+  // weak: a router cached in the root container outlives the Orms that registered their drivers
+  private readonly replicas = new WeakMap<OrmDriver, OrmDriver[]>();
 
-  private readonly turns = new Map<OrmDriver, number>();
+  private readonly turns = new WeakMap<OrmDriver, number>();
 
   public register(primary: OrmDriver, replicas: OrmDriver[]): void {
     this.replicas.set(primary, replicas);

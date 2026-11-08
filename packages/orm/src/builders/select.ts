@@ -257,7 +257,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this._pinnedDriver;
     }
 
-    if (this._onPrimary || this._model === undefined || inMigrationRun()) {
+    if (this._onPrimary || this._rowLock !== undefined || this._model === undefined || inMigrationRun()) {
       return this._driver;
     }
 
