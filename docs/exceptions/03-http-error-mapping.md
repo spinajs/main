@@ -66,7 +66,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 | `AuthenticationFailed` | `Unauthorized` | 401 |
 | `Forbidden` | `ForbiddenResponse` | 403 |
 | `ResourceNotFound` | `NotFound` | 404 |
-| `ResourceDuplicated` | `Conflict` | 409 |
+| `ResourceDuplicated`, `ConcurrencyConflict` | `Conflict` | 409 |
 | `EntityTooLargeException` (`@spinajs/http`), `LimitExceeded` | `EntityTooLarge` | 413 |
 | `UnsupportedMediaTypeException` (`@spinajs/http`) | `UnsupportedMediaType` | 415 |
 | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError` | `ServerError` | 500 |

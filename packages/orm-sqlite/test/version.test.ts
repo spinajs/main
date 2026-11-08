@@ -1,11 +1,11 @@
 import { DI } from '@spinajs/di';
 import { ConcurrencyConflict } from '@spinajs/exceptions';
-import { Connection, HasMany, Model, ModelBase, OptimisticLockError, OrmDriver, Primary, Relation, Version } from '@spinajs/orm';
+import { Connection, HasMany, Model, ModelBase, OptimisticLockError, OrmDriver, Primary, QueryContext, Relation, Version } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { db } from './common.js';
-import { bootUow, registerUowConnection } from './uowFixture.js';
+import { bootUow, captureStatements, registerUowConnection } from './uowFixture.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -135,5 +135,44 @@ describe('@Version optimistic locking on sqlite', function () {
     loaded.Title = 'edited';
     await loaded.update();
     expect(loaded.Revision).to.eq(2);
+  });
+
+  it('save() starts a new model at version 1, then bumps it and refuses a stale copy', async () => {
+    const doc = new VerDoc({ Title: 'new' });
+    await doc.save();
+    expect(doc.Revision).to.eq(1);
+
+    const a = await load(doc.Id);
+    const b = await load(doc.Id);
+    a.Title = 'from a';
+    await a.save();
+    expect(a.Revision).to.eq(2);
+
+    b.Title = 'from b';
+    await expect(b.save()).to.be.rejectedWith(OptimisticLockError);
+  });
+
+  it('rolls the whole saved graph back when one of its rows is stale', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    const elsewhere = await VerNote.where({ doc_id: doc.Id }).firstOrFail();
+    elsewhere.Body = 'changed elsewhere';
+    await elsewhere.update();
+
+    graph.Title = 'v2';
+    graph.Notes[0].Body = 'changed here';
+    const capture = captureStatements();
+    try {
+      await expect(graph.save()).to.be.rejectedWith(OptimisticLockError);
+    } finally {
+      capture.restore();
+    }
+
+    expect(capture.statements.filter((s) => s.context === QueryContext.Update)).to.have.length(2);
+    const stored = await load(doc.Id);
+    expect(stored.Title).to.eq('v1');
+    expect(stored.Revision).to.eq(1);
+    expect((await VerNote.where({ doc_id: doc.Id }).firstOrFail()).Body).to.eq('changed elsewhere');
   });
 });

@@ -86,6 +86,7 @@ The status column applies when `@spinajs/http` handles the error. "Unmapped" cla
 | `MethodNotImplemented` | A method is declared but not implemented. | 500 | `ServerError` |
 | `UnexpectedServerError` | A generic server failure. | 500 | `ServerError` |
 | `ResourceDuplicated` | A unique resource already exists, for example a unique constraint failed. | 409 | `Conflict` |
+| `ConcurrencyConflict` | The resource changed between the read a request was based on and the write it asked for, for example `OptimisticLockError` of `@spinajs/orm`. | 409 | `Conflict` |
 | `JsonValidationFailed` | A JSON entity does not match its schema. | 400 | `BadRequestResponse` |
 | `ExpectedResponseUnacceptable` | The client's `Accept` header asks for a format the server cannot produce. | 400 | `BadRequestResponse` |
 | `LimitExceeded` | A stream or input went over a configured size limit, for example `ByteLimitStream` of `@spinajs/fs`. | 413 | `EntityTooLarge` |
