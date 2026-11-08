@@ -22,6 +22,7 @@ import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './m
 import { MigrationSource } from './migration-sources.js';
 import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
 import { installQueryExtensions, resolveQueryExtensions } from './extension-install.js';
+import { ReplicaRouter } from './replica-router.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -73,6 +74,9 @@ export class Orm extends AsyncService {
   public Migrations: Array<ClassInfo<OrmMigration>> = [];
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
+
+  /** Read replicas per configured connection name, in the order `Replicas` lists them. */
+  public Replicas: Map<string, OrmDriver[]> = new Map<string, OrmDriver[]>();
 
   /** Applied the `Migration.OnStartup` migrations of this Orm; `Migrator.ready()` settles after their seeds. */
   public Migrator: OrmMigrator;
@@ -473,6 +477,7 @@ export class Orm extends AsyncService {
       // a connection that was healthy at boot says nothing about one whose server has since
       // restarted, so the probe keeps running for the lifetime of the connection
       driver.startHealthCheck();
+      await this.createReplicas(c, driver);
       this.Log.success({ connection: c.Name, parameters }, 'Created ORM connection ${connection} with parameters ${parameters}');
     }
 
@@ -511,6 +516,30 @@ export class Orm extends AsyncService {
     }).as('OrmConnection');
   }
 
+  private async createReplicas(primaryOptions: IDriverOptions, primary: OrmDriver): Promise<void> {
+    const replicas: OrmDriver[] = [];
+
+    for (const [index, replica] of (primaryOptions.Replicas ?? []).entries()) {
+      const options: IDriverOptions = { ...primaryOptions, ...replica, Name: `${primaryOptions.Name}:replica:${index}`, Replicas: undefined, Migration: undefined, DefaultConnection: false };
+      const driver = await this.Container.resolve<OrmDriver>(options.Driver, [options]);
+
+      try {
+        await driver.connect();
+      } catch (err) {
+        // a replica that is down at boot only loses its reads; its health check keeps reconnecting
+        this.Log.warn({ error: err, connection: options.Name }, 'Read replica ${connection} is unreachable at boot; its selects go to the primary until it answers');
+      }
+
+      driver.startHealthCheck();
+      replicas.push(driver);
+    }
+
+    if (replicas.length > 0) {
+      this.Replicas.set(primaryOptions.Name, replicas);
+      this.Container.resolve(ReplicaRouter).register(primary, replicas);
+    }
+  }
+
   private applyModelMixins() {
     this.Models.forEach((m) => {
       // tslint:disable-next-line: forin
@@ -525,6 +554,15 @@ export class Orm extends AsyncService {
       value.stopHealthCheck();
       await value.disconnect();
       value.releaseTransactionStorage();
+    }
+
+    // an Orm made without its constructor (test doubles) has no Replicas map
+    for (const replicas of this.Replicas?.values() ?? []) {
+      for (const replica of replicas) {
+        replica.stopHealthCheck();
+        await replica.disconnect();
+        replica.releaseTransactionStorage();
+      }
     }
   }
 }

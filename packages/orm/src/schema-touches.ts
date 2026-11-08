@@ -97,6 +97,11 @@ export function touchAllTables(touches: SchemaTouches, driver: OrmDriver): void 
   note(touches, driver, 'all');
 }
 
+/** `MigrationRunner.up()` is running on this async path. */
+export function inMigrationRun(): boolean {
+  return storage.getStore()?.touches !== undefined;
+}
+
 /** Called by every builder right before its driver round trip. */
 export function executeRecorded<R>(driver: OrmDriver, touch: () => SchemaTouch, run: () => Promise<R>): Promise<R> {
   const scope = storage.getStore();

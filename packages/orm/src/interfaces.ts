@@ -1552,6 +1552,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   // their row types, which a populated row fails against the model's; the inline shape compares only the column names.
   paginate(options: { orderBy: Array<[ColumnRef<Unbox<T>>, 'asc' | 'desc']>; limit: number; after?: string; before?: string }): Promise<KeysetPage<Unbox<T>>>;
 
+  /** Reads this select from the primary even where the connection has read replicas. */
+  onPrimary(): this;
+
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
 
