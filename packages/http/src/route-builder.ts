@@ -261,7 +261,7 @@ export function createActionHandler(
 
           if (result instanceof Response) {
             for (const x of enabledMiddlewares) {
-              await x.onResponse(result, route, controller);
+              await x.onResponse?.(result, route, controller);
             }
           }
         } catch (err) {
@@ -336,10 +336,10 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     createPolicyGate(options.policies, route, controller, log, options.basePath),
     ...[...outer, ...inner].flatMap((m) => [
       ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
-      wrapMiddlewareAction(m, m.onBefore.bind(m), route, controller, 'middleware'),
+      ...(m.onBefore ? [wrapMiddlewareAction(m, m.onBefore.bind(m), route, controller, 'middleware')] : []),
     ]),
-    createActionHandler(controller, route, unwinding, options.storage, options.derived),
-    ...unwinding.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, controller, 'after')),
+    createActionHandler(controller, route, unwinding.filter((m) => m.onResponse), options.storage, options.derived),
+    ...unwinding.flatMap((m) => (m.onAfter ? [wrapMiddlewareAction(m, m.onAfter.bind(m), route, controller, 'after')] : [])),
     ...recorder,
     createOnErrorHandler(options.errorHandlers, route, controller, options.container, log),
     __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),

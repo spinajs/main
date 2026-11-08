@@ -3,7 +3,7 @@ import type { Constructor } from '@spinajs/di';
 import { AuthzConfigError, parsePermission } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 import { BasePolicy, Middleware, Route, RouteMiddleware } from '@spinajs/http';
-import type { IController, IControllerDescriptor, IPolicyGroup, IRoute, Request, Response } from '@spinajs/http';
+import type { IController, IControllerDescriptor, IPolicyGroup, IRoute, Request } from '@spinajs/http';
 import type * as express from 'express';
 
 import type { AccessOptions } from '../api.js';
@@ -116,10 +116,6 @@ export class UnscopedMiddleware extends RouteMiddleware {
       reason: this.reason,
     });
   }
-
-  public async onResponse(_response: Response): Promise<void> {}
-
-  public async onAfter(): Promise<void> {}
 }
 
 export function Unscoped(reason: string): MethodDecorator {

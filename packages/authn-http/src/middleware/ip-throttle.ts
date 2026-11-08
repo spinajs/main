@@ -50,10 +50,6 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
     super();
   }
 
-  public isEnabled(): boolean {
-    return true;
-  }
-
   public async onBefore(req: express.Request): Promise<void> {
     const ctx = contextOf(clientOf(req as Request), 'request');
     const key = ipKey(ctx, ipv6PrefixOf(this.Ipv6Prefix)) ?? (this.mode === 'count' ? { kind: 'ip', value: 'unknown' } : null);
@@ -71,10 +67,6 @@ export class AuthnIpThrottleMiddleware extends RouteMiddleware {
     const verdict = await throttle.peek([gate.key], gate.flow, gate.ctx);
     if (!verdict.allowed) throw new AuthnIpThrottled(verdict.retryAfterSeconds);
   }
-
-  public async onAfter(): Promise<void> {}
-
-  public async onResponse(): Promise<void> {}
 }
 
 /** The route's answer to a throttled client. */

@@ -8,7 +8,7 @@ import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
 import { principalKey } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type * as Idempotency from '@spinajs/idempotency';
-import { AroundMiddleware } from '../interfaces.js';
+import { RouteMiddleware } from '../interfaces.js';
 import type { IRoute, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
 import { RouteClientGone, RouteRegistrationException } from '../exceptions.js';
 import type { CapturedJsonReply } from '../response-capture.js';
@@ -108,7 +108,7 @@ function replay(res: Express.Response, reply: CapturedJsonReply): void {
  */
 @Injectable()
 @NewInstance()
-export class IdempotencyMiddleware extends AroundMiddleware {
+export class IdempotencyMiddleware extends RouteMiddleware {
   // a replay is the middleware's own answer: no other route middleware and no action runs for it
   public override readonly Stage: MiddlewareStage = 'outer';
 
