@@ -140,6 +140,11 @@ export class UnexpectedServerError extends Exception {}
 export class ResourceDuplicated extends Exception {}
 
 /**
+ * The resource changed between the read a request was based on and the write it asked for.
+ */
+export class ConcurrencyConflict extends Exception {}
+
+/**
  * The exception that is thrown when JSON entity is checked against schema and is invalid
  */
 export class JsonValidationFailed extends Exception {}
