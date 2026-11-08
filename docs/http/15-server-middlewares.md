@@ -1,6 +1,6 @@
 # Server middlewares
 
-A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships maintenance answers, CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
+A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships maintenance answers, load shedding, CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
 
 ## How it works
 
@@ -52,6 +52,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
 | `MaintenanceMode` | 2.5 | yes | onBefore | `http.maintenance.*` | 503 during maintenance (but allowed paths) and, with `Connection: close`, while the server is closing; see [Maintenance mode](27-maintenance-mode.md). Always mounted. |
+| `ConcurrencyLimit` | 2.6 | yes | onBefore, onFinish | `http.concurrency.*` | Load shedding: 503 with `Retry-After` over `max` requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
@@ -102,7 +103,7 @@ Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp
 
 ### `ServerMiddleware`: custom implementation
 
-Refuse writes during a database migration while reads go on. It runs right after `MaintenanceMode` (Order 2.5), with the request id and the access log in place, and before throttling and authentication. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
+Refuse writes during a database migration while reads go on. It runs right after `MaintenanceMode` (Order 2.5), with the request id and the access log in place, and before `ConcurrencyLimit` (2.6), so a refused write takes no slot. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -253,5 +254,5 @@ export class RequestTimer extends ServerMiddleware {
 
 - [HTTP server](01-http-server.md): when the server middlewares and the tail are attached.
 - [Route middlewares](14-route-middlewares.md): the same hooks around specific routes; the reply pipeline.
-- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md), [Maintenance mode](27-maintenance-mode.md): the shipped middlewares in detail.
+- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md), [Maintenance mode](27-maintenance-mode.md), [Concurrency limit](28-concurrency-limit.md): the shipped middlewares in detail.
 - [Error handling](11-error-handling.md): `NotFoundMiddleware` and `ErrorHandlerMiddleware`.

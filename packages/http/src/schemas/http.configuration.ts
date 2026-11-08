@@ -172,6 +172,16 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         maxBodyBytes: { type: 'integer', minimum: 0, default: 16384, description: 'A larger body, as JSON after redaction, is left out and only its size recorded.' },
       },
     },
+    concurrency: {
+      type: 'object',
+      default: {},
+      description: 'ConcurrencyLimit: load shedding. A request over max requests served at once by this process is answered 503 with Retry-After.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        max: { type: 'integer', minimum: 1, default: 500, description: 'Requests served at once.' },
+        retryAfter: { type: 'integer', minimum: 0, default: 1, description: 'Seconds sent in Retry-After.' },
+      },
+    },
     bot: BOT_CONFIGURATION_SCHEMA,
   },
 };
