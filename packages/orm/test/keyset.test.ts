@@ -153,6 +153,7 @@ describe('cursor values against the column families', () => {
   it('takes only the kinds of each family', () => {
     const cases: Array<[ColumnFamily, unknown[], unknown[]]> = [
       ['text', ['x'], [5, true]],
+      ['time', ['10:30', '10:30:15.5'], ['abc']],
       ['enum', ['open'], [{ $d: '2020-01-01T00:00:00.000Z' }]],
       ['decimal', [1.5, '-12.50'], ['abc', true]],
       ['float', [1.5], ['1.5']],
@@ -169,6 +170,11 @@ describe('cursor values against the column families', () => {
         expect(() => decodeCursor(columns, cursorWith(value), [[family], ['integer']]), `${family} ${JSON.stringify(value)}`).to.throw(InvalidCursor);
       }
     }
+  });
+
+  it('checks a type with an unchecked family by its checked ones (mssql nvarchar, pg bytea)', () => {
+    expect(() => decodeCursor(columns, cursorWith(5), [['text', 'enum', 'json'], ['integer']])).to.throw(InvalidCursor);
+    expect(() => decodeCursor(columns, cursorWith('nope'), [['binary', 'uuid'], ['integer']])).to.throw(InvalidCursor);
   });
 
   it('leaves a column of an unknown type unchecked', () => {

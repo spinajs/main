@@ -117,7 +117,7 @@ const isDateTime = (value: unknown): boolean => DateTime.isDateTime(value);
  * The decoded values a column of each family may be compared with, so a crafted cursor is refused here instead of
  * failing as a SQL data error. `integer` is 32-bit unless the native type also holds `bigint` (sqlite's INTEGER);
  * `bigint` also takes a number and a digit string, which is how sqlite and pg hand int8 back; `boolean` also takes 0
- * and 1, which sqlite returns without a converter. A family not listed here (json, binary) leaves the column unchecked.
+ * and 1, which sqlite returns without a converter. A type none of whose families is listed (json, binary) is unchecked.
  */
 const FAMILY_VALUES: Partial<Record<ColumnFamily, (value: unknown, families: readonly ColumnFamily[]) => boolean>> = {
   integer: (value, families) => Number.isSafeInteger(value) && (families.includes('bigint') || ((value as number) >= -INT32 && (value as number) < INT32)),
@@ -126,7 +126,7 @@ const FAMILY_VALUES: Partial<Record<ColumnFamily, (value: unknown, families: rea
   float: (value) => typeof value === 'number' && Number.isFinite(value),
   text: isString,
   enum: isString,
-  time: isString,
+  time: (value) => typeof value === 'string' && /^\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value),
   boolean: (value) => typeof value === 'boolean' || value === 0 || value === 1,
   date: isDateTime,
   datetime: isDateTime,
@@ -143,10 +143,10 @@ export function keysetFamilies(columns: KeysetColumn[], descriptor: IModelDescri
 }
 
 function fitsFamilies(value: unknown, families: readonly ColumnFamily[] | undefined): boolean {
-  if (!families || families.some((f) => FAMILY_VALUES[f] === undefined)) {
+  if (!families || families.every((f) => FAMILY_VALUES[f] === undefined)) {
     return true;
   }
-  return families.some((f) => FAMILY_VALUES[f]!(value, families));
+  return families.some((f) => FAMILY_VALUES[f]?.(value, families) === true);
 }
 
 /** Names the order a cursor was made for, so a cursor from another listing is refused instead of misread. */
