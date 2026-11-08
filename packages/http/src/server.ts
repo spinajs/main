@@ -17,7 +17,7 @@ import type { IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
-import { lookUpRoutesIn, sendReply } from './reply-pipeline.js';
+import { deliverReply, lookUpRoutesIn } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import { globalErrorReplier, refuseRemovedHooks, serverMiddlewareHandlers } from './server-middlewares.js';
 import { RouteIndex } from './route-index.js';
@@ -187,7 +187,7 @@ export class HttpServer extends AsyncService {
   }
 
   private _mountServerMiddlewares() {
-    const options = { log: this.Log, errorReply: (req: Express.Request) => this._errorReplier(req) };
+    const options = { log: this.Log, container: this.Container, errorReply: (req: Express.Request) => this._errorReplier(req) };
 
     for (const m of this.Middlewares) {
       const name = m.constructor.name;
@@ -214,7 +214,7 @@ export class HttpServer extends AsyncService {
         .then(() => notFound.reply(req))
         .then((answer) => {
           if (isResponse(answer)) {
-            return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
+            return deliverReply(req, res, answer, { container: this.Container, errorReply: this._errorReplier(req) });
           }
           // a replacement answering nothing still gets the framework's 404, not express's
           next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));

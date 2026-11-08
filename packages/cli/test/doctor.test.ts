@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
@@ -83,6 +85,28 @@ describe('spinajs doctor', function () {
     expect(process.exitCode).to.equal(undefined);
     await cmd.execute({ manifest: fixture('warning-only.manifest.json'), format: 'text', failOn: 'warning' });
     expect(process.exitCode).to.equal(1);
+  });
+
+  it('without --config checks the recorded global route middleware names, but not a class entry the runtime mounts unregistered', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spinajs-doctor-'));
+    try {
+      const clean = JSON.parse(readFileSync(fixture('clean.manifest.json'), 'utf8')) as Record<string, unknown>;
+      const write = (globalRouteMiddlewares: unknown): string => {
+        const file = join(dir, 'app.manifest.json');
+        writeFileSync(file, JSON.stringify({ ...clean, globalRouteMiddlewares }));
+        return file;
+      };
+
+      await cmd.execute({ manifest: write([{ type: 'MyAudit', fromClass: true }]), format: 'text', failOn: 'error' });
+      expect(lines.filter((l) => l.includes('CFG004'))).to.deep.equal([]);
+      expect(process.exitCode).to.equal(undefined);
+
+      await cmd.execute({ manifest: write([{ type: 'MyAudit' }]), format: 'text', failOn: 'error' });
+      expect(lines.some((l) => l.includes('CFG004') && l.includes("'MyAudit'"))).to.be.true;
+      expect(process.exitCode).to.equal(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('a missing manifest file is a single error line and exitCode 1', async () => {

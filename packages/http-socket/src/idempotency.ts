@@ -4,9 +4,8 @@ import type { Class, IContainer, IInjectDescriptor } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { principalKey } from '@spinajs/authz';
 import { Clock, DbClock, DurableSystemClock, FaultInjector, parseDuration } from '@spinajs/durable';
-import { IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, idempotencyKey, isCrash } from '@spinajs/idempotency';
+import { IdempotencyKeyReuse, IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, fingerprintOf, idempotencyKey, idempotencyPrincipal, isCrash } from '@spinajs/idempotency';
 import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply } from '@spinajs/idempotency';
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
@@ -356,9 +355,12 @@ export class SocketIdempotency {
     return this.bound.leases;
   }
 
-  /** A clientId is not a secret, so a stored reply must never reach another principal. */
+  /**
+   * A clientId is not a secret, so a stored reply must never reach another principal, nor a narrower credential of the
+   * same one: idempotency runs before the policies, which enforce a ceiling or an impersonation's limits.
+   */
   public scope(connection: SocketConnection, key: string): string {
-    const principal = principalKey(connection.principal);
+    const principal = idempotencyPrincipal(connection.principal);
     // a 3.x store keeps the 3.x key, so a reply it stored before the upgrade still replays
     if (this.Store instanceof LegacySocketIdempotencyStore) {
       return [principal, connection.clientId, key].map(encodeURIComponent).join(':');
@@ -366,18 +368,41 @@ export class SocketIdempotency {
     return idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principal, connection.clientId]) }, key);
   }
 
+  /**
+   * Binds a key to the request it was first sent with, as http's request fingerprint does: the scope holds no command
+   * name, so a 3.x key still replays, and the fingerprint stored with the claim refuses a reuse with another command or payload.
+   */
+  public fingerprint(name: string, payload: unknown): string {
+    let request: string;
+    try {
+      request = JSON.stringify([name, payload]) ?? name;
+    } catch {
+      request = name;
+    }
+    return fingerprintOf(request);
+  }
+
   public async completed(scoped: string): Promise<boolean> {
     await this.syncClock();
     return (await this.leases.peek(scoped))?.state === 'done';
   }
 
-  /** `handlerStarted` tells the claim when its handler started, as `start()` does for a caller that drives it by hand. */
-  public async begin(scoped: string, name: string, signal: AbortSignal, handlerStarted?: () => boolean): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
+  /**
+   * `handlerStarted` tells the claim when its handler started, as `start()` does for a caller that drives it by hand.
+   * A key held with another `fingerprint` answers `failed_precondition`; a key stored without one ( before 4.0, or by a
+   * 3.x store, which keeps none ) replays as before.
+   */
+  public async begin(scoped: string, name: string, signal: AbortSignal, handlerStarted?: () => boolean, fingerprint?: string): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
     await this.syncClock();
     let lookedAgain = false;
 
     for (;;) {
-      const held = await this.leases.acquire(scoped, { namespace: 'socket' });
+      const held = await this.leases.acquire(scoped, { namespace: 'socket', fingerprint }).catch((err: unknown) => {
+        if (err instanceof IdempotencyKeyReuse) {
+          throw new SocketException('failed_precondition', `command ${name}: this idempotency key was already used with a different command or payload`, { details: { reason: 'idempotency_key_reuse' } });
+        }
+        throw err;
+      });
 
       if (held.state === 'claimed') {
         return { claim: this.claim(scoped, name, signal, held.handle, handlerStarted) };

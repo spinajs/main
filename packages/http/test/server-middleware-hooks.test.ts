@@ -514,6 +514,62 @@ describe('Server middleware hooks: compression enabled', function () {
   });
 });
 
+const ONCE_MODEL = { serialized: 'once' };
+
+class NoopAround extends ServerMiddleware {
+  public Order = 5;
+
+  public async onAround(_invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    await proceed();
+  }
+}
+
+@BasePath('srv-once')
+class SerializeOnceController extends BaseController {
+  @Get()
+  public model() {
+    return new Ok(ONCE_MODEL);
+  }
+}
+
+describe('Server middleware hooks: an onAround that does not read the reply', function () {
+  this.timeout(15000);
+
+  let app: TestApp;
+
+  before(async () => {
+    app = await httpApp({
+      register: (c) => {
+        c.register(SerializeOnceController).as(BaseController);
+        c.register(NoopAround).as(ServerMiddleware);
+      },
+      resolve: [Intl, Controllers],
+    });
+    await (await app.resolve(HttpServer)).start();
+  });
+
+  after(async () => {
+    await app.dispose();
+  });
+
+  it('serializes a JSON reply once', async () => {
+    const stringify = JSON.stringify;
+    let serialized = 0;
+    JSON.stringify = ((value: unknown, ...rest: unknown[]) => {
+      if (value === ONCE_MODEL) serialized++;
+      return (stringify as (...args: unknown[]) => string)(value, ...rest);
+    }) as typeof JSON.stringify;
+    try {
+      const res = await req().get('srv-once/model').set('Accept', 'application/json');
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq(ONCE_MODEL);
+    } finally {
+      JSON.stringify = stringify;
+    }
+    expect(serialized).to.eq(1);
+  });
+});
+
 describe('Server middleware hooks: aborted requests', () => {
   function recording<T extends AccessLog | SlowRequestWarning>(mw: T, values: Record<string, unknown>) {
     const lines: unknown[][] = [];

@@ -103,7 +103,8 @@ export async function callRoute(controller: IController, method: string, req: Re
       if (m.Type !== AuthnIpThrottleMiddleware) continue;
       const gate = readingFrom(new AuthnIpThrottleMiddleware(...(m.Options as ConstructorParameters<typeof AuthnIpThrottleMiddleware>)), fakeContainer({}));
       Object.assign(gate, { Container: ctx.container });
-      await gate.onBefore({ req, res: req.res ?? ({ locals: {} } as unknown as express.Response), storage: req.storage, route, controller });
+      const answer = await gate.onBefore({ req, res: req.res ?? ({ locals: {} } as unknown as express.Response), storage: req.storage, route, controller });
+      if (answer) return answer;
     }
   } catch (err) {
     return handled(err, 'middleware', handlers, ctx);

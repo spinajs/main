@@ -35,7 +35,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Server middlewares](15-server-middlewares.md) | `ServerMiddleware`, `Order` and the hooks: the request timeline, the route before routing (`RouteIndex`), the shipped middlewares, the 404 and error tail, adding or replacing one |
 | [CORS](16-cors.md) | `CorsMiddleware`: allowed origins, credentials, preflight, header lists, per-route `@Cors` |
 | [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md) | `RealIp`, `http.trustProxy`, `parseTrustProxy`, `parseTrustProxyOverride`, `requestProxyTrust`, `trustedClientAddress`, `requestOrigin` |
-| [Throttling](18-throttling.md) | `ThrottleMiddleware` and the `ThrottleStore` seam: per-IP, per-path rate limits |
+| [Throttling](18-throttling.md) | `ThrottleMiddleware`, `@RateLimit` and the `ThrottleStore` seam: per-path and per-route rate limits, per IP or per principal |
 | [Request storage and tracing](19-request-storage-and-tracing.md) | `req.storage`, `AsyncLocalStorage`, request id and `traceparent`, access log, timing headers, slow-request warnings, perf rollups |
 | [Cookies](20-cookies.md) | Signed cookies, `http.cookie.*`, `@Cookie`, setting cookies on a response |
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
@@ -46,6 +46,10 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Raw request bodies and digests](24-raw-body-and-digests.md) | `@RequestStream()`, `@ContentDigest()`, `parseContentDigest()`: the raw body as a capped stream, RFC 9530 digests, the 413 and 415 answers |
 | [Untrusted request headers](25-untrusted-headers.md) | Every request header the framework reads, its risk and how it is parsed; what Node's parser refuses first; open questions |
 | [Idempotency-Key](26-idempotency.md) | `@Idempotent()`: a retried request replays the stored JSON reply; 409 while in flight, 422 for a reused key, the ORM store's app-entry import |
+| [Maintenance mode](27-maintenance-mode.md) | `MaintenanceMode`, `http.maintenance`: 503 with `Retry-After` during maintenance (runtime `enable()`/`disable()`), 503 with `Connection: close` while the server shuts down |
+| [Concurrency limit](28-concurrency-limit.md) | `ConcurrencyLimit`, `http.concurrency`: load shedding, 503 with `Retry-After` over a cap of requests in flight |
+| [Request deadlines](29-request-deadlines.md) | `RequestDeadline`, `@Deadline(ms)`, `http.deadline`: `req.storage.signal` aborted at the deadline, 504 when nothing was sent by then |
+| [Audit](30-audit.md) | `Audit`, `AuditSink`, `LogAuditSink`, `http.audit`: record each request of a route with its redacted body and query, status, error and principal |
 
 ## Quick start
 
