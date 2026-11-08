@@ -1,11 +1,12 @@
 import { DI } from '@spinajs/di';
-import { ConcurrencyConflict } from '@spinajs/exceptions';
-import { Connection, HasMany, Model, ModelBase, OptimisticLockError, OrmDriver, Primary, QueryContext, Relation, Version } from '@spinajs/orm';
+import { ConcurrencyConflict, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { Archived, Connection, HasMany, InsertBehaviour, Model, ModelBase, OptimisticLockError, OrmDriver, Primary, QueryContext, Relation, SoftDelete, Version } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { DateTime } from 'luxon';
 import 'mocha';
 import { db } from './common.js';
-import { bootUow, captureStatements, registerUowConnection } from './uowFixture.js';
+import { bootUow, captureStatements, registerUowConnection, rows } from './uowFixture.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -37,6 +38,24 @@ class VerDoc extends ModelBase {
 
   @HasMany(VerNote, { foreignKey: 'doc_id', primaryKey: 'Id' })
   public Notes: Relation<VerNote, VerDoc>;
+}
+
+@Connection('sqlite')
+@Model('ver_soft')
+class VerSoft extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Title: string;
+
+  @SoftDelete()
+  public DeletedAt: DateTime;
+
+  @Archived()
+  public ArchivedAt: DateTime;
+
+  @Version()
+  public Revision: number;
 }
 
 function sqlite(): OrmDriver {
@@ -72,6 +91,15 @@ describe('@Version optimistic locking on sqlite', function () {
         t.int('Id').primaryKey().autoIncrement();
         t.string('Body');
         t.int('doc_id');
+        t.int('Revision').notNull();
+      });
+    await sqlite()
+      .schema()
+      .createTable('ver_soft', (t) => {
+        t.int('Id').primaryKey().autoIncrement();
+        t.string('Title');
+        t.dateTime('DeletedAt');
+        t.dateTime('ArchivedAt');
         t.int('Revision').notNull();
       });
     await db().reloadTableInfo();
@@ -174,5 +202,183 @@ describe('@Version optimistic locking on sqlite', function () {
     expect(stored.Title).to.eq('v1');
     expect(stored.Revision).to.eq(1);
     expect((await VerNote.where({ doc_id: doc.Id }).firstOrFail()).Body).to.eq('changed elsewhere');
+  });
+
+  it('save({ reload: true }) keeps the version a copy was read at, so a stale copy is refused', async () => {
+    const doc = await insertDoc();
+    const a = await load(doc.Id);
+    const b = await load(doc.Id);
+    a.Title = 'from a';
+    await a.update();
+
+    b.Title = 'from b';
+    await expect(b.save({ reload: true })).to.be.rejectedWith(OptimisticLockError);
+    const stored = await load(doc.Id);
+    expect(stored.Title).to.eq('from a');
+    expect(stored.Revision).to.eq(2);
+  });
+
+  it('save({ reload: true }) refuses a versioned model whose row is gone instead of inserting it again', async () => {
+    const doc = await insertDoc();
+    const b = await load(doc.Id);
+    await (await load(doc.Id)).destroy();
+
+    b.Title = 'resurrected';
+    await expect(b.save({ reload: true })).to.be.rejectedWith(OptimisticLockError);
+    expect(await VerDoc.where({ Id: doc.Id }).first()).to.eq(undefined);
+  });
+
+  it('archive() refuses a stale copy', async () => {
+    const row = new VerSoft({ Title: 'a' });
+    await row.insert();
+    const stale = await VerSoft.where({ Id: row.Id }).firstOrFail();
+    row.Title = 'b';
+    await row.update();
+
+    const archivedAt = stale.ArchivedAt;
+    await expect(stale.archive()).to.be.rejectedWith(OptimisticLockError);
+    expect(stale.ArchivedAt).to.eq(archivedAt);
+    expect((await rows<{ Revision: number; ArchivedAt: unknown }>('ver_soft'))[0]).to.include({ Revision: 2, ArchivedAt: null });
+  });
+
+  it('a soft destroy() refuses a stale copy and bumps the version of a current one', async () => {
+    const row = new VerSoft({ Title: 'a' });
+    await row.insert();
+    const stale = await VerSoft.where({ Id: row.Id }).firstOrFail();
+    row.Title = 'b';
+    await row.update();
+
+    await expect(stale.destroy()).to.be.rejectedWith(OptimisticLockError);
+    await row.destroy();
+
+    const [stored] = await rows<{ Revision: number; DeletedAt: unknown }>('ver_soft');
+    expect(stored.Revision).to.eq(3);
+    expect(stored.DeletedAt).to.not.eq(null);
+    expect(row.Revision).to.eq(3);
+  });
+
+  it('refuses InsertOrReplace on a versioned model, on both insert paths', async () => {
+    await expect(new VerDoc({ Title: 'r' }).insert(InsertBehaviour.InsertOrReplace)).to.be.rejectedWith(InvalidOperation);
+    await expect(VerDoc.insert({ Title: 'r' }, InsertBehaviour.InsertOrReplace)).to.be.rejectedWith(InvalidOperation);
+    expect(await rows('ver_doc')).to.have.length(0);
+  });
+
+  it('an upsert over an existing row leaves its version alone', async () => {
+    const doc = await insertDoc();
+    const current = await load(doc.Id);
+    current.Title = 'v2';
+    await current.update();
+
+    await new VerDoc({ Id: doc.Id, Title: 'upserted' }).insert(InsertBehaviour.InsertOrUpdate);
+
+    const stored = await load(doc.Id);
+    expect(stored.Title).to.eq('upserted');
+    expect(stored.Revision).to.eq(2);
+  });
+
+  it('a bulk Model.update() bumps the version, so outstanding copies are refused', async () => {
+    const doc = await insertDoc();
+    const copy = await load(doc.Id);
+
+    await VerDoc.update({ Title: 'bulk' }).where('Id', doc.Id);
+
+    expect((await load(doc.Id)).Revision).to.eq(2);
+    copy.Title = 'stale';
+    await expect(copy.update()).to.be.rejectedWith(OptimisticLockError);
+  });
+
+  it('accepts a version held as a numeric string, and only a safe integer one', async () => {
+    const doc = await insertDoc();
+    const a = await load(doc.Id);
+    Reflect.set(a, 'Revision', '1');
+    a.Title = 'from a string';
+    await a.update();
+    expect(a.Revision).to.eq(2);
+
+    const b = await load(doc.Id);
+    Reflect.set(b, 'Revision', '2.0');
+    b.Title = 'not an integer string';
+    await expect(b.update()).to.be.rejectedWith(OptimisticLockError);
+  });
+
+  it('the static Model.insert() keeps a version supplied on a plain object, and starts a model at 1', async () => {
+    await VerDoc.insert({ Title: 'imported', Revision: 7 });
+    await VerDoc.insert(new VerDoc({ Title: 'model', Revision: 7 }));
+
+    const stored = await VerDoc.select().order('Id');
+    expect(stored.map((d) => d.Revision)).to.deep.equal([7, 1]);
+  });
+
+  it('a failed insert() leaves the model at the version it had', async () => {
+    const doc = await insertDoc();
+    const duplicate = new VerDoc({ Id: doc.Id, Title: 'duplicate' });
+    const before = duplicate.Revision;
+
+    await expect(duplicate.insert()).to.be.rejected;
+    expect(duplicate.Revision).to.eq(before);
+    expect(duplicate.Revision).to.not.eq(1);
+  });
+
+  it('a failed save() restores the versions and snapshots of the rows it had already written, so a retry writes them', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    const elsewhere = await VerNote.where({ doc_id: doc.Id }).firstOrFail();
+    elsewhere.Body = 'changed elsewhere';
+    await elsewhere.update();
+
+    graph.Title = 'v2';
+    graph.Notes[0].Body = 'changed here';
+    await expect(graph.save()).to.be.rejectedWith(OptimisticLockError);
+
+    expect(graph.Revision).to.eq(1);
+    expect(graph.IsDirty).to.eq(true);
+
+    graph.Notes[0].Revision = elsewhere.Revision;
+    await graph.save();
+    const stored = await load(doc.Id);
+    expect(stored.Title).to.eq('v2');
+    expect(stored.Revision).to.eq(2);
+  });
+
+  it('a bulk Model.update() refuses a version column in its data', () => {
+    expect(() => VerDoc.update({ Title: 'bulk', Revision: 5 })).to.throw(InvalidArgument, /Revision/);
+  });
+
+  it('a failed save() gives the models it inserted their auto keys back', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    const elsewhere = await VerNote.where({ doc_id: doc.Id }).firstOrFail();
+    elsewhere.Body = 'changed elsewhere';
+    await elsewhere.update();
+
+    const added = new VerNote({ Body: 'added' });
+    const keyBefore = added.Id;
+    graph.Notes.push(added);
+    graph.Notes[0].Body = 'changed here';
+    await expect(graph.save()).to.be.rejectedWith(OptimisticLockError);
+
+    expect(added.Id).to.eq(keyBefore);
+    expect(added.IsNew).to.eq(true);
+
+    graph.Notes[0].Revision = elsewhere.Revision;
+    await graph.save();
+    const bodies = (await VerNote.where({ doc_id: doc.Id })).map((n) => n.Body);
+    expect(bodies.sort()).to.deep.equal(['added', 'changed here']);
+  });
+
+  it('a save({ reload: true }) that throws part-way leaves the models as they were', async () => {
+    const doc = await insertDoc('v1');
+    await sqlite().insert().into('ver_note').values({ Body: 'n1', doc_id: doc.Id, Revision: 1 });
+    const graph = await VerDoc.where({ Id: doc.Id }).populate('Notes').firstOrFail();
+    await sqlite().update().in('ver_doc').update({ Title: 'elsewhere' }).where('Id', doc.Id);
+    await sqlite().del().from('ver_note').where('doc_id', doc.Id);
+
+    graph.Notes[0].Body = 'edited';
+    await expect(graph.save({ reload: true })).to.be.rejectedWith(OptimisticLockError);
+
+    expect(graph.Title).to.eq('v1');
+    expect(graph.Snapshot!.Columns.get('Title')).to.eq('v1');
   });
 });
