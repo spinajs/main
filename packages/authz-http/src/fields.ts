@@ -5,7 +5,7 @@ import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
 import { isPlainObject } from '@spinajs/util';
 import { ArgInputFilter, DataTransformer, RouteMiddleware, withProblemFields } from '@spinajs/http';
-import type { IController, IRoute, IRouteParameter, Request, Response } from '@spinajs/http';
+import type { IController, IMiddlewareContext, IReplyContext, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import type * as express from 'express';
 
 import { routeAccess, routeDomain } from './access/descriptor.js';
@@ -139,20 +139,20 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
   }
 
   // The action runs in an AsyncLocalStorage over req.storage, where authz-orm reads the flag.
-  public async onBefore(req: express.Request, _res: express.Response, route: IRoute, controller: IController): Promise<void> {
-    const access = routeAccess(controller, route.Method);
-    const storage = (req as Request).storage;
+  public async onBefore({ storage, route, controller }: IMiddlewareContext): Promise<void> {
+    const access = routeAccess(controller!, route!.Method);
     if (storage && (access.route ?? access.controller)?.options.fields === 'filter-rows') storage.AuthzRowFields = true;
   }
 
-  // http calls this without awaiting it, so the data is replaced before the first await.
-  public async onResponse(response: Response, route: IRoute, controller: IController): Promise<void> {
+  // Success replies only: an error reply carries no resource data. http runs onAfter in the action's AsyncLocalStorage
+  // context, where the route's decision is.
+  public async onAfter({ response, error, route, controller }: IReplyContext): Promise<void> {
+    if (error !== undefined) return;
     const decision = authzStorage().getStore()?.AuthzDecision;
-    const domain = (authzStorage().getStore()?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain ?? routeDomain(routeAccess(controller, route.Method));
+    const domain = (authzStorage().getStore()?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain ?? routeDomain(routeAccess(controller!, route!.Method));
     const authz = this.Authz;
     const domains = this.Domains;
-    const holder = response as unknown as { responseData?: unknown };
-    const data = holder.responseData;
-    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
+    const data = response.data;
+    response.data = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
   }
 }

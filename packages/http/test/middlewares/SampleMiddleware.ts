@@ -1,16 +1,12 @@
-import { RouteMiddleware, IRoute, IController, Response } from '../../src/interfaces.js';
-import { Request } from 'express';
+import { RouteMiddleware, IRoute, IController } from '../../src/interfaces.js';
+import type { IMiddlewareContext, IReplyContext } from '../../src/interfaces.js';
 
 export class SampleMiddleware extends RouteMiddleware {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
 
-  public async onResponse(_: Response): Promise<void> {}
+  public async onBefore(_ctx: IMiddlewareContext): Promise<void> {}
 
-  // tslint:disable-next-line: no-empty
-  public async onBefore(_req: Request): Promise<void> {}
-
-  // tslint:disable-next-line: no-empty
-  public async onAfter(_req: Request): Promise<void> {}
+  public async onAfter(_ctx: IReplyContext): Promise<void> {}
 }

@@ -39,8 +39,6 @@ class RecordingMiddleware extends RouteMiddleware {
   }
 
   public async onAfter() {}
-
-  public async onResponse() {}
 }
 
 class OuterRecordingMiddleware extends RouteMiddleware {
@@ -57,8 +55,6 @@ class OuterRecordingMiddleware extends RouteMiddleware {
   public async onAfter() {
     calls.push('outer:after');
   }
-
-  public async onResponse() {}
 }
 
 class OuterRefusal extends Error {}
