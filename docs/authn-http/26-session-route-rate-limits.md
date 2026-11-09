@@ -56,5 +56,6 @@ export default config;
 ```
 
 - An entry is `{ limit?, windowSeconds?, by? }` merged over the default, or `false`. `by` is `'ip'` or `'principal'`.
+- The routes declare `AuthnSessionRateLimit(name, { answer?, key? })`, exported from `@spinajs/authn-http`: a `@RateLimit` over `authn.http.rateLimit.<name>` with the default from `AUTHN_HTTP_SESSION_RATE_LIMITS`, authn's 429 unless `answer` names another, and `headers: false` set after the options, so no caller can turn the headers on.
 - The schema refuses an unknown name, a negative or fractional `limit`, a `windowSeconds` that is not positive and any other `by` at boot. Changed numbers count on a key of their own, so new numbers start fresh windows.
 - These limits run as `'outer'` route middlewares: after the policy gate, so a request a policy refuses is not counted, and after the session restore and token checks. The coarse `http.throttle` path rule runs before all of that; see [the two layers](../http/18-throttling.md#rate-limits-for-the-authn-routes).
