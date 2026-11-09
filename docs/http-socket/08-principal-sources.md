@@ -34,6 +34,7 @@ It refuses `Origin: null` and `Origin: *` always. CORS does not cover a WebSocke
 - `RealIp` parses the trust when it resolves, so an entry that is no address or CIDR throws `InvalidOption` and the socket server does not start.
 - Load `@spinajs/authn-http` before `SocketServer` resolves. Loaded later, it logs an error: the server keeps the plain `RealIp` it resolved, which ignores `authn.http.trustProxy`.
 - Addresses are normalized even without a trust setting: trimmed, `::ffff:a.b.c.d` as plain IPv4.
+- `clientAddress()` answering `undefined` gives the TCP peer. A `clientAddress()` override that throws refuses the socket with the mapped error: in the handshake middleware like any other handshake failure, and for a socket restored by connection state recovery (which skips that middleware) after it connects, with a `disconnect` notice and a warning on the server log.
 - Socket `realIp` (in the call store) and policy `ip` use this address.
 
 ## Configuration
