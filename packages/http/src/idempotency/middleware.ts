@@ -267,7 +267,7 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
     const gate = this.gate;
     const key = parseIdempotencyKey(req.headers[IDEMPOTENCY_KEY_HEADER]);
     const principal = principalOf(req);
-    if (!gate || key === undefined || !principal?.authenticated || gate.isRestricted(principal)) {
+    if (!gate || key === undefined || !principal?.authenticated || gate.isShared(principal) || gate.isRestricted(principal)) {
       return undefined;
     }
 

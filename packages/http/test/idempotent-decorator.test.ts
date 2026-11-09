@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
 import { isRandomKey, isSharedScope } from '@spinajs/idempotency';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Idempotent, Ok, Post, parseIdempotencyKey } from '../src/index.js';
 import type { IControllerDescriptor } from '../src/interfaces.js';
@@ -141,6 +141,11 @@ describe('IdempotencyMiddleware', () => {
   }
 
   const build = (options?: Parameters<typeof resolveIdempotentOptions>[0]) => new IdempotencyMiddleware(resolveIdempotentOptions(options));
+  const sharedScope = () => {
+    const middleware = build();
+    (middleware as unknown as { gate: unknown }).gate = { isShared: isSharedScope, isRandomKey };
+    return middleware;
+  };
   const invocation = (headers: Record<string, string>, res: Record<string, unknown>) => ({ req: { headers }, res }) as unknown as IRouteInvocation;
   const neverProceed = (): Promise<IRouteOutcome> => Promise.reject(new Error('proceed must not be called'));
 
@@ -162,19 +167,25 @@ describe('IdempotencyMiddleware', () => {
 
     await build({ required: true }).onAround(invocation({}, gone), neverProceed);
     await build().onAround(invocation({ 'idempotency-key': 'a b' }, gone), neverProceed);
+    await sharedScope().onAround(invocation({ 'idempotency-key': 'k' }, gone), neverProceed);
   });
 
   it('still throws a key error to a client that is there', async () => {
     const here = { destroyed: false, closed: false };
 
-    for (const [middleware, headers] of [[build({ required: true }), {}], [build(), { 'idempotency-key': 'a b' }]] as const) {
+    for (const [middleware, headers, code] of [
+      [build({ required: true }), {}, 'idempotency.key-required'],
+      [build(), { 'idempotency-key': 'a b' }, 'idempotency.key-malformed'],
+      [sharedScope(), { 'idempotency-key': 'k' }, 'idempotency.key-not-random'],
+    ] as const) {
       let error: unknown;
       try {
         await middleware.onAround(invocation(headers, here), neverProceed);
       } catch (err) {
         error = err;
       }
-      expect(error, JSON.stringify(headers)).to.not.equal(undefined);
+      expect(error, JSON.stringify(headers)).to.be.instanceOf(CodedHttpException);
+      expect((error as CodedHttpException).code).to.equal(code);
     }
   });
 
