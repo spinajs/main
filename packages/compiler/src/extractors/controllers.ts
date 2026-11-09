@@ -5,7 +5,7 @@ import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, TypeRef } 
 import type { Extractor, ExtractorContext } from '../context.js';
 import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
-import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
+import { accessOf, MIDDLEWARE_DECORATORS, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
 import { publicOf } from './public.js';
 import { conditionOf } from './conditions.js';
@@ -192,7 +192,7 @@ function controllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node
 
 export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => !isAbstractClass(node) && (hasRoute(node) || ctx.isSubclassOf(node, 'BaseController')));
 
-const CLASS_GUARDS = ['BasePath', 'Policy', 'Access', 'AllowAnonymous', 'Public', 'Middleware'];
+const CLASS_GUARDS = ['BasePath', 'Policy', 'Access', 'AllowAnonymous', 'Public', ...MIDDLEWARE_DECORATORS];
 const hasClassGuard = (node: ts.ClassDeclaration): boolean => decoratorsOf(node).some((d) => CLASS_GUARDS.includes(d.name));
 
 /** Abstract controllers are never mounted, but a subclass serves their routes and inherits their path and guards. */

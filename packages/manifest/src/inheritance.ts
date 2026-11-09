@@ -3,6 +3,7 @@ import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketControll
 
 const ACCESS_POLICY = 'AccessPolicy';
 const FIELDS_MIDDLEWARE = 'AuthzFieldsMiddleware';
+const IDEMPOTENCY_MIDDLEWARE = 'IdempotencyMiddleware';
 
 /** What a subclass declares on a method it redeclares; `route` is set when the method carries a verb decorator. */
 export interface RouteOverride {
@@ -27,8 +28,16 @@ export function inheritPolicies(inherited: PolicyRef[][], own: PolicyRef[][]): P
   return [...kept, ...own];
 }
 
+// `@Idempotent` replaces the route's existing IdempotencyMiddleware in place rather than nesting a second gate (http decorators.ts).
+function replaceIdempotency(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
+  const ownGate = own.findLast((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  const at = inherited.findIndex((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  if (!ownGate || at < 0) return [...inherited, ...own];
+  return [...inherited.map((m, i) => (i === at ? ownGate : m)), ...own.filter((m) => m.type !== IDEMPOTENCY_MIDDLEWARE)];
+}
+
 export function inheritMiddlewares(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
-  const merged = [...inherited, ...own];
+  const merged = replaceIdempotency(inherited, own);
   const firstFields = merged.findIndex((m) => m.type === FIELDS_MIDDLEWARE);
   return merged.filter((m, i) => m.type !== FIELDS_MIDDLEWARE || i === firstFields);
 }

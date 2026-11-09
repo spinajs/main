@@ -18,7 +18,8 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { routeChainName } from './route-index.js';
 import type { ErrorReplier, IReplaysBeforePolicy } from './reply-pipeline.js';
 
 /**
@@ -212,10 +213,8 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   };
 }
 
-const chainName = (route: IRoute, path: string) => `http:${String(route.Type).toUpperCase()} ${path}`;
-
 const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
-  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
+  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: routeChainName(route, path) };
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
 
@@ -275,7 +274,7 @@ function createReplayBeforePolicyHandler(middleware: RouteMiddleware & IReplaysB
         next();
       })
       .catch((error: unknown) => {
-        log.error({ error, middleware: middleware.constructor.name, route: chainName(route, path) }, 'The replay check of ${middleware} on ${route} failed; the policies run');
+        log.error({ error, middleware: middleware.constructor.name, route: routeChainName(route, path) }, 'The replay check of ${middleware} on ${route} failed; the policies run');
         next();
       });
   }, `${middleware.constructor.name}:replay`);
@@ -375,7 +374,7 @@ function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string
  */
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
-  const name = chainName(route, options.path);
+  const name = routeChainName(route, options.path);
   refuseOnResponse(options.middlewares, name);
   const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
 
@@ -411,9 +410,16 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
       return { response: mappedReply(handled.error, req).response, error: handled.error };
     };
 
+  const contract = { controller: controller.constructor.name, handler: String(route.Method) };
   const entry: Express.RequestHandler = (req, res, next) => {
+    // answered in place before routing (a deadline during a slow server onBefore): no part of the route runs
+    if (repliedInPlace(res)) {
+      return;
+    }
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
+      container: options.container,
+      contract,
       storage: options.storage,
       errorReply: routeErrorReply(req, res),
     });
@@ -436,7 +442,7 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,
     createOnErrorHandler(options.errorHandlers, route, controller, options.container, log, setErrorReply),
-    __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
+    __handle_response__(options.container),
     ...recorder,
     options.handleError,
   ];

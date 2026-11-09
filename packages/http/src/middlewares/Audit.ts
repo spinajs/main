@@ -3,6 +3,7 @@ import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
+import { isPlainObject, isStringArray } from '@spinajs/util';
 import type { Principal, PrincipalRef } from '@spinajs/principal';
 import type * as express from 'express';
 
@@ -104,16 +105,15 @@ const HTTP_METHOD_TYPES: ReadonlySet<string> = new Set([RouteType.GET, RouteType
 
 type PrincipalStorage = IActionLocalStoregeContext & { Principal?: Principal | null; AuthnPrincipal?: Principal | null };
 
-const isRef = (v: unknown): v is PrincipalRef => v !== null && typeof v === 'object' && 'type' in v && 'id' in v;
+const isRef = (v: unknown): v is PrincipalRef => isPlainObject(v) && 'type' in v && 'id' in v;
 
-const isEmptyObject = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && Object.keys(v).length === 0;
+const isEmptyObject = (v: unknown) => isPlainObject(v) && Object.keys(v).length === 0;
 
 function stringArray(value: unknown, name: string): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+  if (value !== undefined && !isStringArray(value)) {
     throw new InvalidOption(`Audit: ${name} must be an array of strings`);
   }
-  return value as string[];
+  return value;
 }
 
 /**

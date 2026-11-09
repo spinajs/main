@@ -44,12 +44,13 @@ export const HTTP_CONFIGURATION_SCHEMA = {
             origins: { type: ['array', 'null'], items: { anyOf: [{ const: '*' }, { type: 'string', pattern: ORIGIN_PATTERN }] } },
             exposedHeaders: headerList,
             allowedHeaders: headerList,
+            allowRoutePolicies: { type: 'boolean', description: 'false: @Cors route policies are ignored. Default true.' },
           },
         },
         { const: null },
         { type: 'boolean' },
       ],
-      description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
+      description: 'Absent or falsy: only routes marked @Cors get CORS headers. Origins are listed as scheme://host[:port] or the one entry *.',
     },
     bodyLimits: {
       type: 'array',
@@ -147,6 +148,17 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    maintenance: {
+      type: 'object',
+      default: {},
+      description: 'MaintenanceMode: answers 503 with Retry-After to every request but the allowed paths. MaintenanceMode.enable() and disable() switch it at runtime.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        retryAfter: { type: 'integer', minimum: 0, default: 60, description: 'Seconds sent in Retry-After.' },
+        allow: { type: 'array', default: [], items: { type: 'string', pattern: '^/' }, description: 'Path prefixes answered as usual, on a segment boundary, case-insensitively (health checks, an admin API).' },
+        message: { ...nonEmpty, description: 'The error message of the 503 body.' },
+      },
+    },
     audit: {
       type: 'object',
       default: {},
@@ -161,6 +173,25 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
         includeBody: { type: 'boolean', default: true },
         maxBodyBytes: { type: 'integer', minimum: 0, default: 16384, description: 'A larger body, as JSON after redaction, is left out and only its size recorded.' },
+      },
+    },
+    concurrency: {
+      type: 'object',
+      default: {},
+      description: 'ConcurrencyLimit: load shedding. A request over max requests served at once by this process is answered 503 with Retry-After.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        max: { type: 'integer', minimum: 1, default: 500, description: 'Requests served at once.' },
+        retryAfter: { type: 'integer', minimum: 0, default: 1, description: 'Seconds sent in Retry-After.' },
+      },
+    },
+    deadline: {
+      type: 'object',
+      default: {},
+      description: 'RequestDeadline: a deadline for every request. When it passes, req.storage.signal aborts and a request nothing was sent for yet is answered 504.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        ms: { type: 'integer', minimum: 1, default: 30000, description: 'Milliseconds a request may take. @Deadline(ms) on a route can only shorten it.' },
       },
     },
     bot: BOT_CONFIGURATION_SCHEMA,

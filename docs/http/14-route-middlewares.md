@@ -22,11 +22,12 @@ action                              returns a Response, or throws
 error handlers                      on a throw: @OnError, http.errors.handlers, the error map
 reply pipeline                      once for the reply, whichever produced it:
   onAfter                             each entered middleware, inner (last entered) first
+  contract check                      with http.contractTesting on: the JSON body against its schema
   response.execute()                  serialisation, headers, send
 onFinish                            each entered middleware, inner first, once the response finished or the client went away
 ```
 
-The reply pipeline handles every framework reply of the route: the `Response` the action returned, an error reply (from an `@OnError` handler, an `http.errors.handlers` service or the error map), a `Response` an `onBefore` returned, and a reply an `@Idempotent` route replays. Every `onAfter` sees each of them.
+The reply pipeline handles every framework reply of the route: the `Response` the action returned, an error reply (from an `@OnError` handler, an `http.errors.handlers` service or the error map), a `Response` an `onBefore` returned, and a reply an `@Idempotent` route replays. Every `onAfter` sees each of them, and [contract testing](../testing/02-contract-tests.md) checks each of them once, after the last `onAfter`.
 
 ### Entered middlewares
 
@@ -62,7 +63,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) |
 | `IRouteInvocation` | `IMiddlewareContext` with `route`, `controller` and `path` always set |
 
-A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing.
+A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing and get only a [best-effort match](15-server-middlewares.md#the-route-before-routing).
 
 ### Answering in `onBefore`
 
@@ -109,7 +110,9 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
+| `@Deadline(ms)` | class or method | positive milliseconds | Adds `DeadlineMiddleware`, which moves the request's deadline earlier, never later; see [Request deadlines](29-request-deadlines.md). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
+| `@RateLimit(limit, windowSeconds, by?)` | class or method | `limit` per `windowSeconds`, counted per client address (`'ip'`, default) or per authenticated principal (`'principal'`) | Adds `RateLimitMiddleware` (`'outer'`), which answers 429 with `Retry-After` over the limit; one counter per route. See [Throttling](18-throttling.md#per-route-limits-ratelimit). |
 
 ### `@Accepts`
 
@@ -131,7 +134,7 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 
 `http.routes.middlewares` mounts route middlewares on every route of every controller, before the controller's and the route's own `@Middleware` ones. An entry is one of:
 
-- the class name of a type registered as `RouteMiddleware`, eg. with `@Injectable(RouteMiddleware)`;
+- the class name of a type registered as `RouteMiddleware` (`@Injectable(RouteMiddleware)`), or of a `RouteMiddleware` class registered under its own name (`@Injectable()`);
 - a `RouteMiddleware` class;
 - `{ service, options }`: a name or a class, with `options` passed to the constructor as `@Middleware(Class, ...options)` passes them.
 
@@ -171,16 +174,17 @@ export default { http: { routes: { middlewares } } };
 - A class that is also declared with `@Middleware` on the controller or the route is skipped as a global entry there, so it runs once per request: the `@Middleware` declaration, its position and its options win.
 - `isEnabled(route, controller)` and `onRegister(route, path, controller)` are called per route, as for any route middleware. Use `isEnabled` to keep a global middleware off some routes.
 - An entry is instantiated exactly as the same class in `@Middleware(Class, ...options)` on every route: `container.resolve(Class, options)` per route, so the class's lifetime decides sharing. A `@NewInstance()` class gets its own instance on each route; a singleton (the default) serves every route, together with any `@Middleware` of that class. A middleware that keeps per-route state, set in `onRegister`, must be `@NewInstance()`. Per-request state goes on `req.storage` or `res.locals`.
-- The entries are checked at startup, by each controller before it builds its routes. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry.
+- The entries are checked at startup, by each controller before it builds its routes. A name that no registered `RouteMiddleware` has, a class that does not extend `RouteMiddleware`, or an entry of another shape fails the startup with `InvalidOption`, naming `http.routes.middlewares` and the entry. `spinajs doctor` reports an unknown name before that, as `CFG004`, with the closest registered name: from the loaded configuration with `--config`, else from the names `spinajs build` recorded in the manifest (`globalRouteMiddlewares`).
 - Routes only: a request that matches no route, a static file or anything answered before routing does not run them. Use a [server middleware](15-server-middlewares.md) for those.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, resolved per route the same way | none | `RouteTiming`, `Audit`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
+| `resolveConfiguredTypes(key, base, entries, container)` | function | none | none | Turns the entries of a config key that lists services (`'Name' \| Class \| { service, options }`) into `{ type, entry, options }`, in config order, the way `http.routes.middlewares`, `http.errors.handlers` and `http.upload.middlewares` read theirs. A name is a type registered as `base` or a `base` subclass registered under that name. An unknown name, a class that does not extend `base` or an entry of another shape throws `InvalidOption` naming `key` and the entry. Instances are left to the caller. |
 
 `RouteMiddleware` members, all optional:
 
@@ -254,7 +258,7 @@ Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win o
 
 | What happens | `proceed()` |
 | --- | --- |
-| The response finished, with any status | Resolves `{ reply, error? }`. `reply` is the `CapturedJsonReply` that was sent, after every `onAfter` change, or `null` when the answer was not a JSON reply. `error` is the error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`. |
+| The response finished, with any status | Resolves `{ reply, error? }`. `reply` is the `CapturedJsonReply` that was sent, after every `onAfter` change, or `null` when the answer was not a JSON reply. It is built on its first read (a second JSON serialization of the body), so an `onAround` that does not read it costs nothing. `error` is the error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`. |
 | The client went away before `proceed()` | Rejects with `RouteClientGone`, `beforeRoute: true`. Nothing after the middleware ran. |
 | The client went away after the chain started, before the answer | Rejects with `RouteClientGone`, `beforeRoute: false`. The action may still be running. |
 
