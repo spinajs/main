@@ -2,7 +2,10 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { isTrustedPeer, parseTrustProxy } from '@spinajs/http';
+import type { ProxyTrust, Request } from '@spinajs/http';
 
+import { OidcConnectionArg } from '../src/args.js';
+import type { OidcConnection } from '../src/args.js';
 import { OidcController } from '../src/controllers/OidcController.js';
 import { checkedRequestOrigin, requestOrigin } from '../src/origin.js';
 import { OidcProviders } from '../src/providers.js';
@@ -108,39 +111,40 @@ describe('authn-oidc request origin', () => {
   });
 
   describe('OidcController', () => {
-    class Probe extends OidcController {
-      public trusts(peer: string): boolean {
-        return this.peerTrust()(peer);
-      }
-    }
-    const controller = (own: unknown, shared: unknown) => readingFrom(new Probe(), fakeContainer({ 'authn.http.trustProxy': own, 'http.trustProxy': shared }));
-
-    it('reads authn.http.trustProxy, else http.trustProxy, as ClientIp and the CSRF guard do', () => {
-      expect(controller(null, '10.0.0.0/8').trusts('10.0.0.5')).to.eq(true);
-      expect(controller(undefined, ['10.0.0.0/8']).trusts('10.0.0.5')).to.eq(true);
-      expect(controller(['192.0.2.1'], '10.0.0.0/8').trusts('10.0.0.5'), 'the own setting wins over the shared one').to.eq(false);
-      expect(controller([], 1).trusts('10.0.0.5'), 'an empty own list trusts no proxy').to.eq(false);
-      expect(controller(0, 1).trusts('10.0.0.5'), '0 hops trusts no proxy').to.eq(false);
-      expect(controller(undefined, undefined).trusts('10.0.0.5')).to.eq(false);
-      expect(controller(1, undefined).trusts('10.0.0.5')).to.eq(true);
+    it('OidcConnectionArg hands the action the trust RealIp stored on the request', async () => {
+      const proxyTrust = parseTrustProxy(['10.0.0.0/8'], 'http.trustProxy');
+      const req = { socket: { encrypted: true, remoteAddress: '10.0.0.5' }, storage: { proxyTrust, ClientIp: '192.0.2.1' } } as unknown as Request;
+      const { Args } = await new OidcConnectionArg().extract({} as never, [], {} as never, req);
+      expect((Args as OidcConnection).proxyTrust).to.eq(proxyTrust);
+      const bare = await new OidcConnectionArg().extract({} as never, [], {} as never, { socket: {} } as unknown as Request);
+      expect((bare.Args as OidcConnection).proxyTrust, 'without RealIp no proxy is trusted').to.deep.eq({ hops: 0 });
     });
 
-    it('refuses a trust entry that is no address, naming the key it came from', () => {
-      expect(() => controller(['not-an-ip'], null).trusts('10.0.0.5')).to.throw(InvalidOption, 'authn.http.trustProxy');
-      expect(() => controller(null, 'not-an-ip').trusts('10.0.0.5')).to.throw(InvalidOption, 'http.trustProxy');
+    it("the request origin follows the connection's proxy trust, not authn.http.trustProxy", () => {
+      class Probe extends OidcController {
+        public origin(proxyTrust: ProxyTrust): string | undefined {
+          return this.checkedOriginOf({ host: 'backend:3000', forwardedHost: 'public.example.test', forwardedProto: 'https', connection: { encrypted: false, peer: '10.0.0.5', clientIp: undefined, proxyTrust }, session: null });
+        }
+      }
+      const c = readingFrom(new Probe(), fakeContainer({ 'authn.http.trustProxy': 0, 'http.trustProxy': 0 }));
+      expect(c.origin(parseTrustProxy('10.0.0.0/8', 'http.trustProxy'))).to.eq('https://public.example.test');
+      expect(c.origin(parseTrustProxy(['192.0.2.1'], 'http.trustProxy'))).to.eq('http://backend:3000');
+      expect(c.origin({ hops: 0 })).to.eq('http://backend:3000');
     });
 
     describe('origin warnings', () => {
       class Warner extends OidcController {
         public readonly lines: string[] = [];
+        public proxyTrust: ProxyTrust = { hops: 0 };
         public start(provider: string, host: string, forwardedHost?: string): string | undefined {
-          const f = { host, forwardedHost, forwardedProto: forwardedHost === undefined ? undefined : 'https', connection: { encrypted: true, peer: '10.0.0.5', clientIp: undefined }, session: null };
+          const f = { host, forwardedHost, forwardedProto: forwardedHost === undefined ? undefined : 'https', connection: { encrypted: true, peer: '10.0.0.5', clientIp: undefined, proxyTrust: this.proxyTrust }, session: null };
           this.warnFlowCookieHost(provider, f);
           return this.originOf(f);
         }
       }
       const warner = (o: { env?: string; publicOrigin?: string | null; trust?: unknown; redirectUri?: string | null }) => {
-        const c = readingFrom(new Warner(), fakeContainer({ 'authn.http.trustProxy': o.trust ?? null, 'http.trustProxy': null, 'authn.http.publicOrigin': o.publicOrigin ?? null }));
+        const c = readingFrom(new Warner(), fakeContainer({ 'authn.http.publicOrigin': o.publicOrigin ?? null }));
+        c.proxyTrust = parseTrustProxy(o.trust, 'http.trustProxy');
         const strategies = new Map([['corp', { provider: { options: { redirectUri: o.redirectUri ?? null } } }]]);
         Object.defineProperty(c, 'Providers', { value: { env: o.env, strategies: () => strategies } });
         Object.defineProperty(c, 'Log', { value: recordingLog(c.lines) });
