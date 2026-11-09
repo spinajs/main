@@ -300,6 +300,8 @@ export class RateLimitMiddleware extends RouteMiddleware {
       const accepted = settingsKeys(this.options);
       const unknownDefault = Object.keys(fallback).filter((k) => !accepted.includes(k));
       if (unknownDefault.length > 0) throw new InvalidArgument(`@RateLimit default has unknown keys ${unknownDefault.join(', ')}; allowed: ${accepted.join(', ')}`);
+      // Here, not in checkSettings: without `config` it would label it as the top-level `@RateLimit headers`.
+      check(HEADERS, (fallback as IRateLimitSettings).headers, '@RateLimit default.headers', argument);
     }
   }
 

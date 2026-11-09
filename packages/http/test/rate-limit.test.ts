@@ -350,6 +350,21 @@ describe('RateLimitMiddleware', () => {
       expect(lockedDefault?.message).to.contain('@RateLimit default has unknown keys headers');
     });
 
+    it('ranks default.headers as the config value: it wins over the decorator headers, and headers: false refuses it', async () => {
+      const inlineOff = await registered(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: false }, headers: true }));
+      expect(await run(inlineOff)).to.deep.eq({ passed: true, headers: {} });
+
+      const configuredOff = await registered(await makeObjectMiddleware({ config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60, headers: false }, headers: true }));
+      expect(await run(configuredOff)).to.deep.eq({ passed: true, headers: {} });
+
+      const inlineOn = await registered(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: true } }));
+      expect((await run(inlineOn)).headers['X-RateLimit-Limit']).to.eq('2');
+
+      const locked = await registrationError(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: true }, headers: false }));
+      expect(locked).to.be.instanceOf(InvalidArgument);
+      expect(locked?.message).to.contain('@RateLimit default has unknown keys headers');
+    });
+
     it('is not mounted when the config key is false, and does nothing if registered anyway', async () => {
       const store = new MemoryThrottleStore();
       const increment = sinon.spy(store, 'increment');
@@ -390,6 +405,7 @@ describe('RateLimitMiddleware', () => {
         [{ limit: 1, windowSeconds: 60, answer: 'x' as never }, 'answer'],
         [{ limit: 1, windowSeconds: 60, key: 1 as never }, 'key'],
         [{ limit: 1, windowSeconds: 60, headers: 'false' as never }, 'headers'],
+        [{ default: { limit: 1, windowSeconds: 60, headers: 'yes' as never } }, '@RateLimit default.headers'],
         [{ limit: 1, windowSeconds: 60, header: false } as IRateLimitOptions, 'header'],
         [{ config: '', default: { limit: 1, windowSeconds: 60 } }, 'config'],
         [{ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60, limt: 2 } as never }, 'limt'],
