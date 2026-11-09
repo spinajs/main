@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AsyncService, Container, NewInstance, PerChildInstance } from '../src/index.js';
+import { spy } from 'sinon';
+import { AsyncService, Container, IInstanceCheck, NewInstance, PerChildInstance, PerInstanceCheck } from '../src/index.js';
 
 const delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
@@ -231,5 +232,72 @@ describe('di.resolved events for Array.ofType elements', () => {
     await Promise.all([c.resolve(SlowStage), c.resolve(Array.ofType(Stage))]);
 
     expect(seen.sort()).to.deep.equal(['FastStage', 'SlowStage']);
+  });
+});
+
+@PerInstanceCheck()
+class CheckedPlugin implements IInstanceCheck {
+  public __checkInstance__(): boolean {
+    return true;
+  }
+}
+
+@PerInstanceCheck()
+class CheckedStage extends Stage implements IInstanceCheck {
+  public async resolve() {
+    await delay(10);
+  }
+  public __checkInstance__(): boolean {
+    return true;
+  }
+}
+
+describe('Array.ofType with a @PerInstanceCheck element', () => {
+  it('includes the element when it was resolved on its own before the list', () => {
+    const c = new Container();
+    c.register(SyncPlugin).as('Plugins');
+    c.register(CheckedPlugin).as('Plugins');
+    const checked = c.resolve(CheckedPlugin);
+
+    const all = c.resolve(Array.ofType('Plugins'));
+
+    expect(names(all)).to.deep.equal(['SyncPlugin', 'CheckedPlugin']);
+    expect(all[1]).to.equal(checked);
+  });
+
+  it('keeps the element in its registration slot when the other elements are async', async () => {
+    const c = stages(SlowStage, CheckedStage, FastStage);
+    const checked = await c.resolve(CheckedStage);
+
+    const all = await c.resolve(Array.ofType(Stage));
+
+    expect(names(all)).to.deep.equal(['SlowStage', 'CheckedStage', 'FastStage']);
+    expect(all[1]).to.equal(checked);
+  });
+
+  it('the list settles: the next resolve returns the cached list without rebuilding', () => {
+    const c = new Container();
+    c.register(SyncPlugin).as('Plugins');
+    c.register(CheckedPlugin).as('Plugins');
+    c.resolve(CheckedPlugin);
+    const first = c.resolve(Array.ofType('Plugins'));
+
+    const getOrCreate = spy(c.Cache, 'getOrCreate');
+    const again = c.resolve(Array.ofType('Plugins'));
+
+    expect(again).to.equal(first);
+    expect(getOrCreate.called).to.be.false;
+  });
+
+  it('a class registered under two bases is in both lists resolved concurrently', async () => {
+    const c = new Container();
+    c.register(CheckedStage).as(Stage);
+    c.register(CheckedStage).as('Checked');
+
+    const [all, checked] = await Promise.all([c.resolve(Array.ofType(Stage)), c.resolve(Array.ofType('Checked'))]);
+
+    expect(names(all)).to.deep.equal(['CheckedStage']);
+    expect(names(checked)).to.deep.equal(['CheckedStage']);
+    expect(checked[0]).to.equal(all[0]);
   });
 });
