@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { RateLimit } from '@spinajs/http';
-import type { IMiddlewareContext, IRateLimitOptions } from '@spinajs/http';
+import { configuredRateLimit } from '@spinajs/http';
+import type { IMiddlewareContext, IRateLimitOptions, RateLimit } from '@spinajs/http';
 
 import { AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS } from './rate-limit-config.js';
 import type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
@@ -31,13 +31,16 @@ export function pendingSessionKey(ctx: IMiddlewareContext): string | undefined {
   return pendingSessionKeyOf(ctx, DI.get(Configuration)?.get<unknown>('http.cookie.secret'));
 }
 
+const anonymousRouteLimit = configuredRateLimit('authn.http.rateLimit', AUTHN_HTTP_RATE_LIMITS, { headers: false });
+const sessionRouteLimit = configuredRateLimit('authn.http.rateLimit', AUTHN_HTTP_SESSION_RATE_LIMITS, { headers: false });
+
 /**
  * The shipped `@RateLimit` of an anonymous authn route. A refused client gets `answer`, the one the route's IP throttle
  * gives, with the same status, body and headers, and no route sends `X-RateLimit-*`, which would tell a refused client
  * from a failed login.
  */
 export function AuthnRateLimit(name: AuthnHttpRateLimitName, answer: ThrottledAnswer, key?: IRateLimitOptions['key']): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_RATE_LIMITS[name], answer, headers: false, ...(key ? { key } : {}) });
+  return anonymousRouteLimit(name, { answer, ...(key ? { key } : {}) });
 }
 
 /** authn's own 429 body, as a throttled verification or reset request answers. */
@@ -48,5 +51,5 @@ export const throttledRequest = (retryAfterSeconds: number) => tooManyRequests('
  * every authn route, no `X-RateLimit-*` headers; the answer carries its own `Retry-After`.
  */
 export function AuthnSessionRateLimit(name: AuthnHttpSessionRateLimitName, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_SESSION_RATE_LIMITS[name], answer: throttledRequest, ...options, headers: false });
+  return sessionRouteLimit(name, { answer: throttledRequest, ...options });
 }

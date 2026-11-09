@@ -257,6 +257,39 @@ export class WebhookController extends BaseController {
 }
 ```
 
+### Configured limits of a package
+
+A package with several configured routes keeps their shipped limits in one table and builds both the schema and the decorators from it:
+
+| Export | Meaning |
+| --- | --- |
+| `RateLimitDefaults<N>` | A read-only table of `RateLimitDefault` per route name `N`. |
+| `rateLimitsSchema(defaults, routes, description?, opts?)` | The JSON schema of the package's `rateLimit` object: one `rateLimitSchema(defaults[name], routes[name], opts)` entry per name, `{}` by default, an unknown name refused. `routes` names what each entry limits, for its description. |
+| `configuredRateLimit(root, defaults, opts?)` | A factory `(name, { answer?, key? }) => @RateLimit` reading `<root>.<name>` over `defaults[name]`. A route takes no `headers` of its own: the config sets them, unless `opts.headers` fixes them for every route of the factory. |
+
+```ts sample
+import { configuredRateLimit, rateLimitsSchema } from '@spinajs/http';
+import type { RateLimitDefaults } from '@spinajs/http';
+
+export const REPORTS_RATE_LIMITS = Object.freeze({
+  generate: { limit: 10, windowSeconds: 600, by: 'principal' },
+} as const satisfies RateLimitDefaults);
+
+const { default: _root, ...settings } = rateLimitsSchema(REPORTS_RATE_LIMITS, { generate: 'POST /reports' });
+
+export const REPORTS_RATE_LIMIT_SCHEMA = {
+  $id: 'app/reports.rate-limit.configuration.schema.json',
+  $configurationModule: 'reports.rateLimit',
+  ...settings,
+};
+
+// @ReportsRateLimit('generate') on the route
+export const ReportsRateLimit = configuredRateLimit('reports.rateLimit', REPORTS_RATE_LIMITS);
+```
+
+- Pass the same `opts` to both helpers. With `{ headers: false }` the schema refuses a configured `headers` at boot, and every route of the factory refuses it when it mounts; without it, the config decides the headers of each route.
+- Register the schema as the shipped packages do: `registerConfigurationSchemaAtImport` at import and `registerConfigurationSchema` in a `Bootstrapper` (both from `@spinajs/configuration`).
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |

@@ -35,4 +35,8 @@ describe('the @spinajs/http root', () => {
     expect(Object.getPrototypeOf(http.ServerMiddleware)).to.eq(http.HttpMiddleware);
     for (const name of ['RawJsonResponse', 'ReplayedResponse']) expect(http, name).to.have.property(name);
   });
+
+  it('exports the configured rate limit helpers', () => {
+    for (const name of ['rateLimitSchema', 'rateLimitsSchema', 'configuredRateLimit']) expect(http, name).to.have.property(name);
+  });
 });

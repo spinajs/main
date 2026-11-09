@@ -1,8 +1,8 @@
 import type * as express from 'express';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { RateLimit, Response } from '@spinajs/http';
-import type { ResponseFunction } from '@spinajs/http';
+import { configuredRateLimit, Response } from '@spinajs/http';
+import type { RateLimit, ResponseFunction } from '@spinajs/http';
 import { appEnvOf } from '@spinajs/authn-session';
 
 import { isNavigation, oidcFailure } from './login.js';
@@ -45,14 +45,17 @@ export class OidcThrottledResponse extends Response {
 
 export const oidcThrottled = (retryAfterSeconds: number): OidcThrottledResponse => new OidcThrottledResponse(retryAfterSeconds);
 
+const anonymousRouteLimit = configuredRateLimit('authn.oidc.rateLimit', AUTHN_OIDC_RATE_LIMITS, { headers: false });
+const sessionRouteLimit = configuredRateLimit('authn.oidc.rateLimit', AUTHN_OIDC_SESSION_RATE_LIMITS, { headers: false });
+
 /** The shipped `@RateLimit` of an anonymous OIDC route: the route's failure answer and no `X-RateLimit-*` header. */
 export function OidcRateLimit(name: AuthnOidcRateLimitName): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
+  return anonymousRouteLimit(name, { answer: oidcThrottled });
 }
 
 export type AuthnOidcSessionRateLimitName = keyof typeof AUTHN_OIDC_SESSION_RATE_LIMITS;
 
 /** The shipped `@RateLimit` of an OIDC route with a session, per principal; refused as begin and callback are. */
 export function OidcSessionRateLimit(name: AuthnOidcSessionRateLimitName): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_SESSION_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
+  return sessionRouteLimit(name, { answer: oidcThrottled });
 }

@@ -141,6 +141,32 @@ export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: s
   };
 }
 
+/** The shipped limit of each configured route group of a package, by name. */
+export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, RateLimitDefault>>;
+
+/**
+ * The JSON schema of a package's `rateLimit` object: one {@link rateLimitSchema} entry per name in `defaults` (with
+ * `opts`), an unknown name refused.
+ */
+export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>, description?: string, opts?: { headers?: boolean }) {
+  return {
+    type: 'object',
+    default: {},
+    propertyNames: { enum: Object.keys(defaults) },
+    properties: Object.fromEntries((Object.keys(defaults) as N[]).map((name) => [name, rateLimitSchema(defaults[name], routes[name], opts)])),
+    description: description ?? `Per-route @RateLimit settings: { ${settingsKeys(opts).join(', ')} } over the shipped default, or false for no limit.`,
+  };
+}
+
+/**
+ * A `@RateLimit` factory over the config keys `<root>.<name>`, each over `defaults[name]`. A route takes no `headers`
+ * of its own: the config sets them, unless `opts.headers` fixes them for every route of the factory. Pass the same
+ * `opts` to {@link rateLimitsSchema}, so the schema refuses what the routes would.
+ */
+export function configuredRateLimit<N extends string>(root: string, defaults: RateLimitDefaults<N>, opts: { headers?: boolean } = {}) {
+  return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ config: `${root}.${name}`, default: defaults[name], ...options, ...opts });
+}
+
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
 
 /**

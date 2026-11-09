@@ -1,8 +1,8 @@
 import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../contracts.js';
 import type { OidcReservedParam } from '../contracts.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
-import { rateLimitSchema } from '@spinajs/http';
-import type { IRateLimitSettings } from '@spinajs/http';
+import { rateLimitsSchema } from '@spinajs/http';
+import type { RateLimitDefaults } from '@spinajs/http';
 
 export const OIDC_RESERVED_PARAMS: readonly OidcReservedParam[] = Object.freeze(['response_type', 'response_mode', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method', 'request', 'request_uri', 'max_age', 'acr_values'] satisfies OidcReservedParam[]);
 
@@ -113,7 +113,7 @@ export const AUTHN_OIDC_PROVIDER_SCHEMA = {
  * signing in at once makes a begin and a callback per login. `authn.oidc.rateLimit.<name>` overrides it, `false` there
  * takes it off the route. Back-channel logout has none: a refused logout token leaves alive a session that should end.
  */
-export const AUTHN_OIDC_RATE_LIMITS: Readonly<Record<'begin' | 'callback', Readonly<IRateLimitSettings>>> = Object.freeze({
+export const AUTHN_OIDC_RATE_LIMITS: RateLimitDefaults<'begin' | 'callback'> = Object.freeze({
   begin: Object.freeze({ limit: 60, windowSeconds: 60, by: 'ip' }),
   callback: Object.freeze({ limit: 60, windowSeconds: 60, by: 'ip' }),
 });
@@ -123,10 +123,17 @@ export const AUTHN_OIDC_RATE_LIMITS: Readonly<Record<'begin' | 'callback', Reado
  * is the user, so an impersonator spends the user's budget. `authn.oidc.rateLimit.<name>` overrides it, `false` there
  * takes it off the route.
  */
-export const AUTHN_OIDC_SESSION_RATE_LIMITS: Readonly<Record<'link' | 'reauth', Readonly<IRateLimitSettings>>> = Object.freeze({
+export const AUTHN_OIDC_SESSION_RATE_LIMITS: RateLimitDefaults<'link' | 'reauth'> = Object.freeze({
   link: Object.freeze({ limit: 10, windowSeconds: 600, by: 'principal' }),
   // Each call is an outbound round trip to the provider.
   reauth: Object.freeze({ limit: 10, windowSeconds: 300, by: 'principal' }),
+});
+
+export const AUTHN_OIDC_RATE_LIMITED_ROUTES: Readonly<Record<keyof typeof AUTHN_OIDC_RATE_LIMITS | keyof typeof AUTHN_OIDC_SESSION_RATE_LIMITS, string>> = Object.freeze({
+  begin: 'GET /auth/oidc/:provider',
+  callback: 'GET /auth/oidc/:provider/callback',
+  link: 'POST and DELETE /auth/oidc/:provider/link',
+  reauth: 'GET /auth/oidc/:provider/reauth',
 });
 
 /** authn.oidc (OidcConfig), a module of its own: the app's configuration validates it and fills the defaults. */
@@ -152,18 +159,7 @@ export const AUTHN_OIDC_CONFIGURATION_SCHEMA = {
         failure: { type: 'string', pattern: OIDC_APP_PATH_PATTERN, default: '/' },
       },
     },
-    rateLimit: {
-      type: 'object',
-      default: {},
-      description: 'The per-route limits (@RateLimit) of the OIDC routes; read once when the routes mount.',
-      propertyNames: { enum: ['begin', 'callback', 'link', 'reauth'] },
-      properties: {
-        begin: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.begin, 'GET /auth/oidc/:provider', { headers: false }),
-        callback: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.callback, 'GET /auth/oidc/:provider/callback', { headers: false }),
-        link: rateLimitSchema(AUTHN_OIDC_SESSION_RATE_LIMITS.link, 'POST and DELETE /auth/oidc/:provider/link', { headers: false }),
-        reauth: rateLimitSchema(AUTHN_OIDC_SESSION_RATE_LIMITS.reauth, 'GET /auth/oidc/:provider/reauth', { headers: false }),
-      },
-    },
+    rateLimit: rateLimitsSchema({ ...AUTHN_OIDC_RATE_LIMITS, ...AUTHN_OIDC_SESSION_RATE_LIMITS }, AUTHN_OIDC_RATE_LIMITED_ROUTES, 'The per-route limits (@RateLimit) of the OIDC routes; read once when the routes mount.', { headers: false }),
   },
 };
 

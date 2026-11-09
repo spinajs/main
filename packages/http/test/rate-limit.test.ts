@@ -9,8 +9,8 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, rateLimitSchema, resolveRouteMiddlewares } from '../src/index.js';
-import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule } from '../src/index.js';
+import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, configuredRateLimit, rateLimitSchema, rateLimitsSchema, resolveRouteMiddlewares } from '../src/index.js';
+import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule, RateLimitDefaults } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 
@@ -25,6 +25,9 @@ interface IRun {
 }
 
 const ROUTE = { InternalType: 'post', Method: 'login' } as unknown as IRoute;
+
+const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
+const routeMiddlewaresOf = (type: object, method: string) => descriptorOf(type).Routes.get(method)!.Middlewares;
 
 async function makeMiddleware(options: { limit: number; windowSeconds: number; by?: 'ip' | 'principal' }, config: Record<string, unknown> = {}, store?: ThrottleStore): Promise<RateLimitMiddleware> {
   const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config });
@@ -245,7 +248,6 @@ describe('RateLimitMiddleware', () => {
   });
 
   describe('declared unlimited: { config: false }', () => {
-    const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
     const enabledLimits = async (type: object, method: string, globals: { Type: typeof RateLimitMiddleware; Options: unknown[] }[]) => {
       const descriptor = descriptorOf(type);
       const route = descriptor.Routes.get(method)!;
@@ -284,6 +286,57 @@ describe('RateLimitMiddleware', () => {
       const schema = rateLimitSchema({ limit: 30, windowSeconds: 60, by: 'ip' }, 'POST /x', { headers: false }) as { anyOf: { propertyNames?: unknown; properties?: Record<string, unknown> }[] };
       expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by'] });
       expect(schema.anyOf[1].properties).to.not.have.property('headers');
+    });
+  });
+
+  describe('rateLimitsSchema', () => {
+    const defaults = { checks: { limit: 600, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' } } as const satisfies RateLimitDefaults;
+    const routes = { checks: 'POST /authz/checks', events: 'GET /authz/events' };
+    type Schema = { default: unknown; propertyNames: unknown; properties: Record<string, unknown>; description: string };
+
+    it('has one entry per name, defaults to {} and refuses unknown names', () => {
+      const schema = rateLimitsSchema(defaults, routes) as Schema;
+      expect(schema.default).to.deep.equal({});
+      expect(schema.propertyNames).to.deep.equal({ enum: ['checks', 'events'] });
+      expect(schema.properties.checks).to.deep.equal(rateLimitSchema(defaults.checks, routes.checks));
+      expect(schema.properties.events).to.deep.equal(rateLimitSchema(defaults.events, routes.events));
+    });
+
+    it('takes a description', () => {
+      expect((rateLimitsSchema(defaults, routes, 'Login limits') as Schema).description).to.equal('Login limits');
+    });
+
+    it('passes { headers: false } to every entry and leaves headers out of its default description', () => {
+      expect((rateLimitsSchema(defaults, routes) as Schema).description).to.contain('{ limit, windowSeconds, by, headers }');
+      const schema = rateLimitsSchema(defaults, routes, undefined, { headers: false }) as Schema;
+      expect(schema.description).to.contain('{ limit, windowSeconds, by }');
+      expect(schema.properties.checks).to.deep.equal(rateLimitSchema(defaults.checks, routes.checks, { headers: false }));
+      expect(schema.properties.events).to.deep.equal(rateLimitSchema(defaults.events, routes.events, { headers: false }));
+    });
+  });
+
+  describe('configuredRateLimit', () => {
+    it("declares RateLimitMiddleware with <root>.<name> and that name's default", () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } });
+      const answer = () => new Ok({});
+      const key = () => 'k';
+      class C {}
+      limit('checks', { answer, key })(C.prototype, 'checks', {} as PropertyDescriptor);
+      limit('checks')(C.prototype, 'plain', {} as PropertyDescriptor);
+      // @ts-expect-error headers of a configured route come from its config, which rateLimitsSchema lets set them
+      limit('checks', { headers: false });
+      const [mw] = routeMiddlewaresOf(C, 'checks');
+      expect(mw.Type).to.eq(RateLimitMiddleware);
+      expect(mw.Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' }, answer, key }]);
+      expect(routeMiddlewaresOf(C, 'plain')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
+    });
+
+    it('fixes the headers of every route it declares with { headers: false }', () => {
+      const limit = configuredRateLimit('authn.rateLimit', { login: { limit: 30, windowSeconds: 60, by: 'ip' } }, { headers: false });
+      const answer = () => new Ok({});
+      class C {}
+      limit('login', { answer, headers: true } as IRateLimitOptions)(C.prototype, 'login', {} as PropertyDescriptor);
+      expect(routeMiddlewaresOf(C, 'login')[0].Options).to.deep.eq([{ config: 'authn.rateLimit.login', default: { limit: 30, windowSeconds: 60, by: 'ip' }, answer, headers: false }]);
     });
   });
 

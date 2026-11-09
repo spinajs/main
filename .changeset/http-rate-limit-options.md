@@ -11,3 +11,5 @@ The `X-RateLimit-*` headers are opt-in: the configured value (or `default`) of a
 **Breaking:** `http.throttle` rules and `@RateLimit` no longer send `X-RateLimit-*`; set `headers: true` to keep them.
 
 `@RateLimit({ config: false })` declares a route unlimited in code: nothing is mounted, a global `http.routes.middlewares` floor is dropped, and a controller `@RateLimit` is off on that route. New export `rateLimitSchema(default, route, opts?)`: the configuration schema of one configured limit (`false` or `{ limit?, windowSeconds?, by?, headers? }`).
+
+For a package with several configured routes: `RateLimitDefaults<N>` (a table of `RateLimitDefault` per route name), `rateLimitsSchema(defaults, routes, description?, opts?)` (the schema of a `rateLimit` object, one `rateLimitSchema` entry per name, an unknown name refused) and `configuredRateLimit(root, defaults, opts?)` (a factory `(name, { answer?, key? }) => @RateLimit` over `<root>.<name>`; `opts.headers` fixes the headers of every route it declares).

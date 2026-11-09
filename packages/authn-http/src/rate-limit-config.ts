@@ -1,9 +1,9 @@
 import { rateLimitSchema } from '@spinajs/http';
-import type { IRateLimitSettings } from '@spinajs/http';
+import type { RateLimitDefault } from '@spinajs/http';
 
 export { rateLimitSchema };
 
-const ipLimit = (limit: number, windowSeconds: number): Readonly<IRateLimitSettings> => Object.freeze({ limit, windowSeconds, by: 'ip' });
+const ipLimit = (limit: number, windowSeconds: number): Readonly<RateLimitDefault> => Object.freeze({ limit, windowSeconds, by: 'ip' });
 
 /**
  * The fixed-window limit each anonymous route ships with, per client address (an IPv6 network per
@@ -39,7 +39,7 @@ export const AUTHN_HTTP_RATE_LIMITED_ROUTES: Readonly<Record<AuthnHttpRateLimitN
   register: 'POST /auth/register',
 });
 
-const perPrincipal = (limit: number, windowSeconds: number): Readonly<IRateLimitSettings> => Object.freeze({ limit, windowSeconds, by: 'principal' });
+const perPrincipal = (limit: number, windowSeconds: number): Readonly<RateLimitDefault> => Object.freeze({ limit, windowSeconds, by: 'principal' });
 
 /**
  * The limit each route with a session ships with. The MFA routes of a pending session count the session (its key falls
