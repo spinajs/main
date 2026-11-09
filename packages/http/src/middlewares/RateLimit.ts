@@ -23,6 +23,14 @@ export interface IRateLimitSettings {
 /** Settings with their defaults filled in; `headers` stays optional, so a table of defaults need not name it. */
 export type RateLimitDefault = Required<Pick<IRateLimitSettings, 'limit' | 'windowSeconds' | 'by'>> & { headers?: boolean };
 
+/**
+ * The `headers` the routes of a configured limit declare in code. `false`: they never send `X-RateLimit-*`, and
+ * `headers` is no configurable key. `true`: they send them unless the config says otherwise. Unset: the config decides.
+ */
+export interface RateLimitSchemaOptions {
+  headers?: boolean;
+}
+
 export interface IRateLimitOptions {
   /**
    * Config path read once when the route is mounted: an IRateLimitSettings object (merged over `default`), or `false` =
@@ -67,7 +75,7 @@ const SETTINGS_KEYS: readonly string[] = ['limit', 'windowSeconds', 'by'];
 const OPTION_KEYS: readonly string[] = ['config', 'default', ...SETTINGS_KEYS, 'answer', 'headers', 'key'];
 
 /** The keys a configured limit (or `default`) may set: `headers` only where the route has not ruled it out in code. */
-const settingsKeys = (opts?: { headers?: boolean }): readonly string[] => (opts?.headers === false ? SETTINGS_KEYS : [...SETTINGS_KEYS, 'headers']);
+const settingsKeys = (opts?: RateLimitSchemaOptions): readonly string[] => (opts?.headers === false ? SETTINGS_KEYS : [...SETTINGS_KEYS, 'headers']);
 
 const show = (v: unknown): string => (typeof v === 'string' ? `'${v}'` : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
@@ -119,7 +127,7 @@ function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
  * over `defaults`, or `false` for none. Schema only: the middleware checks the value again when the route mounts.
  * `opts.headers: false` (the route's own `@RateLimit({ headers: false })`) leaves `headers` out of the accepted keys.
  */
-export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: { headers?: boolean }): Record<string, unknown> {
+export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: RateLimitSchemaOptions): Record<string, unknown> {
   const keys = settingsKeys(opts);
   return {
     default: { ...defaults },
@@ -148,7 +156,7 @@ export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, Ra
  * The JSON schema of a package's `rateLimit` object: one {@link rateLimitSchema} entry per name in `defaults` (with
  * `opts`), an unknown name refused.
  */
-export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>, description?: string, opts?: { headers?: boolean }) {
+export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>, description?: string, opts?: RateLimitSchemaOptions) {
   return {
     type: 'object',
     default: {},
@@ -160,11 +168,11 @@ export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N
 
 /**
  * A `@RateLimit` factory over the config keys `<root>.<name>`, each over `defaults[name]`. A route takes no `headers`
- * of its own: the config sets them, unless `opts.headers` fixes them for every route of the factory. Pass the same
- * `opts` to {@link rateLimitsSchema}, so the schema refuses what the routes would.
+ * of its own. `opts.headers: false` keeps `headers` off every route of the factory and, passed to
+ * {@link rateLimitsSchema} too, out of the schema; `true` only sends them unless the config says otherwise.
  */
-export function configuredRateLimit<N extends string>(root: string, defaults: RateLimitDefaults<N>, opts: { headers?: boolean } = {}) {
-  return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ config: `${root}.${name}`, default: defaults[name], ...options, ...opts });
+export function configuredRateLimit<N extends string>(root: string, defaults: RateLimitDefaults<N>, opts: RateLimitSchemaOptions = {}) {
+  return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ ...options, config: `${root}.${name}`, default: defaults[name], ...(opts.headers !== undefined ? { headers: opts.headers } : {}) });
 }
 
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));

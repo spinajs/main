@@ -38,5 +38,8 @@ describe('the @spinajs/http root', () => {
 
   it('exports the configured rate limit helpers', () => {
     for (const name of ['rateLimitSchema', 'rateLimitsSchema', 'configuredRateLimit']) expect(http, name).to.have.property(name);
+    const defaults: http.RateLimitDefaults<'x'> = { x: { limit: 1, windowSeconds: 1, by: 'ip' } };
+    const opts: http.RateLimitSchemaOptions = { headers: false };
+    expect(http.rateLimitsSchema(defaults, { x: 'GET /x' }, undefined, opts).propertyNames).to.deep.eq({ enum: ['x'] });
   });
 });

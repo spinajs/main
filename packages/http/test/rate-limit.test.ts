@@ -10,7 +10,7 @@ import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, configuredRateLimit, rateLimitSchema, rateLimitsSchema, resolveRouteMiddlewares } from '../src/index.js';
-import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule, RateLimitDefaults } from '../src/index.js';
+import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule, RateLimitDefaults, RateLimitSchemaOptions } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 
@@ -331,8 +331,23 @@ describe('RateLimitMiddleware', () => {
       expect(routeMiddlewaresOf(C, 'plain')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
     });
 
+    it('keeps its config key and default over options that name them', () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } });
+      class C {}
+      limit('checks', { config: 'other.key', default: { limit: 1, windowSeconds: 1 } } as IRateLimitOptions)(C.prototype, 'checks', {} as PropertyDescriptor);
+      expect(routeMiddlewaresOf(C, 'checks')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
+    });
+
+    it('adds no headers key without opts.headers', () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } }, { headers: undefined });
+      class C {}
+      limit('checks')(C.prototype, 'checks', {} as PropertyDescriptor);
+      expect(routeMiddlewaresOf(C, 'checks')[0].Options[0]).to.not.have.property('headers');
+    });
+
     it('fixes the headers of every route it declares with { headers: false }', () => {
-      const limit = configuredRateLimit('authn.rateLimit', { login: { limit: 30, windowSeconds: 60, by: 'ip' } }, { headers: false });
+      const lock: RateLimitSchemaOptions = { headers: false };
+      const limit = configuredRateLimit('authn.rateLimit', { login: { limit: 30, windowSeconds: 60, by: 'ip' } }, lock);
       const answer = () => new Ok({});
       class C {}
       limit('login', { answer, headers: true } as IRateLimitOptions)(C.prototype, 'login', {} as PropertyDescriptor);

@@ -265,7 +265,7 @@ A package with several configured routes keeps their shipped limits in one table
 | --- | --- |
 | `RateLimitDefaults<N>` | A read-only table of `RateLimitDefault` per route name `N`. |
 | `rateLimitsSchema(defaults, routes, description?, opts?)` | The JSON schema of the package's `rateLimit` object: one `rateLimitSchema(defaults[name], routes[name], opts)` entry per name, `{}` by default, an unknown name refused. `routes` names what each entry limits, for its description. |
-| `configuredRateLimit(root, defaults, opts?)` | A factory `(name, { answer?, key? }) => @RateLimit` reading `<root>.<name>` over `defaults[name]`. A route takes no `headers` of its own: the config sets them, unless `opts.headers` fixes them for every route of the factory. |
+| `configuredRateLimit(root, defaults, opts?)` | A factory `(name, { answer?, key? }) => @RateLimit` reading `<root>.<name>` over `defaults[name]`. A route takes no `headers` of its own: `opts.headers: false` keeps them off every route of the factory, `true` sends them unless the config says otherwise. |
 
 ```ts sample
 import { configuredRateLimit, rateLimitsSchema } from '@spinajs/http';
@@ -287,7 +287,7 @@ export const REPORTS_RATE_LIMIT_SCHEMA = {
 export const ReportsRateLimit = configuredRateLimit('reports.rateLimit', REPORTS_RATE_LIMITS);
 ```
 
-- Pass the same `opts` to both helpers. With `{ headers: false }` the schema refuses a configured `headers` at boot, and every route of the factory refuses it when it mounts; without it, the config decides the headers of each route.
+- Pass the same `opts` to both helpers. With `{ headers: false }` the schema refuses a configured `headers` at boot, and every route of the factory refuses it when it mounts. `{ headers: true }` is no lock: the config may still turn them off. Without `opts.headers`, the config decides the headers of each route.
 - Register the schema as the shipped packages do: `registerConfigurationSchemaAtImport` at import and `registerConfigurationSchema` in a `Bootstrapper` (both from `@spinajs/configuration`).
 
 ## Services and extension points
