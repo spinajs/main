@@ -20,6 +20,8 @@ interface IRun {
   status?: number;
   body?: unknown;
   headers: Record<string, string>;
+  /** The headers the answer carries itself, apart from the ones set on `res`. */
+  answerHeaders?: Record<string, string>;
 }
 
 const ROUTE = { InternalType: 'post', Method: 'login' } as unknown as IRoute;
@@ -68,6 +70,7 @@ async function run(mw: RateLimitMiddleware, storage: Record<string, unknown> = {
     if (answer) {
       result.status = answer.statusCode;
       result.body = answer.data;
+      result.answerHeaders = Object.fromEntries(answer.headers.map((h) => [h.Name, String(h.Value)]));
     } else {
       result.passed = true;
     }
@@ -90,6 +93,12 @@ class RateLimitedController extends BaseController {
   @Post()
   @RateLimit(2, 60)
   public other() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, headers: true })
+  public opted() {
     return new Ok({ ok: true });
   }
 
@@ -267,8 +276,14 @@ describe('RateLimitMiddleware', () => {
       const schema = rateLimitSchema({ limit: 30, windowSeconds: 60, by: 'ip' }, 'POST /x') as { default: unknown; anyOf: { enum?: unknown[]; propertyNames?: unknown; properties?: Record<string, unknown> }[] };
       expect(schema.default).to.deep.eq({ limit: 30, windowSeconds: 60, by: 'ip' });
       expect(schema.anyOf[0]).to.deep.eq({ enum: [false] });
+      expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by', 'headers'] });
+      expect(schema.anyOf[1].properties).to.deep.eq({ limit: { type: 'integer', minimum: 0 }, windowSeconds: { type: 'number', exclusiveMinimum: 0 }, by: { enum: ['ip', 'principal'] }, headers: { type: 'boolean' } });
+    });
+
+    it('leaves headers out of the accepted keys with { headers: false }', () => {
+      const schema = rateLimitSchema({ limit: 30, windowSeconds: 60, by: 'ip' }, 'POST /x', { headers: false }) as { anyOf: { propertyNames?: unknown; properties?: Record<string, unknown> }[] };
       expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by'] });
-      expect(schema.anyOf[1].properties).to.deep.eq({ limit: { type: 'integer', minimum: 0 }, windowSeconds: { type: 'number', exclusiveMinimum: 0 }, by: { enum: ['ip', 'principal'] } });
+      expect(schema.anyOf[1].properties).to.not.have.property('headers');
     });
   });
 
@@ -282,8 +297,8 @@ describe('RateLimitMiddleware', () => {
       expect((await run(mw)).passed).to.eq(true);
       const limited = await run(mw);
       expect(limited.status).to.eq(429);
-      expect(limited.headers['X-RateLimit-Limit']).to.eq('1');
-      expect(Number(limited.headers['Retry-After'])).to.be.within(1, 60);
+      expect(limited.headers).to.deep.eq({});
+      expect(Number(limited.answerHeaders?.['Retry-After'])).to.be.within(1, 60);
       expect(increment.firstCall.args).to.deep.eq(['rate:POST /auth/login:1/60:ip:1.2.3.4', 60]);
     });
 
@@ -300,7 +315,54 @@ describe('RateLimitMiddleware', () => {
       expect((await run(configured)).status).to.eq(429);
       // changed numbers count on a key of their own, so a new limit starts a fresh window
       expect(increment.firstCall.args[0]).to.eq('rate:POST /auth/login:1/60:ip:1.2.3.4');
-      expect((await run(unset)).headers['X-RateLimit-Limit']).to.eq('5');
+      for (let i = 0; i < 5; i++) expect((await run(unset, { realIp: '5.6.7.8' })).passed, `request ${i + 1}`).to.eq(true);
+      expect((await run(unset, { realIp: '5.6.7.8' })).status).to.eq(429);
+    });
+
+    it('sends X-RateLimit-* when the config opts in; a configured headers wins over the decorator', async () => {
+      const options = { config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60 } };
+      const optedIn = await registered(await makeObjectMiddleware(options, { app: { rateLimit: { x: { headers: true } } } }));
+      expect((await run(optedIn)).headers['X-RateLimit-Limit']).to.eq('2');
+
+      const optedOut = await registered(await makeObjectMiddleware({ ...options, headers: true }, { app: { rateLimit: { x: { headers: false } } } }));
+      expect(await run(optedOut)).to.deep.eq({ passed: true, headers: {} });
+      await run(optedOut);
+      const limited = await run(optedOut);
+      expect(limited.headers).to.deep.eq({});
+      expect(Object.keys(limited.answerHeaders ?? {})).to.deep.eq(['Retry-After']);
+
+      const decorated = await registered(await makeObjectMiddleware({ ...options, headers: true }));
+      expect((await run(decorated)).headers['X-RateLimit-Limit']).to.eq('2');
+    });
+
+    it('refuses a configured headers that is not a boolean, or under a decorator with headers: false', async () => {
+      const options = { config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60 } };
+      const notBoolean = await registrationError(await makeObjectMiddleware(options, { app: { rateLimit: { x: { headers: 'yes' } } } }));
+      expect(notBoolean).to.be.instanceOf(InvalidOption);
+      expect(notBoolean?.message).to.contain('app.rateLimit.x.headers');
+
+      const locked = await registrationError(await makeObjectMiddleware({ ...options, headers: false }, { app: { rateLimit: { x: { headers: true } } } }));
+      expect(locked).to.be.instanceOf(InvalidOption);
+      expect(locked?.message).to.contain('app.rateLimit.x has unknown keys headers');
+
+      const lockedDefault = await registrationError(await makeObjectMiddleware({ config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60, headers: true }, headers: false }));
+      expect(lockedDefault).to.be.instanceOf(InvalidArgument);
+      expect(lockedDefault?.message).to.contain('@RateLimit default has unknown keys headers');
+    });
+
+    it('ranks default.headers as the config value: it wins over the decorator headers, and headers: false refuses it', async () => {
+      const inlineOff = await registered(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: false }, headers: true }));
+      expect(await run(inlineOff)).to.deep.eq({ passed: true, headers: {} });
+
+      const configuredOff = await registered(await makeObjectMiddleware({ config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60, headers: false }, headers: true }));
+      expect(await run(configuredOff)).to.deep.eq({ passed: true, headers: {} });
+
+      const inlineOn = await registered(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: true } }));
+      expect((await run(inlineOn)).headers['X-RateLimit-Limit']).to.eq('2');
+
+      const locked = await registrationError(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: true }, headers: false }));
+      expect(locked).to.be.instanceOf(InvalidArgument);
+      expect(locked?.message).to.contain('@RateLimit default has unknown keys headers');
     });
 
     it('is not mounted when the config key is false, and does nothing if registered anyway', async () => {
@@ -343,6 +405,7 @@ describe('RateLimitMiddleware', () => {
         [{ limit: 1, windowSeconds: 60, answer: 'x' as never }, 'answer'],
         [{ limit: 1, windowSeconds: 60, key: 1 as never }, 'key'],
         [{ limit: 1, windowSeconds: 60, headers: 'false' as never }, 'headers'],
+        [{ default: { limit: 1, windowSeconds: 60, headers: 'yes' as never } }, '@RateLimit default.headers'],
         [{ limit: 1, windowSeconds: 60, header: false } as IRateLimitOptions, 'header'],
         [{ config: '', default: { limit: 1, windowSeconds: 60 } }, 'config'],
         [{ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60, limt: 2 } as never }, 'limt'],
@@ -381,9 +444,14 @@ describe('RateLimitMiddleware', () => {
       expect(answer.firstCall.returnValue.headers).to.deep.eq([{ Name: 'Retry-After', Value: String(answer.firstCall.args[0]) }]);
     });
 
-    it('keeps its headers with an answer unless told otherwise', async () => {
-      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, answer: uniformAnswer }));
+    it('with an answer, sets X-RateLimit-* and Retry-After of its own only under headers: true', async () => {
+      const quiet = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, answer: uniformAnswer }));
+      await run(quiet);
+      const unset = await run(quiet);
+      expect(unset.status).to.eq(401);
+      expect(unset.headers).to.deep.eq({});
 
+      const mw = await registered(await makeObjectMiddleware({ limit: 1, windowSeconds: 60, answer: uniformAnswer, headers: true }));
       await run(mw);
       const limited = await run(mw);
       expect(limited.status).to.eq(401);
@@ -438,18 +506,15 @@ describe('RateLimitMiddleware', () => {
     it('passes requests under the limit and answers the first one over it with the 429 ThrottleMiddleware sends', async () => {
       const mw = await registered(await makeMiddleware({ limit: 2, windowSeconds: 60 }));
 
-      const first = await run(mw);
-      expect(first.passed).to.eq(true);
-      expect(first.headers['X-RateLimit-Limit']).to.eq('2');
-      expect(first.headers['X-RateLimit-Remaining']).to.eq('1');
-      expect(Number(first.headers['X-RateLimit-Reset'])).to.be.greaterThan(Date.now() / 1000);
+      expect(await run(mw)).to.deep.eq({ passed: true, headers: {} });
       expect((await run(mw)).passed).to.eq(true);
 
       const limited = await run(mw);
       expect(limited.passed).to.eq(false);
       expect(limited.status).to.eq(429);
-      expect(limited.headers['X-RateLimit-Remaining']).to.eq('0');
-      expect(Number(limited.headers['Retry-After'])).to.be.within(1, 60);
+      expect(limited.headers).to.deep.eq({});
+      expect(Object.keys(limited.answerHeaders ?? {})).to.deep.eq(['Retry-After']);
+      expect(Number(limited.answerHeaders?.['Retry-After'])).to.be.within(1, 60);
 
       const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { throttle: { enabled: true, rules: [{ path: '/', limit: 1, windowSeconds: 60 }] as IThrottleRule[] } } } });
       const throttle = readingFrom(new ThrottleMiddleware(), container);
@@ -457,6 +522,22 @@ describe('RateLimitMiddleware', () => {
       Object.defineProperty(throttle, 'Log', { value: { warn: sinon.stub() } });
       const throttled = await throttle.onBefore({ req: { path: '/x', method: 'GET', socket: {} } as never, res: { set: () => undefined } as never, storage: { realIp: '1.2.3.4' } as never });
       expect(JSON.stringify(limited.body)).to.eq(JSON.stringify((await throttled)!.data));
+    });
+
+    it('with headers: true, sets X-RateLimit-* on every counted request and Retry-After on the 429', async () => {
+      const mw = await registered(await makeObjectMiddleware({ limit: 2, windowSeconds: 60, headers: true }));
+
+      const first = await run(mw);
+      expect(first.passed).to.eq(true);
+      expect(first.headers['X-RateLimit-Limit']).to.eq('2');
+      expect(first.headers['X-RateLimit-Remaining']).to.eq('1');
+      expect(Number(first.headers['X-RateLimit-Reset'])).to.be.greaterThan(Date.now() / 1000);
+      await run(mw);
+
+      const limited = await run(mw);
+      expect(limited.status).to.eq(429);
+      expect(limited.headers['X-RateLimit-Remaining']).to.eq('0');
+      expect(Number(limited.headers['Retry-After'])).to.be.within(1, 60);
     });
 
     it('counts per client address, an IPv6 /64 as one client', async () => {
@@ -496,9 +577,13 @@ describe('RateLimitMiddleware', () => {
 
       const closed = await run(mw);
       expect(closed.status).to.eq(429);
-      expect(closed.headers).to.deep.eq({ 'X-RateLimit-Limit': '0', 'X-RateLimit-Remaining': '0' });
+      expect(closed.headers).to.deep.eq({});
+      expect(closed.answerHeaders).to.deep.eq({});
       expect(JSON.stringify(closed.body)).to.eq(JSON.stringify({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }));
       expect(increment.called).to.eq(false);
+
+      const optedIn = await registered(await makeObjectMiddleware({ limit: 0, windowSeconds: 60, headers: true }, {}, store));
+      expect((await run(optedIn)).headers).to.deep.eq({ 'X-RateLimit-Limit': '0', 'X-RateLimit-Remaining': '0' });
     });
 
     it('hands a counter store failure to the error handler', async () => {
@@ -560,16 +645,16 @@ describe('RateLimitMiddleware', () => {
       await app.dispose();
     });
 
-    it('answers 429 over the limit through the reply pipeline, a route of its own counter, a route without it unlimited', async () => {
+    it('answers 429 over the limit through the reply pipeline, a route of its own counter, a route without it unlimited, X-RateLimit-* only on a route that opts in', async () => {
+      const first = await req().post('rate-limited/login');
+      expect(first.status).to.eq(200);
+      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
       expect((await req().post('rate-limited/login')).status).to.eq(200);
-      const second = await req().post('rate-limited/login');
-      expect(second.status).to.eq(200);
-      expect(second.header['x-ratelimit-limit']).to.eq('2');
-      expect(second.header['x-ratelimit-remaining']).to.eq('0');
 
       const limited = await req().post('rate-limited/login');
       expect(limited.status).to.eq(429);
       expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
+      expect(Object.keys(limited.header).filter((h) => h.startsWith('x-ratelimit-'))).to.deep.eq([]);
       expect(limited.body).to.deep.eq({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } });
 
       expect((await req().post('rate-limited/other')).status).to.eq(200);
@@ -578,6 +663,19 @@ describe('RateLimitMiddleware', () => {
         expect(free.status).to.eq(200);
         expect(free.header['x-ratelimit-limit']).to.eq(undefined);
       }
+
+      // the suite's afterEach disposes the app, so the route that opts in is checked here
+      const opted = await req().post('rate-limited/opted');
+      expect(opted.status).to.eq(200);
+      expect(opted.header['x-ratelimit-limit']).to.eq('2');
+      expect(opted.header['x-ratelimit-remaining']).to.eq('1');
+      expect((await req().post('rate-limited/opted')).header['x-ratelimit-remaining']).to.eq('0');
+
+      const optedLimited = await req().post('rate-limited/opted');
+      expect(optedLimited.status).to.eq(429);
+      expect(Number(optedLimited.header['retry-after'])).to.be.within(1, 60);
+      expect(optedLimited.header['x-ratelimit-limit']).to.eq('2');
+      expect(optedLimited.header['x-ratelimit-remaining']).to.eq('0');
     });
   });
 
