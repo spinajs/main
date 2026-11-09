@@ -131,7 +131,7 @@ The counters are per process unless you register a shared `ThrottleStore`. Behin
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `limit` | `integer` | required | Requests allowed per window. `0` closes the route: every request gets the 429, without `Retry-After` or `X-RateLimit-Reset`, and nothing is counted. |
+| `limit` | `integer` | required | Requests allowed per window. `0` closes the route: every request gets the 429, without `Retry-After` or `X-RateLimit-Reset`, and nothing is counted. With `headers: true` it carries `X-RateLimit-Limit: 0` and `X-RateLimit-Remaining: 0`. |
 | `windowSeconds` | `number` | required | Window length, > 0. |
 | `by` | `'ip' | 'principal'` | `'ip'` | `'ip'`: per client address, an IPv6 address per `http.throttle.ipv6Prefix` network, as `ThrottleMiddleware` counts. `'principal'`: per authenticated principal (`req.storage.Principal` from `@spinajs/authz-http`, else `req.storage.AuthnPrincipal`); an anonymous request is counted per address. |
 
@@ -238,8 +238,9 @@ export default {
 - The numbers are read once, when the route is mounted; a change needs a restart.
 - The store key is the same as in the positional form, `rate:<METHOD> <path>:<limit>/<window>:<subject>`: changed numbers start fresh windows.
 - `RateLimitMiddleware`'s `limit`, `windowSeconds` and `by` hold the effective settings once the route is mounted.
-- In `http.routes.middlewares` the options form is `options: [{ limit: 600, windowSeconds: 60 }]`; `answer` and `key` need code, so they only come from a decorator or a subclass.
+- In `http.routes.middlewares` the options form is `options: [{ limit: 600, windowSeconds: 60 }]`, with `headers: true` to send the `X-RateLimit-*` headers; `answer` and `key` need code, so they only come from a decorator or a subclass.
 - A package that ships configured limits describes each key with `rateLimitSchema(default, route, opts?)` in its configuration schema: `false` or `{ limit?, windowSeconds?, by?, headers? }`, with the default filled and unknown or out-of-range settings refused at boot. For a route declared with `headers: false`, pass `{ headers: false }` as `opts`: the schema then refuses `headers` too, as the middleware does when the route mounts.
+- `RateLimitDefault` types a table of shipped defaults: `limit`, `windowSeconds` and `by` required, `headers` optional.
 
 ```ts sample
 import { BaseController, BasePath, Ok, Post, RateLimit } from '@spinajs/http';
