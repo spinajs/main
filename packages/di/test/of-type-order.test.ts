@@ -303,11 +303,12 @@ describe('Array.ofType with a @PerInstanceCheck element', () => {
 });
 
 @PerInstanceCheck()
-class Counted implements IInstanceCheck {
+class Counted extends AsyncService implements IInstanceCheck {
   public static built = 0;
   public tenant?: string;
   // resolve options are appended to the constructor arguments after the injected dependencies (container.ts getNewInstance)
   constructor(options?: { tenant?: string }) {
+    super();
     Counted.built++;
     this.tenant = options?.tenant;
   }
