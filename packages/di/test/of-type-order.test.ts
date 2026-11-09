@@ -407,7 +407,6 @@ describe('@PerInstanceCheck: single and list resolves share one path', () => {
     expect(Counted.built).to.equal(1);
   });
 
-  // @Autoinject resolves with [undefined] options, a direct or list resolve with undefined: both mean "no options".
   it('an autoinjecting consumer racing a list resolve shares the element', async () => {
     class NeedsCounted {
       @Autoinject(Counted)
@@ -426,14 +425,22 @@ describe('@PerInstanceCheck: single and list resolves share one path', () => {
     const c = new Container();
     c.register(Counted).as('Reports');
 
-    const pending = c.resolve(Array.ofType('Reports')) as unknown as Promise<Counted[]>;
-    c.Cache.abandonPending();
-    const error = await pending.then(
-      () => undefined,
-      (err: Error) => err,
-    );
+    const dispose = spy(Counted.prototype, 'dispose');
+    let error: Error | undefined;
+    try {
+      const pending = c.resolve(Array.ofType('Reports')) as unknown as Promise<Counted[]>;
+      c.Cache.abandonPending();
+      error = await pending.then(
+        () => undefined,
+        (err: Error) => err,
+      );
+    } finally {
+      dispose.restore();
+    }
 
     expect(error?.message).to.match(/Counted finished resolving after the container was restored/);
+    expect(dispose.calledOnce).to.be.true;
+    expect(Counted.built).to.equal(1);
     expect(c.Cache.has(Counted)).to.be.false;
     expect(c.Cache.has('Reports') ? c.Cache.get('Reports') : []).to.be.empty;
   });
