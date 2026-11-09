@@ -10,7 +10,8 @@ import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketHub } from '../src/hub.js';
 import { ISocketCallStorage, ISocketHandshake } from '../src/interfaces.js';
 import { ISocketPolicyRequest } from '../src/policies.js';
-import { ITestServer, TestPrincipalSource, command, open, resultOf, startServer } from './harness.js';
+import { SYSTEM_EVENTS } from '@spinajs/http-socket-common';
+import { ITestServer, TestPrincipalSource, command, connect, connected, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
 
 export const cipSeen: { ip: string | null } = { ip: null };
 
@@ -49,6 +50,16 @@ class CdnRealIp extends RealIp {
   }
 }
 
+const failing = { on: false };
+
+/** An app's RealIp whose address lookup fails once `failing.on` is set. */
+class FailingRealIp extends RealIp {
+  public override clientAddress(req: ClientAddressSource): string | undefined {
+    if (failing.on) throw new Error('address lookup failed');
+    return super.clientAddress(req);
+  }
+}
+
 describe('the handshake client address behind trusted proxies (G5)', function () {
   this.timeout(15000);
 
@@ -68,7 +79,8 @@ describe('the handshake client address behind trusted proxies (G5)', function ()
     await t?.close();
     t = null;
     cipSeen.ip = null;
-    for (const sub of [OneHopRealIp, CdnRealIp]) {
+    failing.on = false;
+    for (const sub of [OneHopRealIp, CdnRealIp, FailingRealIp]) {
       DI.unregister(sub);
       DI.uncache(sub);
     }
@@ -138,5 +150,31 @@ describe('the handshake client address behind trusted proxies (G5)', function ()
     const { handshake } = await connectThrough({ http: { trustProxy: ['127.0.0.1', '127.0.0.2'] } }, '203.0.113.7, 127.0.0.2');
 
     expect(handshake.address).to.equal('203.0.113.7');
+  });
+
+  it('refuses a recovered socket whose RealIp.clientAddress() throws, as a handshake is refused', async () => {
+    DI.register(FailingRealIp).as(RealIp);
+    t = await startServer({});
+    const hub = DI.resolve(SocketHub);
+    const first = await open(t, { auth: { token: 'good' } });
+    sockets.push(first);
+    const id = first.id!;
+    const received = nextEvent(first, 'cip.ping');
+    hub.connection(id)!.emit('cip.ping', {});
+    await received;
+    const { _pid: pid, _lastOffset: offset } = first as unknown as { _pid: string; _lastOffset: string };
+    first.io.engine.close();
+    await waitFor(() => hub.connection(id) === undefined);
+
+    failing.on = true;
+    const second = connect(t, { auth: { pid, offset, token: 'good' } });
+    sockets.push(second);
+    const kicked = nextEvent<{ reason: string }>(second, SYSTEM_EVENTS.disconnect);
+    let secondId: string | undefined;
+    second.once('connect', () => (secondId = second.id));
+    await connected(second);
+
+    expect(secondId, 'the connection was recovered').to.equal(id);
+    expect(await kicked).to.deep.equal({ reason: 'internal' });
   });
 });

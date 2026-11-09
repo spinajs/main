@@ -428,7 +428,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected onConnection(socket: Socket): void {
-    const handshake = this.handshakes.get(socket) ?? toHandshake(socket, this.ClientAddress);
+    const checked = this.handshakes.get(socket);
     this.handshakes.delete(socket);
 
     // a recovered socket skipped the handshake middleware, and a handshake may have passed it just before shutdown began
@@ -448,7 +448,8 @@ export class SocketServer extends AsyncService {
         throw new SocketException('forbidden', 'origin not allowed');
       }
 
-      connection = new SocketConnection(socket, handshake);
+      // inside the try: a recovered socket runs the app's RealIp.clientAddress() here, not in the handshake middleware
+      connection = new SocketConnection(socket, checked ?? toHandshake(socket, this.ClientAddress));
     } catch (err) {
       this.refuseConnected(socket, this.Errors.toWire(err, 'connection'));
       return;
@@ -467,7 +468,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected refuseConnected(socket: Socket, wire: SocketError): void {
-    this.Log.warn({ socketId: socket.id, code: wire.code, reason: wire.message }, 'Socket ${socketId} refused after connecting: ${code} ${reason}');
+    this.Log.warn({ socketId: socket.id, code: wire.code, reason: wire.message, errorId: wire.errorId }, 'Socket ${socketId} refused after connecting: ${code} ${reason}');
 
     const frame: EventFrame<DisconnectNotice> = { name: SYSTEM_EVENTS.disconnect, payload: { reason: wire.code } };
     socket.emit(WIRE_EVENTS.event, frame);

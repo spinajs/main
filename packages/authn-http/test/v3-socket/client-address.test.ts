@@ -100,6 +100,14 @@ describe('@spinajs/authn-http/socket: a socket gets the client address AuthnReal
     expect(await requestAddress()).to.equal(address);
   });
 
+  it('authn.http.trustProxy: false does not fall back to http.trustProxy', async () => {
+    await restart(false, 'loopback');
+
+    const address = await socketAddress();
+    expect(address).to.match(LOOPBACK);
+    expect(await requestAddress()).to.equal(address);
+  });
+
   it('a null authn.http.trustProxy falls back to http.trustProxy', async () => {
     await restart(null, 1);
 
