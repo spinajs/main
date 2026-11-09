@@ -5,7 +5,7 @@ import '@spinajs/authn-http/register-schema';
 import '@spinajs/authn-session/register-schema';
 import { AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
-import { AuthnSession, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
+import { AuthnSession, publicOriginOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, RateLimit, isTrustedPeer } from '@spinajs/http';
@@ -88,18 +88,11 @@ export class OidcController extends BaseController {
 
   protected flow: Promise<OidcLogin> | undefined;
   protected logout: OidcBackchannelLogout | undefined;
-  protected peerTrusted: ((peer: string | undefined) => boolean) | undefined;
   protected warnedHttpOrigin = false;
   protected warnedFlowCookieHost = false;
 
   @Autoinject(Container)
   protected Container!: IContainer;
-
-  @Config('authn.http.trustProxy')
-  protected OwnTrust: unknown;
-
-  @Config('http.trustProxy')
-  protected SharedTrust: unknown;
 
   @Config('authn.http.publicOrigin')
   protected PublicOrigin: string | null | undefined;
@@ -292,7 +285,11 @@ export class OidcController extends BaseController {
   }
 
   protected checkedOriginOf(f: RequestFacts): string | undefined {
-    return checkedRequestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
+    return checkedRequestOrigin(
+      { encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost },
+      // a connection built without RealIp's trust (a direct caller) trusts no proxy
+      (peer) => isTrustedPeer(f.connection.proxyTrust ?? { hops: 0 }, peer),
+    );
   }
 
   /**
@@ -315,16 +312,6 @@ export class OidcController extends BaseController {
 
   protected get env(): string | undefined {
     return this.Providers.env;
-  }
-
-  protected get trusted(): (peer: string | undefined) => boolean {
-    return (this.peerTrusted ??= this.peerTrust());
-  }
-
-  /** The trust setting of ClientIp and the CSRF guard, parsed by the shared parser; throws, naming the key, for an entry that is no address. */
-  protected peerTrust(): (peer: string | undefined) => boolean {
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    return (peer) => isTrustedPeer(trust, peer);
   }
 
   protected login(): Promise<OidcLogin> {
