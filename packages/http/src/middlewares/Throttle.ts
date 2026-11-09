@@ -32,8 +32,8 @@ export interface IThrottleRule {
   windowSeconds: number;
 
   /**
-   * false: no `X-RateLimit-*` headers on the requests the rule counts; the 429 still carries `Retry-After`. For routes
-   * whose answers must not reveal a limiter (authn). Default true.
+   * true: send the `X-RateLimit-*` headers on every request the rule counts, the 429 included. Default false: the 429
+   * carries only `Retry-After`, and the other answers do not reveal the limiter.
    */
   headers?: boolean;
 }
@@ -120,8 +120,8 @@ const underPath = (path: string, prefix: string): boolean => {
  *     ],
  *   }
  *
- * A limited request answers 429 with `Retry-After` and the standard
- * `X-RateLimit-*` headers, through the reply pipeline; the counters live in {@link ThrottleStore}.
+ * A limited request answers 429 with `Retry-After` through the reply pipeline; a rule with `headers: true` also sends
+ * the standard `X-RateLimit-*` headers on every request it counts. The counters live in {@link ThrottleStore}.
  */
 @Injectable(ServerMiddleware)
 export class ThrottleMiddleware extends ServerMiddleware {
@@ -167,7 +167,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
     // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
     // answers the request instead of the route (fail closed).
     const hit = await this.Store.increment(key, rule.windowSeconds);
-    return rule.headers === false ? quietRateLimitAnswer(rule.limit, hit) : rateLimitAnswer(res, rule.limit, hit);
+    return rule.headers === true ? rateLimitAnswer(res, rule.limit, hit) : quietRateLimitAnswer(rule.limit, hit);
   }
 
   private throttle(): { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null {
