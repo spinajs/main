@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { randomUUID } from 'node:crypto';
 import type Express from 'express';
 import { Intl } from '@spinajs/intl';
 import { Forbidden, InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
@@ -310,11 +311,12 @@ describe('response contract validation', function () {
 
   it('checks a replay whose body an onAfter changed against the route schema', async () => {
     await boot({ enabled: true, mode: 'log' });
-    const first = await req().post('contract/replayed').set('Idempotency-Key', 'contract-replay').send({});
+    const key = randomUUID();
+    const first = await req().post('contract/replayed').set('Idempotency-Key', key).send({});
     expect(first.status).to.eq(200);
     expect(violations.count).to.eq(0);
 
-    const replay = await req().post('contract/replayed').set('Idempotency-Key', 'contract-replay').send({});
+    const replay = await req().post('contract/replayed').set('Idempotency-Key', key).send({});
     expect(replay.body).to.deep.eq(NO_ID);
     expect(violations.list).to.have.length(1);
     expect(violations.list[0]).to.deep.include({ controller: 'ContractController', handler: 'replayed', kind: 'response' });

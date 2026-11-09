@@ -1,4 +1,5 @@
 import 'mocha';
+import { randomUUID } from 'node:crypto';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
@@ -111,6 +112,20 @@ class ReplayItemsController extends BaseController {
     state.actionCalls++;
     return new Ok({ deleted: id, call: state.actionCalls });
   }
+
+  @Del('any-key/:id')
+  @Idempotent({ sharedScope: 'any' })
+  public async removeAnyKey(@Param() id: string) {
+    state.actionCalls++;
+    return new Ok({ deleted: id, call: state.actionCalls });
+  }
+
+  @Del('keyed/:id')
+  @Idempotent({ required: true })
+  public async removeKeyed(@Param() id: string) {
+    state.actionCalls++;
+    return new Ok({ deleted: id, call: state.actionCalls });
+  }
 }
 
 class ReplayConfiguration extends TestConfiguration {
@@ -180,8 +195,9 @@ describe('Idempotency-Key replay before the policy gate', function () {
   });
 
   it('judges the resend of an anonymous caller by the policies: anonymous callers share one scope', async () => {
-    const first = await remove('a', 'del-anon-1');
-    const again = await remove('a', 'del-anon-1');
+    const key = randomUUID();
+    const first = await remove('a', key);
+    const again = await remove('a', key);
 
     expect(first.status).to.eq(200);
     expect(again.status).to.eq(403);
@@ -322,10 +338,11 @@ describe('Idempotency-Key replay before the policy gate', function () {
   }
 
   it('judges a link bearer by the policies, and keeps a bearer with a companion apart from one without', async () => {
-    await remove('a', 'del-link-1', undefined, { 'x-link': 'L1' });
-    const other = await remove('a', 'del-link-1', undefined, { 'x-link': 'L1' });
+    const key = randomUUID();
+    await remove('a', key, undefined, { 'x-link': 'L1' });
+    const other = await remove('a', key, undefined, { 'x-link': 'L1' });
     state.rows.add('a');
-    const withCompanion = await remove('a', 'del-link-1', undefined, { 'x-link': 'L1', 'x-companion': 'alice' });
+    const withCompanion = await remove('a', key, undefined, { 'x-link': 'L1', 'x-companion': 'alice' });
 
     expect(other.status).to.eq(403);
     expect(state.policyCalls).to.eq(3);
@@ -345,5 +362,88 @@ describe('Idempotency-Key replay before the policy gate', function () {
     expect(again.headers['idempotent-replayed']).to.eq('true');
     expect(state.actionCalls).to.eq(1);
     expect(peek.called).to.eq(false);
+  });
+
+  describe('in a shared scope (an anonymous caller, a share link without a signed-in companion)', () => {
+    const anonymousRecord = async (key: string) => (await app.resolve(IdempotencyService)).peek({ namespace: 'http:DELETE /replay-items/:id', principal: 'anonymous' }, key);
+
+    const expectNotRandom = (res: { status: number; body: { code?: string } }) => {
+      expect(res.status).to.eq(400);
+      expect(res.body.code).to.eq('idempotency.key-not-random');
+    };
+
+    it('refuses an anonymous key that is not a random UUID with 400, without running or claiming it', async () => {
+      expectNotRandom(await remove('a', 'order-1'));
+      expect(state.actionCalls).to.eq(0);
+      expect(await anonymousRecord('order-1')).to.eq(undefined);
+    });
+
+    it('runs an anonymous random UUID once and replays its resend, bare or quoted, through the policies', async () => {
+      const key = randomUUID();
+      const first = await remove('a', key);
+      state.rows.add('a');
+      const again = await remove('a', key);
+      const quoted = await remove('a', `"${key}"`);
+
+      expect(first.status).to.eq(200);
+      expect(again.status).to.eq(200);
+      expect(again.headers['idempotent-replayed']).to.eq('true');
+      expect(again.text).to.eq(first.text);
+      expect(quoted.headers['idempotent-replayed']).to.eq('true');
+      expect(state.actionCalls).to.eq(1);
+      expect(state.policyCalls).to.eq(3);
+      expect((await anonymousRecord(key))?.state).to.eq('done');
+    });
+
+    it('lets the policies refuse first: a 403 wins over the key check', async () => {
+      const refused = await remove('zz', 'order-1');
+
+      expect(refused.status).to.eq(403);
+      expect(state.policyCalls).to.eq(1);
+    });
+
+    it('refuses a link bearer without a companion a key that is not a random UUID', async () => {
+      expectNotRandom(await remove('a', 'order-1', undefined, { 'x-link': 'L1' }));
+      expect(state.actionCalls).to.eq(0);
+    });
+
+    it('runs each random UUID of the bearers of one link apart', async () => {
+      const first = await remove('a', randomUUID(), undefined, { 'x-link': 'L1' });
+      state.rows.add('a');
+      const second = await remove('a', randomUUID(), undefined, { 'x-link': 'L1' });
+
+      expect(first.status).to.eq(200);
+      expect(second.status).to.eq(200);
+      expect(second.headers['idempotent-replayed']).to.eq(undefined);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it('takes any key from a link bearer with a signed-in companion and from a signed-in user', async () => {
+      const withCompanion = await remove('a', 'order-1', undefined, { 'x-link': 'L1', 'x-companion': 'alice' });
+      state.rows.add('a');
+      const user = await remove('a', 'order-1', 'u1');
+
+      expect(withCompanion.status).to.eq(200);
+      expect(user.status).to.eq(200);
+      expect(user.headers['idempotent-replayed']).to.eq(undefined);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it("takes any key with sharedScope: 'any'", async () => {
+      const first = await req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' });
+      const again = await req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' });
+
+      expect(first.status).to.eq(200);
+      expect(again.headers['idempotent-replayed']).to.eq('true');
+      expect(state.actionCalls).to.eq(1);
+    });
+
+    it('refuses a missing key of a required route as missing, not as not random', async () => {
+      const missing = await req().delete('replay-items/keyed/a').set({ Accept: 'application/json' });
+
+      expect(missing.status).to.eq(400);
+      expect(missing.body.code).to.eq('idempotency.key-required');
+      expect(state.actionCalls).to.eq(0);
+    });
   });
 });

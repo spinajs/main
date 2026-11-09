@@ -54,6 +54,11 @@ policies run.
 `authn.impersonator`, `companions`) when it is restricted (`isRestrictedPrincipal()`), so a narrower credential of one
 identity never shares stored replies with its full session. `@spinajs/http` and `@spinajs/http-socket` scope keys with it.
 
+`isSharedScope(principal)` is true for a principal that shares its key space with other callers: none, an
+unauthenticated one, or a share link (`type: 'link'`) without `companions`. `isRandomKey(key)` is true for a UUID of
+version 4 or 7, which another caller of a shared scope can neither hit by chance nor guess. `@spinajs/http` refuses
+any other key from a shared scope (the `sharedScope` option of `@Idempotent`).
+
 ## Transactions
 
 Run `IdempotencyService.run` outside business transactions. A claim made inside a transaction joins it: it commits or

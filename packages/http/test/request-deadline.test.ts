@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import sinon from 'sinon';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import http from 'node:http';
 import { DI } from '@spinajs/di';
@@ -314,7 +315,8 @@ describe('RequestDeadline in HttpServer', function () {
 
   it('keeps the idempotency claim after a 504: a retry with the same key does not run the action again', async () => {
     counts.idempotent = 0;
-    const post = () => req().post('deadline/charge').set({ Accept: 'application/json', 'Idempotency-Key': 'deadline-k1' });
+    const key = randomUUID();
+    const post = () => req().post('deadline/charge').set({ Accept: 'application/json', 'Idempotency-Key': key });
 
     expect((await post()).status).to.eq(504);
     const retry = await post();

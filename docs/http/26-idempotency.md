@@ -40,13 +40,15 @@ request: the boot fails with `RouteRegistrationException`, and for a bad `ttl` i
 | `ttl` | `'24h'` | how long a reply replays |
 | `fingerprint` | `'body'` | `'body'`: a repeat with a different body or URL is refused with 422; `'none'`: only the method and URL are compared |
 | `maxReplyBytes` | `1048576` | a larger reply is not stored, and its key is released |
+| `sharedScope` | `'random'` | `'random'`: a caller in a [shared scope](#shared-scopes) (anonymous, or a share link without a signed-in companion) must send a random UUID, or is refused with 400 `idempotency.key-not-random`; `'any'`: any key |
 
 ## The header
 
 `Idempotency-Key` takes the two forms of draft-ietf-httpapi-idempotency-key-header. One is a quoted string (`"k 1"`:
 printable ASCII, `\"` and `\\` escapes, no parameters). The other is bare visible ASCII (`0x21`–`0x7E`) without `,` and
-`;`. `"k-1"` and `k-1` are the same key. The key itself is 1 to 255 characters. Use a fresh UUID per operation. A
-malformed or repeated header is refused with 400 `idempotency.key-malformed`.
+`;`. `"k-1"` and `k-1` are the same key. The key itself is 1 to 255 characters. Use a fresh random UUID per
+operation, which a caller in a [shared scope](#shared-scopes) must. A malformed or repeated header is refused with 400
+`idempotency.key-malformed`.
 
 ## What happens
 
@@ -56,6 +58,7 @@ malformed or repeated header is refused with 400 `idempotency.key-malformed`.
 | repeat within `ttl` | the stored status, headers (see below) and body, plus `Idempotent-Replayed: true`; for an authenticated principal without running the policies (see [Replays before the policies](#replays-before-the-policies)) |
 | repeat while the first still runs | 409 `idempotency.in-flight` with `Retry-After` (seconds) |
 | repeat with a different body or URL, while the first runs or after it | 422 `idempotency.key-reuse` |
+| a key that is not a random UUID, from a caller in a [shared scope](#shared-scopes) | 400 `idempotency.key-not-random`, after the policies; the route does not run and nothing is claimed |
 | a claim inside a database transaction lost a deadlock or serialization check | 409 `idempotency.claim-conflict` with `Retry-After: 1` |
 | client disconnects before the route started (in a policy or during the claim) | the route does not run; the key is not claimed, or is released |
 | client disconnects after the route started, before the reply finished | the key stays claimed until the lease ends: the route may still commit; a retry gets 409 meanwhile |
@@ -114,8 +117,8 @@ run. In every other case the request goes on to the policies and the claim, as b
 
 | Situation | Answer |
 |---|---|
-| anonymous caller | the policies run first: all anonymous callers share one scope, so their repeats are judged by the policies |
-| restricted principal (ceiling, delegation, impersonation, share link, companions) | the policies run first, then the claim in the principal's own [scope](#scope) |
+| anonymous caller | the policies run first: all anonymous callers share one scope, so their repeats are judged by the policies; then a key that is not a random UUID is refused with 400 `idempotency.key-not-random` ([shared scopes](#shared-scopes)), and a random one goes to the claim |
+| restricted principal (ceiling, delegation, impersonation, share link, companions) | the policies run first, then the claim in the principal's own [scope](#scope); a share link bearer without a signed-in companion must send a random UUID, as an anonymous caller must |
 | route without policies | no check: the claim replays, there is nothing to skip |
 | no record, or the record expired | the policies, then the claim |
 | key in flight | the policies, then the claim: 409 `idempotency.in-flight`; a retry after the first run completed is replayed |
@@ -164,8 +167,7 @@ in the `'beforePolicy'` stage or among the server middlewares.
 
 A key is one key per route and principal. The route is `http:<METHOD> <path>` with the route template, for example
 `/orders/:id/pay`. The principal is the authenticated principal, or `anonymous`. The same key from two users runs
-twice. An anonymous route shares one key space between all its callers, so give anonymous routes `required: true`
-and have clients send random UUIDs.
+twice. All anonymous callers of a route share one key space (see [Shared scopes](#shared-scopes)).
 
 A restricted principal gets a scope of its own: its key (`principalKey`) together with its authority, which is its
 `ceiling`, `onBehalfOf` and `delegation`, `authn.impersonator` and `companions` (`idempotencyPrincipal()` of
@@ -173,6 +175,25 @@ A restricted principal gets a scope of its own: its key (`principalKey`) togethe
 or an admin impersonating that user, nor the other way round. An unrestricted principal keeps the plain
 `principalKey`. A share link is scoped by the link, its scope and expiry and the signed-in companion: two bearers of
 one link who are not signed in share its key space, as anonymous callers share theirs.
+
+### Shared scopes
+
+Two kinds of caller share one key space with every caller like them: anonymous callers (no principal, or an
+unauthenticated one) and the bearers of one share link who are not signed in (a `type: 'link'` principal without
+`companions`). There a key one caller picked can be another caller's key. A collision answers the second caller with
+the first one's stored reply when the requests match, or with 422 `idempotency.key-reuse` or 409
+`idempotency.in-flight` for a request it never sent. A caller who guesses another's key and sends the same request gets
+that caller's stored reply.
+
+So with `sharedScope: 'random'` (the default) a caller in a shared scope must send a random UUID, version 4 or 7, bare
+or quoted. Any other key is refused with 400 `idempotency.key-not-random`. The check runs after the policies, so a 401
+or 403 still wins, and before the claim, so the route does not run and nothing is claimed. A request without the
+header is not affected: an optional route runs it as usual, and a `required: true` route refuses it with 400
+`idempotency.key-required`. A signed-in user, and a link bearer with a signed-in companion, may send any key.
+`isSharedScope()` and `isRandomKey()` of `@spinajs/idempotency` make the two checks.
+
+`sharedScope: 'any'` takes any key in a shared scope too. Use it only when every client of the route draws its keys at
+random anyway, and the format is all that differs.
 
 The fingerprint covers the method, the full URL (path and query) and, by default, the body. A key reused on another
 resource of the same route template is refused with 422, never replayed. Send one key per operation.

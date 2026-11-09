@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { isRandomKey, isSharedScope } from '@spinajs/idempotency';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Idempotent, Ok, Post, parseIdempotencyKey } from '../src/index.js';
 import type { IControllerDescriptor } from '../src/interfaces.js';
 import { IdempotencyMiddleware } from '../src/idempotency/middleware.js';
@@ -15,7 +16,7 @@ class IdemOrdersController extends BaseController {
   }
 
   @Post()
-  @Idempotent({ required: true, ttl: '1h', fingerprint: 'none', maxReplyBytes: 10 })
+  @Idempotent({ required: true, ttl: '1h', fingerprint: 'none', maxReplyBytes: 10, sharedScope: 'any' })
   public pay() {
     return new Ok();
   }
@@ -58,11 +59,11 @@ const gates = (route: ReturnType<typeof routeOf>) => route.Middlewares.filter((m
 
 describe('@Idempotent', () => {
   it('records the defaults on the route', () => {
-    expect(routeOf('create').Idempotency).to.deep.equal({ required: false, ttl: '24h', fingerprint: 'body', maxReplyBytes: 1_048_576 });
+    expect(routeOf('create').Idempotency).to.deep.equal({ required: false, ttl: '24h', fingerprint: 'body', maxReplyBytes: 1_048_576, sharedScope: 'random' });
   });
 
   it('records the given options over the defaults', () => {
-    expect(routeOf('pay').Idempotency).to.deep.equal({ required: true, ttl: '1h', fingerprint: 'none', maxReplyBytes: 10 });
+    expect(routeOf('pay').Idempotency).to.deep.equal({ required: true, ttl: '1h', fingerprint: 'none', maxReplyBytes: 10, sharedScope: 'any' });
   });
 
   it('leaves a route without it unmarked', () => {
@@ -70,7 +71,7 @@ describe('@Idempotent', () => {
   });
 
   it('refuses options it cannot honour when the class is declared', () => {
-    for (const options of [{ maxReplyBytes: 0 }, { maxReplyBytes: 1.5 }, { ttl: '' }, { fingerprint: 'url' }, { required: 'yes' }, { ttl: '1h', retries: 3 }, null, 'body', ['body']]) {
+    for (const options of [{ maxReplyBytes: 0 }, { maxReplyBytes: 1.5 }, { ttl: '' }, { fingerprint: 'url' }, { required: 'yes' }, { sharedScope: 'x' }, { ttl: '1h', retries: 3 }, null, 'body', ['body']]) {
       expect(() => Idempotent(options as never), JSON.stringify(options)).to.throw(InvalidArgument);
     }
   });
@@ -189,6 +190,8 @@ describe('IdempotencyMiddleware', () => {
         claimConflict: class extends Error {},
         outcomeUnknown: class extends Error {},
         fingerprint: () => 'fp',
+        isShared: isSharedScope,
+        isRandomKey,
         service: {
           run: () => {
             res.destroyed = leaves;
@@ -196,7 +199,7 @@ describe('IdempotencyMiddleware', () => {
           },
         },
       };
-      await middleware.onAround(invocation({ 'idempotency-key': 'k' }, res), neverProceed);
+      await middleware.onAround(invocation({ 'idempotency-key': '550e8400-e29b-41d4-a716-446655440000' }, res), neverProceed);
     };
 
     await claimWith(true);

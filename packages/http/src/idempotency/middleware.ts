@@ -58,6 +58,8 @@ interface IdempotencyGate {
   /** The principal part of the scope: the principal's key, plus its authority when it is restricted. */
   scopeOf: (principal: Principal) => string;
   isRestricted: (principal: Principal) => boolean;
+  isShared: (principal: Principal | undefined) => boolean;
+  isRandomKey: (key: string) => boolean;
 }
 
 const ANONYMOUS = 'anonymous';
@@ -205,6 +207,8 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
       isCrash: idempotency.isCrash,
       scopeOf: idempotency.idempotencyPrincipal,
       isRestricted: idempotency.isRestrictedPrincipal,
+      isShared: idempotency.isSharedScope,
+      isRandomKey: idempotency.isRandomKey,
     };
   }
 
@@ -236,6 +240,10 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
 
     if (clientGone(res)) {
       return;
+    }
+
+    if (this.options.sharedScope === 'random' && this.gate!.isShared(principalOf(req)) && !this.gate!.isRandomKey(key)) {
+      throw new CodedHttpException(400, 'idempotency.key-not-random', 'A caller without a personal sign-in (anonymous or a share link) must send a random UUID (version 4 or 7) as its Idempotency-Key');
     }
 
     try {
