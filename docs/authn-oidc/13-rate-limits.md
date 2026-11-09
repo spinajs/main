@@ -19,7 +19,8 @@ The counter is per route, not per provider: every provider's begin shares the be
   already gets: a browser navigation (`Sec-Fetch-Mode: navigate`, or `Accept` listing `text/html`) a 303 to
   `authn.oidc.redirects.failure`, any other request the 401 login failure body. Both clear the flow cookie and carry
   `Retry-After`.
-- No response of these routes carries `X-RateLimit-*` headers.
+- No response of these routes carries `X-RateLimit-*` headers, and the app cannot turn them on: the schema refuses
+  `headers` in `authn.oidc.rateLimit.begin` and `.callback`.
 - Back-channel logout is never limited. The IdP sends one logout token per session, server to server, from a few
   addresses. A mass revocation (a disabled user, an IdP-wide logout) goes past any per-address cap, most IdPs do not
   retry a refused token, and each refusal leaves alive a session that should have ended. The signed logout token is

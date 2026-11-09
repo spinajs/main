@@ -61,7 +61,7 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
       default: {},
       description: 'The per-route limits of the anonymous routes (@RateLimit, per client address); read once when the routes mount.',
       propertyNames: { enum: Object.keys(AUTHN_HTTP_RATE_LIMITS) },
-      properties: Object.fromEntries(Object.entries(AUTHN_HTTP_RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, AUTHN_HTTP_RATE_LIMITED_ROUTES[name as keyof typeof AUTHN_HTTP_RATE_LIMITS])])),
+      properties: Object.fromEntries(Object.entries(AUTHN_HTTP_RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, AUTHN_HTTP_RATE_LIMITED_ROUTES[name as keyof typeof AUTHN_HTTP_RATE_LIMITS], { headers: false })])),
     },
     logout: {
       type: 'object',

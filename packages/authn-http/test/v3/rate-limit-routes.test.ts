@@ -198,6 +198,12 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
       expect(() => mw.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login')).to.throw(InvalidOption, 'authn.http.rateLimit.login.limit');
     });
 
+    it('a configured headers fails the route registration: the route locks X-RateLimit-* off', () => {
+      const mw = new RateLimitMiddleware(login());
+      inject(mw, () => ({ headers: true }));
+      expect(() => mw.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login')).to.throw(InvalidOption, 'unknown keys headers');
+    });
+
     it('counts a pending session on an HMAC of its id, apart from the address', async () => {
       const options = { ...rateLimitOf(AuthnPasskeyController, 'challenge'), key: (ctx: IMiddlewareContext) => pendingSessionKeyOf(ctx, SECRET) };
       const { call } = mounted(options, '/auth/passkeys/challenge', { limit: 1 });
@@ -241,6 +247,7 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
       ['a zero window', { login: { windowSeconds: 0 } }],
       ['an unknown key kind', { login: { by: 'session' } }],
       ['true', { login: true }],
+      ['headers, locked off by the route', { login: { headers: true } }],
     ] as const) {
       it(`refuses ${label}`, async () => {
         expect(await bad(value)).to.not.deep.eq([]);

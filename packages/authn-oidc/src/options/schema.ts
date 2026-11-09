@@ -147,8 +147,8 @@ export const AUTHN_OIDC_CONFIGURATION_SCHEMA = {
       description: 'The per-route limits of the anonymous OIDC routes (@RateLimit, per client address); read once when the routes mount.',
       propertyNames: { enum: ['begin', 'callback'] },
       properties: {
-        begin: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.begin, 'GET /auth/oidc/:provider'),
-        callback: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.callback, 'GET /auth/oidc/:provider/callback'),
+        begin: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.begin, 'GET /auth/oidc/:provider', { headers: false }),
+        callback: rateLimitSchema(AUTHN_OIDC_RATE_LIMITS.callback, 'GET /auth/oidc/:provider/callback', { headers: false }),
       },
     },
   },
