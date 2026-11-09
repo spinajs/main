@@ -6,7 +6,7 @@
 
 When it resolves, `RealIp` (Order 1, as `AuthnRealIp`, which `@spinajs/authn-http` registers over it) calls its protected `proxyTrust()` once, which parses `http.trustProxy` with `parseTrustProxy(value, 'http.trustProxy')`. A bad value throws `InvalidOption` and stops the boot.
 
-Per request (`onBefore`), RealIp stores that trust in `req.storage.proxyTrust`, so later middlewares and controllers read it with `requestProxyTrust(req)` instead of parsing a setting again. Then it computes `trustedClientAddress(socketAddress, xForwardedFor, trust)`:
+Per request (`onBefore`), RealIp stores that trust (`effectiveTrust()`) in `req.storage.proxyTrust`, so later middlewares and controllers read it with `requestProxyTrust(req)` instead of parsing a setting again. Then it writes `clientAddress(req)` to `req.storage.realIp`, which computes `trustedClientAddress(socketAddress, xForwardedFor, trust)`:
 
 1. Starts from the socket address (IPv4-mapped IPv6 such as `::ffff:10.0.0.5` becomes `10.0.0.5`). Node appends a zone id to a link-local peer (`fe80::1%eth0`); it is dropped, so the peer is `fe80::1` and matches `linklocal`. No socket address: `undefined`.
 2. Walks the `X-Forwarded-For` entries from right to left. It steps to the next entry only while the current address is trusted:
@@ -60,7 +60,9 @@ Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to b
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
+| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. Override `clientAddress(req)` to read the address from somewhere else. |
+| `RealIp.clientAddress(req)` | public method | `trustedClientAddress()` over `X-Forwarded-For` | | The client address by this RealIp's rule; `onBefore` writes it to `req.storage.realIp`, and `@spinajs/http-socket` calls it for each handshake, so a socket gets the address a request from the same client gets. Takes a `ClientAddressSource` (`headers`, optional `socket.remoteAddress`): a request, or anything shaped like one. Override it to read another header. |
+| `RealIp.effectiveTrust()` | public method | | | The trust `proxyTrust()` resolved, parsed once: what `onBefore` stores in `req.storage.proxyTrust`. |
 | `parseTrustProxy(value, key)` | exported function | | | Returns a `ProxyTrust`: `{ hops }` or `{ list: BlockList }`. Throws `InvalidOption` naming `key`. |
 | `parseTrustProxyOverride(override, overrideKey, shared)` | exported function | | | `override` when it is not `null` or `undefined`, else `shared` (`http.trustProxy`). Throws `InvalidOption` naming the key whose value is bad. |
 | `requestProxyTrust(req)` | exported function | | | The trust RealIp stored for this request; no proxy (`{ hops: 0 }`) when RealIp did not run. |
@@ -70,23 +72,21 @@ Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to b
 
 ### `RealIp`: custom implementation
 
-Some CDNs put the client address in their own header, set only by the CDN edge. Prefer that header when the request comes through a trusted proxy, and fall back to the standard walk otherwise:
+Some CDNs put the client address in their own header, set only by the CDN edge. Override `clientAddress()` to prefer that header when the request comes through a trusted proxy, and fall back to the standard walk otherwise. `onBefore` still stores the trust, and every reader of `realIp`, socket handshakes of `@spinajs/http-socket` included, gets the CDN address:
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { IMiddlewareContext, RealIp, isTrustedPeer } from '@spinajs/http';
+import { RealIp, isTrustedPeer } from '@spinajs/http';
+import type { ClientAddressSource } from '@spinajs/http';
 import { isIP } from 'node:net';
 
 export class CdnRealIp extends RealIp {
-  public onBefore(ctx: IMiddlewareContext): void {
-    // the standard walk; it also stores the trust that later middlewares read with requestProxyTrust
-    super.onBefore(ctx);
-
-    const cdnHeader = ctx.req.headers['cf-connecting-ip'];
-    const trust = ctx.storage.proxyTrust;
-    if (trust && isTrustedPeer(trust, ctx.req.socket?.remoteAddress) && typeof cdnHeader === 'string' && isIP(cdnHeader) !== 0) {
-      ctx.storage.realIp = cdnHeader;
+  public override clientAddress(req: ClientAddressSource): string | undefined {
+    const cdnHeader = req.headers['cf-connecting-ip'];
+    if (isTrustedPeer(this.effectiveTrust(), req.socket?.remoteAddress) && typeof cdnHeader === 'string' && isIP(cdnHeader) !== 0) {
+      return cdnHeader;
     }
+    return super.clientAddress(req);
   }
 }
 
@@ -97,7 +97,7 @@ With `@spinajs/authn-http`, extend `AuthnRealIp` instead of `RealIp`.
 
 ### `RealIp`: trust from another setting
 
-A package with its own trust key on top of `http.trustProxy` overrides `proxyTrust()`; the client address and `req.storage.proxyTrust` then both follow it:
+A package with its own trust key on top of `http.trustProxy` overrides `proxyTrust()`; the client address and `req.storage.proxyTrust` then both follow it. `proxyTrust()` decides which proxies are trusted, `clientAddress()` (above) where the address is read from; a subclass may override both:
 
 ```ts sample
 import { DI } from '@spinajs/di';

@@ -71,6 +71,8 @@ sequenceDiagram
 
 `HttpServer` fixes its middleware list when it is constructed, and `Controllers` constructs it before scanning the controller directories. When the package loads after that (for example only through the controller scan), `AuthnMiddleware` misses the pipeline and no request is authenticated. The package then logs an error on the `authn-http` logger that names the fix.
 
+The same holds for `RealIp`: `@spinajs/http-socket`'s `SocketServer` resolves it when it starts and keeps that instance. When the package loads after `RealIp` was resolved, the kept instance is the plain `RealIp`, which ignores `authn.http.trustProxy`, so sockets and requests can see different client addresses. The package logs an error naming the fix: import `@spinajs/authn-http` before the socket server starts.
+
 `registerAuthnHttpV3(container?)` repeats the registration for another container. It is idempotent; tests call it for a child container that holds their fakes. An app does not need to call it.
 
 ## Configuration
@@ -111,7 +113,7 @@ A `trustProxy` entry that is no address or CIDR, and a malformed `publicOrigin`,
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthnRealIp` | `RealIp` of `@spinajs/http`, registered by `registerAuthnHttpV3()` at package load, `Order` 1 | `AuthnRealIp` | | Subclass and `DI.register(MyRealIp).as(RealIp)` before `HttpServer` resolves. Subclass `AuthnRealIp`, not `RealIp`: another `RealIp` ignores `authn.http.trustProxy`, so `ClientIp` fails the boot when that key is set and warns otherwise (`realIpOverrideFinding()`, also in `authn:check-config`). |
+| `AuthnRealIp` | `RealIp` of `@spinajs/http`, registered by `registerAuthnHttpV3()` at package load, `Order` 1 | `AuthnRealIp` | | Subclass and `DI.register(MyRealIp).as(RealIp)` before `HttpServer` and `SocketServer` resolve; `@spinajs/http-socket` takes the handshake address from it too. Subclass `AuthnRealIp`, not `RealIp`: another `RealIp` ignores `authn.http.trustProxy`, so `ClientIp` fails the boot when that key is set and warns otherwise (`realIpOverrideFinding()`, also in `authn:check-config`). |
 | `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 2, after any `RealIp` | `ClientIp` | | Kept for `req.storage.ClientIp`; change the address in `AuthnRealIp` instead, so every limiter sees it. |
 | `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()`, `principalOf()` and `hookRequest()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
 | `SessionIssuer` | autoinjected by `AuthnMiddleware` | `DefaultSessionIssuer` from `@spinajs/authn-session` | | See [`@spinajs/authn-session`](../authn-session/README.md). |

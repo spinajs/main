@@ -19,6 +19,8 @@ import './schemas.js';
 
 const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolved: AuthnMiddleware is not in its middleware pipeline, so no request is authenticated. Fix: import @spinajs/authn-http before resolving Controllers or HttpServer (the controller scan loads it too late).';
 
+const REAL_IP_TOO_LATE = '@spinajs/authn-http loaded after RealIp was resolved (the socket server resolves it when it starts): that instance ignores authn.http.trustProxy, so sockets and requests can see different client addresses. Fix: import @spinajs/authn-http before the socket server starts.';
+
 // Idempotent: a container's registry skips a class already registered under the same base.
 function register(container: IContainer): void {
   // In RealIp's slot of the ServerMiddleware list, not a second entry: one middleware writes the client address.
@@ -33,17 +35,19 @@ function register(container: IContainer): void {
 
 /**
  * HttpServer fixes its ServerMiddleware list when it is constructed, and Controllers constructs it before scanning the
- * controller dirs. Logged, not thrown: a throw here would fail the whole scan from inside an import and leave the ESM
- * module errored for every later import, far from the cause.
+ * controller dirs. A socket server keeps the RealIp it resolved at start, while registering AuthnRealIp below makes later
+ * resolves build another. Logged, not thrown: a throw here would fail the whole scan from inside an import and leave the
+ * ESM module errored for every later import, far from the cause.
  */
 function warnIfLoadedTooLate(root: IContainer): void {
-  const serverUp = root.isResolved(HttpServer) || root.isResolved(Controllers);
   const alreadyRegistered = (root.getRegisteredTypes(ServerMiddleware) ?? []).some((t) => t.name === AuthnMiddleware.name);
-  if (!serverUp || alreadyRegistered) return;
+  if (alreadyRegistered) return;
+  const message = root.isResolved(HttpServer) || root.isResolved(Controllers) ? LOADED_TOO_LATE : root.isResolved(RealIp) ? REAL_IP_TOO_LATE : undefined;
+  if (!message) return;
   try {
-    (DI.resolve(Log, ['authn-http']) as Log).error(LOADED_TOO_LATE);
+    (DI.resolve(Log, ['authn-http']) as Log).error(message);
   } catch {
-    console.error(LOADED_TOO_LATE);
+    console.error(message);
   }
 }
 

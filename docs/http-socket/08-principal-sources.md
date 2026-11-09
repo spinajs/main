@@ -1,6 +1,6 @@
 # Principal sources and handshake security
 
-A socket handshake is turned into an authz-v3 `Principal` by the registered `SocketPrincipalSource`s. Before any source reads credentials, the server checks the page's origin and computes the client address from trusted proxies.
+A socket handshake is turned into an authz-v3 `Principal` by the registered `SocketPrincipalSource`s. Before any source reads credentials, the server checks the page's origin and computes the client address through the registered `RealIp`.
 
 ## How it works
 
@@ -28,11 +28,14 @@ It refuses `Origin: null` and `Origin: *` always. CORS does not cover a WebSocke
 
 ### Client address
 
-`handshake.address` is the socket's peer, or, behind trusted proxy hops, the `X-Forwarded-For` entry they vouch for. `handshake.peerAddress` is always the raw TCP peer.
+`handshake.address` is what the registered `RealIp` of `@spinajs/http` answers from `clientAddress()` for the handshake's headers and peer: the socket's peer, or, behind trusted proxy hops, the `X-Forwarded-For` entry they vouch for. It is the address http writes to `req.storage.realIp` for the same peer and headers. `handshake.peerAddress` is always the raw TCP peer.
 
-- The trust comes from `authn.http.trustProxy`, else `http.trustProxy` when the former is `null` or absent (authn-http's `ClientIp` rule), parsed by `parseTrustProxy()`. An entry that is no address or CIDR throws `InvalidOption` when `SocketServer` resolves.
+- `SocketServer` resolves `RealIp` from its container when it starts and keeps that instance. Plain `RealIp` trusts `http.trustProxy`; with `@spinajs/authn-http` loaded, `AuthnRealIp` reads `authn.http.trustProxy`, else `http.trustProxy` when the former is `null` or absent. A subclass the app registers over `RealIp` (its own trust, or a `clientAddress()` override reading a CDN header) applies to sockets as well.
+- `RealIp` parses the trust when it resolves, so an entry that is no address or CIDR throws `InvalidOption` and the socket server does not start.
+- Load `@spinajs/authn-http` before `SocketServer` resolves. Loaded later, it logs an error: the server keeps the plain `RealIp` it resolved, which ignores `authn.http.trustProxy`.
 - Addresses are normalized even without a trust setting: trimmed, `::ffff:a.b.c.d` as plain IPv4.
-- Socket `realIp` (in the call store) and policy `ip` use this address. They differ from http's `req.storage.realIp`, which reads `http.trustProxy` only, when the two settings differ.
+- `clientAddress()` answering `undefined` gives the TCP peer. A `clientAddress()` override that throws refuses the socket with the mapped error: in the handshake middleware like any other handshake failure, and for a socket restored by connection state recovery (which skips that middleware) after it connects, with a `disconnect` notice and a warning on the server log.
+- Socket `realIp` (in the call store) and policy `ip` use this address.
 
 ## Configuration
 
@@ -40,8 +43,8 @@ It refuses `Origin: null` and `Origin: *` always. CORS does not cover a WebSocke
 | --- | --- | --- | --- | --- |
 | `http.socket.auth.required` | boolean | `false` | `true`, `false` | Refuse handshakes no source resolves, instead of running them as `UNATTENDED` |
 | `http.socket.cors.origins` | string[] | `[]` | exact origins, no wildcards | Other origins allowed to open a socket |
-| `authn.http.trustProxy` | hops, list or `null` | `null` | see `@spinajs/http` `TrustProxySetting` | Trusted proxies for the client address; wins over `http.trustProxy` |
-| `http.trustProxy` | hops, list or `null` | `null` | same | Used when `authn.http.trustProxy` is `null` or absent |
+| `http.trustProxy` | hops, list or `null` | `null` | see `@spinajs/http` `TrustProxySetting` | Trusted proxies for the client address, read by `RealIp` |
+| `authn.http.trustProxy` | hops, list or `null` | `null` | same | With `@spinajs/authn-http` loaded: wins over `http.trustProxy` (its `AuthnRealIp`); ignored otherwise |
 
 ```ts
 http: {
@@ -60,6 +63,7 @@ http: {
 | `SocketPrincipalSource` | `SocketPrincipalSource`; every registered class, injected as a list (`@Autoinject(SocketPrincipalSource)`) into `SocketServer` and `SocketPrincipalGuard`; each a singleton | `AuthnCredentialSource` (`name: 'authn'`, `order: 50`) | `SessionSocketPrincipalSource` (`order: 40`) from `import '@spinajs/authn-http/socket'`; your sources | Add: `@Injectable(SocketPrincipalSource)` with a unique `name` and an `order`. Remove: `DI.unregister(AuthnCredentialSource)`. Extend: subclass and override `authenticate()` / `revalidate()`. All before `SocketServer` resolves |
 | `AuthnCredentialSource` | registered under `SocketPrincipalSource`, singleton | `AuthnCredentialSource` | Your subclass | Override `authenticate()`, `revalidate()`, or the protected `context()` (the `AuthnContext`) and `extract()` (the credential extractors) |
 | `CredentialExtractor` (`@spinajs/authn`) | list, sorted by `order`, resolved per handshake by `AuthnCredentialSource.extract()` | the extractors `@spinajs/authn` registers | Your extractor | `@Injectable(CredentialExtractor)`; it sees the handshake as a `SignedRequest` |
+| `RealIp` (`@spinajs/http`) | `RealIp`, last registration wins; resolved once by `SocketServer` when it starts, from the server's container, and kept | `RealIp`; `AuthnRealIp` with `@spinajs/authn-http` loaded | Your subclass | `DI.register(AppRealIp).as(RealIp)` before `SocketServer` and `HttpServer` resolve; override `proxyTrust()` for another trust or `clientAddress()` for another header. Extend `AuthnRealIp` when `@spinajs/authn-http` is used |
 
 ### `SocketPrincipalSource`: a source of your own
 
