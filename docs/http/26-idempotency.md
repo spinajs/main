@@ -218,3 +218,29 @@ routes (see [Transactions](../idempotency/README.md#transactions)).
 The lease is renewed while the route runs, but http has no abort signal an action could observe. If a renewal fails
 long enough for the lease to end during a slow action (a lost database connection, a paused process), another
 replica may claim the key and run the action a second time while the first one is still running.
+
+## Migrating to random keys in shared scopes
+
+An `@Idempotent` route refuses a key that is not a UUID of version 4 or 7 from an anonymous caller or a share link
+bearer without a signed-in companion: 400 `idempotency.key-not-random`. Signed-in callers are not affected.
+
+A client of such a route that builds its keys from its own data has to draw them at random:
+
+```ts
+// Before: a key derived from the cart, refused with 400 for an anonymous caller.
+await fetch('/checkout', { method: 'POST', headers: { 'Idempotency-Key': `cart-${cart.id}` }, body });
+
+// Now: one random UUID per operation, reused for every retry of that operation.
+const key = crypto.randomUUID();
+await fetch('/checkout', { method: 'POST', headers: { 'Idempotency-Key': key }, body });
+```
+
+When every client of the route already draws its keys at random in another format, keep them with `sharedScope: 'any'`:
+
+```ts
+@Post()
+@Idempotent({ required: true, sharedScope: 'any' })
+public async checkout(@Body() cart: Cart) {
+  return new Created(await this.orders.checkout(cart));
+}
+```
