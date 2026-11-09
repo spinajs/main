@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spy } from 'sinon';
-import { AsyncService, Container, IInstanceCheck, NewInstance, PerChildInstance, PerInstanceCheck } from '../src/index.js';
+import { AsyncService, Autoinject, Container, IInstanceCheck, NewInstance, PerChildInstance, PerInstanceCheck } from '../src/index.js';
 
 const delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
@@ -299,5 +299,107 @@ describe('Array.ofType with a @PerInstanceCheck element', () => {
     expect(names(all)).to.deep.equal(['CheckedStage']);
     expect(names(checked)).to.deep.equal(['CheckedStage']);
     expect(checked[0]).to.equal(all[0]);
+  });
+});
+
+@PerInstanceCheck()
+class Counted implements IInstanceCheck {
+  public static built = 0;
+  public tenant?: string;
+  // resolve options are appended to the constructor arguments after the injected dependencies (container.ts getNewInstance)
+  constructor(options?: { tenant?: string }) {
+    Counted.built++;
+    this.tenant = options?.tenant;
+  }
+  public async resolve() {
+    await delay(10);
+  }
+  public __checkInstance__(options?: unknown[]): boolean {
+    return (this.tenant ?? undefined) === (options?.[0] as { tenant?: string } | undefined)?.tenant;
+  }
+}
+
+// The list key must differ from the class name. With `.as('Counted')` the collection and the class share one
+// cache key, so a list resolve after a single resolve finds the class instance, sees nothing unresolved and
+// returns it without consulting options: test 2 could never pass.
+describe('@PerInstanceCheck: single and list resolves share one path', () => {
+  beforeEach(() => {
+    Counted.built = 0;
+  });
+
+  it('a single and a list resolve racing build the class once', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+
+    const [one, list] = await Promise.all([c.resolve(Counted), c.resolve(Array.ofType('Reports'))]);
+
+    expect(Counted.built).to.equal(1);
+    expect(list[0]).to.equal(one);
+  });
+
+  it('an instance a list builds for its options is cached under the class', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+    await c.resolve(Counted, [{ tenant: 'a' }]);
+
+    const list = await c.resolve(Array.ofType('Reports'), [{ tenant: 'b' }]);
+    const b = await c.resolve(Counted, [{ tenant: 'b' }]);
+
+    expect(b).to.equal(list[0]);
+    expect(Counted.built).to.equal(2);
+  });
+
+  // getTypeName(Array.ofType('Reports')) === 'Reports', so the list event is di.resolved.Reports
+  it('created through a list: di.resolved fires once for the class and once for the list key', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+    const onClass = spy();
+    const onList = spy();
+    c.on('di.resolved.Counted', onClass);
+    c.on('di.resolved.Reports', onList);
+
+    await c.resolve(Array.ofType('Reports'));
+
+    expect(onClass.callCount).to.equal(1);
+    expect(onList.callCount).to.equal(1);
+  });
+
+  it('a cached instance joining a list fires the list event once, not the class event again', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+    await c.resolve(Counted);
+    const onClass = spy();
+    const onList = spy();
+    c.on('di.resolved.Counted', onClass);
+    c.on('di.resolved.Reports', onList);
+
+    await c.resolve(Array.ofType('Reports'));
+    await c.resolve(Array.ofType('Reports'));
+
+    expect(onClass.callCount).to.equal(0);
+    expect(onList.callCount).to.equal(1);
+  });
+});
+
+@PerInstanceCheck()
+class Loop implements IInstanceCheck {
+  @Autoinject(Loop)
+  public self!: Loop;
+  public __checkInstance__(): boolean {
+    return true;
+  }
+}
+
+describe('@PerInstanceCheck: circular dependency', () => {
+  it('a single resolve reports the cycle', () => {
+    const c = new Container();
+    c.register(Loop).asSelf();
+    expect(() => c.resolve(Loop)).to.throw(/Circular dependency detected for Loop/);
+  });
+
+  it('a list resolve reports the cycle', () => {
+    const c = new Container();
+    c.register(Loop).as('Loops');
+    expect(() => c.resolve(Array.ofType('Loops'))).to.throw(/Circular dependency detected for Loop/);
   });
 });
