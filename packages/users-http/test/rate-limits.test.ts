@@ -39,6 +39,8 @@ interface Hit {
   readonly status?: number;
   readonly body?: unknown;
   readonly set: Record<string, string>;
+  /** Headers the answer carries itself, apart from those set on `res`. */
+  readonly answerHeaders?: Record<string, string>;
 }
 
 /** The route's RateLimitMiddleware as the server mounts it, against `config` checked by the shipped schema. */
@@ -60,7 +62,9 @@ async function mounted(controller: Ctor, method: string, config: Record<string, 
       },
     };
     const answer = (await mw.onBefore({ req: { socket: {}, params: {} } as never, res: res as never, storage: storage as never })) as Response | undefined;
-    return answer ? { passed: false, status: answer.statusCode, body: answer.data, set } : { passed: true, set };
+    return answer
+      ? { passed: false, status: answer.statusCode, body: answer.data, set, answerHeaders: Object.fromEntries(answer.headers.map((h) => [h.Name, String(h.Value)])) }
+      : { passed: true, set };
   };
   return { mw, hit };
 }
@@ -145,17 +149,30 @@ describe('users-http: the limits of account and metadata writes', function () {
   });
 
   for (const [controller, method, name] of GROUPS) {
-    it(`${name}: request ${DEFAULTS[name].limit + 1} of one principal answers 429 with Retry-After; another principal passes`, async () => {
+    it(`${name}: request ${DEFAULTS[name].limit + 1} of one principal answers 429 with Retry-After and no X-RateLimit-*; another principal passes`, async () => {
       const m = await mounted(controller, method);
       const refused = await exhaust(m, DEFAULTS[name].limit, signedIn(ALICE));
 
       expect(refused.status).to.eq(429);
       expect(JSON.stringify(refused.body)).to.eq(JSON.stringify(TOO_MANY));
-      expect(refused.set['X-RateLimit-Limit']).to.eq(String(DEFAULTS[name].limit));
-      expect(Number(refused.set['Retry-After'])).to.be.within(1, DEFAULTS[name].windowSeconds);
+      expect(refused.set, 'nothing set on res').to.deep.eq({});
+      expect(Object.keys(refused.answerHeaders ?? {})).to.deep.eq(['Retry-After']);
+      expect(Number(refused.answerHeaders?.['Retry-After'])).to.be.within(1, DEFAULTS[name].windowSeconds);
       expect((await m.hit(signedIn(BOB))).passed).to.eq(true);
     });
   }
+
+  it('users.http.rateLimit.<name>.headers: true turns the X-RateLimit-* headers on', async () => {
+    const [controller, method, name] = GROUPS[0];
+    const m = await mounted(controller, method, nest(`users.http.rateLimit.${name}`, { limit: 2, headers: true }));
+    const counted = await m.hit(signedIn(ALICE));
+    expect(counted.passed).to.eq(true);
+    expect([counted.set['X-RateLimit-Limit'], counted.set['X-RateLimit-Remaining']]).to.deep.eq(['2', '1']);
+    const refused = await exhaust(m, 1, signedIn(ALICE));
+    expect(refused.status).to.eq(429);
+    expect(refused.set['X-RateLimit-Limit']).to.eq('2');
+    expect(Number(refused.set['Retry-After'])).to.be.within(1, DEFAULTS[name].windowSeconds);
+  });
 
   it('users.http.rateLimit.<name> overrides the default; unset keys keep it', async () => {
     const [controller, method, name] = GROUPS[0];

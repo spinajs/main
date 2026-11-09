@@ -28,4 +28,4 @@ const config = {
 export default config;
 ```
 
-An entry is `{ limit?, windowSeconds?, by? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The `authn.oidc` schema refuses an unknown name and a value the middleware cannot enforce at boot.
+An entry is `{ limit?, windowSeconds?, by? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The `authn.oidc` schema refuses an unknown name, `headers` (these routes send no `X-RateLimit-*`) and a value the middleware cannot enforce at boot.

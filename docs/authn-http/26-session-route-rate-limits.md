@@ -24,7 +24,7 @@ These limits cap volume. The service-side `AuthnThrottle` backoff (the `mfa` and
 | `adminCredentials` | `POST {admin}/:uuid/mfa-reset`, `DELETE {admin}/:uuid/sessions`, `DELETE {admin}/:uuid/tokens` | 60 per 600 s | principal | 429 |
 
 - "429" is authn's own throttled body, `{ "error": "throttled", "message": "too many requests, try again later" }` with `Retry-After` and `Cache-Control: no-store`, the body a throttled reset or verification request gets.
-- No route sends `X-RateLimit-*` headers, as on every authn route. The routes that check a code or a password keep the answer they give when the service throttles them (A02), so a client cannot tell the limit from a wrong code or password, and each route has one throttled answer.
+- No route sends `X-RateLimit-*` headers, as on every authn route, and the schema refuses `headers` in `authn.http.rateLimit.<name>`. The routes that check a code or a password keep the answer they give when the service throttles them (A02), so a client cannot tell the limit from a wrong code or password, and each route has one throttled answer.
 - Each route counts apart, also where two routes share a config key: `mfa/verify` and `mfa/recovery` each allow 10.
 - Reads and deletes of the caller's own tokens, keys, passkeys and sessions, `GET /user/mfa`, `GET` and `DELETE /auth/impersonate` and `GET /auth/active-role` have no limit.
 

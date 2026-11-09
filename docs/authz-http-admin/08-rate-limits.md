@@ -9,7 +9,7 @@ The command batch and every write route carry a [`@RateLimit`](../http/18-thrott
 
 - The paths are under `authz.http.admin.basePath` (default `authz`). Each route counts apart, also where routes share the `writes` key.
 - Every limit counts the principal (`by: 'principal'`, `req.storage.Principal`). While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**.
-- Over the limit a route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`; every counted response carries the `X-RateLimit-*` headers.
+- Over the limit a route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`. No response carries `X-RateLimit-*` unless `authz.http.admin.rateLimit.<name>.headers: true`.
 - The `GET` lists and `GET /authz/scopes/:type/:id/attributes` have no limit.
 - The limit runs after `IsAuthenticated`: an anonymous request is refused before it counts.
 - With `MemoryThrottleStore` every process counts apart; register a shared `ThrottleStore` for several instances.
@@ -34,4 +34,4 @@ const config = {
 export default config;
 ```
 
-An entry is `{ limit?, windowSeconds?, by? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The schema (module `authz.http.admin.rateLimit`, registered by this package) refuses an unknown name and a value the middleware cannot enforce at boot.
+An entry is `{ limit?, windowSeconds?, by?, headers? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The schema (module `authz.http.admin.rateLimit`, registered by this package) refuses an unknown name and a value the middleware cannot enforce at boot.

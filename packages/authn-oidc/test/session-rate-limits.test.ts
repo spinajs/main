@@ -117,8 +117,8 @@ describe('authn-oidc: the limits of link and reauth', function () {
     expect((await container.resolve(Configuration)).get('authn.oidc.rateLimit')).to.deep.include(DEFAULTS);
   });
 
-  it('the schema refuses a value it cannot enforce and a name it does not know', async () => {
-    for (const value of [{ link: { limit: -1 } }, { link: { by: 'session' } }, { link: true }, { nope: { limit: 1 } }]) {
+  it('the schema refuses a value it cannot enforce, a name it does not know and headers', async () => {
+    for (const value of [{ link: { limit: -1 } }, { link: { by: 'session' } }, { link: true }, { nope: { limit: 1 } }, { link: { headers: true } }]) {
       let error: unknown;
       try {
         await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: nest('authn.oidc.rateLimit', value) });

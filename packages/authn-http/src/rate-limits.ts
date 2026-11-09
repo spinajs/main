@@ -47,6 +47,6 @@ export const throttledRequest = (retryAfterSeconds: number) => tooManyRequests('
  * The shipped `@RateLimit` of a route with a session: authn's 429 unless `options` names another answer, and, as on
  * every authn route, no `X-RateLimit-*` headers; the answer carries its own `Retry-After`.
  */
-export function AuthnSessionRateLimit(name: AuthnHttpSessionRateLimitName, options: Pick<IRateLimitOptions, 'answer' | 'headers' | 'key'> = {}): ReturnType<typeof RateLimit> {
-  return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_SESSION_RATE_LIMITS[name], answer: throttledRequest, headers: false, ...options });
+export function AuthnSessionRateLimit(name: AuthnHttpSessionRateLimitName, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> {
+  return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_SESSION_RATE_LIMITS[name], answer: throttledRequest, ...options, headers: false });
 }

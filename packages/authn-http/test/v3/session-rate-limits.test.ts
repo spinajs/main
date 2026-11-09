@@ -167,8 +167,8 @@ describe('authn-http: the limits of the routes with a session', function () {
     for (const [, , name, settings] of ROUTES) expect(configured[name], name).to.deep.eq(settings);
   });
 
-  it('the schema refuses a value it cannot enforce and a route name it does not know', async () => {
-    for (const config of [{ activeRole: { limit: -1 } }, { activeRole: { by: 'session' } }, { activeRole: true }, { activRole: { limit: 1 } }]) {
+  it('the schema refuses a value it cannot enforce, a route name it does not know and headers', async () => {
+    for (const config of [{ activeRole: { limit: -1 } }, { activeRole: { by: 'session' } }, { activeRole: true }, { activRole: { limit: 1 } }, { activeRole: { headers: true } }]) {
       let error: unknown;
       try {
         await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: { authn: { http: { rateLimit: config } } } });

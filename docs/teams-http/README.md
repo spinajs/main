@@ -23,7 +23,7 @@ The routes that create teams or send mail carry a [`@RateLimit`](../http/18-thro
 
 - Every limit counts the principal (`by: 'principal'`, `req.storage.Principal`). While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**.
 - `resend` counts the caller, not the invitation: the invitation id comes from the path before the action looks it up, and a counting key a client picks gets a fresh counter for every value it sends.
-- Over the limit a route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`; every counted response carries the `X-RateLimit-*` headers.
+- Over the limit a route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`. No response carries `X-RateLimit-*` unless `teams.http.rateLimit.<name>.headers: true`.
 - The other structural writes and the reads have no limit. The limit runs after the route's `@Access`: a refused request is not counted.
 - With `MemoryThrottleStore` every process counts apart; register a shared `ThrottleStore` for several instances.
 
@@ -43,7 +43,7 @@ const config = {
 export default config;
 ```
 
-An entry is `{ limit?, windowSeconds?, by? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The schema (module `teams.http.rateLimit`, registered by this package) refuses an unknown name and a value the middleware cannot enforce at boot.
+An entry is `{ limit?, windowSeconds?, by?, headers? }` merged over the default (`by` is `'ip'` or `'principal'`), or `false`. The schema (module `teams.http.rateLimit`, registered by this package) refuses an unknown name and a value the middleware cannot enforce at boot.
 
 ## Related packages
 
