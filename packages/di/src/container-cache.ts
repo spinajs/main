@@ -348,8 +348,10 @@ export class ContainerCache {
       return found as T;
     }
 
+    // @Autoinject passes [undefined] where a direct or list resolve passes undefined; both mean "no options".
+    const optionsKey = options?.every((o) => o === undefined) ? undefined : options;
     const pending = this.pendingChecked.get(keyName) ?? [];
-    const same = pending.find((p) => _.isEqual(p.options, options));
+    const same = pending.find((p) => _.isEqual(p.options, optionsKey));
     if (same) {
       return same.promise as Promise<T>;
     }
@@ -362,10 +364,10 @@ export class ContainerCache {
 
     // Only the synchronous part of factory() is guarded: an async re-entrance with the same options awaits itself.
     const building = this.creatingChecked.get(keyName) ?? [];
-    if (building.some((b) => _.isEqual(b.options, options))) {
+    if (building.some((b) => _.isEqual(b.options, optionsKey))) {
       throw new Error(`Circular dependency detected for ${keyName}`);
     }
-    const creating = { options };
+    const creating = { options: optionsKey };
     this.creatingChecked.set(keyName, [...building, creating]);
     let created: Promise<T> | T;
     try {
@@ -380,7 +382,7 @@ export class ContainerCache {
     }
 
     const epoch = this.epoch;
-    const entry: { options?: unknown[]; promise: Promise<unknown> } = { options, promise: created };
+    const entry: { options?: unknown[]; promise: Promise<unknown> } = { options: optionsKey, promise: created };
     const settle = () => {
       const list = this.pendingChecked.get(keyName) ?? [];
       const rest = list.filter((p) => p !== entry);

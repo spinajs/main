@@ -380,6 +380,63 @@ describe('@PerInstanceCheck: single and list resolves share one path', () => {
     expect(onClass.callCount).to.equal(0);
     expect(onList.callCount).to.equal(1);
   });
+
+  it('two identical list resolves racing build the element once', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+    const onList = spy();
+    c.on('di.resolved.Reports', onList);
+
+    const [first, second] = await Promise.all([c.resolve(Array.ofType('Reports')), c.resolve(Array.ofType('Reports'))]);
+
+    expect(Counted.built).to.equal(1);
+    expect(onList.callCount).to.equal(1);
+    expect(first).to.have.length(1);
+    expect(second).to.have.length(1);
+    expect(second[0]).to.equal(first[0]);
+  });
+
+  it('a single resolve after the list returns the list element', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+
+    const list = await c.resolve(Array.ofType('Reports'));
+    const one = await c.resolve(Counted);
+
+    expect(one).to.equal(list[0]);
+    expect(Counted.built).to.equal(1);
+  });
+
+  // @Autoinject resolves with [undefined] options, a direct or list resolve with undefined: both mean "no options".
+  it('an autoinjecting consumer racing a list resolve shares the element', async () => {
+    class NeedsCounted {
+      @Autoinject(Counted)
+      public counted!: Counted;
+    }
+    const c = new Container();
+    c.register(Counted).as('Reports');
+
+    const [list, needs] = await Promise.all([c.resolve(Array.ofType('Reports')), c.resolve(NeedsCounted)]);
+
+    expect(Counted.built).to.equal(1);
+    expect(needs.counted).to.equal(list[0]);
+  });
+
+  it('a list element that finishes after abandonPending() is rejected and cached under neither key', async () => {
+    const c = new Container();
+    c.register(Counted).as('Reports');
+
+    const pending = c.resolve(Array.ofType('Reports')) as unknown as Promise<Counted[]>;
+    c.Cache.abandonPending();
+    const error = await pending.then(
+      () => undefined,
+      (err: Error) => err,
+    );
+
+    expect(error?.message).to.match(/Counted finished resolving after the container was restored/);
+    expect(c.Cache.has(Counted)).to.be.false;
+    expect(c.Cache.has('Reports') ? c.Cache.get('Reports') : []).to.be.empty;
+  });
 });
 
 @PerInstanceCheck()
@@ -402,5 +459,14 @@ describe('@PerInstanceCheck: circular dependency', () => {
     const c = new Container();
     c.register(Loop).as('Loops');
     expect(() => c.resolve(Array.ofType('Loops'))).to.throw(/Circular dependency detected for Loop/);
+  });
+
+  it('an autoinjected self-dependency is caught on its first re-entry', () => {
+    const c = new Container();
+    c.register(Loop).asSelf();
+    const resolve = spy(c, 'resolve');
+
+    expect(() => c.resolve(Loop)).to.throw(/Circular dependency detected for Loop/);
+    expect(resolve.callCount).to.equal(2);
   });
 });
