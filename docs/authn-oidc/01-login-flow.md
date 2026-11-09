@@ -141,7 +141,7 @@ The flow reads these keys; the provider keys are on [Provider configuration](02-
 | `authn.oidc.redirects.success` | string | `'/'` | app-relative path | Where a login or link goes when the flow has no `returnTo`. |
 | `authn.oidc.redirects.failure` | string | `'/'` | app-relative path | Where a failed browser navigation goes. |
 | `authn.http.publicOrigin` | see `authn-http` | unset | `scheme://host[:port]` | The origin of the default redirect URI and, for a provider without `redirectUri`, of the default `post_logout_redirect_uri`. Set: `Host` and `X-Forwarded-*` are not read for them, and an `http` origin outside development and test logs a warning. Unset outside development and test: `OidcProviders` warns at boot for each provider without `redirectUri`. |
-| `authn.http.trustProxy` | see `authn-http` | `null` | addresses and CIDR ranges | Which peers may set `X-Forwarded-Proto` and `X-Forwarded-Host` for the default redirect URI. `null` or absent: `http.trustProxy`. The origin follows the trust `AuthnRealIp` stored for the request (`requestProxyTrust(req)`), so a `RealIp` subclass that overrides `proxyTrust()` decides it too. An entry that is no address or CIDR fails the boot. |
+| `authn.http.trustProxy` | see `authn-http` | `null` | addresses and CIDR ranges | Which peers may set `X-Forwarded-Proto` and `X-Forwarded-Host` for the default redirect URI. `null` or absent: `http.trustProxy`. The origin follows the trust the registered `RealIp` stored for the request (`requestProxyTrust(req)`), so a `RealIp` subclass that overrides `proxyTrust()` decides it too. An entry that is no address or CIDR fails the boot. |
 | `authn.session.cookie` | object | see `authn-session` | see `authn-session` | The session cookie the callback sets. |
 
 ```ts

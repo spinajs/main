@@ -130,6 +130,7 @@ describe('authn-oidc request origin', () => {
       expect(c.origin(parseTrustProxy('10.0.0.0/8', 'http.trustProxy'))).to.eq('https://public.example.test');
       expect(c.origin(parseTrustProxy(['192.0.2.1'], 'http.trustProxy'))).to.eq('http://backend:3000');
       expect(c.origin({ hops: 0 })).to.eq('http://backend:3000');
+      expect(c.origin(undefined as unknown as ProxyTrust), 'a connection without a trust trusts no proxy').to.eq('http://backend:3000');
     });
 
     describe('origin warnings', () => {

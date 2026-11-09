@@ -61,7 +61,7 @@ Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to b
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `AuthnRealIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves; with `@spinajs/authn-http` installed, subclass `AuthnRealIp`, or `authn.http.trustProxy` stops counting. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. Override `clientAddress(req)` to read the address from somewhere else. |
-| `RealIp.clientAddress(req)` | public method | `trustedClientAddress()` over `X-Forwarded-For` | | The client address by this RealIp's rule; `onBefore` writes it to `req.storage.realIp`. Takes a `ClientAddressSource` (`headers`, optional `socket.remoteAddress`): a request, or anything shaped like one. Override it to read another header. |
+| `RealIp.clientAddress(req)` | public method | `trustedClientAddress()` over `X-Forwarded-For` | | The client address by this RealIp's rule; `onBefore` writes it to `req.storage.realIp`, and `@spinajs/http-socket` calls it for each handshake, so a socket gets the address a request from the same client gets. Takes a `ClientAddressSource` (`headers`, optional `socket.remoteAddress`): a request, or anything shaped like one. Override it to read another header. |
 | `RealIp.effectiveTrust()` | public method | | | The trust `proxyTrust()` resolved, parsed once: what `onBefore` stores in `req.storage.proxyTrust`. |
 | `parseTrustProxy(value, key)` | exported function | | | Returns a `ProxyTrust`: `{ hops }` or `{ list: BlockList }`. Throws `InvalidOption` naming `key`. |
 | `parseTrustProxyOverride(override, overrideKey, shared)` | exported function | | | `override` when it is not `null` or `undefined`, else `shared` (`http.trustProxy`). Throws `InvalidOption` naming the key whose value is bad. |
@@ -72,7 +72,7 @@ Set only `http.trustProxy` and `http.throttle.ipv6Prefix`; authn falls back to b
 
 ### `RealIp`: custom implementation
 
-Some CDNs put the client address in their own header, set only by the CDN edge. Override `clientAddress()` to prefer that header when the request comes through a trusted proxy, and fall back to the standard walk otherwise. `onBefore` still stores the trust, and every reader of `realIp` gets the CDN address:
+Some CDNs put the client address in their own header, set only by the CDN edge. Override `clientAddress()` to prefer that header when the request comes through a trusted proxy, and fall back to the standard walk otherwise. `onBefore` still stores the trust, and every reader of `realIp`, socket handshakes of `@spinajs/http-socket` included, gets the CDN address:
 
 ```ts sample
 import { DI } from '@spinajs/di';

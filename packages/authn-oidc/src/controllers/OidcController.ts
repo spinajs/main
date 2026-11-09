@@ -311,7 +311,8 @@ export class OidcController extends BaseController {
   protected checkedOriginOf(f: RequestFacts): string | undefined {
     return checkedRequestOrigin(
       { encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost },
-      (peer) => isTrustedPeer(f.connection.proxyTrust, peer),
+      // a connection built without RealIp's trust (a direct caller) trusts no proxy
+      (peer) => isTrustedPeer(f.connection.proxyTrust ?? { hops: 0 }, peer),
     );
   }
 
