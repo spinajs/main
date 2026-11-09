@@ -9,6 +9,11 @@ export function isRestrictedPrincipal(principal: Principal): boolean {
   return principal.ceiling != null || principal.onBehalfOf != null || principal.authn?.impersonator != null || principal.type === 'link' || (principal.companions?.length ?? 0) > 0;
 }
 
+/** A scope every holder of one credential shares: no principal, an unauthenticated one, or a share link without a signed-in companion. */
+export function isSharedScope(principal: Principal | undefined): boolean {
+  return !principal?.authenticated || (principal.type === 'link' && !principal.companions?.length);
+}
+
 const sortedKeys = (refs: readonly { type: string; id: string }[] | undefined): string[] | null => (refs?.length ? refs.map(principalKey).sort() : null);
 
 /**
