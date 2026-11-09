@@ -39,7 +39,7 @@ No limit ships on `POST /auth/tokens/revoke` (its IP throttle already counts eve
   body with `Retry-After` elsewhere. The `Retry-After` value differs (the rest of the window here, the backoff
   there); both limiters count the address only, so neither tells anything about an account.
 - No response of these routes carries `X-RateLimit-*` headers (`headers: false`): they would tell a throttled client
-  from a failed login.
+  from a failed login. The app cannot turn them on: `headers` is not a key of `authn.http.rateLimit.<name>`.
 - `POST /auth/passkeys/challenge` also serves the WebAuthn step of a pending (pre-MFA) session. Such a request counts
   on its own pending session, not on the address, so users who passed their password do not spend the anonymous
   budget of a shared address. The key is an HMAC of the session id under `http.cookie.secret`, domain separated, so
@@ -77,7 +77,7 @@ export default {
 | --- | --- | --- | --- |
 | `authn.http.rateLimit.<name>` | `{ limit?, windowSeconds?, by? }` or `false` | the table above | Merged over the route's default. `limit` is an integer ≥ 0 (`0` closes the route), `windowSeconds` a number > 0, `by` `'ip'` or `'principal'`. `false`: no limit on the route. |
 
-- The schema refuses an unknown route name, an unknown setting (a misspelt `limt`) and a value out of range at boot.
+- The schema refuses an unknown route name, an unknown setting (a misspelt `limt`, or `headers`) and a value out of range at boot.
 - The numbers are read once, when the routes mount; a change needs a restart.
 - Changed numbers start fresh counters: the store key holds the limit and the window.
 - The defaults are exported as `AUTHN_HTTP_RATE_LIMITS`.

@@ -117,7 +117,7 @@ describe('the shipped rate limits of the OIDC routes', () => {
       expect(mounted(begin(), undefined).mw.limit).to.eq(60);
     });
 
-    it('the schema fills the defaults, takes false and refuses unknown names and settings', async function () {
+    it('the schema fills the defaults, takes false and refuses unknown names and settings, headers included', async function () {
       this.timeout(20000);
       const { config } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [AUTHN_OIDC_CONFIGURATION_SCHEMA], config: {} });
       expect(config.get('authn.oidc.rateLimit')).to.deep.eq({ ...AUTHN_OIDC_RATE_LIMITS, ...AUTHN_OIDC_SESSION_RATE_LIMITS });
@@ -126,6 +126,7 @@ describe('the shipped rate limits of the OIDC routes', () => {
       expect(await bad({ backchannelLogout: { limit: 10 } })).to.not.deep.eq([]);
       expect(await bad({ callback: { limt: 10 } })).to.not.deep.eq([]);
       expect(await bad({ callback: { by: 'principal', limit: -1 } })).to.not.deep.eq([]);
+      expect(await bad({ begin: { headers: true } }), 'the route locks X-RateLimit-* off').to.not.deep.eq([]);
     });
   });
 });

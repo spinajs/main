@@ -1,7 +1,7 @@
 import { RateLimit, rateLimitSchema } from '@spinajs/http';
-import type { IRateLimitOptions, IRateLimitSettings } from '@spinajs/http';
+import type { IRateLimitOptions, RateLimitDefault } from '@spinajs/http';
 
-export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, Readonly<Required<IRateLimitSettings>>>>;
+export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, RateLimitDefault>>;
 
 /** The schema of a `rateLimit` object: one `rateLimitSchema` entry per route group, an unknown name refused. */
 export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>) {
@@ -10,7 +10,7 @@ export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N
     default: {},
     propertyNames: { enum: Object.keys(defaults) },
     properties: Object.fromEntries((Object.keys(defaults) as N[]).map((name) => [name, rateLimitSchema(defaults[name], routes[name])])),
-    description: 'Per-route @RateLimit settings: { limit, windowSeconds, by } over the shipped default, or false for no limit.',
+    description: 'Per-route @RateLimit settings: { limit, windowSeconds, by, headers } over the shipped default, or false for no limit.',
   };
 }
 
