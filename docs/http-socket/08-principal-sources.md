@@ -217,6 +217,35 @@ export class BlockedAddressSource extends SocketPrincipalSource {
 }
 ```
 
+## Migration
+
+The handshake address comes from the registered `RealIp`. Without `@spinajs/authn-http`, `authn.http.trustProxy` does not move it: move the trust to `http.trustProxy`.
+
+```ts
+// Before: a socket-only app trusted its proxies through the authn key
+authn: {
+  http: { trustProxy: ['10.0.0.0/8'] },
+},
+
+// After
+http: {
+  trustProxy: ['10.0.0.0/8'],
+},
+```
+
+With `@spinajs/authn-http`, import it before `SocketServer` resolves, so the server keeps `AuthnRealIp`:
+
+```ts
+// Before: authn-http reached only through the controller scan, after the socket server started
+await DI.resolve(SocketServer);
+
+// After
+import '@spinajs/authn-http';
+await DI.resolve(SocketServer);
+```
+
+See [Upgrading to 4.0](../upgrading/4.0.md).
+
 ## Related
 
 - [Principal revalidation](09-revalidation.md): how `revalidate()` answers are used.
