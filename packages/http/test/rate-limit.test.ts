@@ -714,6 +714,16 @@ describe('RateLimitMiddleware', () => {
     });
 
     it('answers 429 over the limit through the reply pipeline, a route of its own counter, a route without it unlimited, X-RateLimit-* only on a route that opts in', async () => {
+      const controller = (await (await app.resolve(Controllers)).Controllers).find((c) => c.type === RateLimitedController)!.instance as BaseController;
+      const loginLimits = controller.MountedMiddlewares('login').filter((m) => m instanceof RateLimitMiddleware);
+      const otherLimits = controller.MountedMiddlewares('other').filter((m) => m instanceof RateLimitMiddleware);
+      expect(loginLimits).to.have.length(1);
+      expect(otherLimits).to.have.length(1);
+      expect(loginLimits[0]).to.not.eq(otherLimits[0]);
+      expect(controller.MountedMiddlewares('free').filter((m) => m instanceof RateLimitMiddleware)).to.deep.eq([]);
+      expect(controller.MountedMiddlewares('nope')).to.deep.eq([]);
+      const loginBefore = sinon.spy(loginLimits[0], 'onBefore');
+
       const first = await req().post('rate-limited/login');
       expect(first.status).to.eq(200);
       expect(first.header['x-ratelimit-limit']).to.eq(undefined);
@@ -724,6 +734,7 @@ describe('RateLimitMiddleware', () => {
       expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
       expect(Object.keys(limited.header).filter((h) => h.startsWith('x-ratelimit-'))).to.deep.eq([]);
       expect(limited.body).to.deep.eq({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } });
+      expect(loginBefore.callCount).to.eq(3);
 
       expect((await req().post('rate-limited/other')).status).to.eq(200);
       for (let i = 0; i < 3; i++) {

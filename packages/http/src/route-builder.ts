@@ -317,6 +317,8 @@ export interface IRouteChainOptions {
   container: IContainer;
   log: Log;
   handleError: Express.ErrorRequestHandler;
+  /** Called once the enabled middlewares registered, with the instances the chain runs. */
+  onMounted?(enabled: readonly RouteMiddleware[]): void;
 }
 
 /**
@@ -358,6 +360,7 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
       throw new RouteRegistrationException(`Middleware ${m.constructor.name} refused the registration of route ${name}: ${(err as Error)?.message ?? String(err)}`, err);
     }
   }
+  options.onMounted?.(enabled);
 
   const outer = enabled.filter((m) => m.Stage === 'outer');
   const inner = enabled.filter((m) => m.Stage !== 'outer');

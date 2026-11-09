@@ -928,6 +928,34 @@ export abstract class HttpMiddleware extends AsyncService {
   public onAround?(invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
+export interface IDocumentedHeader {
+  description: string;
+  type: 'integer' | 'string';
+}
+
+export interface IDocumentedAnswer {
+  description: string;
+  headers?: Record<string, IDocumentedHeader>;
+  /** JSON schema of the body, rendered inline. */
+  schema?: Record<string, unknown>;
+  /** A named type resolved like `@response 429 {AuthnError}`. */
+  type?: string;
+  /** Shared `components/responses` name; registered once. */
+  component?: string;
+  /** Default `application/json`. */
+  contentType?: string;
+}
+
+/** What a route middleware adds to the API document of a route it is mounted on. */
+export interface IRouteMiddlewareDoc {
+  /** Answers this middleware gives instead of the route, by status code. */
+  responses?: Record<string, IDocumentedAnswer>;
+  /** Headers this middleware sets on the route's own success answers. */
+  headers?: Record<string, IDocumentedHeader>;
+  /** `x-` extensions; arrays concatenate across middlewares. */
+  extensions?: Record<`x-${string}`, unknown>;
+}
+
 /**
  * A middleware of one route, or of every route of a controller (`@Middleware`). Typed per-request state goes on
  * `req.storage` (declaration merging on {@link IActionLocalStoregeContext}), untyped per-response state on `res.locals`.
@@ -952,6 +980,12 @@ export abstract class RouteMiddleware extends HttpMiddleware {
   public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
 
   public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+
+  /**
+   * Called by API document generators on the instance mounted on the route (`BaseController.MountedMiddlewares`),
+   * after `onRegister`. Undefined adds nothing.
+   */
+  public documentation?(route: IRoute): IRouteMiddlewareDoc | undefined;
 }
 
 /**

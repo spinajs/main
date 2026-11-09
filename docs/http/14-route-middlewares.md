@@ -49,6 +49,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `onAfter?(ctx): void \| Promise<void>` | in the reply pipeline, before the reply is sent | `IReplyContext` | read or change the reply: `ctx.response`, its `data`, the headers on `ctx.res`; read `ctx.error` |
 | `onFinish?(ctx): void \| Promise<void>` | once the response finished or the client went away | `IFinishContext` | log, record metrics; a throw is logged on the `http` logger |
 | `onAround?(invocation, proceed): Promise<void>` | wraps the rest of the chain | `IRouteInvocation` and `proceed` | see [Around middlewares](#around-middlewares) |
+| `documentation?(route): IRouteMiddlewareDoc \| undefined` | when an API document is generated, on the instance mounted on the route (`BaseController.MountedMiddlewares(method)`) | the route | describe the answers it gives instead of the route (`responses`), the headers it sets on the route's own success answers (`headers`) and `x-` extensions |
 
 ### Contexts
 
