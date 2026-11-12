@@ -90,7 +90,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 
 - `IdentifierQuoter`, `LiteralQuoter`, `ServerResponseMapper`, `TableExistsCompiler`, `CreateViewCompiler`.
 - `LimitQueryCompiler`, `OnDuplicateQueryCompiler`, `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler`, `TruncateTableQueryCompiler`, `RecursiveQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `EventQueryCompiler`, `DropEventQueryCompiler`, `DefaultValueBuilder`.
-- `NowExpression`: `driver.now()` resolves it, and each engine reads its clock differently (`UTC_TIMESTAMP(3)` on MySQL, `SYSDATETIMEOFFSET()` on MSSQL).
+- `NowExpression`: `driver.now()` resolves it, and each engine reads its clock differently (`NOW(3)`, or `UTC_TIMESTAMP(3)` in a UTC connection, on MySQL, `SYSDATETIMEOFFSET()` on MSSQL).
 
 A driver that leaves one of these out makes that feature fail on first use rather than emit another dialect's SQL. The per-driver matrix is in [Adding a new SQL dialect](07-adding-a-sql-dialect.md#what-each-shipped-driver-registers).
 

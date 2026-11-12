@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, resolveMigrationTool } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 // Registers JobModel and the queue_jobs migrations on the `queue` connection.
@@ -11,6 +12,8 @@ export interface TestEnvOptions {
   now?: string;
   scheduler?: Record<string, unknown>;
   extra?: Record<string, unknown>;
+  /** Runs once the Orm exists, before anything is migrated. */
+  beforeMigrate?: () => Promise<void>;
 }
 
 let current: TestEnvOptions = {};
@@ -19,7 +22,7 @@ const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 class SchedulerTestConf extends FrameworkConfiguration {
@@ -60,7 +63,11 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   DI.register(() => clock.dbSource).as(DbTimeSource);
   DI.register(SchedulerTestConf).as(Configuration);
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  if (options.beforeMigrate) {
+    await resolveMigrationTool();
+    await options.beforeMigrate();
+  }
+  await migrateTestDatabase();
   return { clock };
 }
 

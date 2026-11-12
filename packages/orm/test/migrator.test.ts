@@ -2,6 +2,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Class, DI, NewInstance } from '@spinajs/di';
 import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import * as sinon from 'sinon';
 import '@spinajs/log';
@@ -11,10 +12,12 @@ import {
   BooleanValueConverter,
   ColumnAlterationType,
   Connection,
+  DeleteQueryBuilder,
   DropTableQueryBuilder,
   extractModelDescriptor,
   IColumnDescriptor,
   IMigrationRecord,
+  InsertQueryBuilder,
   MIGRATION_TABLE_NAME,
   Migration,
   MigrationTransactionMode,
@@ -31,9 +34,11 @@ import {
   SelectQueryBuilder,
   TableExistsQueryBuilder,
   TableQueryBuilder,
+  UpdateQueryBuilder,
 } from '../src/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
+chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const CONNECTION = 'migrator';
@@ -49,7 +54,6 @@ let RECORDS: IMigrationRecord[] = [];
 /** Every builder the fake executed, in order. */
 let EXECUTED: unknown[] = [];
 
-let onStartup = true;
 let strictSetting: boolean | undefined = false;
 
 function column(name: string, type = 'INT', over: Partial<IColumnDescriptor> = {}): IColumnDescriptor {
@@ -115,7 +119,17 @@ class MigratorTestDriver extends FakeSqliteDriver {
     EXECUTED.push(b);
 
     if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
-      return RECORDS;
+      return RECORDS.map((r) => ({ ...r }));
+    }
+
+    if (b instanceof InsertQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+      const row = Object.fromEntries(['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'Checksum', 'Batch'].map((c) => [c, b.getColumnValues(c)[0]]));
+      RECORDS.push({ ...row, RolledBackAt: null, Logs: null } as IMigrationRecord);
+    }
+
+    // the service closes one row at a time, so the open one is the row a FinishedAt update is about
+    if (b instanceof UpdateQueryBuilder && b.Table === MIGRATION_TABLE_NAME && (b.Value as Partial<IMigrationRecord>).FinishedAt) {
+      Object.assign(RECORDS.find((r) => !r.FinishedAt && !r.Logs) ?? {}, b.Value);
     }
 
     if (b instanceof SelectQueryBuilder) {
@@ -154,7 +168,7 @@ class MigratorTestConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
 
-    const migration = { OnStartup: onStartup, Transaction: { Mode: MigrationTransactionMode.None } };
+    const migration = { Transaction: { Mode: MigrationTransactionMode.None } };
 
     this.Config = {
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
@@ -263,7 +277,6 @@ describe('OrmMigrator', function () {
 
     RECORDS = [];
     EXECUTED = [];
-    onStartup = true;
     strictSetting = false;
 
     preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
@@ -332,7 +345,7 @@ describe('OrmMigrator', function () {
       t.string('Title').rename('Headline');
     });
 
-    await DI.resolve(Orm);
+    await (await resolveMigrationTool()).migrate();
 
     expect(columnNames(models.MigratorTestPost)).to.eql(['Id', 'Headline']);
   });
@@ -424,7 +437,7 @@ describe('OrmMigrator', function () {
 
     void MigratorTestTwin_2026_10_21_00_00_00;
 
-    await DI.resolve(Orm);
+    await (await resolveMigrationTool()).migrate();
 
     expect(columnNames(models.MigratorTestUser)).to.include('Email');
   });
@@ -450,8 +463,7 @@ describe('OrmMigrator', function () {
     expect(columnNames(models.MigratorTestB)).to.include('Extra');
   });
 
-  it('the Orm resolve fails with db.StrictTableCheck on when a connection without Migration.OnStartup misses a table', async () => {
-    onStartup = false;
+  it('the Orm resolve fails with db.StrictTableCheck on when a database with nothing to migrate misses a table', async () => {
     strictSetting = true;
     TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
     TABLES.delete('mig_other');
@@ -462,8 +474,7 @@ describe('OrmMigrator', function () {
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
-  it('a migrator with MigrateOnStartup: false resolves its Orm without the table check, as a migration tool runs before the tables exist', async () => {
-    onStartup = false;
+  it('resolveMigrationTool() resolves its Orm without the table check, as a migration tool runs before the tables exist', async () => {
     strictSetting = true;
     TABLES.delete('mig_other');
 
@@ -472,7 +483,7 @@ describe('OrmMigrator', function () {
     expect(migrator.Runner).to.not.be.undefined;
   });
 
-  it('MigrateOnStartup: false applies nothing on the way in; migrate() applies and seeds', async () => {
+  it('resolveMigrationTool() applies nothing on the way in; migrate() applies and seeds', async () => {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');
     const seeded = sinon.stub(Create.prototype, 'data').resolves();
@@ -503,45 +514,32 @@ describe('OrmMigrator', function () {
     expect(seeded.called, 'a faked migration never ran up(), so its seed has nothing to seed into').to.be.false;
   });
 
-  it('resolving the Orm applies the pending migrations before it reads table info', async () => {
+  it('migrate() re-reads the table it created, with the converters of its column types', async () => {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');
 
-    const orm = await DI.resolve(Orm);
+    await (await resolveMigrationTool()).migrate();
 
     expect(up.calledOnce).to.be.true;
     expect(columnNames(models.MigratorTestUser)).to.include.members(['Id', 'Email', 'Active']);
     expect(extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!.Converter).to.be.instanceOf(BooleanValueConverter);
-    expect(orm.Migrator).to.equal(DI.get(OrmMigrator));
-    expect(orm.Migrator.Runner).to.not.be.undefined;
   });
 
-  it('resolving the Orm applies nothing on a connection with Migration.OnStartup off', async () => {
-    onStartup = false;
-    const Create = createUsersMigration();
-    const up = sinon.spy(Create.prototype, 'up');
-
-    await DI.resolve(Orm);
-
-    expect(up.called).to.be.false;
-    expect(TABLES.has('mig_users')).to.be.false;
-  });
-
-  it('data() runs once the Orm is cached, and ready() settles after it', async () => {
+  it('migrate() runs data() with its Orm already cached', async () => {
     let cachedInSeed: unknown;
     const Create = createUsersMigration();
     const seeded = sinon.stub(Create.prototype, 'data').callsFake(async () => {
       cachedInSeed = DI.get(Orm);
     });
 
-    const orm = await DI.resolve(Orm);
-    await orm.Migrator.ready();
+    const migrator = await resolveMigrationTool();
+    await migrator.migrate();
 
     expect(seeded.calledOnce).to.be.true;
-    expect(cachedInSeed).to.equal(orm);
+    expect(cachedInSeed).to.equal(migrator.Orm);
   });
 
-  it("a migration's data() resolving a service that injects the Orm and querying a model completes", async () => {
+  it("a migration's data() resolving a service that injects the Orm and querying a model completes under migrate()", async () => {
     let listed: unknown[] | undefined;
 
     @Migration(CONNECTION)
@@ -563,40 +561,13 @@ describe('OrmMigrator', function () {
 
     void MigratorTestSeed_2026_10_21_00_00_00;
 
-    const orm = await within(3000, Promise.resolve(DI.resolve(Orm)));
-    await within(3000, orm.Migrator.ready());
+    const migrator = await within(3000, resolveMigrationTool());
+    await within(3000, migrator.migrate());
 
     expect(listed).to.eql([]);
   });
 
-  it('a migration that throws rejects the Orm resolve, caches no Orm, closes its connections and seeds nothing', async () => {
-    const Create = createUsersMigration();
-    const seeded = sinon.stub(Create.prototype, 'data').resolves();
-    const boom = new Error('boom');
-
-    @Migration(CONNECTION)
-    class MigratorTestThrows_2026_10_22_00_00_00 extends OrmMigration {
-      public async up() {
-        throw boom;
-      }
-
-      public async down() {}
-    }
-
-    void MigratorTestThrows_2026_10_22_00_00_00;
-
-    const disconnect = sinon.spy(MigratorTestDriver.prototype, 'disconnect');
-    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
-
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.contain('MigratorTestThrows_2026_10_22_00_00_00').and.to.contain('boom');
-    expect((err as OrmException).inner).to.equal(boom);
-    expect(DI.get(Orm)).to.be.undefined;
-    expect(disconnect.called).to.be.true;
-    expect(seeded.called).to.be.false;
-  });
-
-  it('every data() hook runs; the failures reject ready() together and leave the Orm resolved', async () => {
+  it('migrate() runs every data() hook and rejects with the failures together; the migrations stay applied', async () => {
     const Create = createUsersMigration();
     sinon.stub(Create.prototype, 'data').rejects(new Error('seed 1 failed'));
 
@@ -609,13 +580,17 @@ describe('OrmMigrator', function () {
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the test is about a seed rejecting with a non-Error
     const second = sinon.stub(MigratorTestSecondSeed_2026_10_22_00_00_00.prototype, 'data').callsFake(() => Promise.reject('bare string'));
 
-    const orm = await DI.resolve(Orm);
-    const err = await rejection(orm.Migrator.ready());
+    const migrator = await resolveMigrationTool();
+    const err = await rejection(migrator.migrate());
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.contain('seed 1 failed').and.to.contain('bare string').and.not.to.contain('undefined');
     expect(second.calledOnce).to.be.true;
-    expect(DI.get(Orm)).to.equal(orm);
+    expect(RECORDS.map((r) => [r.Migration, !!r.FinishedAt])).to.eql([
+      [Create.name, true],
+      [MigratorTestSecondSeed_2026_10_22_00_00_00.name, true],
+    ]);
+    expect(DI.get(Orm)).to.equal(migrator.Orm);
   });
 
   it('(h) on an already migrated database the boot applies nothing and reads each model once', async () => {
@@ -631,40 +606,255 @@ describe('OrmMigrator', function () {
     expect(modelTableReads(tableInfo).sort()).to.eql(['mig_b', 'mig_other', 'mig_posts', 'mig_users']);
   });
 
-  it('with db.StrictTableCheck on, the Orm resolve fails on a table still missing after its migrations', async () => {
-    strictSetting = true;
-    TABLES.delete('mig_other');
-    createUsersMigration();
-
-    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
-
-    expect(err).to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
-  });
-
-  it('a migrator resolved with MigrateOnStartup: false before the Orm makes it apply nothing', async () => {
+  it('migrate() holds the connection lock once, from before the migrations until after data()', async () => {
     const Create = createUsersMigration();
-    const up = sinon.spy(Create.prototype, 'up');
+    const lockWrites = () => EXECUTED.filter((b) => (b instanceof InsertQueryBuilder || b instanceof DeleteQueryBuilder) && b.Table === LOCK_TABLE).map((b) => (b instanceof InsertQueryBuilder ? 'take' : 'release'));
+    let duringSeed: string[] = [];
+    sinon.stub(Create.prototype, 'data').callsFake(async () => {
+      duringSeed = lockWrites();
+    });
 
     const migrator = await resolveMigrationTool();
+    await migrator.migrate();
 
-    expect(up.called).to.be.false;
-    expect((await DI.resolve(Orm)).Migrator).to.equal(migrator);
+    // only the connection with a registered migration is locked: the other one is never touched
+    expect(duringSeed, 'the seeds run under the lock').to.eql(['take']);
+    expect(lockWrites()).to.eql(['take', 'release']);
   });
 
-  it('the next Orm, after only the Orm was uncached, reuses the cached migrator bound to itself', async () => {
-    const first = await DI.resolve(Orm);
-    DI.uncache(Orm);
-    const second = await DI.resolve(Orm);
+  it('migrate({ name }) refuses an unknown name before it takes a lock or creates storage', async () => {
+    createUsersMigration();
+    const migrator = await resolveMigrationTool();
+    EXECUTED = [];
 
-    expect(second).to.not.equal(first);
-    expect(second.Migrator).to.equal(first.Migrator);
-    expect((second.Migrator.Runner as unknown as { orm: Orm }).orm).to.equal(second);
+    const err = await rejection(migrator.migrate({ name: 'MigratorTestTypo_2021_01_01_00_00_00' }));
+
+    expect((err as Error).message).to.match(/^Migration MigratorTestTypo_2021_01_01_00_00_00 is not registered/);
+
+    expect(EXECUTED.filter((b) => b instanceof TableQueryBuilder || (b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE))).to.eql([]);
   });
 
-  it('resolving the Orm and the migrator together does not hang', async () => {
-    const [orm, migrator] = await within(3000, Promise.all([DI.resolve(Orm), DI.resolve(OrmMigrator)]));
+  it('resolving the migration tool twice at once does not hang and builds one migrator', async () => {
+    const [first, second] = await within(3000, Promise.all([resolveMigrationTool(), resolveMigrationTool()]));
 
-    expect(orm.Migrator).to.equal(migrator);
+    expect(second).to.equal(first);
+    expect(first.Orm).to.equal(DI.get(Orm));
+  });
+
+  for (const [label, options] of [
+    ['with the 3.0.x options', [{ MigrateOnStartup: false }]],
+    ['with no Orm', undefined],
+  ] as const) {
+    it(`DI.resolve(OrmMigrator) ${label} refuses at once, names resolveMigrationTool() and caches nothing`, async () => {
+      const err = await rejection(Promise.resolve().then(() => DI.resolve(OrmMigrator, options as unknown[] | undefined)));
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect((err as Error).message).to.contain('resolveMigrationTool()');
+      expect(DI.get(OrmMigrator)).to.not.be.ok;
+
+      const migrator = await resolveMigrationTool();
+      expect(migrator.Orm).to.equal(DI.get(Orm));
+    });
+  }
+
+  describe('seed() and plan()', () => {
+    let seeded: string[];
+    let migrator: OrmMigrator;
+    let types: ReturnType<typeof seedMigrations>;
+
+    function seedMigrations() {
+      @Migration(CONNECTION)
+      class A_2026_01_01_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+        public async data() {
+          seeded.push(this.constructor.name);
+        }
+      }
+
+      @Migration(CONNECTION)
+      class B_2026_01_02_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+        public async data() {
+          seeded.push(this.constructor.name);
+        }
+      }
+
+      // registered, but its connection is not configured here, so it can never be applied
+      @Migration('migrator-not-configured')
+      class C_2026_01_03_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+      }
+
+      return { A_2026_01_01_00_00_00, B_2026_01_02_00_00_00, C_2026_01_03_00_00_00 };
+    }
+
+    const lockWrites = () => EXECUTED.filter((b) => (b instanceof InsertQueryBuilder || b instanceof DeleteQueryBuilder) && b.Table === LOCK_TABLE).map((b) => (b instanceof InsertQueryBuilder ? 'take' : 'release'));
+
+    beforeEach(async () => {
+      seeded = [];
+      types = seedMigrations();
+      migrator = await resolveMigrationTool();
+    });
+
+    it('seed() runs data() of every applied migration in run order, under the run lock', async () => {
+      await migrator.migrate({ skipSeed: true });
+      expect(seeded).to.deep.equal([]);
+
+      EXECUTED = [];
+      const instances = await migrator.seed();
+
+      expect(seeded).to.deep.equal(['A_2026_01_01_00_00_00', 'B_2026_01_02_00_00_00']);
+      expect(instances.map((m) => m.constructor.name)).to.deep.equal(['A_2026_01_01_00_00_00', 'B_2026_01_02_00_00_00']);
+      expect(lockWrites()).to.eql(['take', 'release']);
+    });
+
+    it('seed() runs every hook under the run lock and reports the failures together', async () => {
+      await migrator.migrate({ skipSeed: true });
+      EXECUTED = [];
+
+      sinon.stub(types.A_2026_01_01_00_00_00.prototype, 'data').rejects(new Error('a failed'));
+      sinon.stub(types.B_2026_01_02_00_00_00.prototype, 'data').callsFake(async () => {
+        seeded.push(`B:${lockWrites().join(',')}`);
+      });
+
+      const err = await rejection(migrator.seed());
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect((err as Error).message).to.equal('Migration data() phase failed for: A_2026_01_01_00_00_00 (a failed)');
+      expect(seeded, 'B ran after A failed, while the lock was held').to.deep.equal(['B:take']);
+      expect(lockWrites()).to.eql(['take', 'release']);
+    });
+
+    it('seed({ name }) runs that migration alone and refuses a name that is not applied', async () => {
+      await migrator.migrate({ skipSeed: true });
+      await migrator.seed({ name: 'B_2026_01_02_00_00_00' });
+      expect(seeded).to.deep.equal(['B_2026_01_02_00_00_00']);
+      await expect(migrator.seed({ name: 'C_2026_01_03_00_00_00' })).to.be.rejectedWith('Migration C_2026_01_03_00_00_00 is not applied on any configured connection - nothing to seed');
+    });
+
+    it('seed({ name }) refuses a name nothing is registered under, as migrate() does', async () => {
+      await expect(migrator.seed({ name: 'Typo_2026_01_01_00_00_00' })).to.be.rejectedWith('Migration Typo_2026_01_01_00_00_00 is not registered - check the name for typos');
+    });
+
+    it('seed() before anything is applied seeds nothing', async () => {
+      expect(await migrator.seed()).to.deep.equal([]);
+      expect(seeded).to.deep.equal([]);
+    });
+
+    it('seed() on a fresh database creates no tracking table and takes no lock', async () => {
+      TABLES.delete(MIGRATION_TABLE_NAME);
+      TABLES.delete(LOCK_TABLE);
+      EXECUTED = [];
+
+      expect(await migrator.seed()).to.deep.equal([]);
+      await expect(migrator.seed({ name: 'B_2026_01_02_00_00_00' })).to.be.rejectedWith('Migration B_2026_01_02_00_00_00 is not applied on any configured connection - nothing to seed');
+
+      expect(TABLES.has(MIGRATION_TABLE_NAME)).to.be.false;
+      expect(TABLES.has(LOCK_TABLE)).to.be.false;
+      expect(EXECUTED.filter((b) => !(b instanceof TableExistsQueryBuilder))).to.eql([]);
+    });
+
+    it('seed({ name, connection }) names the connection filter when the migration is applied on another one', async () => {
+      await migrator.migrate({ skipSeed: true });
+
+      await expect(migrator.seed({ name: 'A_2026_01_01_00_00_00', connection: OTHER_CONNECTION })).to.be.rejectedWith(`Migration A_2026_01_01_00_00_00 is not applied on connection ${OTHER_CONNECTION} - nothing to seed`);
+    });
+
+    it("seed({ name }) locks only that migration's connection", async () => {
+      @Migration(OTHER_CONNECTION)
+      class D_2026_01_04_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+      }
+
+      // the Orm reads the migration registry when it resolves
+      DI.uncache(Orm);
+      DI.uncache(OrmMigrator);
+      migrator = await resolveMigrationTool();
+
+      await migrator.migrate({ skipSeed: true });
+      expect((await migrator.Runner.status({ connection: OTHER_CONNECTION })).map((e) => e.name)).to.eql([D_2026_01_04_00_00_00.name]);
+
+      EXECUTED = [];
+      await migrator.seed();
+      expect(lockWrites(), 'seed() locks both connections').to.eql(['take', 'take', 'release', 'release']);
+
+      EXECUTED = [];
+      await migrator.seed({ name: 'B_2026_01_02_00_00_00' });
+      expect(lockWrites()).to.eql(['take', 'release']);
+    });
+
+    it('migrate() still seeds what it applied unless skipSeed is set', async () => {
+      await migrator.migrate();
+      expect(seeded).to.deep.equal(['A_2026_01_01_00_00_00', 'B_2026_01_02_00_00_00']);
+    });
+
+    it('plan() lists what migrate() would apply, in order, with the batch it would get, and applies nothing', async () => {
+      expect(await migrator.plan()).to.deep.equal([
+        { name: 'A_2026_01_01_00_00_00', connection: CONNECTION, batch: 1 },
+        { name: 'B_2026_01_02_00_00_00', connection: CONNECTION, batch: 1 },
+      ]);
+      expect((await migrator.Runner.status()).every((e) => e.pending)).to.be.true;
+    });
+
+    it('plan() creates no tracking table and takes no lock', async () => {
+      TABLES.delete(MIGRATION_TABLE_NAME);
+      TABLES.delete(LOCK_TABLE);
+      EXECUTED = [];
+
+      expect(await migrator.plan()).to.have.length(2);
+      expect(TABLES.has(MIGRATION_TABLE_NAME)).to.be.false;
+      expect(TABLES.has(LOCK_TABLE)).to.be.false;
+      expect(EXECUTED.filter((b) => !(b instanceof TableExistsQueryBuilder))).to.eql([]);
+    });
+
+    it('plan() gives the next batch of the connection and honours name and connection', async () => {
+      await migrator.migrate({ name: 'A_2026_01_01_00_00_00' });
+
+      expect(await migrator.plan()).to.deep.equal([{ name: 'B_2026_01_02_00_00_00', connection: CONNECTION, batch: 2 }]);
+      expect(await migrator.plan({ name: 'B_2026_01_02_00_00_00' })).to.deep.equal([{ name: 'B_2026_01_02_00_00_00', connection: CONNECTION, batch: 2 }]);
+      expect(await migrator.plan({ connection: OTHER_CONNECTION })).to.deep.equal([]);
+      await expect(migrator.plan({ connection: 'typo' })).to.be.rejectedWith('Connection typo is not configured');
+    });
+
+    it('plan() reports a FAILED migration, and nothing after it on its connection, whatever the name', async () => {
+      RECORDS = [{ ...applied('A_2026_01_01_00_00_00'), FinishedAt: null, Logs: 'boom', Batch: 1 }];
+      const failed = { name: 'A_2026_01_01_00_00_00', connection: CONNECTION, batch: 1, failed: true };
+
+      expect(await migrator.plan()).to.deep.equal([failed]);
+      expect(await migrator.plan({ name: 'B_2026_01_02_00_00_00' }), 'up(B) refuses the connection too').to.deep.equal([failed]);
+      expect(await migrator.plan({ name: 'A_2026_01_01_00_00_00' })).to.deep.equal([failed]);
+    });
+
+    it('plan() stops at the first FAILED connection, as up() throws there', async () => {
+      @Migration(OTHER_CONNECTION)
+      class Early_2025_12_31_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+      }
+
+      @Migration(OTHER_CONNECTION)
+      class Late_2026_01_03_00_00_00 extends OrmMigration {
+        public async up() {}
+        public async down() {}
+      }
+
+      DI.uncache(Orm);
+      DI.uncache(OrmMigrator);
+      migrator = await resolveMigrationTool();
+      RECORDS = [{ ...applied('B_2026_01_02_00_00_00'), FinishedAt: null, Logs: 'boom', Batch: 1 }];
+
+      expect(await migrator.plan()).to.deep.equal([
+        { name: Early_2025_12_31_00_00_00.name, connection: OTHER_CONNECTION, batch: 1 },
+        { name: 'B_2026_01_02_00_00_00', connection: CONNECTION, batch: 1, failed: true },
+      ]);
+      expect(await migrator.plan({ connection: OTHER_CONNECTION })).to.deep.equal([
+        { name: Early_2025_12_31_00_00_00.name, connection: OTHER_CONNECTION, batch: 1 },
+        { name: Late_2026_01_03_00_00_00.name, connection: OTHER_CONNECTION, batch: 1 },
+      ]);
+    });
   });
 });

@@ -9,8 +9,9 @@
 | `GET` | `/user` | `user:read` on the caller's own row | any signed-in user principal | The caller's `User` with its metadata, cut to the fields its grant reads |
 | `GET` | `/user/tokens/roles` | `user:read` on the caller's own row | a session that is not impersonating | `{ Roles: string[] }` |
 | `GET` | `/user/tokens/profiles` | `user:read` on the caller's own row | a session that is not impersonating | `{ Profiles: string[] }` |
+| `GET` | `/user/tokens/permissions` | `user:read` on the caller's own row | a session that is not impersonating | `{ Permissions: string[] }` |
 
-Query parameter of `GET /user/tokens/roles`: `profile` (optional), one role name of 1 to 128 characters; anything else answers `400`.
+Query parameter of `GET /user/tokens/roles` and `GET /user/tokens/permissions`: `profile` (optional), one role name of 1 to 128 characters; anything else answers `400`.
 
 ## How it works
 
@@ -31,7 +32,8 @@ Query parameter of `GET /user/tokens/roles`: `profile` (optional), one role name
    2. answers `[]` while no `RoleSource` is registered;
    3. asks `RoleSource.rolesOf()` for the roles the caller holds at any scope, as a bare token principal;
    4. loads the token role rules of the access domain (`authz.http.access.domain`) with `loadTokenRoleRules()` of `@spinajs/authz-rbac`, and returns `allowedRoles(owner, held, profile)`: the held roles less `authz.token.excludedRoles` and those the `TokenRolePolicy` drops.
-5. Both answers carry `Cache-Control: no-store`.
+5. Permissions: `offeredTokenPermissions()` takes the roles `offeredTokenRoles()` offers (none: `[]`), builds the principal TokenStrategy would build for a token carrying them (token authn facts, the roles as `ceiling.roles`, `profile` as `attributes.profile`) through the registered `PrincipalFactory`, and returns the names in the access domain's `summary()` of it, sorted, less `users.http.tokens.hiddenPermissions`. These are the names `scope.permissions` of `POST /user/tokens` narrows such a token to.
+6. Every answer carries `Cache-Control: no-store`.
 
 ```mermaid
 sequenceDiagram
@@ -58,6 +60,7 @@ sequenceDiagram
 | `authz.http.access.domain` | `string` | `'root'` | a live authz domain, or `'root'` | Whose `authz.token` rules cut the offered roles. A name that is not a live domain answers `500` (`AuthzConfigError`). |
 | `authz.token.excludedRoles` | see `@spinajs/authz-rbac` | | | Roles a token never keeps. |
 | `authz.token.rolePolicy` | see `@spinajs/authz-rbac` | | | The policy that drops further roles, per profile. |
+| `users.http.tokens.hiddenPermissions` | `string[]` | `[]` | permission globs (`Route*:read`, `users:*`) | Left out of `GET /user/tokens/permissions`, for grants a token caller has no use for, such as menu visibility. Anything but a list of globs answers `500`. Hiding a permission does not take it from a token. |
 
 ## Services and extension points
 
@@ -98,7 +101,7 @@ export class ReportsTokenProfilePolicy extends TokenProfilePolicy {
 
 ## Best practices
 
-- Build the token form from `GET /user/tokens/profiles` first, then `GET /user/tokens/roles?profile=<choice>`: the roles differ per profile.
+- Build the token form from `GET /user/tokens/profiles` first, then `GET /user/tokens/roles?profile=<choice>`: the roles differ per profile. To let the user narrow the token further, list `GET /user/tokens/permissions?profile=<choice>` and send the ticked names as `scope.permissions`; the authz ceiling enforces them on every check.
 - Keep `authz.http.access.domain` equal to the domain your API checks tokens in, or the offered roles will not match what a token keeps.
 
 ## Examples

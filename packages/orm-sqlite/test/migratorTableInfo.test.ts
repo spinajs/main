@@ -22,7 +22,7 @@ class MigratorTableInfoConf extends FrameworkConfiguration {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
         db: {
           StrictTableCheck: false,
-          Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION, Migration: { Table: 'orm_migrations_mti', OnStartup: true } }],
+          Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION, Migration: { Table: 'orm_migrations_mti' } }],
         },
       },
       mergeArrays,

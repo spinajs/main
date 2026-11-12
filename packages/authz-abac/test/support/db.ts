@@ -4,12 +4,11 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
 import { Orm, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
-
-import { AuthzAbac_2026_10_01_00_00_00 } from '../../src/index.js';
 
 export type DbKind = 'sqlite' | 'postgres';
 
@@ -96,12 +95,12 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = await createPgDatabase(suite);
-    connection = { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: { OnStartup: false }, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
+    connection = { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } };
+    connection = { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:' };
   }
 
-  const connections = [connection, { Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }];
+  const connections = [connection, { Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:' }];
 
   class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
@@ -122,13 +121,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
 
   try {
     await container.resolve(Configuration);
-    const orm = await container.resolve(Orm);
+    const { orm } = await migrateTestDatabase(container);
     const driver = orm.Connections.get('authz')!;
-
-    // By hand, as authz-testing's e2e harness does: the boot migration pass is not what these suites test.
-    await new AuthzAbac_2026_10_01_00_00_00().up(driver);
-    // The Orm read the table info before authz_policy existed.
-    await orm.reloadTableInfo();
 
     return {
       kind,

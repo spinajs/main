@@ -8,7 +8,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { ArgInputFilter, BaseController, Controllers, DataTransformer, HttpServer, ServerMiddleware } from '@spinajs/http';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { testHost } from '@spinajs/authz-testing';
 
 import { AuthzFieldTransformer, AuthzInputFieldFilter, ExplainPolicy, PrincipalMiddleware } from '../../src/index.js';
@@ -110,5 +111,9 @@ export async function stopApp(): Promise<void> {
   DI.uncache(ServerMiddleware);
   // Root singletons that hold the AuthzDomains uninstallHost uncaches.
   for (const type of [AuthzInputFieldFilter, ArgInputFilter, AuthzFieldTransformer, DataTransformer, ExplainPolicy] as Class<unknown>[]) DI.uncache(type);
+  // fsTemp keeps a cleanup interval until disposed; left running it holds the process open after the run.
+  for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
+  DI.uncache(FILE_PROVIDER_INSTANCES);
+  DI.uncache(fsService);
   await testHost.uninstallHost();
 }

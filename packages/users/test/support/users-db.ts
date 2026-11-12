@@ -1,7 +1,10 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import type { IDriverOptions } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, normalize, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
@@ -56,6 +59,7 @@ const USERS_HOST_KEYS = [
   'JunctionModelPropertyHydrator',
   'Orm',
   'OrmMigrator',
+  'OrmMigrationGuard',
   'DefaultAuthzDomains',
   'LogDecisionAudit',
   'InProcessChangeBus',
@@ -102,7 +106,7 @@ export function releaseUsersHost(): void {
 }
 
 /**
- * Bootstraps and resolves the Orm, which runs the migrations of the test database, and waits for its seeds; the
+ * Bootstraps, then migrates the test database and runs its seeds; the
  * suites call `releaseUsersHost()` after.
  * `configure` edits the resolved configuration before the Orm reads it.
  */
@@ -114,7 +118,41 @@ export async function bootUsersDb(configure?: (config: Configuration) => void): 
 
   const config = await DI.resolve(Configuration, [null, null, [resolve(normalize(join(process.cwd(), 'test', './config')))]]);
   configure?.(config);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
+}
+
+const DATABASE_DIRS: string[] = [];
+
+/**
+ * Points the in-memory test connections at files of a fresh directory, so a migrate-up run and the boot after it are
+ * separate Orms on one database, as in a deploy.
+ */
+export function useDatabaseFiles(config: Configuration): void {
+  const dir = mkdtempSync(join(tmpdir(), 'spinajs-users-'));
+  DATABASE_DIRS.push(dir);
+
+  for (const connection of config.get<IDriverOptions[]>('db.Connections', [])) {
+    if (connection.Filename === ':memory:') {
+      connection.Filename = join(dir, `${connection.Name}.sqlite`);
+    }
+  }
+}
+
+/** Best effort: a connection a failed test left open keeps its file on windows. */
+export function removeDatabaseFiles(): void {
+  for (const dir of DATABASE_DIRS.splice(0)) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // nothing depends on it
+    }
+  }
+}
+
+/** What `npx spinajs migrate-up` does before a cli process starts: migrates and seeds in a container of its own. */
+export async function migrateUpFirst(): Promise<void> {
+  const { orm } = await migrateTestDatabase(DI.child());
+  await orm.dispose();
 }
 
 export interface SeedSpec {

@@ -8,8 +8,8 @@ import { recordDriver, requireConnection } from '../records.js';
 import { classesOf, nameOf } from '../registry.js';
 
 /**
- * The ORM is resolved when the command runs (the Cli boots only the command), which applies the `Migration.OnStartup`
- * migrations an app process applies before serving; tests set `Orm`.
+ * The ORM is resolved when the command runs (the Cli boots only the command); the boot fails while a migration is pending
+ * (run migrate-up first). Tests set `Orm`.
  */
 export abstract class AuthzOrmCliCommand extends AuthzCliBase {
   public Orm?: Orm;
@@ -17,7 +17,6 @@ export abstract class AuthzOrmCliCommand extends AuthzCliBase {
   protected async orm(): Promise<Orm> {
     if (!this.Orm) {
       this.Orm = (await this.Container.resolve(Orm)) as Orm;
-      await this.Orm.Migrator.ready();
     }
     return this.Orm;
   }

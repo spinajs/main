@@ -8,7 +8,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, JobRetentionService, QueueClient, IQueueMessage, IQueueJob, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 chai.use(chaiAsPromised);
 
@@ -44,8 +45,8 @@ class CoreConnectionConf extends FrameworkConfiguration {
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } },
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } },
         ],
       },
       queue: {
@@ -175,7 +176,7 @@ describe('queue core - dedup & persistence', function () {
     InMemoryQueueClient.Last = undefined;
     DI.register(CoreConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {
@@ -348,7 +349,7 @@ describe('queue core - routing maxRetries', function () {
     InMemoryQueueClient.Last = undefined;
     DI.register(CoreConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {
@@ -441,7 +442,7 @@ describe('queue core - retention', function () {
     DI.clearCache();
     DI.register(RetentionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

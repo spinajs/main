@@ -11,15 +11,9 @@ export class PurgeAudit extends CliCommand {
   @Logger('authn-orm')
   protected Log: Log;
 
-  /** The cli resolves only the command; resolving the Orm applies the `Migration.OnStartup` migrations an app process applies. */
+  /** Injecting the Orm boots it for exactly the command being run; the boot fails while a migration is pending (run migrate-up first). */
   @Autoinject(Orm)
   protected Orm: Orm;
-
-  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    await this.Orm.Migrator.ready();
-  }
 
   @Autoinject(AuthnAuditRetention)
   protected Retention: AuthnAuditRetention;

@@ -2,24 +2,16 @@ import { NewInstance, Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import { createHash } from 'node:crypto';
-import { hostname } from 'node:os';
 import type { TableQueryBuilder } from './builders.js';
 import { OrmDriver } from './driver.js';
 import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
+import { IMigrationLockHandle, IMigrationLockRequest, MIGRATION_LOCK_STALE_AFTER, MIGRATION_LOCK_TIMEOUT, MigrationLock, MigrationLockLostException, migrationLockKey, TableMigrationLock } from './migration-lock.js';
 import { runMigrationUp } from './schema-touches.js';
 
-export const MIGRATION_TABLE_NAME = 'spinajs_migration';
-export const MIGRATION_LOCK_POLL_INTERVAL = 500;
-export const MIGRATION_LOCK_TIMEOUT = 30_000;
-export const MIGRATION_LOCK_STALE_AFTER = 600_000;
+export { MIGRATION_LOCK_MAX_STEALS, MIGRATION_LOCK_POLL_INTERVAL, MIGRATION_LOCK_STALE_AFTER, MIGRATION_LOCK_TIMEOUT } from './migration-lock.js';
 
-/**
- * How many times one `acquireLock()` call may remove a lock row it judged stale. A steal is
- * not proof the row is gone - a DELETE can succeed and remove nothing - so without a cap the
- * stale branch is free to warn and retry forever.
- */
-export const MIGRATION_LOCK_MAX_STEALS = 3;
+export const MIGRATION_TABLE_NAME = 'spinajs_migration';
 
 export type MigrationResolveAction = 'applied' | 'rolled-back';
 
@@ -58,6 +50,12 @@ export interface IMigrationRunOptions {
    * per connection - which is what `down()` rolls back.
    */
   continueBatch?: boolean;
+
+  /** Set by a caller already holding the run lock ( `MigrationRunner.withRunLock()` ); the service then takes no lock of its own. */
+  locked?: boolean;
+
+  /** The run lock the caller holds. Checked before each migration, so a run that lost it stops. */
+  lock?: IMigrationLockHandle;
 }
 
 export interface IMigrationDownOptions extends IMigrationRunOptions {
@@ -137,6 +135,12 @@ export abstract class OrmMigrationService {
    * working; passing it lets an `'applied'` resolution stamp the checksum as a real run would.
    */
   public abstract resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void>;
+
+  /**
+   * Takes this connection's migration lock for a whole run. Optional, so a service written before
+   * run locks existed stays valid: the runner then passes no `locked` and the service locks itself.
+   */
+  public acquireRunLock?(): Promise<IMigrationLockHandle>;
 }
 
 export class DefaultMigrationService extends OrmMigrationService {
@@ -378,40 +382,20 @@ export class DefaultMigrationService extends OrmMigrationService {
 
   /**
    * Is a migration run in flight on this connection right now? Read, never acquired: the caller is
-   * `status()`, which must not block behind the run it is reporting on.
+   * `status()`, which must not block behind the run it is reporting on. The connection's lock
+   * answers ( `MigrationLock.isHeld()` ); for the lock-table row that means a row younger than
+   * `StaleAfter`, so for that long after a crash the open row is not yet reported as interrupted.
    *
-   * The lock row is the only honest signal available, and it is judged exactly as `acquireLock`
-   * judges it - a row younger than `StaleAfter` means somebody is inside a run, an older one means
-   * the holder is presumed dead. Freshness rather than mere presence is what makes this usable
-   * here: a process killed mid-migration leaves BOTH its open tracking row and its lock row
-   * behind, so "a lock row exists" would hide every crash this is meant to surface, permanently.
-   *
-   * Two deliberate consequences. For `StaleAfter` after a crash the answer is "running" and the
-   * open row is not yet reported as interrupted - the same window in which `acquireLock` still
-   * waits for the holder, and with the same client-clock caveat documented there. And
    * `Lock.Enabled: false` removes the signal altogether, so the answer is "not running": an open
    * row then always reads as interrupted, which is right for the crash and wrong only for a report
    * taken while a run is genuinely in progress.
    */
   protected async runInProgress(): Promise<boolean> {
-    const { enabled, staleAfter } = this.lockOptions();
-
-    if (!enabled) {
+    if (!this.lockOptions().enabled) {
       return false;
     }
 
-    const rows = ((await this.driver.select().from(this.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string }>;
-    const holder = rows[0];
-
-    if (!holder) {
-      return false;
-    }
-
-    const acquiredAt = holder.AcquiredAt instanceof Date ? holder.AcquiredAt : new Date(holder.AcquiredAt);
-
-    // NaN from an unreadable timestamp compares false, which reports "not running" - the same
-    // bias as everywhere else here: a warning an operator can dismiss beats a silence they cannot
-    return Date.now() - acquiredAt.getTime() <= staleAfter;
+    return await this.migrationLock().isHeld(this.lockRequest());
   }
 
   /**
@@ -482,123 +466,52 @@ export class DefaultMigrationService extends OrmMigrationService {
   protected lockOptions() {
     const cfg = this.driver.Options.Migration?.Lock;
 
+    // a typo would otherwise take the driver lock, which fails open behind a pooler that needs 'table'
+    if (cfg?.Mode !== undefined && cfg.Mode !== 'auto' && cfg.Mode !== 'table') {
+      throw new OrmException(`Migration.Lock.Mode of connection ${this.driver.Options.Name} is '${String(cfg.Mode)}'; allowed values: 'auto', 'table'`);
+    }
+
     return {
       enabled: cfg?.Enabled ?? true,
       timeout: cfg?.Timeout ?? MIGRATION_LOCK_TIMEOUT,
       staleAfter: cfg?.StaleAfter ?? MIGRATION_LOCK_STALE_AFTER,
+      mode: cfg?.Mode ?? 'auto',
     };
   }
 
-  /**
-   * Identity written into the lock row. It exists to answer "who is holding this?" when a run
-   * blocks, so it has to survive being read on another machine.
-   */
-  protected lockOwner(): string {
-    return `${hostname()}:${process.pid}`;
-  }
-
-  /**
-   * Takes the single row of the lock table, waiting for whoever has it.
-   *
-   * The row is claimed by INSERT rather than by "SELECT then INSERT": `Id` is unique, so the
-   * database decides the winner in one statement and two processes racing here cannot both
-   * succeed. A refused insert is therefore read as "somebody else holds it" - which is also why
-   * the holder is re-read afterwards rather than guessed at.
-   *
-   * Staleness is judged against the *client* clock: `AcquiredAt` is written here as
-   * `new Date()` and compared to this host's `Date.now()`. That is sound for the case this
-   * lock is built for - one process migrating, crashing, and restarting to find its own
-   * abandoned row - but on hosts whose clocks disagree the window is off by the skew, which
-   * shows up as stealing too early or waiting too long. Stamping `AcquiredAt` from the
-   * database ( a driver-level `CURRENT_TIMESTAMP` default and a server-side comparison ) would
-   * remove the assumption; it needs dialect support that does not exist here yet.
-   */
-  protected async acquireLock(): Promise<void> {
+  protected lockRequest(): IMigrationLockRequest {
     const { timeout, staleAfter } = this.lockOptions();
-    const owner = this.lockOwner();
-    const start = Date.now();
-    const expired = () => Date.now() - start > timeout;
-    let steals = 0;
+    return { key: migrationLockKey(this.driver, this.table), lockTable: this.lockTable, timeout, staleAfter };
+  }
 
-    for (;;) {
-      try {
-        await this.driver.insert().into(this.lockTable).values({ Id: 1, AcquiredAt: new Date(), Owner: owner });
-        return;
-      } catch (err) {
-        // deliberately unguarded: a select that dies here means the connection is gone, and that
-        // has to surface as itself rather than as a lock timeout thirty seconds later
-        const rows = ((await this.driver.select().from(this.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
-        const holder = rows[0];
+  /** The driver's registered lock, or the lock-table row when `Lock.Mode` is 'table'. */
+  protected migrationLock(): MigrationLock {
+    const type = this.lockOptions().mode === 'table' ? TableMigrationLock : MigrationLock;
+    return this.driver.Container.resolve<MigrationLock>(type as Class<MigrationLock>, [this.driver]);
+  }
 
-        if (holder) {
-          const acquiredAt = holder.AcquiredAt instanceof Date ? holder.AcquiredAt : new Date(holder.AcquiredAt);
-          const stale = Date.now() - acquiredAt.getTime() > staleAfter;
-
-          // A process that died mid-run leaves its row behind and nothing else will ever clear
-          // it. The attempts are capped because a steal is not proof the row is gone - a DELETE
-          // can succeed and remove nothing, and the read that follows then finds the same row.
-          // Uncapped, that is a sleepless loop warning once per turn and never timing out.
-          if (stale && steals < MIGRATION_LOCK_MAX_STEALS) {
-            steals++;
-
-            // Loud, because the alternative reading is a live run that outlasted StaleAfter - in
-            // which case two migration runs are now in flight and somebody has to know
-            this.Log.warn(
-              { connection: this.driver.Options.Name, owner: holder.Owner, acquiredAt, staleAfter },
-              'Stealing stale migration lock on connection ${connection}, held by ${owner} since ${acquiredAt} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.',
-            );
-            await this.driver.del().from(this.lockTable).where({ Id: 1 });
-
-            // straight back to the INSERT: the row should be free now, and sleeping a poll
-            // interval for a lock nobody holds is pure boot latency. Only when the deadline has
-            // already passed does this fall through to the throw below
-            if (!expired()) {
-              continue;
-            }
-          }
-
-          if (expired()) {
-            throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - held by ${holder.Owner} since ${acquiredAt.toISOString()}${steals > 0 ? `, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${this.lockTable} by hand` : ''}`);
-          }
-        } else if (expired()) {
-          // no row to blame, so the insert is failing for its own reasons ( missing table, lost
-          // connection ). Carrying that message is the only thing that makes this diagnosable
-          throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
-        }
-
-        await new Promise((r) => setTimeout(r, MIGRATION_LOCK_POLL_INTERVAL));
-      }
-    }
+  public async acquireRunLock(): Promise<IMigrationLockHandle> {
+    await this.ensureStorage();
+    return await this.migrationLock().acquire(this.lockRequest());
   }
 
   /**
-   * Drops the lock row unconditionally rather than only the row this process wrote. A run whose
-   * lock was stolen as stale would otherwise have nothing to release, and the alternative -
-   * deleting only `Owner = ours` - leaves the table holding a row nobody will clear if the owner
-   * string ever changes underneath a run. Losing a stolen lock is the lesser harm: the thief
-   * already assumed the run was dead.
+   * Concurrency guard around one call when the caller holds no run lock: one migration run per
+   * connection at a time, across processes. The release is `finally` - a run that throws must not
+   * leave the connection locked.
    */
-  protected async releaseLock(): Promise<void> {
-    await this.driver.del().from(this.lockTable).where({ Id: 1 });
-  }
-
-  /**
-   * Concurrency guard around a whole run: one migration run per connection at a time, across
-   * processes. Note the release is `finally` - a run that throws must not leave the connection
-   * locked until the staleness window expires.
-   */
-  protected async withLock<R>(fn: () => Promise<R>): Promise<R> {
-    if (!this.lockOptions().enabled) {
-      return fn();
+  protected async withLock<R>(fn: (lock: IMigrationLockHandle | undefined) => Promise<R>, options?: IMigrationRunOptions): Promise<R> {
+    if (options?.locked || !this.lockOptions().enabled) {
+      return fn(options?.lock);
     }
 
-    await this.acquireLock();
+    const lock = await this.migrationLock().acquire(this.lockRequest());
 
     try {
-      return await fn();
+      return await fn(lock);
     } finally {
       try {
-        await this.releaseLock();
+        await lock.release();
       } catch (err) {
         // a throw out of `finally` replaces whatever the run was already throwing, and the
         // migration error is the one the operator actually needs - the likeliest reason the
@@ -615,7 +528,7 @@ export class DefaultMigrationService extends OrmMigrationService {
   public async up(units: IMigrationUnit[], options?: IMigrationRunOptions): Promise<OrmMigration[]> {
     await this.ensureStorage();
 
-    return await this.withLock(async () => {
+    return await this.withLock(async (lock) => {
       const records = await this.records();
       this.assertNoFailed(records);
 
@@ -673,6 +586,8 @@ export class DefaultMigrationService extends OrmMigrationService {
       }
 
       const startAndRun = async (u: IMigrationUnit) => {
+        await lock?.assertHeld();
+
         const migration = instanceOf(u);
         // the snapshot taken at the top of the run is still accurate here: a unit appears at
         // most once in `pending`, and nothing writes its row before this point
@@ -726,6 +641,11 @@ export class DefaultMigrationService extends OrmMigrationService {
             await startAndRun(u);
           }
         } catch (err) {
+          // a lost lock stops the run before this migration started, so there is no failure to record
+          if (err instanceof MigrationLockLostException) {
+            throw err;
+          }
+
           await recordFailure(u.name, err);
           throw failure(u.name, err);
         }
@@ -761,6 +681,10 @@ export class DefaultMigrationService extends OrmMigrationService {
               }
             });
           } catch (err) {
+            if (err instanceof MigrationLockLostException) {
+              throw err;
+            }
+
             await recordFailure(current.name, err);
             throw failure(current.name, err);
           }
@@ -776,13 +700,13 @@ export class DefaultMigrationService extends OrmMigrationService {
       }
 
       return executed;
-    });
+    }, options);
   }
 
   public async down(units: IMigrationUnit[], options?: IMigrationDownOptions): Promise<OrmMigration[]> {
     await this.ensureStorage();
 
-    return await this.withLock(async () => {
+    return await this.withLock(async (lock) => {
       const records = await this.records();
       const appliedRows = records.filter((r) => r.FinishedAt && !r.RolledBackAt);
 
@@ -845,6 +769,8 @@ export class DefaultMigrationService extends OrmMigrationService {
       const executed: OrmMigration[] = [];
 
       const runOne = async (u: IMigrationUnit) => {
+        await lock?.assertHeld();
+
         const migration = instances.get(u.name) as OrmMigration;
 
         if (!options?.fake) {
@@ -892,7 +818,7 @@ export class DefaultMigrationService extends OrmMigrationService {
             await runOne(u);
           }
         } catch (err) {
-          throw failure(u.name, err);
+          throw err instanceof MigrationLockLostException ? err : failure(u.name, err);
         }
       };
 
@@ -932,7 +858,7 @@ export class DefaultMigrationService extends OrmMigrationService {
               }
             });
           } catch (err) {
-            throw failure(current.name, err);
+            throw err instanceof MigrationLockLostException ? err : failure(current.name, err);
           }
         }
       } else if (mode === MigrationTransactionMode.PerMigration) {
@@ -946,7 +872,7 @@ export class DefaultMigrationService extends OrmMigrationService {
       }
 
       return executed;
-    });
+    }, options);
   }
 
   public async status(units: IMigrationUnit[], options?: IMigrationStatusOptions): Promise<IMigrationStatusEntry[]> {
@@ -958,7 +884,7 @@ export class DefaultMigrationService extends OrmMigrationService {
     // read once for the whole report rather than per entry: every row on this connection is
     // judged against the same "is anything running right now?", and asking N times would let the
     // answer change halfway down a single report
-    const running = options?.readOnly && !(await this.driver.schema().tableExists(this.lockTable)) ? false : await this.runInProgress();
+    const running = await this.runInProgress();
 
     return units.map((u) => this.statusEntry(u, records, running));
   }
@@ -1002,9 +928,8 @@ export class DefaultMigrationService extends OrmMigrationService {
   public async resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void> {
     await this.ensureStorage();
 
-    // deliberately unlocked, unlike up()/down(): this is the recovery path for a run that died,
-    // quite possibly while holding the lock. Blocking it behind that lock would shut the only
-    // door left open
+    // no lock of its own: `MigrationRunner.resolve()` holds the run lock. A run that died does not
+    // keep it - a session lock ends with its session, and a lock row nobody refreshes goes stale
     const records = await this.records();
     const rec = records.find((r) => r.Migration === name);
 
@@ -1012,12 +937,6 @@ export class DefaultMigrationService extends OrmMigrationService {
     // ( FinishedAt NULL, Logs set ) and INTERRUPTED ( StartedAt set, neither FinishedAt nor Logs -
     // a run killed before it could write either ). Anything else is healthy, rolled back or
     // absent, and rewriting it would destroy state nobody asked to lose.
-    //
-    // Deliberately without a lock check, exactly as the method comment above says: this is the
-    // recovery path for a run that died, quite possibly still holding the lock. The cost is that
-    // an operator who forces a row while a run is genuinely in progress overwrites it - in a
-    // deployment running one migration process at a time, which is the supported shape, the run
-    // in progress is the operator's own.
     if (!rec || (!(!rec.FinishedAt && rec.Logs) && !this.isInterrupted(rec))) {
       throw new OrmException(`Migration ${name} is not in failed state on connection ${this.driver.Options.Name}, and was not interrupted either - nothing to resolve`);
     }

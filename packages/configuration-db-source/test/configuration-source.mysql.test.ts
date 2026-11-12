@@ -2,10 +2,11 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import '@spinajs/log';
 import '@spinajs/orm-mysql';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import type { IDriverOptions, OrmDriver } from '@spinajs/orm';
 
 import '../src/index.js';
+import { migrateAndSignal } from './support/db.js';
 import { typedRowCases } from './support/typed-rows.js';
 
 /**
@@ -22,7 +23,7 @@ const CONNECTION: IDriverOptions = {
   User: process.env.SPINAJS_TEST_MYSQL_USER ?? 'root',
   Password: process.env.SPINAJS_TEST_MYSQL_PASSWORD ?? '',
   Database: process.env.SPINAJS_TEST_MYSQL_DB ?? 'test',
-  Migration: { OnStartup: true, Table: 'configuration_db_source_migrations' },
+  Migration: { Table: 'configuration_db_source_migrations' },
 };
 
 class MysqlConfiguration extends FrameworkConfiguration {
@@ -59,6 +60,7 @@ async function dropTables(): Promise<void> {
 
   beforeEach(async () => {
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
     await DI.resolve(Configuration);
@@ -67,12 +69,13 @@ async function dropTables(): Promise<void> {
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateAndSignal();
   });
 
   afterEach(async () => {
     await DI.get(Orm)?.dispose();
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
     DI.uncache(Orm);
     DI.uncache(Configuration);
   });

@@ -69,7 +69,7 @@ const PARITY_BOOT: IBootOptions = {
   // no loop of its own: the stream tests drive a Scheduler with tickOnce()
   scheduler: { enabled: false, shutdownGrace: 2000, retention: { enabled: false } },
   // importing @spinajs/queue registers JobModel on this connection ( same as the core test env )
-  connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { Table: 'orm_migrations', OnStartup: true } }],
+  connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { Table: 'orm_migrations' } }],
   // scheduler events go nowhere, as with the core's shipped routing
   config: { queue: { default: 'black-hole', routing: {}, connections: [{ name: 'black-hole', service: 'BlackHoleQueueClient' }] } },
 };

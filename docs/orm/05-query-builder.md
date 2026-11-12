@@ -80,7 +80,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
-| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
+| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `NOW(3)`, or `UTC_TIMESTAMP(3)` with `TimeZone: 'UTC'` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
 | `where(Wrapper.Date(column), operator?, value)` | dialect date wrap, eg. `DATE(column) >= ?` | `Wrapper.Date` / `Wrapper.DateTime` build a `Wrap`. Pass a value: a `Wrap` alone throws `InvalidArgument`. |
 | `where(Wrapper.Text(column), operator, value)`, `whereIn(Wrapper.Text(column), values)` | `CAST(column AS TEXT)`; `CHAR` on MySQL, `NVARCHAR(4000)` on MSSQL | Compares a column of any type with text. Values are bound unconverted. `whereIn()` / `whereNotIn()` with a wrapped column and a sub-query throw `InvalidArgument`. |
@@ -99,6 +99,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `whereColumn(left, operator, right)` | `left <OP> right` over two columns | Each side is a column name or a `Wrap`; `right` may be `outer(column, levels = 1)`. A side is qualified by its query's alias, or by the table when the query has none. |
 | `outer(column, levels = 1)` | a column of an enclosing query | The `right` of `whereColumn()` inside a sub-query given to `whereExist()`, `whereNotExists()`, `whereIn()` or `whereNotIn()`. `levels` 1 is the query the sub-query is attached to, 2 the query that one is attached to. Resolved when the query compiles, so it follows a later `setAlias()` and a `clone()`. Outside such a sub-query it throws `InvalidOperation`. |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |
+| `where(column, 'like', LikeLiteral.contains(text))`, `LikeLiteral.startsWith(text)`, `LikeLiteral.endsWith(text)` | `column LIKE ? ESCAPE '~'`, bound `%text%`, `text%` or `%text` | Every character of `text` is literal (`%`, `_`, `~`, and `[` on MSSQL). Case variants match as the dialect's `LIKE` decides: SQLite, and MySQL / MSSQL under a case-insensitive collation, match them; PostgreSQL does not. A relation (`'Customer.Name'`) or aggregate column works as for any `where()`. A `LikeLiteral` with another operator throws `InvalidArgument`; text that is not a string throws `InvalidArgument`. A plain string operand of `like` stays a raw pattern. |
 | `whereStartsWith(column, prefix)` | dialect prefix test | Every character of `prefix` is literal (`%`, `_`, `~`, and `[`, `*`, `?` where the dialect reads them). Case variants match only where the dialect's test follows a column collation that ignores case (MySQL, MSSQL); PostgreSQL and SQLite never match them. A prefix that is not a string throws `InvalidArgument` when the query compiles. |
 | `whereOnJoin(callback)` | conditions from `callback` | In a populated relation they go to the relation's `JOIN ... ON`; on a root query they act as `WHERE`. |
 | `clearWhere()` | | Drops every where statement. |
@@ -335,7 +336,8 @@ export class TenantMiddleware extends QueryMiddleware {
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
 - For a belongsTo relation without a callback, `whereExist(relation)` and `whereNotExists(relation)` both add `<ForeignKey> IS NOT NULL`.
 - `getSort()` returns only the first sort. `SqliteOrderByCompiler` in `@spinajs/orm-sqlite` reads `getSort()`, so on SQLite only the first `ORDER BY` column reaches the SQL. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
-- `escapeLikeValue()` escapes `%`, `_` and `~` with `LIKE_ESCAPE_CHARACTER` (`~`). A plain `where(column, 'like', value)` emits no `ESCAPE` clause.
+- `escapeLikeValue()` escapes `%`, `_` and `~` with `LIKE_ESCAPE_CHARACTER` (`~`). A plain `where(column, 'like', value)` emits no `ESCAPE` clause and binds `value` as a raw pattern; a `LikeLiteral` operand escapes it and emits `ESCAPE '~'`.
+- The escape character is `~`, not `\`: MySQL reads a backslash in a string literal as an escape of its own, so `ESCAPE '\'` does not mean the same everywhere. Without an `ESCAPE` clause a backslash in the value is an escape on MySQL and PostgreSQL and a plain character on SQLite and MSSQL.
 
 ## Best practices
 
@@ -372,8 +374,8 @@ Order.where('CustomerId', customerId).where(function () {
 // Don't: `_` and `%` typed by the user act as wildcards
 Customer.where('Name', 'like', `${term}%`);
 
-// Do: escape the value and declare the escape character
-Customer.where(RawQuery.create(`Name LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${escapeLikeValue(term)}%`]));
+// Do: match the value literally
+Customer.where('Name', 'like', LikeLiteral.startsWith(term));
 ```
 
 ```ts

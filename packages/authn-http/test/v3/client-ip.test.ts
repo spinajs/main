@@ -5,7 +5,8 @@ import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -75,7 +76,7 @@ describe('ClientIp (A05, SR-03)', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     await startServer();
 
     socketAddress = await clientIp();
@@ -88,6 +89,7 @@ describe('ClientIp (A05, SR-03)', function () {
     DI.uncache(Configuration);
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   it('the barrel exports the lane ClientIp, registered as a ServerMiddleware', () => {

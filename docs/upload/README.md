@@ -56,7 +56,7 @@ export default {
   },
   db: {
     // the upload tables go to the connection db.Aliases.upload names: 'default' unless you change it
-    Connections: [{ Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite', Name: 'main', Migration: { OnStartup: true } }],
+    Connections: [{ Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite', Name: 'main' }],
     DefaultConnection: 'main',
   },
 };

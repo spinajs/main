@@ -4,7 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner } from '../src/index.js';
+import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, OrmMigrationGuard } from '../src/index.js';
 import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
 import "./../src/bootstrap.js";
 import * as sinon from 'sinon';
@@ -78,27 +78,24 @@ describe('Orm general', () => {
     expect(orm.Connections.has('broken')).to.be.false;
   });
 
-  it('ORM should register value converters before the migrator boot pass', async () => {
-    // `Runner.up()` reaches `OrmMigrationService.ensureStorage()`, which probes the tracking
-    // table with `driver.tableInfo()` - and a driver's `tableInfo()` may read the value-converter
-    // map out of the container. While `registerDefaultConverters()` ran AFTER this call the map
-    // was absent for the whole boot pass, so booting against an ALREADY migrated sqlite database
-    // ( the only case that reaches the probe - a table that has to be created skips it ) died
-    // with "Cannot read properties of undefined (reading 'get')" on every restart.
-    let convertersAtUp: unknown = 'up() never ran';
+  it('ORM should register value converters before the boot guard reads the tracking tables', async () => {
+    // the guard reads each connection's tracking table through its migration service, and a
+    // driver's `tableInfo()` may read the value-converter map out of the container. While
+    // `registerDefaultConverters()` ran AFTER the boot's migration pass the map was absent there,
+    // and booting against an ALREADY migrated sqlite database died with "Cannot read properties
+    // of undefined (reading 'get')" on every restart.
+    let convertersAtCheck: unknown = 'check() never ran';
 
-    const up = sinon.stub(MigrationRunner.prototype, 'up').callsFake(async function (this: any) {
-      // read off the same container the drivers resolve the map from, at the exact moment the
-      // migration pass starts
-      convertersAtUp = (this.orm as Orm).Container.get('__orm_db_value_converters__');
-      return { executed: [], touched: { models: [] } };
+    const check = sinon.stub(OrmMigrationGuard.prototype, 'check').callsFake(async function (orm: unknown) {
+      convertersAtCheck = (orm as Orm).Container.get('__orm_db_value_converters__');
+      return { pending: [], failed: [], warned: [] };
     });
 
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await DI.resolve(Orm);
 
-    expect(up.calledOnce, 'boot did not run the migration pass at all').to.be.true;
-    expect(convertersAtUp, 'converter map was absent when the boot migration pass started').to.be.instanceOf(Map);
+    expect(check.calledOnce, 'boot did not run the guard at all').to.be.true;
+    expect(convertersAtCheck, 'converter map was absent when the boot guard ran').to.be.instanceOf(Map);
     // an empty map would satisfy `instanceOf` while registering nothing
-    expect((convertersAtUp as Map<string, unknown>).size, 'converter map was empty when the boot migration pass started').to.be.greaterThan(0);
+    expect((convertersAtCheck as Map<string, unknown>).size, 'converter map was empty when the boot guard ran').to.be.greaterThan(0);
   });
 });

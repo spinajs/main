@@ -1,113 +1,117 @@
-import { AsyncService, Autoinject, Container } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmException } from './exceptions.js';
 import { OrmMigration } from './interfaces.js';
-import { IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
+import { compareMigrationNames, IMigrationPlanEntry, IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
 import type { Orm } from './orm.js';
-
-/** What `DI.resolve(OrmMigrator, [ ... ])` hands the migrator: a property of the process, not of the deployment. */
-export interface IOrmMigratorOptions {
-  /**
-   * Apply the pending `Migration.OnStartup` migrations when the Orm resolves. Default true. `false` is for a process
-   * that operates on the migrations ( `@spinajs/orm-cli` ): resolved before the Orm, it gets `Runner` and `migrate()`
-   * without the schema moving on its way in, and the Orm skips its `db.StrictTableCheck` check.
-   */
-  MigrateOnStartup?: boolean;
-}
 
 export interface IOrmMigrateOptions extends IMigrationUpOptions {
   /** Apply only this migration, by class name. */
   name?: string;
+
+  /** Apply without running the `data()` seeds; `seed()` runs them later. */
+  skipSeed?: boolean;
 }
 
-/**
- * Applies the migrations and their `data()` seeds for the Orm that resolves it. `Orm.resolve()` calls `boot()` before
- * it reads table info; the seeds wait for `di.resolved.Orm`, so a seed can resolve any service that injects the Orm.
- */
+export interface IOrmSeedOptions {
+  /** Seed only this applied migration, by class name. */
+  name?: string;
+
+  /** Limit the run to one connection, by name or alias. */
+  connection?: string;
+}
+
+/** The explicit migration engine over one Orm: what the CLI, migrateTestDatabase() and a desktop app's own start-up code call. The Orm never resolves it. */
 export class OrmMigrator extends AsyncService {
-  protected Orm: Orm;
-
-  @Autoinject()
-  protected Container: Container;
-
   @Logger('ORM')
   protected Log: Log;
 
   /** `up`, `down`, `status` and `resolve` over the Orm's migrations and connections. */
   public Runner: MigrationRunner;
 
-  protected Seeded: Promise<void> = Promise.resolve();
-
-  constructor(protected Options: IOrmMigratorOptions = {}) {
+  constructor(public readonly Orm: Orm) {
     super();
-  }
 
-  public get MigrateOnStartup(): boolean {
-    return this.Options.MigrateOnStartup !== false;
-  }
-
-  /** Settles when the `data()` seeds of the boot ran; rejects with what failed them. */
-  public ready(): Promise<void> {
-    return this.Seeded;
-  }
-
-  /** Applies the pending `Migration.OnStartup` migrations; their seeds run once `orm` is cached. */
-  public async boot(orm: Orm): Promise<void> {
-    this.Orm = orm;
-    this.Runner = new MigrationRunner(orm);
-    this.Seeded = Promise.resolve();
-
-    if (!this.MigrateOnStartup) {
-      return;
+    // 3.0.x tools resolved it as DI.resolve(OrmMigrator, [options]), which still compiles; Orm is a type-only import
+    // here because of the orm.ts cycle, so the shape is checked instead of instanceof
+    if (!(Orm?.Connections instanceof Map)) {
+      throw new OrmException('OrmMigrator is constructed over an Orm, and DI.resolve(OrmMigrator) does not pass one: call resolveMigrationTool() ( resolveCliMigrator() in an @spinajs/orm-cli host ), or new OrmMigrator(orm) over an Orm that is already booted');
     }
 
-    // force: false honours each connection's OnStartup flag; a run asked for by hand ( migrate() ) does not
-    const { executed } = await this.Runner.up(undefined, { force: false });
-
-    this.Seeded = this.seedOnResolve(orm, executed);
-
-    // read through ready(); a failure nobody awaits is logged by seedOnResolve()
-    this.Seeded.catch(() => undefined);
-  }
-
-  /** Waits for `orm` to be cached: a seed resolving a service that injects the Orm would wait on its resolve. */
-  protected async seedOnResolve(orm: Orm, executed: OrmMigration[]): Promise<void> {
-    await new Promise<void>((resolve) => {
-      const listener = (_container: unknown, resolved: unknown) => {
-        if (resolved === orm) {
-          this.Container.off('di.resolved.Orm', listener);
-          resolve();
-        }
-      };
-
-      this.Container.on('di.resolved.Orm', listener);
-    });
-
-    try {
-      await this.runDataPhase(executed);
-    } catch (err) {
-      this.Log.error({ error: err }, 'OrmMigrator data() phase failed');
-      throw err;
-    }
+    this.Runner = new MigrationRunner(Orm);
   }
 
   /**
-   * Applies the pending migrations ( `force` defaults to true ), re-reads the table info of the models their
-   * statements touched, then runs their `data()`; `fake` records them and seeds nothing. What `migrate-up` runs.
+   * Applies the pending migrations, re-reads the table info of the models their statements touched, then runs their
+   * `data()`; `fake` records them and seeds nothing. What `migrate-up` runs.
+   * All of it holds one migration lock per connection, so a second run waits for the seeds too.
    */
   public async migrate(options: IOrmMigrateOptions = {}): Promise<OrmMigration[]> {
-    const { executed, touched } = await this.Runner.up(options.name, options);
+    return await this.Runner.withRunLock(options.connection, async () => {
+      const { executed, touched } = await this.Runner.up(options.name, { ...options, locked: true });
 
-    // wireRelations() reads no column info, so the relations wired by the Orm's resolve stay valid
-    if (touched.models.length > 0) {
-      await this.Orm.reloadTableInfo({ models: touched.models });
+      // wireRelations() reads no column info, so the relations wired by the Orm's resolve stay valid
+      if (touched.models.length > 0) {
+        await this.Orm.reloadTableInfo({ models: touched.models });
+      }
+
+      if (!options.fake && !options.skipSeed) {
+        await this.Runner.assertRunLocksHeld();
+        await this.runDataPhase(executed);
+      }
+
+      return executed;
+    }, options.name);
+  }
+
+  /**
+   * Runs `data()` of every applied migration ( or only `name`, or one `connection` ), in run order, under the run lock,
+   * and reports the failures together. What `migrate-seed` runs: seeds run again, so they must be safe to rerun.
+   */
+  public async seed(options: IOrmSeedOptions = {}): Promise<OrmMigration[]> {
+    const appliedEntries = async () => (await this.Runner.status({ connection: options.connection, readOnly: true })).filter((e) => e.applied && (!options.name || e.name === options.name));
+
+    // taking the run lock sets up the tracking table, so a database with nothing to seed is left as it is
+    if ((await appliedEntries()).length === 0) {
+      return this.nothingToSeed(options);
     }
 
-    if (!options.fake) {
-      await this.runDataPhase(executed);
+    return await this.Runner.withRunLock(options.connection, async () => {
+      const applied = await appliedEntries();
+
+      if (options.name && applied.length === 0) {
+        return this.nothingToSeed(options);
+      }
+
+      const instances: OrmMigration[] = [];
+      for (const e of applied.sort((a, b) => compareMigrationNames(a.name, b.name))) {
+        const driver = this.Orm.Connections.get(e.connection)!;
+        const type = this.Orm.Migrations.find((m) => m.name === e.name)!.type;
+        instances.push(await driver.Container.resolve<OrmMigration>(type, [driver]));
+      }
+
+      await this.Runner.assertRunLocksHeld();
+      await this.runDataPhase(instances);
+      return instances;
+    }, options.name);
+  }
+
+  /** `[]`, or the reason a `name` has nothing to seed. */
+  protected nothingToSeed(options: IOrmSeedOptions): OrmMigration[] {
+    if (!options.name) {
+      return [];
     }
 
-    return executed;
+    if (!this.Orm.Migrations.some((m) => m.name === options.name)) {
+      throw new OrmException(`Migration ${options.name} is not registered - check the name for typos`);
+    }
+
+    throw new OrmException(`Migration ${options.name} is not applied on ${options.connection ? `connection ${options.connection}` : 'any configured connection'} - nothing to seed`);
+  }
+
+  /** What `migrate()` with the same `name` and `connection` would apply, in order, with the batch each would get; applies nothing. */
+  public async plan(options: { name?: string; connection?: string } = {}): Promise<IMigrationPlanEntry[]> {
+    return await this.Runner.pending(options.name, options.connection);
   }
 
   /**
@@ -117,7 +121,7 @@ export class OrmMigrator extends AsyncService {
    *
    * Known loss: a run in which M1 applies and M2 throws never reaches here, M1 is recorded, and `M1.data()` never
    * runs on any later pass. The tracking table has no "applied but unseeded" state, so `data()` must be safe to rerun
-   * by hand ( docs/orm/10-migrations.md ).
+   * by hand ( docs/orm/10-migrations.md ). `migrate-seed --name <M1>` reruns it.
    */
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
     const errors: Array<{ name: string; reason: string; error: unknown }> = [];

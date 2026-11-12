@@ -2,7 +2,7 @@
 
 The MySQL and MariaDB driver for [`@spinajs/orm`](../orm/README.md), built on [`@spinajs/orm-sql`](../orm-sql/README.md) and `mysql2`. It ships `MySqlOrmDriver` (`orm-driver-mysql`) and `MySqlSSHOrmDriver` (`orm-driver-mysql-ssh`), which tunnels the pool through an SSH bastion.
 
-`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. Every connection runs in UTC: the driver's `timezone: 'Z'` wins over one in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
+`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. `TimeZone` picks the session zone of the connection's datetimes: `SYSTEM` (default) keeps the server's zone, `UTC` or an offset such as `+02:00` is set on every session; it wins over a `timezone` in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
 
 ## Install
 
@@ -14,7 +14,7 @@ npm install @spinajs/orm @spinajs/orm-mysql
 
 | Feature | What it does |
 | --- | --- |
-| [MySQL driver](01-mysql-driver.md) | Connection pool, UTC session zone, statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
+| [MySQL driver](01-mysql-driver.md) | Connection pool, session time zone (`TimeZone`), statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
 | [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, one forwarded channel per pooled connection. |
 | [Transactions](03-transactions.md) | One pooled connection per transaction, savepoints, all four isolation levels, no retries inside. |
 | [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, contiguous batch keys, `INSERT IGNORE`, `REPLACE`, `ON DUPLICATE KEY UPDATE`, the response mapper. |
@@ -49,7 +49,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Password: process.env.DB_PASSWORD ?? '',
             Database: 'shop',
             Pool: { Min: 2, Max: 20 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -58,7 +57,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function bootstrap(): Promise<Orm> {
-  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'; the Orm applies the OnStartup migrations
+  // importing @spinajs/orm-mysql registered 'orm-driver-mysql'; resolving fails on pending migrations, so run `npx spinajs migrate-up` first
   return await DI.resolve(Orm);
 }
 ```
@@ -76,12 +75,25 @@ export async function bootstrap(): Promise<Orm> {
 | Views | `OR REPLACE`, `ALGORITHM`, `SQL SECURITY`, every `CHECK OPTION`; no `IF NOT EXISTS`, no `TEMPORARY` |
 | Set membership | `FIND_IN_SET` |
 | `DECIMAL` values | strings |
-| Session time zone | UTC (`timezone: 'Z'` and `SET time_zone = '+00:00'`); a connection that cannot be pinned fails the acquire |
+| Session time zone | `TimeZone`: `SYSTEM` by default (the server's zone, no `SET`); `UTC` or an offset is set on every connection, and a connection that cannot be pinned fails the acquire |
 | `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)`; a `timestamp()` without `notNull()` is written `NULL`, so it stays nullable on MySQL 5.7 |
-| `driver.now()` | `UTC_TIMESTAMP(3)` |
+| `driver.now()` | `NOW(3)`; `UTC_TIMESTAMP(3)` with `TimeZone: 'UTC'` |
 | Duplicate key | `UniqueViolation`; NOT NULL, FK and CHECK failures `ConstraintViolation` |
 | Bind-parameter limit | `MaxBindings` `65535`; `mysql2` interpolates on the client, so `max_allowed_packet` bounds a statement |
 | `lockTableShared()` | `SELECT COUNT(*) ... FOR UPDATE` |
+
+## Migration lock
+
+The driver registers `MySqlMigrationLock` as the migration run lock ([Locking](../orm/10-migrations.md#locking)).
+
+1. It takes `GET_LOCK('spinajs_mig_<sha1 of the lock key>', 0)`, polled, on a connection of its own from `openDedicatedConnection()`, outside the pool, with the connection attribute `program_name` set to `spinajs-migration-lock:<Name>` and `wait_timeout` raised to 2147483 s (about 24 days, the largest value every platform accepts), so a long migration does not idle it out. While held it is queried every `min(StaleAfter / 3, 30 s)`. GET_LOCK names are server-wide and limited to 64 characters, so the key, which names the database, is hashed. `MySqlSSHOrmDriver` opens that connection through its own SSH channel (`dedicatedConnectionOptions()`).
+2. After `GET_LOCK` it also takes the lock-table row, so a process of an earlier 3.x release, which takes only the row, is kept out during a rolling deploy.
+3. Before each migration it checks `IS_USED_LOCK(name) = CONNECTION_ID()` on that connection. If the connection was killed, the run stops with `MigrationLockLostException`.
+4. `release()` runs `RELEASE_LOCK(name)` and ends the connection.
+5. mysql2's `FOUND_ROWS` flag does not matter to the lock. The lock-table row's refresh reads 0 affected rows as "another run took the row", but it always writes a new `AcquiredAt`, so it reports 1 with or without the flag.
+6. `GET_LOCK` is local to one server. On a multi-primary cluster (Galera / Percona XtraDB Cluster, Group Replication in multi-primary mode) it does not keep out a run on another node: set `Migration.Lock.Mode: 'table'` there, before upgrading to a release with this lock.
+
+To see a holder: `SELECT IS_USED_LOCK('spinajs_mig_…')` returns the connection id, which `SHOW PROCESSLIST` lists. `SELECT PROCESSLIST_ID, ATTR_VALUE FROM performance_schema.session_connect_attrs WHERE ATTR_NAME = 'program_name' AND ATTR_VALUE LIKE 'spinajs-migration-lock:%'` lists every lock connection.
 
 ## Testing
 

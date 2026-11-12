@@ -163,8 +163,8 @@ const CLI_PROCESS = `
   await DI.resolve(Configuration);
   if (process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP) {
     const { DbMfaStore } = await import('@spinajs/authn-orm');
-    const { Orm } = await import('@spinajs/orm');
-    await (await DI.resolve(Orm)).Migrator.ready();
+    const { migrateTestDatabase } = await import('@spinajs/orm/testing');
+    await migrateTestDatabase();
     const store = await DI.resolve(DbMfaStore);
     const carol = { type: 'user', id: 'carol' };
     await store.putPending(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');
@@ -181,7 +181,7 @@ const CLI_PROCESS = `
 function cliProcess(strategies: unknown, authnExtra: Values = {}, confirmedStep?: string): { findings: string[]; exitCode: number; output: string } {
   // The CLI loads authn-orm, so DbAuthnThrottle is the throttle and needs its hash key in production, and
   // DbMfaEnrolments asks the app's database for enrolled steps.
-  const db = { DefaultConnection: 'cli', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'cli', Migration: { Table: 'orm_migrations', OnStartup: true } }] };
+  const db = { DefaultConnection: 'cli', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'cli', Migration: { Table: 'orm_migrations' } }] };
   const values = { ...sound(), db, authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, audit: { hashKey: { secret: STRONG } }, ...authnExtra } };
   const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values), ...(confirmedStep ? { N8A_CHECK_CONFIG_CONFIRMED_STEP: confirmedStep } : {}) };
   delete env.NODE_OPTIONS;

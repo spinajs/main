@@ -6759,12 +6759,6 @@
     },
     "complexity": {
       "count": 3
-    },
-    "max-depth": {
-      "count": 1
-    },
-    "promise/param-names": {
-      "count": 1
     }
   },
   "packages/orm/src/migration-sources.ts": {

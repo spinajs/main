@@ -42,6 +42,228 @@
 
 > Docs: `docs/validation/01-validating-data.md`, `docs/validation/02-validator-options.md`,
 > `docs/validation/08-customizing-the-validator.md`.
+# Release notes — orm-mysql: TimeZone connection option, server zone by default
+
+## Behaviour change
+
+- `@spinajs/orm-mysql`: 3.0 pinned every connection to UTC (`SET time_zone = '+00:00'`, `mysql2` `timezone: 'Z'`,
+  datetimes written as the UTC wall clock, `driver.now()` = `UTC_TIMESTAMP(3)`). On a server running in a local zone
+  that moved every date computed in SQL: `FROM_UNIXTIME()`, `DATE()`, `NOW()` in views, events and raw queries gave
+  UTC results, so a value stored at local midnight on the 1st landed on the last day of the previous month.
+- New connection option `TimeZone`:
+  - `SYSTEM` (default): no `SET time_zone`; the session keeps the server's zone, `mysql2` reads and writes datetimes in
+    the node process zone, `driver.now()` is `NOW(3)`. The process and the server must run in the same zone. This is
+    how 2.x behaved.
+  - `UTC` (also `Z`, `+00:00`): the 3.0 behaviour.
+  - an offset `±HH:MM`: that offset on the session, in `mysql2` and in the datetime text. It does not follow daylight
+    saving time.
+  - anything else, a named zone included, fails the driver resolve with `OrmException`.
+- **Action needed:** a 3.0.x application that wants to keep UTC sessions sets `TimeZone: 'UTC'` on its MySQL
+  connections. Datetimes a 3.0.x application wrote in UTC into a server running in a local zone are read back shifted
+  by the zone offset under `SYSTEM`; set `TimeZone: 'UTC'` on that connection, or convert those rows.
+- `openDedicatedConnection()` now sets the session zone too (`UTC` or an offset), as pooled connections do.
+
+## Fixes
+
+- `@spinajs/orm-mysql`: `MySqlDatetimeValueConverter` is registered per connection, bound to its `TimeZone`; it writes
+  the session wall clock and reads text without an offset in the same zone. `MySqlSessionNowExpression` (`NOW(3)`)
+  is `driver.now()` outside UTC.
+- `@spinajs/orm`: `IDriverOptions.TimeZone`.
+
+# Release notes — orm-http: like filter values match literally
+
+## Security fix
+
+- `@spinajs/orm-http`: the `like`, `b-like` and `e-like` filter operators put the client's value into the `LIKE`
+  pattern unescaped. A client sending `%` as the value matched every row, `_` matched any one character, and on
+  MySQL and PostgreSQL a backslash escaped the next character. The value is now matched literally: `%`, `_` (and `[`
+  on MSSQL) match only themselves, a backslash is no longer an escape, and the condition carries `ESCAPE '~'`. Case
+  sensitivity is unchanged.
+- Clients that sent `%` or `_` in a like value on purpose, to get wildcard matching, no longer get it.
+- **Not fixed by upgrading:** a `query` function of your own, on `@Filterable(..., query)` or `IColumnFilter.query`,
+  that builds the pattern from the client's value (`` `%${value}%` ``) stays vulnerable until it passes
+  `LikeLiteral.contains(value)` (or `startsWith` / `endsWith`) instead. See `docs/orm-http/07-custom-filter-columns.md`.
+- `@spinajs/users-http`: the `user:niceName` filter of the admin user listing had the same flaw in its own query and
+  is fixed the same way.
+
+## Fixes
+
+- `@spinajs/orm`: `LikeLiteral.contains(text)`, `LikeLiteral.startsWith(text)` and `LikeLiteral.endsWith(text)` are a
+  `like` operand matched literally: `where('Name', 'like', LikeLiteral.contains(term))`. Each dialect escapes its own
+  wildcards (`MsSqlWhereStatement` in `@spinajs/orm-mssql` adds `[`). A plain string operand of `like` is still a raw
+  pattern. Use it in a custom `@Filterable` / `IColumnFilter` `query` that builds a `LIKE` from the client's value.
+
+## Unchanged on purpose
+
+- `b-like` matches values **ending** with the filter value and `e-like` values **beginning** with it, the reverse of
+  what the names suggest. Clients rely on this, so the meaning stays; it is now documented and pinned by tests.
+- A `like`, `b-like` or `e-like` filter with a `null` or `undefined` value searches for the text `"null"` /
+  `"undefined"`, as before.
+
+## Known
+
+- The `regexp` filter operator binds the client's value as a regular expression, unchanged in this release: a
+  pattern such as `.*` matches every row, and PostgreSQL applies no time limit to a regular expression. Offer
+  `regexp` only on columns where that is acceptable.
+# Release notes — orm, orm-cli: migrations are an explicit deploy step
+
+> Release 3.1.0. Packages: orm, orm-cli, orm-postgres, orm-mysql, orm-mssql; the CLI commands of authn-keys, authn-local,
+> authn-orm, authn-token, authn-totp, authz-orm, authz-rbac, scheduler, upload and users; electron, configuration-db-source.
+>
+> Docs: `docs/orm/10-migrations.md` ("Deploying migrations", "Boot check", "Locking", "Tests", "Migration: 3.1.0"),
+> `docs/orm-cli/01-applying-migrations.md`, `docs/orm-cli/09-seeding.md`, `docs/orm-cli/06-cli-orm.md`.
+
+## Breaking changes
+
+- `Orm.resolve()` no longer applies migrations or runs `data()` seeds. It asks each connection's `Migration.Service` for its
+  status (`status()` with `readOnly`) and fails with `PendingMigrationsException` while a migration is pending or failed. The
+  message names the migrations, their connections and `npx spinajs migrate-up` (and `migrate-status` / `migrate-resolve` for a
+  FAILED one). The connections it opened are closed and no `Orm` is cached.
+- `Migration.OnStartup` is removed, from `IDriverOptions` too: a TypeScript configuration typed with it no longer compiles,
+  and a configuration that still sets it, with any value, fails the boot with an `OrmException` naming each key and
+  `npx spinajs migrate-up`. A migration tool's boot does not read the key, so `migrate-up` still runs on a 3.0 configuration.
+- `Orm.Migrator`, `IOrmMigratorOptions`, `OrmMigrator.MigrateOnStartup`, `OrmMigrator.boot()` / `ready()` and
+  `IMigrationUpOptions.force` are removed. `OrmMigrator` is constructed over its `Orm` (`constructor(Orm: Orm)`, the public
+  read-only `OrmMigrator.Orm`), and `resolveMigrationTool()` builds it: it resolves `OrmMigrationGuard` with
+  `[{ Enabled: false }]`, then the `Orm`, then `OrmMigrator` with `[orm]`. It must run before anything resolves the `Orm` in its
+  container, and it now refuses a cached `OrmMigrator` left over an `Orm` that was uncached alone (`OrmException`, it used to
+  run over the stale `Orm`).
+- `resolveMigrationTool()` refuses an `Orm` booted as an application: an enabled `OrmMigrationGuard` cached in its container,
+  or an `Orm` registered and built in a parent container (`OrmException` naming the container to use). A boot that fails its
+  check caches nothing, so the tool runs right after it. A test harness that booted the application `Orm` with
+  `Migration.Check: 'off'` and then took the tool's runner builds `new MigrationRunner(orm)` instead; an application that
+  boots first (with `'warn'`) and migrates in-process calls `new OrmMigrator(orm).migrate()`.
+- `OrmMigrationGuard` is one instance per DI container (`@PerChildInstance()`), so a migration tool in a `DI.child()` gets
+  its own disabled guard. Test harnesses that uncache `Orm` and `OrmMigrator` uncache `OrmMigrationGuard` with them.
+- The CLI commands of `@spinajs/authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`,
+  `scheduler`, `upload` and `users` boot the `Orm` as an application does: they refuse to run on an unmigrated database.
+  Run `migrate-up` first.
+- `@spinajs/configuration-db-source`: an `Orm` booted with `Migration.Check` `'warn'` or `'off'` before the `configuration`
+  table exists, and a migration tool's `Orm`, sync no exposed options. Restart the application after `migrate-up`.
+- Two connections on one database that share `Migration.Table` now block each other: a run holds the first connection's lock
+  while it waits for the second, so `migrate-up` waits `Lock.Timeout` (30 s by default) and fails. In 3.0.x such a pair
+  migrated.
+- `MigrationRunner.plan()` (protected) lost its `force` flag: `plan(name, connection?, quiet?)`.
+- `migrate-status` creates and upgrades no tracking table any more; on a database without one, every migration reads pending.
+- The protected `acquireLock()`, `releaseLock()` and `lockOwner()` of `DefaultMigrationService` moved to `TableMigrationLock`
+  (`claim()`, `releaseRow()`, `lockOwner()`). A subclass that overrode them overrides `TableMigrationLock` instead and registers
+  it over `MigrationLock` and `TableMigrationLock` in its driver.
+
+## Upgrade
+
+1. Run `npx spinajs migrate-up` (with `--env <env>` when the app runs with one) before the application starts: a release step,
+   a Kubernetes `Job` or init container, or a `predeploy` script. Several replicas running it at once are safe: the run holds a
+   database lock.
+2. Remove `Migration.OnStartup` from `db.Connections`.
+3. Seeds run with `migrate-up` for the migrations it applies; rerun them with `npx spinajs migrate-seed [--name X]`. They must
+   be idempotent.
+4. postgres behind PgBouncer in transaction pooling, or any pooler that does not pin a session: set `Migration.Lock.Mode: 'table'`
+   before upgrading `@spinajs/orm-postgres`. Under `'auto'` the advisory lock lands on one server connection while its checks
+   run on others, so the run fails with `MigrationLockLostException`, and the lock stays on that pooled server connection,
+   blocking later runs. mysql multi-primary clusters (Galera / Percona XtraDB Cluster, Group Replication in multi-primary mode):
+   set `Migration.Lock.Mode: 'table'` before upgrading `@spinajs/orm-mysql`; `GET_LOCK` is local to one node. Otherwise
+   processes of the previous release and of this one exclude each other: the new driver locks take the lock-table row too.
+5. For local development, set `db.MigrationCheck: 'warn'` to boot over pending migrations with a warning, or keep `'fail'` and
+   run `migrate-up` after pulling. Under `'warn'`, a pending migration that creates a registered model's table still fails the
+   boot through `db.StrictTableCheck`.
+6. Tests: replace `OnStartup: true` + `DI.resolve(Orm)` + `Migrator.ready()` with `await migrateTestDatabase(container)` from
+   `@spinajs/orm/testing`, called before anything else resolves the `Orm`. A harness that boots an application `Orm` and
+   creates its tables by hand sets `db.MigrationCheck: 'off'`.
+7. Desktop / Electron main processes that must migrate themselves call `await (await resolveMigrationTool()).migrate()`
+   explicitly before resolving anything else. The Electron renderer's `Orm` boots without the check; the main process is
+   checked.
+8. A custom `Migration.Service` written before 3.1 ignores `status()`'s `readOnly` option, which the boot check passes, and may
+   create or upgrade its own storage at every application boot. Make its `status()` honour `readOnly`.
+9. Replace `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])` (and a bare `DI.resolve(OrmMigrator)`) with
+   `await resolveMigrationTool()`, or `await resolveCliMigrator()` in an `@spinajs/orm-cli` host. The old call now fails with an
+   `OrmException` naming `resolveMigrationTool()`.
+10. Two connections on one database that share `Migration.Table`: give each its own `Migration.Table` before upgrading.
+11. A database whose schema exists but has no tracking rows (tables created by SQL scripts, or a 3.0.x app that never ran
+    migrations) fails the boot with every migration pending, and a plain `migrate-up` would try to create its tables again.
+    Check that the schema matches the migrations, then run `npx spinajs migrate-up --fake` once: it records every pending
+    migration as applied without running `up()` or `data()` (`--connection` / `--name` narrow it). Or set
+    `Migration.Check: 'off'` for that connection.
+
+## Fixes
+
+- `MigrationRunner.up()` handed each stretch of consecutive same-connection migrations to the service, and the service took and
+  released the connection's lock around each stretch. Another run could get in between two stretches, and the `data()` seeds of
+  `OrmMigrator.migrate()` (`migrate-up`) ran with no lock at all. `up()`, `down()` and `resolve()` of the runner now hold one lock per
+  connection for the whole call, taken in connection-name order before anything is read, and `migrate()` holds it until the seeds
+  finished. A second `migrate-up` waits for the first one's seeds.
+- A run longer than `Migration.Lock.StaleAfter` had its lock-table row stolen, and two runs went on at once. The holder now refreshes
+  its row every `StaleAfter / 3`, so only the row of a dead holder goes stale.
+- Two runs that found one dead holder's row at the same time could both take the lock, and a run whose row had been stolen deleted
+  the new holder's row when it finished. A steal now deletes the row only while it still names the dead holder and carries the
+  `AcquiredAt` the steal judged, and a release only the run's own row.
+- A holder's refresh that reached the database after its row went stale, but before a thief's DELETE, left both runs passing the
+  lock check. The thief no longer deletes a refreshed row, and a refresh counts by the time its UPDATE returned, so the late
+  holder stops before its next migration.
+- `migrate-resolve` could rewrite a tracking row under a run in progress. It now waits for that run's lock. A run that crashed while
+  holding the lock-table row blocks it until the row goes stale (`StaleAfter`, 10 minutes by default), as it blocks `migrate-up`.
+  The timeout message names the time the row goes stale and the table to delete it from by hand.
+- `migrate({ name })` with a name that is not registered took the locks and created the tracking tables before it refused the name.
+  It now refuses it first, and with a known name it locks only that migration's connection.
+
+## New behavior
+
+- Migration runs take one lock per connection for the whole run, seeds included: the database's session lock on postgres,
+  mysql and mssql (with the lock-table row as well), and the lock-table row alone on sqlite or with `Migration.Lock.Mode: 'table'`.
+- The lock is checked before each migration. A run that lost it (its lock-table row went unrefreshed for longer than `StaleAfter`, or
+  a refresh found the row taken by another run) stops with `MigrationLockLostException` before the next migration starts and
+  records no failure for it.
+- The lock row's `Owner` is `<hostname>:<pid>:<nonce>`, so two runs in one process are told apart.
+- `@spinajs/orm-postgres`, `@spinajs/orm-mysql` and `@spinajs/orm-mssql` lock a migration run with the database's own session
+  lock (`pg_try_advisory_lock`, `GET_LOCK`, a session-owned `sp_getapplock`) and take the lock-table row as well. A migrating
+  process opens one extra database connection per connection for the run, outside the pool, named
+  `spinajs-migration-lock:<connection>` (postgres `application_name`, mysql `program_name` connection attribute, mssql
+  `program_name`). Its idle limit is turned off (mysql `wait_timeout`, postgres 14+ `idle_session_timeout`) and it is queried every
+  `min(StaleAfter / 3, 30 s)` while held, so a long migration does not lose it to an idle timeout; a failed query stops the run
+  before its next migration. A crashed process no longer blocks the next run for `StaleAfter`: its session lock is freed, and its
+  marked row is removed once the next run has seen it go two heartbeats (10 s) unrefreshed, also when that run's `Lock.Timeout` is
+  shorter: it waits up to 10.5 s past the timeout for that row, and against a live holder that still refreshes its row it
+  fails at that holder's next refresh, up to 5 s past the timeout. A host that disappears without closing
+  its connections keeps its session lock until the server's TCP keepalive gives up on the connection.
+
+## New
+
+- `migrate-seed` (`-n, --name`, `-c, --connection`, `MigrateSeedCommand`), `migrate-up --skip-seed` and `--dry-run` (exit `1`
+  when something would run or a FAILED migration blocks the run), and `migrate-status --connection` / `--json` with an
+  applied-at column and the pending list in run order.
+- `OrmMigrationGuard` (`Enabled`, `check(orm)`), `PendingMigrationsException` (`pending`, `failed`), `IPendingMigration`,
+  `pendingMigrationsMessage()`, `MigrationCheckMode`, `IOrmMigrationGuardOptions`, `IMigrationGuardReport`.
+- `db.MigrationCheck: 'fail' | 'warn' | 'off'` (default `'fail'`) and its per-connection override
+  `db.Connections[].Migration.Check`. `'warn'` logs one warning per connection and boots; `'off'` does not read the connection.
+- `@spinajs/orm/testing`: `migrateTestDatabase(container?, { seed? })` resolves `{ orm, migrator, executed }`, refuses to run
+  with `NODE_ENV` or `APP_ENV` production, and checks the model tables as a strict boot would. It refuses when the
+  `OrmMigrationGuard` cached in its container is enabled (the `Orm` or the guard was resolved before it), with a message naming
+  the remedy.
+- `OrmMigrator.seed({ name?, connection? })` and `OrmMigrator.plan({ name?, connection? })`, `IOrmMigrateOptions.skipSeed`,
+  `MigrationRunner.pending(name?, connection?)` (`IMigrationPlanEntry`, with `failed: true` for the blocking ones),
+  `MigrationRunner.status({ readOnly?, connection? })`, `OrmMigrationService.status(units, { readOnly })`
+  (`IMigrationStatusOptions`) and `compareMigrationNames()`.
+- `MigrationLock`, a DI token in each driver's container: `acquire(request)` resolves with an `IMigrationLockHandle` (`holder`,
+  `assertHeld()`, `release()`), `isHeld(request)` answers `status()`. `OrmDriver.resolve()` registers `TableMigrationLock`, the
+  lock-table row, as the default. A driver with a native lock registers its own class over the token.
+- `TableMigrationLock.acquireUnderAdvisory(request)` and `migrationLockAdvisoryMark(key)`, for a driver lock that holds an advisory
+  lock and takes the lock-table row as well: its row is marked with `:advisory:` and 8 hex chars of the key's SHA-256 and refreshed
+  every `MIGRATION_LOCK_ADVISORY_HEARTBEAT` (5 s), and the next holder of the same advisory key removes a row with that mark once it
+  has seen it go two heartbeats unrefreshed, whatever its age. A row marked under another key keeps the `StaleAfter` rule.
+- `SessionMigrationLock` and `IMigrationLockSession`, the base for a lock held by a dedicated database session, and the driver
+  locks built on it: `PostgresMigrationLock`, `MySqlMigrationLock` (`mySqlLockName(key)`) and `MsSqlMigrationLock`
+  (`msSqlLockResource(key)`). `PostgresOrmDriver.openDedicatedClient(applicationName?)`,
+  `MySqlOrmDriver.openDedicatedConnection(programName?)` and `MsSqlOrmDriver.openDedicatedPool(appName?)` open a connection outside
+  the pool. `MIGRATION_LOCK_SESSION_KEEPALIVE` (30 s) caps how long a lock session goes without a query.
+- `db.Connections[].Migration.Lock.Mode: 'auto' | 'table'`. `'table'` forces the lock-table row, for PgBouncer transaction pooling
+  and mysql multi-primary clusters. Any other value fails the run before it takes the lock, with an `OrmException` naming the
+  key and the allowed values.
+- `OrmMigrationService.acquireRunLock?()`, optional: a service that implements it is locked by the runner for the whole run and gets
+  `{ locked: true, lock }` in `IMigrationRunOptions`. A custom service without it keeps locking inside its own calls.
+- `MigrationRunner.withRunLock(connection, fn, name?)`, `MigrationRunner.assertRunLocksHeld()`, `IMigrationUpOptions.locked`.
+- `migrationLockKey(driver, table)` (`spinajs_migration:<Database>:<Options.Schema>:<Table>`), `advisoryKeyPair(key)`,
+  `MigrationLockLostException`, `IMigrationLockRequest`.
+
+---
 
 # Release notes — the controller scan registers what the package entry did
 
@@ -861,7 +1083,7 @@ Removed and changed exports:
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
-# Release notes � users: email domain refusal
+# Release notes — users: email domain refusal
 
 > Docs: `docs/users/19-email-domains.md`.
 

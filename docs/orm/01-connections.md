@@ -1,6 +1,6 @@
 # Connections
 
-`Orm` is the async service that boots the ORM: it opens every connection listed in `db.Connections`, binds each model to its connection and makes model static methods usable. Through [`OrmMigrator`](10-migrations.md) it applies the pending migrations of the `Migration.OnStartup` connections. Each connection is an `OrmDriver` instance supplied by a dialect package. Resolve `Orm` once at boot, before any model is queried.
+`Orm` is the async service that boots the ORM: it opens every connection listed in `db.Connections`, binds each model to its connection and makes model static methods usable. It never migrates: through [`OrmMigrationGuard`](10-migrations.md#boot-check-diresolveorm) it checks that no migration is pending or failed, and refuses to boot while one is. Migrations run from `npx spinajs migrate-up`, a deploy step. Each connection is an `OrmDriver` instance supplied by a dialect package. Resolve `Orm` once at boot, before any model is queried.
 
 ## How it works
 
@@ -15,10 +15,10 @@
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` registers the default value converters.
-8. `Orm` resolves `OrmMigrator`, keeps it as `Orm.Migrator` and calls `migrator.boot(orm)`, which applies the pending migrations of the `Migration.OnStartup` connections (see [Migrating on startup](10-migrations.md#migrating-on-startup-diresolveorm)). A failed migration makes `Orm.resolve()` dispose its connections and rethrow.
-9. `Orm` reads the table info of every model, once, from the migrated schema: it binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and sets the model's columns to its decorator columns merged with what the table holds. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing. On any connection, `db.StrictTableCheck` on makes `Orm.resolve()` dispose its connections and throw one `OrmException` naming every such model; off, each is logged as a warning. When the cached `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`), the check is skipped: a migration tool boots before the tables exist.
+8. `Orm` resolves `OrmMigrationGuard` from its container. Unless the guard was resolved disabled first (`resolveMigrationTool()`), it runs `check(orm)`: a configuration that still sets `Migration.OnStartup` fails with `OrmException`, and a pending or failed migration on a connection whose check mode is `'fail'` fails with `PendingMigrationsException`; `'warn'` only logs it (see [Boot check](10-migrations.md#boot-check-diresolveorm)). A failure makes `Orm.resolve()` dispose its connections and rethrow. Nothing is applied.
+9. `Orm` reads the table info of every model, once: it binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and sets the model's columns to its decorator columns merged with what the table holds. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing. On any connection, `db.StrictTableCheck` on makes `Orm.resolve()` dispose its connections and throw one `OrmException` naming every such model; off, each is logged as a warning. With the guard disabled (`resolveMigrationTool()`), the check is skipped and each missing table is logged: a migration tool boots before the tables exist.
 10. `Orm` wires relation targets (an unknown target model throws `OrmException`) and installs the model static methods.
-11. The `Orm` is cached. On `di.resolved.Orm` the migrator runs the `data()` seeds of the migrations `boot()` applied; `orm.Migrator.ready()` settles after them.
+11. The `Orm` is cached.
 
 ```mermaid
 sequenceDiagram
@@ -26,7 +26,7 @@ sequenceDiagram
   participant Orm
   participant Configuration
   participant Driver as OrmDriver
-  participant Mg as OrmMigrator
+  participant G as OrmMigrationGuard
   App->>Orm: DI.resolve(Orm)
   Orm->>Configuration: get('db.Connections')
   loop each connection entry
@@ -35,10 +35,9 @@ sequenceDiagram
     Orm->>Driver: startHealthCheck()
   end
   Orm->>Configuration: get('db.DefaultConnection'), get('db.Aliases')
-  Orm->>Mg: boot(orm): Migration.OnStartup migrations
+  Orm->>G: check(orm): pending or FAILED migrations (read-only)
   Orm->>Driver: tableInfo(table) per model
   Orm-->>App: resolved Orm
-  Mg->>Mg: data() seeds, then ready() settles
 ```
 
 ## Decorators
@@ -63,6 +62,7 @@ sequenceDiagram
 | `db.Connections[].Database` | `string` | | | Database name. Also passed as schema to `tableInfo()`. |
 | `db.Connections[].Filename` | `string` | | | Database file, for SQLite. |
 | `db.Connections[].Encoding` | `string` | | | Connection encoding, eg. `utf8mb4`. |
+| `db.Connections[].TimeZone` | `string` | `SYSTEM` | `SYSTEM`, `UTC`, an offset such as `+02:00` | Session time zone of the connection's datetimes. Read by `orm-driver-mysql`; see [MySQL driver](../orm-mysql/01-mysql-driver.md#dates-and-time-zone). |
 | `db.Connections[].Options` | `any` | | | Driver-specific options. See the driver's configuration page. |
 | `db.Connections[].SSH.Host` | `string` | | | SSH tunnel host. Read by `orm-driver-mysql-ssh`. |
 | `db.Connections[].SSH.Port` | `number` | | | SSH tunnel port. |
@@ -76,16 +76,17 @@ sequenceDiagram
 | `db.Connections[].Pool.AcquireTimeout` | `number` | `10000` | ms | Wait for a free connection before failing. |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. Used as `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | `IConnectionResilienceOptions` | see [Observability and resilience](13-observability-and-resilience.md#configuration) | | Health probe and reconnect settings. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | `Orm.resolve()` applies the pending migrations of this connection. |
+| `db.Connections[].Migration.Check` | `'fail' \| 'warn' \| 'off'` | unset (`db.MigrationCheck`) | `'fail'`, `'warn'`, `'off'` | What the boot check does with a pending or failed migration on this connection. |
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | | Migration tracking table. |
 | `db.Connections[].Migration.Service` | `string` | `DefaultMigrationService` | DI token | `OrmMigrationService` implementation for this connection. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | Transaction wrapping of a migration run. |
 | `db.Connections[].Migration.Lock.Enabled` | `boolean` | `true` | | Concurrency guard for migration runs. |
-| `db.Connections[].Migration.Lock.Timeout` | `number` | `30000` | ms | Wait for the migration lock before failing. |
-| `db.Connections[].Migration.Lock.StaleAfter` | `number` | `600000` | ms | Age after which a held lock is stolen. |
+| `db.Connections[].Migration.Lock.Timeout` | `number` | `30000` | ms | Wait for the migration lock before failing. A session lock waits up to 10.5 s longer for a lock-table row it found unrefreshed; against a live holder that lost its session but still refreshes the row, it fails at that holder's next refresh, up to 5 s past the timeout. |
+| `db.Connections[].Migration.Lock.StaleAfter` | `number` | `600000` | ms | Age after which a held lock-table row is stolen. Applies to rows not written under this run's own session lock; such a row is taken over once it goes 10 s unrefreshed instead, whatever its age. Also sets a session lock's row refresh (`StaleAfter / 3`, at most 5 s) and session keep-alive (`StaleAfter / 3`, at most 30 s). |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
-| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after its startup migrations, when a registered model on a configured connection has no table. Not checked when the cached `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). |
+| `db.MigrationCheck` | `'fail' \| 'warn' \| 'off'` | `'fail'` | `'fail'`, `'warn'`, `'off'` | `'fail'` rejects `Orm.resolve()` with `PendingMigrationsException` while a migration is pending or failed, `'warn'` logs it and boots, `'off'` reads nothing. See [Migrations: configuration](10-migrations.md#configuration). |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after the boot check, when a registered model on a configured connection has no table, under every `MigrationCheck` mode. Not checked by a migration tool's boot (`resolveMigrationTool()`). |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 
 How each driver applies `Pool.*` and `Options` is driver-specific: see [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md) and [`@spinajs/orm-mssql`](../orm-mssql/README.md).
@@ -105,7 +106,6 @@ this.Config = _.merge(this.Config, {
         Password: 'secret',
         Database: 'shop',
         Pool: { Min: 2, Max: 20, AcquireTimeout: 5000 },
-        Migration: { OnStartup: true },
       },
     ],
   },
@@ -116,8 +116,9 @@ this.Config = _.merge(this.Config, {
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
-| `Orm` | Opens connections, registers models and migrations, applies the startup migrations, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `Migrator`, `StrictTableCheck`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
-| `OrmMigrator` | Applies the migrations and their `data()` seeds for the `Orm` that boots it. See [Migrations](10-migrations.md). | `OrmMigrator` | Not overridden. Pass `IOrmMigratorOptions` on first resolve, before the `Orm`. |
+| `Orm` | Opens connections, registers models and migrations, runs the boot check, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `StrictTableCheck`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
+| `OrmMigrationGuard` | The boot check `Orm.resolve()` runs. One per DI container. See [Migrations: boot check](10-migrations.md#boot-check-diresolveorm). | `OrmMigrationGuard` | Not overridden. `resolveMigrationTool()` resolves it disabled before the `Orm`. |
+| `OrmMigrator` | Applies the migrations and their `data()` seeds over one `Orm`; the `Orm` never resolves it. See [Migrations](10-migrations.md#ormmigrator). | `OrmMigrator` | Not overridden. Get it from `resolveMigrationTool()`. |
 | `OrmDriver` | One database connection: executes builders, opens transactions, creates query builders, probes health. | Dialect drivers: `SqliteOrmDriver`, `MySqlOrmDriver`, `MySqlSSHOrmDriver`, `MsSqlOrmDriver`, `PostgresOrmDriver` | Register a driver class under the token named in `db.Connections[].Driver`. |
 | `OrmConnection` | DI factory returning the driver stored under a name, or `null`. | Registered by `Orm.resolve()` | Not overridden. |
 
@@ -171,9 +172,9 @@ export async function bootstrapDatabase(): Promise<Orm> {
 ## Important behaviour
 
 - Connections open one after another, in `db.Connections` order. The first failure aborts `Orm.resolve()`; connections opened before it stay open.
-- `Orm.resolve()` applies the pending migrations of the `Migration.OnStartup` connections before it reads table info. Their `up()` runs while the `Orm` resolves, so it uses its `connection` argument only: no model statics, and no service that injects the `Orm`. Their `data()` runs once the `Orm` is cached and may resolve such services.
-- `await DI.resolve(Orm)` returns while the startup seeds may still run. Code that needs their rows awaits `orm.Migrator.ready()`.
-- The next `Orm.resolve()` re-binds the cached `OrmMigrator`: after `DI.uncache(Orm)` alone, the next `DI.resolve(Orm)` boots it against the new `Orm`.
+- `Orm.resolve()` applies no migration and runs no `data()` seed. With `db.MigrationCheck` at `'fail'` (the default) it rejects with `PendingMigrationsException` until `npx spinajs migrate-up` has applied everything; the message names the migrations, their connections and the command.
+- A configuration that still sets `db.Connections[].Migration.OnStartup`, with any value, fails the boot with an `OrmException` naming the key and `npx spinajs migrate-up`.
+- `OrmMigrationGuard` is cached per container and keeps the options it was first resolved with. After `DI.uncache(Orm)`, uncache `OrmMigrationGuard` (and `OrmMigrator`) as well, or the next resolve reuses the old guard.
 - `Orm` logs only `Database`, `User`, `Host`, `Port`, `Filename`, `Driver` and `Name` of a connection. `Password` never reaches the log.
 - `default` and every alias point to the same driver instance as the connection they name. They share one pool and one health probe.
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.
@@ -184,16 +185,16 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
 - `orm.reloadTableInfo(options?: IReloadTableInfoOptions)` only warns unless passed `{ strict: true }`. `models` limits the read to those model classes; `strict` then still covers every registered model: one an earlier read recorded missing is read again, so a table created since counts as present. `OrmMigrator.migrate()` calls it with the models its migrations touched.
 - Each driver has its own child container. A registration in `driver.Container` affects only that connection.
-- A failed startup migration or a failed `db.StrictTableCheck` check rejects `DI.resolve(Orm)`: the `Orm` disposes the connections it opened and is not cached. A failed `data()` seed leaves the `Orm` resolved; `orm.Migrator.ready()` rejects with it.
+- A failed boot check or a failed `db.StrictTableCheck` check rejects `DI.resolve(Orm)`: the `Orm` disposes the connections it opened and is not cached.
 
 ## Best practices
 
 - Resolve `Orm` once in the application bootstrap and `await` it before any model or repository code runs.
-- Services backed by the ORM inject the `Orm` (`@Autoinject(Orm)`). A migration resolves them in `data()`, never in `up()`: a startup `up()` runs inside the `Orm`'s resolve, which they would wait on.
+- Services backed by the ORM inject the `Orm` (`@Autoinject(Orm)`). A migration uses them in `data()`, which runs after the models its run touched were re-read.
 - In a reusable package, bind models to a package-specific name (`@Connection('user-sessions')`) and let the application map it with `db.Aliases`.
 - Set `db.DefaultConnection` and use `@Connection('default')` for application models, so switching databases is a config change.
 - Boot tools that inspect or repair migrations with `resolveMigrationTool()`, as `@spinajs/orm-cli` does.
-- Apply migrations before the app starts (`migrate-up` in the deploy step), or set `Migration.OnStartup` so `Orm.resolve()` applies them. With `db.StrictTableCheck` on, `Orm.resolve()` names any table still missing after its startup migrations.
+- Apply migrations before the app starts: `npx spinajs migrate-up` in the deploy step. The boot check names whatever is still pending; with `db.StrictTableCheck` on, `Orm.resolve()` then names any table still missing.
 - Use `orm.Connections.get(name)` or `DI.resolve('OrmConnection', [name])` for raw queries; check the result for `undefined` / `null`.
 
 ## Patterns and antipatterns
@@ -209,12 +210,15 @@ const unpaid = await Invoice.where('Status', 'unpaid');
 ```
 
 ```ts
-// Don't: resolving the migrator migrates nothing and resolves no Orm
-await DI.resolve(OrmMigrator);
+// Don't: migrate from a server's own start-up; every replica waits for the migration lock before it serves,
+// and the Orm it caches was booted without the boot check
+const migrator = await resolveMigrationTool();
+await migrator.migrate();
+await startHttpServer();
 
-// Do: the Orm applies the Migration.OnStartup migrations; ready() waits for their seeds
+// Do: migrate in the deploy step (npx spinajs migrate-up), then boot; the boot check verifies it
 const orm = await DI.resolve(Orm);
-await orm.Migrator.ready();
+await startHttpServer();
 ```
 
 ```ts
@@ -251,7 +255,6 @@ export class ShopConfiguration extends FrameworkConfiguration {
             Password: 'secret',
             Database: 'shop',
             Pool: { Min: 2, Max: 20 },
-            Migration: { OnStartup: true },
           },
           {
             Name: 'shop-replica',
@@ -337,9 +340,24 @@ export async function pendingMigrations(): Promise<IMigrationStatusEntry[]> {
 
 ## Migration
 
-### `Orm.resolve()` no longer migrates (history)
+### 3.1.0: `Orm.resolve()` checks the migrations and never applies them
 
-Superseded: `Orm.resolve()` applies the startup migrations again, and `DI.resolve(OrmMigrator)` migrates nothing; see [the current note](10-migrations.md#ormresolve-applies-the-startup-migrations-diresolveormmigrator-migrates-nothing). The code below no longer works as written.
+`Orm.resolve()` runs the boot check instead of migrating; `Migration.OnStartup`, `Orm.Migrator` and `orm.Migrator.ready()` are removed. Run `npx spinajs migrate-up` as a deploy step and remove `Migration.OnStartup` from `db.Connections`. The upgrade steps are in [Migrations: 3.1.0](10-migrations.md#310-the-application-never-migrates).
+
+```ts
+// Before (3.0.x)
+db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql', Migration: { OnStartup: true } }] }
+const orm = await DI.resolve(Orm);
+await orm.Migrator.ready();
+
+// After: npx spinajs migrate-up ran in the deploy step
+db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
+const orm = await DI.resolve(Orm);
+```
+
+### `Orm.resolve()` no longer migrates (3.0.x, history)
+
+Superseded twice: an earlier 3.0.x release had `Orm.resolve()` apply the startup migrations again, and 3.1.0 removed them for good (above). The code below no longer works as written.
 
 The boot migration pass and its `data()` phase moved to `OrmMigrator`, and so did the `db.StrictTableCheck` check of the `Migration.OnStartup` connections; `Orm.resolve()` still checks the others. `IOrmOptions` and `Orm.Migration` are removed.
 
@@ -357,11 +375,11 @@ An app that only resolves `Orm` on a `Migration.OnStartup` connection fails at i
 
 ### `db.StrictTableCheck` defaults to `true`
 
-`Orm.resolve()` fails when a registered model still has no table after its startup migrations. Apply the migrations before the app starts, or turn the check off where tables are created after the boot.
+`Orm.resolve()` fails when a registered model has no table. Apply the migrations before the app starts, or turn the check off where tables are created after the boot.
 
 ```ts
-// Keep the strict check and migrate first (`spinajs migrate-up`, or Migration.OnStartup)
-db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql', Migration: { OnStartup: true } }] }
+// Keep the strict check and migrate first (`npx spinajs migrate-up`)
+db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
 
 // Or opt out, and check once the tables exist
 db: { StrictTableCheck: false, Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
@@ -373,7 +391,7 @@ await orm.reloadTableInfo({ strict: true });
 
 - [Models](02-models.md): `@Model` and column decorators on the classes `@Connection` binds.
 - [Transactions](08-transactions.md): `OrmDriver.transaction()` and `afterCommit()`.
-- [Migrations](10-migrations.md): `OrmMigrator`, the startup migrations and the `Migration.*` keys.
+- [Migrations](10-migrations.md): `OrmMigrator`, the boot check and the `Migration.*` keys.
 - [Architecture](12-architecture.md): what a driver registers in its container.
 - [Observability and resilience](13-observability-and-resilience.md): connection state, health probe, retries and pool metrics.
 - [`@spinajs/orm-sql`](../orm-sql/README.md): `SqlDriver`, the base of every dialect driver.
