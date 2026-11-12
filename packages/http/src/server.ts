@@ -139,10 +139,11 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
-    // stable: equal Orders keep the DI registration order
-    this.Middlewares = this.Middlewares.sort((a, b) => {
-      return a.Order - b.Order;
-    });
+    // Array.ofType lists instances in the order their async resolve() finished, not in registration order
+    const registered = (this.Container.getRegisteredTypes(ServerMiddleware) ?? []) as unknown[];
+    const index = new Map(this.Middlewares.map((m) => [m, registrationIndex(registered, m)]));
+    // A copy: the injected array is the DI cache's own collection, which must stay in registration order
+    this.Middlewares = [...this.Middlewares].sort((a, b) => a.Order - b.Order || index.get(a)! - index.get(b)!);
     this.NotFound = await this.Container.resolve(NotFoundMiddleware);
     this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
     [...this.Middlewares, this.NotFound, this.ErrorHandler].forEach(refuseRemovedHooks);
@@ -457,3 +458,12 @@ export class HttpServer extends AsyncService {
 }
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
+/** An instance of a class that replaces a registered one ( `@Injectable(RealIp)` ) takes that one's place. */
+function registrationIndex(registered: unknown[], m: ServerMiddleware): number {
+  const own = registered.indexOf(m.constructor);
+  if (own !== -1) return own;
+
+  const replaced = registered.findIndex((t) => typeof t === 'function' && typeof t.prototype === 'object' && m instanceof t);
+  return replaced === -1 ? registered.length : replaced;
+}

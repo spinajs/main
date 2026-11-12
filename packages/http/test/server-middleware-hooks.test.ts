@@ -33,6 +33,7 @@ const PARTNER = 'https://partner.example.test';
 
 const calls: string[] = [];
 const arounds: string[] = [];
+const resolved: string[] = [];
 const state: Record<string, unknown> = {};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,11 +91,23 @@ class SrvA extends Recording {
 class TieFirst extends Recording {
   protected readonly label = 'tie1';
   public Order = 15;
+
+  // registered before TieSecond, but finishes resolving after it
+  public async resolve(): Promise<void> {
+    await sleep(50);
+    resolved.push(this.label);
+    await super.resolve();
+  }
 }
 
 class TieSecond extends Recording {
   protected readonly label = 'tie2';
   public Order = 15;
+
+  public async resolve(): Promise<void> {
+    resolved.push(this.label);
+    await super.resolve();
+  }
 }
 
 class SrvB extends Recording {
@@ -317,6 +330,16 @@ describe('Server middleware hooks', function () {
     expect(res.status).to.eq(200);
     expect(header(res, 'x-handler')).to.eq('mounted');
     expect(calls).to.deep.eq([...BEFORE_ALL, 'route:before', 'action', 'route:after:200:-', ...afterAll(200, '-'), 'route:finish:false', ...FINISH_ALL]);
+  });
+
+  it('mounts equal Orders in registration order, not in the order their resolve() finished', async () => {
+    expect(resolved).to.deep.eq(['tie2', 'tie1']);
+
+    await req().get('srv/ok').set('Accept', 'application/json');
+    await until(() => calls.includes('early:finish:false'));
+
+    const ties = calls.filter((c) => c.startsWith('tie'));
+    expect(ties).to.deep.eq(['tie1:before', 'tie2:before', 'tie2:after:200:-', 'tie1:after:200:-', 'tie2:finish:false', 'tie1:finish:false']);
   });
 
   it('gives server onAfter and onFinish the matched route', async () => {
