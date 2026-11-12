@@ -95,7 +95,7 @@ export abstract class BaseController extends AsyncService implements IController
   }
 
   public async resolve() {
-    // Controllers.register() can mount the controller again at runtime.
+    // resolve() may run again on the same instance; its routes then mount afresh.
     this._mounted.clear();
     await super.resolve();
 

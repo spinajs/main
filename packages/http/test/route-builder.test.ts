@@ -116,6 +116,38 @@ describe('route-builder', () => {
       expect(mounted[0]).to.have.length(1);
       expect(mounted[0][0]).to.eq(enabled);
     });
+
+    it('does not call onMounted when an onRegister refuses the route', async () => {
+      const refusing = {
+        isEnabled: () => true,
+        onRegister() {
+          throw new Error('refused');
+        },
+      };
+      let mounted = 0;
+
+      const error = await buildRouteHandlers({
+        controller: {} as any,
+        route: route({ Method: 'action', Type: 'get' as any, Parameters: new Map() }),
+        path: '/test/action',
+        basePath: '/test',
+        middlewares: [refusing] as unknown as RouteMiddleware[],
+        policies: { Controller: [], Route: [] },
+        errorHandlers: [],
+        storage: new AsyncLocalStorage(),
+        container: {} as any,
+        log: {} as any,
+        handleError: () => undefined,
+        onMounted: () => mounted++,
+      }).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+      expect(error).to.be.instanceOf(RouteRegistrationException);
+      expect((error as Error).message).to.include('refused');
+      expect(mounted).to.eq(0);
+    });
   });
 
   describe('createActionHandler', () => {

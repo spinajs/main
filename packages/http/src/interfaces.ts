@@ -928,11 +928,13 @@ export abstract class HttpMiddleware extends AsyncService {
   public onAround?(invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void>;
 }
 
+/** A response header a route middleware sets, for API documents. */
 export interface IDocumentedHeader {
   description: string;
   type: 'integer' | 'string';
 }
 
+/** One answer a route middleware gives instead of the route, for API documents. */
 export interface IDocumentedAnswer {
   description: string;
   headers?: Record<string, IDocumentedHeader>;
