@@ -40,3 +40,11 @@ export const tooManyRequests = (message: string, retryAfterSeconds: number): Too
 
 /** 429 for a throttled reset request. Its keys are the normalised login and the client ip, whether or not the account exists. */
 export const resetRequestThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many reset requests, try again later', retryAfterSeconds);
+
+export const codeRequestThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many code requests, try again later', retryAfterSeconds);
+
+export const verifyThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many verification attempts, try again later', retryAfterSeconds);
+
+export const registerThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many registrations, try again later', retryAfterSeconds);
+
+export const passkeyChallengeThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many passkey challenges, try again later', retryAfterSeconds);

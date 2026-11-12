@@ -5,8 +5,7 @@ import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
 import { SerialQueue } from '../src/queue.js';
 import { DI } from '@spinajs/di';
-import { SocketCommandStage } from '../src/interfaces.js';
-import { SocketDispatcher } from '../src/dispatcher.js';
+import { SocketHandlerRegistry } from '../src/registry.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
 import { logText } from './log-text.js';
 
@@ -210,8 +209,8 @@ describe('socket ordered commands', function () {
   });
 
   const orderingStage = async () => {
-    const dispatcher = (await DI.resolve(SocketDispatcher)) as unknown as { Stages: SocketCommandStage[] };
-    return dispatcher.Stages.find((x) => x.constructor.name === 'OrderingStage') as unknown as { Queue: SerialQueue; Log: { error: (...args: unknown[]) => void } };
+    const registry = await DI.resolve(SocketHandlerRegistry);
+    return registry.Middlewares.find((x) => x.constructor.name === 'OrderingStage') as unknown as { Queue: SerialQueue; Log: { error: (...args: unknown[]) => void } };
   };
 
   it('keeps the place of an aborted command until its handler settles', async () => {

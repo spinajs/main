@@ -4,6 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Ok, Policy, Post } from '@spinajs/http';
 import { InvitationService } from '@spinajs/teams';
 import '../schemas/provider.js';
+import { TeamsRateLimit } from '../rate-limits.js';
 
 import { NO_STORE } from '../http/answers.js';
 import { guarded } from '../http/errors.js';
@@ -30,6 +31,7 @@ export class InvitationsController extends BaseController {
    * @response 409 {TeamsError} invitation_expired, invitation_revoked or invitation_used_up
    */
   @Post('accept')
+  @TeamsRateLimit('accept')
   @Policy(IsAuthenticated)
   public async accept(@CurrentPrincipal() caller: Principal, @Body() body: AcceptInvitationBody) {
     return guarded(async () => new Ok(await this.Invitations.accept(caller, body.token), { Headers: [NO_STORE] }));

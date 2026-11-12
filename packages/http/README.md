@@ -109,7 +109,9 @@ export default {
     },
 
     // raw express middlewares, executed before routing
-    middlewares: [ /* helmet(), express.json(), ... */ ],
+    middlewares: [ /* helmet(), ... */ ],
+    // the built-in body and cookie parser server middlewares
+    bodyParsers: { json: { limit: '1mb' } },
 
     // signed cookie secret — ALWAYS override in production
     cookie: {
@@ -286,7 +288,7 @@ Every reply of a matched route (the action's, an error reply, an early answer, a
 
 `http.routes.middlewares` mounts route middlewares on every route ( names, classes or `{ service, options }` ), before the controller and route ones, eg. `routes: { middlewares: ['RouteTiming'] }`.
 
-Server middlewares ( every request, before static files and routing ) have the same hooks as route middlewares ( `onBefore`, `onAfter`, `onFinish`, `onAround` ) plus `Order`, `isEnabled()` and `handler()`; their `onAfter` runs after the route's, in reverse `Order`, for every framework reply, the 404 and error replies included. Shipped in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `PerfRollup`, `SlowRequestWarning`, `ThrottleMiddleware`, `CsrfGuard`. `NotFoundMiddleware` and `ErrorHandlerMiddleware` are the fixed tail of `HttpServer`, replaceable through DI. `before()` / `after()` are gone: a class that still defines one fails `HttpServer.resolve()`.
+Server middlewares ( every request, before routing; static files are served by one of them, `StaticFiles`, at `http.static.order`, 4.5 by default ) have the same hooks as route middlewares ( `onBefore`, `onAfter`, `onFinish`, `onAround` ) plus `Order`, `isEnabled()` and `handler()`; their `onAfter` runs after the route's, in reverse `Order`, for every framework reply, the 404 and error replies included. Shipped in `src/middlewares/`: `AccessLog`, `Cors`, `Compression`, `RequestId` ( w3c traceparent + `x-request-id` ), `ResponseTime`, `RealIp`, `ServerTiming`, `StaticFiles`, `PerfRollup`, `SlowRequestWarning`, `ThrottleMiddleware`, `CsrfGuard`, `CookieParserMiddleware`, `BodyLimits`, `JsonBodyParser`, `UrlencodedBodyParser`, `TextBodyParser`. `NotFoundMiddleware` and `ErrorHandlerMiddleware` are the fixed tail of `HttpServer`, replaceable through DI. `before()` / `after()` are gone: a class that still defines one fails `HttpServer.resolve()`.
 
 ## Controller discovery ( ControllerSource )
 

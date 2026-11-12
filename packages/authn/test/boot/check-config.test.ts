@@ -238,6 +238,18 @@ describe('authn:check-config', () => {
       expect(topics(await check(merge(noProxy, { authn: { http: { trustProxy: null } } })))).to.deep.eq(['proxy:warning']);
     });
 
+    it('warns when authn.http.trustProxy and http.trustProxy are both set and differ', async () => {
+      const findings = await check(merge(sound(), { authn: { http: { trustProxy: 2 } } }));
+      expect(topics(findings)).to.deep.eq(['proxy:warning']);
+      expect(findings[0].message).to.contain('authn.http.trustProxy').and.contain('http.trustProxy');
+      expect(await check(merge(sound(), { authn: { http: { trustProxy: 1 } } }))).to.deep.eq([]);
+    });
+
+    it('warns when authn.throttle.ipv6Prefix differs from http.throttle.ipv6Prefix', async () => {
+      expect(topics(await check(merge(sound(), { authn: { throttle: { ipv6Prefix: 56 } } })))).to.deep.eq(['throttle:warning']);
+      expect(await check(merge(sound(), { http: { throttle: { ipv6Prefix: 56 } } }))).to.deep.eq([]);
+    });
+
     it('takes either key, and 0 or a CIDR list as set', async () => {
       const noProxy = merge(sound(), { http: { trustProxy: null } });
       for (const trustProxy of [0, 2, ['10.0.0.0/8']]) {
