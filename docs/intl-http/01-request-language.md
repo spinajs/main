@@ -17,6 +17,7 @@
    - `guessLanguage()` from `@spinajs/intl` returns `storage.language`;
    - `TemplateResponse` renders through `@spinajs/templates`, which calls `guessLanguage()` when no language is passed;
    - `@spinajs/intl-orm` models translate their fields with `guessLanguage()`.
+8. `IntlHttpMiddleware.onAfter()` runs on every framework reply (success, error, early answer) of a request it stored a language for. It sets `Content-Language: <storage.language>` when the language is a language tag (`en`, `pt-BR`; `pt_BR` goes out as `pt-BR`) and the answer or a route middleware set none; a value that passed the length check but is no tag (`?lang=ąę`) gets no `Content-Language`, and the request answers as before. Unless `intl.http.vary` is `false`, it adds the headers `varyHeaders()` names to `Vary` (by default `Cookie` and `X-<name>`, eg. `Vary: Cookie, X-Lang`), keeping the fields already there, such as the `Origin` of CORS, and leaving an answer's own `Vary: *` alone. See [`Vary` and shared caches](#vary-and-shared-caches). A file served by the static middleware, a reply an action wrote to `res` itself and the `400` of a malformed language (the middleware was not entered) get neither header.
 
 ```mermaid
 sequenceDiagram
@@ -42,7 +43,7 @@ sequenceDiagram
 
 ## Configuration
 
-The keys belong to `@spinajs/intl`; its config file ships the defaults.
+`intl.queryParameter`, `intl.defaultLocale` and `intl.locales` belong to `@spinajs/intl`, whose config file ships their defaults. `intl.http.vary` belongs to this package: its schema (`INTL_HTTP_CONFIGURATION_SCHEMA`) gives the default, and no config file ships it.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
@@ -50,6 +51,7 @@ The keys belong to `@spinajs/intl`; its config file ships the defaults.
 | `intl.defaultLocale` | `string` | `'en'` | a locale with translations | Language stored when the request carries none. |
 | `intl.locales` | `string[]` | `['en']` | locale codes | Not read by this package. It does **not** limit the accepted languages. |
 | `http.bodyParsers.cookies.enabled` | `boolean` | `true` | | Keep the cookie parser on to read the language from a cookie. |
+| `intl.http.vary` | `boolean` | `true` | | `false`: no `Vary` on the replies. Registered by this package's schema (`INTL_HTTP_CONFIGURATION_SCHEMA`). See [`Vary` and shared caches](#vary-and-shared-caches). |
 
 ```js
 export default {
@@ -76,6 +78,7 @@ export default {
 | `defaultLocale` | `@Config('intl.defaultLocale')` | Fallback language. |
 | `Order` | constructor, `1` | Position among server middlewares. |
 | `detectLanguage(req)` | method | The language of the request; throws `InvalidArgument` for a malformed explicit value. Override it to change the rules and keep the stored value and the validation in one place. |
+| `varyHeaders()` | method | The request headers `detectLanguage(req)` reads, added to `Vary` on every reply: `['Cookie', 'X-<Name>']`. Override it together with `detectLanguage(req)` when the detection reads another header. |
 
 ### IntlHttpMiddleware: custom implementation
 
@@ -104,6 +107,11 @@ export class AcceptLanguageMiddleware extends IntlHttpMiddleware {
 
     return explicit ? detected : req.acceptsLanguages(...this.Locales) || detected;
   }
+
+  // Replies now depend on Accept-Language too: caches must key on it.
+  protected varyHeaders(): string[] {
+    return [...super.varyHeaders(), 'Accept-Language'];
+  }
 }
 
 // The default stays in the ServerMiddleware list unless it is removed.
@@ -121,6 +129,11 @@ DI.unregister(IntlHttpMiddleware);
 - **Plain cookies only:** the middleware reads `req.cookies`, not `req.signedCookies`. A signed language cookie is ignored or rejected.
 - **Cookie parser optional:** with `http.bodyParsers.cookies.enabled: false` and no parser of your own, the cookie source is skipped and the header is read next.
 - **Per request only:** the language is not written back to a cookie or session.
+- **`Vary` names what is read:** the default detection reads the query string, the cookie and the `x-<name>` header, never `Accept-Language`, so `Vary` lists `Cookie` and `X-<name>` (the query string is part of the URL a cache keys on). A `Vary` the answer set itself is kept: the fields join it.
+
+### `Vary` and shared caches
+
+`Vary: Cookie` tells a shared cache (a CDN, a reverse proxy) to key the reply on the whole `Cookie` header, not on the language cookie alone. With a session or analytics cookie, every visitor sends a different `Cookie`, so the cache keeps roughly one copy per visitor: it is correct, but it caches almost nothing. Keep `intl.http.vary` on unless the cache normalises its key itself: the language travels in the URL (the query parameter or a path prefix), and the CDN strips cookies from the cache key or keys only on the language cookie. Then set it to `false`, so the cache does not split on headers it already ignores. Without `Vary`, a cache that keys on the URL alone hands one language's answer to every client of that URL.
 
 ## Best practices
 
