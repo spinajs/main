@@ -4,7 +4,7 @@ A `ServerMiddleware` runs for every request the server gets, before static files
 
 ## How it works
 
-1. `HttpServer` autoinjects every class registered with `@Injectable(ServerMiddleware)` when it resolves, and sorts them by `Order`, ascending. Equal `Order`s keep the DI registration order: the order the classes were registered under `ServerMiddleware` (for `@Injectable`, the order their modules were imported), however long each one's `resolve()` takes.
+1. `HttpServer` autoinjects every class registered with `@Injectable(ServerMiddleware)` when it resolves, and sorts them by `Order`, ascending. Equal `Order`s keep the DI registration order: the order the classes were registered under `ServerMiddleware` (for `@Injectable`, the order their modules were imported), however long each one's `resolve()` takes. A replacement registered over a shipped class (`@Injectable(RealIp)`, `DI.register(Mine).as(AccessLog)`) that extends it takes that class's place among equal `Order`s; one that does not extend it comes after every registered one with the same `Order`.
 2. For each one it calls `isEnabled()` once: `false` mounts nothing. Settings are parsed and validated there or in `resolve()`, never per request.
 3. It mounts `handler()` when the middleware has one (a third-party Express handler, such as `compression`); otherwise the `onAround` handler, then the `onBefore` handler.
 4. `HttpServer.start()` mounts, after the controllers' routers, the 404 and the global error answer (see [NotFound and the global error answer](#notfound-and-the-global-error-answer)).
