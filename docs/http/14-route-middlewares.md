@@ -183,7 +183,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 | `resolveConfiguredTypes(key, base, entries, container)` | function | none | none | Turns the entries of a config key that lists services (`'Name' \| Class \| { service, options }`) into `{ type, entry, options }`, in config order, the way `http.routes.middlewares`, `http.errors.handlers` and `http.upload.middlewares` read theirs. A name is a type registered as `base` or a `base` subclass registered under that name. An unknown name, a class that does not extend `base` or an entry of another shape throws `InvalidOption` naming `key` and the entry. Instances are left to the caller. |
@@ -202,35 +202,33 @@ export default { http: { routes: { middlewares } } };
 
 ### `RouteMiddleware`: custom implementation
 
-Set `Cache-Control` per route, with the max age as a `@Middleware` option:
+Set `X-Robots-Tag` per route, with the directive as a `@Middleware` option:
 
 ```ts sample
 import { NewInstance } from '@spinajs/di';
 import { BaseController, BasePath, Get, IController, IReplyContext, IRoute, Middleware, Ok, RouteMiddleware, RouteType } from '@spinajs/http';
 
-/** NewInstance: each @Middleware(CacheControl, seconds) keeps its own max age. */
+/** NewInstance: each @Middleware(RobotsTag, directive) keeps its own directive. */
 @NewInstance()
-export class CacheControl extends RouteMiddleware {
-  constructor(protected MaxAgeSeconds: number = 60) {
+export class RobotsTag extends RouteMiddleware {
+  constructor(protected Directive: string = 'noindex') {
     super();
   }
 
   public isEnabled(route: IRoute, _controller: IController): boolean {
-    // Never cache writes.
-    return route.Type === RouteType.GET || route.Type === RouteType.HEAD;
+    // Only pages a crawler fetches.
+    return route.Type === RouteType.GET;
   }
 
-  public async onAfter({ res, error }: IReplyContext): Promise<void> {
-    if (error !== undefined) {
-      res.setHeader('Cache-Control', 'no-store');
-    } else if (!res.hasHeader('Cache-Control')) {
-      res.setHeader('Cache-Control', `public, max-age=${this.MaxAgeSeconds}`);
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    if (!res.hasHeader('X-Robots-Tag')) {
+      res.setHeader('X-Robots-Tag', this.Directive);
     }
   }
 }
 
 @BasePath('catalog')
-@Middleware(CacheControl, 300)
+@Middleware(RobotsTag, 'noindex')
 export class CatalogController extends BaseController {
   @Get('categories')
   public categories() {
@@ -240,14 +238,14 @@ export class CatalogController extends BaseController {
   // The route-level middleware is entered after the controller-level one, so its onAfter runs first: its header
   // is set when the controller-level one looks.
   @Get('prices')
-  @Middleware(CacheControl, 10)
+  @Middleware(RobotsTag, 'noindex, nofollow')
   public prices() {
     return new Ok({ lamp: 49 });
   }
 }
 ```
 
-Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`: the reply pipeline adds every header the hooks set on `ctx.res`, even to the value it already had, to the response's headers, which `execute()` applies last. When a throwing `onAfter` turns the reply into an error reply, the headers the earlier hooks set on `ctx.res` are put back as they were, so the error reply never carries a header meant for the success reply; headers the error handlers set while making the error reply stay. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
+Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win over the `Response`'s own `IResponseOptions.Headers`. When `execute()` of the reply then fails (its data rejects), the headers the hooks set on `ctx.res` are put back as they were before the hooks, so the error reply the failure is answered with does not carry them: the reply pipeline adds every header the hooks set on `ctx.res`, even to the value it already had, to the response's headers, which `execute()` applies last. When a throwing `onAfter` turns the reply into an error reply, the headers the earlier hooks set on `ctx.res` are put back as they were, so the error reply never carries a header meant for the success reply; headers the error handlers set while making the error reply stay. A `Response` whose overridden `execute()` writes a header on `res` itself still wins over a hook. `Set-Cookie` is left out of this merge: the response's cookies are appended to those a hook set.
 
 ## Around middlewares
 
@@ -354,6 +352,62 @@ export class SearchController extends BaseController {
 ```
 
 `RouteTiming` is registered as `RouteMiddleware`, so `http.routes.middlewares: ['RouteTiming']` times every route.
+
+## Built-in: `CacheControl` and `NoStore`
+
+`CacheControl(maxAge, options?)` sets `Cache-Control` on the replies of a GET, HEAD or FILE route; other routes do not mount it.
+
+| Reply | `Cache-Control` |
+| --- | --- |
+| 2xx or 304 | `max-age=<maxAge>` and the options below |
+| 2xx or 304 to a request with `Authorization`, or one that sets a cookie (`IResponseOptions.Coockies`, or `res.cookie()` before `CacheControl`'s `onAfter`; a cookie a later `onAfter`, such as a server middleware's, sets is not seen) | `private, max-age=<maxAge>`, even with `public: true`: a shared cache must not hand one client's answer or cookie to another |
+| other 3xx | none, unless `redirects: true`: a redirect to a login page must not be kept for everyone |
+| an error reply, or 400 and above | `no-store`, so a cache never keeps a failure |
+| a reply that fails while it is sent (eg. its data rejects) | none: the error reply the failure is answered with drops the headers the `onAfter` hooks set for the failed reply |
+
+| Option | Directive |
+| --- | --- |
+| `public: true` | `public`: a shared cache may keep the reply even to a request with `Authorization` (RFC 9111 §3.5); off by default |
+| `private: true` | `private`: only the browser may keep the reply |
+| `redirects: true` | 3xx replies get the directives too |
+| `staleWhileRevalidate: <seconds>` | `stale-while-revalidate=<seconds>` (RFC 5861) |
+| `immutable: true` | `immutable` (RFC 8246) |
+
+`maxAge` and `staleWhileRevalidate` must be non-negative integers, and `public` and `private` exclude each other; another value throws `InvalidArgument` when the route is built. A `Cache-Control` the answer set itself (`IResponseOptions.Headers`) or an earlier step set on `res` (the `no-store` of an authenticated request) is kept. With `CacheControl` on both the controller and the route, the route's wins: its `onAfter` runs first.
+
+`NoStore` sets `Cache-Control: no-store` and `Pragma: no-cache` on every reply of the route: in `onBefore`, so a reply the action writes to `res` itself has them, and again in `onAfter`, so they win over a `Cache-Control` the answer set itself and go out with error replies. Use it for answers that hold a secret: a token, a share link. A refusal of the policy gate comes before it and does not get them.
+
+```ts sample
+import { BaseController, BasePath, CacheControl, Get, Middleware, NoStore, Ok, Post } from '@spinajs/http';
+
+@BasePath('products')
+@Middleware(CacheControl, 300)
+export class ProductsController extends BaseController {
+  @Get()
+  public list() {
+    return new Ok([]);
+  }
+  // Cache-Control: max-age=300
+
+  @Get('featured')
+  @Middleware(CacheControl, 60, { staleWhileRevalidate: 30 })
+  public featured() {
+    return new Ok([]);
+  }
+  // Cache-Control: max-age=60, stale-while-revalidate=30
+
+  @Post('share')
+  @Middleware(NoStore)
+  public share() {
+    return new Ok({ link: 'https://example.com/s/abc' });
+  }
+  // Cache-Control: no-store, Pragma: no-cache
+}
+```
+
+Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']` marks every route, `{ service: 'CacheControl', options: [60] }` every GET route. The `private` downgrade only sees `Authorization` and cookies set on the reply: a per-user reply authenticated by a session cookie the request carries, with no `no-store` from the authentication (authn-http sets one), goes out `max-age=60`, and a shared cache may keep it. Declare `private: true` or `NoStore` on routes that answer per user. `CacheControl` is `@NewInstance()`, so each declaration keeps its own options.
+
+For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control', Value: 'no-store' }`) in its `IResponseOptions.Headers`: `new Ok(body, { Headers: [NO_STORE] })`.
 
 ## Built-in: `Audit`
 

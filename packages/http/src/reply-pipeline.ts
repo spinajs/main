@@ -336,11 +336,13 @@ async function send(req: express.Request, res: express.Response, state: IReplySt
   let error = options.error;
 
   const pending = (state.pending ??= innerFirst(state.entered, 'onAfter'));
+  let watch: IHeaderWatch | undefined;
   if (!res.headersSent && pending.length > 0) {
     // only a captured reply needs to know which of its headers are the route's own
     const captured = responseCaptureOf(res) !== undefined;
     let own = captured ? headerNamesOf(current) : undefined;
-    const watch = watchHeaderWrites(res);
+    watch = watchHeaderWrites(res);
+    const watched = watch;
     // the hooks of one scope share one base context, so they share one reply context, updated between them
     let ctx: (IReplyContext & { error?: unknown }) | undefined;
     let ctxBase: IMiddlewareContext | undefined;
@@ -371,12 +373,12 @@ async function send(req: express.Request, res: express.Response, state: IReplySt
           // headers the hooks set for the reply that failed must not go out with the error reply; those the error
           // handlers set are its own, so they are not watched
           const turned = await turnIntoErrorReply(req, res, state, entry, err, options, async (makeReply) => {
-            restoreWatched(res, watch);
-            watch.paused = true;
+            restoreWatched(res, watched);
+            watched.paused = true;
             try {
               return await makeReply();
             } finally {
-              watch.paused = false;
+              watched.paused = false;
             }
           });
           if (turned) {
@@ -387,9 +389,9 @@ async function send(req: express.Request, res: express.Response, state: IReplySt
         }
       }
     } finally {
-      stopWatching(res, watch);
+      stopWatching(res, watched);
     }
-    keepHeadersSetByHooks(res, watch.names, current, own);
+    keepHeadersSetByHooks(res, watched.names, current, own);
   }
 
   if (error !== undefined) {
@@ -398,9 +400,18 @@ async function send(req: express.Request, res: express.Response, state: IReplySt
 
   guardResponseContract(res, options.container ?? state.route?.container ?? DI.RootContainer, options.routeContract === false ? undefined : state.route?.contract);
 
-  const callback = (await current.execute(req, res)) as ResponseFunction | void;
-  if (callback) {
-    await callback(req, res);
+  try {
+    const callback = (await current.execute(req, res)) as ResponseFunction | void;
+    if (callback) {
+      await callback(req, res);
+    }
+  } catch (err) {
+    // the error reply the caller answers this failure with must not carry what the hooks set for the failed reply,
+    // eg. a Cache-Control that lets a cache keep the error
+    if (watch && !res.headersSent) {
+      restoreWatched(res, watch);
+    }
+    throw err;
   }
 }
 

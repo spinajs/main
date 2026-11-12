@@ -63,6 +63,7 @@ export * from './middlewares/RequestDeadline.js';
 export * from './middlewares/RateLimit.js';
 export * from './middlewares/ResponseTime.js';
 export * from './middlewares/RouteTiming.js';
+export * from './middlewares/CacheControl.js';
 export * from './middlewares/Audit.js';
 export * from './middlewares/ReqStorage.js';
 export { RequestId as RequestIdMiddleware } from './middlewares/RequestId.js';
