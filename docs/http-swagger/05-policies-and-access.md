@@ -26,12 +26,13 @@ Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-
 2. Each answer is added under its status, unless the JSDoc or `@Access` already set that status. Between middlewares the later one wins, so a route's own `@RateLimit` answers over its controller's.
 3. An answer with a `component` is registered once under `components.responses` and referred to with a `$ref`. Any other answer is inline: its description, its `headers`, and a body from `schema` or from the named `type` (resolved like `@response 429 {AuthnError}`), under `contentType` (default `application/json`).
 4. The `headers` a middleware sets on the route's own success answers go to the route's inline `2xx` responses. A `$ref` response is left alone.
-5. Its `x-` extensions are copied onto the operation. An array extension that two middlewares set is concatenated.
+5. Its `x-` extensions are copied onto the operation. An array extension that two middlewares set is concatenated. A key the operation already has, such as `x-authz-domain` from `@Access`, keeps its value unless both values are arrays.
 
 For `@RateLimit` this gives ([what it documents](../http/18-throttling.md#in-api-documents)):
 
 - headers off (the default): `429` as a `$ref` to the shared `TooManyRequests` response, whose body is the `E_TOO_MANY_REQUESTS` error and whose only header is `Retry-After`;
 - headers on: an inline `429` with `Retry-After` and `X-RateLimit-*`, `X-RateLimit-*` on the success answers, and `x-rate-limit`;
+- a closed route (`limit: 0`): an inline `429` without `Retry-After`, with only `X-RateLimit-Limit` and `X-RateLimit-Remaining` when the headers are on, and no headers on the success answers ([closed routes](../http/18-throttling.md#in-api-documents));
 - a custom `answer` marked with `documentedAnswer`: its own status and description; an unmarked one adds nothing;
 - `@RateLimit({ config: false })`, or a configured `false`: nothing, since the middleware is not mounted.
 

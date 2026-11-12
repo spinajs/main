@@ -9,6 +9,28 @@ import '../src/index.js';
 
 const RATE_LIMIT_HEADERS = ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'];
 
+// Only what the assertions read, typed as present: an absent field is what some of them check.
+interface ISchemaDoc {
+  type: string;
+  required: string[];
+  enum: unknown[];
+  properties: Record<string, ISchemaDoc>;
+}
+
+interface IResponseDoc {
+  $ref: string;
+  description: string;
+  headers: Record<string, { schema: ISchemaDoc }>;
+  content: Record<string, { schema: ISchemaDoc }>;
+}
+
+type OperationDoc = { responses: Record<string, IResponseDoc> } & Record<`x-${string}`, unknown>;
+
+interface ISpecDoc {
+  paths: Record<string, Record<string, OperationDoc>>;
+  components: { responses: Record<string, IResponseDoc> };
+}
+
 class RateLimitedConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -19,7 +41,7 @@ class RateLimitedConfiguration extends TestConfiguration {
 describe('Swagger middleware responses', function () {
   this.timeout(30000);
 
-  let spec: any;
+  let spec: ISpecDoc;
   const op = (route: string) => spec.paths[`/limits/${route}`].post;
 
   before(async () => {
@@ -33,15 +55,15 @@ describe('Swagger middleware responses', function () {
     await DI.resolve(Controllers);
 
     const server = await DI.resolve<HttpServer>(HttpServer);
-    server.start();
+    await server.start();
 
     const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
-    spec = JSON.parse(result.text);
+    spec = JSON.parse(result.text) as ISpecDoc;
   });
 
   after(async () => {
     const server = await DI.resolve<HttpServer>(HttpServer);
-    server.stop();
+    await server.stop();
     DI.clearCache();
   });
 
@@ -104,7 +126,7 @@ describe('Swagger middleware responses', function () {
     expect(op('inherited').responses['429']).to.deep.equal({ $ref: '#/components/responses/TooManyRequests' });
   });
 
-  it("lets the route's own limit answer over the controller's, and lists both limits", () => {
+  it("lets the route's own limit answer over the controller's, and lists only the limit that sends headers", () => {
     const operation = spec.paths['/class-limits/narrowed'].post;
     expect(operation.responses['429'].description).to.equal('Route limit hit');
     expect(Object.keys(operation.responses['429'].headers)).to.deep.equal(['Retry-After']);
@@ -116,6 +138,27 @@ describe('Swagger middleware responses', function () {
     const tooMany = spec.paths['/class-limits/unmarkedOwn'].post.responses['429'];
     expect(tooMany.description).to.equal('Too many requests');
     expect(Object.keys(tooMany.headers)).to.have.members(['Retry-After', ...RATE_LIMIT_HEADERS]);
+  });
+
+  it('lists the x-rate-limit entries of both limits when both send headers, the controller one first', () => {
+    const operation = spec.paths['/class-limits/bothLoud'].post;
+    expect(operation['x-rate-limit']).to.deep.equal([
+      { limit: 100, windowSeconds: 60, by: 'ip' },
+      { limit: 5, windowSeconds: 60, by: 'ip' },
+    ]);
+  });
+
+  it('keeps the 403 of @Access over a middleware answer on the same status', () => {
+    const { responses } = spec.paths['/guarded/overlapping'].post;
+    expect(responses['403']).to.deep.equal({ $ref: '#/components/responses/Forbidden' });
+    expect(responses['401']).to.deep.equal({ $ref: '#/components/responses/Unauthorized' });
+    expect(responses['423'].description).to.equal('Locked');
+  });
+
+  it('keeps the x-authz-domain of @Access when a middleware sends the same extension', () => {
+    const operation = spec.paths['/guarded/overlapping'].post;
+    expect(operation['x-authz-domain']).to.equal('tenant');
+    expect(operation['x-guarded']).to.equal(true);
   });
 
   it("documents the controller's limit on a route without its own", () => {

@@ -17,6 +17,12 @@ export class ClassRateLimitedController extends BaseController {
   }
 
   @Post()
+  @RateLimit({ limit: 5, windowSeconds: 60, headers: true })
+  public bothLoud() {
+    return new Ok();
+  }
+
+  @Post()
   public wide() {
     return new Ok();
   }

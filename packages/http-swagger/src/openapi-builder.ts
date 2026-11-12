@@ -175,6 +175,15 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
   '500': 'Internal server error',
 };
 
+/** A middleware's `x-` extensions onto `target`; a key in `presetKeys` keeps its value unless both values are arrays. */
+function mergeExtensions(target: Record<string, unknown>, extensions: Record<string, unknown>, presetKeys: ReadonlySet<string>): void {
+  for (const [key, value] of Object.entries(extensions)) {
+    const current = target[key];
+    if (Array.isArray(current) && Array.isArray(value)) target[key] = [...current, ...value];
+    else if (!presetKeys.has(key)) target[key] = value;
+  }
+}
+
 /**
  * Which side of the wire a schema describes. A model's `@Schema` is the WRITE contract
  * (what a client may send); its columns are the READ contract (what the API hands back).
@@ -414,10 +423,11 @@ ${line}` : line;
   /**
    * Add what the route's mounted middlewares document. A status the JSDoc or `applyAccess` set stays; between
    * middlewares the later mounted one wins, so a route's own `@RateLimit` answers over its controller's.
-   * Success headers go to the route's own inline 2xx answers.
+   * Success headers go to the route's own inline 2xx answers. An extension key already on the operation
+   * (`x-authz-*` from `applyAccess`/`applyPolicies`) stays, unless both values are arrays: those concatenate.
    */
-  private applyMiddlewares(operation: IOpenApiOperation, controller: BaseController, method: string | symbol, route: IRoute): void {
-    // optional call: addController is also fed hand-built instances (tests, tooling) that are no BaseController
+  private applyMiddlewares(operation: IOpenApiOperation, controller: Partial<Pick<BaseController, 'MountedMiddlewares'>>, method: string | symbol, route: IRoute): void {
+    // addController is also fed hand-built instances (tests, tooling) that are no BaseController
     const docs = (controller.MountedMiddlewares?.(method) ?? []).flatMap((m) => m.documentation?.(route) ?? []);
     if (docs.length === 0) return;
 
@@ -425,14 +435,12 @@ ${line}` : line;
     const answers: Record<string, IDocumentedAnswer> = {};
     const successHeaders: Record<string, IDocumentedHeader> = {};
     const extensions = operation as unknown as Record<string, unknown>;
+    const presetKeys = new Set(Object.keys(extensions));
 
     for (const doc of docs) {
       Object.assign(answers, doc.responses);
       Object.assign(successHeaders, doc.headers);
-      for (const [key, value] of Object.entries(doc.extensions ?? {})) {
-        const current = extensions[key];
-        extensions[key] = Array.isArray(current) && Array.isArray(value) ? [...current, ...value] : value;
-      }
+      mergeExtensions(extensions, doc.extensions ?? {}, presetKeys);
     }
 
     for (const [status, answer] of Object.entries(answers)) {
