@@ -4,6 +4,7 @@ import sinon from 'sinon';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { RealIp, parseTrustProxy, parseTrustProxyOverride, requestProxyTrust, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
+import type { ClientAddressSource } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -223,6 +224,33 @@ describe('trusted client address (RealIp)', () => {
       run(readingFrom(new OverridingRealIp(), child), req);
       expect(req.storage.realIp).to.eq(SPOOF);
       expect(req.storage.proxyTrust).to.deep.eq({ hops: 2 });
+    });
+
+    it('clientAddress(req) is the address onBefore writes to realIp', async () => {
+      const mw = await realIp(['203.0.113.0/24']);
+      const req = fakeReq(`${SPOOF}, 192.0.2.1`);
+      run(mw, req);
+      expect(req.storage.realIp).to.eq('192.0.2.1');
+      expect(mw.clientAddress(req)).to.eq(req.storage.realIp);
+    });
+
+    it('a subclass overriding clientAddress() decides realIp', async () => {
+      class CdnRealIp extends RealIp {
+        override clientAddress(r: ClientAddressSource) {
+          return r.headers['cf-connecting-ip'] as string | undefined;
+        }
+      }
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { trustProxy: null } } });
+      const req = fakeReq(SPOOF, SOCKET, { headers: { 'x-forwarded-for': SPOOF, 'cf-connecting-ip': '192.0.2.77' } });
+      run(readingFrom(new CdnRealIp(), child), req);
+      expect(req.storage.realIp).to.eq('192.0.2.77');
+    });
+
+    it('effectiveTrust() is the trust onBefore stores', async () => {
+      const mw = await realIp(2);
+      const req = fakeReq();
+      run(mw, req);
+      expect(mw.effectiveTrust()).to.deep.eq(req.storage.proxyTrust).and.deep.eq({ hops: 2 });
     });
   });
 

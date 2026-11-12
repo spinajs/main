@@ -29,6 +29,7 @@ The package config adds its controllers directory to `system.dirs.controllers`, 
 | [Rules, policies and scope attributes](05-rules-policies-and-scope-attributes.md) | Put, delete and list RBAC rules and ABAC policies; read, merge and replace the attributes of a scope node. |
 | [OpenAPI documentation](06-openapi-documentation.md) | The request DTOs document the bodies; `AuthzAdminSchemaProvider` and `describeAuthzAdminDocument` add the batch body and the query parameters to the http-swagger document. |
 | [Custom admin routes](07-custom-admin-routes.md) | Build your own routes over `AuthzAdmin` with the exported decoding, query and status helpers. |
+| [Rate limits](08-rate-limits.md) | The shipped `@RateLimit` of the command batch and every write route, and their `authz.http.admin.rateLimit.*` keys. |
 
 ## Quick start
 

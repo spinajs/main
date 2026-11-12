@@ -52,6 +52,13 @@ const http = {
     ],
   },
 
+  validation: {
+    strict: {
+      // added to the shipped prefixes: @RateLimit options come from code and JSON config, and must not be coerced
+      idPrefixes: ['http.rateLimit.'],
+    },
+  },
+
   http: {
     /**
      * Cookie defaults. This MUST live under `http.` - every consumer reads
