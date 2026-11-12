@@ -116,6 +116,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
 | `@Deadline(ms)` | class or method | positive milliseconds | Adds `DeadlineMiddleware`, which moves the request's deadline earlier, never later; see [Request deadlines](29-request-deadlines.md). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
+| `@Consumes(...types)` | class or method | media types as `req.is()` takes them: `'application/json'`, `'text/*'`, `'json'` | Adds `ConsumesMiddleware`, which refuses a request with a body of none of `types` with `UnsupportedMediaTypeException`, answered as `UnsupportedMediaType` (415). See [`@Consumes`](#consumes). |
 | `@Deprecated(options)` | class or method | `{ since: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 | `@RateLimit(limit, windowSeconds, by?)` | class or method | `limit` per `windowSeconds`, counted per client address (`'ip'`, default) or per authenticated principal (`'principal'`) | Adds `RateLimitMiddleware` (`'outer'`), which answers 429 with `Retry-After` over the limit; one counter per route. See [Throttling](18-throttling.md#per-route-limits-ratelimit). |
 
@@ -134,6 +135,32 @@ The `Accept` header is matched with Express's `req.accepts()`, which honours lis
 | none of the above | `OTHER` (64) |
 
 `*/*` or a missing header allows every type, so it sets every flag except `OTHER`. `@AcceptType()` gives an action the same value as an argument.
+
+### `@Consumes`
+
+`@Consumes(...types)` checks the request's `Content-Type` against `types` with Express's `req.is()`, which ignores parameters such as `charset`, and takes wildcards (`text/*`) and extensions (`json`). A request without a body (no `Transfer-Encoding`, no `Content-Length` or `Content-Length: 0`) passes, whatever its method. A body without a `Content-Type` is refused, an empty one sent with `Transfer-Encoding: chunked` too: the request announces a body. Every 415 is logged on the `http` logger like any error of the route, as the 406 of `@Accepts` is. The 415 answer is the error answer of `UnsupportedMediaTypeException`, the same shape as the 406 of `@Accepts`: a problem document whose `detail` names the accepted types, or the HTML error page for an HTML client. `@Consumes()` without a type throws `InvalidArgument` at import.
+
+With `@Consumes` on both the controller and a route, the route's declaration replaces the controller's on that route.
+
+```ts sample
+import { BaseController, BasePath, Body, Consumes, Ok, Post } from '@spinajs/http';
+
+@BasePath('imports')
+@Consumes('application/json')
+export class ImportsController extends BaseController {
+  @Post()
+  public create(@Body() data: object) {
+    return new Ok(data);
+  }
+
+  @Post('csv')
+  @Consumes('text/csv')
+  public csv(@Body() rows: string) {
+    return new Ok({ size: rows.length });
+  }
+}
+// POST /imports with Content-Type: text/plain -> 415 { detail: 'the request body must be application/json' }
+```
 
 ## Global route middlewares
 
@@ -186,7 +213,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `ConsumesMiddleware` (mounted by `@Consumes`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 | `resolveConfiguredTypes(key, base, entries, container)` | function | none | none | Turns the entries of a config key that lists services (`'Name' \| Class \| { service, options }`) into `{ type, entry, options }`, in config order, the way `http.routes.middlewares`, `http.errors.handlers` and `http.upload.middlewares` read theirs. A name is a type registered as `base` or a `base` subclass registered under that name. An unknown name, a class that does not extend `base` or an entry of another shape throws `InvalidOption` naming `key` and the entry. Instances are left to the caller. |
