@@ -172,6 +172,7 @@ The CLI passes no security schemes: call the function to add them.
 
 - A route inherited from an abstract base controller is served but not in the document, because the manifest lists such a base under `controllerBases` ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
+- The document has no middleware answers: the manifest holds no runtime middleware, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
 
 ## Related
 
