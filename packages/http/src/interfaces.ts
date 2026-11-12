@@ -102,7 +102,9 @@ export interface IHttpServerConfiguration {
   Static: IHttpStaticFileConfiguration[];
 
   static?: {
-    /** The `Order` among the server middlewares at which `Static` mounts. Default 4.5; `Infinity` mounts it after all of them. */
+    /** false: the StaticFiles middleware serves no `Static` entry. Default true. */
+    enabled?: boolean;
+    /** The `Order` of the StaticFiles server middleware. Default 4.5; `Infinity` mounts it after all of them. */
     order?: number;
   };
 
@@ -126,14 +128,39 @@ export interface IHttpServerConfiguration {
  */
 export interface IHttpStaticFileConfiguration {
   /**
-   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
+   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg; default `/static`
    */
-  Route: string;
+  Route?: string;
 
   /**
    * full path to folder with static content
    */
   Path: string;
+
+  /** `express.static` (serve-static) options of this directory. */
+  Options?: IHttpStaticFileOptions;
+}
+
+/** The JSON-configurable `express.static` options. */
+export interface IHttpStaticFileOptions {
+  /** Cache-Control max-age, in milliseconds or an ms string ('1d'). Default 0. */
+  maxAge?: number | string;
+  /** Adds `immutable` to Cache-Control; needs `maxAge`. */
+  immutable?: boolean;
+  /** Dot files: 'ignore' (default, 404 as if absent), 'allow' or 'deny' (403). */
+  dotfiles?: 'allow' | 'deny' | 'ignore';
+  etag?: boolean;
+  lastModified?: boolean;
+  /** Directory index file(s); false disables. Default 'index.html'. */
+  index?: string | string[] | false;
+  /** Extensions tried when a file is not found, e.g. ['html']. */
+  extensions?: string[] | false;
+  /** false answers a missing file with 404 instead of passing it on to the later middlewares and routing. Default true. */
+  fallthrough?: boolean;
+  /** Redirect a directory path to its trailing slash. Default true. */
+  redirect?: boolean;
+  acceptRanges?: boolean;
+  cacheControl?: boolean;
 }
 
 export enum FileTypeEnum {

@@ -81,12 +81,45 @@ export const HTTP_CONFIGURATION_SCHEMA = {
     static: {
       type: 'object',
       default: {},
+      propertyNames: { enum: ['enabled', 'order'] },
       properties: {
+        enabled: { enum: [true, false], default: true, description: 'false: the StaticFiles server middleware serves no http.Static entry.' },
         // Ajv's number type refuses Infinity, the value that restores the 3.x placement.
         order: {
           anyOf: [{ type: 'number' }, { const: Infinity }],
           default: 4.5,
-          description: 'The Order among the server middlewares at which the http.Static directories mount: after CsrfGuard (4), before authentication (5). Infinity: after every server middleware.',
+          description: 'The Order of the StaticFiles server middleware, which serves every http.Static entry: after CsrfGuard (4), before authentication (5). Infinity: after every server middleware.',
+        },
+      },
+    },
+    Static: {
+      type: 'array',
+      description: 'Static directories served by the StaticFiles server middleware, each at its own Route. Packages and the app each add entries: the lists concatenate.',
+      items: {
+        type: 'object',
+        required: ['Path'],
+        propertyNames: { enum: ['Route', 'Path', 'Options'] },
+        properties: {
+          Route: { type: 'string', pattern: '^/', default: '/static' },
+          Path: nonEmpty,
+          Options: {
+            type: 'object',
+            description: 'express.static (serve-static) options of this directory.',
+            propertyNames: { enum: ['maxAge', 'immutable', 'dotfiles', 'etag', 'lastModified', 'index', 'extensions', 'fallthrough', 'redirect', 'acceptRanges', 'cacheControl'] },
+            properties: {
+              maxAge: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'string', minLength: 1 }] },
+              immutable: { enum: [true, false] },
+              dotfiles: { enum: ['allow', 'deny', 'ignore'] },
+              etag: { enum: [true, false] },
+              lastModified: { enum: [true, false] },
+              index: { anyOf: [{ const: false }, nonEmpty, { type: 'array', items: nonEmpty }] },
+              extensions: { anyOf: [{ const: false }, { type: 'array', items: nonEmpty }] },
+              fallthrough: { enum: [true, false] },
+              redirect: { enum: [true, false] },
+              acceptRanges: { enum: [true, false] },
+              cacheControl: { enum: [true, false] },
+            },
+          },
         },
       },
     },

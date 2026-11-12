@@ -40,6 +40,19 @@ describe('http configuration schema', () => {
     });
   });
 
+  describe('Static', () => {
+    it('accepts entries with a route, a path and express.static options', async () => {
+      expect(await bad({ static: { enabled: false }, Static: [{ Path: '/srv/a' }, { Route: '/b', Path: '/srv/b', Options: { maxAge: '1d', immutable: true, index: false, extensions: ['html'], dotfiles: 'deny' } }] })).to.deep.eq([]);
+    });
+
+    it('refuses a misspelt key, a route without a leading slash and an unknown option', async () => {
+      expect(await bad({ Static: [{ Route: '/a', Pth: '/srv/a' }] })).to.not.deep.eq([]);
+      expect(await bad({ Static: [{ Route: 'a', Path: '/srv/a' }] })).to.not.deep.eq([]);
+      expect(await bad({ Static: [{ Path: '/srv/a', Options: { maxage: 1 } }] })).to.not.deep.eq([]);
+      expect(await bad({ static: { order: 4.5, enable: true } })).to.not.deep.eq([]);
+    });
+  });
+
   describe('bodyParsers', () => {
     it('accepts the four parsers, refuses a misspelt key', async () => {
       expect(await bad({ bodyParsers: { json: { limit: '1mb' }, urlencoded: {}, text: { enabled: false }, cookies: {} } })).to.deep.eq([]);

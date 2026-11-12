@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 
-import { httpApp, req, TestConfiguration } from './common.js';
+import { dir, httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, Ok, ServerMiddleware } from '../src/index.js';
 import type { IFinishContext, IMiddlewareContext } from '../src/index.js';
 
@@ -51,13 +51,12 @@ class StaticOrderController extends BaseController {
   }
 }
 
-async function boot(order?: number): Promise<TestApp> {
+/** Boots the test app with `http` keys replaced: `static`, `Static`. */
+async function boot(http: Record<string, unknown> = {}): Promise<TestApp> {
   class StaticOrderConfiguration extends TestConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
-      if (order !== undefined) {
-        (this.Config as { http: Record<string, unknown> }).http.static = { order };
-      }
+      Object.assign((this.Config as { http: Record<string, unknown> }).http, http);
     }
   }
 
@@ -121,7 +120,7 @@ describe('Static files at http.static.order', function () {
     let app: TestApp;
 
     before(async () => {
-      app = await boot(Infinity);
+      app = await boot({ static: { order: Infinity } });
     });
 
     after(async () => {
@@ -138,6 +137,56 @@ describe('Static files at http.static.order', function () {
 
       expect(res.status).to.eq(200);
       expect(calls).to.deep.eq(['4:before', '5:before', '5:finish', '4:finish']);
+    });
+  });
+
+  describe('the StaticFiles middleware', () => {
+    let app: TestApp | undefined;
+
+    afterEach(async () => {
+      await app?.dispose();
+      app = undefined;
+    });
+
+    beforeEach(() => {
+      calls.length = 0;
+    });
+
+    it('serves every http.Static entry at its own route, each with its own express.static options', async () => {
+      app = await boot({
+        Static: [
+          { Route: '/public', Path: dir('/public') },
+          { Route: '/assets', Path: dir('/public'), Options: { maxAge: 3600000, immutable: true } },
+        ],
+      });
+
+      const plain = await req().get('public/index.html');
+      const cached = await req().get('assets/index.html');
+
+      expect([plain.status, cached.status]).to.deep.eq([200, 200]);
+      expect(plain.headers['cache-control']).to.eq('public, max-age=0');
+      expect(cached.headers['cache-control']).to.eq('public, max-age=3600, immutable');
+    });
+
+    it('answers a missing file itself with Options.fallthrough: false, before the later middlewares', async () => {
+      app = await boot({ Static: [{ Route: '/public', Path: dir('/public'), Options: { fallthrough: false, dotfiles: 'deny' } }] });
+
+      const missing = await req().get('public/missing-file.txt');
+      const dotfile = await req().get('public/.hidden');
+      await until(() => calls.filter((c) => c === '4:finish').length === 2);
+
+      expect([missing.status, dotfile.status]).to.deep.eq([404, 403]);
+      expect(calls).to.not.include('5:before');
+    });
+
+    it('serves nothing with http.static.enabled: false', async () => {
+      app = await boot({ static: { enabled: false } });
+
+      const res = await req().get('public/index.html').set('Accept', 'application/json');
+      await until(() => calls.includes('4:finish'));
+
+      expect(res.status).to.eq(404);
+      expect(calls).to.include('5:before');
     });
   });
 });

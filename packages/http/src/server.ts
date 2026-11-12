@@ -7,9 +7,7 @@ import '@spinajs/templates-pug';
 
 import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
-import { existsSync } from 'fs';
 import Express, { ErrorRequestHandler, RequestHandler } from 'express';
-import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
@@ -33,6 +31,7 @@ import './middlewares/Compression.js';
 import './middlewares/Cors.js';
 import './middlewares/SlowRequestWarning.js';
 import './middlewares/ServerTiming.js';
+import './middlewares/StaticFiles.js';
 import { limitsBeforeMiddlewares } from './middlewares/BodyParsers.js';
 
 @Injectable()
@@ -66,11 +65,6 @@ export class HttpServer extends AsyncService {
     defaultValue: 10000,
   })
   protected ShutdownTimeout!: number;
-
-  @Config('http.static.order', {
-    defaultValue: 4.5,
-  })
-  protected StaticOrder!: number;
 
   /**
    * Express app instance
@@ -194,19 +188,11 @@ export class HttpServer extends AsyncService {
     return globalErrorReplier(this.ErrorHandler, req);
   }
 
-  /** In ascending `Order`, the static files at `http.static.order`: after the middlewares of an equal `Order`. */
   private _mountServerMiddlewares() {
     const options = { log: this.Log, container: this.Container, errorReply: (req: Express.Request) => this._errorReplier(req) };
-    const staticOrder = this.StaticOrder ?? 4.5;
-    let staticMounted = false;
 
     for (const m of this.Middlewares) {
       const name = m.constructor.name;
-
-      if (!staticMounted && m.Order > staticOrder) {
-        this._serverStaticFiles();
-        staticMounted = true;
-      }
 
       if (!m.isEnabled()) {
         this.Log.info({ middleware: name }, 'Server middleware ${middleware} is disabled');
@@ -218,10 +204,6 @@ export class HttpServer extends AsyncService {
         this.Log.info({ middleware: name }, 'Using server middleware ${middleware}');
         handlers.forEach((h) => this.use(h));
       }
-    }
-
-    if (!staticMounted) {
-      this._serverStaticFiles();
     }
   }
 
@@ -301,25 +283,6 @@ export class HttpServer extends AsyncService {
         this.Log.error({ error: err }, 'Server error');
       });
     }
-  }
-
-  /**
-   * Server static files
-   */
-  private _serverStaticFiles() {
-    // uniqBy Path — Static entries are objects, so plain _.uniq (reference
-    // equality) would never dedupe two config entries pointing at the same dir.
-    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
-      if (!existsSync(s.Path)) {
-        this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
-        return;
-      }
-
-      const sRoute = s.Route ?? '/static';
-
-      this.Log.info({ path: s.Path, route: sRoute, order: this.StaticOrder }, 'Serving static content from: ${path} at path: ${route}, Order ${order}');
-      this.Express.use(sRoute, Express.static(s.Path));
-    });
   }
 
   /**
