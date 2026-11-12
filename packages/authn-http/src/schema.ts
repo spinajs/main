@@ -1,3 +1,8 @@
+import { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, rateLimitSchema } from './rate-limit-config.js';
+
+export { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, rateLimitSchema };
+export type { AuthnHttpRateLimitName } from './rate-limit-config.js';
+
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
 // @spinajs/http's parseOrigin, which also refuses a port above 65535 and a broken IPv6 literal.
 const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
@@ -50,6 +55,13 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
       properties: {
         basePath: { type: 'string', minLength: 1, description: 'Where the credential admin routes mount, without the global route prefix. Unset: authn/admin/users.' },
       },
+    },
+    rateLimit: {
+      type: 'object',
+      default: {},
+      description: 'The per-route limits of the anonymous routes (@RateLimit, per client address); read once when the routes mount.',
+      propertyNames: { enum: Object.keys(AUTHN_HTTP_RATE_LIMITS) },
+      properties: Object.fromEntries(Object.entries(AUTHN_HTTP_RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, AUTHN_HTTP_RATE_LIMITED_ROUTES[name as keyof typeof AUTHN_HTTP_RATE_LIMITS], { headers: false })])),
     },
     logout: {
       type: 'object',

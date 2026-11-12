@@ -71,6 +71,8 @@ sequenceDiagram
 
 `HttpServer` fixes its middleware list when it is constructed, and `Controllers` constructs it before scanning the controller directories. When the package loads after that (for example only through the controller scan), `AuthnMiddleware` misses the pipeline and no request is authenticated. The package then logs an error on the `authn-http` logger that names the fix.
 
+The same holds for `RealIp`: `@spinajs/http-socket`'s `SocketServer` resolves it when it starts and keeps that instance. When the package loads after `RealIp` was resolved, the kept instance is the plain `RealIp`, which ignores `authn.http.trustProxy`, so sockets and requests can see different client addresses. The package logs an error naming the fix: import `@spinajs/authn-http` before the socket server starts.
+
 `registerAuthnHttpV3(container?)` repeats the registration for another container. It is idempotent; tests call it for a child container that holds their fakes. An app does not need to call it.
 
 ## Configuration

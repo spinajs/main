@@ -11,9 +11,10 @@ import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnRegistrationBody, IDENTIFIER_CAP } from '../../dto/registration.js';
-import { mismatchOf, newPasswordRefused, passwordMismatch, passwordRejected, tooManyRequests } from '../../password/fields.js';
+import { mismatchOf, newPasswordRefused, passwordMismatch, passwordRejected, registerThrottled } from '../../password/fields.js';
 import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit } from '../../rate-limits.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE, hookRefusedAnswer } from '../responses.js';
@@ -75,8 +76,9 @@ export class AuthnRegistrationController extends BaseController {
    * @security []
    */
   @Post('auth/register')
+  @AuthnRateLimit('register', registerThrottled)
   @BotCheck('register')
-  @IpThrottle('register', (retryAfter) => tooManyRequests('too many registrations, try again later', retryAfter))
+  @IpThrottle('register', registerThrottled)
   @OnInvalidInput(
     byField(
       {
@@ -96,7 +98,7 @@ export class AuthnRegistrationController extends BaseController {
     const ctx = contextOf(client, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
     const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'register', ctx);
-    if (!gate.allowed) return tooManyRequests('too many registrations, try again later', gate.retryAfterSeconds);
+    if (!gate.allowed) return registerThrottled(gate.retryAfterSeconds);
 
     const passwords = await this.Container.resolve(PasswordService);
     const violations = await passwords.check(password, { login, email });
