@@ -45,7 +45,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | --- | --- | --- | --- | --- | --- |
 | `CorsMiddleware` | -1 | yes | onBefore, onAfter | `http.cors`, `@Cors` | CORS headers; answers an allowed preflight 204; `onAfter` applies a `@Cors` route policy to framework replies. See [CORS](16-cors.md). |
 | `RequestDeadline` | -0.3 | yes | onBefore, onFinish | `http.deadline.*` | `req.storage.signal` and `deadline`; 504 when nothing was sent by the deadline; see [Request deadlines](29-request-deadlines.md). |
-| `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`. |
+| `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`; `@NoCompression()` keeps it off a route ([route middlewares](14-route-middlewares.md#nocompression)). |
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). `@spinajs/authn-http` replaces it with `AuthnRealIp`. |
 | `ResponseTime` | 2 | yes | onBefore, onAfter | | `x-response-time` header, `req.storage.responseTime`. |

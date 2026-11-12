@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import compression from 'compression';
 
 import { ServerMiddleware } from '../interfaces.js';
+import { isCompressionSkipped } from './NoCompression.js';
 
 /**
  * Gzip/brotli compression of response bodies via the `compression` npm package, mounted at Order 0 through
@@ -13,6 +14,8 @@ import { ServerMiddleware } from '../interfaces.js';
  *   http.compression.enabled    (default true)
  *   http.compression.threshold  (default 1024, bytes — bodies below skipped)
  *   http.compression.level      (default -1, zlib default)
+ *
+ * `@NoCompression()` keeps it off a route.
  */
 @Injectable(ServerMiddleware)
 export class Compression extends ServerMiddleware {
@@ -36,6 +39,7 @@ export class Compression extends ServerMiddleware {
   }
 
   public handler(): express.RequestHandler {
-    return compression({ threshold: this.Threshold, level: this.Level });
+    // compression asks the filter when the headers go out, after the route's @NoCompression ran
+    return compression({ threshold: this.Threshold, level: this.Level, filter: (req, res) => !isCompressionSkipped(res) && compression.filter(req, res) });
   }
 }
