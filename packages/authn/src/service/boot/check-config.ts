@@ -152,7 +152,7 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
     out.push({ topic: 'proxy', level: 'warning', message: 'Neither authn.http.trustProxy nor http.trustProxy is set: behind a proxy every client has the proxy address, so per-IP throttling and audit see one client (0 says there is no proxy)' });
   }
 
-  // Without http.cors (any falsy value), @spinajs/http installs no CORS middleware: browsers keep the same-origin rule.
+  // Without http.cors (any falsy value), @spinajs/http sends CORS headers on @Cors routes only: browsers keep the same-origin rule elsewhere.
   const cors = config.get<unknown>('http.cors');
   if (cors) {
     const origins = (cors as { origins?: unknown }).origins;

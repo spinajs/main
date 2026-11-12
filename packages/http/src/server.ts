@@ -17,9 +17,10 @@ import type { IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
-import { sendReply } from './reply-pipeline.js';
+import { deliverReply, lookUpRoutesIn } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import { globalErrorReplier, refuseRemovedHooks, serverMiddlewareHandlers } from './server-middlewares.js';
+import { RouteIndex } from './route-index.js';
 import { NotFoundMiddleware } from './middlewares/NotFound.js';
 import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
@@ -44,6 +45,10 @@ export class HttpServer extends AsyncService {
 
   @Autoinject(ServerMiddleware)
   protected Middlewares!: ServerMiddleware[];
+
+  /** The routes the controllers registered; server middlewares get the match before routing. */
+  @Autoinject(RouteIndex)
+  protected Routes!: RouteIndex;
 
   @Config('http')
   protected HttpConfig!: IHttpServerConfiguration;
@@ -134,10 +139,11 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
-    // stable: equal Orders keep the DI registration order
-    this.Middlewares = this.Middlewares.sort((a, b) => {
-      return a.Order - b.Order;
-    });
+    // Array.ofType lists instances in the order their async resolve() finished, not in registration order
+    const registered = (this.Container.getRegisteredTypes(ServerMiddleware) ?? []) as unknown[];
+    const index = new Map(this.Middlewares.map((m) => [m, registrationIndex(registered, m)]));
+    // A copy: the injected array is the DI cache's own collection, which must stay in registration order
+    this.Middlewares = [...this.Middlewares].sort((a, b) => a.Order - b.Order || index.get(a)! - index.get(b)!);
     this.NotFound = await this.Container.resolve(NotFoundMiddleware);
     this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
     [...this.Middlewares, this.NotFound, this.ErrorHandler].forEach(refuseRemovedHooks);
@@ -152,7 +158,12 @@ export class HttpServer extends AsyncService {
     }
 
     // first, so a body limit or body parser failure is answered with the request storage in place
-    this.use(createRequestStorage);
+    const routes = this.Routes;
+    this.use((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+      (req as Request).storage = {} as IActionLocalStoregeContext;
+      lookUpRoutesIn(res, routes);
+      next();
+    });
 
     const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
     if (bodyLimits) {
@@ -177,7 +188,7 @@ export class HttpServer extends AsyncService {
   }
 
   private _mountServerMiddlewares() {
-    const options = { log: this.Log, errorReply: (req: Express.Request) => this._errorReplier(req) };
+    const options = { log: this.Log, container: this.Container, errorReply: (req: Express.Request) => this._errorReplier(req) };
 
     for (const m of this.Middlewares) {
       const name = m.constructor.name;
@@ -204,7 +215,7 @@ export class HttpServer extends AsyncService {
         .then(() => notFound.reply(req))
         .then((answer) => {
           if (isResponse(answer)) {
-            return sendReply(req, res, answer, { errorReply: this._errorReplier(req) });
+            return deliverReply(req, res, answer, { container: this.Container, errorReply: this._errorReplier(req) });
           }
           // a replacement answering nothing still gets the framework's 404, not express's
           next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
@@ -328,6 +339,9 @@ export class HttpServer extends AsyncService {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
+        if (this.Routes.unmounted) {
+          this.Log.warn('Controllers registered routes but no controllers router was mounted in the RouteIndex: server middlewares get no ctx.route before routing, @Cors routes keep the global CORS policy and @CsrfExempt() exempts nothing.');
+        }
         this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
         res();
       });
@@ -443,9 +457,13 @@ export class HttpServer extends AsyncService {
   }
 }
 
-function createRequestStorage(req: Express.Request, _res: Express.Response, next: Express.NextFunction): void {
-  (req as Request).storage = {} as IActionLocalStoregeContext;
-  next();
-}
-
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
+/** An instance of a class that replaces a registered one ( `@Injectable(RealIp)` ) takes that one's place. */
+function registrationIndex(registered: unknown[], m: ServerMiddleware): number {
+  const own = registered.indexOf(m.constructor);
+  if (own !== -1) return own;
+
+  const replaced = registered.findIndex((t) => typeof t === 'function' && typeof t.prototype === 'object' && m instanceof t);
+  return replaced === -1 ? registered.length : replaced;
+}

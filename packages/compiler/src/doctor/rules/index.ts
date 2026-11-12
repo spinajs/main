@@ -11,6 +11,7 @@ import { ambiguousBody } from './ambiguous-body.js';
 import { configUsageWithoutSchema } from './config-usage-without-schema.js';
 import { dirsMissing } from './dirs-missing.js';
 import { conditionUnmet } from './condition-unmet.js';
+import { unknownRouteMiddleware } from './unknown-route-middleware.js';
 import { fragmentStale } from './fragment-stale.js';
 import { modelsWithoutAccessResource } from './models-without-access-resource.js';
 import { explicitSchemaDrift } from './explicit-schema-drift.js';
@@ -33,6 +34,7 @@ export const DEFAULT_RULES: DoctorRule[] = [
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,
+  unknownRouteMiddleware,
   fragmentStale,
   modelsWithoutAccessResource,
   explicitSchemaDrift,
@@ -63,6 +65,7 @@ export {
   configUsageWithoutSchema,
   dirsMissing,
   conditionUnmet,
+  unknownRouteMiddleware,
   fragmentStale,
   modelsWithoutAccessResource,
   explicitSchemaDrift,
