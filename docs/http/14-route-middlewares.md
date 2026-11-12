@@ -116,6 +116,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
 | `@Deadline(ms)` | class or method | positive milliseconds | Adds `DeadlineMiddleware`, which moves the request's deadline earlier, never later; see [Request deadlines](29-request-deadlines.md). |
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
+| `@Deprecated(options)` | class or method | `{ since: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 | `@RateLimit(limit, windowSeconds, by?)` | class or method | `limit` per `windowSeconds`, counted per client address (`'ip'`, default) or per authenticated principal (`'principal'`) | Adds `RateLimitMiddleware` (`'outer'`), which answers 429 with `Retry-After` over the limit; one counter per route. See [Throttling](18-throttling.md#per-route-limits-ratelimit). |
 
 ### `@Accepts`
@@ -185,7 +186,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 | `resolveConfiguredTypes(key, base, entries, container)` | function | none | none | Turns the entries of a config key that lists services (`'Name' \| Class \| { service, options }`) into `{ type, entry, options }`, in config order, the way `http.routes.middlewares`, `http.errors.handlers` and `http.upload.middlewares` read theirs. A name is a type registered as `base` or a `base` subclass registered under that name. An unknown name, a class that does not extend `base` or an entry of another shape throws `InvalidOption` naming `key` and the entry. Instances are left to the caller. |
@@ -411,6 +412,38 @@ Both are registered as `RouteMiddleware`: `http.routes.middlewares: ['NoStore']`
 
 For one answer only, put the exported `NO_STORE` header (`{ Name: 'Cache-Control', Value: 'no-store' }`) in its `IResponseOptions.Headers`: `new Ok(body, { Headers: [NO_STORE] })`.
 
+## Built-in: `@Deprecated`
+
+`@Deprecated(options)` on a route, or on a controller for every route of it, mounts `DeprecationMiddleware`, which announces the deprecation on every reply, error replies included:
+
+| Option | Header |
+| --- | --- |
+| `since: Date`, required | `Deprecation: @<unix seconds>` (RFC 9745): when the route was deprecated |
+| `sunset: Date` | `Sunset: <HTTP-date>` (RFC 8594): when the route stops answering |
+| `link: string` | `Link: <link>; rel="deprecation"` (RFC 9745): a page about the deprecation and the way off it |
+
+A missing `since` (RFC 9745 defines the header as a date only), an invalid `Date`, a `sunset` before `since`, or a `link` that is empty or holds spaces or angle brackets throws `InvalidArgument` at the decorator, so the module fails at import. A `Link` the answer set itself is kept: the deprecation link joins it. A reply that fails while it is sent (its data rejects) is answered with an error reply that carries none of these headers: the reply pipeline drops what the `onAfter` hooks set for the failed reply. With `@Deprecated` on both the controller and a route, the route's declaration replaces the controller's on that route; the same holds for a subclass of `DeprecationMiddleware` mounted with `@Middleware`, and for a class registered in its place with `DI.register(Mine).as(DeprecationMiddleware)`. Mounted by name (`http.routes.middlewares`), `DeprecationMiddleware` needs its options too: `{ service: 'DeprecationMiddleware', options: [{ since }] }`.
+
+```ts sample
+import { BaseController, BasePath, Deprecated, Get, Ok } from '@spinajs/http';
+
+@BasePath('orders')
+export class OrdersController extends BaseController {
+  @Get('legacy-list')
+  @Deprecated({ since: new Date('2026-01-01T00:00:00Z'), sunset: new Date('2026-12-31T23:59:59Z'), link: 'https://example.com/docs/orders-v2' })
+  public legacyList() {
+    return new Ok([]);
+  }
+}
+// Deprecation: @1767225600
+// Sunset: Thu, 31 Dec 2026 23:59:59 GMT
+// Link: <https://example.com/docs/orders-v2>; rel="deprecation"
+```
+
+The route documentation says so too:
+
+- The compiler records `@Deprecated` on a route or a controller in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the OpenAPI document `@spinajs/openapi` generates from the manifest marks the operation `deprecated: true`. It does not see a `DeprecationMiddleware` mounted with `@Middleware`, nor the inherited routes of a `@Deprecated` subclass.
+- At runtime both controller metadata providers (`ManifestControllerMetadata` and `CacheControllerMetadata`, which http-swagger reads) mark every route whose own or controller middlewares include a `DeprecationMiddleware`, however it was mounted and inherited ones included, through `withDeprecatedRoutes(controller, documentation)`.
 ## Built-in: `Audit`
 
 `Audit` records each request of a route, with its body and query redacted, its status, error, principal and time, and

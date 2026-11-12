@@ -7,7 +7,7 @@ import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { accessOf, MIDDLEWARE_DECORATORS, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
-import { publicOf } from './public.js';
+import { isDeprecated, publicOf } from './public.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
 
@@ -107,7 +107,13 @@ function paramsOf(m: ts.MethodDeclaration, fullPath: string, owner: string, ctx:
   return m.parameters.map((p, i) => paramOf(p, i, owner, wire, ctx)).filter((p): p is ParamEntry => !!p);
 }
 
-function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext): RouteEntry | undefined {
+// `@Deprecated()` of @spinajs/http answers with the Deprecation header; the route's documentation says so too
+function routeDocWithDeprecation(m: ts.MethodDeclaration, ctx: ExtractorContext, classDeprecated = false): RouteEntry['doc'] | undefined {
+  const doc = routeDocOf(m, ctx);
+  return classDeprecated || isDeprecated(m, ctx) ? { ...doc, deprecated: true } : doc;
+}
+
+function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext, classDeprecated = false): RouteEntry | undefined {
   const dec = decoratorsOf(m).find((d) => ROUTE_METHODS[d.name]);
   if (!dec || !ts.isIdentifier(m.name)) return undefined;
   const handler = m.name.text;
@@ -115,7 +121,7 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const sig = ctx.checker.getSignatureFromDeclaration(m);
   const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
-  const doc = routeDocOf(m, ctx);
+  const doc = routeDocWithDeprecation(m, ctx, classDeprecated);
   const reason = publicOf(m, ctx);
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
   return {
@@ -136,11 +142,12 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
   const reason = publicOf(node, ctx);
+  const deprecated = isDeprecated(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}),
-    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
+    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx, deprecated)).filter((r): r is RouteEntry => !!r),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };
 }
@@ -162,7 +169,7 @@ export function routeOverridesOf(node: NamedClass, ancestor: ControllerEntry, mo
     const fullPath = route?.fullPath ?? servedPath(routeFullPath(mountPath, base.path, base.handler));
     const { access, allowAnonymous } = accessOf(m, ctx);
     const reason = publicOf(m, ctx);
-    const doc = routeDocOf(m, ctx);
+    const doc = routeDocWithDeprecation(m, ctx);
     return [{
       handler: base.handler,
       ...(route ? { route } : {}),

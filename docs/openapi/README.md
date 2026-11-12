@@ -94,6 +94,7 @@ The `app-basic` fixture of the compiler tests has a `HealthController` and a `Us
 | Controller class name without a trailing `Controller`, and the handler name | `operationId`, such as `Users_get` |
 | `@tags` JSDoc tag on the handler | `tags`. Without it the operation is tagged with the controller name without `Controller` |
 | `@summary`, `@description`, `@deprecated` JSDoc tags | `summary`, `description`, `deprecated: true` |
+| `@Deprecated()` of `@spinajs/http` on the route or its controller | `deprecated: true` |
 | Every controller name and every route tag | The top-level `tags`, unique and sorted |
 
 The JSDoc tags are described in [Documenting routes](../http-swagger/02-documenting-routes.md). Two routes with one method and path make the generator throw `duplicate operation`, naming both operation ids.
