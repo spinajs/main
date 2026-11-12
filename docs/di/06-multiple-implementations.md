@@ -109,6 +109,7 @@ void main();
 - A class registered under `T` after the collection was built is picked up on the next `Array.ofType(T)` resolve; already built elements keep their identity.
 - The returned array is the container's cached collection, shared by every consumer of `Array.ofType(T)`. Copy it before sorting or changing it, eg. `[...list].sort(byOrder)`; a sort in place changes the order everyone else sees.
 - A singleton reached through `Array.ofType(T)` is also cached under its own name, so `DI.resolve(DatabaseCheck)` returns the same instance.
+- A `@PerInstanceCheck()` element already cached under its own name joins `Array.ofType(T)` when its `__checkInstance__` accepts the list's options, `undefined` when the list is resolved without options. The options reach the element only while the list is being built; a later `Array.ofType(T)` resolve returns the cached list without checking its elements again.
 - A `resolve(DatabaseCheck)` made while `Array.ofType(T)` is still creating `DatabaseCheck` waits for that creation and gets the instance. An `Array.ofType(T)` made while a single resolve is creating an element waits for it and includes it.
 - `resolve(Array.chainOf(T))` with a non-async base is typed `T[] | Promise<T[]>`; `await` it.
 - A single resolve of an unregistered `T` registers nothing, so its bare instance never shows up in `Array.ofType(T)` or `Array.chainOf(T)`.

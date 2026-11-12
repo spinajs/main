@@ -178,22 +178,22 @@ export class ContainerCache {
     if (this.has(targetType, parent)) {
       const cached = this.get(targetType, parent);
 
+      // A type cached under its own key would otherwise be silently MISSING from the collection.
+      const joinCollection = (instance: unknown) => {
+        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
+          this.addToCollection(sourceTypeKey, instance, slot);
+        }
+      };
+
       if (perInstanceCheck) {
         const found = cached.find((x: unknown) => this.checkInstance(x, options));
         if (found) {
+          joinCollection(found);
           return found;
         }
       } else {
         const instance = Array.isArray(cached) ? cached[0] : cached;
-
-        // Resolving a collection ( Array.ofType(Base) ) over a type that already
-        // sits in the cache under its own key must still contribute it to the
-        // collection - otherwise the fast path returns early and the type is
-        // silently MISSING from the resolved array.
-        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
-          this.addToCollection(sourceTypeKey, instance, slot);
-        }
-
+        joinCollection(instance);
         return instance;
       }
     }
