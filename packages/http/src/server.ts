@@ -33,6 +33,7 @@ import './middlewares/Compression.js';
 import './middlewares/Cors.js';
 import './middlewares/SlowRequestWarning.js';
 import './middlewares/ServerTiming.js';
+import { limitsBeforeMiddlewares } from './middlewares/BodyParsers.js';
 
 @Injectable()
 @Inject(Templates)
@@ -123,7 +124,7 @@ export class HttpServer extends AsyncService {
     super();
   }
 
-  // An app's list replaces the shipped one, which drops security headers and body parsing without an error.
+  // An app's list replaces the shipped one, which drops the security headers without an error.
   private warnLostDefaults() {
     const missing = missingDefaultMiddlewares(this.HttpConfig.middlewares ?? []);
     if (missing.length === 0) return;
@@ -157,7 +158,7 @@ export class HttpServer extends AsyncService {
       this.Log.info({ path: f.Options.basePath }, 'Response templates path at ${path}');
     }
 
-    // first, so a body limit or body parser failure is answered with the request storage in place
+    // first, so a failure of an http.middlewares handler is answered with the request storage in place
     const routes = this.Routes;
     this.use((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
       (req as Request).storage = {} as IActionLocalStoregeContext;
@@ -165,10 +166,13 @@ export class HttpServer extends AsyncService {
       next();
     });
 
-    const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
-    if (bodyLimits) {
-      this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules )');
-      this.use(bodyLimits);
+    // A handler of the app's own might read the body: the limits must come before it. Otherwise BodyLimits mounts them.
+    if (limitsBeforeMiddlewares(this.HttpConfig.middlewares)) {
+      const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? [], { parsers: this.HttpConfig.bodyParsers });
+      if (bodyLimits) {
+        this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules ) before http.middlewares');
+        this.use(bodyLimits);
+      }
     }
 
     this.HttpConfig.middlewares?.forEach((m) => {

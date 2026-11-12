@@ -9,6 +9,7 @@ import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
 import type { IBodyLimitRule } from './body-limits.js';
+import type { IBodyParsersConfiguration } from './body-parser-options.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
 import type { CapturedJsonReply } from './response-capture.js';
 
@@ -80,15 +81,20 @@ export interface IHttpServerConfiguration {
   port: number;
 
   /**
-   * Middlewares used by server
+   * Raw Express handlers mounted before the server middlewares ( helmet by default )
    */
   middlewares: express.RequestHandler[];
 
   /**
-   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
-   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   * Per-path body size limits, applied just before the body parsers. The first prefix match wins; other paths keep the
+   * limits of `bodyParsers` ( 5mb JSON by default ).
    */
   bodyLimits?: IBodyLimitRule[];
+
+  /**
+   * Options of the built-in body and cookie parser server middlewares
+   */
+  bodyParsers?: IBodyParsersConfiguration;
 
   /**
    * Static files folder. Feel free to override this per app

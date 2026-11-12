@@ -27,6 +27,13 @@ describe('http configuration schema', () => {
     });
   });
 
+  describe('bodyParsers', () => {
+    it('accepts the four parsers, refuses a misspelt key', async () => {
+      expect(await bad({ bodyParsers: { json: { limit: '1mb' }, urlencoded: {}, text: { enabled: false }, cookies: {} } })).to.deep.eq([]);
+      expect(await bad({ bodyParsers: { jsn: { limit: '1mb' } } })).to.include('http.bodyParsers.jsn');
+    });
+  });
+
   describe('trustProxy', () => {
     it('accepts a hop count, 0, a list and a comma-separated string unchanged', async () => {
       for (const value of [0, 2, ['10.0.0.0/8', 'loopback'], '10.0.0.1, 10.0.0.2', null]) {

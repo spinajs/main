@@ -8,8 +8,8 @@
 2. **`HttpServer.resolve()`** creates the Express app and sorts the server middlewares by `Order`, ascending.
 3. It creates an HTTPS server when the top-level `https` key is `true` (reading `http.ssl.key` and `http.ssl.cert` from disk), otherwise an HTTP server. Both track open sockets and log server-level `error` events.
 4. It logs where response templates live (`__fs_http_response_templates__` file provider), or that HTML error pages are off when the provider is missing.
-5. It adds its own first handler, which creates `req.storage = {}`, then the per-path body limit gate when `http.bodyLimits` has rules (see [Body size limits](04-route-arguments.md#body-size-limits)), then the raw Express handlers from `http.middlewares`, in array order.
-6. It mounts each enabled server middleware (`handler()`, or its `onAround` and `onBefore` handlers), lowest `Order` first.
+5. It adds its own first handler, which creates `req.storage = {}`, then the raw Express handlers from `http.middlewares` (helmet by default), in array order.
+6. It mounts each enabled server middleware (`handler()`, or its `onAround` and `onBefore` handlers), lowest `Order` first. The cookie parser (Order 0.5), the per-path body limits (3.4, see [Body size limits](04-route-arguments.md#body-size-limits)) and the body parsers (3.5) are server middlewares too: see [Body and cookie parsers](#body-and-cookie-parsers).
 7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
 9. **`start()`** adds, once per instance, the `NotFoundMiddleware` and `ErrorHandlerMiddleware` tail. Then it listens on `http.port` and emits `http.server.listening`.
@@ -22,7 +22,7 @@ sequenceDiagram
   participant S as HttpServer
   participant C as Controllers
   App->>DI: resolve(Controllers)
-  DI->>S: resolve() — Express app, req.storage, http.middlewares, server middlewares, static
+  DI->>S: resolve() — Express app, req.storage, http.middlewares, server middlewares (parsers included), static
   DI->>C: resolve() — discover, build routers
   C->>S: use(ControllersRouter)
   App->>S: start()
@@ -32,7 +32,7 @@ sequenceDiagram
   S-->>DI: emit http.server.closing / http.server.closed
 ```
 
-The resulting Express stack, top to bottom: `req.storage` → the body limit gate (only when `http.bodyLimits` has rules) → `http.middlewares` → server middlewares by `Order` → static files → controllers router → the 404 → the global error answer. Every framework reply, the 404 and the error answer included, goes out through the [reply pipeline](15-server-middlewares.md#request-timeline).
+The resulting Express stack, top to bottom: `req.storage` → `http.middlewares` → server middlewares by `Order`, the parsers among them → static files → controllers router → the 404 → the global error answer. Every framework reply, the 404 and the error answer included, goes out through the [reply pipeline](15-server-middlewares.md#request-timeline).
 
 ### Lifecycle
 
@@ -53,8 +53,9 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `https` | `boolean` | `false` | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. `HTTPS_CONFIGURATION_SCHEMA` refuses anything else, `null` included. |
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
-| `http.middlewares` | `express.RequestHandler[]` | `defaultMiddlewares()`: `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser` | any Express handlers | Raw handlers added first, before every server middleware. Your list replaces the defaults; spread `defaultMiddlewares()` to keep them. |
-| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied before `http.middlewares`; see [Body size limits](04-route-arguments.md#body-size-limits). |
+| `http.middlewares` | `express.RequestHandler[]` | `defaultMiddlewares()`: `helmet(...)` | any Express handlers | Raw handlers added first, before every server middleware. Your list replaces the defaults; spread `defaultMiddlewares()` to keep them. |
+| `http.bodyParsers.{json,urlencoded,text,cookies}` | object | see [Body and cookie parsers](#body-and-cookie-parsers) | `enabled` plus the options of the express or cookie-parser function | The built-in parser server middlewares. |
+| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied by `BodyLimits` (Order 3.4) just before the body parsers; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` (JSON and HTML) | bit flags `JSON` 1, `HTML` 2, `XML` 4 | Formats the response negotiation offers; see [Responses](10-responses.md#content-negotiation). |
@@ -71,21 +72,33 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.deadline.*` | object | `enabled: false`, `ms: 30000` | | A deadline for every request, 504 when nothing was sent by it; see [Request deadlines](29-request-deadlines.md). |
 | `http.audit.*` | object | `redact: ['password', 'token', 'secret', 'authorization', 'cookie', 'card']`, `includeBody: true`, `maxBodyBytes: 16384` | | The `Audit` route middleware: methods, redacted keys, body; see [Audit](30-audit.md#configuration). |
 
-The default `http.middlewares` are:
+The default `http.middlewares` hold one handler:
 
 | Handler | Settings | Why |
 | --- | --- | --- |
 | `helmet` | `referrerPolicy: 'strict-origin-when-cross-origin'` | helmet's default `no-referrer` makes browsers send `Origin: null` on same-origin form posts, which the [CSRF guard](23-csrf-guard.md) (and its `@spinajs/authn-http` subclass) refuses |
-| `express.json` | `limit: '5mb'`, `verify` stores the raw bytes in `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md) |
-| `express.urlencoded` | `extended: true` | form posts |
-| `express.text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
-| `configuredCookieParser` | secret from `http.cookie.secret` | signed cookies; see [Cookies](20-cookies.md) |
+
+### Body and cookie parsers
+
+The parsers are [server middlewares](15-server-middlewares.md) mounted through `handler()`. The body parsers run after CORS, `RequestId`, `RealIp`, the access log and the throttle, and before `CsrfGuard` (4) and authentication (5). A malformed body (400) or one over its limit (413) goes to the global error answer through the reply pipeline: the answer carries `x-request-id` and the CORS headers, and the access log and every server middleware entered before the parser see it.
+
+| Server middleware | Order | `http.bodyParsers` key | Defaults | Why |
+| --- | --- | --- | --- | --- |
+| `CookieParserMiddleware` | 0.5 | `cookies` | secret from `http.cookie.secret` | signed cookies (see [Cookies](20-cookies.md)); before `IntlHttpMiddleware` (Order 1), which reads the language cookie |
+| `BodyLimits` | 3.4 | none: `http.bodyLimits` | no rules: not mounted | [per-path limits](04-route-arguments.md#body-size-limits) |
+| `JsonBodyParser` | 3.5 | `json` | `limit: '5mb'`; the raw bytes go to `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md); your `verify` runs after the raw bytes are stored, under `http.bodyLimits` paths too |
+| `UrlencodedBodyParser` | 3.5 | `urlencoded` | `extended: true` | form posts |
+| `TextBodyParser` | 3.5 | `text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
+
+Each key takes `enabled` (default `true`; `false` mounts nothing) and the options of `express.json()`, `express.urlencoded()`, `express.text()` or `cookie-parser`; your keys merge over the defaults. A parser limit answers 413 with `EntityTooLargeException`, as `http.bodyLimits` does. A server middleware below Order 3.5 sees no `req.body`; one below 0.5 sees no `req.cookies`.
+
+A 3.x `http.middlewares` list that still holds `express.json()`, `express.urlencoded()`, `express.text()`, `cookieParser(...)` or `configuredCookieParser` keeps parsing with them: the matching built-in recognises that handler (express's and cookie-parser's own handlers, also inside a nested array, and the tagged `configuredCookieParser`; not a parser wrapped in a function of yours, nor a function of yours that only shares the name), is not mounted, and logs one warning. The other built-ins stay on: a 3.x list holding only `express.json()` now also gets the form, XML-text and cookie parsers; switch off the ones you do not want with `enabled: false`. Such a list parses before every server middleware, so its failures get no request id or CORS headers. Move the options to `http.bodyParsers` and drop the handlers.
+
+`http.bodyLimits` goes before `http.middlewares` whenever that list holds a handler the package did not ship (anything but `defaultMiddlewares()` and `configuredCookieParser`), since such a handler might read the body; its 413 then has no request id or CORS headers. With only the shipped handlers, `BodyLimits` runs at 3.4. A body something read before the limit (a server middleware below 3.4, say) answers 413 under a rule's path, with one warning: its size can no longer be bounded.
 
 ```ts
 // config/http.ts in your app
-import express from 'express';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 
 export default {
   https: true,
@@ -100,13 +113,12 @@ export default {
     shutdownTimeout: 25000,
     controllers: { route: { prefix: 'api/v1' } },
     // Replacing the array drops the defaults: keep the ones you need.
-    middlewares: [
-      helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
-      express.json({ limit: '1mb', verify: (req: any, _res: any, buf: Buffer) => { req.rawBody = buf; } }),
-      express.urlencoded({ extended: true }),
-      // or configuredCookieParser from @spinajs/http, which reads http.cookie.secret itself.
-      cookieParser(process.env.COOKIE_SECRET),
-    ],
+    middlewares: [helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } })],
+    bodyParsers: {
+      json: { limit: '1mb' },
+      text: { enabled: false },
+    },
+    // signs and verifies cookies, CookieParserMiddleware included
     cookie: { secret: process.env.COOKIE_SECRET },
     Static: [{ Route: '/assets', Path: '/app/public' }],
   },
@@ -115,7 +127,7 @@ export default {
 
 ### Configuration schema and file providers
 
-The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.errors`, `http.csrf`, `http.throttle`, `http.maintenance`, `http.concurrency`, `http.deadline`, `http.audit` and `http.bot`.
+The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.bodyParsers` (`enabled` and `limit`), `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
 
 The package configuration also adds three `fs.providers` entries and two `system.dirs` entries:
 
@@ -188,7 +200,8 @@ void main();
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
 - Server middlewares are collected when `HttpServer` resolves. A `ServerMiddleware` module imported later is ignored.
 - The controllers router is mounted after the static files. A static file wins over a route with the same path.
-- `http.middlewares` replaces the whole default array. To keep the defaults, spread them: `middlewares: [...defaultMiddlewares(), requestId]`. `defaultMiddlewares()` and `missingDefaultMiddlewares(list)` are exported from `@spinajs/http`. `HttpServer` logs one warning at boot when the list lost the shipped helmet, a body parser or the cookie parser, naming what is missing. It recognises the shipped handlers by a tag, so your own `helmet()` counts as missing: ignore the warning when your handlers do that work. Leaving out `express.json` turns off JSON bodies and `@RawBody()`; leaving out the cookie parser turns off `req.cookies` and `@Cookie()`. Re-add the default parser with `configuredCookieParser` (exported from `@spinajs/http`), or use `cookieParser(secret)` from `cookie-parser` with the same secret as `http.cookie.secret`.
+- `http.middlewares` replaces the whole default array. To keep the defaults, spread them: `middlewares: [...defaultMiddlewares(), requestId]`. `defaultMiddlewares()` and `missingDefaultMiddlewares(list)` are exported from `@spinajs/http`. `HttpServer` logs one warning at boot when the list lost the shipped helmet. It recognises the shipped handler by a tag, so your own `helmet()` counts as missing: ignore the warning when your handler does that work.
+- `http.bodyParsers.json.enabled: false` turns off JSON bodies and `@RawBody()`; `http.bodyParsers.cookies.enabled: false` turns off `req.cookies` and `@Cookie()`.
 
 ## Best practices
 
