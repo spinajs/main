@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import type { Principal } from '@spinajs/principal';
-import { idempotencyPrincipal, isRestrictedPrincipal } from '../src/index.js';
+import { idempotencyPrincipal, isRestrictedPrincipal, isSharedScope } from '../src/index.js';
 
 const user = (extra: Partial<Principal> = {}): Principal => ({ type: 'user', id: 'u1', authenticated: true, source: 'session', attributes: {}, ...extra });
 
@@ -40,5 +40,22 @@ describe('idempotency principal scope', () => {
     const a = user({ ceiling: { roles: ['a', 'b'] }, companions: [{ type: 'user', id: 'x' }, { type: 'user', id: 'y' }] });
     const b = user({ ceiling: { roles: ['b', 'a'] }, companions: [{ type: 'user', id: 'y' }, { type: 'user', id: 'x' }] });
     expect(idempotencyPrincipal(a)).to.eq(idempotencyPrincipal(b));
+  });
+});
+
+describe('isSharedScope', () => {
+  const link = (extra: Partial<Principal> = {}): Principal => ({ type: 'link', id: 'L1', authenticated: true, source: 'link', attributes: {}, ceiling: { resources: [{ type: 'item' }] }, ...extra });
+
+  it('holds for no principal, an unauthenticated one and a link bearer without a signed-in companion', () => {
+    expect(isSharedScope(undefined)).to.eq(true);
+    expect(isSharedScope({ authenticated: false } as Principal)).to.eq(true);
+    expect(isSharedScope(link())).to.eq(true);
+    expect(isSharedScope(link({ companions: [] }))).to.eq(true);
+  });
+
+  it('does not hold for a link with a companion nor for a signed-in user', () => {
+    expect(isSharedScope(link({ companions: [{ type: 'user', id: 'alice' }] }))).to.eq(false);
+    expect(isSharedScope(user())).to.eq(false);
+    expect(isSharedScope(user({ ceiling: { roles: ['viewer'] } }))).to.eq(false);
   });
 });

@@ -15,6 +15,7 @@ A route middleware runs code around one route, around every route of a controlle
 
 ```
 onAround / onBefore                 each 'beforePolicy' middleware, in entry order (see below)
+@Idempotent replay check            replays a completed key of an unrestricted principal, skipping the gate
 policy gate                         refuses the request, or lets it through
 onAround / onBefore                 each 'outer' middleware, then each 'inner' one, in entry order
 action                              returns a Response, or throws
@@ -35,6 +36,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`, and they run 
 | Case | Entered |
 | --- | --- |
 | The policy gate refused the request | the `'beforePolicy'` ones; none after the gate |
+| An `@Idempotent` route replayed before the policy gate | the `'beforePolicy'` ones; none after them |
 | An `onBefore` threw | the middlewares before it; not this one, and none after it |
 | An `onBefore` returned a `Response` | the middlewares before it and this one; none after it |
 | The action threw | every enabled middleware |
@@ -264,7 +266,7 @@ Headers set in `onAfter`, on `ctx.res` or with `ctx.response.setHeader()`, win o
 
 When an error handler turns the error into another one, `error` is the last one. The exception is an error with `crash: true`: once recorded, it is kept.
 
-`@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'beforePolicy'` and `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it.
+`@Idempotent` replays a stored reply through `sendReply` as a `ReplayedResponse`: the `onAfter` of the middlewares entered before the idempotency gate run for a replay too. Those are the `'beforePolicy'` and `'outer'` ones applied before it: global and controller ones, and route ones written below `@Idempotent` (decorators apply bottom-up, see [Entered middlewares](#entered-middlewares)). The inner middlewares and the action do not run, so they see nothing of it. A replay for an authenticated, unrestricted principal on a route with policies is answered earlier, right after the `'beforePolicy'` stage and before the policy gate: only the `'beforePolicy'` middlewares are entered for it, so a middleware that decorates replies belongs in `'beforePolicy'` ([Middlewares on an early replay](26-idempotency.md#middlewares-on-an-early-replay)).
 
 On a replay `ctx.response.data` is the stored JSON body, which those outer hooks already shaped on the first answer. A hook that changes data checks `ctx.response instanceof ReplayedResponse` and leaves a replay alone; otherwise it applies itself a second time, and the client gets that. The stored bytes are sent unless a hook changed `data`; then the stored `ETag` is dropped. Headers a hook adds are never stored, except `Content-Type`, `Location` and `ETag`, which describe the body: a replay restores the route's own headers only ([Idempotency](26-idempotency.md#headers-of-a-replay)).
 
@@ -272,7 +274,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 

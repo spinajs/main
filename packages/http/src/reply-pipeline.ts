@@ -67,6 +67,8 @@ interface IReplyState {
   /** Set once `finish` or `close` fired. */
   aborted?: boolean;
   early?: Response;
+  /** The early answer is a replay found before the policy gate, the one answer the gate lets through unchecked. */
+  replayBeforePolicy?: boolean;
   replyError?: { error: unknown };
   /** The error the sent reply answers, after any onAfter turned it. */
   answered?: { error: unknown };
@@ -133,6 +135,28 @@ export function answerEarly(res: express.Response, response: Response): void {
 
 export function answeredEarly(res: express.Response): boolean {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.early !== undefined;
+}
+
+/** A route middleware (`@Idempotent`) that may answer from a stored reply before the policy gate; mounted right before it. */
+export const REPLAY_BEFORE_POLICY = Symbol('replayBeforePolicy');
+
+export interface IReplaysBeforePolicy {
+  /** The stored reply of the very request this principal already sent and was authorized for, or undefined. */
+  [REPLAY_BEFORE_POLICY](ctx: IRouteInvocation): Promise<Response | undefined>;
+}
+
+export const replaysBeforePolicy = <T extends object>(m: T): m is T & IReplaysBeforePolicy => typeof (m as Partial<IReplaysBeforePolicy>)[REPLAY_BEFORE_POLICY] === 'function';
+
+/** {@link answerEarly} for a replay found before the policy gate, which then does not run. */
+export function answerReplayBeforePolicy(res: express.Response, response: Response): void {
+  const state = stateOf(res);
+  state.early = response;
+  state.replayBeforePolicy = true;
+  res.locals.response = response;
+}
+
+export function repliedBeforePolicy(res: express.Response): boolean {
+  return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.replayBeforePolicy === true;
 }
 
 /** Hands an error handler's answer, and the error it answers, to the route's sender. */
