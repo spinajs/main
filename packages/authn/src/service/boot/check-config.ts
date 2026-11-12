@@ -154,7 +154,7 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
   }
   out.push(...clientAddressFindings(config));
 
-  // Without http.cors (any falsy value), @spinajs/http installs no CORS middleware: browsers keep the same-origin rule.
+  // Without http.cors (any falsy value), @spinajs/http sends CORS headers on @Cors routes only: browsers keep the same-origin rule elsewhere.
   const cors = config.get<unknown>('http.cors');
   if (cors) {
     const origins = (cors as { origins?: unknown }).origins;
