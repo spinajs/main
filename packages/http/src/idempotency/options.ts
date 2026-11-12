@@ -9,11 +9,16 @@ export interface IdempotentOptions {
   fingerprint?: 'body' | 'none';
   /** A larger reply is not stored, and its key is released. */
   maxReplyBytes?: number;
+  /**
+   * 'random': an anonymous caller or a share link bearer without a signed-in companion, who share one key space with
+   * every caller like them, must send a random UUID (v4 or v7), or is refused with 400.
+   */
+  sharedScope?: 'random' | 'any';
 }
 
 export type ResolvedIdempotentOptions = Required<IdempotentOptions>;
 
-export const DEFAULT_IDEMPOTENT_OPTIONS: Readonly<ResolvedIdempotentOptions> = Object.freeze({ required: false, ttl: '24h', fingerprint: 'body', maxReplyBytes: 1_048_576 });
+export const DEFAULT_IDEMPOTENT_OPTIONS: Readonly<ResolvedIdempotentOptions> = Object.freeze({ required: false, ttl: '24h', fingerprint: 'body', maxReplyBytes: 1_048_576, sharedScope: 'random' });
 
 export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 
@@ -51,6 +56,9 @@ export function resolveIdempotentOptions(options: IdempotentOptions = {}): Resol
   }
   if (!(Number.isInteger(resolved.maxReplyBytes) && resolved.maxReplyBytes > 0)) {
     throw new InvalidArgument(`@Idempotent maxReplyBytes must be an integer above 0, got ${String(resolved.maxReplyBytes)}`);
+  }
+  if (resolved.sharedScope !== 'random' && resolved.sharedScope !== 'any') {
+    throw new InvalidArgument(`@Idempotent sharedScope must be 'random' or 'any', got ${JSON.stringify(resolved.sharedScope)}`);
   }
   return Object.freeze(resolved);
 }

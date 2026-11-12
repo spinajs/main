@@ -72,7 +72,7 @@ The building blocks of the route error handlers are exported for custom route ch
 | `markStage(res, stage)` | Records the `ErrorStage` the chain is in on `res.locals`; the policy gate, middleware wrappers and action handler call it. A `res` without `locals` is ignored. |
 | `stageOf(res)` | The stage last recorded on `res`; `'action'` when none was. |
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
-| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
+| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption`, naming the key and the entry, for an entry that is not `{ service: '<name>' }` or names no `ErrorHandlerService` (a type registered as `ErrorHandlerService`, or a subclass registered under its own name). |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
 | `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's message, which can reveal internals. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
@@ -314,7 +314,7 @@ export class CountInvalidInput extends ErrorHandlerService {
 // config: { http: { errors: { handlers: [{ service: 'CountInvalidInput' }] } } }
 ```
 
-A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fails every controller at startup with `InvalidOption`.
+A name in `http.errors.handlers` that no registered `ErrorHandlerService` has, or an entry of another shape, fails every controller at startup with `InvalidOption` naming the key and the entry.
 
 ## Important behaviour
 

@@ -7,9 +7,20 @@ import { Log, Logger } from '@spinajs/log';
 import type { SocketContractEntry } from '@spinajs/manifest';
 import { BaseSocketController } from './controller.js';
 import { SocketContractEnforcer } from './contract.js';
-import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketStageRegistration, SOCKET_CONTROLLER_DESCRIPTOR, SocketCommandStage } from './interfaces.js';
+import { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketStageRegistration, SOCKET_CONTROLLER_DESCRIPTOR, SocketMiddleware } from './interfaces.js';
 
 const isAsyncGenerator = (controller: BaseSocketController, method: string | symbol): boolean => Object.prototype.toString.call(controller[method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]';
+
+const hasHooks = (m: SocketMiddleware): boolean => !!(m.onBefore || m.onAfter || m.onFinish || m.onAround);
+
+/** A 3.x stage moved onto SocketMiddleware with its execute() left in place would be skipped without a word. */
+function refuseExecute(middleware: SocketMiddleware): void {
+  if (typeof (middleware as { execute?: unknown }).execute === 'function') {
+    throw new InvalidOperation(
+      `Socket middleware ${middleware.constructor.name} defines execute(ctx, next), removed in @spinajs/http-socket 4.0: implement onAround(ctx, proceed) with the same body, or onBefore(ctx) / onAfter(ctx) / onFinish(ctx)`,
+    );
+  }
+}
 
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(SOCKET_CONTROLLER_DESCRIPTOR, (type as { prototype: object }).prototype) as ISocketControllerDescriptor | undefined)?.SourceFile;
 
@@ -32,26 +43,45 @@ export class SocketHandlerRegistry {
   protected connectHooks: IRegisteredHandler[] = [];
   protected disconnectHooks: IRegisteredHandler[] = [];
 
-  protected Stages: SocketCommandStage[] = [];
+  protected globals: SocketMiddleware[] = [];
+
+  /** The globals that have a hook: the chain of a name no command has. */
+  protected unknownChain: readonly SocketMiddleware[] = [];
+
+  /** Instances `@UseSocketMiddleware` resolved, with the options of their first declaration. */
+  protected declaredOptions = new Map<SocketMiddleware, string>();
 
   public get Commands(): ReadonlyMap<string, IRegisteredHandler> {
     return this.commands;
   }
 
+  /** The global middlewares ( `@Injectable(SocketMiddleware)` ) in Order; the chain of a name no command has. */
+  public get Middlewares(): readonly SocketMiddleware[] {
+    return this.globals;
+  }
+
+  /** The middleware chain of a command, or the global one for a name no command has. */
+  public chainFor(name: string): readonly SocketMiddleware[] {
+    return this.commands.get(name)?.middlewares ?? this.unknownChain;
+  }
+
   public async build(): Promise<void> {
+    this.declaredOptions.clear();
     this.commands.clear();
     this.events.clear();
     this.connectHooks = [];
     this.disconnectHooks = [];
 
-    // the singletons the dispatcher runs, in its order
-    const stages = await DI.resolve(Array.ofType(SocketCommandStage));
-    this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
+    const globals = (await DI.resolve(Array.ofType(SocketMiddleware))) as SocketMiddleware[];
+    globals.forEach(refuseExecute);
+    this.globals = [...globals].sort((a, b) => a.Order - b.Order);
+    this.unknownChain = this.globals.filter(hasHooks);
 
     checkPendingProperties(this.Container);
     const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
     const bound: SocketContractEntry[] = [];
     const staged: Array<[IRegisteredHandler, string]> = [];
+    const descriptors = new Map<IRegisteredHandler, ISocketControllerDescriptor>();
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;
@@ -80,13 +110,14 @@ export class SocketHandlerRegistry {
       );
       if (contract) bound.push(contract);
       staged.push(...added.map((h) => [h, type.name] as [IRegisteredHandler, string]));
+      added.forEach((h) => descriptors.set(h, descriptor));
     }
 
     this.Contracts.reportUnvalidated(bound);
 
-    // last, so a stage sees only unique commands that carry their contract and payload validators
+    // last, so a middleware sees only unique commands that carry their contract and payload validators
     for (const [handler, controllerName] of staged) {
-      await this.registerWithStages(handler, controllerName);
+      await this.registerWithMiddlewares(handler, controllerName, descriptors.get(handler)!);
     }
   }
 
@@ -136,23 +167,57 @@ export class SocketHandlerRegistry {
     this.Log.trace({ kind: handler.Kind, name: fullName, controller: controllerName, method: handler.Method }, 'Registered socket ${kind} ${name} -> ${controller}::${method}');
   }
 
-  protected async registerWithStages(registered: IRegisteredHandler, controllerName: string): Promise<void> {
+  /** The command's chain: the global middlewares it does not declare itself, the controller's, then the command's; the enabled ones, stably sorted by Order. */
+  protected async chainOf(registered: IRegisteredHandler, descriptor: ISocketControllerDescriptor): Promise<SocketMiddleware[]> {
+    const declared = [...(descriptor.Middlewares ?? []), ...(registered.descriptor.Middlewares ?? [])];
+    const local = await Promise.all(declared.map((m) => this.Container.resolve(m.Type, m.Options) as Promise<SocketMiddleware> | SocketMiddleware));
+    local.forEach(refuseExecute);
+    local.forEach((middleware, i) => this.warnSharedOptions(middleware, declared[i].Options, registered.fullName));
+    const globals = this.globals.filter((g) => !declared.some((m) => g.constructor === m.Type));
+
+    return [...globals, ...local].filter((m) => m.isEnabled(registered)).sort((a, b) => a.Order - b.Order);
+  }
+
+  /** A singleton is built with the options of the first command that resolves it; later options are silently ignored otherwise. */
+  protected warnSharedOptions(middleware: SocketMiddleware, options: unknown[], command: string): void {
+    let given: string;
+    try {
+      given = JSON.stringify(options);
+    } catch {
+      return;
+    }
+
+    const first = this.declaredOptions.get(middleware);
+    if (first === undefined) {
+      this.declaredOptions.set(middleware, given);
+    } else if (first !== given) {
+      this.Log.warn(
+        { middleware: middleware.constructor.name, command, first, given },
+        'Socket middleware ${middleware} is one shared instance, built with options ${first}; the options ${given} of command ${command} are ignored. Mark it @NewInstance() to give each declaration its own',
+      );
+    }
+  }
+
+  protected async registerWithMiddlewares(registered: IRegisteredHandler, controllerName: string, descriptor: ISocketControllerDescriptor): Promise<void> {
     const command = `Socket command ${registered.fullName} ( ${controllerName}::${String(registered.descriptor.Method)} )`;
     let refusal: string | undefined;
     const registration: ISocketStageRegistration = { refuseStream: (what) => (refusal = what) };
+    const chain = await this.chainOf(registered, descriptor);
 
     // ascending Order, so the last refusal is the highest Order's
-    for (const stage of this.Stages) {
-      if (!stage.onRegister) {
+    for (const middleware of chain) {
+      if (!middleware.onRegister) {
         continue;
       }
 
       try {
-        await stage.onRegister(registered, registration);
+        await middleware.onRegister(registered, registration);
       } catch (err) {
-        throw new InvalidOperation(`${command}: stage ${stage.constructor.name} refused the registration: ${err instanceof Error ? err.message : String(err)}`, err);
+        throw new InvalidOperation(`${command}: middleware ${middleware.constructor.name} refused the registration: ${err instanceof Error ? err.message : String(err)}`, err);
       }
     }
+
+    (registered as { middlewares?: readonly SocketMiddleware[] }).middlewares = chain.filter(hasHooks);
 
     if (refusal === undefined) {
       return;

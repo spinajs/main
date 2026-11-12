@@ -9,6 +9,7 @@ import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
 import type { IBodyLimitRule } from './body-limits.js';
+import type { IBodyParsersConfiguration } from './body-parser-options.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
 import type { CapturedJsonReply } from './response-capture.js';
 
@@ -80,20 +81,32 @@ export interface IHttpServerConfiguration {
   port: number;
 
   /**
-   * Middlewares used by server
+   * Raw Express handlers mounted before the server middlewares ( helmet by default )
    */
   middlewares: express.RequestHandler[];
 
   /**
-   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
-   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   * Per-path body size limits, applied just before the body parsers. The first prefix match wins; other paths keep the
+   * limits of `bodyParsers` ( 5mb JSON by default ).
    */
   bodyLimits?: IBodyLimitRule[];
+
+  /**
+   * Options of the built-in body and cookie parser server middlewares
+   */
+  bodyParsers?: IBodyParsersConfiguration;
 
   /**
    * Static files folder. Feel free to override this per app
    */
   Static: IHttpStaticFileConfiguration[];
+
+  static?: {
+    /** false: the StaticFiles middleware serves no `Static` entry. Default true. */
+    enabled?: boolean;
+    /** The `Order` of the StaticFiles server middleware. Default 4.5; `Infinity` mounts it after all of them. */
+    order?: number;
+  };
 
   /**
    * Whitch accept headers we support (default JSON & HTML)
@@ -115,14 +128,39 @@ export interface IHttpServerConfiguration {
  */
 export interface IHttpStaticFileConfiguration {
   /**
-   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
+   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg; default `/static`
    */
-  Route: string;
+  Route?: string;
 
   /**
    * full path to folder with static content
    */
   Path: string;
+
+  /** `express.static` (serve-static) options of this directory. */
+  Options?: IHttpStaticFileOptions;
+}
+
+/** The JSON-configurable `express.static` options. */
+export interface IHttpStaticFileOptions {
+  /** Cache-Control max-age, in milliseconds or an ms string ('1d'). Default 0. */
+  maxAge?: number | string;
+  /** Adds `immutable` to Cache-Control; needs `maxAge`. */
+  immutable?: boolean;
+  /** Dot files: 'ignore' (default, 404 as if absent), 'allow' or 'deny' (403). */
+  dotfiles?: 'allow' | 'deny' | 'ignore';
+  etag?: boolean;
+  lastModified?: boolean;
+  /** Directory index file(s); false disables. Default 'index.html'. */
+  index?: string | string[] | false;
+  /** Extensions tried when a file is not found, e.g. ['html']. */
+  extensions?: string[] | false;
+  /** false answers a missing file with 404 instead of passing it on to the later middlewares and routing. Default true. */
+  fallthrough?: boolean;
+  /** Redirect a directory path to its trailing slash. Default true. */
+  redirect?: boolean;
+  acceptRanges?: boolean;
+  cacheControl?: boolean;
 }
 
 export enum FileTypeEnum {
@@ -298,6 +336,13 @@ export interface IActionLocalStoregeContext {
   perf?: IPerfScope;
   /** `@SlowThreshold(ms)` of the route: {@link SlowRequestWarning} judges the request against it. */
   slowThresholdMs?: number;
+  /**
+   * Aborted when the request's deadline passed ({@link RequestDeadline}, `@Deadline`; reason a `TimeoutError`) or its
+   * client went away (an `AbortError`). Pass it to the I/O of the action. Set only while a deadline applies.
+   */
+  signal?: AbortSignal;
+  /** When the request's deadline passes, in epoch milliseconds. */
+  deadline?: number;
 }
 
 export interface IResponseHeader {
@@ -443,6 +488,11 @@ export enum HTTP_STATUS_CODE {
    * app is still starting up. Used by the telemetry readiness endpoint.
    */
   SERVICE_UNAVAILABLE = 503,
+
+  /**
+   * Nothing answered the request by its deadline ( see RequestDeadline )
+   */
+  GATEWAY_TIMEOUT = 504,
 }
 
 /**
@@ -577,7 +627,7 @@ export enum ParameterType {
   FromHeader = 'FromHeader',
 
   /**
-   * Client IP resolved by the RealIp middleware (X-Forwarded-For through http.trustProxy only)
+   * Client IP resolved by the RealIp middleware (X-Forwarded-For through the trust RealIp resolves)
    */
   Ip = 'IpRouteArgs',
 
@@ -850,11 +900,12 @@ export interface IController {
   BasePath: string;
 }
 
-export type MiddlewareStage = 'outer' | 'inner';
+export type MiddlewareStage = 'beforePolicy' | 'outer' | 'inner';
 
 /**
  * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
- * has none in `onBefore` and `onAround`; in `onAfter` and `onFinish` it has them when the request matched a route.
+ * gets in `onBefore` and `onAround` the route the `RouteIndex` matches before routing (best effort: the real route is
+ * the router's); in `onAfter` and `onFinish` the route the router matched, else that pre-routing match.
  */
 export interface IMiddlewareContext {
   readonly req: express.Request;
@@ -937,8 +988,9 @@ export abstract class HttpMiddleware extends AsyncService {
  */
 export abstract class RouteMiddleware extends HttpMiddleware {
   /**
-   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, the global ones
-   * (`http.routes.middlewares`) first, then the controller's and the route's in declaration order. Unset means 'inner'.
+   * 'beforePolicy' runs before the policy gate, so its onAfter and onFinish see a policy refusal; 'outer' runs right
+   * after the gate, before every 'inner' middleware. Within a stage, the global ones (`http.routes.middlewares`) first,
+   * then the controller's and the route's in declaration order. Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 

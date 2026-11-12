@@ -10,7 +10,7 @@ import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmMigrator } from '@spinajs/orm';
-import { BaseController, Controllers, HttpServer, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, RealIp, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -18,6 +18,7 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
 import * as barrel from '../../src/index.js';
 import { CsrfOriginGuard, ownOrigin } from '../../src/middleware/csrf.js';
+import { AuthnRealIp } from '../../src/middleware/client-ip.js';
 import { CSRF_REFUSAL_LOG_FILTERS, CSRF_REFUSED_EVENT } from '../../src/middleware/csrf-log.js';
 import authnHttpConfig from '../../src/config/authn-http.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
@@ -46,7 +47,8 @@ async function releaseHttpServer(): Promise<void> {
  * guard and the cached ServerMiddleware list (rebuilt from the other cached instances on the next resolve).
  */
 function uncacheGuard(): void {
-  DI.uncache(CsrfOriginGuard);
+  // The guard reads the trust AuthnRealIp stored, so the trust settings take effect only with a new AuthnRealIp.
+  for (const type of [CsrfOriginGuard, RealIp, AuthnRealIp] as Class<unknown>[]) DI.uncache(type);
   DI.uncache(ServerMiddleware);
 }
 
@@ -321,8 +323,18 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': ['https://partner.example.org:99999'] }).isEnabled()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
 
-    it('a bad trust setting fails when the middleware is built, naming the key', () => {
-      expect(() => unitGuard({ 'authn.http.trustProxy': 'nope' }).isEnabled()).to.throw(InvalidOption, 'authn.http.trustProxy');
+    it('takes the own origin through the trust RealIp stored for the request, never parsing a setting itself', () => {
+      const guard = unitGuard({ 'authn.http.trustProxy': 'nope' });
+      expect(guard.isEnabled()).to.eq(true);
+      const handler = mounted(guard)!;
+      const forwarded = { cookie: 'ssid=x', host: 'internal:3000', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'app.example.test', origin: 'https://app.example.test' };
+      const viaProxy = { ...fakeReq('POST', forwarded), storage: { proxyTrust: parseTrustProxy(1, 'k') } };
+      const next = sinon.spy();
+      handler(viaProxy, fakeRes(), next);
+      expect(next.calledOnce, 'trusted proxy: the forwarded origin is the own one').to.eq(true);
+      const direct = sinon.spy();
+      handler(fakeReq('POST', forwarded), fakeRes(), direct);
+      expect(direct.called, 'no stored trust: the forwarded headers do not count').to.eq(false);
     });
 
     it('is off only for enabled: false', () => {

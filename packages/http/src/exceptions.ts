@@ -24,6 +24,16 @@ export class RouteClientGone extends Exception {
   }
 }
 
+/**
+ * The request was answered in place of the route (a `RequestDeadline` 504) while the route still runs: its outcome is
+ * unknown, as when the client goes away mid-route.
+ */
+export class RouteAnsweredInPlace extends RouteClientGone {
+  constructor() {
+    super({ beforeRoute: false }, 'The request was answered in place of the route before the route answered');
+  }
+}
+
 /** The route does not take the request's content type, e.g. a raw-body route sent a body that a parser already read. */
 export class UnsupportedMediaTypeException extends Exception {}
 

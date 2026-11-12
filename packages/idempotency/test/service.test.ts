@@ -48,6 +48,16 @@ for (const store of ['MemoryIdempotencyStore', 'OrmIdempotencyStore']) {
       expect(calls).to.equal(1);
     });
 
+    it('peeks a key without claiming it', async () => {
+      expect(await service.peek(SCOPE, 'k')).to.equal(undefined);
+      await service.run(SCOPE, 'k', counted, numberReply({ fingerprint: 'a'.repeat(64) }));
+      expect(await service.peek(SCOPE, 'k')).to.deep.equal({ state: 'done', reply: { kind: 'n', body: 1 }, fingerprint: 'a'.repeat(64) });
+      expect(await service.peek({ ...SCOPE, principal: 'user:2' }, 'k')).to.equal(undefined);
+      expect(await service.peek(SCOPE, 'other')).to.equal(undefined);
+      // a peek claims nothing: the free key still runs
+      expect(await service.run(SCOPE, 'other', counted, numberReply())).to.deep.equal({ replayed: false, value: 2 });
+    });
+
     it('keeps principals and namespaces apart', async () => {
       await service.run(SCOPE, 'k', counted, numberReply());
       await service.run({ ...SCOPE, principal: 'user:2' }, 'k', counted, numberReply());

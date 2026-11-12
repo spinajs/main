@@ -13,6 +13,7 @@ A key can hold many registrations. A single resolve takes the last one; a list r
 3. In the owner, the cached collection is returned when no class was registered under `T` since it was built.
 4. Otherwise every registration is resolved (`resolveType`). Each singleton is cached twice: in the collection under `T`'s name and under its own class name.
 5. The result is the cached collection: an array, or a `Promise` of it when an element is async. Nothing registered gives `[]`.
+6. Elements are in registration order, the order of `getRegisteredTypes(T)`, however long each async element takes to resolve. A class registered after the collection was built goes last. An element already built keeps its position, also after `register(...).as(T, { replace: true })` moves its registration to the end.
 
 ### `Array.chainOf(T)`: the whole lineage
 
@@ -106,7 +107,10 @@ void main();
 
 - `Array.ofType` drops factory and `@NewInstance()` registrations from its result even though it builds them. Use `Array.chainOf` when the list can hold either.
 - A class registered under `T` after the collection was built is picked up on the next `Array.ofType(T)` resolve; already built elements keep their identity.
+- The returned array is the container's cached collection, shared by every consumer of `Array.ofType(T)`. Copy it before sorting or changing it, eg. `[...list].sort(byOrder)`; a sort in place changes the order everyone else sees.
 - A singleton reached through `Array.ofType(T)` is also cached under its own name, so `DI.resolve(DatabaseCheck)` returns the same instance.
+- A `@PerInstanceCheck()` element of `Array.ofType(T)` is the same instance a single `resolve(Element, options)` with the same options returns. The list reuses an instance cached under the element's name when its `__checkInstance__` accepts the list's options (`undefined` when the list is resolved without options), shares one a single resolve is still creating with deep-equal options, and caches an instance it builds under the element's name. The options reach an element only while the list is being built, for an element class with no instance in the list yet; once the list holds an instance of every registered class, a later `Array.ofType(T)` resolve returns the cached list for any options, without checking its elements again. An injected dependency (`@Autoinject`, `@Inject`) resolves with `[undefined]` where a list or a direct resolve passes `undefined`; a creation in flight is shared between the two, and `__checkInstance__` gets the options as passed, so it should accept both.
+- A `resolve(DatabaseCheck)` made while `Array.ofType(T)` is still creating `DatabaseCheck` waits for that creation and gets the instance. An `Array.ofType(T)` made while a single resolve is creating an element waits for it and includes it.
 - `resolve(Array.chainOf(T))` with a non-async base is typed `T[] | Promise<T[]>`; `await` it.
 - A single resolve of an unregistered `T` registers nothing, so its bare instance never shows up in `Array.ofType(T)` or `Array.chainOf(T)`.
 - `Array.ofType(T)` and `Array.chainOf(T)` in one `@Inject` are two separate dependencies.

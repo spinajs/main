@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. No body parser of the default `http.middlewares` reads `application/octet-stream` (or any type other than JSON, urlencoded and XML), so the request stream is still unread when the route runs. `helmet` does not touch it, nor does the `Compression` server middleware.
+1. No built-in body parser (`http.bodyParsers`) reads `application/octet-stream` (or any type other than JSON, urlencoded and XML), so the request stream is still unread when the route runs. `helmet` does not touch it, nor does the `Compression` server middleware.
 2. `RequestStreamArg.extract()` checks that state: a body that a parser already took (the stream is ended, or flowing) answers **415** (`UnsupportedMediaTypeException`).
 3. Without `maxBytes` the action gets the request itself. With `maxBytes` it gets `limitRequestStream(req, maxBytes)`: a `PassThrough` fed through `ByteLimitStream(maxBytes)`.
 4. When the body goes over `maxBytes`, the stream stops passing bytes on, reads off and discards the rest of the request, and fails with `LimitExceeded` only after the request ended. The action's read rejects; unhandled, the error answers **413**.
@@ -25,7 +25,7 @@ Neither decorator has configuration of its own. They depend on:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.middlewares` | `express.RequestHandler[]` | helmet, the JSON, urlencoded and XML-text parsers and the cookie parser | | A body these take arrives empty: `@RequestStream()` answers `415`. |
+| `http.bodyParsers` | object | the JSON, urlencoded and XML-text parsers on | | A body these take arrives empty: `@RequestStream()` answers `415`. |
 | `http.bodyLimits` | `{ path, limit }[]` | `[]` | | On a path under a configured rule (first match wins), refuses a declared `Content-Length` over the limit with `413` before routing, for any content type; that rule's parser also parses JSON, urlencoded and XML bodies there. See [Body size limits](04-route-arguments.md#body-size-limits). |
 
 ## `Content-Digest` parsing
