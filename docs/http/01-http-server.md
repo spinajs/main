@@ -13,7 +13,7 @@
 7. Among them, at `http.static.order` (default 4.5: after `CsrfGuard`, before authentication), it serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning. See [Static files](#static-files).
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
 9. **`start()`** adds, once per instance, the `NotFoundMiddleware` and `ErrorHandlerMiddleware` tail. Then it listens on `http.port` and emits `http.server.listening`.
-10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
+10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. A request that still arrives on a kept-alive connection meanwhile gets a 503 with `Connection: close` from [`MaintenanceMode`](27-maintenance-mode.md). After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
 
 ```mermaid
 sequenceDiagram
@@ -68,6 +68,10 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.csrf.*` | object | `enabled: true`, empty lists | | The default-deny `CsrfGuard`; see [CSRF guard](23-csrf-guard.md#configuration). |
 | `http.bot.*` | object | `enabled: false` | | `@BotCheck` verifiers and checks; see [Bot checks](23-bot-check.md#configuration). |
 | `http.throttle.*` | object | `enabled: false`, `ipv6Prefix: 64`, `rules: []` | | Per-IP, per-path rate limits; see [Throttling](18-throttling.md). |
+| `http.maintenance.*` | object | `enabled: false`, `retryAfter: 60`, `allow: []` | | 503 answers during maintenance; see [Maintenance mode](27-maintenance-mode.md). |
+| `http.concurrency.*` | object | `enabled: false`, `max: 500`, `retryAfter: 1` | | Load shedding over a cap of requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
+| `http.deadline.*` | object | `enabled: false`, `ms: 30000` | | A deadline for every request, 504 when nothing was sent by it; see [Request deadlines](29-request-deadlines.md). |
+| `http.audit.*` | object | `redact: ['password', 'token', 'secret', 'authorization', 'cookie', 'card']`, `includeBody: true`, `maxBodyBytes: 16384` | | The `Audit` route middleware: methods, redacted keys, body; see [Audit](30-audit.md#configuration). |
 
 The default `http.middlewares` hold one handler:
 

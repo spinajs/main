@@ -4,9 +4,9 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
-import { ServerMiddleware, HTTP_STATUS_CODE } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext, Response } from '../interfaces.js';
-import { RawJsonResponse } from '../response-methods/rawJson.js';
+import { quietRateLimitAnswer, rateLimitAnswer } from './rate-limit-answer.js';
 
 /**
  * One throttling rule. Matched against the incoming request path by PREFIX, on a
@@ -30,6 +30,12 @@ export interface IThrottleRule {
 
   /** Fixed window length in seconds */
   windowSeconds: number;
+
+  /**
+   * true: send the `X-RateLimit-*` headers on every request the rule counts, the 429 included. Default false: the 429
+   * carries only `Retry-After`, and the other answers do not reveal the limiter.
+   */
+  headers?: boolean;
 }
 
 /**
@@ -87,8 +93,6 @@ export class MemoryThrottleStore extends ThrottleStore {
   }
 }
 
-const TOO_MANY_REQUESTS_BODY = Object.freeze({ error: Object.freeze({ code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' }) });
-
 // Express matches routes case-insensitively, so a rule must too, or `/AUTH/login` reaches the route unthrottled.
 const underPath = (path: string, prefix: string): boolean => {
   const p = path.toLowerCase();
@@ -100,7 +104,7 @@ const underPath = (path: string, prefix: string): boolean => {
  * Per-ip, per-route rate limiting. Complements ( does NOT replace ) the
  * authn throttle, the real per-account and per-IP login limiter - this one caps
  * request volume from one address before any handler runs. The address is
- * `req.storage.realIp` ( `http.trustProxy` only ), else the socket address.
+ * `req.storage.realIp` ( see RealIp ), else the socket address.
  *
  * Config:
  *   http.throttle.enabled   (boolean, default false)
@@ -116,8 +120,8 @@ const underPath = (path: string, prefix: string): boolean => {
  *     ],
  *   }
  *
- * A limited request answers 429 with `Retry-After` and the standard
- * `X-RateLimit-*` headers, through the reply pipeline; the counters live in {@link ThrottleStore}.
+ * A limited request answers 429 with `Retry-After` through the reply pipeline; a rule with `headers: true` also sends
+ * the standard `X-RateLimit-*` headers on every request it counts. The counters live in {@link ThrottleStore}.
  */
 @Injectable(ServerMiddleware)
 export class ThrottleMiddleware extends ServerMiddleware {
@@ -163,15 +167,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
     // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
     // answers the request instead of the route (fail closed).
     const hit = await this.Store.increment(key, rule.windowSeconds);
-    res.set('X-RateLimit-Limit', String(rule.limit));
-    res.set('X-RateLimit-Remaining', String(Math.max(0, rule.limit - hit.count)));
-    res.set('X-RateLimit-Reset', String(Math.ceil(hit.resetAt / 1000)));
-
-    if (hit.count > rule.limit) {
-      const retryAfter = Math.max(1, Math.ceil((hit.resetAt - Date.now()) / 1000));
-      res.set('Retry-After', String(retryAfter));
-      return new RawJsonResponse(HTTP_STATUS_CODE.TOO_MANY_REQUESTS, TOO_MANY_REQUESTS_BODY);
-    }
+    return rule.headers === true ? rateLimitAnswer(res, rule.limit, hit) : quietRateLimitAnswer(rule.limit, hit);
   }
 
   private throttle(): { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null {
@@ -189,6 +185,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
     rules.forEach((r, i) => {
       if (!(Number.isFinite(r.limit) && r.limit >= 0)) throw new InvalidOption(`http.throttle.rules.${i}.limit must be a finite number >= 0`);
       if (!(Number.isFinite(r.windowSeconds) && r.windowSeconds > 0)) throw new InvalidOption(`http.throttle.rules.${i}.windowSeconds must be a finite positive number`);
+      if (r.headers !== undefined && typeof r.headers !== 'boolean') throw new InvalidOption(`http.throttle.rules.${i}.headers must be a boolean`);
     });
 
     const prefix = cfg.ipv6Prefix ?? DEFAULT_IPV6_PREFIX;

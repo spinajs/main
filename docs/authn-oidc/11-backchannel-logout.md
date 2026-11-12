@@ -68,6 +68,7 @@ Keycloak calls it "Backchannel logout URL" (keep "Backchannel logout session req
 - The `jti` is claimed before the revocation, so after a store failure (400) a retry with the same token answers 400 as a replay; a retry needs a fresh token.
 - The `sub` path uses the link store, so it finds the identity only when the provider's `claims.subject` is `sub`.
 - The issuer refuses a `provider` or `sid` longer than 255 characters and answers 0.
+- The route has no rate limit, unlike begin and callback: a refused logout token leaves alive a session that should have ended ([Rate limits](13-rate-limits.md)).
 
 ## Related
 

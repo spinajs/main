@@ -7,6 +7,7 @@ import { PaginationDTO, OrderDTO, Filter } from '@spinajs/orm-http';
 import type { IFilterRequest } from '@spinajs/orm-http';
 
 import { CurrentUser } from '../args/current-user.js';
+import { UsersRateLimit } from '../rate-limits.js';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import '../dto/metadata-entry-schema.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
@@ -108,6 +109,7 @@ export class UserMetadataController extends BaseController {
      * @response 404 User not found
      */
     @Post(":user/metadata")
+    @UsersRateLimit('metadata')
     @Access('user.metadata:create')
     public async addUserMetadata(
         @Req() req: Request,
@@ -132,6 +134,7 @@ export class UserMetadataController extends BaseController {
      * @response 404 User or metadata entry not found, or its key is reserved
      */
     @Patch(':user/metadata/:meta')
+    @UsersRateLimit('metadata')
     @Access('user.metadata:update')
     public async updateUserMetadata(
         @Req() req: Request,
@@ -158,6 +161,7 @@ export class UserMetadataController extends BaseController {
      * @response 404 User or metadata entry not found, or its key is reserved
      */
     @Del(':user/metadata/:meta')
+    @UsersRateLimit('metadata')
     @Access('user.metadata:delete')
     public async deleteUserMetadata(
         @Req() req: Request,
@@ -203,6 +207,7 @@ export class UserMetadataController extends BaseController {
      * @response 403 Forbidden — not a user principal, or no `user.metadata:create` (and `update` for an existing key)
      */
     @Post("metadata")
+    @UsersRateLimit('metadata')
     @Access('user.metadata:create')
     public async addMetadata(@Req() req: Request, @CurrentUser() user: User, @Body() data: UserMetadataDto) {
         await this.Metadata.upsert(ownMetadata(req, user), data);
@@ -222,6 +227,7 @@ export class UserMetadataController extends BaseController {
      * @response 404 Metadata entry not found, or its key is reserved
      */
     @Patch('metadata/:meta')
+    @UsersRateLimit('metadata')
     @Access('user.metadata:update')
     public async updateMetadata(@Req() req: Request, @CurrentUser() user: User, @Param() meta: string, @Body() data: UserMetadataDto) {
         await this.Metadata.update(ownMetadata(req, user), meta, data);
@@ -240,6 +246,7 @@ export class UserMetadataController extends BaseController {
      * @response 404 Metadata entry not found, or its key is reserved
      */
     @Del('metadata/:meta')
+    @UsersRateLimit('metadata')
     @Access('user.metadata:delete')
     public async deleteMetadata(@Req() req: Request, @CurrentUser() user: User, @Param() meta: number) {
         await this.Metadata.delete(ownMetadata(req, user), meta);

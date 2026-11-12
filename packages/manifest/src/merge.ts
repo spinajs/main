@@ -8,6 +8,7 @@ export interface MergeMeta {
   generatedAt?: string;
   buildEnv?: string;
   schemaDerivation?: false;
+  globalRouteMiddlewares?: Manifest['globalRouteMiddlewares'];
   compilerVersion?: string;
 }
 
@@ -90,6 +91,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
     ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
+    ...(meta.globalRouteMiddlewares?.length ? { globalRouteMiddlewares: meta.globalRouteMiddlewares } : {}),
     ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
     generatedAt: meta.generatedAt ?? new Date().toISOString(),
     hash: '',

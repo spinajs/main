@@ -125,6 +125,7 @@ describe('ThrottleMiddleware', () => {
         [{ path: '/auth', limit: 5 }, 'http.throttle.rules.0.windowSeconds'],
         [{ path: '/auth', limit: 5, windowSeconds: 0 }, 'http.throttle.rules.0.windowSeconds'],
         [{ path: '/auth', limit: 5, windowSeconds: Infinity }, 'http.throttle.rules.0.windowSeconds'],
+        [{ path: '/auth', limit: 5, windowSeconds: 60, headers: 'false' }, 'http.throttle.rules.0.headers'],
       ];
       for (const [rule, key] of cases) {
         const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { throttle: { enabled: true } } } });
@@ -176,7 +177,7 @@ describe('ThrottleMiddleware', () => {
     const RULES: IThrottleRule[] = [{ path: '/auth', methods: ['POST'], limit: 2, windowSeconds: 60 }];
 
     it('passes requests under the limit and refuses the first one over it with 429', async () => {
-      const handler = (await makeMiddleware({ enabled: true, rules: RULES }));
+      const handler = await makeMiddleware({ enabled: true, rules: [{ ...RULES[0], headers: true }] });
 
       expect((await run(handler, request())).nextCalled).to.eq(true);
       expect((await run(handler, request())).nextCalled).to.eq(true);
@@ -187,6 +188,34 @@ describe('ThrottleMiddleware', () => {
       expect(limited.body.error.code).to.eq('E_TOO_MANY_REQUESTS');
       expect(Number(limited.headers['Retry-After'])).to.be.greaterThan(0);
       expect(limited.headers['X-RateLimit-Remaining']).to.eq('0');
+    });
+
+    it('sets no X-RateLimit-* headers for a rule without headers; its 429 carries Retry-After only, itself', async () => {
+      const handler = await makeMiddleware({ enabled: true, rules: RULES });
+
+      expect(await run(handler, request())).to.deep.eq({ nextCalled: true, headers: {} });
+      expect(await run(handler, request())).to.deep.eq({ nextCalled: true, headers: {} });
+
+      const res = { set: sinon.spy() };
+      const limited = await handler.onBefore({ req: request() as never, res: res as never, storage: request().storage as never });
+      expect(res.set.called).to.eq(false);
+      expect(limited!.statusCode).to.eq(429);
+      expect(limited!.headers.map((h) => h.Name)).to.deep.eq(['Retry-After']);
+      expect(Number(limited!.headers[0].Value)).to.be.within(1, 60);
+    });
+
+    it('sets no X-RateLimit-* headers for a rule with headers: false; its 429 carries Retry-After itself', async () => {
+      const handler = await makeMiddleware({ enabled: true, rules: [{ ...RULES[0], headers: false }] });
+
+      expect(await run(handler, request())).to.deep.eq({ nextCalled: true, headers: {} });
+      await run(handler, request());
+
+      const res = { set: sinon.spy() };
+      const limited = await handler.onBefore({ req: request() as never, res: res as never, storage: request().storage as never });
+      expect(res.set.called).to.eq(false);
+      expect(limited!.statusCode).to.eq(429);
+      expect((limited!.data as { error: { code: string } }).error.code).to.eq('E_TOO_MANY_REQUESTS');
+      expect(Number(limited!.headers.find((h) => h.Name === 'Retry-After')?.Value)).to.be.within(1, 60);
     });
 
     it('counts per client ip', async () => {

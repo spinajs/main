@@ -75,7 +75,7 @@ export interface LocalPasswordServiceDeps {
   readonly dispatcher?: AuthnMailDispatcher;
   /** Required by `redeemVerification`. */
   readonly verifier?: IdentityAddressVerifier | null;
-  /** `authn.throttle.ipv6Prefix`; default 64. */
+  /** Otherwise `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix`; default 64. */
   readonly ipv6Prefix?: number;
   /** `authn.local.verify.ttlSeconds`; default 86400. */
   readonly verifyTtlSeconds?: number;
@@ -131,6 +131,9 @@ function parseVerifySecret(secret: string): { id: IdentityRef; raw: string } | n
 export class LocalPasswordService extends PasswordService {
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
+
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
 
   @Config('authn.local.reset.revokeTokens')
   protected RevokeTokens: boolean;
@@ -811,7 +814,7 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected get ipv6Prefix(): number {
-    return this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix);
+    return this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix);
   }
 
   /**
