@@ -257,6 +257,33 @@ export class WebhookController extends BaseController {
 }
 ```
 
+### In API documents
+
+A mounted `RateLimitMiddleware` tells API document generators what it adds to its route (`documentation(route)`, see [route middlewares](./14-route-middlewares.md)):
+
+- The default answer: a `429` with the `E_TOO_MANY_REQUESTS` body and `Retry-After`, the shared `TooManyRequests` response. A closed route's 429 (`limit: 0`) has no `Retry-After`.
+- With the headers on, as the decorator and the configured value resolve them: `X-RateLimit-*` on that 429 and on the route's own success answers, and an `x-rate-limit` extension with the effective `{ limit, windowSeconds, by }`. With them off, the numbers stay out of the document. The configuration key never appears.
+- An `answer` of the route documents nothing unless it is marked with `documentedAnswer(fn, { status, description, type?, retryAfter? })`: the document then shows that status with its description, the named body `type` (resolved like `@response 429 {AuthnError}`) and, with `retryAfter: true`, `Retry-After`. `documentedAnswer` marks `fn` itself and returns it; `answerDocOf(fn)` reads the mark.
+- Each `RateLimitMiddleware` on a route documents on its own; a generator decides which one wins for a status. A route's own `@RateLimit` is mounted after the controller's, and replaces a global floor of the same class.
+
+```ts sample
+import { BaseController, BasePath, Ok, Post, RateLimit, RawJsonResponse, documentedAnswer } from '@spinajs/http';
+
+const throttledSignIn = documentedAnswer(
+  (retryAfterSeconds: number) => new RawJsonResponse(401, { error: { code: 'E_SIGN_IN_FAILED' } }, { Headers: [{ Name: 'Retry-After', Value: String(retryAfterSeconds) }] }),
+  { status: 401, description: 'Sign-in failed', type: 'SignInError', retryAfter: true },
+);
+
+@BasePath('sign-in')
+export class DocumentedSignInController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 30, windowSeconds: 60, answer: throttledSignIn })
+  public password() {
+    return new Ok();
+  }
+}
+```
+
 ### Configured limits of a package
 
 A package with several configured routes keeps their shipped limits in one table and builds both the schema and the decorators from it:

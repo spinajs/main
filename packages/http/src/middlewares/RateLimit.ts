@@ -5,8 +5,8 @@ import { _between, _custom, _finite, _gte, _integer, _is_number, _is_object, _is
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
-import type { IController, IMiddlewareContext, IRoute, MiddlewareStage, Response } from '../interfaces.js';
-import { quietRateLimitAnswer, rateLimitAnswer, retryAfterSeconds, setRateLimitHeaders, tooManyRequests } from './rate-limit-answer.js';
+import type { IController, IDocumentedAnswer, IMiddlewareContext, IRoute, IRouteMiddlewareDoc, MiddlewareStage, Response } from '../interfaces.js';
+import { answerDocOf, quietRateLimitAnswer, rateLimitAnswer, rateLimitHeadersDoc, retryAfterDoc, retryAfterSeconds, setRateLimitHeaders, tooManyRequests, tooManyRequestsDoc } from './rate-limit-answer.js';
 import { ThrottleStore } from './Throttle.js';
 
 /** What one request is counted against: its client address, or its authenticated principal. */
@@ -175,6 +175,12 @@ export function configuredRateLimit<N extends string>(root: string, defaults: Ra
   return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ ...options, config: `${root}.${name}`, default: defaults[name], ...(opts.headers !== undefined ? { headers: opts.headers } : {}) });
 }
 
+function customAnswerDoc(answer: unknown): Record<string, IDocumentedAnswer> | undefined {
+  const doc = answerDocOf(answer);
+  if (!doc) return undefined;
+  return { [String(doc.status)]: { description: doc.description, ...(doc.type !== undefined ? { type: doc.type } : {}), ...(doc.retryAfter ? { headers: retryAfterDoc() } : {}) } };
+}
+
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
 
 /**
@@ -261,7 +267,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
     const { res } = ctx;
     const { answer } = this.options;
-    const headers = settings.headers ?? this.options.headers ?? false;
+    const headers = this.sendsHeaders(settings);
 
     // A closed route never opens, so a window reset or Retry-After would only invite a pointless retry.
     if (settings.limit === 0) {
@@ -281,6 +287,30 @@ export class RateLimitMiddleware extends RouteMiddleware {
     const retryAfter = retryAfterSeconds(hit);
     if (headers) res.set('Retry-After', String(retryAfter));
     return answer(retryAfter);
+  }
+
+  /**
+   * What the limit adds to the route's API document: its throttled answer (a custom `answer` only when marked with
+   * `documentedAnswer`) and, when it sends them, the `X-RateLimit-*` headers and its effective numbers. Several
+   * limits on one route document apart; a document generator decides which wins.
+   */
+  public override documentation(_route: IRoute): IRouteMiddlewareDoc | undefined {
+    const settings = this.settings;
+    if (!settings) return undefined;
+
+    const headers = this.sendsHeaders(settings);
+    const closed = settings.limit === 0;
+    const responses = this.options.answer ? customAnswerDoc(this.options.answer) : { '429': tooManyRequestsDoc(closed, headers) };
+    if (!headers) return responses ? { responses } : {};
+    return {
+      ...(responses ? { responses } : {}),
+      headers: rateLimitHeadersDoc(),
+      extensions: { 'x-rate-limit': [{ limit: settings.limit, windowSeconds: settings.windowSeconds, by: settings.by }] },
+    };
+  }
+
+  private sendsHeaders(settings: RateLimitDefault): boolean {
+    return settings.headers ?? this.options.headers ?? false;
   }
 
   private current(): Partial<IRateLimitSettings> {

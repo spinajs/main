@@ -7,7 +7,7 @@ import type { IMiddlewareContext, IRateLimitOptions, RateLimit } from '@spinajs/
 import { AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS } from './rate-limit-config.js';
 import type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
 import type { ThrottledAnswer } from './middleware/ip-throttle.js';
-import { tooManyRequests } from './password/fields.js';
+import { throttled } from './password/fields.js';
 
 // Keeps this HMAC apart from every other use of the cookie secret.
 const PENDING_KEY_DOMAIN = 'spinajs.authn-http.rate-limit.pending-session\0';
@@ -44,7 +44,7 @@ export function AuthnRateLimit(name: AuthnHttpRateLimitName, answer: ThrottledAn
 }
 
 /** authn's own 429 body, as a throttled verification or reset request answers. */
-export const throttledRequest = (retryAfterSeconds: number) => tooManyRequests('too many requests, try again later', retryAfterSeconds);
+export const throttledRequest = throttled('too many requests, try again later');
 
 /**
  * The shipped `@RateLimit` of a route with a session: authn's 429 unless `options` names another answer, and, as on

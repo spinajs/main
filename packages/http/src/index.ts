@@ -55,6 +55,8 @@ export * from './middlewares/ServerTiming.js';
 export * from './middlewares/PerfRollup.js';
 export * from './middlewares/Throttle.js';
 export * from './middlewares/RateLimit.js';
+export { answerDocOf, documentedAnswer } from './middlewares/rate-limit-answer.js';
+export type { IAnswerDoc } from './middlewares/rate-limit-answer.js';
 export * from './middlewares/ResponseTime.js';
 export * from './middlewares/RouteTiming.js';
 export * from './middlewares/ReqStorage.js';
