@@ -175,10 +175,12 @@ export function configuredRateLimit<N extends string>(root: string, defaults: Ra
   return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ ...options, config: `${root}.${name}`, default: defaults[name], ...(opts.headers !== undefined ? { headers: opts.headers } : {}) });
 }
 
-function customAnswerDoc(answer: unknown): Record<string, IDocumentedAnswer> | undefined {
+/** A marked `answer`, with the headers `onBefore` sets on `res` next to it when the route sends `X-RateLimit-*`. */
+function customAnswerDoc(answer: unknown, closed: boolean, headers: boolean): Record<string, IDocumentedAnswer> | undefined {
   const doc = answerDocOf(answer);
   if (!doc) return undefined;
-  return { [String(doc.status)]: { description: doc.description, ...(doc.type !== undefined ? { type: doc.type } : {}), ...(doc.retryAfter ? { headers: retryAfterDoc() } : {}) } };
+  const sent = { ...(doc.retryAfter || (headers && !closed) ? retryAfterDoc() : {}), ...(headers ? rateLimitHeadersDoc(closed) : {}) };
+  return { [String(doc.status)]: { description: doc.description, ...(doc.type !== undefined ? { type: doc.type } : {}), ...(Object.keys(sent).length > 0 ? { headers: sent } : {}) } };
 }
 
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
@@ -300,12 +302,15 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
     const headers = this.sendsHeaders(settings);
     const closed = settings.limit === 0;
-    const responses = this.options.answer ? customAnswerDoc(this.options.answer) : { '429': tooManyRequestsDoc(closed, headers) };
+    const responses = this.options.answer ? customAnswerDoc(this.options.answer, closed, headers) : { '429': tooManyRequestsDoc(closed, headers) };
     if (!headers) return responses ? { responses } : {};
+    // A custom key counts on its own value first, so `by` would misstate what is counted.
+    const counted = this.options.key ? {} : { by: settings.by };
     return {
       ...(responses ? { responses } : {}),
-      headers: rateLimitHeadersDoc(),
-      extensions: { 'x-rate-limit': [{ limit: settings.limit, windowSeconds: settings.windowSeconds, by: settings.by }] },
+      // a closed route never lets a request through to a success answer
+      ...(closed ? {} : { headers: rateLimitHeadersDoc() }),
+      extensions: { 'x-rate-limit': [{ limit: settings.limit, windowSeconds: settings.windowSeconds, ...counted }] },
     };
   }
 

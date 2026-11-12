@@ -39,7 +39,7 @@ export const tooManyRequests = (message: string, retryAfterSeconds: number): Too
   new TooManyRequestsResponse({ error: 'throttled', message }, { Headers: [NO_STORE, { Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) }] });
 
 /** The {@link tooManyRequests} answer of `message`, marked for API documents as the `AuthnError` 429 it sends. */
-export const throttled = (message: string) =>
+export const throttled = (message: string): ((retryAfterSeconds: number) => TooManyRequestsResponse) =>
   documentedAnswer((retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests(message, retryAfterSeconds), { status: 429, description: 'Too many attempts', type: 'AuthnError', retryAfter: true });
 
 /** 429 for a throttled reset request. Its keys are the normalised login and the client ip, whether or not the account exists. */

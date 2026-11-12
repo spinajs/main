@@ -185,8 +185,34 @@ const refusedAnswer = documentedAnswer((retryAfterSeconds: number) => new RawJso
   retryAfter: true,
 });
 
+const bareAnswer = documentedAnswer(() => new RawJsonResponse(403, { error: 'bare' }), { status: 403, description: 'Refused, no Retry-After' });
+
 @BasePath('rate-limited-docs')
 class RateLimitDocsController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: bareAnswer })
+  public bare() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: bareAnswer, headers: true })
+  public bareLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 0, windowSeconds: 60, answer: bareAnswer, headers: true })
+  public bareClosedLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, headers: true, key: () => 'k' })
+  public keyed() {
+    return new Ok();
+  }
+
   @Post()
   @RateLimit(2, 60)
   public quiet() {
@@ -1031,7 +1057,7 @@ describe('RateLimitMiddleware', () => {
       const loud = docOf('closedLoud');
       expect(loud.responses!['429'].component).to.eq(undefined);
       expect(loud.responses!['429'].headers).to.have.keys('X-RateLimit-Limit', 'X-RateLimit-Remaining');
-      expect(loud.headers).to.have.keys(...RATE_LIMIT_HEADERS);
+      expect(loud.headers, 'a closed route has no success answer').to.eq(undefined);
       expect(loud.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 0, windowSeconds: 60, by: 'ip' }] });
     });
 
@@ -1046,9 +1072,21 @@ describe('RateLimitMiddleware', () => {
       expect(answer.schema).to.eq(undefined);
 
       const loud = docOf('markedLoud');
-      expect(loud.responses).to.deep.eq(marked.responses);
+      expect(Object.keys(loud.responses!)).to.deep.eq(['401']);
+      expect(loud.responses!['401']).to.include({ description: 'Refused', type: 'UniformError' });
+      expect(loud.responses!['401'].headers, 'the headers onBefore sets next to the answer').to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
       expect(loud.headers).to.have.keys(...RATE_LIMIT_HEADERS);
       expect(loud.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60, by: 'ip' }] });
+    });
+
+    it("a mark without retryAfter: no Retry-After unless the middleware sets it; a closed route's answer gets Limit and Remaining only", () => {
+      expect(docOf('bare')).to.deep.eq({ responses: { '403': { description: 'Refused, no Retry-After' } } });
+      expect(docOf('bareLoud').responses!['403'].headers).to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
+      expect(docOf('bareClosedLoud').responses!['403'].headers).to.have.keys('X-RateLimit-Limit', 'X-RateLimit-Remaining');
+    });
+
+    it('a custom key publishes no by: the key, not the address or principal, is counted', () => {
+      expect(docOf('keyed').extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60 }] });
     });
 
     it('an unmarked custom answer documents no answer; X-RateLimit-* only with headers', () => {
