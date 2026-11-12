@@ -60,6 +60,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `BodyLimits` | 3.4 | yes | handler | `http.bodyLimits` | Per-path body limits; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `JsonBodyParser`, `UrlencodedBodyParser`, `TextBodyParser` | 3.5 | yes | handler | `http.bodyParsers.{json,urlencoded,text}` | `req.body`, `req.rawBody` for JSON. |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
+| `StaticFiles` | `http.static.order` (4.5) | yes | handler | `http.Static`, `http.static.*` | Serves the `http.Static` directories with `express.static`; off when `http.static.enabled` is `false` or no directory exists. See [Static files](01-http-server.md#static-files). |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
 
 The request id and timing middlewares are on [Request storage and tracing](19-request-storage-and-tracing.md).
