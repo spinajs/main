@@ -72,7 +72,7 @@ DI.register(PublicApiBuilder).as(OpenApiBuilder);
 - `addController()` returns without doing anything for a controller with no runtime `Descriptor`.
 - The builder writes into schema objects it receives from schema providers while it expands them.
 - Named types resolve only through `SchemaProvider`s registered in DI, also when you create the builder with `new`.
-- Middleware answers (the `429` of `@RateLimit`, `X-RateLimit-*`, `x-rate-limit`) are read from `controller.instance.MountedMiddlewares(method)`: the middlewares mounted when the app registered the routes. A controller instance whose routes were never mounted, or that is no `BaseController`, documents none.
+- Middleware answers (the `429` of `@RateLimit`, `X-RateLimit-*`, `x-rate-limit`) are read from `controller.instance.MountedMiddlewares(method)`: the middlewares mounted when the app registered the routes. A controller instance whose routes were never mounted, or that is no `BaseController`, documents none. Only the `x-` keys of a middleware's `extensions` reach the operation. A middleware whose `documentation()` throws is skipped with a warning naming it and the route; the other middlewares are still documented.
 - In manifest mode (`system.manifest.mode` `prefer` or `require`, with a valid manifest) `SwaggerService` serves `manifestToOpenApi()` of `@spinajs/openapi` instead of this builder. The manifest holds no runtime middleware, so that document has no middleware answers: no `429` of `@RateLimit`, no `X-RateLimit-*` headers, no `x-rate-limit`. Document such an answer with `@response` if the manifest document needs it.
 - A response may carry `headers` (`IOpenApiResponse.headers`: `{ description?, schema }` by name).
 

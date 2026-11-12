@@ -1,6 +1,7 @@
 import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
-import type { IDocumentedAnswer, IDocumentedHeader } from '@spinajs/http';
+import type { IDocumentedAnswer, IDocumentedHeader, IRouteMiddlewareDoc, RouteMiddleware } from '@spinajs/http';
+import { Logger, Log } from '@spinajs/log';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
@@ -175,9 +176,13 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
   '500': 'Internal server error',
 };
 
-/** A middleware's `x-` extensions onto `target`; a key in `presetKeys` keeps its value unless both values are arrays. */
+/**
+ * A middleware's `x-` extensions onto `target`; a key in `presetKeys` keeps its value unless both values are arrays.
+ * Other keys are dropped: a middleware configured from JS or JSON is not held to the type and could set operation keys.
+ */
 function mergeExtensions(target: Record<string, unknown>, extensions: Record<string, unknown>, presetKeys: ReadonlySet<string>): void {
   for (const [key, value] of Object.entries(extensions)) {
+    if (!key.startsWith('x-')) continue;
     const current = target[key];
     if (Array.isArray(current) && Array.isArray(value)) target[key] = [...current, ...value];
     else if (!presetKeys.has(key)) target[key] = value;
@@ -253,6 +258,9 @@ export class OpenApiBuilder {
   @Autoinject(SchemaProvider)
   protected SchemaProviders!: SchemaProvider[];
 
+  @Logger('http-swagger')
+  protected Log!: Log;
+
   constructor(config: ISwaggerConfig) {
     this.config = config;
     this.infoDescriptionBase = config.description ?? '';
@@ -326,7 +334,7 @@ export class OpenApiBuilder {
 
       if (controller.instance) this.applyAccess(operation, controller.instance, methodNameStr);
       this.applyPolicies(operation, docCache, methodNameStr);
-      if (controller.instance) this.applyMiddlewares(operation, controller.instance, methodName, route);
+      if (controller.instance) this.applyMiddlewares(operation, controller.instance, methodName, route, `${httpMethod.toUpperCase()} ${fullPath}`);
 
       if (!this.document.paths[fullPath]) {
         this.document.paths[fullPath] = {};
@@ -425,10 +433,11 @@ ${line}` : line;
    * middlewares the later mounted one wins, so a route's own `@RateLimit` answers over its controller's.
    * Success headers go to the route's own inline 2xx answers. An extension key already on the operation
    * (`x-authz-*` from `applyAccess`/`applyPolicies`) stays, unless both values are arrays: those concatenate.
+   * A middleware whose `documentation()` throws is left out with a warning, so one bad middleware cannot fail the document.
    */
-  private applyMiddlewares(operation: IOpenApiOperation, controller: Partial<Pick<BaseController, 'MountedMiddlewares'>>, method: string | symbol, route: IRoute): void {
+  private applyMiddlewares(operation: IOpenApiOperation, controller: Partial<Pick<BaseController, 'MountedMiddlewares'>>, method: string | symbol, route: IRoute, label: string): void {
     // addController is also fed hand-built instances (tests, tooling) that are no BaseController
-    const docs = (controller.MountedMiddlewares?.(method) ?? []).flatMap((m) => m.documentation?.(route) ?? []);
+    const docs = (controller.MountedMiddlewares?.(method) ?? []).flatMap((m) => this.middlewareDoc(m, route, label) ?? []);
     if (docs.length === 0) return;
 
     const routeStatuses = Object.keys(operation.responses);
@@ -452,6 +461,15 @@ ${line}` : line;
       const response = operation.responses[status];
       if (!status.startsWith('2') || response.$ref) continue;
       response.headers = { ...response.headers, ...this.documentedHeaders(successHeaders) };
+    }
+  }
+
+  private middlewareDoc(middleware: RouteMiddleware, route: IRoute, label: string): IRouteMiddlewareDoc | undefined {
+    try {
+      return middleware.documentation?.(route);
+    } catch (error) {
+      this.Log.warn({ middleware: middleware.constructor.name, route: label, error }, 'Middleware ${middleware} could not document ${route}, its answers are left out of the document');
+      return undefined;
     }
   }
 

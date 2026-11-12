@@ -1,9 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { FrameworkLogger, renderTemplate } from '@spinajs/log';
 import { TestConfiguration, dir, req, srcDir } from './common.js';
 import '../src/index.js';
 
@@ -24,7 +26,7 @@ interface IResponseDoc {
   content: Record<string, { schema: ISchemaDoc }>;
 }
 
-type OperationDoc = { responses: Record<string, IResponseDoc> } & Record<`x-${string}`, unknown>;
+type OperationDoc = { responses: Record<string, IResponseDoc>; deprecated?: boolean; parameters?: unknown[]; requestBody?: unknown } & Record<`x-${string}`, unknown>;
 
 interface ISpecDoc {
   paths: Record<string, Record<string, OperationDoc>>;
@@ -42,6 +44,7 @@ describe('Swagger middleware responses', function () {
   this.timeout(30000);
 
   let spec: ISpecDoc;
+  let warnings: string[];
   const op = (route: string) => spec.paths[`/limits/${route}`].post;
 
   before(async () => {
@@ -57,8 +60,14 @@ describe('Swagger middleware responses', function () {
     const server = await DI.resolve<HttpServer>(HttpServer);
     await server.start();
 
+    const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
     const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
     spec = JSON.parse(result.text) as ISpecDoc;
+    // only the `(fields, template)` form names its fields; the builder warns in that form
+    warnings = warn
+      .getCalls()
+      .flatMap(({ args: [fields, template] }) => (typeof template === 'string' && typeof fields === 'object' ? [renderTemplate(template, fields as Record<string, unknown>)] : []));
+    warn.restore();
   });
 
   after(async () => {
@@ -165,5 +174,19 @@ describe('Swagger middleware responses', function () {
     const operation = spec.paths['/class-limits/wide'].post;
     expect(Object.keys(operation.responses['429'].headers)).to.have.members(['Retry-After', ...RATE_LIMIT_HEADERS]);
     expect(operation['x-rate-limit']).to.deep.equal([{ limit: 100, windowSeconds: 60, by: 'ip' }]);
+  });
+
+  it('merges only the x- keys of what a middleware hands over as extensions', () => {
+    const operation = spec.paths['/misdocumented/operationKeys'].post;
+    expect(operation['x-kept']).to.equal(true);
+    expect(operation.deprecated).to.be.undefined;
+    expect(operation.parameters).to.be.undefined;
+    expect(operation.requestBody).to.be.undefined;
+  });
+
+  it('skips a middleware whose documentation() throws, with a warning, and documents the others', () => {
+    expect(spec.paths['/misdocumented/throwing'].post.responses['423'].description).to.equal('Locked');
+    const warning = warnings.find((w) => w.includes('ThrowingDocMiddleware'));
+    expect(warning).to.include('POST /misdocumented/throwing');
   });
 });
