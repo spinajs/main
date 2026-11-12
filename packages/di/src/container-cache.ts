@@ -14,8 +14,13 @@ export class ContainerCache {
   // Track keys currently being created synchronously
   private creatingKeys: Set<string> = new Set();
   private pendingChecked: Map<string, { options?: unknown[]; promise: Promise<unknown> }[]> = new Map();
+  // Objects, not the option sets themselves, so an entry is removed by identity even when two sets are both undefined.
+  private creatingChecked = new Map<string, { options?: unknown[] }[]>();
   // Bumped whenever the tracked resolutions are dropped, so a creation that finishes later cannot write into the new state.
   private epoch = 0;
+  // Registration index of each Array.ofType element, per collection key. Elements settle in any order,
+  // so the collection is kept sorted by it on every insert, never only once the whole list is built.
+  private slots = new Map<string, WeakMap<object, number>>();
 
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
@@ -39,6 +44,7 @@ export class ContainerCache {
 
   public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {
     const name = getTypeName(key);
+    this.slots.delete(name);
     const ownInstance = this.cache.delete(name);
     const ownValue = this.container.Registry.removeValue(name);
     if (!ownInstance && !ownValue && parent && this.container.Parent) {
@@ -54,6 +60,41 @@ export class ContainerCache {
       this.cache.set(tName, [instance]);
     } else if (!list.includes(instance)) {
       list.push(instance);
+    }
+  }
+
+  /**
+   * Adds an `Array.ofType` element to the collection under `key` at its registration `slot`. Elements without a slot
+   * stay after the slotted ones. An element already in the list is never moved: consumers hold this array and may
+   * have sorted it themselves.
+   */
+  private addToCollection(key: string, instance: unknown, slot?: number) {
+    let slots = this.slots.get(key);
+    if (slot !== undefined && typeof instance === 'object' && instance !== null) {
+      if (!slots) {
+        slots = new WeakMap();
+        this.slots.set(key, slots);
+      }
+      slots.set(instance, slot);
+    }
+
+    const list = this.cache.get(key);
+    if (!list) {
+      this.cache.set(key, [instance]);
+      return;
+    }
+
+    if (list.includes(instance)) {
+      return;
+    }
+
+    const rank = (x: unknown) => (slots && typeof x === 'object' && x !== null ? slots.get(x) : undefined) ?? Infinity;
+    const own = rank(instance);
+    const before = list.findIndex((x) => rank(x) > own);
+    if (before === -1) {
+      list.push(instance);
+    } else {
+      list.splice(before, 0, instance);
     }
   }
 
@@ -110,7 +151,8 @@ export class ContainerCache {
     isSingleton: boolean = true,
     descriptor: IInjectDescriptor<unknown>,
     options?: unknown[],
-    lookupParents = true
+    lookupParents = true,
+    slot?: number,
   ): Promise<T> | T {
     const keyName = getTypeName(targetType);
     const sourceTypeKey = getTypeName(sourceType);
@@ -129,33 +171,27 @@ export class ContainerCache {
     };
 
     const perInstanceCheck = descriptor.resolver === ResolveType.PerInstanceCheck;
-    if (perInstanceCheck && !isTypedArray(sourceType)) {
-      return this.getOrCreateChecked(targetType, factory, emit, options, lookupParents);
+    if (perInstanceCheck) {
+      if (!isTypedArray(sourceType)) {
+        return this.getOrCreateChecked(targetType, factory, emit, options, lookupParents);
+      }
+      // A list element: created under its class like a single resolve, then joined at its slot.
+      const emitClass = (instance: unknown) => this.container.emit(`di.resolved.${getTypeName(targetType)}`, this.container, instance);
+      const result = this.getOrCreateChecked(targetType, factory, emitClass, options, lookupParents);
+      return this.joinCollection(sourceTypeKey, result, slot);
     }
 
     // Fast path: return cached instance if it exists
     const parent = lookupParents && descriptor.resolver !== ResolveType.PerChildContainer;
     if (this.has(targetType, parent)) {
       const cached = this.get(targetType, parent);
+      const instance = Array.isArray(cached) ? cached[0] : cached;
 
-      if (perInstanceCheck) {
-        const found = cached.find((x: unknown) => this.checkInstance(x, options));
-        if (found) {
-          return found;
-        }
-      } else {
-        const instance = Array.isArray(cached) ? cached[0] : cached;
-
-        // Resolving a collection ( Array.ofType(Base) ) over a type that already
-        // sits in the cache under its own key must still contribute it to the
-        // collection - otherwise the fast path returns early and the type is
-        // silently MISSING from the resolved array.
-        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
-          this.add(sourceTypeKey, instance);
-        }
-
-        return instance;
+      // A type cached under its own key would otherwise be silently MISSING from the collection.
+      if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
+        this.addToCollection(sourceTypeKey, instance, slot);
       }
+      return instance;
     }
 
     // For non-singletons, always create new instance
@@ -166,10 +202,21 @@ export class ContainerCache {
     // Check if creation is already in progress (async)
     if (this.resolutionPromises.has(keyName)) {
       const pending = this.resolutionPromises.get(keyName)!;
-      if (perInstanceCheck) {
-        // the pending instance may have been built for other options, check again once it settles
-        const retry = () => this.getOrCreate(sourceType, targetType, factory, isSingleton, descriptor, options, lookupParents);
-        return pending.then(retry, retry);
+
+      // The creation may have been started by a single resolve, which caches it under its own type only.
+      if (isTypedArray(sourceType)) {
+        const epoch = this.epoch;
+        return pending.then((resolved: T) => {
+          if (epoch === this.epoch && getTypeName(targetType) !== sourceTypeKey) {
+            const isNew = !(this.get(sourceTypeKey) as unknown[]).includes(resolved);
+            this.addToCollection(sourceTypeKey, resolved, slot);
+            // di.resolved.<target> was already emitted by the resolve that started the creation.
+            if (isNew) {
+              this.container.emit(`di.resolved.${sourceTypeKey}`, this.container, resolved);
+            }
+          }
+          return resolved;
+        });
       }
       return pending;
     }
@@ -197,9 +244,10 @@ export class ContainerCache {
 
     const _checkCache = (resolvedInstance: T) => {
       if (isTypedArray(sourceType)) {
-        // Through add(), never by pushing into get()'s result: that can be the registry's value list.
-        if (!this.get(sourceTypeKey).includes(resolvedInstance)) {
-          this.add(sourceTypeKey, resolvedInstance);
+        // Through addToCollection(), never by pushing into get()'s result: that can be the registry's value list.
+        const isNew = !(this.get(sourceTypeKey) as unknown[]).includes(resolvedInstance);
+        this.addToCollection(sourceTypeKey, resolvedInstance, slot);
+        if (isNew) {
           emit(resolvedInstance);
         }
         // Also cache under the concrete type. Resolving a collection
@@ -212,8 +260,8 @@ export class ContainerCache {
           this.add(targetType, resolvedInstance);
         }
 
-        const cached = this.get(sourceTypeKey);
-        return isTypedArray(sourceType) ? cached : cached[0];
+        // The instance, never the collection: a concurrent single resolve of this type shares this promise.
+        return resolvedInstance;
       } else {
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
@@ -257,6 +305,22 @@ export class ContainerCache {
     }
   }
 
+  private joinCollection<T>(sourceTypeKey: string, result: Promise<T> | T, slot?: number): Promise<T> | T {
+    const join = (instance: T) => {
+      const isNew = !(this.get(sourceTypeKey) as unknown[]).includes(instance);
+      this.addToCollection(sourceTypeKey, instance, slot);
+      if (isNew) {
+        this.container.emit(`di.resolved.${sourceTypeKey}`, this.container, instance);
+      }
+      return instance;
+    };
+    if (!(result instanceof Promise)) {
+      return join(result);
+    }
+    const epoch = this.epoch;
+    return result.then((instance) => (epoch === this.epoch ? join(instance) : instance));
+  }
+
   private checkInstance(instance: unknown, options?: unknown[]): boolean {
     if (!(instance as IInstanceCheck).__checkInstance__) {
       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
@@ -284,8 +348,10 @@ export class ContainerCache {
       return found as T;
     }
 
+    // @Autoinject passes [undefined] where a direct or list resolve passes undefined; both mean "no options".
+    const optionsKey = options?.every((o) => o === undefined) ? undefined : options;
     const pending = this.pendingChecked.get(keyName) ?? [];
-    const same = pending.find((p) => _.isEqual(p.options, options));
+    const same = pending.find((p) => _.isEqual(p.options, optionsKey));
     if (same) {
       return same.promise as Promise<T>;
     }
@@ -296,13 +362,27 @@ export class ContainerCache {
       return instance;
     };
 
-    const created = factory();
+    // Only the synchronous part of factory() is guarded: an async re-entrance with the same options awaits itself.
+    const building = this.creatingChecked.get(keyName) ?? [];
+    if (building.some((b) => _.isEqual(b.options, optionsKey))) {
+      throw new Error(`Circular dependency detected for ${keyName}`);
+    }
+    const creating = { options: optionsKey };
+    this.creatingChecked.set(keyName, [...building, creating]);
+    let created: Promise<T> | T;
+    try {
+      created = factory();
+    } finally {
+      const rest = (this.creatingChecked.get(keyName) ?? []).filter((b) => b !== creating);
+      if (rest.length) this.creatingChecked.set(keyName, rest);
+      else this.creatingChecked.delete(keyName);
+    }
     if (!(created instanceof Promise)) {
       return store(created);
     }
 
     const epoch = this.epoch;
-    const entry: { options?: unknown[]; promise: Promise<unknown> } = { options, promise: created };
+    const entry: { options?: unknown[]; promise: Promise<unknown> } = { options: optionsKey, promise: created };
     const settle = () => {
       const list = this.pendingChecked.get(keyName) ?? [];
       const rest = list.filter((p) => p !== entry);
@@ -415,6 +495,7 @@ export class ContainerCache {
 
   public clear() {
     this.cache.clear();
+    this.slots.clear();
     this.resolutionPromises.clear();
     this.creatingKeys.clear();
     this.pendingChecked.clear();

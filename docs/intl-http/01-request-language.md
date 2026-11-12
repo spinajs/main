@@ -5,7 +5,7 @@
 ## How it works
 
 1. Importing `@spinajs/intl-http` registers `IntlHttpMiddleware` with `@Injectable(ServerMiddleware)`.
-2. `HttpServer.resolve()` resolves every `ServerMiddleware`, sorts them by `Order` ascending, and mounts their hooks after the plain Express handlers of `http.middlewares` (body parsers, cookie parser). `HttpServer` creates an empty `req.storage` before all of them.
+2. `HttpServer.resolve()` resolves every `ServerMiddleware`, sorts them by `Order` ascending, and mounts their hooks after the plain Express handlers of `http.middlewares`. `CookieParserMiddleware` (Order 0.5) fills `req.cookies` before this one. `HttpServer` creates an empty `req.storage` before all of them.
 3. `IntlHttpMiddleware.onBefore()` (`Order = 1`) stores what `detectLanguage(req)` returns.
 4. `detectLanguage(req)` looks for the language under the name in `intl.queryParameter`, first match wins:
    1. query string: `req.query[<name>]`, eg. `?lang=pl`;
@@ -50,7 +50,7 @@ sequenceDiagram
 | `intl.queryParameter` | `string` | `'lang'` | any name | Name of the query parameter and of the cookie, and suffix of the `x-<name>` header. |
 | `intl.defaultLocale` | `string` | `'en'` | a locale with translations | Language stored when the request carries none. |
 | `intl.locales` | `string[]` | `['en']` | locale codes | Not read by this package. It does **not** limit the accepted languages. |
-| `http.middlewares` | Express handlers | includes `configuredCookieParser` | any | Keep a cookie parser to read the language from a cookie. |
+| `http.bodyParsers.cookies.enabled` | `boolean` | `true` | | Keep the cookie parser on to read the language from a cookie. |
 | `intl.http.vary` | `boolean` | `true` | | `false`: no `Vary` on the replies. Registered by this package's schema (`INTL_HTTP_CONFIGURATION_SCHEMA`). See [`Vary` and shared caches](#vary-and-shared-caches). |
 
 ```js
@@ -127,7 +127,7 @@ DI.unregister(IntlHttpMiddleware);
 - **Every request is checked:** the middleware runs before static files and before routing, so `GET /static/logo.png?lang=toolong` also answers `400`.
 - **Header name is lower-cased:** the lookup uses `x-<name>` lower-cased, because Node lower-cases incoming header names. Query and cookie names keep the configured case.
 - **Plain cookies only:** the middleware reads `req.cookies`, not `req.signedCookies`. A signed language cookie is ignored or rejected.
-- **Cookie parser optional:** with no cookie parser in `http.middlewares`, the cookie source is skipped and the header is read next.
+- **Cookie parser optional:** with `http.bodyParsers.cookies.enabled: false` and no parser of your own, the cookie source is skipped and the header is read next.
 - **Per request only:** the language is not written back to a cookie or session.
 - **`Vary` names what is read:** the default detection reads the query string, the cookie and the `x-<name>` header, never `Accept-Language`, so `Vary` lists `Cookie` and `X-<name>` (the query string is part of the URL a cache keys on). A `Vary` the answer set itself is kept: the fields join it.
 

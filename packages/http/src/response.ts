@@ -3,18 +3,19 @@ import Express from 'express';
 
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { redactUrl } from './util/redact-url.js';
-import { guardResponseContract } from './contract.js';
-import type { ContractRoute } from './contract.js';
 import type { IContainer } from '@spinajs/di';
-import { replyErrorOf, sendReply } from './reply-pipeline.js';
+import { deliverReply, repliedInPlace, replyErrorOf } from './reply-pipeline.js';
 
 /**
  * Express middleware sending the reply set in res.locals.response (the action's, an `onBefore` answer or an `@OnError`
  * answer) through the reply pipeline.
  */
-export function __handle_response__(container: IContainer, route?: ContractRoute) {
+export function __handle_response__(container: IContainer) {
     return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         const response = res.locals.response;
+        if (repliedInPlace(res)) {
+            return;
+        }
         if (!response) {
             // the action answered res itself
             if (res.headersSent) {
@@ -29,10 +30,8 @@ export function __handle_response__(container: IContainer, route?: ContractRoute
             return;
         }
 
-        guardResponseContract(res, container, route);
-
         const replied = replyErrorOf(res);
-        sendReply(req, res, response, replied ? { error: replied.error } : {}).catch((err: Error) => {
+        deliverReply(req, res, response, replied ? { error: replied.error, container } : { container }).catch((err: Error) => {
             next(err);
         });
     };

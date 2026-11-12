@@ -14,8 +14,8 @@ export const OIDC_ORIGIN_HEADER_MAX = 2048;
 const firstOf = (v: string | undefined): string | undefined => v?.split(',')[0]?.trim().toLowerCase() || undefined;
 
 /**
- * The app's origin as the client sees it, for the default redirect_uri. `trusted` is built from the shared trust setting
- * (authn-http's proxyTrustOf and @spinajs/http's isTrustedPeer, as ClientIp and the CSRF guard use). X-Forwarded-Proto and
+ * The app's origin as the client sees it, for the default redirect_uri. `trusted` is @spinajs/http's isTrustedPeer over
+ * the request's proxy trust (`requestProxyTrust`, what RealIp, ClientIp and the CSRF guard use). X-Forwarded-Proto and
  * -Host count only from a trusted peer; as in express, the first value is the client's side. The result is not checked:
  * {@link checkedRequestOrigin} is.
  */

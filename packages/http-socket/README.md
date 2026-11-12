@@ -22,7 +22,7 @@ Full documentation lives in **[docs/http-socket/](../../docs/http-socket/README.
 | 01 | [Socket server and HTTP host](../../docs/http-socket/01-socket-server.md) |
 | 02 | [Socket controllers](../../docs/http-socket/02-controllers.md) |
 | 03 | [Handler arguments](../../docs/http-socket/03-handler-arguments.md) |
-| 04 | [Command pipeline and custom stages](../../docs/http-socket/04-command-pipeline.md) |
+| 04 | [Command pipeline and socket middlewares](../../docs/http-socket/04-command-pipeline.md) |
 | 05 | [Error mapping](../../docs/http-socket/05-error-mapping.md) |
 | 06 | [Stream replies](../../docs/http-socket/06-stream-replies.md) |
 | 07 | [Rooms and server push](../../docs/http-socket/07-rooms-and-push.md) |
@@ -124,7 +124,7 @@ export class DocsSocket extends BaseSocketController {
 
 ## The command pipeline
 
-Every command passes these stages in order. The first stage that fails answers with its error.
+Every command passes these built-in stages, which are socket middlewares, in order. The first stage that fails answers with its error.
 
 1. **Size.** Over `maxPayloadBytes` answers `resource_exhausted`, not retryable, with `details { size, limit }`.
 2. **Rate.** A token bucket per connection answers `resource_exhausted` with `retryAfterMs`.
@@ -139,27 +139,23 @@ Every command passes these stages in order. The first stage that fails answers w
 11. **Arguments.** The `ArgInputFilter`s, then extraction and ajv validation, answer `invalid_argument`, with the validation errors or the refused fields in `details`.
 12. **Handler.** It runs with an `AbortSignal`.
 
-Policies and arguments run inside an `ordered` command's queue place, so they see what the commands before it changed. A stage of your own is a DI class:
+Policies and arguments run inside an `ordered` command's queue place, so they see what the commands before it changed. Idempotency comes before the policies, unlike http, so a resend replays the outcome of the run it repeats. A middleware of your own has the hooks of an http middleware (`onBefore`, `onAfter`, `onFinish`, `onAround`) and an `Order` among the stages. Register it for every command with `@Injectable(SocketMiddleware)`, or mount it on a controller or a command with `@UseSocketMiddleware(Type, ...options)`:
 
 ```ts
 import { Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '@spinajs/http-socket';
+import { ISocketFinishContext, STAGE_ORDER, SocketMiddleware } from '@spinajs/http-socket';
 
-@Injectable(SocketCommandStage)
-export class AuditStage extends SocketCommandStage {
-  public get Order() {
-    return STAGE_ORDER.Policies + 10;
-  }
+@Injectable(SocketMiddleware)
+export class Audit extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Policies + 10;
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>) {
-    const result = await next();
-    audit(ctx.connection.principal, ctx.request.name);
-    return result;
+  public onFinish(ctx: ISocketFinishContext) {
+    audit(ctx.connection.principal, ctx.request.name, ctx.error === undefined);
   }
 }
 ```
 
-`audit` stands for your own code. For a stream handler, `await next()` returns the handler's async iterable at the stream reply, before the ack and the first chunk, not when the stream ends.
+`audit` stands for your own code. `onFinish` runs once the reply is sent; `onAfter(ctx)` runs before it, and may change `ctx.result`. For a stream handler, `ctx.result` is the handler's async iterable at the stream reply, before the ack and the first chunk.
 
 ## Errors
 
@@ -264,7 +260,7 @@ everything. A source that renews a connection's principal must keep its identity
 - **No credentials.** A connection without credentials runs as `UNATTENDED`, so authz denies it and scoped ORM queries fail closed. `http.socket.auth.required: true` refuses such handshakes instead.
 - **Origins.** A handshake from a browser page on another origin is refused with `forbidden` unless that origin is listed exactly in `http.socket.cors.origins` (empty by default).
 - **Revalidation.** Live connections re-check their principal every `http.socket.auth.revalidateMs` (60 s), and `ceiling.expiresAt` is always enforced. A revoked credential gets `unauthenticated`, and the server closes the connection with `sys.disconnect { reason: 'unauthenticated' }`.
-- **Behind proxies.** `handshake.address` is the client address: the socket's peer, or behind trusted proxy hops (`authn.http.trustProxy`, else `http.trustProxy`, as authn-http's `ClientIp`) the `X-Forwarded-For` entry they vouch for. `handshake.peerAddress` is the raw TCP peer. Addresses are normalized (trimmed, IPv4-mapped to IPv4) even with no trust setting. Without either setting the address is the peer, whatever `X-Forwarded-For` says. Socket `realIp` and policy `ip` follow this precedence, so they differ from http's `req.storage.realIp` (which uses `http.trustProxy` only) when the two settings differ. A socket-only app that never registers the schema of `@spinajs/authn` validates `authn.http.trustProxy` only through `parseTrustProxy`, which is more lenient than the schema; non-address entries still fail startup.
+- **Behind proxies.** `handshake.address` is the client address the registered `RealIp` of `@spinajs/http` computes (`clientAddress()`), the same one http writes to `req.storage.realIp`: the socket's peer, or behind trusted proxy hops (`http.trustProxy`; with `@spinajs/authn-http` loaded, its `AuthnRealIp` puts `authn.http.trustProxy` first) the `X-Forwarded-For` entry they vouch for. A `RealIp` subclass the app registers (another trust, a CDN header) counts for sockets too. `handshake.peerAddress` is the raw TCP peer. Addresses are normalized (trimmed, IPv4-mapped to IPv4) even with no trust setting. Without a trust setting the address is the peer, whatever `X-Forwarded-For` says. Socket `realIp` and policy `ip` use this address. A bad trust entry fails the start. Load `@spinajs/authn-http` before the socket server starts: the server keeps the `RealIp` it resolved then.
 
 A source of your own:
 
