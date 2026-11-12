@@ -137,7 +137,7 @@ The `spinajs` bin and the bundle of `@spinajs/http-socket-example` start this wa
 
 - [`@spinajs/di`](../di/README.md): every service on these pages is registered, resolved and replaced here.
 - [`@spinajs/configuration`](../configuration/README.md): the `http.*` keys and the `http.configuration` schema.
-- [`@spinajs/validation`](../validation/README.md): `DataValidator` and `@Schema`, used to validate route arguments.
+- [`@spinajs/validation`](../validation/README.md): `DataValidator` and `@Schema`, used to validate route arguments and, without type coercion, the `@RateLimit` options.
 - [`@spinajs/exceptions`](../exceptions/README.md): the exceptions mapped to HTTP statuses; see [HTTP error mapping](../exceptions/03-http-error-mapping.md).
 - [`@spinajs/fs`](../fs/README.md): file providers for uploads, file responses, response templates and the controller cache.
 - [`@spinajs/templates`](../templates/README.md) and [`@spinajs/templates-pug`](../templates-pug/README.md): HTML rendering of responses and error pages.
