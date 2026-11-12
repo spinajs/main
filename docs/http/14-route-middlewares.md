@@ -63,6 +63,10 @@ Every hook is optional; a middleware implements only those it needs.
 
 A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing and get only a [best-effort match](15-server-middlewares.md#the-route-before-routing).
 
+### Reading and changing the reply
+
+To read or change the reply of a route, write a middleware and do it in `onAfter(ctx)`: read or replace `ctx.response.data`, set `ctx.response.statusCode`, call `ctx.response.setHeader(name, value)`, or replace `ctx.response`. To observe the reply that was sent, read the `reply` of the `IRouteOutcome` that `proceed()` resolves with in an [`onAround`](#around-middlewares). The response capture behind `proceed()` and `@Idempotent` is internal to `@spinajs/http`: nothing else can attach to it.
+
 ### Answering in `onBefore`
 
 An `onBefore` that returns a `Response` answers the request. No later middleware and no action runs. The `Response` goes through the reply pipeline as a success reply, without `ctx.error`: the `onAfter` of every entered middleware, including the one that answered, sees it.
@@ -361,7 +365,7 @@ with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
 - `onBefore` and `onAfter` hooks are awaited one after another. A rejected `onBefore` goes to the route's error handlers; a rejected `onAfter` turns the reply into an error reply. `onFinish` hooks are started in order without waiting for each other, so a slow async `onFinish` (an audit write) does not hold back the others; a rejected one is logged.
-- `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, a response capture (`@Idempotent`) and the client get the change; headers a hook adds are not captured.
+- `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, the `proceed()` outcome of an enclosing `onAround`, the reply `@Idempotent` stores and the client get the change; headers a hook adds, other than `Content-Type`, `Location` and `ETag`, are left out of the outcome's `reply` and of the stored reply.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`). A streamed reply (SSE, a pipe) the client closed is `aborted` too, although its status and headers were sent: `ctx.res.headersSent` is then `true`.
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
