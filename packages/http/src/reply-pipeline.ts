@@ -1,11 +1,15 @@
 import type { AsyncLocalStorage } from 'node:async_hooks';
 import type express from 'express';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
 import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
+import type { IRouteMatch, RouteIndex } from './route-index.js';
+import { guardResponseContract } from './contract.js';
+import type { ContractRoute } from './contract.js';
 
 /** The reply an error gets, and the error that reply answers (an error handler may have replaced the original). */
 export interface IErrorReply {
@@ -26,6 +30,17 @@ export interface ISendReplyOptions {
   readonly errorReply?: ErrorReplier;
 }
 
+/** What only the framework's own senders say about a reply. */
+export interface IDeliverOptions extends ISendReplyOptions {
+  /** The container whose `http.contractTesting` checks the reply; else the route's, else the root container. */
+  readonly container?: IContainer;
+  /**
+   * false: the reply is not the route's own answer (the error map's or the global error answer), so the contract check
+   * holds it to the problem document schema only, never to the route's response schema.
+   */
+  readonly routeContract?: boolean;
+}
+
 interface IEntered {
   readonly scope: MiddlewareScope;
   readonly middleware: HttpMiddleware;
@@ -34,6 +49,9 @@ interface IEntered {
 
 interface IRouteScope {
   readonly context: IRouteInvocation;
+  readonly container?: IContainer;
+  /** The route whose response schema contract testing applies. */
+  readonly contract?: ContractRoute;
   readonly storage?: AsyncLocalStorage<IActionLocalStoregeContext>;
   readonly errorReply?: ErrorReplier;
 }
@@ -49,12 +67,20 @@ interface IReplyState {
   /** Set once `finish` or `close` fired. */
   aborted?: boolean;
   early?: Response;
+  /** The early answer is a replay found before the policy gate, the one answer the gate lets through unchecked. */
+  replayBeforePolicy?: boolean;
   replyError?: { error: unknown };
   /** The error the sent reply answers, after any onAfter turned it. */
   answered?: { error: unknown };
+  /** A reply went into the pipeline. */
+  started?: boolean;
+  /** A reply was sent in place of the route's (a deadline answer): every later one is dropped. */
+  final?: boolean;
   /** The one context every server hook of the request gets; with the route fields once a route matched. */
   server?: IMiddlewareContext;
   routedServer?: IMiddlewareContext;
+  /** Where the server hooks' context looks up the route before routing. */
+  routes?: RouteIndex;
 }
 
 const STATE = Symbol('replyPipeline');
@@ -111,6 +137,28 @@ export function answeredEarly(res: express.Response): boolean {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.early !== undefined;
 }
 
+/** A route middleware (`@Idempotent`) that may answer from a stored reply before the policy gate; mounted right before it. */
+export const REPLAY_BEFORE_POLICY = Symbol('replayBeforePolicy');
+
+export interface IReplaysBeforePolicy {
+  /** The stored reply of the very request this principal already sent and was authorized for, or undefined. */
+  [REPLAY_BEFORE_POLICY](ctx: IRouteInvocation): Promise<Response | undefined>;
+}
+
+export const replaysBeforePolicy = <T extends object>(m: T): m is T & IReplaysBeforePolicy => typeof (m as Partial<IReplaysBeforePolicy>)[REPLAY_BEFORE_POLICY] === 'function';
+
+/** {@link answerEarly} for a replay found before the policy gate, which then does not run. */
+export function answerReplayBeforePolicy(res: express.Response, response: Response): void {
+  const state = stateOf(res);
+  state.early = response;
+  state.replayBeforePolicy = true;
+  res.locals.response = response;
+}
+
+export function repliedBeforePolicy(res: express.Response): boolean {
+  return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.replayBeforePolicy === true;
+}
+
 /** Hands an error handler's answer, and the error it answers, to the route's sender. */
 export function setErrorReply(res: express.Response, response: Response, error: unknown): void {
   stateOf(res).replyError = { error };
@@ -126,20 +174,66 @@ export function answeredErrorOf(res: express.Response): unknown {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.answered?.error;
 }
 
+/** Called by HttpServer's first handler: the server hooks of the request get the route `routes` matches. */
+export function lookUpRoutesIn(res: express.Response, routes: RouteIndex): void {
+  stateOf(res).routes = routes;
+}
+
 /** The context of the server hooks of this request, made once. */
 export function serverContextOf(req: express.Request, res: express.Response): IMiddlewareContext {
   const state = stateOf(res);
-  return (state.server ??= { req, res, storage: (req as Request).storage });
+  return (state.server ??= state.routes ? preRoutedContext(req, res, state.routes) : { req, res, storage: (req as Request).storage });
 }
 
-// A server middleware is entered before routing; its onAfter and onFinish still get the route the request matched.
+const preRouted = new WeakSet<IMiddlewareContext>();
+
+// A spread would run the pre-routing lookup of an unrouted request; copying the getters keeps it lazy.
+function extendContext<T extends object>(base: IMiddlewareContext, extra: T): IMiddlewareContext & T {
+  if (!preRouted.has(base)) return { ...base, ...extra };
+  return Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(base)), extra) as IMiddlewareContext & T;
+}
+
+// Looked up on read, not per request: most requests have no server middleware asking. Kept while method and path stay
+// the same, so a middleware rewriting req.url or req.method gets the route for the new one. Own enumerable getters, so a
+// spread copies the match.
+function preRoutedContext(req: express.Request, res: express.Response, routes: RouteIndex): IMiddlewareContext {
+  let match: IRouteMatch | undefined;
+  let key: string | undefined;
+  const matched = () => {
+    const current = `${req.method} ${req.path}`;
+    if (key !== current) {
+      key = current;
+      match = routes.match(req.method, req.path);
+    }
+    return match;
+  };
+  const context: IMiddlewareContext = {
+    req,
+    res,
+    storage: (req as Request).storage,
+    get route() {
+      return matched()?.route;
+    },
+    get controller() {
+      return matched()?.controller;
+    },
+    get path() {
+      return matched()?.path;
+    },
+  };
+  preRouted.add(context);
+  return context;
+}
+
+// The route the router matched replaces the pre-routing match in the server onAfter and onFinish hooks.
 function hookContext(state: IReplyState, entry: IEntered): IMiddlewareContext {
   if (entry.scope !== 'server' || !state.route) {
     return entry.context;
   }
   const { route, controller, path } = state.route.context;
   if (state.routedServer?.route !== route) {
-    state.routedServer = { ...entry.context, route, controller, path };
+    const { req, res, storage } = entry.context;
+    state.routedServer = { req, res, storage, route, controller, path };
   }
   return state.routedServer;
 }
@@ -196,7 +290,7 @@ function runFinish(state: IReplyState, entries: readonly IEntered[], aborted: bo
   for (const entry of innerFirst(entries, 'onFinish')) {
     const failed = (error: unknown) => httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
     try {
-      const result = inScope(state, entry, () => entry.middleware.onFinish!({ ...hookContext(state, entry), aborted }));
+      const result = inScope(state, entry, () => entry.middleware.onFinish!(extendContext(hookContext(state, entry), { aborted })));
       if (isThenable(result)) {
         result.then(undefined, failed);
       }
@@ -220,10 +314,48 @@ const isResponse = (value: unknown): value is Response => typeof (value as Respo
  *
  * A throwing onAfter turns the reply into the error reply for its error; the remaining hooks see that reply. A throw
  * once the reply was turned is logged. When the headers are already sent (an action answered `res` itself), no
- * onAfter runs. Rejects only when sending fails.
+ * onAfter runs. A reply coming after one sent in place of the route's (a `RequestDeadline` 504) is dropped. Rejects
+ * only when sending fails.
  */
-export async function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+export function sendReply(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+  return deliverReply(req, res, response, options);
+}
+
+/** {@link sendReply} for the framework's own senders. */
+export function deliverReply(req: express.Request, res: express.Response, response: Response, options: IDeliverOptions = {}): Promise<void> {
   const state = stateOf(res);
+  if (state.final) {
+    httpLog().debug({ url: req.originalUrl }, 'A reply for ${url} was dropped: the request was already answered in its place');
+    return Promise.resolve();
+  }
+  state.started = true;
+  return send(req, res, state, response, options);
+}
+
+/** Whether a reply went into the pipeline, or the headers were sent. */
+export function replyStarted(res: express.Response): boolean {
+  return res.headersSent || stateOf(res).started === true;
+}
+
+/** Whether a reply was sent in place of the route's, so a later one is dropped. */
+export function repliedInPlace(res: express.Response): boolean {
+  return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.final === true;
+}
+
+/**
+ * Sends `response` in place of the reply still to come (a deadline answer): every later `sendReply()` of the request
+ * is dropped, so an action answering late does not write to a response already sent, and the rest of the chain steps
+ * aside as after an early answer. Callers check `replyStarted()` first.
+ */
+export function sendReplyInPlace(req: express.Request, res: express.Response, response: Response, options: ISendReplyOptions = {}): Promise<void> {
+  const state = stateOf(res);
+  state.final = true;
+  state.started = true;
+  state.early = response;
+  return send(req, res, state, response, options);
+}
+
+async function send(req: express.Request, res: express.Response, state: IReplyState, response: Response, options: IDeliverOptions): Promise<void> {
   let current = response;
   let error = options.error;
 
@@ -243,7 +375,7 @@ export async function sendReply(req: express.Request, res: express.Response, res
         const base = hookContext(state, entry);
         if (!ctx || ctxBase !== base) {
           ctxBase = base;
-          ctx = { ...base, response: current, error };
+          ctx = extendContext(base, { response: current, error });
         } else {
           ctx.response = current;
           ctx.error = error;
@@ -289,6 +421,8 @@ export async function sendReply(req: express.Request, res: express.Response, res
   if (error !== undefined) {
     state.answered = { error };
   }
+
+  guardResponseContract(res, options.container ?? state.route?.container ?? DI.RootContainer, options.routeContract === false ? undefined : state.route?.contract);
 
   try {
     const callback = (await current.execute(req, res)) as ResponseFunction | void;

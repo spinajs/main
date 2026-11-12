@@ -60,7 +60,7 @@ export default {
 
 ## Exempting a route
 
-`@CsrfExempt()` on a route method exempts that route; on a controller class it exempts every route of the controller, and subclasses inherit it. The guard reads the decorators from the resolved controllers and the path each one is served at, so a controller moved by `@BasePath({ config, default })` or added later with `Controllers.add()` is matched at its actual path.
+`@CsrfExempt()` on a route method exempts that route; on a controller class it exempts every route of the controller, and subclasses inherit it. The guard asks the [`RouteIndex`](15-server-middlewares.md#the-route-before-routing) for every mounted route that could serve the request (method and path, at the path each is served at), so a controller moved by `@BasePath({ config, default })` or added later with `Controllers.add()` is matched at its actual path. The request is exempt only when every one of them is `@CsrfExempt()`: a non-exempt route on the same method and path, before or after the exempt one, keeps the check, whichever the router picks.
 
 ```ts
 import { BaseController, BasePath, CsrfExempt, Post } from '@spinajs/http';
@@ -80,7 +80,7 @@ Prefer the decorator for routes you own; the config list is for routes you canno
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CsrfGuard` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, Order 4 | `CsrfGuard` | `CsrfOriginGuard` (`@spinajs/authn-http`) | Subclass and register with `@Injectable(ServerMiddleware)`; the plain guard then steps aside. Override `ambientCookies()`, `allowedOrigins()`, `exemptPaths()`, `enabled()`, `ownOrigin(req)`, `controllers()` or `refuse(reason, req)`, which returns the refusal `Response`. |
+| `CsrfGuard` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, Order 4 | `CsrfGuard` | `CsrfOriginGuard` (`@spinajs/authn-http`) | Subclass and register with `@Injectable(ServerMiddleware)`; the plain guard then steps aside. Override `ambientCookies()`, `allowedOrigins()`, `exemptPaths()`, `enabled()`, `ownOrigin(req)`, `isExempt(ctx, paths)` or `refuse(reason, req)`, which returns the refusal `Response`. |
 | `@CsrfExempt()` | decorator | | | On a route method or a controller class. |
 | `isCsrfExempt(controller, member)` | exported function | | | Whether the decorator marks a route. |
 | `CSRF_REFUSED_BODY` | exported constant | | | The 403 body. |

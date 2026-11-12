@@ -2,7 +2,7 @@ import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, readDomainConfig, redact } from '@spinajs/authz';
 import type { Decision, RedactFieldSet } from '@spinajs/authz';
-import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { IRegisteredHandler, ISocketCommandContext, ISocketReplyContext, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { ISocketAccess, socketAccessDomain, socketAccessOf } from '../access.js';
 import { isStreamResult } from '../stream.js';
 
@@ -44,8 +44,8 @@ function filtered(source: AsyncIterable<unknown>, filter: (chunk: unknown) => un
  * A call another policy group admitted has no decision, so only `neverRead` applies.
  * A binary result or chunk passes unchanged; a binary value nested in an object goes through filterObject, as in HTTP's JSON.
  */
-@Injectable(SocketCommandStage)
-export class AccessFieldsStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class AccessFieldsStage extends SocketMiddleware {
   @Config('authz')
   protected Authz: unknown;
 
@@ -54,18 +54,23 @@ export class AccessFieldsStage extends SocketCommandStage {
     return STAGE_ORDER.Policies + 50;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
-    const access = accessOf(ctx.handler);
-    if (access?.fields !== 'filter' && access?.fields !== 'filter-rows') {
-      return next();
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    const fields = accessOf(handler)?.fields;
+    return fields === 'filter' || fields === 'filter-rows';
+  }
+
+  public onBefore(ctx: ISocketCommandContext): void {
+    if (accessOf(ctx.handler)?.fields === 'filter-rows') ctx.storage.AuthzRowFields = true;
+  }
+
+  public onAfter(ctx: ISocketReplyContext): void {
+    if (ctx.error !== undefined) {
+      return;
     }
 
-    if (access.fields === 'filter-rows') ctx.storage.AuthzRowFields = true;
-    const result = await next();
     const fields = this.readable(ctx.storage.AuthzDecision, socketAccessDomain(ctx.handler!.descriptor.Policies, ctx.handler!.controller.Descriptor?.Policies));
     const filter = (data: unknown): unknown => redact(data, fields);
-
-    return isStreamResult(result) ? filtered(result, filter) : filter(result);
+    ctx.result = isStreamResult(ctx.result) ? filtered(ctx.result, filter) : filter(ctx.result);
   }
 
   protected readable(decision: Decision | undefined, domain: string): RedactFieldSet {

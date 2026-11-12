@@ -18,8 +18,9 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, beginRoute, enterMiddleware, routeContextOf, setErrorReply } from './reply-pipeline.js';
-import type { ErrorReplier } from './reply-pipeline.js';
+import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { routeChainName } from './route-index.js';
+import type { ErrorReplier, IReplaysBeforePolicy } from './reply-pipeline.js';
 
 /**
  * Controller shape needed by the route wiring helpers: the IController
@@ -136,6 +137,12 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed). The one
+    // exception is an @Idempotent replay of this principal's own completed request: nothing executes for it.
+    if (repliedBeforePolicy(res)) {
+      next();
+      return;
+    }
     markStage(res, 'policy');
 
     // Only policies enabled for this concrete route participate in the gate.
@@ -206,10 +213,8 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   };
 }
 
-const chainName = (route: IRoute, path: string) => `http:${String(route.Type).toUpperCase()} ${path}`;
-
 const contextOf = (req: Express.Request, res: Express.Response, route: IRoute, controller: IController, path: string): IRouteInvocation =>
-  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: chainName(route, path) };
+  routeContextOf(res) ?? { req, res, storage: (req as sRequest).storage, route, controller, path: routeChainName(route, path) };
 
 const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
 
@@ -249,6 +254,30 @@ export function createBeforeHandler(middleware: RouteMiddleware, route: IRoute, 
         next(err);
       });
   }, middleware.constructor.name);
+}
+
+/**
+ * Express handler asking a middleware for a replay right before the policy gate. Skipped when a 'beforePolicy'
+ * middleware answered, which the gate must still judge; a failing check goes on to the gate (fail closed).
+ */
+function createReplayBeforePolicyHandler(middleware: RouteMiddleware & IReplaysBeforePolicy, route: IRoute, controller: IController, path: string, log: Log): Express.RequestHandler {
+  return named((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    if (answeredEarly(res) || res.destroyed || res.closed) {
+      next();
+      return;
+    }
+    middleware[REPLAY_BEFORE_POLICY](contextOf(req, res, route, controller, path))
+      .then((replay) => {
+        if (replay) {
+          answerReplayBeforePolicy(res, replay);
+        }
+        next();
+      })
+      .catch((error: unknown) => {
+        log.error({ error, middleware: middleware.constructor.name, route: routeChainName(route, path) }, 'The replay check of ${middleware} on ${route} failed; the policies run');
+        next();
+      });
+  }, `${middleware.constructor.name}:replay`);
 }
 
 /** Enters a middleware that has only `onAfter`/`onFinish` once the chain reaches it. */
@@ -335,8 +364,9 @@ function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string
 /**
  * Calls `onRegister` of the enabled middlewares, then assembles the route's handler chain:
  *
- * route entry → policy gate → each 'outer' middleware (its around handler, then onBefore) → each 'inner' one, the
- * same way → action → [error recorder] → error handlers → response → [error recorder] → __handle_error__
+ * route entry → each 'beforePolicy' middleware (its around handler, then onBefore) → [replay check] → policy gate → each
+ * 'outer' one, the same way → each 'inner' one → action → [error recorder] → error handlers → response → [error recorder]
+ * → __handle_error__
  *
  * The response and __handle_error__ send their reply through the reply pipeline, which runs the onAfter hooks of the
  * entered middlewares. The recorders are mounted only when a middleware has `onAround`; they give its `proceed()` the
@@ -344,7 +374,7 @@ function refuseOnResponse(middlewares: readonly RouteMiddleware[], route: string
  */
 export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(Express.RequestHandler | Express.ErrorRequestHandler)[]> {
   const { controller, route, log } = options;
-  const name = chainName(route, options.path);
+  const name = routeChainName(route, options.path);
   refuseOnResponse(options.middlewares, name);
   const enabled = options.middlewares.filter((m) => m.isEnabled(route, controller));
 
@@ -359,8 +389,12 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
     }
   }
 
+  const beforePolicy = enabled.filter((m) => m.Stage === 'beforePolicy');
+  // without policies the claim replays at no extra cost: there is nothing to skip
+  const guarded = options.policies.Controller.length > 0 || options.policies.Route.length > 0;
+  const replayers = guarded ? enabled.filter(replaysBeforePolicy) : [];
   const outer = enabled.filter((m) => m.Stage === 'outer');
-  const inner = enabled.filter((m) => m.Stage !== 'outer');
+  const inner = enabled.filter((m) => m.Stage !== 'outer' && m.Stage !== 'beforePolicy');
   const recorder = enabled.some(wrapsRoute) ? [recordRouteError] : [];
   let mappedReply: ReturnType<typeof errorReplyFactory> | undefined;
 
@@ -376,27 +410,39 @@ export async function buildRouteHandlers(options: IRouteChainOptions): Promise<(
       return { response: mappedReply(handled.error, req).response, error: handled.error };
     };
 
+  const contract = { controller: controller.constructor.name, handler: String(route.Method) };
   const entry: Express.RequestHandler = (req, res, next) => {
+    // answered in place before routing (a deadline during a slow server onBefore): no part of the route runs
+    if (repliedInPlace(res)) {
+      return;
+    }
     beginRoute(res, {
       context: { req, res, storage: (req as sRequest).storage, route, controller, path: name },
+      container: options.container,
+      contract,
       storage: options.storage,
       errorReply: routeErrorReply(req, res),
     });
     next();
   };
 
-  return [
-    entry,
-    createPolicyGate(options.policies, route, controller, log, options.basePath),
-    ...[...outer, ...inner].flatMap((m) => [
+  const middlewareHandlers = (stage: RouteMiddleware[]) =>
+    stage.flatMap((m) => [
       ...(wrapsRoute(m) ? [createAroundHandler(m, route, controller, name, log)] : []),
       ...(m.onBefore ? [createBeforeHandler(m, route, controller, options.path)] : []),
       ...(!wrapsRoute(m) && !m.onBefore && (m.onAfter || m.onFinish) ? [createEntryHandler(m, route, controller, options.path)] : []),
-    ]),
+    ]);
+
+  return [
+    entry,
+    ...middlewareHandlers(beforePolicy),
+    ...replayers.map((m) => createReplayBeforePolicyHandler(m, route, controller, options.path, log)),
+    createPolicyGate(options.policies, route, controller, log, options.basePath),
+    ...middlewareHandlers([...outer, ...inner]),
     createActionHandler(controller, route, options.storage, options.derived),
     ...recorder,
     createOnErrorHandler(options.errorHandlers, route, controller, options.container, log, setErrorReply),
-    __handle_response__(options.container, { controller: controller.constructor.name, handler: String(route.Method) }),
+    __handle_response__(options.container),
     ...recorder,
     options.handleError,
   ];

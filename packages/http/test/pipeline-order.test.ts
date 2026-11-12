@@ -4,8 +4,9 @@ import { Intl } from '@spinajs/intl';
 import { Schema } from '@spinajs/validation';
 
 import { httpApp, req } from './common.js';
-import { BaseController, BasePath, BasePolicy, Body, Controllers, HttpServer, Middleware, Ok, OnError, Policy, Post, RouteMiddleware } from '../src/index.js';
-import type { ErrorStage, MiddlewareStage } from '../src/index.js';
+import { Forbidden } from '@spinajs/exceptions';
+import { BaseController, BasePath, BasePolicy, Body, Controllers, HttpServer, Middleware, NoContent, Ok, OnError, Policy, Post, RouteMiddleware } from '../src/index.js';
+import type { ErrorStage, IReplyContext, MiddlewareStage } from '../src/index.js';
 import type { TestApp } from '@spinajs/testing';
 
 const calls: string[] = [];
@@ -57,6 +58,42 @@ class OuterRecordingMiddleware extends RouteMiddleware {
   }
 }
 
+class DenyingPolicy extends BasePolicy {
+  public isEnabled() {
+    return true;
+  }
+
+  public async execute() {
+    calls.push('policy');
+    throw new Forbidden('denied');
+  }
+}
+
+class BeforePolicyMiddleware extends RouteMiddleware {
+  public readonly Stage: MiddlewareStage = 'beforePolicy';
+
+  public async onBefore() {
+    calls.push('beforePolicy');
+  }
+
+  public async onAfter({ error }: IReplyContext) {
+    calls.push(`beforePolicy:after:${(error as Error | undefined)?.constructor.name ?? 'none'}`);
+  }
+
+  public onFinish() {
+    calls.push('beforePolicy:finish');
+  }
+}
+
+class BeforePolicyAnswer extends RouteMiddleware {
+  public readonly Stage: MiddlewareStage = 'beforePolicy';
+
+  public async onBefore() {
+    calls.push('beforePolicy:answer');
+    return new NoContent(null);
+  }
+}
+
 class OuterRefusal extends Error {}
 
 let refusalStage: ErrorStage | undefined;
@@ -85,6 +122,40 @@ class PipelineOrderController extends BaseController {
   public staged(@Body() input: ProbeInput) {
     calls.push('action');
     return new Ok({ input });
+  }
+
+  @Post()
+  @Policy(RecordingPolicy)
+  @Middleware(OuterRecordingMiddleware)
+  @Middleware(BeforePolicyMiddleware)
+  public beforeGate(@Body() input: ProbeInput) {
+    calls.push('action');
+    return new Ok({ input });
+  }
+
+  @Post()
+  @Policy(DenyingPolicy)
+  @Middleware(OuterRecordingMiddleware)
+  @Middleware(BeforePolicyMiddleware)
+  public deniedBeforeGate() {
+    calls.push('action');
+    return new Ok({});
+  }
+
+  @Post()
+  @Policy(DenyingPolicy)
+  @Middleware(BeforePolicyAnswer)
+  public answeredBeforeGate() {
+    calls.push('action');
+    return new Ok({});
+  }
+
+  @Post()
+  @Policy(RecordingPolicy)
+  @Middleware(BeforePolicyAnswer)
+  public answeredBeforeAllowingGate() {
+    calls.push('action');
+    return new Ok({});
   }
 
   @Post()
@@ -142,5 +213,31 @@ describe('Route pipeline order', function () {
     const res = await req().post('order/refusedOuter').send({});
     expect(res.status).to.eq(200);
     expect(refusalStage).to.eq('middleware');
+  });
+
+  it('runs a beforePolicy middleware before the policy gate and the outer middlewares', async () => {
+    const res = await req().post('order/beforeGate').send({ a: 'x' });
+    expect(res.status).to.eq(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).to.deep.eq(['beforePolicy', 'policy', 'outer', 'action', 'outer:after', 'beforePolicy:after:none', 'beforePolicy:finish']);
+  });
+
+  it('gives a beforePolicy middleware the onAfter and onFinish of a policy refusal; the later ones are not entered', async () => {
+    const res = await req().post('order/deniedBeforeGate').send({});
+    expect(res.status).to.eq(403);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).to.deep.eq(['beforePolicy', 'policy', 'beforePolicy:after:Forbidden', 'beforePolicy:finish']);
+  });
+
+  it('runs the policy gate after a beforePolicy answer: a refusal replaces the answer', async () => {
+    const res = await req().post('order/answeredBeforeGate').send({});
+    expect(res.status).to.eq(403);
+    expect(calls).to.deep.eq(['beforePolicy:answer', 'policy']);
+  });
+
+  it('sends a beforePolicy answer once the policies allow the request, without running the action', async () => {
+    const res = await req().post('order/answeredBeforeAllowingGate').send({});
+    expect(res.status).to.eq(204);
+    expect(calls).to.deep.eq(['beforePolicy:answer', 'policy']);
   });
 });

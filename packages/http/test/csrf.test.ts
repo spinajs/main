@@ -2,11 +2,11 @@ import 'mocha';
 import { expect } from 'chai';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, ServerMiddleware, isCsrfExempt } from '../src/index.js';
+import { BaseController, BasePath, CsrfExempt, CsrfGuard, Ok, Post, Put, RouteIndex, ServerMiddleware, isCsrfExempt } from '../src/index.js';
+import { controller, mountRoutes } from './support/route-index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { serverApp } from './support/server-app.js';
@@ -46,20 +46,25 @@ class CsrfCallbacksController extends BaseController {
 
 class CsrfInheritingController extends CsrfCallbacksController {}
 
-/** A controller as the route builder sees it, reading `values` as its configuration. */
-function controller<T extends BaseController>(type: new () => T, values: Record<string, unknown> = {}): T {
-  const c = new type();
-  const cfg = { get: (path: string, fallback?: unknown) => (path in values ? values[path] : fallback) };
-  for (const [name, value] of Object.entries({ _cfg: cfg, _log: noopLog, _container: DI, _actionLocalStorage: new AsyncLocalStorage() })) {
-    Object.defineProperty(c, name, { value });
+@BasePath('hooks')
+class CsrfShadowController extends BaseController {
+  @Post('inbound/:id')
+  public shadow() {
+    return new Ok({ ok: true });
   }
-  return c;
 }
 
 class TestGuard extends CsrfGuard {
-  public mounted: BaseController[] = [];
-  protected controllers() {
-    return this.mounted;
+  public readonly routes = new RouteIndex();
+
+  constructor() {
+    super();
+    this.Routes = this.routes;
+  }
+
+  /** Mounts the routes of `controllers` behind `prefix`, in the given order. */
+  public mount(controllers: BaseController[], prefix?: string): void {
+    mountRoutes(this.routes, controllers, prefix);
   }
 }
 
@@ -70,10 +75,14 @@ async function guardWith(csrf: Record<string, unknown> = {}, http: Record<string
   return guard;
 }
 
-function appOf(guard: CsrfGuard) {
-  return serverApp(guard, (_req, res) => {
-    res.json({ ran: true });
-  });
+function appOf(guard: TestGuard) {
+  return serverApp(
+    guard,
+    (_req, res) => {
+      res.json({ ran: true });
+    },
+    guard.routes,
+  );
 }
 
 interface Sent {
@@ -81,7 +90,7 @@ interface Sent {
   readonly body: unknown;
 }
 
-async function send(guard: CsrfGuard, method: 'get' | 'post' | 'put' | 'delete' | 'patch', path: string, headers: Record<string, string> = {}): Promise<Sent> {
+async function send(guard: TestGuard, method: 'get' | 'post' | 'put' | 'delete' | 'patch', path: string, headers: Record<string, string> = {}): Promise<Sent> {
   let r = chai.request(appOf(guard))[method](path).set('Host', HOST);
   for (const [name, value] of Object.entries(headers)) r = r.set(name, value);
   const res = await r;
@@ -196,7 +205,7 @@ describe('CsrfGuard (X1-X3)', function () {
 
     it('an exempt route passes cross-site; its neighbours, and other methods on its path, do not', async () => {
       const guard = await guardWith();
-      guard.mounted = [controller(CsrfHooksController), controller(CsrfCallbacksController)];
+      guard.mount([controller(CsrfHooksController), controller(CsrfCallbacksController)]);
       passes(await send(guard, 'post', '/hooks/inbound/42', { Origin: EVIL }));
       passes(await send(guard, 'post', '/HOOKS/inbound/42/', { Origin: EVIL }));
       passes(await send(guard, 'put', '/callbacks/7', { Origin: EVIL, Cookie: 'sid=x' }));
@@ -208,18 +217,27 @@ describe('CsrfGuard (X1-X3)', function () {
     it('follows a controller moved by @BasePath({ config }) and the global route prefix', async () => {
       const values = { 'test.csrf.hooksBase': 'moved/hooks', 'http.controllers.route.prefix': 'api' };
       const guard = await guardWith({}, { controllers: { route: { prefix: 'api' } } });
-      guard.mounted = [controller(CsrfHooksController, values)];
+      guard.mount([controller(CsrfHooksController, values)], 'api');
       passes(await send(guard, 'post', '/api/moved/hooks/inbound/1', { Origin: EVIL }));
       refused(await send(guard, 'post', '/api/hooks/inbound/1', { Origin: EVIL }));
       refused(await send(guard, 'post', '/moved/hooks/inbound/1', { Origin: EVIL }));
     });
 
-    it('picks up a controller added after the server started', async () => {
+    it('exempts only when every route that could serve the request is exempt, whichever the router picks', async () => {
+    const shadowedExempt = await guardWith();
+    shadowedExempt.mount([controller(CsrfShadowController), controller(CsrfHooksController)]);
+    refused(await send(shadowedExempt, 'post', '/hooks/inbound/42', { Origin: EVIL }));
+    const exemptFirst = await guardWith();
+    exemptFirst.mount([controller(CsrfHooksController), controller(CsrfShadowController)]);
+    refused(await send(exemptFirst, 'post', '/hooks/inbound/42', { Origin: EVIL }));
+  });
+
+  it('picks up a controller added after the server started', async () => {
       const guard = await guardWith();
       const app = appOf(guard);
       const put = () => chai.request(app).put('/callbacks/1').set('Host', HOST).set('Origin', EVIL);
       expect((await put()).status).to.eq(403);
-      guard.mounted = [controller(CsrfCallbacksController)];
+      guard.mount([controller(CsrfCallbacksController)]);
       expect((await put()).status).to.eq(200);
     });
 

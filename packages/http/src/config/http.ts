@@ -52,6 +52,13 @@ const http = {
     ],
   },
 
+  validation: {
+    strict: {
+      // added to the shipped prefixes: @RateLimit options come from code and JSON config, and must not be coerced
+      idPrefixes: ['http.rateLimit.'],
+    },
+  },
+
   http: {
     /**
      * Cookie defaults. This MUST live under `http.` - every consumer reads
@@ -93,7 +100,7 @@ const http = {
     },
     port: 1337,
 
-    // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the parser limits below
+    // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the http.bodyParsers limits
     bodyLimits: [],
 
     contractTesting: { enabled: false, mode: 'throw' },

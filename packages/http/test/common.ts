@@ -6,15 +6,12 @@ import { createTestApp } from '@spinajs/testing';
 import type { TestApp, TestAppOptions } from '@spinajs/testing';
 import { Forbidden } from '@spinajs/exceptions';
 import chai from 'chai';
-import { Controllers, HttpServer } from '../src/index.js';
+import { Controllers, defaultMiddlewares, HttpServer } from '../src/index.js';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 
-import express from 'express';
-import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
@@ -128,29 +125,19 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         port: 0,
         cookie: { secret: TEST_COOKIE_SECRET },
-        middlewares: [
-          (helmet as any)(),
-          express.json({
-            limit: '5mb',
-            verify: (req: any, _res: any, buf: Buffer) => {
+        middlewares: defaultMiddlewares(),
+        bodyParsers: {
+          json: {
+            verify: (req: any) => {
               if (req.headers['x-test-refuse-body']) {
                 throw new Error('request body refused');
               }
               if (req.headers['x-test-forbid-body']) {
                 throw new Forbidden('webhook signature mismatch');
               }
-              req.rawBody = buf;
             },
-          }),
-          express.urlencoded({
-            extended: true,
-          }),
-          express.text({
-            type: ['application/xml', 'text/xml', 'application/*+xml'],
-            limit: '5mb',
-          }),
-          cookieParser(TEST_COOKIE_SECRET),
-        ],
+          },
+        },
 
         /**
          * Default file receiving options

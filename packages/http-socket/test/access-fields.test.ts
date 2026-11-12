@@ -362,8 +362,9 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
         yield { ...ACF_NOTE };
       }
     })();
-    const ctx = { handler: { descriptor: { Policies: [[{ Type: SocketAccessPolicy, Options: [{ permissions: [], scope: 'handler', fields: 'filter' }] }]] }, controller: {} }, storage: {} };
-    const stream = (await new AccessFieldsStage().execute(ctx as never, async () => source)) as AsyncIterable<unknown>;
+    const ctx = { handler: { descriptor: { Policies: [[{ Type: SocketAccessPolicy, Options: [{ permissions: [], scope: 'handler', fields: 'filter' }] }]] }, controller: {} }, storage: {}, result: source as unknown };
+    new AccessFieldsStage().onAfter(ctx as never);
+    const stream = ctx.result as AsyncIterable<unknown>;
     const iterator = stream[Symbol.asyncIterator]();
 
     await iterator.next();
