@@ -26,7 +26,8 @@ Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-
 2. Each answer is added under its status, unless the JSDoc or `@Access` already set that status. Between middlewares the later one wins, so a route's own `@RateLimit` answers over its controller's.
 3. An answer with a `component` is registered once under `components.responses` and referred to with a `$ref`. Any other answer is inline: its description, its `headers`, and a body from `schema` or from the named `type` (resolved like `@response 429 {AuthnError}`), under `contentType` (default `application/json`).
 4. The `headers` a middleware sets on the route's own success answers go to the route's inline `2xx` responses. A `$ref` response is left alone.
-5. Its `x-` extensions are copied onto the operation. An array extension that two middlewares set is concatenated. A key the operation already has, such as `x-authz-domain` from `@Access`, keeps its value unless both values are arrays.
+5. Its `x-` extensions are copied onto the operation; any other key in `extensions` is dropped, so a middleware cannot set `parameters`, `requestBody` or `deprecated` this way. An array extension that two middlewares set is concatenated. A key the operation already has, such as `x-authz-domain` from `@Access`, keeps its value unless both values are arrays.
+6. A middleware whose `documentation()` throws adds nothing to that route. The builder logs a warning on the `http-swagger` logger naming the middleware class and the route (e.g. `POST /reports/daily`), and documents the other middlewares and routes.
 
 For `@RateLimit` this gives ([what it documents](../http/18-throttling.md#in-api-documents)):
 

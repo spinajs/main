@@ -356,7 +356,7 @@ A middleware that answers instead of the route, or sets headers on its answers, 
 | `component` | A shared `components/responses` name: registered once, then referred to |
 | `contentType` | Default `application/json` |
 
-How `@spinajs/http-swagger` merges them (a status from the JSDoc wins, a later middleware wins over an earlier one) is in [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares). `@RateLimit` documents its `429` this way: [Throttling](18-throttling.md#in-api-documents).
+`@spinajs/http-swagger` copies only the `x-` keys of `extensions` onto the operation, and leaves out a middleware whose `documentation()` throws, with a warning, without failing the document. How it merges the rest (a status from the JSDoc wins, a later middleware wins over an earlier one) is in [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares). `@RateLimit` documents its `429` this way: [Throttling](18-throttling.md#in-api-documents).
 
 ```ts sample
 import { BaseController, BasePath, Get, IRouteMiddlewareDoc, Middleware, Ok, RawJsonResponse, Response, RouteMiddleware } from '@spinajs/http';
