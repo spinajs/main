@@ -4,6 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, HTTP_CONFIGURATION_SCHEMA, MemoryThrottleStore, RateLimitMiddleware } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { DataValidator } from '@spinajs/validation';
 
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_SESSION_RATE_LIMITS } from '../src/index.js';
 import { OidcController } from '../src/controllers/OidcController.js';
@@ -52,6 +53,7 @@ async function mounted(controller: Ctor, method: string, config: Record<string, 
   const mw = readingFrom(new RateLimitMiddleware(options), container);
   Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
   Object.defineProperty(mw, 'Configuration', { value: await container.resolve(Configuration) });
+  Object.defineProperty(mw, 'Validator', { value: await container.resolve(DataValidator) });
   const route = routeOf(controller, method);
   if (mw.isEnabled(route, CONTROLLER)) await mw.onRegister(route, `/${method}`);
 

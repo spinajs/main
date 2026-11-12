@@ -8,6 +8,7 @@ import type { IController, IControllerDescriptor, IMiddlewareContext, IRateLimit
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { DataValidator } from '@spinajs/validation';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_SESSION_RATE_LIMITS, pendingSessionKey, pendingSessionKeyOf } from '../../src/index.js';
 import { AuthnActiveRoleController } from '../../src/v3/controllers/AuthnActiveRoleController.js';
@@ -113,6 +114,7 @@ async function mounted(controller: Ctor, method: string, config: Record<string, 
   const mw = readingFrom(new RateLimitMiddleware(options), container);
   Object.defineProperty(mw, 'Store', { value: store });
   Object.defineProperty(mw, 'Configuration', { value: await container.resolve(Configuration) });
+  Object.defineProperty(mw, 'Validator', { value: await container.resolve(DataValidator) });
   const route = routeOf(controller, method);
   if (mw.isEnabled(route, CONTROLLER)) await mw.onRegister(route, `/${method}`);
 
