@@ -7,9 +7,10 @@ import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnCodeLoginBody, AuthnCodeRequestBody } from '../../dto/code-login.js';
-import { CodeLoginRegistered, invalidLogin, tooManyRequests } from '../../password/index.js';
+import { CodeLoginRegistered, codeRequestThrottled, invalidLogin } from '../../password/index.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit } from '../../rate-limits.js';
 import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE } from '../responses.js';
@@ -49,15 +50,16 @@ export class AuthnCodeLoginController extends BaseController {
    * @security []
    */
   @Post('auth/code/request')
+  @AuthnRateLimit('codeRequest', codeRequestThrottled)
   @BotCheck('code_request')
-  @IpThrottle('reset', (retryAfter) => tooManyRequests('too many code requests, try again later', retryAfter))
+  @IpThrottle('reset', codeRequestThrottled)
   @OnInvalidInput(byField({ login: invalidLogin }, unknownField))
   public async request(@Body({ required: true }) body: AuthnCodeRequestBody, @ClientContext() client: AuthnClientContext) {
     const login = body.login;
     const ctx = contextOf(client, 'request');
     try {
       const result = await runHookedAction(this.Hooks, 'authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
-      if (result.status === 'throttled') return tooManyRequests('too many code requests, try again later', result.retryAfterSeconds);
+      if (result.status === 'throttled') return codeRequestThrottled(result.retryAfterSeconds);
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.code.request');
       // The answer of any other login: only the audit tells.
@@ -87,6 +89,7 @@ export class AuthnCodeLoginController extends BaseController {
    * @security []
    */
   @Post('auth/code/login')
+  @AuthnRateLimit('codeLogin', throttledLogin)
   @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnCodeLoginBody, @ClientContext() client: AuthnClientContext) {

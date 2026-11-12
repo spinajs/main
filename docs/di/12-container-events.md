@@ -68,6 +68,7 @@ console.log(DI.resolve(HttpClient).Headers, FetchClient.name);
 
 - `di.resolved.*` fires once per cached instance. A listener added after the singleton was built never sees it; check `DI.get(Key)` as well.
 - A singleton registered in the root and resolved through a child emits on the **root**, not on the child.
+- An `Array.ofType(Base)` element emits `di.resolved.<Element>` and `di.resolved.<Base>` when the list builds it, and `di.resolved.<Base>` alone when the list joins one a single resolve is still creating. A `@PerInstanceCheck()` element emits `di.resolved.<Base>` once when it newly joins the list, whether the list built it, found it cached under its own name or waited for it. Any other element a single resolve already finished joins the list without `di.resolved.<Base>`.
 - Listeners run synchronously inside `register()` and `resolve()`. A throwing listener aborts that call.
 - An `AsyncService` emits after its `resolve()` finished.
 - `DI.clear()` does not remove listeners; `DI.removeAllListeners()` does.

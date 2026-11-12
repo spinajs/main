@@ -103,11 +103,12 @@ describe('DefaultAuthnService throttle keys on IPv6', function () {
     throttle = undefined;
   });
 
-  async function boot(interactive: boolean, config = {}, account = 'acct-1'): Promise<CoreParts> {
+  async function boot(interactive: boolean, config = {}, account = 'acct-1', raw?: Record<string, unknown>): Promise<CoreParts> {
     const s = new FakeStrategy({ name: 'probe', kinds: ['bearer'], interactive, keys: () => [{ kind: 'account', value: account }], verify: refuse });
     const opts: CoreOptions = {
       throttle: (_c: Configuration, k: IContainer) => (throttle = pinConfiguration(new RecordingThrottle(), k)),
       strategies: [{ name: s.name, service: 'Svc_probe', instance: s, listed: true }],
+      raw,
     };
     parts = await buildCore(config, opts);
     return parts;
@@ -145,6 +146,20 @@ describe('DefaultAuthnService throttle keys on IPv6', function () {
     await p.service.authenticate(bearer('x'), ctxAt(IP6_OTHER_56));
     assert.deepStrictEqual(sent(0), ['account=login:acct-1', 'account-ip=login:acct-1|2001:db8::/56', 'ip=2001:db8::/56']);
     assert.deepStrictEqual(sent(1), sent(0));
+  });
+
+  it('falls back to http.throttle.ipv6Prefix, the prefix @RateLimit and http.throttle count', async () => {
+    const p = await boot(true, {}, 'acct-1', { http: { throttle: { ipv6Prefix: 56 } } });
+    await p.service.authenticate(bearer('x'), ctxAt(IP6_A));
+    await p.service.authenticate(bearer('x'), ctxAt(IP6_OTHER_56));
+    assert.deepStrictEqual(sent(0), ['account=login:acct-1', 'account-ip=login:acct-1|2001:db8::/56', 'ip=2001:db8::/56']);
+    assert.deepStrictEqual(sent(1), sent(0));
+  });
+
+  it('takes authn.throttle.ipv6Prefix over http.throttle.ipv6Prefix', async () => {
+    const p = await boot(true, { authn: { throttle: { ipv6Prefix: 64 } } }, 'acct-1', { http: { throttle: { ipv6Prefix: 56 } } });
+    await p.service.authenticate(bearer('x'), ctxAt(IP6_OTHER_56));
+    assert.ok(sent(0).includes('ip=2001:db8:0:ff::/64'));
   });
 
   it('leaves IPv4 and IPv4-mapped addresses whole', async () => {

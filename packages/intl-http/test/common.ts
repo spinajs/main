@@ -2,15 +2,11 @@ import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
-import { Controllers, HttpServer } from '@spinajs/http';
+import { Controllers, defaultMiddlewares, HttpServer } from '@spinajs/http';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
-
-import express from 'express';
-import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
@@ -93,17 +89,8 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
       http: {
         port: 0,
-        middlewares: [
-          // ts-node 10 type-checks imports in CJS mode, so helmet's default import is its namespace
-          (helmet as any)(),
-          express.json({
-            limit: '5mb',
-          }),
-          express.urlencoded({
-            extended: true,
-          }),
-          cookieParser(),
-        ],
+        // helmet; the body parsers and the cookie parser are the built-in server middlewares
+        middlewares: defaultMiddlewares(),
 
         /**
          * Default file receiving options

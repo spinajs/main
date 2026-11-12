@@ -1,0 +1,349 @@
+import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
+import { Config, Configuration } from '@spinajs/configuration';
+import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
+import { DataValidator } from '@spinajs/validation';
+import type { IValidationError } from '@spinajs/validation';
+
+import { Middleware } from '../decorators.js';
+import { RouteMiddleware } from '../interfaces.js';
+import type { IController, IMiddlewareContext, IRoute, MiddlewareStage, Response } from '../interfaces.js';
+import { quietRateLimitAnswer, rateLimitAnswer, retryAfterSeconds, setRateLimitHeaders, tooManyRequests } from './rate-limit-answer.js';
+import { ThrottleStore } from './Throttle.js';
+
+/** What one request is counted against: its client address, or its authenticated principal. */
+export type RateLimitKey = 'ip' | 'principal';
+
+export interface IRateLimitSettings {
+  limit: number;
+  windowSeconds: number;
+  by?: RateLimitKey;
+  /** Read from config (or `default`), it wins over the decorator's `headers`. */
+  headers?: boolean;
+}
+
+/** Settings with their defaults filled in; `headers` stays optional, so a table of defaults need not name it. */
+export type RateLimitDefault = Required<Pick<IRateLimitSettings, 'limit' | 'windowSeconds' | 'by'>> & { headers?: boolean };
+
+export interface IRateLimitOptions {
+  /**
+   * Config path read once when the route is mounted: an IRateLimitSettings object (merged over `default`), or `false` =
+   * this route has no limit, not even a global `http.routes.middlewares` one. `{ limit: 0 }` closes the route instead.
+   * `config: false` itself (no other option) declares the route unlimited in code: on a route, it also takes the
+   * controller's `@RateLimit` off that route.
+   */
+  config?: string | false;
+  /** Used when `config` is absent or the key is not set. Required when `config` is given. */
+  default?: IRateLimitSettings;
+  /** Inline settings when no config is used. */
+  limit?: number;
+  windowSeconds?: number;
+  by?: RateLimitKey;
+  /**
+   * The throttled answer. Default: the 429 E_TOO_MANY_REQUESTS body. It sets its own headers (e.g. Retry-After). A
+   * closed route (`limit: 0`) passes `windowSeconds`.
+   */
+  answer?: (retryAfterSeconds: number) => Response;
+  /**
+   * true: send the X-RateLimit-* headers on every counted response, and set Retry-After on the throttled one next to
+   * `answer`. Default false: the default 429 carries only its own Retry-After, and an `answer` decides. A configured
+   * `headers` wins over this one; `false` also keeps `headers` out of the keys the config may set.
+   */
+  headers?: boolean;
+  /**
+   * Custom counting key for this route (e.g. a session handle); undefined falls back to `by`. Prefixed with the route
+   * key. A key read from the request limits per value the client sends, so a client that varies it is never limited:
+   * derive it from server-validated state, or keep an ip limit next to it. Stored in clear: hash secrets, with an HMAC
+   * keyed by a server secret for low-entropy values (login names, emails).
+   */
+  key?: (ctx: IMiddlewareContext) => string | undefined;
+}
+
+interface IPrincipalLike {
+  type?: unknown;
+  id?: unknown;
+  authenticated?: unknown;
+}
+
+const SETTINGS_KEYS = ['limit', 'windowSeconds', 'by', 'headers'];
+const OPTION_KEYS = ['config', 'default', 'limit', 'windowSeconds', 'by', 'answer', 'headers', 'key'];
+
+// The types do not hold for options given in JSON config, and `number` admits NaN, Infinity, 1.5 and -1.
+const SETTINGS_PROPERTIES = {
+  limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  windowSeconds: { type: 'number', exclusiveMinimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  by: { enum: ['ip', 'principal'] },
+  // not type: 'boolean': a coercing validator would pass 0, 1 and 'false'
+  headers: { enum: [true, false] },
+};
+
+const settingsObject = (keys: readonly string[]) => ({
+  type: 'object',
+  // propertyNames, not additionalProperties: removeAdditional would drop a misspelt key without a word.
+  propertyNames: { enum: [...keys] },
+  properties: Object.fromEntries(keys.map((k) => [k, SETTINGS_PROPERTIES[k as keyof typeof SETTINGS_PROPERTIES]])),
+});
+
+// `http.rateLimit.` is a strict prefix (config/http.ts): these are validated without type coercion.
+const SETTINGS_SCHEMA = { $id: 'http.rateLimit.settings', ...settingsObject(SETTINGS_KEYS) };
+const COMPLETE_SETTINGS_SCHEMA = { ...SETTINGS_SCHEMA, $id: 'http.rateLimit.completeSettings', required: ['limit', 'windowSeconds'] };
+
+const OPTIONS_SCHEMA = {
+  $id: 'http.rateLimit.options',
+  type: 'object',
+  propertyNames: { enum: OPTION_KEYS },
+  properties: {
+    config: { anyOf: [{ const: false }, { type: 'string', minLength: 1 }] },
+    default: settingsObject(SETTINGS_KEYS),
+    limit: SETTINGS_PROPERTIES.limit,
+    windowSeconds: SETTINGS_PROPERTIES.windowSeconds,
+    by: SETTINGS_PROPERTIES.by,
+    headers: SETTINGS_PROPERTIES.headers,
+    answer: { instanceof: 'Function' },
+    key: { instanceof: 'Function' },
+  },
+  allOf: [
+    { if: { type: 'object', required: ['config'], properties: { config: { type: 'string' } } }, then: { required: ['default'] } },
+    // the route ruled `headers` out in code: no default may bring it back
+    {
+      if: { type: 'object', required: ['headers'], properties: { headers: { const: false } } },
+      then: { properties: { default: { type: 'object', propertyNames: { enum: SETTINGS_KEYS.filter((k) => k !== 'headers') } } } },
+    },
+  ],
+};
+
+type Refusal = new (message: string) => Error;
+
+function describe(error: IValidationError, label: string): string {
+  const at = label + error.instancePath.replace(/\//g, '.');
+  const unknownKey = error.propertyName ?? (error.params as { propertyName?: string }).propertyName;
+  if (unknownKey !== undefined) return `${at} has unknown key ${unknownKey}`;
+  if (error.keyword === 'required') return `${at} is missing ${String((error.params as { missingProperty?: string }).missingProperty)}`;
+  return `${at} ${error.message ?? `fails ${error.keyword} ${JSON.stringify(error.params)}`}`;
+}
+
+/**
+ * The JSON schema of one configured limit (`<package>.rateLimit.<name>`, read by `@RateLimit({ config })`): settings merged
+ * over `defaults`, or `false` for none. Schema only: the middleware checks the value again when the route mounts.
+ * `opts.headers: false` (the route's own `@RateLimit({ headers: false })`) leaves `headers` out of the accepted keys.
+ */
+export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: { headers?: boolean }): Record<string, unknown> {
+  const keys = opts?.headers === false ? SETTINGS_KEYS.filter((k) => k !== 'headers') : SETTINGS_KEYS;
+  return {
+    default: { ...defaults },
+    description: `The limit of ${route}: { ${keys.join(', ')} } merged over the default, or false for none.`,
+    anyOf: [{ enum: [false] }, settingsObject(keys)],
+  };
+}
+
+const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
+
+/** The declaration `@RateLimit({ config: false })`. */
+function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
+  const type = m.Type as { prototype?: unknown } | undefined;
+  const isRateLimit = type === RateLimitMiddleware || (typeof type === 'function' && type.prototype instanceof RateLimitMiddleware);
+  const options = m.Options?.[0] as IRateLimitOptions | undefined;
+  return isRateLimit && m.Options?.length === 1 && typeof options === 'object' && options !== null && options.config === false;
+}
+
+/**
+ * A fixed-window limit on one route, counted in the {@link ThrottleStore} `ThrottleMiddleware` uses. Each route keeps
+ * its own counter, keyed by the method and the mounted path, the limit and the window, so two `@RateLimit`s on a
+ * route (a burst and a sustained limit) count apart.
+ *
+ * `by: 'principal'` counts the authenticated principal (`req.storage.Principal` from authz-http, else
+ * `req.storage.AuthnPrincipal`); an anonymous request is counted per address.
+ *
+ * Registered as `RouteMiddleware`, so `http.routes.middlewares: [{ service: 'RateLimitMiddleware', options: [600, 60] }]`
+ * gives every route its own limit.
+ */
+@NewInstance()
+@Injectable(RouteMiddleware)
+export class RateLimitMiddleware extends RouteMiddleware {
+  // right after the policy gate, before the route's other middlewares spend anything on the request
+  public override readonly Stage: MiddlewareStage = 'outer';
+
+  @Autoinject(ThrottleStore)
+  protected Store!: ThrottleStore;
+
+  @Autoinject(Configuration)
+  protected Configuration!: Configuration;
+
+  @Autoinject(DataValidator)
+  protected Validator!: DataValidator;
+
+  @Config('http.throttle.ipv6Prefix', { defaultValue: DEFAULT_IPV6_PREFIX })
+  protected Ipv6Prefix: unknown;
+
+  protected readonly options: Readonly<IRateLimitOptions>;
+
+  /** false: the config turned the limit off. */
+  private settings?: RateLimitDefault | false;
+  private route = '';
+  private prefix = DEFAULT_IPV6_PREFIX;
+
+  constructor(limit: number, windowSeconds: number, by?: RateLimitKey);
+  constructor(options: IRateLimitOptions);
+  constructor(limitOrOptions: number | IRateLimitOptions, windowSeconds?: number, by: RateLimitKey = 'ip') {
+    super();
+    this.options = typeof limitOrOptions === 'object' && limitOrOptions !== null ? { ...limitOrOptions } : { limit: limitOrOptions, windowSeconds, by };
+  }
+
+  /** The effective settings once the route is mounted; before that, the ones written in code. */
+  public get limit(): number {
+    return this.current().limit as number;
+  }
+
+  public get windowSeconds(): number {
+    return this.current().windowSeconds as number;
+  }
+
+  public get by(): RateLimitKey {
+    return this.current().by ?? 'ip';
+  }
+
+  public override isEnabled(route: IRoute, _controller: IController): boolean {
+    // A route declared unlimited drops the controller's limit; the global floor is dropped by the declaration itself.
+    if (this.options.config !== false && (route?.Middlewares ?? []).some(isDeclaredOff)) return false;
+    try {
+      return this.resolveSettings() !== false;
+    } catch {
+      // mounted, so onRegister refuses the route with the error and the route's name
+      return true;
+    }
+  }
+
+  public onRegister(route: IRoute, path: string): void {
+    const settings = this.resolveSettings();
+    if (settings === false) return;
+
+    const prefix = this.Ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
+    if (!Number.isInteger(prefix) || (prefix as number) < 16 || (prefix as number) > 128) {
+      throw new InvalidOption(`http.throttle.ipv6Prefix must be an integer in 16..128, got ${String(prefix)}`);
+    }
+    this.prefix = prefix as number;
+
+    this.route = `rate:${String(route.InternalType).toUpperCase()} ${path}:${settings.limit}/${settings.windowSeconds}`;
+  }
+
+  public async onBefore(ctx: IMiddlewareContext): Promise<Response | void> {
+    const settings = this.settings;
+    if (settings === false) return;
+    if (settings === undefined || this.route === '') {
+      throw new InvalidOperation(`${this.constructor.name} was not registered on its route: a subclass overriding onRegister must call super.onRegister`);
+    }
+
+    const { res } = ctx;
+    const { answer } = this.options;
+    const headers = settings.headers ?? this.options.headers ?? false;
+
+    // A closed route never opens, so a window reset or Retry-After would only invite a pointless retry.
+    if (settings.limit === 0) {
+      if (headers) {
+        res.set('X-RateLimit-Limit', '0');
+        res.set('X-RateLimit-Remaining', '0');
+      }
+      return answer ? answer(settings.windowSeconds) : tooManyRequests();
+    }
+
+    // A store failure rejects: the request fails closed through the error answer.
+    const hit = await this.Store.increment(`${this.route}:${this.subject(ctx, settings.by)}`, settings.windowSeconds);
+    if (!answer) return headers ? rateLimitAnswer(res, settings.limit, hit) : quietRateLimitAnswer(settings.limit, hit);
+    if (headers) setRateLimitHeaders(res, settings.limit, hit);
+    if (hit.count <= settings.limit) return;
+
+    const retryAfter = retryAfterSeconds(hit);
+    if (headers) res.set('Retry-After', String(retryAfter));
+    return answer(retryAfter);
+  }
+
+  private current(): Partial<IRateLimitSettings> {
+    if (this.settings) return this.settings;
+    return { ...this.options.default, ...defined({ limit: this.options.limit, windowSeconds: this.options.windowSeconds, by: this.options.by }) };
+  }
+
+  private resolveSettings(): RateLimitDefault | false {
+    if (this.settings !== undefined) return this.settings;
+
+    this.validate(OPTIONS_SCHEMA, this.options, '@RateLimit', InvalidArgument);
+    const { config, limit, windowSeconds, by, default: fallback } = this.options;
+    const inline = defined({ limit, windowSeconds, by });
+
+    if (config === false) {
+      const others = Object.keys(this.options).filter((k) => k !== 'config');
+      if (others.length > 0) throw new InvalidArgument(`@RateLimit({ config: false }) declares no limit and takes no other option, got ${others.join(', ')}`);
+      return (this.settings = false);
+    }
+    if (config === undefined) {
+      return (this.settings = this.complete({ ...fallback, ...inline }, '@RateLimit', InvalidArgument));
+    }
+
+    if (Object.keys(inline).length > 0) {
+      throw new InvalidArgument(`@RateLimit({ config: '${config}' }) takes its settings from config and default, not inline ${Object.keys(inline).join(', ')}`);
+    }
+    const base = this.complete(fallback, '@RateLimit.default', InvalidArgument);
+
+    const configured = this.Configuration.get<unknown>(config);
+    if (configured === false) return (this.settings = false);
+    if (configured === undefined || configured === null) return (this.settings = base);
+
+    this.validate(SETTINGS_SCHEMA, configured, config, InvalidOption);
+    if (this.options.headers === false && (configured as IRateLimitSettings).headers !== undefined) {
+      throw new InvalidOption(`${config} has unknown key headers: the route declares headers: false`);
+    }
+    return (this.settings = { ...base, ...defined(configured as Partial<IRateLimitSettings>) } as RateLimitDefault);
+  }
+
+  private complete(settings: unknown, label: string, refusal: Refusal): RateLimitDefault {
+    this.validate(COMPLETE_SETTINGS_SCHEMA, settings, label, refusal);
+    return { by: 'ip', ...defined(settings as IRateLimitSettings) } as RateLimitDefault;
+  }
+
+  private validate(schema: object, value: unknown, label: string, refusal: Refusal): void {
+    const [valid, errors] = this.Validator.tryValidate(schema, value as object);
+    if (valid) return;
+    const reasons = (errors ?? []).filter((e) => e.keyword !== 'anyOf' && e.keyword !== 'if').map((e) => describe(e, label));
+    throw new refusal([...new Set(reasons)].join('; '));
+  }
+
+  private subject(ctx: IMiddlewareContext, by: RateLimitKey): string {
+    const { req, storage } = ctx;
+    const custom = this.options.key?.(ctx);
+    if (typeof custom === 'string' && custom !== '') return `key:${custom}`;
+
+    if (by === 'principal') {
+      const s = storage as unknown as { Principal?: IPrincipalLike | null; AuthnPrincipal?: IPrincipalLike | null } | undefined;
+      const principal = s?.Principal ?? s?.AuthnPrincipal;
+      if (principal?.authenticated === true && typeof principal.id === 'string') {
+        // Escaped as @spinajs/principal's principalKey does, so the type/id split stays unambiguous.
+        return `principal:${String(principal.type).replace(/%/g, '%25').replace(/:/g, '%3A')}:${principal.id}`;
+      }
+    }
+    // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).
+    return `ip:${throttleIp(storage?.realIp ?? req.socket?.remoteAddress ?? 'unknown', this.prefix)}`;
+  }
+}
+
+/**
+ * Limits the route (or every route of the controller) to `limit` requests per `windowSeconds`, per client address or
+ * per authenticated principal. Over the limit it answers 429 with `Retry-After`, the body `ThrottleMiddleware` sends.
+ * The `X-RateLimit-*` headers are opt-in: with `headers: true`, every counted request gets them.
+ *
+ * The options form reads the numbers from configuration (`false` there takes the limit off the route), and can
+ * replace the throttled answer, send the headers or count on a key of its own.
+ *
+ * ```ts
+ * @Post()
+ * @RateLimit(5, 300)
+ * public resetPassword() { ... }
+ *
+ * @Post()
+ * @RateLimit({ config: 'app.rateLimit.login', default: { limit: 30, windowSeconds: 60 }, answer: throttledLogin, headers: false })
+ * public login() { ... }
+ * ```
+ */
+export function RateLimit(limit: number, windowSeconds: number, by?: RateLimitKey): ReturnType<typeof Middleware>;
+export function RateLimit(options: IRateLimitOptions): ReturnType<typeof Middleware>;
+export function RateLimit(limitOrOptions: number | IRateLimitOptions, windowSeconds?: number, by: RateLimitKey = 'ip'): ReturnType<typeof Middleware> {
+  return typeof limitOrOptions === 'number' ? Middleware(RateLimitMiddleware, limitOrOptions, windowSeconds, by) : Middleware(RateLimitMiddleware, limitOrOptions);
+}
