@@ -9,6 +9,7 @@ import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
 import type { IBodyLimitRule } from './body-limits.js';
+import type { IBodyParsersConfiguration } from './body-parser-options.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
 import type { CapturedJsonReply } from './response-capture.js';
 
@@ -80,15 +81,20 @@ export interface IHttpServerConfiguration {
   port: number;
 
   /**
-   * Middlewares used by server
+   * Raw Express handlers mounted before the server middlewares ( helmet by default )
    */
   middlewares: express.RequestHandler[];
 
   /**
-   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
-   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   * Per-path body size limits, applied just before the body parsers. The first prefix match wins; other paths keep the
+   * limits of `bodyParsers` ( 5mb JSON by default ).
    */
   bodyLimits?: IBodyLimitRule[];
+
+  /**
+   * Options of the built-in body and cookie parser server middlewares
+   */
+  bodyParsers?: IBodyParsersConfiguration;
 
   /**
    * Static files folder. Feel free to override this per app
@@ -296,6 +302,13 @@ export interface IActionLocalStoregeContext {
    * Perf facade during the action and flushed by {@link PerfRollup} at finish.
    */
   perf?: IPerfScope;
+  /**
+   * Aborted when the request's deadline passed ({@link RequestDeadline}, `@Deadline`; reason a `TimeoutError`) or its
+   * client went away (an `AbortError`). Pass it to the I/O of the action. Set only while a deadline applies.
+   */
+  signal?: AbortSignal;
+  /** When the request's deadline passes, in epoch milliseconds. */
+  deadline?: number;
 }
 
 export interface IResponseHeader {
@@ -441,6 +454,11 @@ export enum HTTP_STATUS_CODE {
    * app is still starting up. Used by the telemetry readiness endpoint.
    */
   SERVICE_UNAVAILABLE = 503,
+
+  /**
+   * Nothing answered the request by its deadline ( see RequestDeadline )
+   */
+  GATEWAY_TIMEOUT = 504,
 }
 
 /**
@@ -848,11 +866,12 @@ export interface IController {
   BasePath: string;
 }
 
-export type MiddlewareStage = 'outer' | 'inner';
+export type MiddlewareStage = 'beforePolicy' | 'outer' | 'inner';
 
 /**
  * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
- * has none in `onBefore` and `onAround`; in `onAfter` and `onFinish` it has them when the request matched a route.
+ * gets in `onBefore` and `onAround` the route the `RouteIndex` matches before routing (best effort: the real route is
+ * the router's); in `onAfter` and `onFinish` the route the router matched, else that pre-routing match.
  */
 export interface IMiddlewareContext {
   readonly req: express.Request;
@@ -965,8 +984,9 @@ export interface IRouteMiddlewareDoc {
  */
 export abstract class RouteMiddleware extends HttpMiddleware {
   /**
-   * 'outer' runs right after the policy gate, before every 'inner' middleware; within a stage, the global ones
-   * (`http.routes.middlewares`) first, then the controller's and the route's in declaration order. Unset means 'inner'.
+   * 'beforePolicy' runs before the policy gate, so its onAfter and onFinish see a policy refusal; 'outer' runs right
+   * after the gate, before every 'inner' middleware. Within a stage, the global ones (`http.routes.middlewares`) first,
+   * then the controller's and the route's in declaration order. Unset means 'inner'.
    */
   public readonly Stage?: MiddlewareStage;
 
@@ -1048,6 +1068,11 @@ export abstract class Response<T = any> {
 
   public set data(data: T | Promise<T> | null | undefined) {
     this.responseData = data;
+  }
+
+  /** The cookies `execute` sets, from `IResponseOptions.Coockies`. */
+  public get cookies(): readonly ICookie[] {
+    return this.options?.Coockies ?? [];
   }
 
   /** The headers `execute` sets, from `IResponseOptions.Headers`. */

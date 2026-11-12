@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import { BotCheckMiddleware, CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IMiddlewareContext, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { InvalidOption } from '@spinajs/exceptions';
+import { DataValidator } from '@spinajs/validation';
 import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
@@ -82,11 +83,14 @@ function answerOf(res: Response): Answer {
   return { status: r._errorCode, body: r.responseData, headers: r.options?.Headers ?? [] };
 }
 
+let validator: DataValidator;
+
 function inject(mw: RateLimitMiddleware, get: (key: string) => unknown): void {
   // Own properties shadow the @Autoinject and @Config getters of the prototype.
   Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
   Object.defineProperty(mw, 'Ipv6Prefix', { value: 64 });
   Object.defineProperty(mw, 'Configuration', { value: { get } });
+  Object.defineProperty(mw, 'Validator', { value: validator });
 }
 
 /** A mounted RateLimitMiddleware of `options` reading `configured` at `options.config`, and the headers it sets. */
@@ -102,6 +106,9 @@ function mounted(options: IRateLimitOptions, path: string, configured: unknown) 
 }
 
 describe('the shipped rate limits of the anonymous authn routes', () => {
+  before(async () => {
+    validator = await (await createTestApp({ scope: 'child', bootstrap: false, config: {} })).container.resolve(DataValidator);
+  });
   afterEach(disposeTestApps);
 
   describe('every anonymous route', () => {
@@ -219,7 +226,7 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
     it('a configured headers fails the route registration: the route locks X-RateLimit-* off', () => {
       const mw = new RateLimitMiddleware(login());
       inject(mw, () => ({ headers: true }));
-      expect(() => mw.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login')).to.throw(InvalidOption, 'unknown keys headers');
+      expect(() => mw.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login')).to.throw(InvalidOption, 'unknown key headers');
     });
 
     it('counts a pending session on an HMAC of its id, apart from the address', async () => {

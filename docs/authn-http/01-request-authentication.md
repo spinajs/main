@@ -67,7 +67,7 @@ sequenceDiagram
 2. `ClientIp` and `CsrfOriginGuard` register themselves with `@Injectable(ServerMiddleware)` when their modules load, which the package entry does. `registerAuthnHttpV3()` registers `AuthnRealIp` as `RealIp`, so the server mounts it in `RealIp`'s place.
 3. The shipped config file adds `lib/v3/controllers` and `lib/cli` under `node_modules/@spinajs/authn-http` (resolved against `WORKSPACE_ROOT_PATH`, else the working directory) to `system.dirs.controllers` and `system.dirs.cli`. The route controllers load only through that scan; importing the package loads none of them.
 4. A session issuer must be registered, from [`@spinajs/authn-session`](../authn-session/README.md): `AuthnMiddleware` autoinjects `SessionIssuer`.
-5. A cookie parser must fill `req.cookies`. The default `http.middlewares` of `@spinajs/http` contain one; see [Cookies](../http/20-cookies.md).
+5. A cookie parser must fill `req.cookies`. `@spinajs/http` mounts `CookieParserMiddleware` (Order 0.5) unless `http.bodyParsers.cookies.enabled` is `false`; see [Cookies](../http/20-cookies.md).
 
 `HttpServer` fixes its middleware list when it is constructed, and `Controllers` constructs it before scanning the controller directories. When the package loads after that (for example only through the controller scan), `AuthnMiddleware` misses the pipeline and no request is authenticated. The package then logs an error on the `authn-http` logger that names the fix.
 

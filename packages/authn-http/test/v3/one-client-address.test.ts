@@ -7,6 +7,7 @@ import { HTTP_CONFIGURATION_SCHEMA, MemoryThrottleStore, RateLimitMiddleware, Re
 import type { IMiddlewareContext, IRoute, ProxyTrust } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
+import { DataValidator } from '@spinajs/validation';
 
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AuthnRealIp, ClientIp, realIpOverrideFinding } from '../../src/index.js';
 
@@ -141,6 +142,7 @@ describe('one client address: authn.http.trustProxy feeds RealIp', function () {
       const run = await addressChain(container);
       const limit = readingFrom(new RateLimitMiddleware(1, 60), container);
       Object.defineProperty(limit, 'Store', { value: new MemoryThrottleStore() });
+      Object.defineProperty(limit, 'Validator', { value: await container.resolve(DataValidator) });
       limit.onRegister({ InternalType: 'post' } as unknown as IRoute, '/auth/login');
       const hit = async (client: string) => {
         const req = reqFrom(PROXY, client);

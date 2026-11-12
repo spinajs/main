@@ -5,6 +5,8 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { Intl } from '@spinajs/intl';
+import { DataValidator } from '@spinajs/validation';
+import type { IContainer } from '@spinajs/di';
 import type { TestApp } from '@spinajs/testing';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
@@ -12,6 +14,7 @@ import { httpApp, req, TestConfiguration } from './common.js';
 import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, configuredRateLimit, documentedAnswer, rateLimitSchema, rateLimitsSchema, resolveRouteMiddlewares } from '../src/index.js';
 import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IRouteMiddlewareDoc, IThrottleRule, RateLimitDefaults, RateLimitSchemaOptions, RouteMiddleware } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
+import httpConfig from '../src/config/http.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
 
 interface IRun {
@@ -31,17 +34,23 @@ const ROUTE = { InternalType: 'post', Method: 'login' } as unknown as IRoute;
 
 const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
 const routeMiddlewaresOf = (type: object, method: string) => descriptorOf(type).Routes.get(method)!.Middlewares;
+/** A middleware built with `new` gets what its @Autoinject properties would, from `container`. */
+async function wired<T extends RateLimitMiddleware>(mw: T, container: IContainer): Promise<T> {
+  readingFrom(mw, container);
+  Object.defineProperty(mw, 'Validator', { value: await container.resolve(DataValidator) });
+  return mw;
+}
 
 async function makeMiddleware(options: { limit: number; windowSeconds: number; by?: 'ip' | 'principal' }, config: Record<string, unknown> = {}, store?: ThrottleStore): Promise<RateLimitMiddleware> {
   const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config });
-  const mw = readingFrom(new RateLimitMiddleware(options.limit, options.windowSeconds, options.by), container);
+  const mw = await wired(new RateLimitMiddleware(options.limit, options.windowSeconds, options.by), container);
   Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
   return mw;
 }
 
 async function makeObjectMiddleware(options: IRateLimitOptions, config: Record<string, unknown> = {}, store?: ThrottleStore): Promise<RateLimitMiddleware> {
   const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config });
-  const mw = readingFrom(new RateLimitMiddleware(options), container);
+  const mw = await wired(new RateLimitMiddleware(options), container);
   Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
   Object.defineProperty(mw, 'Configuration', { value: await container.resolve(Configuration) });
   return mw;
@@ -381,7 +390,7 @@ describe('RateLimitMiddleware', () => {
 
     it('refuses an http.throttle.ipv6Prefix outside 16..128 at registration', async () => {
       const { container } = await createTestApp({ scope: 'child', bootstrap: false, config: {} });
-      const mw = readingFrom(new RateLimitMiddleware(1, 60), container);
+      const mw = await wired(new RateLimitMiddleware(1, 60), container);
       Object.defineProperty(mw, 'Ipv6Prefix', { value: 8 });
       let error: unknown;
       try {
@@ -434,7 +443,12 @@ describe('RateLimitMiddleware', () => {
       expect(schema.default).to.deep.eq({ limit: 30, windowSeconds: 60, by: 'ip' });
       expect(schema.anyOf[0]).to.deep.eq({ enum: [false] });
       expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by', 'headers'] });
-      expect(schema.anyOf[1].properties).to.deep.eq({ limit: { type: 'integer', minimum: 0 }, windowSeconds: { type: 'number', exclusiveMinimum: 0 }, by: { enum: ['ip', 'principal'] }, headers: { type: 'boolean' } });
+      expect(schema.anyOf[1].properties).to.deep.eq({
+        limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        windowSeconds: { type: 'number', exclusiveMinimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        by: { enum: ['ip', 'principal'] },
+        headers: { enum: [true, false] },
+      });
     });
 
     it('leaves headers out of the accepted keys with { headers: false }', () => {
@@ -566,11 +580,11 @@ describe('RateLimitMiddleware', () => {
 
       const locked = await registrationError(await makeObjectMiddleware({ ...options, headers: false }, { app: { rateLimit: { x: { headers: true } } } }));
       expect(locked).to.be.instanceOf(InvalidOption);
-      expect(locked?.message).to.contain('app.rateLimit.x has unknown keys headers');
+      expect(locked?.message).to.contain('app.rateLimit.x has unknown key headers');
 
       const lockedDefault = await registrationError(await makeObjectMiddleware({ config: 'app.rateLimit.x', default: { limit: 2, windowSeconds: 60, headers: true }, headers: false }));
       expect(lockedDefault).to.be.instanceOf(InvalidArgument);
-      expect(lockedDefault?.message).to.contain('@RateLimit default has unknown keys headers');
+      expect(lockedDefault?.message).to.contain('@RateLimit.default has unknown key headers');
     });
 
     it('ranks default.headers as the config value: it wins over the decorator headers, and headers: false refuses it', async () => {
@@ -585,7 +599,7 @@ describe('RateLimitMiddleware', () => {
 
       const locked = await registrationError(await makeObjectMiddleware({ default: { limit: 2, windowSeconds: 60, headers: true }, headers: false }));
       expect(locked).to.be.instanceOf(InvalidArgument);
-      expect(locked?.message).to.contain('@RateLimit default has unknown keys headers');
+      expect(locked?.message).to.contain('@RateLimit.default has unknown key headers');
     });
 
     it('is not mounted when the config key is false, and does nothing if registered anyway', async () => {
@@ -628,7 +642,7 @@ describe('RateLimitMiddleware', () => {
         [{ limit: 1, windowSeconds: 60, answer: 'x' as never }, 'answer'],
         [{ limit: 1, windowSeconds: 60, key: 1 as never }, 'key'],
         [{ limit: 1, windowSeconds: 60, headers: 'false' as never }, 'headers'],
-        [{ default: { limit: 1, windowSeconds: 60, headers: 'yes' as never } }, '@RateLimit default.headers'],
+        [{ default: { limit: 1, windowSeconds: 60, headers: 'yes' as never } }, '@RateLimit.default.headers'],
         [{ limit: 1, windowSeconds: 60, header: false } as IRateLimitOptions, 'header'],
         [{ config: '', default: { limit: 1, windowSeconds: 60 } }, 'config'],
         [{ config: 'http.test.rateLimit.login', default: { limit: 1, windowSeconds: 60, limt: 2 } as never }, 'limt'],
@@ -640,12 +654,24 @@ describe('RateLimitMiddleware', () => {
       }
     });
 
+    it('is validated without coercion: the shipped config makes http.rateLimit. a strict schema prefix', async () => {
+      const shipped = (httpConfig as unknown as { validation: { strict: { idPrefixes: string[] } } }).validation.strict.idPrefixes;
+      const coercing = (idPrefixes: string[]) => ({ validation: { coerceTypes: true, strict: { idPrefixes } } });
+      const options = [{ limit: '5', windowSeconds: 60 }, { config: true, default: { limit: 1, windowSeconds: 60 } }] as unknown as IRateLimitOptions[];
+
+      for (const o of options) {
+        expect(await registrationError(await makeObjectMiddleware(o, coercing(shipped))), JSON.stringify(o)).to.be.instanceOf(InvalidArgument);
+        // the control: without the prefix the same options pass, coerced
+        expect(await registrationError(await makeObjectMiddleware(o, coercing([]))), JSON.stringify(o)).to.eq(undefined);
+      }
+    });
+
     it('fails closed when a subclass skips super.onRegister', async () => {
       class Forgetful extends RateLimitMiddleware {
         public override onRegister(): void {}
       }
       const { container } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: {} });
-      const mw = readingFrom(new Forgetful(1, 60), container);
+      const mw = await wired(new Forgetful(1, 60), container);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
 
       expect(mw.isEnabled(ROUTE, CONTROLLER)).to.eq(true);

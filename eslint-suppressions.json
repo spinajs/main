@@ -5563,11 +5563,6 @@
       "count": 1
     }
   },
-  "packages/orm-mysql/test/event.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
   "packages/orm-mysql/test/integration/infra.test.ts": {
     "prettier/prettier": {
       "count": 1

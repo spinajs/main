@@ -1,11 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware, resolveRouteMiddlewares } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IMiddlewareContext, IMiddlewareDescriptor, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import { appEnvOf } from '@spinajs/authn-session';
 import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
+import { DataValidator } from '@spinajs/validation';
 
 import { OidcController } from '../src/controllers/OidcController.js';
 import { OidcLogin } from '../src/login.js';
@@ -25,12 +25,15 @@ function rateLimitsOf(method: string) {
   return route.Middlewares.filter((m) => m.Type === RateLimitMiddleware);
 }
 
+let validator: DataValidator;
+
 function mounted(options: IRateLimitOptions, configured: unknown) {
   const mw = new RateLimitMiddleware(options);
   // Own properties shadow the @Autoinject and @Config getters of the prototype.
   Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
   Object.defineProperty(mw, 'Ipv6Prefix', { value: 64 });
   Object.defineProperty(mw, 'Configuration', { value: { get: (key: string) => (key === options.config ? configured : undefined) } });
+  Object.defineProperty(mw, 'Validator', { value: validator });
   const set: string[] = [];
   const enabled = mw.isEnabled({} as IRoute, {} as IController);
   if (enabled) mw.onRegister({ InternalType: 'get' } as unknown as IRoute, '/auth/oidc/:provider');
@@ -41,6 +44,9 @@ function mounted(options: IRateLimitOptions, configured: unknown) {
 const request = (headers: Record<string, string>) => ({ get: (name: string) => headers[name.toLowerCase()] });
 
 describe('the shipped rate limits of the OIDC routes', () => {
+  before(async () => {
+    validator = await (await createTestApp({ scope: 'child', bootstrap: false, config: {} })).container.resolve(DataValidator);
+  });
   afterEach(disposeTestApps);
 
   for (const [method, name] of ROUTES) {
@@ -63,7 +69,8 @@ describe('the shipped rate limits of the OIDC routes', () => {
     const withControllerLimit: IControllerDescriptor = { ...descriptor, Middlewares: [...descriptor.Middlewares, { Type: RateLimitMiddleware, Options: [1, 60] }] };
     const enabledLimits = async (d: IControllerDescriptor, method: string) => {
       const route = d.Routes.get(method)!;
-      const resolved = await resolveRouteMiddlewares(d, route, DI.RootContainer, floor);
+      const { container } = await createTestApp({ scope: 'child', bootstrap: false, config: {} });
+      const resolved = await resolveRouteMiddlewares(d, route, container, floor);
       return resolved.filter((m) => m instanceof RateLimitMiddleware && m.isEnabled(route, {} as IController)).map((m) => (m as RateLimitMiddleware).limit);
     };
     expect(await enabledLimits(descriptor, 'backchannelLogout')).to.deep.eq([]);
