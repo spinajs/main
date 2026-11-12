@@ -118,6 +118,7 @@ When the headers are already sent as the reply pipeline starts, because an actio
 | `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds `AcceptsMiddleware`, which refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
 | `@Consumes(...types)` | class or method | media types as `req.is()` takes them: `'application/json'`, `'text/*'`, `'json'` | Adds `ConsumesMiddleware`, which refuses a request with a body of none of `types` with `UnsupportedMediaTypeException`, answered as `UnsupportedMediaType` (415). See [`@Consumes`](#consumes). |
 | `@NoCompression()` | class or method | none | Adds `NoCompressionMiddleware`, which keeps the `Compression` server middleware off the replies. See [`@NoCompression`](#nocompression). |
+| `@SlowThreshold(ms)` | class or method | milliseconds, `Infinity` for never | Adds `SlowThresholdMiddleware`: the `SlowRequestWarning` server middleware judges the route's requests against `ms` in place of `http.slowRequest.thresholdMs`. See [`@SlowThreshold`](#slowthreshold). |
 | `@Deprecated(options)` | class or method | `{ since: Date, sunset?: Date, link?: string }` | Adds `DeprecationMiddleware`, which sets `Deprecation`, `Sunset` and `Link: rel="deprecation"` on every reply. See [Built-in: `@Deprecated`](#built-in-deprecated). |
 | `@RateLimit(limit, windowSeconds, by?)` | class or method | `limit` per `windowSeconds`, counted per client address (`'ip'`, default) or per authenticated principal (`'principal'`) | Adds `RateLimitMiddleware` (`'outer'`), which answers 429 with `Retry-After` over the limit; one counter per route. See [Throttling](18-throttling.md#per-route-limits-ratelimit). |
 
@@ -180,6 +181,31 @@ export class ExportsController extends BaseController {
 }
 ```
 
+### `@SlowThreshold`
+
+`SlowRequestWarning` logs a request that took `http.slowRequest.thresholdMs` (1000 by default) or longer. `@SlowThreshold(ms)` sets another threshold for the route, or for every route of the controller; a route's own declaration wins over the controller's. `Infinity` never warns: use it for a long poll, a report export or a stream, which are slow on purpose. A negative value or `NaN` throws `InvalidArgument` at import.
+
+`SlowThresholdMiddleware` is an `'outer'` middleware whose `onBefore` puts `ms` on `req.storage.slowThresholdMs`, which `SlowRequestWarning.onFinish` reads. A request the policy gate refused, or one that matched no route, keeps the configured threshold.
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, SlowThreshold } from '@spinajs/http';
+
+@BasePath('reports')
+@SlowThreshold(5000)
+export class ReportsController extends BaseController {
+  @Get('daily')
+  public daily() {
+    return new Ok({ total: 3 });
+  }
+
+  @Get('export')
+  @SlowThreshold(Infinity)
+  public export() {
+    return new Ok([]);
+  }
+}
+```
+
 ## Global route middlewares
 
 `http.routes.middlewares` mounts route middlewares on every route of every controller, before the controller's and the route's own `@Middleware` ones. An entry is one of:
@@ -231,7 +257,7 @@ export default { http: { routes: { middlewares } } };
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `ConsumesMiddleware` (mounted by `@Consumes`), `NoCompressionMiddleware` (mounted by `@NoCompression`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
+| `RouteMiddleware` (abstract) | By class in `@Middleware(Class)`: `container.resolve(Class, options)`, the class's own lifetime (singleton by default). By name in `http.routes.middlewares`: a type registered as `RouteMiddleware`, or a `RouteMiddleware` class registered under that name, resolved per route the same way | none | `RouteTiming`, `CacheControl`, `NoStore`, `AcceptsMiddleware` (mounted by `@Accepts`), `ConsumesMiddleware` (mounted by `@Consumes`), `NoCompressionMiddleware` (mounted by `@NoCompression`), `SlowThresholdMiddleware` (mounted by `@SlowThreshold`), `DeprecationMiddleware` (mounted by `@Deprecated`) | Extend `RouteMiddleware` and implement only the hooks you need. To swap one everywhere, `DI.register(Mine).as(TheirMiddleware)` before `Controllers` resolves. |
 | `HttpMiddleware` (abstract, extends `AsyncService`) | none: the base class of `RouteMiddleware` | none | none | Not extended directly: it declares the hooks `onBefore`, `onAfter`, `onFinish` and `onAround` with their contexts. A middleware that needs async setup overrides `resolve()`. |
 | `sendReply(req, res, response, options?)` | function | the reply pipeline | none | Sends a `Response` through the `onAfter` hooks of the entered middlewares. An `onAround` that answers without `proceed()` uses it so the outer middlewares see its answer. |
 | `resolveConfiguredTypes(key, base, entries, container)` | function | none | none | Turns the entries of a config key that lists services (`'Name' \| Class \| { service, options }`) into `{ type, entry, options }`, in config order, the way `http.routes.middlewares`, `http.errors.handlers` and `http.upload.middlewares` read theirs. A name is a type registered as `base` or a `base` subclass registered under that name. An unknown name, a class that does not extend `base` or an entry of another shape throws `InvalidOption` naming `key` and the entry. Instances are left to the caller. |

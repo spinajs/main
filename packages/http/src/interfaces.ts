@@ -334,6 +334,8 @@ export interface IActionLocalStoregeContext {
    * Perf facade during the action and flushed by {@link PerfRollup} at finish.
    */
   perf?: IPerfScope;
+  /** `@SlowThreshold(ms)` of the route: {@link SlowRequestWarning} judges the request against it. */
+  slowThresholdMs?: number;
   /**
    * Aborted when the request's deadline passed ({@link RequestDeadline}, `@Deadline`; reason a `TimeoutError`) or its
    * client went away (an `AbortError`). Pass it to the I/O of the action. Set only while a deadline applies.
