@@ -210,7 +210,7 @@ describe('SocketIdempotency on a leased store', () => {
     } as unknown as ISocketCommandContext;
 
     const handler = new Promise((_resolve, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason as Error)));
-    const running = stage.execute(ctx, () => handler).catch((err: unknown) => err);
+    const running = stage.onAround(ctx, () => handler).catch((err: unknown) => err);
     await clock.advance(15_000);
 
     expect(controller.signal.reason).to.be.instanceOf(SocketException).and.include({ code: 'unavailable', retryable: true });

@@ -1,10 +1,10 @@
 # Server middlewares
 
-A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
+A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships maintenance answers, load shedding, request deadlines, CORS, compression, request id, client IP, timing, logging, throttling and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
 
 ## How it works
 
-1. `HttpServer` autoinjects every class registered with `@Injectable(ServerMiddleware)` when it resolves, and sorts them by `Order`, ascending. Equal `Order`s keep the DI registration order.
+1. `HttpServer` autoinjects every class registered with `@Injectable(ServerMiddleware)` when it resolves, and sorts them by `Order`, ascending. Equal `Order`s keep the DI registration order: the order the classes were registered under `ServerMiddleware` (for `@Injectable`, the order their modules were imported), however long each one's `resolve()` takes.
 2. For each one it calls `isEnabled()` once: `false` mounts nothing. Settings are parsed and validated there or in `resolve()`, never per request.
 3. It mounts `handler()` when the middleware has one (a third-party Express handler, such as `compression`); otherwise the `onAround` handler, then the `onBefore` handler.
 4. `HttpServer.start()` mounts, after the controllers' routers, the 404 and the global error answer (see [NotFound and the global error answer](#notfound-and-the-global-error-answer)).
@@ -32,8 +32,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Hook | When | Context |
 | --- | --- | --- |
-| `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously; the chain then goes on in the same tick. | `IMiddlewareContext`: `req`, `res`, `storage`; no `route` |
-| `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). It rejects with `RouteClientGone` when the client went away first. | `IMiddlewareContext`, no `route` |
+| `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously; the chain then goes on in the same tick. | `IMiddlewareContext`: `req`, `res`, `storage`; `route`, `controller` and `path` of the route the request will match (see [The route before routing](#the-route-before-routing)) |
+| `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). It rejects with `RouteClientGone` when the client went away first. | `IMiddlewareContext`, with the route matched before routing |
 | `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. May return synchronously. A throw turns the reply into an error reply for that error: when a route matched, the route's (its `@OnError` handlers at the `'after'` stage, `http.errors.handlers`, the error map), else the global error answer's (`ErrorHandlerMiddleware.reply`). | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
 | `onFinish(ctx)` | Once, when the response finished or the client went away (`aborted`, also for a streamed reply the client closed after the headers were sent: `ctx.res.headersSent` tells them apart). Not awaited by the next one. A throw is logged. | `IFinishContext`: `aborted`; `route`, `controller`, `path` when a route matched |
 | `handler()` | Called once at mount. An Express handler mounted at `Order` in place of `onBefore`/`onAround`. | |
@@ -42,7 +42,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Class | `Order` | Exported | Hooks | Configuration | Effect |
 | --- | --- | --- | --- | --- | --- |
-| `CorsMiddleware` | -1 | yes | onBefore | `http.cors` | CORS headers; answers an allowed preflight 204. See [CORS](16-cors.md). |
+| `CorsMiddleware` | -1 | yes | onBefore, onAfter | `http.cors`, `@Cors` | CORS headers; answers an allowed preflight 204; `onAfter` applies a `@Cors` route policy to framework replies. See [CORS](16-cors.md). |
+| `RequestDeadline` | -0.3 | yes | onBefore, onFinish | `http.deadline.*` | `req.storage.signal` and `deadline`; 504 when nothing was sent by the deadline; see [Request deadlines](29-request-deadlines.md). |
 | `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`. |
 | `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). `@spinajs/authn-http` replaces it with `AuthnRealIp`. |
@@ -51,6 +52,8 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `ServerTiming` | 2 | yes | onBefore, onAfter | `http.serverTiming.enabled` | `Server-Timing` header. |
 | `SlowRequestWarning` | 2 | yes | onBefore, onFinish | `http.slowRequest.*` | Warns about slow requests; ignores aborted ones. |
 | `PerfRollup` | 2 | yes | onBefore, onFinish | `http.perf.enabled` | Per-request perf rollup. |
+| `MaintenanceMode` | 2.5 | yes | onBefore | `http.maintenance.*` | 503 during maintenance (but allowed paths) and, with `Connection: close`, while the server is closing; see [Maintenance mode](27-maintenance-mode.md). Always mounted. |
+| `ConcurrencyLimit` | 2.6 | yes | onBefore, onFinish | `http.concurrency.*` | Load shedding: 503 with `Retry-After` over `max` requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
 | `ThrottleMiddleware` | 3 | yes | onBefore | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
@@ -85,6 +88,7 @@ The other keys are on the pages of each middleware.
 | --- | --- | --- | --- | --- |
 | `ServerMiddleware` (abstract, an `AsyncService`) | `ServerMiddleware` list, autoinjected into `HttpServer`; each a singleton | the table above | the classes from other packages listed above | Add one with `@Injectable(ServerMiddleware)`, imported before `HttpServer` resolves. Replace one with `DI.register(Mine).as(Theirs)` (eg. `.as(AccessLog)`). Remove one with `DI.unregister(Theirs)` before `HttpServer` resolves, or switch it off in configuration. |
 | `NotFoundMiddleware`, `ErrorHandlerMiddleware` | resolved by class when `HttpServer` resolves, singletons | themselves | | `DI.register(Mine).as(NotFoundMiddleware)`; override `reply()`. |
+| `RouteIndex` | resolved by class, singleton; autoinjected into `HttpServer`, `Controllers`, `BaseController`, `CorsMiddleware` and `CsrfGuard` | itself | | Read it with `match(method, path)` or `matchAll(method, path)`; `BaseController.resolve()` adds the routes it mounts, `Controllers` the router it mounts them on. |
 
 Members of `ServerMiddleware`:
 
@@ -101,24 +105,23 @@ Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp
 
 ### `ServerMiddleware`: custom implementation
 
-Refuse requests during a maintenance window, except health checks. It needs nothing from `req.storage`, so it runs right after CORS (Order -1) and before compression. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
+Refuse writes during a database migration while reads go on. It runs right after `MaintenanceMode` (Order 2.5), with the request id and the access log in place, and before `ConcurrencyLimit` (2.6), so a refused write takes no slot. Its 503 goes through the reply pipeline, so CORS headers and the `onAfter` of the middlewares entered before it still apply:
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { IMiddlewareContext, Json, Response, ServerMiddleware } from '@spinajs/http';
 
-@Injectable(ServerMiddleware)
-export class MaintenanceMode extends ServerMiddleware {
-  @Config('app.maintenance.enabled', { defaultValue: false })
-  protected Enabled: boolean;
+const SAFE = ['GET', 'HEAD', 'OPTIONS'];
 
-  @Config('app.maintenance.retryAfterSeconds', { defaultValue: 600 })
-  protected RetryAfter: number;
+@Injectable(ServerMiddleware)
+export class ReadOnlyMode extends ServerMiddleware {
+  @Config('app.readOnly.enabled', { defaultValue: false })
+  protected Enabled: boolean;
 
   constructor() {
     super();
-    this.Order = -0.5;
+    this.Order = 2.55;
   }
 
   public isEnabled() {
@@ -126,13 +129,10 @@ export class MaintenanceMode extends ServerMiddleware {
   }
 
   public onBefore({ req }: IMiddlewareContext): Response | undefined {
-    if (req.path === '/health') {
+    if (SAFE.includes(req.method)) {
       return undefined;
     }
-    return new Json(
-      { error: { code: 'E_MAINTENANCE', message: 'down for maintenance' } },
-      { StatusCode: 503, Headers: [{ Name: 'Retry-After', Value: String(this.RetryAfter) }] },
-    );
+    return new Json({ error: { code: 'E_READ_ONLY', message: 'writes are paused, try again later' } }, { StatusCode: 503, Headers: [{ Name: 'Retry-After', Value: '120' }] });
   }
 }
 ```
@@ -173,13 +173,39 @@ DI.register(QuietAccessLog).as(AccessLog);
 ## Important behaviour
 
 - The list is read when `HttpServer` resolves. A middleware module imported later never runs.
-- `onBefore` and `onAround` get no `route`: routing has not run yet. `onAfter` and `onFinish` get it when the request matched a route.
+- `onBefore` and `onAround` get the route the `RouteIndex` matches before routing, a best-effort match; `onAfter` and `onFinish` get the route the router matched, or the pre-routing match when no route ran (a refusal from an `onBefore`, a 404).
 - Static files and replies an action wrote to `res` itself get `onFinish` only, no `onAfter`: `ResponseTime` and `ServerTiming` headers are missing on them.
 - `onAfter` runs before the reply is serialised. A header it sets on `res` wins over the `Response`'s own `IResponseOptions.Headers`.
 - `http.bodyLimits` and the body parsers in `http.middlewares` run before every server middleware: a 413 or a 400 for a bad body is answered before any server `onBefore`, so no server middleware is entered for it. `req.storage` exists already.
 - Server hooks run outside the action's AsyncLocalStorage context: read `ctx.storage`.
 - `Array.ofType` drops `@NewInstance()` registrations: a server middleware decorated `@NewInstance()` never runs.
 - `RequestId` and `ResponseTime` have no configuration switch; the package entry exports them as `RequestIdMiddleware` and `ResponseTime`. `@RequestId()`, `@Ip()` and the access log depend on them.
+
+## The route before routing
+
+Server middlewares run before routing, so `HttpServer` looks the request up in the `RouteIndex`. It walks the controllers router the app serves, in its order, with the router's own matching (params, case, trailing slash, `HEAD` served by `GET`), and knows each route a controller mounted. `ctx.route`, `ctx.controller` and `ctx.path` (`http:<METHOD> <mounted path>`) of a server `onBefore` and `onAround` hold the route the router will serve the request with, looked up when one of them is read; a middleware that rewrites `req.url` or `req.method` changes the answer for those read after it.
+
+It is a best-effort match; the real route is the router's. A static file or an `http.middlewares` handler mounted ahead of the controllers may answer the request instead, and a malformed percent-encoding in a parameter matches nothing. A controller added later with `Controllers.add()` is matched once it is mounted. At boot the index checks that the installed Express router still works the way it reads it, and fails the boot with `InvalidOperation` when it does not. When the server listens with routes the controllers registered but no controllers router mounted in the index (a custom `Controllers` that does not mount it), it logs a warning: every lookup then misses.
+
+`RouteIndex.match(method, path)` gives the route for any method, for example the method a CORS preflight asks about; `matchAll(method, path)` gives every mounted route that could serve it, for a decision that must not depend on which one the router picks:
+
+```ts sample
+import { Autoinject } from '@spinajs/di';
+import { ServerMiddleware, RouteIndex } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
+
+export class PreflightLog extends ServerMiddleware {
+  @Autoinject(RouteIndex)
+  protected Routes!: RouteIndex;
+
+  public onBefore({ req }: IMiddlewareContext) {
+    const asked = req.headers['access-control-request-method'];
+    if (req.method === 'OPTIONS' && typeof asked === 'string') {
+      console.log(this.Routes.match(asked, req.path)?.path ?? 'no route');
+    }
+  }
+}
+```
 
 ## Best practices
 
@@ -256,5 +282,5 @@ export class RequestTimer extends ServerMiddleware {
 
 - [HTTP server](01-http-server.md): when the server middlewares and the tail are attached.
 - [Route middlewares](14-route-middlewares.md): the same hooks around specific routes; the reply pipeline.
-- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md): the shipped middlewares in detail.
+- [Request storage and tracing](19-request-storage-and-tracing.md), [CORS](16-cors.md), [Client IP](17-client-ip-and-trust-proxy.md), [Throttling](18-throttling.md), [Maintenance mode](27-maintenance-mode.md), [Concurrency limit](28-concurrency-limit.md), [Request deadlines](29-request-deadlines.md): the shipped middlewares in detail.
 - [Error handling](11-error-handling.md): `NotFoundMiddleware` and `ErrorHandlerMiddleware`.

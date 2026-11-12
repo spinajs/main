@@ -9,7 +9,7 @@ import { IdempotencyLeases } from './leases.js';
 import type { IdempotencyAcquisition, IdempotencyHandle } from './leases.js';
 import { OrmIdempotencyStore } from './orm-store.js';
 import { IdempotencyStore } from './store.js';
-import type { IdempotencyOutcome, IdempotencyRunOptions, IdempotencyScope, StoredReply } from './interfaces.js';
+import type { IdempotencyHeld, IdempotencyOutcome, IdempotencyRunOptions, IdempotencyScope, StoredReply } from './interfaces.js';
 
 export interface IdempotencyServiceAcquireOptions {
   fingerprint?: string;
@@ -87,6 +87,11 @@ export class IdempotencyService extends AsyncService {
       namespace: scope.namespace,
       leaseMs: opts.lease === undefined ? undefined : this.ttlOf(opts.lease, 'lease'),
     });
+  }
+
+  /** Reads a scoped key without claiming it, at database time; undefined for a free or expired one. */
+  public peek(scope: IdempotencyScope, key: string): Promise<IdempotencyHeld | undefined> {
+    return this.Leases.peek(this.scopedKey(scope, key));
   }
 
   public async run<T>(scope: IdempotencyScope, key: string, fn: (signal: AbortSignal) => Promise<T>, opts: IdempotencyRunOptions<T>): Promise<IdempotencyOutcome<T>> {
