@@ -9,6 +9,10 @@ import type { IControllerDescriptor, IRoute, RouteMiddleware } from '../src/inte
 
 const route = (partial: Partial<IRoute>): IRoute => partial as IRoute;
 
+interface IFakeRes {
+  locals: { response?: unknown };
+}
+
 describe('route-builder', () => {
   describe('buildRoutePath', () => {
     it('builds base path for route path "/"', () => {
@@ -154,9 +158,9 @@ describe('route-builder', () => {
     it('stores the action result for the route sender', async () => {
       const controller = { action: async () => new Ok() } as any;
       const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
-      const res = { locals: {} } as any;
+      const res: IFakeRes = { locals: {} };
 
-      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res as never, () => resolve()));
 
       expect(res.locals.response).to.be.instanceOf(Ok);
     });
@@ -165,10 +169,10 @@ describe('route-builder', () => {
       let ran = false;
       const controller = { action: async () => (ran = true) } as any;
       const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
-      const res = { locals: {} } as any;
-      answerEarly(res, new Ok({ early: true }));
+      const res: IFakeRes = { locals: {} };
+      answerEarly(res as never, new Ok({ early: true }));
 
-      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res as never, () => resolve()));
 
       expect(ran).to.eq(false);
       expect(res.locals.response).to.be.instanceOf(Ok);

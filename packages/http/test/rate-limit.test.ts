@@ -24,6 +24,9 @@ interface IRun {
   answerHeaders?: Record<string, string>;
 }
 
+// chai-http types the response headers as any.
+const header = (res: { header: unknown }, name: string) => (res.header as Record<string, string | undefined>)[name];
+
 const ROUTE = { InternalType: 'post', Method: 'login' } as unknown as IRoute;
 
 const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
@@ -131,7 +134,7 @@ class RateLimitOptionsController extends BaseController {
 class RateLimitConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
-    (this.Config as Record<string, unknown>).test = { rateLimit: { tight: { limit: 1 }, off: false } };
+    this.Config.test = { rateLimit: { tight: { limit: 1 }, off: false } };
   }
 }
 
@@ -473,8 +476,8 @@ describe('RateLimitMiddleware', () => {
       const answer = () => new Ok({});
       const key = () => 'k';
       class C {}
-      limit('checks', { answer, key })(C.prototype, 'checks', {} as PropertyDescriptor);
-      limit('checks')(C.prototype, 'plain', {} as PropertyDescriptor);
+      limit('checks', { answer, key })(C.prototype, 'checks', {});
+      limit('checks')(C.prototype, 'plain', {});
       // @ts-expect-error headers of a configured route come from its config, which rateLimitsSchema lets set them
       limit('checks', { headers: false });
       const [mw] = routeMiddlewaresOf(C, 'checks');
@@ -486,14 +489,14 @@ describe('RateLimitMiddleware', () => {
     it('keeps its config key and default over options that name them', () => {
       const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } });
       class C {}
-      limit('checks', { config: 'other.key', default: { limit: 1, windowSeconds: 1 } } as IRateLimitOptions)(C.prototype, 'checks', {} as PropertyDescriptor);
+      limit('checks', { config: 'other.key', default: { limit: 1, windowSeconds: 1 } } as IRateLimitOptions)(C.prototype, 'checks', {});
       expect(routeMiddlewaresOf(C, 'checks')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
     });
 
     it('adds no headers key without opts.headers', () => {
       const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } }, { headers: undefined });
       class C {}
-      limit('checks')(C.prototype, 'checks', {} as PropertyDescriptor);
+      limit('checks')(C.prototype, 'checks', {});
       expect(routeMiddlewaresOf(C, 'checks')[0].Options[0]).to.not.have.property('headers');
     });
 
@@ -502,7 +505,7 @@ describe('RateLimitMiddleware', () => {
       const limit = configuredRateLimit('authn.rateLimit', { login: { limit: 30, windowSeconds: 60, by: 'ip' } }, lock);
       const answer = () => new Ok({});
       class C {}
-      limit('login', { answer, headers: true } as IRateLimitOptions)(C.prototype, 'login', {} as PropertyDescriptor);
+      limit('login', { answer, headers: true } as IRateLimitOptions)(C.prototype, 'login', {});
       expect(routeMiddlewaresOf(C, 'login')[0].Options).to.deep.eq([{ config: 'authn.rateLimit.login', default: { limit: 30, windowSeconds: 60, by: 'ip' }, answer, headers: false }]);
     });
   });
@@ -878,12 +881,12 @@ describe('RateLimitMiddleware', () => {
 
       const first = await req().post('rate-limited/login');
       expect(first.status).to.eq(200);
-      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(first, 'x-ratelimit-limit')).to.eq(undefined);
       expect((await req().post('rate-limited/login')).status).to.eq(200);
 
       const limited = await req().post('rate-limited/login');
       expect(limited.status).to.eq(429);
-      expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
+      expect(Number(header(limited, 'retry-after'))).to.be.within(1, 60);
       expect(Object.keys(limited.header).filter((h) => h.startsWith('x-ratelimit-'))).to.deep.eq([]);
       expect(limited.body).to.deep.eq({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } });
       expect(loginBefore.callCount).to.eq(3);
@@ -892,21 +895,21 @@ describe('RateLimitMiddleware', () => {
       for (let i = 0; i < 3; i++) {
         const free = await req().get('rate-limited/free');
         expect(free.status).to.eq(200);
-        expect(free.header['x-ratelimit-limit']).to.eq(undefined);
+        expect(header(free, 'x-ratelimit-limit')).to.eq(undefined);
       }
 
       // the suite's afterEach disposes the app, so the route that opts in is checked here
       const opted = await req().post('rate-limited/opted');
       expect(opted.status).to.eq(200);
-      expect(opted.header['x-ratelimit-limit']).to.eq('2');
-      expect(opted.header['x-ratelimit-remaining']).to.eq('1');
-      expect((await req().post('rate-limited/opted')).header['x-ratelimit-remaining']).to.eq('0');
+      expect(header(opted, 'x-ratelimit-limit')).to.eq('2');
+      expect(header(opted, 'x-ratelimit-remaining')).to.eq('1');
+      expect(header(await req().post('rate-limited/opted'), 'x-ratelimit-remaining')).to.eq('0');
 
       const optedLimited = await req().post('rate-limited/opted');
       expect(optedLimited.status).to.eq(429);
-      expect(Number(optedLimited.header['retry-after'])).to.be.within(1, 60);
-      expect(optedLimited.header['x-ratelimit-limit']).to.eq('2');
-      expect(optedLimited.header['x-ratelimit-remaining']).to.eq('0');
+      expect(Number(header(optedLimited, 'retry-after'))).to.be.within(1, 60);
+      expect(header(optedLimited, 'x-ratelimit-limit')).to.eq('2');
+      expect(header(optedLimited, 'x-ratelimit-remaining')).to.eq('0');
     });
   });
 
@@ -930,20 +933,20 @@ describe('RateLimitMiddleware', () => {
     it('limits by the configured numbers with the route answer and no X-RateLimit-* headers; a config false mounts nothing', async () => {
       const first = await req().post('rate-limited-options/login');
       expect(first.status).to.eq(200);
-      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(first, 'x-ratelimit-limit')).to.eq(undefined);
 
       const limited = await req().post('rate-limited-options/login');
       expect(limited.status).to.eq(401);
       expect(limited.body).to.deep.eq({ error: 'uniform' });
-      expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
-      expect(limited.header['x-ratelimit-limit']).to.eq(undefined);
-      expect(limited.header['x-ratelimit-remaining']).to.eq(undefined);
+      expect(Number(header(limited, 'retry-after'))).to.be.within(1, 60);
+      expect(header(limited, 'x-ratelimit-limit')).to.eq(undefined);
+      expect(header(limited, 'x-ratelimit-remaining')).to.eq(undefined);
 
       // the suite's afterEach disposes the app, so the route whose config key is false is checked here
       for (let i = 0; i < 3; i++) {
         const res = await req().post('rate-limited-options/unlimited');
         expect(res.status).to.eq(200);
-        expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+        expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
       }
     });
   });
@@ -973,7 +976,7 @@ describe('RateLimitMiddleware', () => {
         for (let i = 0; i < 3; i++) {
           const res = await req().post(path);
           expect(res.status, `${path} ${i + 1}`).to.eq(200);
-          expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+          expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
         }
       }
       for (const path of ['rate-limited-off/login', 'rate-limited-floor/other']) {
@@ -1170,7 +1173,7 @@ describe('RateLimitMiddleware', () => {
     it('answers the error reply and never runs the action (fail closed)', async () => {
       const res = await req().post('rate-limited-broken/guarded');
       expect(res.status).to.eq(500);
-      expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
       expect(BrokenStoreController.calls).to.eq(0);
     });
   });

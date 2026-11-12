@@ -29,7 +29,7 @@ async function releaseHttpServer(): Promise<void> {
   await DI.get(HttpServer)?.stop();
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
-  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
   DI.uncache(BaseController);
   for (const type of [ClientIp, RealIp, AuthnRealIp, CdnRealIp] as Class<unknown>[]) DI.uncache(type);
   DI.uncache(ServerMiddleware);
@@ -78,7 +78,7 @@ describe('ClientIp behind an app RealIp subclass (RL-2 I-1, I-2)', function () {
     expect(list.findIndex((m) => m instanceof CdnRealIp)).to.be.lessThan(list.findIndex((m) => m instanceof ClientIp));
     const res = await req().get(AUTHN_PROBE_PATH).set('Accept', 'application/json').set('X-Forwarded-For', `198.51.100.1, ${SPOOF}`);
     expect(res.status, JSON.stringify(res.body)).to.eq(200);
-    expect(res.body.clientIp).to.eq(SPOOF);
+    expect((res.body as { clientIp?: string }).clientIp).to.eq(SPOOF);
   });
 
   it('with authn.http.trustProxy set, the boot fails: the subclass would ignore it', async () => {

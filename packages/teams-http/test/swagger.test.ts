@@ -90,7 +90,7 @@ describe('teams-http swagger', function () {
   });
 
   it('documents the 429 of a rate-limited route', () => {
-    expect(doc.paths['/teams'].post.responses['429']).to.deep.eq({ $ref: '#/components/responses/TooManyRequests' });
+    expect((doc as IOpenApiDocument).paths['/teams'].post.responses['429']).to.deep.eq({ $ref: '#/components/responses/TooManyRequests' });
   });
 
   it('refers the answers to the Teams* components, and every $ref resolves', () => {

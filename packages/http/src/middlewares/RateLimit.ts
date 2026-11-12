@@ -93,8 +93,8 @@ function check(validator: ArgCheck, value: unknown, name: string, refuse: Refuse
 
 const optional =
   (validator: ArgCheck): ArgCheck =>
-  (arg, name) =>
-    arg === undefined ? arg : validator(arg, name);
+  (arg: unknown, name) =>
+    arg === undefined ? undefined : validator(arg, name);
 
 const isFunction = (name: string) => optional(_custom((v) => typeof v === 'function', new InvalidArgument(`${name} should be a function`)));
 
@@ -352,7 +352,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
     const unknown = Object.keys(configured).filter((k) => !accepted.includes(k));
     if (unknown.length > 0) throw new InvalidOption(`${config} has unknown keys ${unknown.join(', ')}; allowed: ${accepted.join(', ')}`);
 
-    return (this.settings = checkSettings({ ...fallback, ...defined(configured as Partial<IRateLimitSettings>) } as IRateLimitSettings, `${config}.`, option));
+    return (this.settings = checkSettings({ ...fallback, ...defined(configured) } as IRateLimitSettings, `${config}.`, option));
   }
 
   /** The options can come from JSON (`http.routes.middlewares`), where a typo or a string "false" would be ignored. */
@@ -370,7 +370,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
       const unknownDefault = Object.keys(fallback).filter((k) => !accepted.includes(k));
       if (unknownDefault.length > 0) throw new InvalidArgument(`@RateLimit default has unknown keys ${unknownDefault.join(', ')}; allowed: ${accepted.join(', ')}`);
       // Here, not in checkSettings: without `config` it would label it as the top-level `@RateLimit headers`.
-      check(HEADERS, (fallback as IRateLimitSettings).headers, '@RateLimit default.headers', argument);
+      check(HEADERS, fallback.headers, '@RateLimit default.headers', argument);
     }
   }
 
