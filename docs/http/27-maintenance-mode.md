@@ -59,10 +59,10 @@ Members:
 
 - The runtime switch lives in this process. Behind a load balancer, switch every instance, or use the configuration.
 - The shutdown answer does not depend on `http.maintenance`: it is sent while `HttpServer.State` is `Closing`, from `stop()` until the last connection closed.
-- Static files are served after the server middlewares, so they get the 503 too unless their route is allowed.
+- Static files are served by `StaticFiles` at `http.static.order` (4.5), after this middleware, so they get the 503 too unless their route is allowed. An `http.static.order` below 2.5 serves them during maintenance and shutdown.
 - `http.maintenance` is read once, at the first request; a configuration changed later does not switch maintenance. Use `enable()` and `disable()`.
 - It follows the server that last emitted `http.server.listening` or `http.server.closing` on its container: run one `HttpServer` per container.
-- Raw `http.middlewares` handlers (the body and cookie parsers, unless your version mounts them as server middlewares) run before every server middleware, so a request body is read before the 503.
+- The body parsers (Order 3.5) and `BodyLimits` (3.4) run after this middleware, so a refused request body is not read. The cookie parser (0.5) runs before it. Raw `http.middlewares` handlers run before every server middleware: a parser kept there reads the body before the 503, and a handler the package did not ship moves `http.bodyLimits` before that list too.
 
 ## Examples
 

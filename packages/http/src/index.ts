@@ -49,6 +49,7 @@ export * from './middlewares/NotFound.js';
 export * from './middlewares/ErrorHandler.js';
 export * from './middlewares/AccessLog.js';
 export * from './middlewares/Compression.js';
+export * from './middlewares/StaticFiles.js';
 export * from './middlewares/BodyParsers.js';
 export * from './middlewares/Cors.js';
 export * from './middlewares/RealIp.js';

@@ -1,6 +1,6 @@
 # Server middlewares
 
-A `ServerMiddleware` runs for every request the server gets, before static files and routing. It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling, the body and cookie parsers, body limits and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
+A `ServerMiddleware` runs for every request the server gets before routing; static files are one of them, `StaticFiles` at `http.static.order` (4.5). It has the same hooks as a [route middleware](14-route-middlewares.md): `onBefore`, `onAfter`, `onFinish` and `onAround`, with the same context objects, plus an `Order` that places it among the other server middlewares. The package ships CORS, compression, request id, client IP, timing, logging, throttling, the body and cookie parsers, body limits and the CSRF guard as server middlewares; other packages add authentication, language and telemetry the same way.
 
 ## How it works
 
@@ -14,8 +14,9 @@ A `ServerMiddleware` runs for every request the server gets, before static files
 ```
 req.storage = {}                        HttpServer's first handler, before everything else
 http.middlewares                        raw Express handlers: helmet
-server middlewares, ascending Order     handler(), or onAround and onBefore; cookie parser 0.5, body limits 3.4, body parsers 3.5
-static files                            not a framework reply: onFinish only, no onAfter
+server middlewares, Order <= 4.5        handler(), or onAround and onBefore; cookie parser 0.5, body limits 3.4, body parsers 3.5, CSRF 4
+static files (http.static.order 4.5)    not a framework reply: onFinish only, no onAfter; skips the later middlewares
+server middlewares, Order > 4.5         authentication 5, principal 10, ...
 routing                                 policy gate, route middlewares, action, error handlers
 404 / global error answer               fixed tail of HttpServer
 reply pipeline                          route onAfter (inner first), then server onAfter (descending), then the reply is sent
@@ -32,7 +33,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Hook | When | Context |
 | --- | --- | --- |
-| `onBefore(ctx)` | Before static files and routing. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously; the chain then goes on in the same tick. | `IMiddlewareContext`: `req`, `res`, `storage`; `route`, `controller` and `path` of the route the request will match (see [The route before routing](#the-route-before-routing)) |
+| `onBefore(ctx)` | Before routing, and before static files when `Order` is below `http.static.order`. Returning a `Response` answers the request: no later middleware, no route; the reply goes through the pipeline. A throw is answered by the global error answer. May return synchronously; the chain then goes on in the same tick. | `IMiddlewareContext`: `req`, `res`, `storage`; `route`, `controller` and `path` of the route the request will match (see [The route before routing](#the-route-before-routing)) |
 | `onAround(ctx, proceed)` | Wraps everything after it. `proceed()` resolves `{ reply, error }` once the response finished; `error` is the error the reply answers (a route error, a 404). It rejects with `RouteClientGone` when the client went away first. | `IMiddlewareContext`, with the route matched before routing |
 | `onAfter(ctx)` | For every framework reply, before it is sent, after the route's `onAfter`. May set headers, replace `ctx.response` or its data. May return synchronously. A throw turns the reply into an error reply for that error: when a route matched, the route's (its `@OnError` handlers at the `'after'` stage, `http.errors.handlers`, the error map), else the global error answer's (`ErrorHandlerMiddleware.reply`). | `IReplyContext`: `response`, `error`; `route`, `controller` and `path` when a route matched |
 | `onFinish(ctx)` | Once, when the response finished or the client went away (`aborted`, also for a streamed reply the client closed after the headers were sent: `ctx.res.headersSent` tells them apart). Not awaited by the next one. A throw is logged. | `IFinishContext`: `aborted`; `route`, `controller`, `path` when a route matched |
@@ -59,6 +60,7 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 | `BodyLimits` | 3.4 | yes | handler | `http.bodyLimits` | Per-path body limits; see [Body size limits](04-route-arguments.md#body-size-limits). |
 | `JsonBodyParser`, `UrlencodedBodyParser`, `TextBodyParser` | 3.5 | yes | handler | `http.bodyParsers.{json,urlencoded,text}` | `req.body`, `req.rawBody` for JSON. |
 | `CsrfGuard` | 4 | yes | onBefore | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Off when a subclass such as `CsrfOriginGuard` is registered. |
+| `StaticFiles` | `http.static.order` (4.5) | yes | handler | `http.Static`, `http.static.*` | Serves the `http.Static` directories with `express.static`; off when `http.static.enabled` is `false` or no directory exists. See [Static files](01-http-server.md#static-files). |
 | `RequestStorage` | -2 | yes | | | Deprecated and not registered: `HttpServer` creates `req.storage` itself. Removed in the next major. |
 
 The request id and timing middlewares are on [Request storage and tracing](19-request-storage-and-tracing.md).
@@ -178,6 +180,7 @@ DI.register(QuietAccessLog).as(AccessLog);
 - The list is read when `HttpServer` resolves. A middleware module imported later never runs.
 - `onBefore` and `onAround` get the route the `RouteIndex` matches before routing, a best-effort match; `onAfter` and `onFinish` get the route the router matched, or the pre-routing match when no route ran (a refusal from an `onBefore`, a 404).
 - Static files and replies an action wrote to `res` itself get `onFinish` only, no `onAfter`: `ResponseTime` and `ServerTiming` headers are missing on them.
+- A static file is served by `StaticFiles` at `http.static.order` (4.5): server middlewares with a higher `Order` (authentication, `PrincipalMiddleware`, `AccessEpochMiddleware`, your own above 4.5) never see it. `Infinity` puts the static files after every server middleware, as in 3.x.
 - `onAfter` runs before the reply is serialised. A header it sets on `res` wins over the `Response`'s own `IResponseOptions.Headers`.
 - The body parsers run at Order 3.5, after `BodyLimits` (3.4): a server middleware below 3.5 sees no `req.body`, one below the cookie parser (0.5) no `req.cookies`. A 400 for a malformed body or a 413 goes to the global error answer; the server middlewares entered before the parser (CORS, `RequestId`, `AccessLog`, ...) see it in `onAfter`/`onFinish`, the ones after it are not entered. A parser left in `http.middlewares` by a 3.x app still runs before every server middleware, and a handler there that the package did not ship moves `http.bodyLimits` before the list; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers).
 - Server hooks run outside the action's AsyncLocalStorage context: read `ctx.storage`.

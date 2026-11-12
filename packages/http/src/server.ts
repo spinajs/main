@@ -7,9 +7,7 @@ import '@spinajs/templates-pug';
 
 import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
-import { existsSync } from 'fs';
 import Express, { ErrorRequestHandler, RequestHandler } from 'express';
-import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
@@ -33,6 +31,7 @@ import './middlewares/Compression.js';
 import './middlewares/Cors.js';
 import './middlewares/SlowRequestWarning.js';
 import './middlewares/ServerTiming.js';
+import './middlewares/StaticFiles.js';
 import { limitsBeforeMiddlewares } from './middlewares/BodyParsers.js';
 
 @Injectable()
@@ -182,8 +181,6 @@ export class HttpServer extends AsyncService {
     this.warnLostDefaults();
 
     this._mountServerMiddlewares();
-
-    this._serverStaticFiles();
   }
 
   /** The reply a throwing server `onAfter` turns into: the global error answer's. */
@@ -286,25 +283,6 @@ export class HttpServer extends AsyncService {
         this.Log.error({ error: err }, 'Server error');
       });
     }
-  }
-
-  /**
-   * Server static files
-   */
-  private _serverStaticFiles() {
-    // uniqBy Path — Static entries are objects, so plain _.uniq (reference
-    // equality) would never dedupe two config entries pointing at the same dir.
-    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
-      if (!existsSync(s.Path)) {
-        this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
-        return;
-      }
-
-      const sRoute = s.Route ?? '/static';
-
-      this.Log.info({ path: s.Path, route: sRoute }, 'Serving static content from: ${path} at path: ${route}');
-      this.Express.use(sRoute, Express.static(s.Path));
-    });
   }
 
   /**
