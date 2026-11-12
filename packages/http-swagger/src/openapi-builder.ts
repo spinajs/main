@@ -1,5 +1,6 @@
 import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
+import type { IDocumentedAnswer, IDocumentedHeader } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
@@ -316,6 +317,7 @@ export class OpenApiBuilder {
 
       if (controller.instance) this.applyAccess(operation, controller.instance, methodNameStr);
       this.applyPolicies(operation, docCache, methodNameStr);
+      if (controller.instance) this.applyMiddlewares(operation, controller.instance, methodName, route);
 
       if (!this.document.paths[fullPath]) {
         this.document.paths[fullPath] = {};
@@ -407,6 +409,75 @@ ${line}` : line;
       const refName = this.registerStandardResponse(code);
       if (refName) operation.responses[code] = { $ref: `#/components/responses/${refName}` };
     }
+  }
+
+  /**
+   * Add what the route's mounted middlewares document. A status the JSDoc or `applyAccess` set stays; between
+   * middlewares the later mounted one wins, so a route's own `@RateLimit` answers over its controller's.
+   * Success headers go to the route's own inline 2xx answers.
+   */
+  private applyMiddlewares(operation: IOpenApiOperation, controller: BaseController, method: string | symbol, route: IRoute): void {
+    // optional call: addController is also fed hand-built instances (tests, tooling) that are no BaseController
+    const docs = (controller.MountedMiddlewares?.(method) ?? []).flatMap((m) => m.documentation?.(route) ?? []);
+    if (docs.length === 0) return;
+
+    const routeStatuses = Object.keys(operation.responses);
+    const answers: Record<string, IDocumentedAnswer> = {};
+    const successHeaders: Record<string, IDocumentedHeader> = {};
+    const extensions = operation as unknown as Record<string, unknown>;
+
+    for (const doc of docs) {
+      Object.assign(answers, doc.responses);
+      Object.assign(successHeaders, doc.headers);
+      for (const [key, value] of Object.entries(doc.extensions ?? {})) {
+        const current = extensions[key];
+        extensions[key] = Array.isArray(current) && Array.isArray(value) ? [...current, ...value] : value;
+      }
+    }
+
+    for (const [status, answer] of Object.entries(answers)) {
+      if (!routeStatuses.includes(status)) operation.responses[status] = this.middlewareResponse(answer);
+    }
+
+    if (Object.keys(successHeaders).length === 0) return;
+    for (const status of routeStatuses) {
+      const response = operation.responses[status];
+      if (!status.startsWith('2') || response.$ref) continue;
+      response.headers = { ...response.headers, ...this.documentedHeaders(successHeaders) };
+    }
+  }
+
+  /**
+   * A middleware's answer, inline or as a `$ref` to its `component`. Registered here, not through
+   * registerStandardResponse: those components are problem+json, a middleware's answer has a body of its own.
+   */
+  private middlewareResponse(answer: IDocumentedAnswer): IOpenApiResponse {
+    if (!answer.component) return this.documentedResponse(answer);
+
+    if (!this.registeredResponses.has(answer.component)) {
+      const responses = ((this.document.components ??= {}).responses ??= {});
+      responses[answer.component] = this.documentedResponse(answer);
+      this.registeredResponses.add(answer.component);
+    }
+    return { $ref: `#/components/responses/${answer.component}` };
+  }
+
+  private documentedResponse(answer: IDocumentedAnswer): IOpenApiResponse {
+    const schema = answer.schema
+      ? this.convertJsonSchema(answer.schema)
+      : answer.type
+        ? this.expandNamedSchemas(this.inferSchemaFromString(answer.type), 'response')
+        : undefined;
+
+    return {
+      description: answer.description,
+      ...(schema ? { content: { [answer.contentType ?? 'application/json']: { schema } } } : {}),
+      ...(answer.headers ? { headers: this.documentedHeaders(answer.headers) } : {}),
+    };
+  }
+
+  private documentedHeaders(headers: Record<string, IDocumentedHeader>): NonNullable<IOpenApiResponse['headers']> {
+    return Object.fromEntries(Object.entries(headers).map(([name, header]) => [name, { description: header.description, schema: { type: header.type } }]));
   }
 
   /**

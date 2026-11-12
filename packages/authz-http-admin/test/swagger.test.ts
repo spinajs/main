@@ -72,6 +72,10 @@ describe('authz-http-admin swagger', function () {
     expect(doc.paths['/authz/commands'].post.responses['403'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminError');
   });
 
+  it('documents the 429 of a rate-limited route', () => {
+    expect(doc.paths['/authz/commands'].post.responses['429']).to.deep.eq({ $ref: '#/components/responses/TooManyRequests' });
+  });
+
   it('answers a write with { results } and a list with { items, total }', () => {
     expect(doc.paths['/authz/commands'].post.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminResults');
     expect(doc.paths['/authz/rules'].get.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');

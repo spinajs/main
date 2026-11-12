@@ -1,0 +1,8 @@
+---
+"@spinajs/http-swagger": minor
+"@spinajs/http": minor
+---
+
+`@spinajs/http-swagger` documents the answers of the route middlewares mounted on each route. `OpenApiBuilder` calls `documentation(route)` on every middleware `BaseController.MountedMiddlewares(method)` lists, in mount order: an answer is added under its status unless the JSDoc or `@Access` already set it, a later middleware wins over an earlier one (a route's own `@RateLimit` over its controller's), an answer with a `component` is registered once under `components.responses` and referred to, any other is inline (`schema`, or a named `type` resolved like `@response`), success `headers` go to the route's own inline 2xx responses, and `x-` extensions are copied onto the operation, arrays concatenated. A `@RateLimit` route therefore documents its 429: the shared `TooManyRequests` response by default, inline with `X-RateLimit-*` and an `x-rate-limit` extension when it sends the headers. `IOpenApiResponse` gains `headers`. A document built from the manifest (`system.manifest.mode`) sees no runtime middleware and has none of this.
+
+`@spinajs/http`: `RouteMiddleware.documentation?(route)` returns an `IRouteMiddlewareDoc` (`responses` of `IDocumentedAnswer`, success `headers` of `IDocumentedHeader`, `extensions`) for API document generators. `BaseController.MountedMiddlewares(method)` lists the middlewares mounted on a route, in mount order, and `IRouteChainOptions.onMounted(enabled)` of `buildRouteHandlers` reports them once the registrations succeeded.

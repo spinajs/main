@@ -10,7 +10,7 @@
    - `servers` from `config.servers`;
    - `components.securitySchemes` from `config.securitySchemes`, and `security` from `config.security`, when set;
    - empty `paths` and `tags`.
-2. **`addController(controller, entry)`** documents one controller: its tag, then one operation per route, as described in [Documenting routes](02-documenting-routes.md), [Parameters and request bodies](03-parameters-and-request-bodies.md) and [Policies and access](05-policies-and-access.md). It registers components and standard responses as it meets them. It throws `InvalidArgument` for a path argument it cannot bind; routes added before the throw stay in the document.
+2. **`addController(controller, entry)`** documents one controller: its tag, then one operation per route, as described in [Documenting routes](02-documenting-routes.md), [Parameters and request bodies](03-parameters-and-request-bodies.md) and [Policies and access](05-policies-and-access.md), including the answers of the middlewares mounted on each route ([Route middlewares](05-policies-and-access.md#route-middlewares)). It registers components and standard responses as it meets them. It throws `InvalidArgument` for a path argument it cannot bind; routes added before the throw stay in the document.
 3. **`build()`** copies the collected tags into `tags` and returns the document. It returns the same object on every call.
 
 `config.basePath` is used without its leading and trailing `/`; `SwaggerService` fills it from `http.controllers.route.prefix` before it creates the builder.
@@ -72,6 +72,9 @@ DI.register(PublicApiBuilder).as(OpenApiBuilder);
 - `addController()` returns without doing anything for a controller with no runtime `Descriptor`.
 - The builder writes into schema objects it receives from schema providers while it expands them.
 - Named types resolve only through `SchemaProvider`s registered in DI, also when you create the builder with `new`.
+- Middleware answers (the `429` of `@RateLimit`, `X-RateLimit-*`, `x-rate-limit`) are read from `controller.instance.MountedMiddlewares(method)`: the middlewares mounted when the app registered the routes. A controller instance whose routes were never mounted, or that is no `BaseController`, documents none.
+- In manifest mode (`system.manifest.mode` `prefer` or `require`, with a valid manifest) `SwaggerService` serves `manifestToOpenApi()` of `@spinajs/openapi` instead of this builder. The manifest holds no runtime middleware, so that document has no middleware answers: no `429` of `@RateLimit`, no `X-RateLimit-*` headers, no `x-rate-limit`. Document such an answer with `@response` if the manifest document needs it.
+- A response may carry `headers` (`IOpenApiResponse.headers`: `{ description?, schema }` by name).
 
 ## Best practices
 

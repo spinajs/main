@@ -40,6 +40,10 @@ No limit ships on `POST /auth/tokens/revoke` (its IP throttle already counts eve
   there); both limiters count the address only, so neither tells anything about an account.
 - No response of these routes carries `X-RateLimit-*` headers (`headers: false`): they would tell a throttled client
   from a failed login. The app cannot turn them on: `headers` is not a key of `authn.http.rateLimit.<name>`.
+- In the OpenAPI document of `@spinajs/http-swagger`, a route whose throttled answer is the 429 `throttled` documents
+  a `429` with the `AuthnError` body and `Retry-After`. A credential route documents no throttled answer of its own:
+  its 401 is the login failure it documents already. See
+  [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares).
 - `POST /auth/passkeys/challenge` also serves the WebAuthn step of a pending (pre-MFA) session. Such a request counts
   on its own pending session, not on the address, so users who passed their password do not spend the anonymous
   budget of a shared address. The key is an HMAC of the session id under `http.cookie.secret`, domain separated, so
