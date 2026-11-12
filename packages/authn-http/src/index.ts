@@ -1,7 +1,7 @@
 export { AuthnPrincipalResolver } from './api.js';
 export type { AuthnIdentity } from './api.js';
 export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
-export { ClientIp, proxyTrustOf } from './middleware/client-ip.js';
+export { AuthnRealIp, ClientIp, proxyTrustOf, realIpOverrideFinding } from './middleware/client-ip.js';
 export { CsrfOriginGuard, assertSameSiteNoneProtected } from './middleware/csrf.js';
 export type { SameSiteNoneCheck } from './middleware/csrf.js';
 export { AuthnMiddleware } from './middleware/authn.js';

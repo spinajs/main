@@ -26,7 +26,7 @@ Socket commands and events are guarded the way http routes are. `@SocketPolicy` 
 | --- | --- |
 | `method` | `'SOCKET'` |
 | `originalUrl`, `url` | the full command or event name |
-| `headers`, `cookies`, `ip` | from the handshake; `ip` is the [client address](08-principal-sources.md#client-address) |
+| `headers`, `cookies`, `ip` | from the handshake; `ip` is the [client address](08-principal-sources.md#client-address), what the registered `RealIp` answers, as http's `req.storage.realIp` |
 | `body` | the payload |
 | `params` | the payload's own fields when it is a non-array object, else `{}` |
 | `query` | `{}` |

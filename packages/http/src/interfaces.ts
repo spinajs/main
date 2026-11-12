@@ -587,7 +587,7 @@ export enum ParameterType {
   FromHeader = 'FromHeader',
 
   /**
-   * Client IP resolved by the RealIp middleware (X-Forwarded-For through http.trustProxy only)
+   * Client IP resolved by the RealIp middleware (X-Forwarded-For through the trust RealIp resolves)
    */
   Ip = 'IpRouteArgs',
 

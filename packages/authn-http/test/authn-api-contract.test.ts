@@ -136,8 +136,8 @@ describe('authn-http contracts (api.ts)', function () {
       expect(p.maxAgeSeconds).to.eq(600);
     });
 
-    it('middlewares run ClientIp, then CsrfOriginGuard, then AuthnMiddleware, after the http built-ins (<= 3)', () => {
-      expect([new ClientIp().Order, new CsrfOriginGuard().Order, new AuthnMiddleware().Order]).to.deep.eq([1, 4, 5]);
+    it('middlewares run ClientIp after RealIp (1), then CsrfOriginGuard, then AuthnMiddleware', () => {
+      expect([new ClientIp().Order, new CsrfOriginGuard().Order, new AuthnMiddleware().Order]).to.deep.eq([2, 4, 5]);
     });
 
     it('resolvers are asked key (45), token (50), session (100)', () => {
