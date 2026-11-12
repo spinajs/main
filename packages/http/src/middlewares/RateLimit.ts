@@ -1,7 +1,9 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { _between, _custom, _finite, _gte, _integer, _is_number, _is_object, _is_string, _non_empty, _one_of, _or, _positive, _try_check_arg, DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
+import { DataValidator } from '@spinajs/validation';
+import type { IValidationError } from '@spinajs/validation';
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
@@ -63,55 +65,61 @@ interface IPrincipalLike {
   authenticated?: unknown;
 }
 
-const SETTINGS_KEYS: readonly string[] = ['limit', 'windowSeconds', 'by'];
-const OPTION_KEYS: readonly string[] = ['config', 'default', ...SETTINGS_KEYS, 'answer', 'headers', 'key'];
+const SETTINGS_KEYS = ['limit', 'windowSeconds', 'by', 'headers'];
+const OPTION_KEYS = ['config', 'default', 'limit', 'windowSeconds', 'by', 'answer', 'headers', 'key'];
 
-/** The keys a configured limit (or `default`) may set: `headers` only where the route has not ruled it out in code. */
-const settingsKeys = (opts?: { headers?: boolean }): readonly string[] => (opts?.headers === false ? SETTINGS_KEYS : [...SETTINGS_KEYS, 'headers']);
+// The types do not hold for options given in JSON config, and `number` admits NaN, Infinity, 1.5 and -1.
+const SETTINGS_PROPERTIES = {
+  limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  windowSeconds: { type: 'number', exclusiveMinimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  by: { enum: ['ip', 'principal'] },
+  // not type: 'boolean': a coercing validator would pass 0, 1 and 'false'
+  headers: { enum: [true, false] },
+};
 
-const show = (v: unknown): string => (typeof v === 'string' ? `'${v}'` : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
+const settingsObject = (keys: readonly string[]) => ({
+  type: 'object',
+  // propertyNames, not additionalProperties: removeAdditional would drop a misspelt key without a word.
+  propertyNames: { enum: [...keys] },
+  properties: Object.fromEntries(keys.map((k) => [k, SETTINGS_PROPERTIES[k as keyof typeof SETTINGS_PROPERTIES]])),
+});
 
-type Refuse = (message: string) => Error;
-type ArgCheck = (arg: any, name: string) => unknown;
+// `http.rateLimit.` is a strict prefix (config/http.ts): these are validated without type coercion.
+const SETTINGS_SCHEMA = { $id: 'http.rateLimit.settings', ...settingsObject(SETTINGS_KEYS) };
+const COMPLETE_SETTINGS_SCHEMA = { ...SETTINGS_SCHEMA, $id: 'http.rateLimit.completeSettings', required: ['limit', 'windowSeconds'] };
 
-const argument: Refuse = (message) => new InvalidArgument(message);
-const option: Refuse = (message) => new InvalidOption(message);
+const OPTIONS_SCHEMA = {
+  $id: 'http.rateLimit.options',
+  type: 'object',
+  propertyNames: { enum: OPTION_KEYS },
+  properties: {
+    config: { anyOf: [{ const: false }, { type: 'string', minLength: 1 }] },
+    default: settingsObject(SETTINGS_KEYS),
+    limit: SETTINGS_PROPERTIES.limit,
+    windowSeconds: SETTINGS_PROPERTIES.windowSeconds,
+    by: SETTINGS_PROPERTIES.by,
+    headers: SETTINGS_PROPERTIES.headers,
+    answer: { instanceof: 'Function' },
+    key: { instanceof: 'Function' },
+  },
+  allOf: [
+    { if: { type: 'object', required: ['config'], properties: { config: { type: 'string' } } }, then: { required: ['default'] } },
+    // the route ruled `headers` out in code: no default may bring it back
+    {
+      if: { type: 'object', required: ['headers'], properties: { headers: { const: false } } },
+      then: { properties: { default: { type: 'object', propertyNames: { enum: SETTINGS_KEYS.filter((k) => k !== 'headers') } } } },
+    },
+  ],
+};
 
-/** The util checks throw InvalidArgument; a value read from config is refused with InvalidOption instead. */
-function check(validator: ArgCheck, value: unknown, name: string, refuse: Refuse): void {
-  const [valid, error] = _try_check_arg(validator)(value, name);
-  if (!valid) throw refuse(`${(error as Error).message}, got ${show(value)}`);
-}
+type Refusal = new (message: string) => Error;
 
-const optional =
-  (validator: ArgCheck): ArgCheck =>
-  (arg, name) =>
-    arg === undefined ? arg : validator(arg, name);
-
-const isFunction = (name: string) => optional(_custom((v) => typeof v === 'function', new InvalidArgument(`${name} should be a function`)));
-
-// The types do not hold for options given in JSON config, and `number` admits NaN, 1.5 and -1.
-const LIMIT = _is_number(_integer(), _gte(0));
-const WINDOW_SECONDS = _is_number(_finite(), _positive());
-const BY = _one_of(['ip', 'principal']);
-// not _is_boolean: it passes 0 and 1
-const HEADERS = optional(_one_of([true, false]));
-
-function checkSettings(settings: IRateLimitSettings, label: string, refuse: Refuse): RateLimitDefault {
-  const { limit, windowSeconds, by = 'ip', headers } = settings;
-  check(LIMIT, limit, `${label}limit`, refuse);
-  check(WINDOW_SECONDS, windowSeconds, `${label}windowSeconds`, refuse);
-  check(BY, by, `${label}by`, refuse);
-  check(HEADERS, headers, `${label}headers`, refuse);
-  return headers === undefined ? { limit, windowSeconds, by } : { limit, windowSeconds, by, headers };
-}
-
-/** The declaration `@RateLimit({ config: false })`. */
-function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
-  const type = m.Type as { prototype?: unknown } | undefined;
-  const isRateLimit = type === RateLimitMiddleware || (typeof type === 'function' && type.prototype instanceof RateLimitMiddleware);
-  const options = m.Options?.[0] as IRateLimitOptions | undefined;
-  return isRateLimit && m.Options?.length === 1 && typeof options === 'object' && options !== null && options.config === false;
+function describe(error: IValidationError, label: string): string {
+  const at = label + error.instancePath.replace(/\//g, '.');
+  const unknownKey = error.propertyName ?? (error.params as { propertyName?: string }).propertyName;
+  if (unknownKey !== undefined) return `${at} has unknown key ${unknownKey}`;
+  if (error.keyword === 'required') return `${at} is missing ${String((error.params as { missingProperty?: string }).missingProperty)}`;
+  return `${at} ${error.message ?? `fails ${error.keyword} ${JSON.stringify(error.params)}`}`;
 }
 
 /**
@@ -120,28 +128,23 @@ function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
  * `opts.headers: false` (the route's own `@RateLimit({ headers: false })`) leaves `headers` out of the accepted keys.
  */
 export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: { headers?: boolean }): Record<string, unknown> {
-  const keys = settingsKeys(opts);
+  const keys = opts?.headers === false ? SETTINGS_KEYS.filter((k) => k !== 'headers') : SETTINGS_KEYS;
   return {
     default: { ...defaults },
     description: `The limit of ${route}: { ${keys.join(', ')} } merged over the default, or false for none.`,
-    anyOf: [
-      { enum: [false] },
-      {
-        type: 'object',
-        // propertyNames, not additionalProperties: removeAdditional would drop a misspelt key without a word.
-        propertyNames: { enum: [...keys] },
-        properties: {
-          limit: { type: 'integer', minimum: 0 },
-          windowSeconds: { type: 'number', exclusiveMinimum: 0 },
-          by: { enum: ['ip', 'principal'] },
-          ...(keys.includes('headers') ? { headers: { type: 'boolean' } } : {}),
-        },
-      },
-    ],
+    anyOf: [{ enum: [false] }, settingsObject(keys)],
   };
 }
 
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
+
+/** The declaration `@RateLimit({ config: false })`. */
+function isDeclaredOff(m: { Type: unknown; Options?: unknown[] }): boolean {
+  const type = m.Type as { prototype?: unknown } | undefined;
+  const isRateLimit = type === RateLimitMiddleware || (typeof type === 'function' && type.prototype instanceof RateLimitMiddleware);
+  const options = m.Options?.[0] as IRateLimitOptions | undefined;
+  return isRateLimit && m.Options?.length === 1 && typeof options === 'object' && options !== null && options.config === false;
+}
 
 /**
  * A fixed-window limit on one route, counted in the {@link ThrottleStore} `ThrottleMiddleware` uses. Each route keeps
@@ -165,6 +168,9 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
+
+  @Autoinject(DataValidator)
+  protected Validator!: DataValidator;
 
   @Config('http.throttle.ipv6Prefix', { defaultValue: DEFAULT_IPV6_PREFIX })
   protected Ipv6Prefix: unknown;
@@ -212,7 +218,9 @@ export class RateLimitMiddleware extends RouteMiddleware {
     if (settings === false) return;
 
     const prefix = this.Ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
-    check(_is_number(_integer(), _between(16, 128)), prefix, 'http.throttle.ipv6Prefix', option);
+    if (!Number.isInteger(prefix) || (prefix as number) < 16 || (prefix as number) > 128) {
+      throw new InvalidOption(`http.throttle.ipv6Prefix must be an integer in 16..128, got ${String(prefix)}`);
+    }
     this.prefix = prefix as number;
 
     this.route = `rate:${String(route.InternalType).toUpperCase()} ${path}:${settings.limit}/${settings.windowSeconds}`;
@@ -257,52 +265,45 @@ export class RateLimitMiddleware extends RouteMiddleware {
   private resolveSettings(): RateLimitDefault | false {
     if (this.settings !== undefined) return this.settings;
 
-    this.checkOptions();
-    const { config, limit, windowSeconds, by } = this.options;
+    this.validate(OPTIONS_SCHEMA, this.options, '@RateLimit', InvalidArgument);
+    const { config, limit, windowSeconds, by, default: fallback } = this.options;
+    const inline = defined({ limit, windowSeconds, by });
+
     if (config === false) {
       const others = Object.keys(this.options).filter((k) => k !== 'config');
       if (others.length > 0) throw new InvalidArgument(`@RateLimit({ config: false }) declares no limit and takes no other option, got ${others.join(', ')}`);
       return (this.settings = false);
     }
-    const inline = defined({ limit, windowSeconds, by });
     if (config === undefined) {
-      return (this.settings = checkSettings({ ...this.options.default, ...inline } as IRateLimitSettings, '@RateLimit ', argument));
+      return (this.settings = this.complete({ ...fallback, ...inline }, '@RateLimit', InvalidArgument));
     }
 
-    if (Object.keys(inline).length > 0) throw new InvalidArgument(`@RateLimit({ config: '${config}' }) takes its settings from config and default, not inline ${Object.keys(inline).join(', ')}`);
-    const fallback = this.options.default;
-    check(_is_object(), fallback, `@RateLimit({ config: '${config}' }) default`, argument);
-    const base = checkSettings(fallback as IRateLimitSettings, '@RateLimit default.', argument);
+    if (Object.keys(inline).length > 0) {
+      throw new InvalidArgument(`@RateLimit({ config: '${config}' }) takes its settings from config and default, not inline ${Object.keys(inline).join(', ')}`);
+    }
+    const base = this.complete(fallback, '@RateLimit.default', InvalidArgument);
 
     const configured = this.Configuration.get<unknown>(config);
     if (configured === false) return (this.settings = false);
     if (configured === undefined || configured === null) return (this.settings = base);
 
-    check(_is_object(), configured, config, option);
-    const accepted = settingsKeys(this.options);
-    const unknown = Object.keys(configured).filter((k) => !accepted.includes(k));
-    if (unknown.length > 0) throw new InvalidOption(`${config} has unknown keys ${unknown.join(', ')}; allowed: ${accepted.join(', ')}`);
-
-    return (this.settings = checkSettings({ ...fallback, ...defined(configured as Partial<IRateLimitSettings>) } as IRateLimitSettings, `${config}.`, option));
+    this.validate(SETTINGS_SCHEMA, configured, config, InvalidOption);
+    if (this.options.headers === false && (configured as IRateLimitSettings).headers !== undefined) {
+      throw new InvalidOption(`${config} has unknown key headers: the route declares headers: false`);
+    }
+    return (this.settings = { ...base, ...defined(configured as Partial<IRateLimitSettings>) } as RateLimitDefault);
   }
 
-  /** The options can come from JSON (`http.routes.middlewares`), where a typo or a string "false" would be ignored. */
-  private checkOptions(): void {
-    const { config, answer, key, headers } = this.options;
-    const unknown = Object.keys(this.options).filter((k) => !OPTION_KEYS.includes(k));
-    if (unknown.length > 0) throw new InvalidArgument(`@RateLimit has unknown options ${unknown.join(', ')}; allowed: ${OPTION_KEYS.join(', ')}`);
-    check(optional(_or(_one_of([false]), _is_string(_non_empty()))), config, '@RateLimit config', argument);
-    check(isFunction('@RateLimit answer'), answer, '@RateLimit answer', argument);
-    check(isFunction('@RateLimit key'), key, '@RateLimit key', argument);
-    check(HEADERS, headers, '@RateLimit headers', argument);
-    const fallback = this.options.default;
-    if (typeof fallback === 'object' && fallback !== null) {
-      const accepted = settingsKeys(this.options);
-      const unknownDefault = Object.keys(fallback).filter((k) => !accepted.includes(k));
-      if (unknownDefault.length > 0) throw new InvalidArgument(`@RateLimit default has unknown keys ${unknownDefault.join(', ')}; allowed: ${accepted.join(', ')}`);
-      // Here, not in checkSettings: without `config` it would label it as the top-level `@RateLimit headers`.
-      check(HEADERS, (fallback as IRateLimitSettings).headers, '@RateLimit default.headers', argument);
-    }
+  private complete(settings: unknown, label: string, refusal: Refusal): RateLimitDefault {
+    this.validate(COMPLETE_SETTINGS_SCHEMA, settings, label, refusal);
+    return { by: 'ip', ...defined(settings as IRateLimitSettings) } as RateLimitDefault;
+  }
+
+  private validate(schema: object, value: unknown, label: string, refusal: Refusal): void {
+    const [valid, errors] = this.Validator.tryValidate(schema, value as object);
+    if (valid) return;
+    const reasons = (errors ?? []).filter((e) => e.keyword !== 'anyOf' && e.keyword !== 'if').map((e) => describe(e, label));
+    throw new refusal([...new Set(reasons)].join('; '));
   }
 
   private subject(ctx: IMiddlewareContext, by: RateLimitKey): string {
