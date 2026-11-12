@@ -8,7 +8,7 @@ import { appEnvOf } from '@spinajs/authn-session';
 import { isNavigation, oidcFailure } from './login.js';
 import type { OidcAnswer } from './login.js';
 import { OidcResponse } from './oidc-response.js';
-import { AUTHN_OIDC_RATE_LIMITS } from './options/schema.js';
+import { AUTHN_OIDC_RATE_LIMITS, AUTHN_OIDC_SESSION_RATE_LIMITS } from './options/schema.js';
 import { OidcProviders } from './providers.js';
 
 export type AuthnOidcRateLimitName = keyof typeof AUTHN_OIDC_RATE_LIMITS;
@@ -48,4 +48,11 @@ export const oidcThrottled = (retryAfterSeconds: number): OidcThrottledResponse 
 /** The shipped `@RateLimit` of an anonymous OIDC route: the route's failure answer and no `X-RateLimit-*` header. */
 export function OidcRateLimit(name: AuthnOidcRateLimitName): ReturnType<typeof RateLimit> {
   return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
+}
+
+export type AuthnOidcSessionRateLimitName = keyof typeof AUTHN_OIDC_SESSION_RATE_LIMITS;
+
+/** The shipped `@RateLimit` of an OIDC route with a session, per principal; refused as begin and callback are. */
+export function OidcSessionRateLimit(name: AuthnOidcSessionRateLimitName): ReturnType<typeof RateLimit> {
+  return RateLimit({ config: `authn.oidc.rateLimit.${name}`, default: AUTHN_OIDC_SESSION_RATE_LIMITS[name], answer: oidcThrottled, headers: false });
 }

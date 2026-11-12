@@ -1,7 +1,10 @@
-import { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, rateLimitSchema } from './rate-limit-config.js';
+import { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema } from './rate-limit-config.js';
 
-export { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, rateLimitSchema };
-export type { AuthnHttpRateLimitName } from './rate-limit-config.js';
+export { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema };
+export type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
+
+const RATE_LIMITED_ROUTES: Readonly<Record<string, string>> = { ...AUTHN_HTTP_RATE_LIMITED_ROUTES, ...AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES };
+const RATE_LIMITS = { ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS };
 
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
 // @spinajs/http's parseOrigin, which also refuses a port above 65535 and a broken IPv6 literal.
@@ -59,9 +62,9 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
     rateLimit: {
       type: 'object',
       default: {},
-      description: 'The per-route limits of the anonymous routes (@RateLimit, per client address); read once when the routes mount.',
-      propertyNames: { enum: Object.keys(AUTHN_HTTP_RATE_LIMITS) },
-      properties: Object.fromEntries(Object.entries(AUTHN_HTTP_RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, AUTHN_HTTP_RATE_LIMITED_ROUTES[name as keyof typeof AUTHN_HTTP_RATE_LIMITS], { headers: false })])),
+      description: 'The per-route limits (@RateLimit) of the anonymous routes and of the routes with a session; read once when the routes mount.',
+      propertyNames: { enum: Object.keys(RATE_LIMITS) },
+      properties: Object.fromEntries(Object.entries(RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, RATE_LIMITED_ROUTES[name], { headers: false })])),
     },
     logout: {
       type: 'object',

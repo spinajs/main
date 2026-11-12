@@ -6,7 +6,7 @@ import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA, PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
-import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, AuthnRealIp, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS, AuthnRealIp, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
 import { registeredSchemasAfter } from '../support/registered-schemas.js';
 import { AuthnHttpConfigBootstrapper } from '../../src/bootstrap.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -57,7 +57,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
     it('with no user config, the effective authn.http equals the defaults of the former single authn schema', async () => {
       const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
-      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true }, rateLimit: AUTHN_HTTP_RATE_LIMITS });
+      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true }, rateLimit: { ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS } });
     });
 
     it('fills the csrf and session cookie defaults', async () => {

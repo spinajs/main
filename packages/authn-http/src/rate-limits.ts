@@ -4,9 +4,10 @@ import { Configuration } from '@spinajs/configuration';
 import { RateLimit } from '@spinajs/http';
 import type { IMiddlewareContext, IRateLimitOptions } from '@spinajs/http';
 
-import { AUTHN_HTTP_RATE_LIMITS } from './rate-limit-config.js';
-import type { AuthnHttpRateLimitName } from './rate-limit-config.js';
+import { AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS } from './rate-limit-config.js';
+import type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
 import type { ThrottledAnswer } from './middleware/ip-throttle.js';
+import { tooManyRequests } from './password/fields.js';
 
 // Keeps this HMAC apart from every other use of the cookie secret.
 const PENDING_KEY_DOMAIN = 'spinajs.authn-http.rate-limit.pending-session\0';
@@ -37,4 +38,15 @@ export function pendingSessionKey(ctx: IMiddlewareContext): string | undefined {
  */
 export function AuthnRateLimit(name: AuthnHttpRateLimitName, answer: ThrottledAnswer, key?: IRateLimitOptions['key']): ReturnType<typeof RateLimit> {
   return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_RATE_LIMITS[name], answer, headers: false, ...(key ? { key } : {}) });
+}
+
+/** authn's own 429 body, as a throttled verification or reset request answers. */
+export const throttledRequest = (retryAfterSeconds: number) => tooManyRequests('too many requests, try again later', retryAfterSeconds);
+
+/**
+ * The shipped `@RateLimit` of a route with a session: authn's 429 unless `options` names another answer, and, as on
+ * every authn route, no `X-RateLimit-*` headers; the answer carries its own `Retry-After`.
+ */
+export function AuthnSessionRateLimit(name: AuthnHttpSessionRateLimitName, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> {
+  return RateLimit({ config: `authn.http.rateLimit.${name}`, default: AUTHN_HTTP_SESSION_RATE_LIMITS[name], answer: throttledRequest, ...options, headers: false });
 }

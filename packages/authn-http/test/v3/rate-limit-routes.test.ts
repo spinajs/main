@@ -10,7 +10,7 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
-import { AUTHN_FAILURE_BODY, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, pendingSessionKey, pendingSessionKeyOf } from '../../src/index.js';
+import { AUTHN_FAILURE_BODY, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS, pendingSessionKey, pendingSessionKeyOf } from '../../src/index.js';
 
 const SECRET = 'unit-' + 'Zx8q'.repeat(10);
 import type { AuthnHttpRateLimitName } from '../../src/index.js';
@@ -240,7 +240,7 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
 
     it('fills every shipped default', async () => {
       const { config } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
-      expect(config.get('authn.http.rateLimit')).to.deep.eq(AUTHN_HTTP_RATE_LIMITS);
+      expect(config.get('authn.http.rateLimit')).to.deep.eq({ ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS });
     });
 
     it('takes false, a partial override and a full one', async () => {

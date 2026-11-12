@@ -43,6 +43,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [`authn:check-config` command](19-check-config-command.md) | Reports what the `authn.*` configuration gets wrong. |
 | [Rate limits](25-rate-limits.md) | The `@RateLimit` every anonymous route ships with, on by default: the numbers, the `authn.http.rateLimit.*` keys and the throttled answers. |
 | [The two throttling layers](../http/18-throttling.md#rate-limits-for-the-authn-routes) | The coarse `http.throttle` rule before authentication next to the shipped per-route limits. |
+| [Rate limits of the routes with a session](26-session-route-rate-limits.md) | The shipped `@RateLimit` of every MFA, re-authentication, credential and credential admin route, its `authn.http.rateLimit.*` key and its throttled answer. |
 | [Webhooks](20-webhooks.md) | `WebhookAuthnEventSink`: signed POSTs of audit events to your endpoints; `WebhookChangeSink` for authz changes. |
 | [Action hooks](23-action-hooks.md) | The route actions (`authn.logout`, `authn.sessions.revoke`, `authn.role.switch`, `authn.admin.credentials`, `authn.registration`, `authn.code.request`, opt-in `authn.request`) and how a refusal of a service answers. |
 

@@ -15,7 +15,7 @@ import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
-import { AuthnRateLimit, pendingSessionKey } from '../../rate-limits.js';
+import { AuthnRateLimit, AuthnSessionRateLimit, pendingSessionKey } from '../../rate-limits.js';
 import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -135,6 +135,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys/options')
+  @AuthnSessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure }, unknownField))
   public async options(@Body({ sensitive: ['reauthPassword'] }) body: AuthnReauthPasswordBody, @ClientContext() client: AuthnClientContext) {
@@ -158,6 +159,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/passkeys')
+  @AuthnSessionRateLimit('passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, challengeId: invalidResponse, response: invalidResponse, name: invalidName }, unknownField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnPasskeyRegisterBody, @ClientContext() client: AuthnClientContext) {

@@ -16,7 +16,7 @@ import { Hooks } from '@spinajs/hooks';
 import { ValidationFailed } from '@spinajs/validation';
 
 import { OidcLogin, isNavigation } from '../login.js';
-import { OidcRateLimit } from '../rate-limits.js';
+import { OidcRateLimit, OidcSessionRateLimit } from '../rate-limits.js';
 import { OidcResponse } from '../oidc-response.js';
 import { OIDC_LOGOUT_INVALID, OidcBackchannelLogout } from '../token/logout-token.js';
 import type { OidcRequest } from '../login.js';
@@ -160,6 +160,7 @@ export class OidcController extends BaseController {
   }
 
   @Post(':provider/link')
+  @OidcSessionRateLimit('link')
   public async beginLink(
     @Param(PROVIDER) provider: string,
     @AuthnSession() session: SessionHandle | null,
@@ -179,6 +180,7 @@ export class OidcController extends BaseController {
   }
 
   @Del(':provider/link')
+  @OidcSessionRateLimit('link')
   public async unlink(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcUnlinkQuery,
@@ -224,6 +226,7 @@ export class OidcController extends BaseController {
 
   /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
   @Get(':provider/reauth')
+  @OidcSessionRateLimit('reauth')
   public async reauth(
     @Param(PROVIDER) provider: string,
     @QueryObject() query: OidcBeginQuery,

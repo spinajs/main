@@ -22,7 +22,7 @@ import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
-import { AUTHN_HTTP_RATE_LIMITS } from '../../src/rate-limit-config.js';
+import { AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS } from '../../src/rate-limit-config.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { dropOwnCompiledDirs } from '../token-db-common.js';
 
@@ -79,8 +79,9 @@ export class V3AppConfiguration extends FrameworkConfiguration {
         mfa: { steps: [{ name: 'totp', service: 'V3AppMfaStep' }] },
         freshAuth: { maxAgeSeconds: 300 },
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-        // Every request comes from one loopback address, far over the shipped per-address limits; auth-rate-limit.test.ts sets its own.
-        http: { rateLimit: Object.fromEntries(Object.keys(AUTHN_HTTP_RATE_LIMITS).map((name) => [name, { limit: 1_000_000 }])) },
+        // One loopback address and few principals make many calls per suite, far over the shipped limits; auth-rate-limit.test.ts and
+        // auth-session-rate-limit.test.ts set their own.
+        http: { rateLimit: Object.fromEntries([...Object.keys(AUTHN_HTTP_RATE_LIMITS), ...Object.keys(AUTHN_HTTP_SESSION_RATE_LIMITS)].map((name) => [name, { limit: 1_000_000 }])) },
       },
     };
   }

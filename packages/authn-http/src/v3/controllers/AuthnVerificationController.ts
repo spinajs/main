@@ -7,7 +7,7 @@ import { AuthnVerifyBody } from '../../dto/verification.js';
 import { AddressVerificationRegistered, tooManyRequests, verifyThrottled } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
-import { AuthnRateLimit } from '../../rate-limits.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -39,6 +39,7 @@ export class AuthnVerificationController extends BaseController {
    * @security cookieAuth
    */
   @Post('auth/verify/request')
+  @AuthnSessionRateLimit('verifyRequest', { answer: (retryAfter) => tooManyRequests('too many verification requests, try again later', retryAfter) })
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async request(@ClientContext() client: AuthnClientContext) {
     const session = activeSessionOf(client);

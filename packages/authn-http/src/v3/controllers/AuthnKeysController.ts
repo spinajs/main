@@ -26,7 +26,7 @@ import { KeyRoutesOn } from '../../keys/gate.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
-import { AuthnRateLimit } from '../../rate-limits.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
 import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -90,6 +90,7 @@ export class AuthnKeysController extends BaseController {
    * @security cookieAuth
    */
   @Post('user/keys')
+  @AuthnSessionRateLimit('keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, jwk: invalidKey, kid: invalidKid, name: invalidKeyName, expiresAt: invalidKeyExpiry, proof: invalidProof }, unknownKeyField))
   public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnKeyRegisterBody, @ClientContext() client: AuthnClientContext) {

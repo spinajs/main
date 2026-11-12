@@ -1,6 +1,6 @@
 import { OIDC_SIGNING_ALGORITHMS } from '../../src/contracts.js';
 import { buildOidcOptions } from '../../src/options/options.js';
-import { AUTHN_OIDC_RATE_LIMITS } from '../../src/options/schema.js';
+import { AUTHN_OIDC_RATE_LIMITS, AUTHN_OIDC_SESSION_RATE_LIMITS } from '../../src/options/schema.js';
 import type { BuildOidcOptionsExtra, ConfiguredOidc, OidcOptions } from '../../src/options/options.js';
 
 /** `raw` as the schema would hand it over: defaults filled. test/config-schema.test.ts pins this function to the schema. */
@@ -12,7 +12,7 @@ export function withSchemaDefaults(raw: unknown): ConfiguredOidc {
       { clockSkewSeconds: 30, algorithms: [...OIDC_SIGNING_ALGORITHMS], requiredClaims: {}, authorizationParams: {}, ...p, linking: { jit: false, byVerifiedEmail: false, ...(p.linking as object | undefined) } },
     ]),
   );
-  const rateLimit = Object.fromEntries(Object.entries(AUTHN_OIDC_RATE_LIMITS).map(([name, settings]) => [name, { ...settings }]));
+  const rateLimit = Object.fromEntries(Object.entries({ ...AUTHN_OIDC_RATE_LIMITS, ...AUTHN_OIDC_SESSION_RATE_LIMITS }).map(([name, settings]) => [name, { ...settings }]));
   return { providers, redirects: { success: '/', failure: '/', ...input.redirects }, rateLimit: { ...rateLimit, ...input.rateLimit } } as unknown as ConfiguredOidc;
 }
 

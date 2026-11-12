@@ -8,8 +8,8 @@ import { PasswordServiceRegistered, invalidLogin, mismatchOf, newPasswordRefused
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
-import { AuthnRateLimit } from '../../rate-limits.js';
-import { throttledLogin, uniformFailure } from '../../validation/login.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
+import { throttledLogin, throttledPassword, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
@@ -122,6 +122,8 @@ export class AuthnPasswordController extends BaseController {
    * @security cookieAuth
    */
   @Patch('user/password')
+  // The answer of a throttled old password: one throttled answer per route.
+  @AuthnSessionRateLimit('passwordChange', { answer: throttledPassword })
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ password: newPasswordRefused, confirmPassword: passwordMismatch, oldPassword: uniformFailure }, unknownField))
   public async change(@Body({ required: true }) body: AuthnPasswordChangeBody, @ClientContext() client: AuthnClientContext) {

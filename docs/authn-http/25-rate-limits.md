@@ -49,6 +49,7 @@ No limit ships on `POST /auth/tokens/revoke` (its IP throttle already counts eve
   can open one pending session per successful login (itself 30 a minute per address), so one address can ask for up
   to about 900 such challenges a minute. Before 4.0 these challenges had no limit at all; a coarse `http.throttle`
   rule on `/auth` caps the address as a whole.
+- The routes that need a session have limits of their own: [Rate limits of the routes with a session](26-session-route-rate-limits.md).
 - Counters live in the `ThrottleStore` of `@spinajs/http`: `MemoryThrottleStore` counts per process. Behind several
   instances, register a shared store, or each instance allows the full limit.
 - The address is `req.storage.realIp`, the same client address the authn throttle counts: `authn.http.trustProxy`,
