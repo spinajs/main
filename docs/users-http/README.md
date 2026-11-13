@@ -99,5 +99,5 @@ The full mapping of 2.x grants and decorators is in the [authz migration guide](
 - `@spinajs/authz-http`: `@Access`, `@CurrentPrincipal` and the principal middleware.
 - `@spinajs/authz-rbac`: `AccountStatusSource`, `AssignmentStore`, `RoleStore`, `guardSwitches` and the token role rules.
 - [`@spinajs/http`](../http/README.md): controllers, route arguments and the controller scan that mounts this package.
-- [`@spinajs/orm-http`](../orm-http/README.md): `@Filter`, `PaginationDTO` and `OrderDTO` on the list routes.
+- [`@spinajs/orm-http`](../orm-http/README.md): `@Filter`, `PaginationDTO`, `@Sort` on the admin user and metadata lists, `@Include` on the admin user routes.
 - [`@spinajs/di`](../di/README.md): every service here is replaced with `DI.register(Mine).as(Base)`.

@@ -3,7 +3,8 @@ import type { Request } from '@spinajs/http';
 import type { User } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { Access } from '@spinajs/authz-http';
-import { PaginationDTO, OrderDTO, Filter } from '@spinajs/orm-http';
+import { PaginationDTO, Filter, Sort } from '@spinajs/orm-http';
+import { SortOrder } from '@spinajs/orm';
 import type { IFilterRequest } from '@spinajs/orm-http';
 
 import { CurrentUser } from '../args/current-user.js';
@@ -56,8 +57,7 @@ export class UserMetadataController extends BaseController {
      * @param user User UUID path parameter
      * @param pagination.page Page number (zero-based)
      * @param pagination.limit Number of entries per page
-     * @param order.column Column to sort by (default: Id). One of Id, Key, Type; any other answers 400
-     * @param order.order Sort direction: ASC or DESC (default: DESC)
+     * @param sort Query key `order`, JSON `{"column":"Key","order":"ASC"}`: Id, Key or Type (default: Id), ASC or DESC in any case (default: DESC); any other column answers 400
      * @returns {IUserMetadataEntry[]} Paginated list of metadata entries for the user
      * @response 401 Unauthorized — no signed-in principal
      * @response 403 Forbidden — no `user.metadata:read`, or only a conditional one on another user
@@ -68,12 +68,12 @@ export class UserMetadataController extends BaseController {
     public async readUserMeta(
         @Req() req: Request,
         @Param() user: string,
+        @Sort(FilterableUserMetadata, { default: 'Id', order: SortOrder.DESC }) sort: Sort<FilterableUserMetadata>,
         @Query() pagination?: PaginationDTO,
-        @Query() order?: OrderDTO,
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(await this.Metadata.list(await addressedMetadata(req, user), pagination, order, filter));
+        return new Ok(await this.Metadata.list(await addressedMetadata(req, user), sort, pagination, filter));
     }
 
 
@@ -178,8 +178,7 @@ export class UserMetadataController extends BaseController {
      * @security cookieAuth
      * @param pagination.page Page number (zero-based)
      * @param pagination.limit Number of entries per page
-     * @param order.column Column to sort by (default: Id). One of Id, Key, Type; any other answers 400
-     * @param order.order Sort direction: ASC or DESC (default: DESC)
+     * @param sort Query key `order`, JSON `{"column":"Key","order":"ASC"}`: Id, Key or Type (default: Id), ASC or DESC in any case (default: DESC); any other column answers 400
      * @returns {IUserMetadataEntry[]} Paginated list of own metadata entries
      * @response 401 Unauthorized — no signed-in principal
      * @response 403 Forbidden — not a user principal, or no `user.metadata:read`
@@ -189,12 +188,12 @@ export class UserMetadataController extends BaseController {
     public async readMeta(
         @Req() req: Request,
         @CurrentUser() user: User,
+        @Sort(FilterableUserMetadata, { default: 'Id', order: SortOrder.DESC }) sort: Sort<FilterableUserMetadata>,
         @Query() pagination?: PaginationDTO,
-        @Query() order?: OrderDTO,
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(await this.Metadata.list(ownMetadata(req, user), pagination, order, filter));
+        return new Ok(await this.Metadata.list(ownMetadata(req, user), sort, pagination, filter));
     }
 
     /**

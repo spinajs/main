@@ -22,25 +22,38 @@ It is a declaration file, so `tsc` never copies it to `lib/`. Your package's con
 
 | Call | Accepted column | Value |
 | --- | --- | --- |
-| `where`, `orWhere`, `andWhere` | a column of the model, a relation (`where('Owner', 5)` compares its foreign key), `Relation.column`, `col(...)` | the column's TS type, an array of it, `null` or a `RawQuery`; a `DateTime` column also takes a `Date` |
-| `whereIn`, `whereNull`, `whereBetween`, `whereColumn`, ... | a column, `table.column`, `col(...)`, a `Wrap` where it was accepted before | unchecked |
-| `select`, `columns`, `orderBy`, `order`, `groupBy`, `min`, `max`, `count`, `sum`, `avg`, `increment` | a column, `table.column`, `col(...)` | n/a |
+| `where`, `orWhere`, `andWhere` | a column of the model, a relation (`where('Owner', 5)` compares its foreign key), `Relation.column` | the column's TS type, an array of it, `null` or a `RawQuery`; a `DateTime` column also takes a `Date` |
+| `whereIn`, `whereNull`, `whereBetween`, `whereColumn`, ... | a column, a literal `table.column`, a `Wrap` where it was accepted before | unchecked |
+| `select`, `columns`, `orderBy`, `order`, `groupBy`, `min`, `max`, `count`, `sum`, `avg`, `increment` | a column, a literal `table.column` | n/a |
 
 A column is a property the model class declares that is not a function or a relation. Members of `ModelBase` (`PrimaryKeyValue`, `IsDirty`, ...) are not columns. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`), and a model that declares no columns, accept any name in both modes.
 
 The model statics are typed the same way: `User.where('Email', x)`, `User.where('Id', '>', x)` and `User.where({ Email: x })` check the column and the value like the builder's `where`, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
 
-## `col()`: columns the type cannot see
+## Columns the type cannot see
 
-`col('name')` passes a name through unchecked. Use it for a column the model does not declare (one another package added to the table), a name computed at runtime, or a column of a joined table you do not qualify.
+Strict mode has no unchecked cast. Declare the column on the model when the model owns it. For a column the model does not declare (one another package added to the table) or a column of a joined table, qualify it with the table. A literal `table.column` (or a union of such literals) is accepted without a check against the model.
 
 ```ts
-import { col } from '@spinajs/orm';
-
-await User.query().where(col('EmailVerifiedAt'), null);
+await User.query().where('users.EmailVerifiedAt', null);
 ```
 
-Prefer declaring the column on the model when the model owns it.
+The qualified name has to be a literal. A template that leaves part of the name open, such as `` `users.${input}` `` or `` `${alias}.Id` ``, has a type like `` `users.${string}` `` and is rejected in strict mode, the same as a plain `string`: it could name any column.
+
+```ts
+await User.query().orderBy(`users.${input}`); // error in strict mode
+```
+
+A name computed at runtime, such as a sort column from a request, must be narrowed to `ColumnName<User>` before it reaches the builder: check it against a list of the allowed columns typed `ColumnName<User>[]`. A plain `string` is rejected. A `ColumnName<M>` of a generic `M` passes through to a builder of `M`.
+
+```ts
+import type { ColumnName } from '@spinajs/orm';
+
+const SORTABLE: ColumnName<User>[] = ['Email', 'CreatedAt'];
+const isSortable = (name: string): name is ColumnName<User> => (SORTABLE as string[]).includes(name);
+
+if (isSortable(input)) await User.query().orderBy(input);
+```
 
 ## Result types
 
@@ -56,14 +69,15 @@ user.Team.Value.Name; // Team, not Team | null | undefined
 user.Owner.Value?.Name; // User | undefined: the row may be missing
 ```
 
-The narrowing only adds to the type, so code that compiled before still compiles. A relation name held in a `string`, an array, an object or a model class populates as before, without narrowing.
+The narrowing only adds to the type, so code that compiled before still compiles. A relation name held in an array, an object or a model class populates as before, without narrowing; so does a name held in a `string` in loose mode.
 
-In strict mode every relation name is checked: a literal, each element of an array and each key of the object form must be a relation of the model. For `'Relation.nested'`, only the first segment is checked. A name computed at runtime goes through `rel(name)`:
+In strict mode every relation name is checked: a literal, each element of an array and each key of the object form must be a relation of the model. For `'Relation.nested'`, only the first segment is checked. A `string` or `string[]` is rejected: narrow a name computed at runtime to `RelationName<User>` first, the same way as a column above.
 
 ```ts
-import { rel } from '@spinajs/orm';
+import type { RelationName } from '@spinajs/orm';
 
-await User.query().populate(include.map(rel));
+const include: RelationName<User>[] = ['Metadata'];
+await User.query().populate(include);
 ```
 
 ### Projections and aggregates (strict mode)
@@ -89,7 +103,8 @@ In strict mode the row type follows the select list:
 
 - Loose mode changes nothing at runtime and rejects nothing that compiled before, with one exception: a `first`, `last`, `newest`, `oldest` or `count` callback annotated with the class type (`User.first((b: IWhereBuilder<typeof User>) => ...)`) no longer compiles. Annotate it with the model instance, `IWhereBuilder<User>`, or leave the parameter unannotated.
 - Strict mode is types only: the same SQL runs either way.
-- A non-literal string column (`where(name, value)` with `name: string`) is an error in strict mode. Type the variable as a union of the columns it can hold, or use `col(name)`.
+- A non-literal string column (`where(name, value)` with `name: string`, or a template such as `` `t.${name}` ``) is an error in strict mode. Type the variable as a union of the columns it can hold (`ColumnName<Model>`), or as a union of literal qualified names (`'t.Id' | 't.Name'`).
+- Strict projection on a builder of a generic model `M`: the projected type stays unresolved, so a column method (`where`, `orderBy`, `whereIn`, ...) called after `select`, `columns` or an aggregate does not compile. Call the column methods before the projection.
 - Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.
 - Call query scopes **before** `populate()`. A scope declared with `this: ISelectQueryBuilder<Model[]>` after a populate makes TypeScript compare the narrowed builder with the whole `ISelectQueryBuilder<Model[]>`: about 20,000 type instantiations per model and relation set, against about 1,000 the other way round.
 - Strict projection: an exported function that returns a projected builder or row needs an explicit return type. Declaration files keep the narrowing types unevaluated, and a loose consumer would read them as the full model.

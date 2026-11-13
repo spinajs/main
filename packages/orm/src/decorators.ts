@@ -8,6 +8,7 @@ import type { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, IRelati
 import type { ModelIndex } from '@spinajs/manifest';
 import 'reflect-metadata';
 import type { ModelBase } from './model.js';
+import type { ColumnName } from './typing.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { ManyQueryRelationList } from './relation-objects.js';
 import type { Relation } from './relation-objects.js';
@@ -399,6 +400,18 @@ export function Hidden() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (!model.Hidden.includes(propertyKey)) {
       model.Hidden.push(propertyKey);
+    }
+  });
+}
+
+/**
+ * Marks a column a request may sort by; `@Sort(Model)` of `@spinajs/orm-http` builds its allowlist from these.
+ * Additive down an inheritance chain, like `@Hidden()`.
+ */
+export function Sortable(): <T extends object>(target: T, propertyKey: ColumnName<T>) => void {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (!model.Sortable.includes(propertyKey)) {
+      model.Sortable.push(propertyKey);
     }
   });
 }

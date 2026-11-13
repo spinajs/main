@@ -5,7 +5,7 @@ import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
 import type { IModelDescriptor, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
-import type { OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
+import type { LiteralColumn, OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import type { Op, SqlOperator } from './enums.js';
 import type { Orm } from './orm.js';
@@ -448,8 +448,8 @@ export class ModelBase<M = unknown> implements IModelBase {
   public static where<T extends typeof ModelBase>(this: T, val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<InstanceType<T>> | Partial<ModelDataWithRelationDataSearchable<InstanceType<T>>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: C, operator: Op | SqlOperator, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: C, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: LiteralColumn<InstanceType<T>, C>, operator: Op | SqlOperator, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: LiteralColumn<InstanceType<T>, C>, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: WhereCatchAllColumn<InstanceType<T>> | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | (OrmStrict extends true ? never : PickRelations<T>), operator?: WhereOperator<Op | SqlOperator>, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, _column: unknown, _operator?: unknown, _value?: unknown): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
