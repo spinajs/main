@@ -55,32 +55,51 @@ export interface Sort<M = unknown> {
   order: SortOrder;
 }
 
-export interface SortDecoratorOptions<M> {
+export interface SortDecoratorOptions<C extends Constructor<ModelBase>> {
   /** Column used when the request names none. Must be `@Sortable()`. */
-  default: ColumnName<M>;
+  default: ColumnName<InstanceType<C>>;
 
   /** Order used when the request names none. Default ASC. */
   order?: SortOrder;
+
+  /**
+   * The model the route actually queries, when an application can replace `model` with a subclass (a DI-registered
+   * model class). Resolved per request; its `@Sortable()` columns, inherited ones included, are the allowlist.
+   */
+  resolve?: () => C;
 
   /** Query key the sort is read from. Default `order`, the key `@Query() order?: OrderDTO` reads. */
   field?: string;
 }
 
+const sortableCache = new WeakMap<object, readonly string[]>();
+
+function sortableOf(model: Constructor<ModelBase>): readonly string[] {
+  let columns = sortableCache.get(model);
+  if (!columns) {
+    columns = Object.freeze([...(extractModelDescriptorInherited(model)?.Sortable ?? [])]);
+    sortableCache.set(model, columns);
+  }
+  return columns;
+}
+
 /**
  * Reads `?order={"column":"Login","order":"desc"}` into a {@link Sort} of `model`. A column that is not
- * `@Sortable()` on the model, or an order other than ASC / DESC, answers 400; a missing one takes the default.
+ * `@Sortable()` on the model (on `resolve()`'s model when given), or an order other than ASC / DESC, answers 400;
+ * a missing one takes the default.
  *
  * The model's sortable columns are read here, when the controller class is defined: a default that is not
  * sortable, or a model with no sortable column, fails the import of the controller instead of a request.
  */
-export function Sort<C extends Constructor<ModelBase>>(model: C, options: SortDecoratorOptions<InstanceType<C>>) {
+export function Sort<C extends Constructor<ModelBase>>(model: C, options: SortDecoratorOptions<C>) {
   if (!model) {
     // A circular import hands the decorator the model before its module has run.
     throw new InvalidArgument(`@Sort: the model is undefined (default column '${options.default}'), check for a circular import`);
   }
 
-  const sortable = extractModelDescriptorInherited(model)?.Sortable ?? [];
+  const sortable = [...(extractModelDescriptorInherited(model)?.Sortable ?? [])];
   const fallback: string = options.default;
+  const resolve = options.resolve;
 
   if (sortable.length === 0) {
     throw new InvalidArgument(`@Sort(${model.name}): the model declares no @Sortable() column`);
@@ -92,7 +111,20 @@ export function Sort<C extends Constructor<ModelBase>>(model: C, options: SortDe
 
   const routeOptions: SortRouteArgOptions = {
     model,
-    sortable: [...sortable],
+    sortable,
+    columns: () => {
+      if (!resolve) {
+        return sortable;
+      }
+
+      const resolved = resolve();
+      const columns = sortableOf(resolved);
+      if (!columns.includes(fallback)) {
+        // Only a model outside `model`'s hierarchy can lack the default; that is a server misconfiguration, not a 400.
+        throw new Error(`@Sort(${model.name}): default column '${fallback}' is not @Sortable() on the resolved model ${resolved.name}`);
+      }
+      return columns;
+    },
     default: fallback,
     order: options.order ?? SortOrder.ASC,
     field: options.field ?? 'order',

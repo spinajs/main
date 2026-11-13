@@ -1,6 +1,9 @@
 import { RelationName, SortOrder } from '@spinajs/orm';
 import { Include, Sort, readSort } from '../../src/index.js';
 import { Sorted } from '../models/Sorted.js';
+import { Belongs } from '../models/Belongs.js';
+
+class SortedSubclass extends Sorted {}
 
 export class Controller {
   public list(@Sort(Sorted, { default: 'Name', order: SortOrder.DESC }) sort: Sort<Sorted>, @Include(Sorted, ['Belongs', 'TestsTwos']) include: RelationName<Sorted>[]) {
@@ -14,6 +17,15 @@ export class Controller {
 
   // @ts-expect-error a relation is not a column
   public relationDefault(@Sort(Sorted, { default: 'Belongs' }) sort: Sort<Sorted>) {
+    return sort;
+  }
+
+  public resolvedSubclass(@Sort(Sorted, { default: 'Name', resolve: () => SortedSubclass }) sort: Sort<Sorted>) {
+    return sort;
+  }
+
+  // @ts-expect-error resolve returns the model or a subclass of it
+  public resolvedUnrelated(@Sort(Sorted, { default: 'Name', resolve: () => Belongs }) sort: Sort<Sorted>) {
     return sort;
   }
 

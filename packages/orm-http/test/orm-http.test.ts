@@ -12,6 +12,8 @@ import { expect } from 'chai';
 import './../src/index.js';
 import { FilterableModel } from './models/Filterable.js';
 import { FilterC } from './controllers/Filter.js';
+import { SortedWithSecret, sortModel } from './controllers/SortInclude.js';
+import { Sorted } from './models/Sorted.js';
 import './../src/route-arg.js';
 import { FilterableLogicalOperators } from './../src/index.js';
 // dto-relation e2e fixtures: tables + seed rows for the CampaignController routes
@@ -485,6 +487,19 @@ describe('Http orm tests', function () {
 
       expect(result.status).to.eq(200);
       expect(result.body).to.deep.eq({ column: 'Name', order: 'ASC' });
+    });
+
+    it('takes the sortable columns from the model resolve() returns', async () => {
+      expect((await get(`sortedResolved?order=${order({ column: 'Secret' })}`)).status).to.eq(400);
+
+      sortModel.current = SortedWithSecret;
+      try {
+        const result = await get(`sortedResolved?order=${order({ column: 'Secret' })}`);
+        expect(result.status).to.eq(200);
+        expect(result.body).to.deep.eq({ column: 'Secret', order: 'ASC' });
+      } finally {
+        sortModel.current = Sorted;
+      }
     });
 
     it('accepts a single include', async () => {

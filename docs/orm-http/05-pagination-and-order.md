@@ -78,11 +78,12 @@ export class Invoice extends ModelBase<Invoice> {
 
 | Decorator | Reads | Argument type | Answers 400 for |
 | --- | --- | --- | --- |
-| `@Sort(Model, { default, order?, field? })` | `req.query[field ?? 'order']`, the JSON object `OrderDTO` reads: `?order={"column":"Total","order":"desc"}` | `Sort<M>`: `{ column: ColumnName<M>; order: SortOrder }` | a column that is not `@Sortable()`, an order other than `ASC` / `DESC` (any case), a value that is neither a JSON object nor `null` |
+| `@Sort(Model, { default, order?, resolve?, field? })` | `req.query[field ?? 'order']`, the JSON object `OrderDTO` reads: `?order={"column":"Total","order":"desc"}` | `Sort<M>`: `{ column: ColumnName<M>; order: SortOrder }` | a column that is not `@Sortable()`, an order other than `ASC` / `DESC` (any case), a value that is neither a JSON object nor `null` |
 | `@Include(Model, relations, { field? })` | `req.query[field ?? 'include']`: `?include=Lines`, repeated `?include=A&include=B`, or a JSON array `?include=["A","B"]` | `RelationName<M>[]` | a name outside `relations` |
 
 - `@Sort`: a missing column takes `default`, a missing order takes `order` (default `SortOrder.ASC`); an empty string counts as missing. The order comes back upper case. `default` is typed `ColumnName<M>`.
 - `@Sort` reads the model's sortable columns when the decorator runs, that is when the controller class is defined. A `default` that is not `@Sortable()`, or a model with no `@Sortable()` column, throws `InvalidArgument` there, so the controller fails to load instead of failing a request.
+- `resolve: () => Model` (`@Sort(User, { default: 'CreatedAt', resolve: userModel })`): for a route that queries a model the application may replace with a subclass. `model` still types `default` and is checked at load; each request takes the allowlist from the `@Sortable()` columns of the model `resolve()` returns, inherited ones included. `resolve` is typed to return `model` or a subclass of it.
 - `@Include`: `relations` is typed `readonly RelationName<M>[]`, so a typo or a column name does not compile. No include is `[]`; a name sent twice is kept once.
 - The validation runs through `RouteArgs.tryHydrateParam()` with a schema built from the allowlist (`enum`), the same path as every other argument, so a rejected value is a `ValidationFailed` 400; a `?order=` that is not valid JSON is an `InvalidArgument` 400.
 - `Sort<M>.column` is typed `ColumnName<M>` (any column of the model); the `@Sortable()` allowlist is enforced at runtime. A parameter decorator cannot type its parameter, so `@Sort(User, ...)` on a parameter declared `Sort<Team>` compiles: keep the two models the same.

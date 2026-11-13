@@ -1119,11 +1119,11 @@ ${line}` : line;
 
     // orm-http @Sort: a JSON object, `{ column, order }`, over the model's @Sortable() columns.
     if (param.Type === 'SortRouteArg') {
-      const options = param.Options as { sortable: string[]; default: string; order: string };
+      const options = param.Options as { sortable: readonly string[]; columns?: () => readonly string[]; default: string; order: string };
       return {
         type: 'object',
         properties: {
-          column: { type: 'string', enum: [...options.sortable], default: options.default },
+          column: { type: 'string', enum: [...(options.columns?.() ?? options.sortable)], default: options.default },
           order: { type: 'string', enum: ['ASC', 'DESC'], default: options.order },
         },
       };

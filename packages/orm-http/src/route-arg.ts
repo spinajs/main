@@ -78,6 +78,7 @@ export class SortRouteArg extends RouteArgs {
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<SortRouteArgOptions>, req: express.Request, _res: express.Response, route: IRoute) {
     const options = param.Options!;
+    const sortable = options.columns();
     const raw = req.query[options.field];
     const input = raw === '' ? undefined : typeof raw === 'string' ? parseJson(raw, options.field) : raw;
 
@@ -93,14 +94,14 @@ export class SortRouteArg extends RouteArgs {
     const schema = {
       type: 'object',
       properties: {
-        column: { type: 'string', enum: options.sortable },
+        column: { type: 'string', enum: sortable },
         order: { type: 'string', enum: [SortOrder.ASC, SortOrder.DESC] },
       },
     };
 
     const checked = await this.tryHydrateParam(given, { ...param, Name: options.field, Schema: schema, RuntimeType: Object }, route);
 
-    return { CallData: callData, Args: readSort(checked ?? undefined, options.sortable, { column: options.default, order: options.order }) };
+    return { CallData: callData, Args: readSort(checked ?? undefined, sortable, { column: options.default, order: options.order }) };
   }
 }
 
