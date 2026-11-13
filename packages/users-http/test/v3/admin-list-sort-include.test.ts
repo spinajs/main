@@ -2,12 +2,23 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
+import { DI } from '@spinajs/di';
+import { Connection, Model, Sortable } from '@spinajs/orm';
 import { DefaultQueueService } from '@spinajs/queue';
-import type { User } from '@spinajs/users';
+import { RBAC_USER_MODEL, User } from '@spinajs/users';
+import type { DateTime } from 'luxon';
 
 import { Users } from '../../src/admin/controllers/Users/Users.js';
 import { startUsersHttpApp, stopUsersHttpApp } from '../support/http-app.js';
 import type { HttpClient, UsersHttpApp } from '../support/http-app.js';
+
+/** An application's user model on the `users` table, sortable by one more column than `User`. */
+@Connection('default')
+@Model('users')
+class SortableAppUser extends User {
+  @Sortable()
+  public RegisteredAt!: DateTime<true>;
+}
 
 /**
  * `order` and `include` of the admin user routes, through the http layer: `@Sort(User)` checks the column against
@@ -74,6 +85,18 @@ describe('users-http v3: sort and include of the admin user routes', function ()
       expect(res.status, res.text).to.eq(400);
     });
   }
+
+  it('sorts by a column the registered user model subclass makes sortable', async () => {
+    DI.register(SortableAppUser).asValue(RBAC_USER_MODEL, true);
+    try {
+      const res = await list(order({ column: 'RegisteredAt', order: 'ASC' }));
+      expect(res.status, res.text).to.eq(200);
+    } finally {
+      DI.register(User).asValue(RBAC_USER_MODEL, true);
+    }
+
+    expect((await list(order({ column: 'RegisteredAt' }))).status).to.eq(400);
+  });
 
   it('answers 400 to a sort direction other than ASC or DESC', async () => {
     const res = await list(order({ column: 'Login', order: 'sideways' }));

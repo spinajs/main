@@ -270,7 +270,7 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param pagination.page Page number (zero-based)
    * @param pagination.limit Number of users per page (default: 10, max: 100)
-   * @param sort Query key `order`, JSON `{"column":"Login","order":"ASC"}`: a `@Sortable()` column of User (default: CreatedAt), ASC or DESC in any case (default: DESC)
+   * @param sort Query key `order`, JSON `{"column":"Login","order":"ASC"}`: a `@Sortable()` column of the user model, `User` or the subclass registered as `RBAC_USER_MODEL` (default: CreatedAt), ASC or DESC in any case (default: DESC)
    * @param include Relations to include: Metadata
    * @returns {User[]} Paginated list of user accounts, each with optional Metadata relation
    * @response 400 Validation error — a sort column that is not sortable, a sort order other than ASC / DESC, or an unknown relation to include
@@ -281,7 +281,7 @@ export class Users extends BaseController {
   @Access('users:read', { fields: 'filter' })
   public async list(
     @CurrentPrincipal() caller: Principal,
-    @Sort(User, { default: 'CreatedAt', order: SortOrder.DESC }) sort: Sort<User>,
+    @Sort(User, { default: 'CreatedAt', order: SortOrder.DESC, resolve: userModel }) sort: Sort<User>,
     @Include(User, ['Metadata']) include: RelationName<User>[],
     @Query() pagination?: PaginationDTO,
     @Filter(USER_FILTER)

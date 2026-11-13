@@ -25,7 +25,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 | --- | --- | --- |
 | `pagination.page` | `0` | zero-based |
 | `pagination.limit` | `10` | capped at `100` |
-| `order.column` | `CreatedAt` | the `@Sortable()` columns of `User`: `Uuid`, `Login`, `Email`, `IsActive`, `CreatedAt`, `LastLoginAt`, `DeletedAt`; anything else `400`. Read from `User` itself, so `@Sortable()` columns a registered `User` subclass adds are not sortable here |
+| `order.column` | `CreatedAt` | the `@Sortable()` columns of `User`: `Uuid`, `Login`, `Email`, `IsActive`, `CreatedAt`, `LastLoginAt`, `DeletedAt`; anything else `400`. Read per request from the user model (`userModel()`), so `@Sortable()` columns a `User` subclass registered as `RBAC_USER_MODEL` adds are sortable too |
 | `order.order` | `DESC` | `ASC`, `DESC` (any case); anything else `400` |
 | `include` | none | `Metadata`; anything else `400` |
 | `filter` | none | the columns below; see [Filtering](../orm-http/03-filtering.md) |
