@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, Sortable, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
@@ -252,8 +252,10 @@ export class UserBase extends ModelBase<UserBase> {
   @Hidden()
   public Id!: number;
 
+  @Sortable()
   public Uuid!: string;
 
+  @Sortable()
   public Email!: string;
 
   /**
@@ -265,12 +267,14 @@ export class UserBase extends ModelBase<UserBase> {
   /**
    * Displayed name ( for others to see )
    */
+  @Sortable()
   public Login!: string;
 
   /**
    * User creation date
    */
   @CreatedAt()
+  @Sortable()
   public CreatedAt!: DateTime<true>;
 
   /**
@@ -295,15 +299,18 @@ export class UserBase extends ModelBase<UserBase> {
    * User deletion date
    */
   @SoftDelete()
+  @Sortable()
   public DeletedAt!: DateTime;
 
   @DT()
+  @Sortable()
   public LastLoginAt!: DateTime;
 
   /**
    * Account is fully active (eg. passed registration)
    * Do not use it to ban users, active user still can have banned status
    */
+  @Sortable()
   public IsActive!: boolean;
 
   /**

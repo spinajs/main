@@ -15,19 +15,19 @@ The `Users` controller is the administrative API for accounts at `/users`: list 
 | `DELETE` | `/users/:uuid` | `users:delete` on that row | fresh auth; the `authn.admin.credentials` action (`sessions`); `AccountDisableHook` on `users.delete` | `200` |
 | `PATCH` | `/users/:uuid/restore` | `users:delete` on every user | | `200` |
 
-`GET /users`, `GET /users/:uuid` and `GET /users/byLogin/:login` take the `include` query argument (an array; only `Metadata`) to populate the metadata relation, and answer only the fields the `users:read` grant reads.
+`GET /users`, `GET /users/:uuid` and `GET /users/byLogin/:login` take the `include` query argument (`@Include(User, ['Metadata'])`: `?include=Metadata`, repeated, or a JSON array; any other name `400`) to populate the metadata relation, and answer only the fields the `users:read` grant reads.
 
 ## List: filtering, sorting, paging
 
-Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `?pagination={"page":0,"limit":50}&order={"column":"Login","order":"ASC"}`. See [Pagination and ordering](../orm-http/05-pagination-and-order.md).
+Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `?pagination={"page":0,"limit":50}&order={"column":"Login","order":"ASC"}`. `order` is read by `@Sort(User, { default: 'CreatedAt', order: SortOrder.DESC })`: the sortable columns are the `@Sortable()` columns of `User`. See [Pagination and ordering](../orm-http/05-pagination-and-order.md).
 
 | Field | Default | Rule |
 | --- | --- | --- |
 | `pagination.page` | `0` | zero-based |
 | `pagination.limit` | `10` | capped at `100` |
-| `order.column` | `CreatedAt` | `Uuid`, `Login`, `Email`, `IsActive`, `CreatedAt`, `LastLoginAt`, `DeletedAt`; anything else `400` |
-| `order.order` | `DESC` | `ASC`, `DESC` |
-| `include` | none | `Metadata` |
+| `order.column` | `CreatedAt` | the `@Sortable()` columns of `User`: `Uuid`, `Login`, `Email`, `IsActive`, `CreatedAt`, `LastLoginAt`, `DeletedAt`; anything else `400`. Read from `User` itself, so `@Sortable()` columns a registered `User` subclass adds are not sortable here |
+| `order.order` | `DESC` | `ASC`, `DESC` (any case); anything else `400` |
+| `include` | none | `Metadata`; anything else `400` |
 | `filter` | none | the columns below; see [Filtering](../orm-http/03-filtering.md) |
 
 | Filter column | Operators | Meaning |
@@ -119,7 +119,7 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `Users` controller | Class key `Users`; singleton; mounted by the controller scan | `Users` | none | Subclass and `DI.register(Mine).as(Users)`. Protected hooks: `sortColumn(order)` and `asDuplicateResponse(work)`. See [Controller overrides](10-controller-overrides.md). |
+| `Users` controller | Class key `Users`; singleton; mounted by the controller scan | `Users` | none | Subclass and `DI.register(Mine).as(Users)`. Protected hook: `asDuplicateResponse(work)`. See [Controller overrides](10-controller-overrides.md). |
 | `AccountGuard` | Abstract class key `AccountGuard`; `@Autoinject` into `Users`; the role replacement only | `DefaultAccountGuard` | yours | See [Account guard](08-account-guard.md). |
 | `AccountDisableHook` | `ActionHook` on `users.deactivate`, `users.ban`, `users.delete` | `AccountDisableHook` | a hook of yours beside it | See [Account guard](08-account-guard.md). |
 | `CredentialAdminRule` | an `ActionHook` class on `authn.admin.credentials`, run through the DI `Hooks` | users' `AuthzCredentialAdminRule` | yours | See [Host services](11-host-services.md#credentialadminrule-protect-a-break-glass-account). Without one, identity changes of another account and deletes answer `403 forbidden`. |
