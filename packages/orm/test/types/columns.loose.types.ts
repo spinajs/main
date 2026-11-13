@@ -1,4 +1,4 @@
-import { col, RawQuery, SortOrder, SqlOperator, Wrapper } from '@spinajs/orm';
+import { RawQuery, SortOrder, SqlOperator, Wrapper } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Upload, User } from './models.js';
 import { assertType } from './assert.js';
@@ -28,7 +28,7 @@ export async function whereLoose(): Promise<void> {
   await untyped.where('whatever', 1);
   await User.destroy().where('Id', 'not a number');
   await User.update({ Email: 'x' }).where(dynamic, 1);
-  await User.query().where(col('legacy_column'), 1);
+  await User.query().where('legacy_column', 1);
 }
 
 export async function columnsLoose(): Promise<void> {

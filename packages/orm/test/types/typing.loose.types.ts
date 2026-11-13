@@ -1,4 +1,3 @@
-import { col } from '@spinajs/orm';
 import type { ColumnName, ColumnRef, ColumnValue, ModelBase, OrmStrict, RawQuery, RelationName, WhereValue } from '@spinajs/orm';
 import { assertType } from './assert.js';
 import type { Equal } from './assert.js';
@@ -15,5 +14,5 @@ assertType<Equal<ColumnValue<User, 'Team'>, unknown>>();
 assertType<Equal<WhereValue<User, 'Id'>, any>>();
 
 export const free: ColumnRef<User> = 'anything';
-export const literal: ColumnRef<Team> = col('legacy_column');
+export const undeclared: ColumnRef<Team> = 'legacy_column';
 export const date: ColumnValue<User, 'CreatedAt'> = new Date();

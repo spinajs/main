@@ -1,11 +1,11 @@
-import { col, SqlOperator } from '@spinajs/orm';
+import { SqlOperator } from '@spinajs/orm';
 import { User } from '../models.js';
 
 export async function staticsStrict(dynamic: string): Promise<void> {
   await User.where('Id', 1).whereEmail('a');
   await User.where('Id', SqlOperator.GT, 1);
   await User.where('Team', 3);
-  await User.where(col('legacy_column'), 'x');
+  await User.where('users.legacy_column', 'x');
   await User.where({ Email: 'a' });
   await User.first((b) => {
     b.where('Email', 'x');
@@ -21,13 +21,13 @@ export async function staticsStrict(dynamic: string): Promise<void> {
   User.where('Nmae', undefined);
   // @ts-expect-error the value does not match the column type
   User.where('Id', 'like');
-  // @ts-expect-error a non-literal column needs col()
+  // @ts-expect-error a non-literal column is rejected
   User.where(dynamic, '=');
   // @ts-expect-error unknown column behind an operator
   User.where('Nmae', '=', 1);
   // @ts-expect-error the value does not match the column type behind an operator
   User.where('Id', '>', 'x');
-  // @ts-expect-error a non-literal column needs col(), also behind an operator
+  // @ts-expect-error a non-literal column is rejected, also behind an operator
   User.where(dynamic, '=', 1);
   // @ts-expect-error unknown key in the object form
   User.where({ Emial: 'x' });

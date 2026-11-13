@@ -16,11 +16,6 @@ export interface OrmTypeRegistry {
 
 export type OrmStrict = OrmTypeRegistry extends { strictColumns: true } ? true : false;
 
-declare const columnLiteral: unique symbol;
-declare const relationLiteral: unique symbol;
-
-/** A relation name computed at runtime; made by {@link rel}. */
-export type RelationLiteral = string & { readonly [relationLiteral]: true };
 declare const projectedFrom: unique symbol;
 
 /** Phantom marker of a row narrowed by `select`/`columns`/aggregates; `S` is the model it was taken from. */
@@ -33,9 +28,6 @@ type ProjectionSource<R> = R extends Projected<infer S> ? (unknown extends S ? n
 
 /** The model a (possibly projected) row comes from. */
 export type SourceRow<R> = [ProjectionSource<R>] extends [never] ? R : ProjectionSource<R>;
-
-/** A column name the type system cannot see (computed, unmanaged, from a joined table); made by {@link col}. */
-export type ColumnLiteral = string & { readonly [columnLiteral]: true };
 
 type RelationLike = Relation<any, any, any> | SingleRelation<any, any>;
 type ColumnPropertyNames<T> = { [K in keyof T]-?: NonNullable<T[K]> extends ((...args: any[]) => any) | RelationLike ? never : K }[keyof T];
@@ -51,7 +43,7 @@ export type QualifiedColumn = `${string}.${string}`;
 type Loose = OrmStrict extends true ? never : string & {};
 
 /** A column where the builder takes only a name. */
-export type ColumnRef<M> = ColumnName<M> | QualifiedColumn | ColumnLiteral | Loose;
+export type ColumnRef<M> = ColumnName<M> | QualifiedColumn | Loose;
 export type ColumnArg<M> = ColumnRef<M> | RawQuery | Wrap;
 /** `where('Owner', user)` compares the relation's foreign key. */
 export type WhereColumn<M> = ColumnRef<M> | RelationName<M>;
@@ -101,16 +93,6 @@ export type WithPopulated<M, P extends string> = unknown extends M ? M : M & { [
 type IsOptional<M, K extends keyof M> = Partial<Pick<M, K>> extends Pick<M, K> ? true : [Extract<M[K], null | undefined>] extends [never] ? false : true;
 
 /** A relation name the legacy populate forms accept: any string in loose mode, a known relation in strict mode. */
-export type PopulateName<M> = OrmStrict extends true ? PopulatePath<M> | RelationLiteral : string;
+export type PopulateName<M> = OrmStrict extends true ? PopulatePath<M> : string;
 /** The object form `populate({ Metadata: {} })`; in strict mode its keys must be relations. */
 export type PopulateTree<M> = OrmStrict extends true ? { [K in RelationName<M>]?: unknown } : object;
-
-/** Escape hatch for a relation name computed at runtime; it is passed through unchecked. */
-export function rel(name: string): RelationLiteral {
-  return name as RelationLiteral;
-}
-
-/** Escape hatch for a column the model does not declare; it is passed through unchecked. */
-export function col(name: string): ColumnLiteral {
-  return name as ColumnLiteral;
-}

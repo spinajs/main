@@ -621,6 +621,9 @@ export interface IModelDescriptor {
    */
   Hidden: string[];
 
+  /** Columns a request may sort by, declared with `@Sortable()`. */
+  Sortable: string[];
+
   /** `@Column` specs by property. Schema tooling reads them; queries and hydration do not. */
   ColumnSpecs?: Map<string, ColumnSpec>;
 
@@ -1186,6 +1189,9 @@ export interface ISort {
   tableAlias?: string;
 }
 
+/** `ISort` whose column the strict typing checks against the model. */
+export type ColumnSort<M> = Omit<ISort, 'column'> & { column: ColumnRef<M> };
+
 export interface IQueryBuilder {
   Table: string;
   TableAlias: string;
@@ -1366,7 +1372,7 @@ export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilde
   orderBy(column: ColumnRef<Unbox<T>>): this;
   orderByDescending(column: ColumnRef<Unbox<T>>): this;
   order(column: ColumnRef<Unbox<T>>, direction?: SortOrder): this;
-  order(sort: Partial<ISort> | Array<Partial<ISort> | null | undefined> | null | undefined): this;
+  order(sort: Partial<ColumnSort<Unbox<T>>> | Array<Partial<ColumnSort<Unbox<T>>> | null | undefined> | null | undefined): this;
 
   groupBy(expression: RawQuery | ColumnRef<Unbox<T>>): this;
 }

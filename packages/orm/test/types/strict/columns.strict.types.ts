@@ -1,4 +1,4 @@
-import { col, RawQuery, SortOrder, SqlOperator } from '@spinajs/orm';
+import { RawQuery, SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import { Upload, User } from '../models.js';
 
@@ -17,7 +17,7 @@ export async function whereStrict(): Promise<void> {
     })
     .whereIn('Id', [1])
     .whereNull('Name');
-  await User.query().whereColumn('Id', '=', 'Owner.Id').where(col('legacy_column'), 'anything');
+  await User.query().whereColumn('Id', '=', 'Owner.Id').where('users.legacy_column', 'anything');
   await anyQuery.where('whatever', 1);
   await untyped.where('whatever', 1);
   await baseModel.where('whatever', 1);
@@ -31,7 +31,7 @@ export async function whereStrict(): Promise<void> {
   User.query().where('Id', 'x');
   // @ts-expect-error the value does not match the column type behind an operator
   User.query().where('Id', '>', 'x');
-  // @ts-expect-error a non-literal column needs col()
+  // @ts-expect-error a non-literal column is rejected
   User.query().where(dynamic, 1);
   // @ts-expect-error not an operator
   User.query().where('Id', dynamic, 1);
@@ -64,6 +64,17 @@ export async function columnsStrict(): Promise<void> {
   User.query().orderBy('Nmae');
   // @ts-expect-error unknown column in order
   User.query().order('Nmae', SortOrder.ASC);
+  // @ts-expect-error a plain string is rejected by orderBy
+  User.query().orderBy(dynamic);
+  // @ts-expect-error a plain string is rejected by orderByDescending
+  User.query().orderByDescending(dynamic);
+  // @ts-expect-error a plain string is rejected by order
+  User.query().order(dynamic, SortOrder.ASC);
+  await User.query().order({ column: 'Email', order: SortOrder.ASC }).order([{ column: 'users.Id' }, null]);
+  // @ts-expect-error unknown column in the object form of order
+  User.query().order({ column: 'Nmae', order: SortOrder.ASC });
+  // @ts-expect-error a plain string is rejected by the object form of order
+  User.query().order([{ column: dynamic }]);
   // @ts-expect-error unknown column in groupBy
   User.query().groupBy('Nmae');
   // @ts-expect-error unknown column in an aggregate
