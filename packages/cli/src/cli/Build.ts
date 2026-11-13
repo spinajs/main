@@ -131,6 +131,7 @@ export class Build extends CliCommand {
       ['models', manifest.models.length],
       ['schemas', Object.keys(manifest.schemas).length],
       ['diagnostics', `${counts.error} error(s), ${counts.warning} warning(s), ${counts.info} info`],
+      ['hash', manifest.hash],
     ];
     return rows.map(([name, value]) => `${name.padEnd(12)}${value}`);
   }

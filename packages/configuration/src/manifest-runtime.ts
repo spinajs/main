@@ -185,6 +185,22 @@ export function effectiveManifestOf(container: IContainer): EffectiveManifest | 
   return { settings, manifest };
 }
 
+/** Which manifest the app booted from, as `/telemetry/health` reports it. */
+export interface BootedManifest {
+  mode: ManifestMode;
+  /** The manifest's `hash`, as `hashManifest` and `spinajs manifest:diff` give it; `null` when the app booted without one. */
+  hash: string | null;
+}
+
+/**
+ * Read from what the boot registered, so the hash is not computed again. When `ManifestConfigurationSource` loaded the
+ * file, `loadRuntimeManifest` checked that the hash matches its content; a manifest a host or `withManifest` registered
+ * is reported as registered, unchecked. Unlike `effectiveManifestOf` it never throws, so a liveness probe cannot fail on it.
+ */
+export function bootedManifestOf(container: IContainer): BootedManifest {
+  return { mode: manifestSettingsOf(container)?.mode ?? 'off', hash: activeManifestOf(container)?.hash ?? null };
+}
+
 /** The manifest to read from instead of scanning: registered, and the effective mode is not `off`. */
 export function activeManifestOf(container: IContainer): Manifest | undefined {
   const mode = manifestSettingsOf(container)?.mode ?? 'off';
