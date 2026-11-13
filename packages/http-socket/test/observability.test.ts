@@ -7,7 +7,7 @@ import { DI, Injectable } from '@spinajs/di';
 import { Metrics } from '@spinajs/telemetry-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../src/interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../src/interfaces.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { socketMetrics } from '../src/metrics.js';
 import { ITestServer, command, delay, nextId, open, resultOf, startServer } from './harness.js';
@@ -15,13 +15,13 @@ import { logText } from './log-text.js';
 
 export const obsStageSeen: Array<{ handler: string | null; args: boolean }> = [];
 
-@Injectable(SocketCommandStage)
-export class ObsTagStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class ObsTagStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Lookup + 50;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     if (!ctx.handler?.fullName.startsWith('obs.')) {
       return next();
     }

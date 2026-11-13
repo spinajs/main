@@ -62,6 +62,7 @@ describe('pglite SQL dialect profile', function () {
 
   it('maps the pg catalog types tableInfo() reports to column families', () => {
     expect(familiesOf('int8', PGLITE_SQL_DIALECT)).to.deep.equal(['bigint']);
+    expect(familiesOf('varchar', PGLITE_SQL_DIALECT)).to.include('uuid');
     expect(PGLITE_SQL_DIALECT.nativeTypes).to.deep.equal(POSTGRES_SQL_DIALECT.nativeTypes);
   });
 

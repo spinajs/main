@@ -239,5 +239,36 @@ describe('diffSchema', () => {
       ]);
       expect(run(models, columns, { hasRows: true }, options(EXACT)).changes[0]).to.equal('!alterColumn posts (posts.Title: NULL allowed, length not compared; re-stated as 200)');
     });
+
+    it('reports MIG006 as an error when a column change that runs rebuilds a table that a live or a created table references while foreign keys are enforced', () => {
+      const REBUILDS = profile('sqlite', NATIVE, { alterColumnRebuildsTable: true });
+      const models = [
+        model('User', 'users', [id(), col('Name', { family: 'text' }, { nullable: true }), col('ParentId', { family: 'integer', inferred: true })]),
+        model('Post', 'posts', [id(), col('OwnerId', { family: 'integer', inferred: true })]),
+        model('Comment', 'comments', [id(), col('UserId', { family: 'integer', inferred: true })], { relations: [{ name: 'User', kind: 'belongsTo', target: 'User', foreignKey: 'UserId' }] }),
+      ];
+      const columns = new Map([
+        ['users', [LIVE_ID, live('Name', 'text'), live('ParentId', 'integer')]],
+        ['posts', [LIVE_ID, live('OwnerId', 'integer')]],
+      ]);
+      const extras = new Map<string, LiveTableExtras>([
+        ['users', { hasRows: true, foreignKeys: [{ name: 'self', column: 'ParentId', table: 'users', references: 'Id' }] }],
+        ['posts', { hasRows: true, foreignKeys: [{ name: 'fk', column: 'OwnerId', table: 'users', references: 'Id' }] }],
+      ]);
+      const check = (dialect: SqlDialectProfile, options: DiffOptions = { foreignKeysEnforced: true }, live = columns): string[] => {
+        const diagnostics: Diagnostic[] = [];
+        diffSchema(target(...models), live, extras, { dialect, diagnostics, ...options });
+        return diagnostics.filter((d) => d.code === 'MIG006').map((d) => `${d.severity} ${d.message}`);
+      };
+      expect(check(REBUILDS)).to.deep.equal(['error altering a column of users rebuilds the table when that step runs, which fails while foreign keys are enforced: it is referenced by posts, comments']);
+      expect(check(REBUILDS, { foreignKeysEnforced: false })).to.deep.equal([]);
+      expect(check(REBUILDS, {})).to.deep.equal([]);
+      expect(check(EXACT)).to.deep.equal([]);
+      // a NULL in a column made NOT NULL on a table with rows: DESTRUCTIVE, so it runs only when allowed
+      const nullable = new Map([...columns, ['users', [LIVE_ID, live('Name', 'text', { Nullable: true }), live('ParentId', 'integer')]]]);
+      models[0] = model('User', 'users', [id(), col('Name', { family: 'text' }), col('ParentId', { family: 'integer', inferred: true })]);
+      expect(check(REBUILDS, { foreignKeysEnforced: true }, nullable)).to.deep.equal([]);
+      expect(check(REBUILDS, { foreignKeysEnforced: true, allowDestructive: true }, nullable)).to.have.length(1);
+    });
   });
 });

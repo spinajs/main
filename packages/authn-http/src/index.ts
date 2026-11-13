@@ -1,7 +1,7 @@
 export { AuthnPrincipalResolver } from './api.js';
 export type { AuthnIdentity } from './api.js';
 export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
-export { ClientIp, proxyTrustOf } from './middleware/client-ip.js';
+export { AuthnRealIp, ClientIp, proxyTrustOf, realIpOverrideFinding } from './middleware/client-ip.js';
 export { CsrfOriginGuard, assertSameSiteNoneProtected } from './middleware/csrf.js';
 export type { SameSiteNoneCheck } from './middleware/csrf.js';
 export { AuthnMiddleware } from './middleware/authn.js';
@@ -21,6 +21,7 @@ export { registerAuthnHttpV3 } from './v3/register.js';
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';
 export { AUTHN_HTTP_SCHEMAS, AuthnHttpSchemaProvider } from './v3/schemas.js';
 export * from './schema.js';
+export { AuthnRateLimit, AuthnSessionRateLimit, pendingSessionKey, pendingSessionKeyOf } from './rate-limits.js';
 export type * from './hooks.js';
 export * from './bootstrap.js';
 export { WebhookAuthnEventSink } from './webhook/sink.js';

@@ -12,6 +12,7 @@ import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
+import { UsersRateLimit } from '../../../rate-limits.js';
 import { AccountGuard } from '../../../services/AccountGuard.js';
 // Registers AccountDisableHook: the controller scan imports this file, and an app may never import the package entry.
 import '../../../services/account-disable-hook.js';
@@ -278,6 +279,7 @@ export class Users extends BaseController {
    * @response 403 Forbidden — no `users:read` on every user (a conditional grant does not list)
    */
   @Get('/')
+  @UsersRateLimit('list')
   @Access('users:read', { fields: 'filter' })
   public async list(
     @CurrentPrincipal() caller: Principal,
@@ -426,6 +428,7 @@ export class Users extends BaseController {
    * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
+  @UsersRateLimit('create')
   @Access('users:create')
   public async addUser(@CurrentPrincipal() caller: Principal, @Body() data: CreateUserDto) {
     const by = userActor(caller);
@@ -562,6 +565,7 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Del(':user')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async removeUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Req() req: Request) {
     const by = userActor(caller);
@@ -589,6 +593,7 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Patch(':uuid/restore')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async restoreUser(@CurrentPrincipal() caller: Principal, @Param() uuid: string) {
     // withDeleted: every model query filters soft-deleted rows out by default, and that is the one row this route exists for.

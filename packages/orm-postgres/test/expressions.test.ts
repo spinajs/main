@@ -3,7 +3,7 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { concat, outer, SqlExpressions } from '@spinajs/orm';
+import { concat, outer, QueryContext, SqlExpressions } from '@spinajs/orm';
 
 import { PostgresOrmDriver } from '../src/index.js';
 

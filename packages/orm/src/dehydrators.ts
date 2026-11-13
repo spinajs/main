@@ -15,6 +15,10 @@ export class StandardModelDehydrator extends ModelDehydrator {
     const relByForeignKey = new Map([...model.ModelDescriptor!.Relations.values()].filter((r) => r.Type === RelationType.One).map((r) => [r.ForeignKey, r]));
 
     model.ModelDescriptor!.Columns?.forEach((c) => {
+      if (c.Ignore) {
+        return;
+      }
+
       // Only the omit list decides, and `@Hidden()` rides in on it ( model.ts appends
       // `descriptor.Hidden` to `omit` for both dehydrate entry points ), so a foreign key a model
       // does not want to hand out is hidden the same way any other column is.

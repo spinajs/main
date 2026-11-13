@@ -173,7 +173,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * dies. A relation's baseline is `snapshotRelation()`'s job, and it stores primary keys.
    */
   private snapshotColumns(): IColumnDescriptor[] {
-    return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual);
+    return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual && !c.Ignore);
   }
 
   /**
@@ -889,7 +889,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && !c.Ignore).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -1000,7 +1000,14 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     model = await this.fresh();
 
+    const returned = model as unknown as Record<string, unknown>;
     for (const c of this.ModelDescriptor!.Columns) {
+      // An ignored property the row did not return is in-memory state only; setDefaults() leaves
+      // it unset, so undefined means "not returned".
+      if (c.Ignore && returned[c.Name] === undefined) {
+        continue;
+      }
+
       (this as any)[c.Name] = (model as any)[c.Name];
     }
 
@@ -1018,6 +1025,10 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   protected setDefaults() {
     this.ModelDescriptor!.Columns?.forEach((c) => {
+      if (c.Ignore) {
+        return;
+      }
+
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
       } else if (c.DefaultValue instanceof RawQuery) {
@@ -1218,6 +1229,10 @@ function _toColumnValues(data: Record<string, unknown>, descriptor: IModelDescri
 
   for (const [key, value] of Object.entries(data)) {
     const column = descriptor.Columns.find((c) => c.Name === key);
+    if (column?.Ignore) {
+      continue;
+    }
+
     values[key] = column?.Converter && value !== null && value !== undefined ? column.Converter.toDB(value, undefined as unknown as ModelBase, column, descriptor.Converters.get(key)?.Options) : value;
   }
 
@@ -1449,7 +1464,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && !c.Ignore).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();

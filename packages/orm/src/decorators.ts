@@ -323,6 +323,10 @@ export function Archived() {
   });
 }
 
+function ignoredPrimaryKey(model: IModelDescriptor, propertyKey: string) {
+  return new InvalidArgument(`@Ignore() cannot mark primary key ${propertyKey} of model ${model.Name}: a primary key is always persisted`);
+}
+
 /**
  * Marks a field as part of the primary key. Applying it to more than one property of the same
  * model declares a composite key; the columns are ordered by decorator evaluation order.
@@ -334,6 +338,10 @@ export function Archived() {
  */
 export function Primary(options?: IPrimaryKeyOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (model.Columns.some((c) => c.Name === propertyKey && c.Ignore)) {
+      throw ignoredPrimaryKey(model, propertyKey);
+    }
+
     if (!model.PrimaryKey.includes(propertyKey)) {
       model.PrimaryKey.push(propertyKey);
     }
@@ -409,10 +417,16 @@ export function Sortable(): <T extends object>(target: T, propertyKey: ColumnNam
 }
 
 /**
- * Marks columns as UUID. Column will be generated ad creation
+ * Marks a property as not persisted: no insert, update, upsert or `save()` writes it, `dehydrate()`
+ * omits it, relation queries never select it and it is absent from the JSON schemas. A query that
+ * returns a column of that name still hydrates it.
  */
 export function Ignore() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (model.PrimaryKey.includes(propertyKey)) {
+      throw ignoredPrimaryKey(model, propertyKey);
+    }
+
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this

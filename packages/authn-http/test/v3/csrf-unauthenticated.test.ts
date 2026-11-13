@@ -6,6 +6,7 @@ import { CONFIGURATION_CONTAINER_KEY } from '@spinajs/configuration';
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import authnHttpConfig from '../../src/config/authn-http.js';
 import { fakeContainer } from '@spinajs/testing';
+import { mounted } from '../support/server-hooks.js';
 
 const OWN = 'http://app.example.test';
 const PARTNER = 'https://partner.example.org';
@@ -40,7 +41,7 @@ function run(guard: CsrfOriginGuard, path: string, headers: Record<string, strin
   const res = { statusCode: 200, body: undefined as unknown, status: (c: number) => ((res.statusCode = c), res), json: (b: unknown) => ((res.body = b), res) };
   const next = sinon.spy();
   const req = { method, path, url: path, headers: { host: 'app.example.test', ...headers }, socket: { remoteAddress: '127.0.0.1' }, storage: {} } as any;
-  guard.before()!(req, res as any, next);
+  mounted(guard)!(req, res as any, next);
   return { passed: next.calledOnce, status: res.statusCode, body: res.body };
 }
 

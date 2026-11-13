@@ -690,6 +690,17 @@ export class SqliteOrmDriver extends SqlDriver {
     return indexes.sort(compareByName);
   }
 
+  // The pragma is per connection: read it on the writer handle, which runs the migrations.
+  public foreignKeysEnforced(): Promise<boolean> {
+    if (!this.Db) {
+      throw new Error('cannot read PRAGMA foreign_keys, no db connection');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.Db.get('PRAGMA foreign_keys', (err: Error | null, row?: { foreign_keys: number }) => (err ? reject(err) : resolve(row?.foreign_keys === 1)));
+    });
+  }
+
   public async tableForeignKeys(name: string, _schema?: string): Promise<LiveForeignKey[]> {
     const keys = [...(await this.readForeignKeys(name))].sort((a, b) => a.id - b.id || a.seq - b.seq);
 

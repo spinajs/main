@@ -92,6 +92,18 @@ export interface ParamEntry {
 
 export interface PolicyRef { type: string; options?: unknown[] }
 
+/**
+ * A route middleware of a controller or route, in source order: the runtime applies decorators bottom-up, so it mounts them
+ * in the reverse order of one class's or one method's list. `options`: the literal arguments after the type of
+ * `@Middleware(Type, ...options)`, the constructor options. `decoratorArgs`: the literal arguments of a decorator that mounts
+ * the middleware itself (`@Accepts`, `@BotCheck`, ...), which need not be the constructor options. Either is omitted when an
+ * argument is not a plain JSON literal in the source.
+ */
+export interface MiddlewareRef { type: string; options?: unknown[]; decoratorArgs?: unknown[] }
+
+/** An `http.routes.middlewares` entry by its type name; `fromClass` when the entry is the class itself, which needs no registration. */
+export interface GlobalMiddlewareRef { type: string; fromClass?: true }
+
 export interface RouteEntry {
   method: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'file';
   path: string;
@@ -105,7 +117,7 @@ export interface RouteEntry {
   params: ParamEntry[];
   returnType: TypeRef;
   policies: PolicyRef[][];           // groups: OR between groups, AND inside
-  middlewares: { type: string; options?: unknown[] }[];
+  middlewares: MiddlewareRef[];
   access?: string[];                 // @Access permissions (authz-http)
   allowAnonymous?: boolean;
   public?: string;                   // @Public reason (http)
@@ -143,7 +155,7 @@ export interface ControllerEntry {
   basePath: string | null; basePathConfig?: string;   // as declared; null without @BasePath
   /** Effective base the routes are mounted under (`controllerMountPath`); absent in fragments older than the field. */
   mountPath?: string;
-  policies: PolicyRef[][]; middlewares: { type: string; options?: unknown[] }[];
+  policies: PolicyRef[][]; middlewares: MiddlewareRef[];
   access?: string[]; allowAnonymous?: boolean;   // class-level @Access / @AllowAnonymous
   public?: string;                   // class-level @Public reason
   routes: RouteEntry[];
@@ -276,6 +288,16 @@ export interface SqlDialectProfile {
   caseInsensitiveIdentifiers?: boolean;
   /** A text column's declared length is not enforced (sqlite stores it as TEXT), so re-stating one loses nothing. */
   unboundedText?: boolean;
+  /** Altering a column rebuilds the table, which fails while foreign keys are enforced and another table references it. */
+  alterColumnRebuildsTable?: boolean;
+  /**
+   * Which primary key columns the driver's `tableInfo()` reports `Unique` (what it reports, not whether the database enforces
+   * uniqueness), the columns an untargeted `onDuplicate()` conflicts on: `all` (default), `none`, or `indexed`: only a
+   * single-column key whose unique index `tableInfo()` reads, which a key of the `rowidType` lacks.
+   */
+  uniquePrimaryKey?: 'all' | 'none' | 'indexed';
+  /** The native type that makes a single-column primary key the table's rowid, for which `tableInfo()` finds no index. */
+  rowidType?: string;
 }
 
 /** `drivers`: the `@Injectable` tokens of the class that declares the profile. */
@@ -319,6 +341,12 @@ export interface Manifest extends Omit<ManifestFragment, 'package'> {
   buildEnv?: string;
   /** `false` for `spinajs build --no-schemas`: the app's own types then have no schemas, its socket contracts included. */
   schemaDerivation?: false;
+  /**
+   * `http.routes.middlewares` of the build's configuration, by type name, in config order: mounted on every route before the
+   * controller's and the route's own, unless one of those declares the same type. Never their options: config values may hold
+   * secrets or objects that do not serialize. Omitted by a build without configuration or with none.
+   */
+  globalRouteMiddlewares?: GlobalMiddlewareRef[];
   /** Version of `@spinajs/compiler` that built the manifest; `manifest:diff` warns when base and head differ. Absent in manifests older than the field. */
   compilerVersion?: string;
   generatedAt: string;
