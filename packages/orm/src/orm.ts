@@ -209,8 +209,9 @@ export class Orm extends AsyncService {
             // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
             // migration dropped or renamed, and the converters their old types mapped to.
             // D9: with the manifest as the source, tableInfo() only feeds the drift check below
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
-
+             // D9: with the manifest as the source, tableInfo() only feeds the drift check below.
+            // Drivers report `Ignore: false` for every column, and only `@Ignore()` may decide it.
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns, ['Ignore']);
             /**
              * Add coverters to columns set by decorators
              * eg. @CreatedAt decorator etc.

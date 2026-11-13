@@ -1048,7 +1048,7 @@ export interface IColumnDescriptor {
    */
   Uuid: boolean | undefined;
 
-  // should be skipped when serializing to json
+  /** Set by `@Ignore()`: the property is never written, and relation queries do not select it. */
   Ignore: boolean;
 
   /**
