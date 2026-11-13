@@ -48,6 +48,23 @@ export type ColumnArg<M> = ColumnRef<M> | RawQuery | Wrap;
 /** `where('Owner', user)` compares the relation's foreign key. */
 export type WhereColumn<M> = ColumnRef<M> | RelationName<M>;
 
+/** What a rejected column argument must also be; no string is. */
+export interface NonLiteralColumn {
+  readonly 'strict mode takes a literal column name, not a string or a template pattern': never;
+}
+// An empty object fits an index signature but lacks a required key: this holds only for `string` and pattern templates.
+type Unchecked<M, C> = C extends ColumnName<M> ? never : Record<never, never> extends Record<C & string, 1> ? C : never;
+// The tuple check comes first so a generic `ColumnName<M>` argument passes: TypeScript relates it to the deferred
+// conditional through the definitely-true branch alone.
+type LiteralCheck<M, C> = [C] extends [ColumnName<M>] ? C : [Unchecked<M, C>] extends [never] ? C : NonLiteralColumn;
+/** A column argument `C`; in strict mode a name the model does not declare must be a literal (`'users.legacy_column'`). */
+// NoInfer: `C` is inferred from the bare `C`; matching a conditional argument against the check would infer garbage.
+export type LiteralColumn<M, C> = OrmStrict extends true ? C & NoInfer<LiteralCheck<M, C>> : C;
+/** The non-generic overload in front of a generic `LiteralColumn` one. */
+// Comparing two builders erases a generic overload's column to `any`; this overload keeps the row type's variance
+// (and the cost of the comparison) as it was before the generic overloads.
+export type DeclaredColumn<M> = OrmStrict extends true ? ColumnName<M> : ColumnRef<M>;
+
 // luxon columns also take a JS Date; the DateTime converter handles both.
 type FieldValue<V> = V extends { toJSDate(): Date } ? V | Date : V;
 type ValueAt<M, C> = C extends keyof M ? FieldValue<NonNullable<M[C]>> : unknown;

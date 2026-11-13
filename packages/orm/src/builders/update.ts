@@ -7,7 +7,7 @@ import { UpdateQueryCompiler, QueryContext } from '../interfaces.js';
 import type { ICompilerOutput, IUpdateResult, IUpdateQueryBuilder } from '../interfaces.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox } from '../types.js';
-import type { ColumnRef } from '../typing.js';
+import type { ColumnRef, DeclaredColumn, LiteralColumn } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { assertNarrowed } from './internal.js';
@@ -64,7 +64,8 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
-  public increment(column: ColumnRef<Unbox<T>>, by?: number): this;
+  public increment(column: DeclaredColumn<Unbox<T>>, by?: number): this;
+  public increment<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, by?: number): this;
   public increment(column: string, by = 1): this {
     if (isNullOrWhitespace(column)) {
       throw new InvalidArgument('increment column is empty');

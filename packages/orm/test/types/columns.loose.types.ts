@@ -40,3 +40,10 @@ export async function columnsLoose(): Promise<void> {
   const _all = await User.query().select('Id');
   assertType<Equal<typeof _all, User[]>>();
 }
+
+export async function templateColumnsLoose(): Promise<void> {
+  await User.query().orderBy(`users.${dynamic}`).where(`${dynamic}.Id`, 1).order({ column: `x.${dynamic}` }).columns([`t.${dynamic}`]);
+  await User.query().whereColumn('Id', '=', `o.${dynamic}`).sum(`a${dynamic}.b`, 's');
+  await User.where(`${dynamic}.Id`, 1);
+  await User.update({ Email: 'x' }).increment(`users.${dynamic}`);
+}
