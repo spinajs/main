@@ -11,7 +11,7 @@ Change how the request language is chosen without replacing the shipped services
 
 | Order | Middleware | Effect on `req.storage` |
 | --- | --- | --- |
-| `-2` | `RequestStorage` (`@spinajs/http`) | creates `req.storage = {}` |
+| first | `HttpServer` (`@spinajs/http`) | creates `req.storage = {}` |
 | `1` | `IntlHttpMiddleware` | sets `language` |
 | `2` or higher | your refining middleware | overwrites `language` |
 
@@ -19,7 +19,7 @@ Change how the request language is chosen without replacing the shipped services
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Refining middleware | `@Injectable(ServerMiddleware)`, singleton, collected as a list by `HttpServer` | none | any number, ordered by `Order` | Extend `ServerMiddleware`, set `Order` above `1`, write `req.storage.language` in `before()`. Import the module before `HttpServer` resolves. |
+| Refining middleware | `@Injectable(ServerMiddleware)`, singleton, collected as a list by `HttpServer` | none | any number, ordered by `Order` | Extend `ServerMiddleware`, set `Order` above `1`, write `req.storage.language` in `onBefore(ctx)`. Import the module before `HttpServer` resolves. |
 | Custom language argument | Your `RouteArgs` subclass registered with `@Injectable()` under its class name; singleton; resolved by name from the route parameter `Type` | `LangArgument` for `@Lang()` | any | Pair a `RouteArgs` subclass whose `SupportedType` returns its name with a decorator built from `Route(Parameter('<name>'))`. |
 | `IActionLocalStoregeContext.language` | interface field, added to `@spinajs/http` by `declare module` in this package | written by `IntlHttpMiddleware` | none | Import `@spinajs/intl-http` (or `import type`) to get the typed field on `req.storage`. |
 
@@ -30,9 +30,9 @@ Pick a per-domain default for requests that make no explicit choice: `shop.examp
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { ServerMiddleware, Request } from '@spinajs/http';
+import { ServerMiddleware } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
 import '@spinajs/intl-http';
-import * as express from 'express';
 
 const DOMAIN_LANGUAGE: Record<string, string> = {
   'shop.example.pl': 'pl',
@@ -51,22 +51,14 @@ export class DomainLanguageMiddleware extends ServerMiddleware {
     this.Order = 2;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      const name = this.LangQueryParameter;
-      const explicit = req.query[name] || req.cookies?.[name] || req.headers[`x-${name}`];
-      const domainLanguage = DOMAIN_LANGUAGE[req.hostname];
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    const name = this.LangQueryParameter;
+    const explicit = req.query[name] || req.cookies?.[name] || req.headers[`x-${name}`];
+    const domainLanguage = DOMAIN_LANGUAGE[req.hostname];
 
-      if (!explicit && domainLanguage) {
-        req.storage.language = domainLanguage;
-      }
-
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+    if (!explicit && domainLanguage) {
+      storage.language = domainLanguage;
+    }
   }
 }
 ```

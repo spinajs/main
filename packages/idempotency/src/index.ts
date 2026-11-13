@@ -3,6 +3,7 @@ export * from './store.js';
 export * from './memory-store.js';
 export * from './errors.js';
 export * from './key.js';
+export * from './principal-scope.js';
 export * from './connection.js';
 export * from './models/IdempotencyKeyModel.js';
 export * from './migrations/Idempotency_2026_11_12_00_00_00.js';

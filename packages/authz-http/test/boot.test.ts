@@ -92,7 +92,11 @@ describe('root domain boot', function () {
       const server = { stop: sinon.stub().resolves() };
       DI.RootContainer.emit('http.server.listening', server);
 
-      const outcome = await new Promise<unknown>((resolve) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => resolve(err ?? 'next')));
+      const req = { storage: {}, headers: {}, query: {} };
+      const outcome = await middleware.onBefore({ req, res: {}, storage: req.storage } as never).then(
+        () => 'next',
+        (err: unknown) => err,
+      );
       await new Promise((resolve) => setImmediate(resolve));
 
       expect(outcome).to.eq('next');

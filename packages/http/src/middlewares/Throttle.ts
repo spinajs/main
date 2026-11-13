@@ -1,11 +1,12 @@
-import * as express from 'express';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
-import { ServerMiddleware, Request as sRequest, HTTP_STATUS_CODE } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
+import type { IMiddlewareContext, Response } from '../interfaces.js';
+import { quietRateLimitAnswer, rateLimitAnswer } from './rate-limit-answer.js';
 
 /**
  * One throttling rule. Matched against the incoming request path by PREFIX, on a
@@ -29,6 +30,12 @@ export interface IThrottleRule {
 
   /** Fixed window length in seconds */
   windowSeconds: number;
+
+  /**
+   * true: send the `X-RateLimit-*` headers on every request the rule counts, the 429 included. Default false: the 429
+   * carries only `Retry-After`, and the other answers do not reveal the limiter.
+   */
+  headers?: boolean;
 }
 
 /**
@@ -97,7 +104,7 @@ const underPath = (path: string, prefix: string): boolean => {
  * Per-ip, per-route rate limiting. Complements ( does NOT replace ) the
  * authn throttle, the real per-account and per-IP login limiter - this one caps
  * request volume from one address before any handler runs. The address is
- * `req.storage.realIp` ( `http.trustProxy` only ), else the socket address.
+ * `req.storage.realIp` ( see RealIp ), else the socket address.
  *
  * Config:
  *   http.throttle.enabled   (boolean, default false)
@@ -113,8 +120,8 @@ const underPath = (path: string, prefix: string): boolean => {
  *     ],
  *   }
  *
- * A limited request answers 429 with `Retry-After` and the standard
- * `X-RateLimit-*` headers; the counters live in {@link ThrottleStore}.
+ * A limited request answers 429 with `Retry-After` through the reply pipeline; a rule with `headers: true` also sends
+ * the standard `X-RateLimit-*` headers on every request it counts. The counters live in {@link ThrottleStore}.
  */
 @Injectable(ServerMiddleware)
 export class ThrottleMiddleware extends ServerMiddleware {
@@ -127,17 +134,50 @@ export class ThrottleMiddleware extends ServerMiddleware {
   @Logger('http')
   protected Log!: Log;
 
+  private compiled?: { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null;
+
   constructor() {
     super();
     // after RealIp (1) so `req.storage.realIp` is set, before controllers
     this.Order = 3;
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    const cfg = this.Throttle;
+  public async resolve(): Promise<void> {
+    this.throttle();
+    await super.resolve();
+  }
 
+  /** Off unless `http.throttle.enabled`, and with no rules. */
+  public isEnabled(): boolean {
+    return this.throttle() !== null;
+  }
+
+  /** Synchronous for a request no rule covers. */
+  public onBefore(ctx: IMiddlewareContext): Promise<Response | void> | undefined {
+    const throttle = this.throttle();
+    const rule = throttle?.rules.find((r) => underPath(ctx.req.path, r.path) && (!r.methods || r.methods.some((m) => m.toUpperCase() === ctx.req.method)));
+    return throttle && rule ? this.count(ctx, rule, throttle.prefix) : undefined;
+  }
+
+  private async count({ req, res, storage }: IMiddlewareContext, rule: IThrottleRule, prefix: number): Promise<Response | void> {
+    // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).
+    const ip = storage?.realIp ?? req.socket?.remoteAddress ?? 'unknown';
+    const key = `${throttleIp(ip, prefix)}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
+
+    // A store failure rejects: without a working counter the limit cannot be enforced, so the global error answer
+    // answers the request instead of the route (fail closed).
+    const hit = await this.Store.increment(key, rule.windowSeconds);
+    return rule.headers === true ? rateLimitAnswer(res, rule.limit, hit) : quietRateLimitAnswer(rule.limit, hit);
+  }
+
+  private throttle(): { readonly rules: readonly IThrottleRule[]; readonly prefix: number } | null {
+    if (this.compiled !== undefined) {
+      return this.compiled;
+    }
+
+    const cfg = this.Throttle;
     if (!cfg?.enabled) {
-      return null;
+      return (this.compiled = null);
     }
 
     const rules = cfg.rules ?? [];
@@ -145,6 +185,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
     rules.forEach((r, i) => {
       if (!(Number.isFinite(r.limit) && r.limit >= 0)) throw new InvalidOption(`http.throttle.rules.${i}.limit must be a finite number >= 0`);
       if (!(Number.isFinite(r.windowSeconds) && r.windowSeconds > 0)) throw new InvalidOption(`http.throttle.rules.${i}.windowSeconds must be a finite positive number`);
+      if (r.headers !== undefined && typeof r.headers !== 'boolean') throw new InvalidOption(`http.throttle.rules.${i}.headers must be a boolean`);
     });
 
     const prefix = cfg.ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
@@ -152,47 +193,8 @@ export class ThrottleMiddleware extends ServerMiddleware {
 
     if (rules.length === 0) {
       this.Log.warn('http.throttle is enabled but has no rules - throttling is a no-op. Check http.throttle.rules.');
-      return null;
+      return (this.compiled = null);
     }
-
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      const rule = rules.find((r) => underPath(req.path, r.path) && (!r.methods || r.methods.some((m) => m.toUpperCase() === req.method)));
-
-      if (!rule) {
-        return next();
-      }
-
-      // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).
-      const ip = req.storage?.realIp ?? req.socket?.remoteAddress ?? 'unknown';
-      const key = `${throttleIp(ip, prefix)}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
-
-      Promise.resolve(this.Store.increment(key, rule.windowSeconds))
-        .then((hit) => {
-          res.set('X-RateLimit-Limit', String(rule.limit));
-          res.set('X-RateLimit-Remaining', String(Math.max(0, rule.limit - hit.count)));
-          res.set('X-RateLimit-Reset', String(Math.ceil(hit.resetAt / 1000)));
-
-          if (hit.count > rule.limit) {
-            const retryAfter = Math.max(1, Math.ceil((hit.resetAt - Date.now()) / 1000));
-            res.set('Retry-After', String(retryAfter));
-            res.status(HTTP_STATUS_CODE.TOO_MANY_REQUESTS).json({
-              error: {
-                code: 'E_TOO_MANY_REQUESTS',
-                message: 'Too many requests, try again later',
-              },
-            });
-            return;
-          }
-
-          next();
-        })
-        // fail closed: without a working counter the limit cannot be enforced,
-        // so the error handler answers the request instead of the route
-        .catch((err) => next(err));
-    };
-  }
-
-  public after(): null {
-    return null;
+    return (this.compiled = { rules, prefix });
   }
 }

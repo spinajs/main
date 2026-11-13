@@ -14,6 +14,7 @@
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
+    { "path": "../principal/tsconfig.json" },
     { "path": "../orm-sqlite/tsconfig.json" },
     { "path": "../orm-postgres/tsconfig.json" },
     { "path": "../orm-mysql/tsconfig.json" },

@@ -4,9 +4,10 @@ import { PasswordService } from '@spinajs/authn/contracts';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnVerifyBody } from '../../dto/verification.js';
-import { AddressVerificationRegistered, tooManyRequests } from '../../password/index.js';
+import { AddressVerificationRegistered, tooManyRequests, verifyThrottled } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -38,6 +39,7 @@ export class AuthnVerificationController extends BaseController {
    * @security cookieAuth
    */
   @Post('auth/verify/request')
+  @AuthnSessionRateLimit('verifyRequest', { answer: (retryAfter) => tooManyRequests('too many verification requests, try again later', retryAfter) })
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async request(@ClientContext() client: AuthnClientContext) {
     const session = activeSessionOf(client);
@@ -55,11 +57,12 @@ export class AuthnVerificationController extends BaseController {
    * @security []
    */
   @Post('auth/verify')
-  @IpThrottle('reset', (retryAfter) => tooManyRequests('too many verification attempts, try again later', retryAfter))
+  @AuthnRateLimit('verify', verifyThrottled)
+  @IpThrottle('reset', verifyThrottled)
   @OnInvalidInput(byField({ secret: invalidSecret }, unknownField))
   public async verify(@Body({ required: true }) body: AuthnVerifyBody, @ClientContext() client: AuthnClientContext) {
     const result = await this.Passwords!.redeemVerification!(body.secret, contextOf(client, 'request'));
-    if (result.status === 'throttled') return tooManyRequests('too many verification attempts, try again later', result.retryAfterSeconds);
+    if (result.status === 'throttled') return verifyThrottled(result.retryAfterSeconds);
     return result.status === 'verified' ? new Ok({ ...ACK }, { Headers: [NO_STORE] }) : invalidSecret();
   }
 }

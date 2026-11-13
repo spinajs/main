@@ -20,9 +20,9 @@ Input, `AuthzInputFieldFilter.filter(input, parameter)` (an http `ArgInputFilter
 4. **A record.** An object, or a non-empty list of plain records, is filtered against the write globs (`filterObject`), nested paths included.
 5. In `strip` mode the filtered value goes on (a refused single field becomes `undefined`). In `reject` mode any removed path throws `BadRequest` (400) with `{ error: 'fields_not_writable', fields: [...paths], message: 'fields not writable: ...' }`.
 
-Output, `AuthzFieldsMiddleware.onResponse()` (a route middleware `@Access(..., { fields: 'filter' })` adds):
+Output, `AuthzFieldsMiddleware.onAfter()` (a route middleware `@Access(..., { fields: 'filter' })` adds):
 
-1. Takes the response data, resolves its promises (a list element-wise).
+1. Skips an error reply (`ctx.error` set). Otherwise takes the reply's data (`ctx.response.data`), resolves its promises (a list element-wise). http runs `onAfter` inside the action's AsyncLocalStorage context, where the route's decision is.
 2. Filters each object to the read set of the route's decision, or to `['*']` minus `neverRead` when another policy group admitted the request.
 3. Leaves non-object data (a string, a number) as it is.
 

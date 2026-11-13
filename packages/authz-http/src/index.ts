@@ -1,5 +1,6 @@
 export * from './api.js';
 export * from './http-config.js';
+export * from './rate-limit/index.js';
 export * from './principals/index.js';
 export * from './access/index.js';
 export * from './fields.js';

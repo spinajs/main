@@ -23,5 +23,6 @@ The 4.0 transforms:
 - `lib-mjs-imports`: `@spinajs/<pkg>/lib/mjs/...` becomes `@spinajs/<pkg>` (root, or a deep path whose names the root re-exports); other deep paths and `lib/cjs` are left with a TODO and reported.
 - `esm-module-support`: removes `DI.setESMModuleSupport()` and the `typeof module !== 'undefined'` cjs/mjs switch.
 - `problem-json-note`: adds a TODO above each `@HandleException` usage (error bodies are `application/problem+json` in 4.0). A note only, no rewrite.
+- `http-middleware-hooks`: adds a TODO above each middleware hook 4.0 removed or changed: `before()`/`after()` of a `ServerMiddleware`, `NotFoundMiddleware` or `ErrorHandlerMiddleware` subclass, and `onResponse` or a positional `onBefore`/`onAfter` (more than one parameter) of a `RouteMiddleware` subclass, linking the migration section of [Route middlewares](../../docs/http/14-route-middlewares.md#migrating-from-the-positional-hooks) or [Server middlewares](../../docs/http/15-server-middlewares.md#migrating-from-before-and-after). The base class is matched by name, through the subclasses the project resolves. A note only, no rewrite.
 
 See [Upgrading to 4.0](../../docs/upgrading/4.0.md).

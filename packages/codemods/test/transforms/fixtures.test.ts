@@ -12,9 +12,11 @@ const CASES: Array<[fixture: string, transform: string]> = [
   ['esm-module-support', 'esm-module-support'],
   ['esm-module-support-inline', 'esm-module-support'],
   ['problem-json-note', 'problem-json-note'],
+  ['http-middleware-hooks', 'http-middleware-hooks'],
   ['untouched', 'lib-mjs-imports'],
   ['untouched', 'esm-module-support'],
   ['untouched', 'problem-json-note'],
+  ['untouched', 'http-middleware-hooks'],
 ];
 
 function run(transform: Transform, source: string) {
@@ -25,8 +27,8 @@ function run(transform: Transform, source: string) {
 }
 
 describe('v4 transforms (fixture pairs)', () => {
-  it('registers the three transforms', () => {
-    expect(V4_TRANSFORMS.map((t) => t.name)).to.deep.equal(['lib-mjs-imports', 'esm-module-support', 'problem-json-note']);
+  it('registers the four transforms', () => {
+    expect(V4_TRANSFORMS.map((t) => t.name)).to.deep.equal(['lib-mjs-imports', 'esm-module-support', 'problem-json-note', 'http-middleware-hooks']);
   });
 
   for (const [fixture, name] of CASES) {

@@ -12,7 +12,7 @@ export const PGLITE_SQL_DIALECT: SqlDialectProfile = {
   predicates: 'boolean',
   nativeTypes: {
     int2: ['integer'], int4: ['integer'], int8: ['bigint'], numeric: ['decimal'], float4: ['float'], float8: ['float'],
-    varchar: ['text', 'enum'], text: ['text', 'enum'], bpchar: ['text'], bool: ['boolean'], date: ['date'],
+    varchar: ['text', 'enum', 'uuid'], text: ['text', 'enum'], bpchar: ['text', 'uuid'], bool: ['boolean'], date: ['date'],
     timestamp: ['datetime'], timestamptz: ['datetime'], time: ['time'], json: ['json'], jsonb: ['json'], bytea: ['binary', 'uuid'], uuid: ['uuid'],
   },
 };

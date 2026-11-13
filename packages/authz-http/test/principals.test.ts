@@ -6,9 +6,8 @@ import type { Class } from '@spinajs/di';
 import { AuthzService, SYSTEM, Unauthenticated, authz } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok, Req, ServerMiddleware } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import type { IMiddlewareContext, Request } from '@spinajs/http';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
-import type * as express from 'express';
 
 import { ANONYMOUS, AuthnPrincipalSource, PrincipalMiddleware, PrincipalSource } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
@@ -32,16 +31,9 @@ class StubAuthnMiddleware extends ServerMiddleware {
     this.Order = 5;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      const id = req.headers['x-authn'];
-      req.storage.AuthnPrincipal = typeof id === 'string' ? userPrincipal(id) : null;
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    const id = req.headers['x-authn'];
+    storage.AuthnPrincipal = typeof id === 'string' ? userPrincipal(id) : null;
   }
 }
 
