@@ -32,6 +32,8 @@ describe('sqlite SQL dialect profile', function () {
   it('maps the native types tableInfo() reports to column families, and distrusts boolean nullability', () => {
     expect(familiesOf('INTEGER', SQLITE_SQL_DIALECT)).to.deep.equal(['integer', 'bigint']);
     expect(familiesOf('', SQLITE_SQL_DIALECT)).to.deep.equal(['json']);
+    // migrations written by hand store JSON in a string column, which sqlite reports as TEXT
+    expect(familiesOf('TEXT', SQLITE_SQL_DIALECT)).to.include('json');
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'boolean')).to.equal(false);
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'text')).to.equal(true);
   });
