@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { modelOrigin, type ModelMember, type ModelOrigin } from '../../model-members.js';
 import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
 import { diagnose } from '../diagnose.js';
+import { isSymbolKeyed } from '../framework-members.js';
 import { jsdocConstraints } from '../jsdoc.js';
 import { UNTRACEABLE, valueDeclaration } from '../mapped-origin.js';
 import { includesUndefined, opaqueModel, relationSchema } from './model.js';
@@ -38,7 +39,7 @@ type OpaqueOrigin = Extract<ModelOrigin, { kind: 'opaque' }>;
 function dataProperties(ctx: DeriveContext, type: ts.Type): { properties: DataProperty[]; opaque?: OpaqueOrigin; untraceable?: true } {
   const properties: DataProperty[] = [];
   for (const property of ctx.checker.getPropertiesOfType(type)) {
-    if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) continue;
+    if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature) || isSymbolKeyed(property)) continue;
     const declaration = valueDeclaration(property, type);
     if (declaration === UNTRACEABLE) return { properties: [], untraceable: true };
     if (declaration && (!isPublicMember(declaration) || ctx.options.excludeMembersOf?.(declaration))) continue;
