@@ -60,8 +60,6 @@ class FailingMiddleware extends RouteMiddleware {
   }
 
   async onAfter() {}
-
-  async onResponse() {}
 }
 
 class FailingAfterMiddleware extends RouteMiddleware {
@@ -74,8 +72,6 @@ class FailingAfterMiddleware extends RouteMiddleware {
   async onAfter(): Promise<void> {
     throw new Forbidden('from onAfter');
   }
-
-  async onResponse() {}
 }
 
 class AppWideHandler extends ErrorHandlerService {

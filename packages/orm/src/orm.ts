@@ -1,12 +1,12 @@
 import { BooleanValueConverter, DatetimeValueConverter, TimeValueConverter } from './interfaces.js';
 import type { IValueConverter } from './interfaces.js';
-import { checkPendingProperties } from '@spinajs/configuration';
+import { checkPendingProperties, effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, Autoinject, Container, DI } from '@spinajs/di';
 import type { ClassInfo, Class, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import type { IColumnDescriptor, IDriverOptions, IModelDescriptor, OrmMigration } from './interfaces.js';
+import type { IColumnDescriptor, IDriverOptions, IModelDescriptor, ModelColumnSource, OrmMigration } from './interfaces.js';
 import { MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
 import type { ModelBase } from './model.js';
 import type { OrmDriver } from './driver.js';
@@ -21,6 +21,9 @@ import type { IMigrationUpOptions } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 import { MODELS, ORM_DB_VALUE_CONVERTERS } from './tokens.js';
+import { ManifestMissing, type Manifest, type ModelEntry } from '@spinajs/manifest';
+import { columnDrift, manifestColumns, manifestModelEntry, type IColumnDrift } from './manifest-model-source.js';
+import { sqlDialectOf } from './sql-dialect.js';
 import { installQueryExtensions, resolveQueryExtensions } from './extension-install.js';
 
 /**
@@ -62,9 +65,45 @@ function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor):
   return declared.map((c) => ({ ...c }));
 }
 
+/** What `setDefaults()` sets on every new instance. */
+function filledOnCreate(model: Class<ModelBase>, descriptor: IModelDescriptor): string[] {
+  const uuids = declaredColumns(model, descriptor).filter((c) => c.Uuid).map((c) => c.Name);
+  return descriptor.Timestamps.CreatedAt ? [...uuids, descriptor.Timestamps.CreatedAt] : uuids;
+}
+
 function missingTablesMessage(missing: IMissingModelTable[]): string {
   const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
   return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
+}
+
+function strictMessage(missing: IMissingModelTable[], drift: IColumnDrift[]): string {
+  const parts = missing.length > 0 ? [missingTablesMessage(missing)] : [];
+  if (drift.length > 0) parts.push(`Column drift (db.StrictTableCheck): ${drift.map((d) => d.message).join('; ')}. Run the migrations that add them or set db.StrictTableCheck to false`);
+  return parts.join(' ');
+}
+
+/** Only decorators set these; a manifest descriptor does not know them, so a value a decorator set wins over it. */
+const DECORATOR_FLAGS: ReadonlyArray<keyof IColumnDescriptor> = ['Ignore', 'Virtual', 'Aggregate', 'Uuid', 'Converter'];
+
+/** Defined values of `read` win over the declarations, except `kept` ones a declaration set; the columns only `read` has are added. */
+function mergeColumns(declared: IColumnDescriptor[], read: IColumnDescriptor[], kept: ReadonlyArray<keyof IColumnDescriptor> = []): IColumnDescriptor[] {
+  const merged = _.uniqBy(read, 'Name').map((c) => {
+    const own = declared.find((x) => x.Name === c.Name);
+    if (!own) {
+      return { ...c };
+    }
+
+    // Merge only defined properties from table info
+    Object.keys(c).forEach((key) => {
+      const columnKey = key as keyof typeof c;
+      if (c[columnKey] !== undefined && !(kept.includes(columnKey) && own[columnKey])) {
+        (own as any)[columnKey] = c[columnKey];
+      }
+    });
+    return own;
+  });
+
+  return _.unionBy(declared, merged, 'Name');
 }
 
 export class Orm extends AsyncService {
@@ -79,6 +118,16 @@ export class Orm extends AsyncService {
 
   /** What the last read of each model's table found missing, for a strict check over models a pass did not read. */
   protected MissingTables = new Map<Class<ModelBase>, IMissingModelTable>();
+
+  /** What the last read of each model found drifting from its manifest columns (`db.Models.Source = 'manifest'`). */
+  protected Drift = new Map<Class<ModelBase>, IColumnDrift[]>();
+
+  protected WarnedModelSource = false;
+
+  /** Every drift of declared columns the last reads found (D9). */
+  public get ColumnDrift(): IColumnDrift[] {
+    return [...this.Drift.values()].flat();
+  }
 
   @Autoinject()
   public Container: Container;
@@ -106,30 +155,37 @@ export class Orm extends AsyncService {
     if (options.strict) {
       // what an earlier read found missing may exist by now ( created through a path no touch recorded, or by
       // another process ), so the driver is asked again rather than the record trusted
-      const unread = options.models ? this.Models.filter((m) => this.MissingTables.has(m.type) && !options.models!.includes(m.type)).map((m) => m.type as Class<ModelBase>) : [];
+      const unread = options.models ? this.Models.filter((m) => (this.MissingTables.has(m.type) || this.Drift.has(m.type)) && !options.models!.includes(m.type)).map((m) => m.type as Class<ModelBase>) : [];
       if (unread.length > 0) {
         await this.readTableInfo(unread);
       }
 
       const all = this.Models.filter((m) => this.MissingTables.has(m.type)).map((m) => this.MissingTables.get(m.type)!);
 
-      if (all.length > 0) {
-        throw new OrmException(missingTablesMessage(all));
+      const drift = this.ColumnDrift.filter((d) => d.kind === 'missing');
+
+      if (all.length > 0 || drift.length > 0) {
+        throw new OrmException(strictMessage(all, drift));
       }
 
+      this.warnDrift(this.ColumnDrift);
       return;
     }
 
     this.warnMissingTables(missing);
+    // the drift of a model this call did not read was warned when it was read
+    this.warnDrift(options.models ? options.models.flatMap((m) => this.Drift.get(m) ?? []) : this.ColumnDrift);
   }
 
   /** Reads `models` ( default: all ); resolves with the tables it found missing. */
   protected async readTableInfo(models?: Array<Class<ModelBase>>): Promise<IMissingModelTable[]> {
     const read = models ? this.Models.filter((m) => models.includes(m.type)) : this.Models;
     const missing: IMissingModelTable[] = [];
+    const manifest = this.manifestModelSource();
 
     for (const m of read) {
       this.MissingTables.delete(m.type);
+      this.Drift.delete(m.type);
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection!);
@@ -140,6 +196,8 @@ export class Orm extends AsyncService {
         }
 
         const converters = connection.Container.get(ORM_DB_VALUE_CONVERTERS);
+        const entry = manifest ? this.manifestEntryOf(manifest, m.name, descriptor.TableName) : undefined;
+        const dialect = sqlDialectOf(connection.constructor as abstract new (...args: never[]) => unknown);
 
         updateModelDescriptor(m.type, (d) => {
           d.Driver = connection;
@@ -150,26 +208,10 @@ export class Orm extends AsyncService {
           updateModelDescriptor(m.type, (d) => {
             // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
             // migration dropped or renamed, and the converters their old types mapped to.
-            const declared = declaredColumns(m.type, d);
-            const read = _.uniqBy(columns, 'Name').map((c) => {
-              const own = declared.find((x) => x.Name === c.Name);
-              if (!own) {
-                return { ...c };
-              }
-
-              // Merge only defined properties from table info. Drivers report `Ignore: false` for every
-              // column, and only `@Ignore()` may decide it.
-              Object.keys(c).forEach((key) => {
-                const columnKey = key as keyof typeof c;
-                if (c[columnKey] !== undefined && columnKey !== 'Ignore') {
-                  (own as any)[columnKey] = c[columnKey];
-                }
-              });
-              return own;
-            });
-
-            d.Columns = _.unionBy(declared, read, 'Name');
-
+            // D9: with the manifest as the source, tableInfo() only feeds the drift check below
+             // D9: with the manifest as the source, tableInfo() only feeds the drift check below.
+            // Drivers report `Ignore: false` for every column, and only `@Ignore()` may decide it.
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns, ['Ignore']);
             /**
              * Add coverters to columns set by decorators
              * eg. @CreatedAt decorator etc.
@@ -211,14 +253,17 @@ export class Orm extends AsyncService {
             d.Schema = buildModelJsonSchema(d);
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
+
+          const drift = entry ? columnDrift(entry, columns, dialect, descriptor.Connection!, filledOnCreate(m.type, descriptor)) : [];
+          if (drift.length > 0) this.Drift.set(m.type, drift);
         } else {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = declaredColumns(m.type, d);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : declaredColumns(m.type, d);
           });
 
-          const entry = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };
-          this.MissingTables.set(m.type, entry);
-          missing.push(entry);
+          const missingTable = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };
+          this.MissingTables.set(m.type, missingTable);
+          missing.push(missingTable);
         }
       }
     }
@@ -230,6 +275,49 @@ export class Orm extends AsyncService {
     for (const m of missing) {
       this.Log.warn({ model: m.model, table: m.table, connection: m.connection }, 'Table ${table} of model ${model} does not exist on connection ${connection}; the model has no column info');
     }
+  }
+
+  protected warnDrift(drift: IColumnDrift[]): void {
+    for (const d of drift) {
+      this.Log.warn({ drift: d.message }, 'Column drift: ${drift}');
+    }
+  }
+
+  /** `db.Models.Source = 'manifest'` holds in `require` mode only: any other mode may run without the manifest it reads. */
+  protected manifestModelSource(): Manifest | undefined {
+    if (this.Configuration.get<ModelColumnSource>('db.Models.Source', 'database') !== 'manifest') return undefined;
+    const effective = effectiveManifestOf(this.Container);
+    if (effective?.settings.mode === 'require') {
+      this.registerManifestConverters();
+      return effective.manifest;
+    }
+    if (!this.WarnedModelSource) {
+      this.WarnedModelSource = true;
+      this.Log.warn({ mode: effective?.settings.mode ?? 'off' }, 'db.Models.Source is manifest but system.manifest.mode is ${mode}, not require: model columns are read from the database');
+    }
+    return undefined;
+  }
+
+  /** A model the manifest does not list (stale manifest) keeps today's tableInfo() merge; failing the boot here would leave the connections open. */
+  protected manifestEntryOf(manifest: Manifest, className: string, tableName: string): ModelEntry | undefined {
+    try {
+      return manifestModelEntry(manifest, className, tableName);
+    } catch (err) {
+      if (!(err instanceof ManifestMissing)) throw err;
+      this.Log.warn({ model: className, table: tableName, reason: err.message }, '${reason}; model columns of ${model} are read from the database');
+      return undefined;
+    }
+  }
+
+  /**
+   * Manifest descriptors name their type by ColumnType (`dateTime`, `date`), which the lowercased converter lookup does not
+   * find among the default keys. Registered only for the manifest source: mysql reports `datetime`/`date` natively too,
+   * and `Source = 'database'` must not change which converter those columns get.
+   */
+  protected registerManifestConverters(): void {
+    if (this.Container.get(ORM_DB_VALUE_CONVERTERS)?.has('datetime')) return;
+    this.Container.register(DatetimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'datetime');
+    this.Container.register(DatetimeValueConverter).asMapValue(ORM_DB_VALUE_CONVERTERS.key, 'date');
   }
 
   public async resolve(): Promise<void> {
@@ -272,14 +360,17 @@ export class Orm extends AsyncService {
     }
 
     const missing = await this.readTableInfo();
+    const drift = this.ColumnDrift;
+    const driftMissing = drift.filter((d) => d.kind === 'missing');
 
     // a migration tool boots before the tables it is about to create exist
-    if (missing.length > 0 && this.StrictTableCheck && this.Migrator.MigrateOnStartup) {
+    if ((missing.length > 0 || driftMissing.length > 0) && this.StrictTableCheck && this.Migrator.MigrateOnStartup) {
       await this.dispose().catch(() => undefined);
-      throw new OrmException(missingTablesMessage(missing));
+      throw new OrmException(strictMessage(missing, driftMissing));
     }
 
     this.warnMissingTables(missing);
+    this.warnDrift(drift);
 
     this.wireRelations();
     this.applyModelMixins();

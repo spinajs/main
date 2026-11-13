@@ -1,13 +1,13 @@
-import Express from 'express';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
 import { HTTP_STATUS_CODE, ServerMiddleware, Request as sRequest } from '../interfaces.js';
-import { BaseController } from '../base-controller.js';
+import type { IMiddlewareContext, Response } from '../interfaces.js';
+import { RawJsonResponse } from '../response-methods/rawJson.js';
 import { isCsrfExempt } from '../decorators.js';
-import { buildRoutePath } from '../route-builder.js';
+import { RouteIndex, RoutePathMatcher } from '../route-index.js';
 import { parseOrigin } from './Cors.js';
 import { requestOrigin, requestProxyTrust } from './RealIp.js';
 import { SameOriginGuard, checkSameOrigin, parseAllowedOrigins } from './SameOrigin.js';
@@ -35,75 +35,19 @@ function carriesCookie(header: string | undefined, names: readonly string[]): bo
   return header.split(';').some((pair) => names.includes(pair.split('=')[0].trim()));
 }
 
-/** The parts of an Express router layer the matcher uses; internal to Express 4 and 5 alike. */
-interface RouteLayer {
-  match(path: string): boolean;
-  route?: { _handlesMethod(method: string): boolean };
-}
-
-const NOOP: Express.RequestHandler = (_req, _res, next) => next();
-
-/**
- * The exempt config entries and `@CsrfExempt()` routes, compiled by an Express router so a path is exempt exactly when
- * the router would serve it (params, case, trailing slash). Matched synchronously against the layers, since a refusal
- * must not wait for the router's deferred dispatch. Controllers can be added after the server started, so the layers
- * are rebuilt whenever the resolved controllers change.
- */
-class ExemptRoutes {
-  private layers: readonly RouteLayer[] = [];
-  private builtFor: readonly BaseController[] | undefined;
-
-  constructor(
-    private readonly paths: readonly string[],
-    private readonly prefix: string | undefined,
-    private readonly controllers: () => readonly BaseController[],
-  ) {
-    // Compiled here so a bad entry fails the boot, not the first refused request.
-    this.build([]);
-    this.builtFor = undefined;
-  }
-
-  public has(req: sRequest): boolean {
-    const current = this.controllers();
-    if (this.builtFor === undefined || current.length !== this.builtFor.length || current.some((c, i) => c !== this.builtFor![i])) this.build(current);
-    const path = req.path;
-    if (typeof path !== 'string') return false;
+/** The `http.csrf.exempt` entries behind the route prefix, matched for any method as the router matches routes. */
+function exemptPathMatcher(paths: readonly string[], routePrefix: string | undefined): RoutePathMatcher<true> {
+  const matcher = new RoutePathMatcher<true>();
+  const prefix = (routePrefix ?? '').replace(/^\/+|\/+$/g, '');
+  for (const entry of paths) {
+    if (typeof entry !== 'string' || !entry.startsWith('/')) throw new InvalidOption(`${EXEMPT_KEY} entry ${JSON.stringify(entry)} is not an absolute path`);
     try {
-      return this.layers.some((layer) => layer.match(path) && layer.route?._handlesMethod(req.method) === true);
-    } catch {
-      // A malformed percent-encoding in a parameter: the router would answer 400, so nothing is exempt.
-      return false;
+      matcher.add(prefix === '' ? entry : `/${prefix}${entry}`, true);
+    } catch (err) {
+      throw new InvalidOption(`${EXEMPT_KEY} entry ${JSON.stringify(entry)} is not a route path: ${(err as Error).message}`);
     }
   }
-
-  private build(controllers: readonly BaseController[]): void {
-    const router = Express.Router();
-    const methods = router as unknown as Record<string, ((path: string, handler: Express.RequestHandler) => void) | undefined>;
-
-    const prefix = (this.prefix ?? '').replace(/^\/+|\/+$/g, '');
-    for (const entry of this.paths) {
-      if (typeof entry !== 'string' || !entry.startsWith('/')) throw new InvalidOption(`${EXEMPT_KEY} entry ${JSON.stringify(entry)} is not an absolute path`);
-      try {
-        router.all(prefix === '' ? entry : `/${prefix}${entry}`, NOOP);
-      } catch (err) {
-        throw new InvalidOption(`${EXEMPT_KEY} entry ${JSON.stringify(entry)} is not a route path: ${(err as Error).message}`);
-      }
-    }
-
-    for (const controller of controllers) {
-      if (!controller.Descriptor) continue;
-      for (const [member, route] of controller.Descriptor.Routes) {
-        if (!isCsrfExempt(controller, member)) continue;
-        const path = buildRoutePath(controller.BasePath, route, this.prefix);
-        const method = methods[String(route.InternalType).toLowerCase()];
-        if (typeof method === 'function') method.call(router, path, NOOP);
-        else router.all(path, NOOP);
-      }
-    }
-
-    this.layers = (router as unknown as { stack: RouteLayer[] }).stack;
-    this.builtFor = controllers;
-  }
+  return matcher;
 }
 
 /**
@@ -111,9 +55,11 @@ class ExemptRoutes {
  * GET, HEAD and OPTIONS) is checked when it carries Origin or Sec-Fetch-Site (it came from a browser) or one of the
  * ambient cookies; it then passes only with the app's own origin or one in `http.csrf.allowedOrigins`, or, without an
  * Origin, `Sec-Fetch-Site: same-origin`. Else 403 {@link CSRF_REFUSED_BODY}. A request with none of these (a server, a
- * CLI) passes. Routes marked `@CsrfExempt()` and paths in `http.csrf.exempt` are never refused.
+ * CLI) passes. Paths in `http.csrf.exempt` are never refused, nor a request every route that could serve it is
+ * marked `@CsrfExempt()`.
  *
- * A registered subclass (authn-http's guard, which adds the session cookie) replaces this one.
+ * A registered subclass (authn-http's guard, which adds the session cookie) replaces this one: `isEnabled()` is then
+ * false.
  */
 @Injectable(ServerMiddleware)
 export class CsrfGuard extends SameOriginGuard {
@@ -134,6 +80,11 @@ export class CsrfGuard extends SameOriginGuard {
 
   @Logger('http')
   protected Log!: Log;
+
+  @Autoinject(RouteIndex)
+  protected Routes?: RouteIndex;
+
+  private csrf?: { readonly options: SameOriginOptions; readonly cookies: readonly string[]; readonly exempt: RoutePathMatcher<true> };
 
   constructor() {
     super();
@@ -157,22 +108,15 @@ export class CsrfGuard extends SameOriginGuard {
     return this.Exempt ?? [];
   }
 
-  /** The controllers whose `@CsrfExempt()` routes count; every resolved BaseController by default. */
-  protected controllers(): readonly BaseController[] {
-    return (DI.getRegisteredTypes(BaseController) ?? [])
-      .filter((type) => DI.has(type))
-      .map((type) => DI.get(type))
-      .filter((c): c is BaseController => c instanceof BaseController);
-  }
-
   /** The app's own origin, with the proxy trust RealIp resolved. */
   protected ownOrigin(req: sRequest): string | undefined {
     return parseOrigin(requestOrigin(req, requestProxyTrust(req)));
   }
 
-  protected refuse(reason: OriginRefusal, req: sRequest, res: Express.Response, _next: Express.NextFunction): void {
+  /** The answer to a refused request: 403 with {@link CSRF_REFUSED_BODY} by default. */
+  protected refuse(reason: OriginRefusal, req: sRequest): Response {
     this.Log?.debug({ reason, method: req.method, path: req.path }, 'CsrfGuard refused ${method} ${path}: ${reason}');
-    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+    return new RawJsonResponse(HTTP_STATUS_CODE.FORBIDDEN, CSRF_REFUSED_BODY);
   }
 
   private superseded(): boolean {
@@ -189,21 +133,40 @@ export class CsrfGuard extends SameOriginGuard {
     return checkSameOrigin(req.headers, origin === undefined ? undefined : this.ownOrigin(req), options);
   }
 
-  public before(): ((req: sRequest, res: Express.Response, next: Express.NextFunction) => void) | null {
-    if (this.superseded()) return null;
-
+  /** False when a registered subclass replaces this guard, or with `http.csrf.enabled: false`. */
+  public isEnabled(): boolean {
+    if (this.superseded()) return false;
     // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
-    const options: SameOriginOptions = { allowedOrigins: this.allowedOrigins(), missingOrigin: 'same-origin-fetch' };
-    const cookies = this.ambientCookies();
-    const exempt = new ExemptRoutes(this.exemptPaths(), this.RoutePrefix, () => this.controllers());
-    if (!this.enabled()) return null;
+    this.csrfSettings();
+    return this.enabled();
+  }
 
-    return (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
-      if (!this.appliesTo(req)) return next();
-      const decision = this.decide(req, cookies, options);
-      if (decision === undefined || decision.allowed) return next();
-      if (exempt.has(req)) return next();
-      this.refuse(decision.reason, req, res, next);
-    };
+  /**
+   * Whether the request is never refused: its path is in `http.csrf.exempt`, or every mounted route that could serve it
+   * is `@CsrfExempt()`. Every one, not the one the router picks, so an exemption never depends on the mount order.
+   */
+  protected isExempt(ctx: IMiddlewareContext, paths: RoutePathMatcher<true>): boolean {
+    const { method, path } = ctx.req;
+    if (typeof path !== 'string') return false;
+    if (paths.match(method, path) === true) return true;
+    const routes = this.Routes?.matchAll(method, path) ?? [];
+    return routes.length > 0 && routes.every((m) => isCsrfExempt(m.controller, m.route.Method));
+  }
+
+  public onBefore(ctx: IMiddlewareContext): Response | undefined {
+    const request = ctx.req as sRequest;
+    if (!this.appliesTo(request)) return undefined;
+    const { options, cookies, exempt } = this.csrfSettings();
+    const decision = this.decide(request, cookies, options);
+    if (decision === undefined || decision.allowed || this.isExempt(ctx, exempt)) return undefined;
+    return this.refuse(decision.reason, request);
+  }
+
+  private csrfSettings() {
+    return (this.csrf ??= {
+      options: { allowedOrigins: this.allowedOrigins(), missingOrigin: 'same-origin-fetch' },
+      cookies: this.ambientCookies(),
+      exempt: exemptPathMatcher(this.exemptPaths(), this.RoutePrefix),
+    });
   }
 }

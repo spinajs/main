@@ -291,8 +291,16 @@ export class OidcLogin {
 
   /** D3: one answer for every failure; a browser goes to the failure page with no reason in the URL. */
   public failure(req: Pick<OidcRequest, 'navigation'>, retryAfterSeconds?: number): OidcAnswer {
-    const cookies = [clearFlowCookie(this.d.env)];
-    const headers = retryAfterSeconds !== undefined ? { headers: { 'retry-after': String(retryAfterSeconds) } } : {};
-    return req.navigation ? { status: 303, location: this.d.redirects.failure, cookies, ...headers } : { status: 401, cookies, body: AUTHN_FAILURE_BODY, ...headers };
+    return oidcFailure(req.navigation, this.d.redirects.failure, this.d.env, retryAfterSeconds);
   }
 }
+
+/** The one failure answer of the OIDC routes (D3): 303 to `failurePath` for a navigation, else the 401 login failure body. */
+export function oidcFailure(navigation: boolean, failurePath: string, env: string | undefined, retryAfterSeconds?: number): OidcAnswer {
+  const cookies = [clearFlowCookie(env)];
+  const headers = retryAfterSeconds !== undefined ? { headers: { 'retry-after': String(retryAfterSeconds) } } : {};
+  return navigation ? { status: 303, location: failurePath, cookies, ...headers } : { status: 401, cookies, body: AUTHN_FAILURE_BODY, ...headers };
+}
+
+/** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html): its failures redirect instead of answering 401. */
+export const isNavigation = (fetchMode: string | undefined, accept: string | undefined): boolean => fetchMode === 'navigate' || /\btext\/html\b/i.test(accept ?? '');

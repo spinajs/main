@@ -1,19 +1,12 @@
 import type Express from 'express';
 import type { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import type { IController, IRoute, IRouteInvocation, IRouteOutcome, Request, RouteMiddleware } from './interfaces.js';
-import { RouteClientGone } from './exceptions.js';
-import { markStage } from './errors/on-error.js';
-import { attachResponseCapture, responseCaptureOf } from './response-capture.js';
+import type { HttpMiddleware, IController, IMiddlewareContext, IRoute, IRouteOutcome, Request, RouteMiddleware } from './interfaces.js';
+import { RouteAnsweredInPlace, RouteClientGone } from './exceptions.js';
+import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
+import { DeferredCapture, attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
-
-const ROUTE_ERROR = Symbol('routeError');
-
-const isCrash = (error: unknown): boolean => (error as { crash?: unknown } | null | undefined)?.crash === true;
-
-function routeErrorOf(res: Express.Response): unknown {
-  return (res.locals as Record<symbol, unknown>)[ROUTE_ERROR];
-}
+import { answeredErrorOf, answeredEarly, enterMiddleware, repliedInPlace, routeContextOf, serverContextOf } from './reply-pipeline.js';
 
 const AROUNDS = Symbol('aroundsSettled');
 
@@ -29,22 +22,50 @@ function aroundsOf(res: Express.Response): Promise<void>[] {
  * kept: an error handler that turned it into another error must not hide it.
  */
 export function recordRouteError(err: unknown, _req: Express.Request, res: Express.Response, next: Express.NextFunction): void {
-  if (!isCrash(routeErrorOf(res))) {
-    (res.locals as Record<symbol, unknown>)[ROUTE_ERROR] = err;
-  }
+  noteRouteError(res, err);
   next(err);
 }
 
 type AroundRouteMiddleware = RouteMiddleware & Required<Pick<RouteMiddleware, 'onAround'>>;
+type AroundMiddleware = HttpMiddleware & Required<Pick<HttpMiddleware, 'onAround'>>;
 
 export const wrapsRoute = (m: RouteMiddleware): m is AroundRouteMiddleware => typeof m.onAround === 'function';
 
+/** Where an around handler sits: in a route's chain, or before routing (a server middleware, which has no route). */
+type AroundScope = { readonly route: IRoute; readonly controller: IController; readonly path: string } | 'server';
+
 /** Express handler running `middleware.onAround`, whose `proceed()` runs the rest of the chain. */
 export function createAroundHandler(middleware: AroundRouteMiddleware, route: IRoute, controller: IController, path: string, log: Log): Express.RequestHandler {
+  return aroundHandler(middleware, { route, controller, path }, log);
+}
+
+/** {@link createAroundHandler} for a server middleware: its `proceed()` resolves with the error the reply answers, when one does. */
+export function createServerAroundHandler(middleware: AroundMiddleware, log: Log): Express.RequestHandler {
+  return aroundHandler(middleware, 'server', log);
+}
+
+function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Log): Express.RequestHandler {
   const name = middleware.constructor.name;
+  const server = scope === 'server';
+  const ended = server ? 'the request' : `the route ${scope.path}`;
+  // entering only matters for onAfter and onFinish; a server one is not entered without them
+  const enters = !server || typeof middleware.onAfter === 'function' || typeof middleware.onFinish === 'function';
 
   const handler = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-    markStage(res, 'middleware');
+    if (answeredEarly(res)) {
+      next();
+      return;
+    }
+    let invocation: IMiddlewareContext;
+    if (server) {
+      invocation = serverContextOf(req, res);
+    } else {
+      markStage(res, 'middleware');
+      invocation = routeContextOf(res) ?? { req, res, storage: (req as Request).storage, ...scope };
+    }
+    if (enters) {
+      enterMiddleware(res, server ? 'server' : 'route', middleware, invocation);
+    }
 
     // proceed() settles after the around middlewares it wraps settled, so nesting holds on the way out too
     const arounds = aroundsOf(res);
@@ -86,20 +107,37 @@ export function createAroundHandler(middleware: AroundRouteMiddleware, route: IR
           return;
         }
 
-        let reply: CapturedJsonReply | null = null;
+        let read: () => CapturedJsonReply | null = () => null;
         // an enclosing around middleware captured first: it must see the reply too
         const enclosing = responseCaptureOf(res);
-        attachResponseCapture(res, {
-          capture: (captured) => {
-            reply = captured;
-            enclosing?.capture(captured);
-          },
-        });
+        attachResponseCapture(
+          res,
+          new (class extends DeferredCapture {
+            public defer(reader: () => CapturedJsonReply | null): void {
+              read = reader;
+              if (enclosing instanceof DeferredCapture) {
+                enclosing.defer(reader);
+              } else if (enclosing) {
+                const reply = reader();
+                if (reply) {
+                  enclosing.capture(reply);
+                }
+              }
+            }
+          })(),
+        );
 
         onFinish = () => {
           release();
-          const error = routeErrorOf(res);
-          afterInner(() => resolve(error === undefined ? { reply } : { reply, error }));
+          // the 504 of a deadline finished the response while the route runs on: a gate holding a claim must not
+          // release it as if the route were done (an @Idempotent retry would run the action twice)
+          if (!server && repliedInPlace(res)) {
+            afterInner(() => reject(new RouteAnsweredInPlace()));
+            return;
+          }
+          const error = server ? (routeErrorOf(res) ?? answeredErrorOf(res)) : routeErrorOf(res);
+          const outcome: IRouteOutcome = error === undefined ? { get reply() { return read(); } } : { get reply() { return read(); }, error };
+          afterInner(() => resolve(outcome));
         };
         onGone = () => {
           release();
@@ -111,8 +149,6 @@ export function createAroundHandler(middleware: AroundRouteMiddleware, route: IR
         next();
       });
     };
-
-    const invocation: IRouteInvocation = { req, res, storage: (req as Request).storage, route, controller, path };
 
     const runAround = async () => {
       let failure: { error: unknown } | undefined;
@@ -128,12 +164,12 @@ export function createAroundHandler(middleware: AroundRouteMiddleware, route: IR
 
       if (!failure) {
         if (!proceeded && !res.headersSent && !gone) {
-          next(new UnexpectedServerError(`${name} ended the route ${path} without proceeding or answering it`));
+          next(new UnexpectedServerError(`${name} ended ${ended} without proceeding or answering it`));
         }
       } else if (!chainStarted && !res.headersSent && !gone) {
         next(failure.error);
       } else {
-        log.error({ error: failure.error, middleware: name, route: path }, 'Around middleware ${middleware} of ${route} failed after the route ran or the client went away');
+        log.error({ error: failure.error, middleware: name, route: server ? 'every request' : scope.path }, 'Around middleware ${middleware} of ${route} failed after the route ran or the client went away');
       }
       markSettled();
     };

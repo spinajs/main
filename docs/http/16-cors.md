@@ -1,22 +1,26 @@
 # CORS
 
-`CorsMiddleware` sends CORS headers to browser requests from the origins you list in `http.cors.origins`, and answers their preflight requests. Requests from other origins proceed without CORS headers, so the browser refuses to share the answer. With no origins configured, no CORS headers are sent at all and browsers allow same-origin requests only.
+`CorsMiddleware` sends CORS headers to browser requests from the origins you list in `http.cors.origins`, and answers their preflight requests. Requests from other origins proceed without CORS headers, so the browser refuses to share the answer. A route marked `@Cors({ origins })` uses its own origins instead. With no origins configured and no `@Cors` route, no CORS headers are sent at all and browsers allow same-origin requests only.
 
 ## How it works
 
-At startup (`CorsMiddleware.before()`, Order -1, right after the request storage):
+When the middleware resolves (Order -1, before every shipped server middleware but those you place lower):
 
-1. Reads `http.cors`. Absent, `null`, `false` or `true`: no handler.
+1. Reads `http.cors`. Absent, `null`, `false` or `true`: no global origins.
 2. Normalizes every entry of `origins` except `'*'` with `parseOrigin()`: lower-case scheme and host, default port removed, trailing slash removed. An entry that is not `scheme://host[:port]` throws `InvalidOption` and stops the boot.
-3. With no origin and no `'*'`, it logs a warning and adds no handler.
+3. With no origin and no `'*'`, it logs a warning; only `@Cors` routes then get CORS headers. The middleware is always mounted.
+4. When the server listens, and again after the mounted routes change, it logs every mounted route with a `@Cors` policy (info: the route, its origins and credentials).
 
-Per request:
+Per request (`onBefore`):
 
-1. When explicit origins are listed, adds `Vary: Origin`.
-2. Without an `Origin` header, or with an origin that is neither listed nor covered by `'*'`: calls `next()` with no CORS header.
-3. Listed origin: `Access-Control-Allow-Origin: <origin>` and `Access-Control-Allow-Credentials: true`. Unlisted origin under `'*'`: `Access-Control-Allow-Origin: *`, no credentials.
-4. **Preflight** (`OPTIONS` with `Access-Control-Request-Method`): adds `Access-Control-Allow-Methods: GET,HEAD,PUT,PATCH,POST,DELETE` and `Access-Control-Allow-Headers` (the configured `allowedHeaders`, or the requested headers echoed with `Vary: Access-Control-Request-Headers`), then answers 204 with an empty body.
-5. Other requests: adds `Access-Control-Expose-Headers` when `exposedHeaders` is set, then `next()`.
+1. Picks the policy. A preflight gets the `@Cors` policy of the routes that serve the method in `Access-Control-Request-Method` on that path, looked up [before routing](15-server-middlewares.md#the-route-before-routing), but only when every such route has the same policy; else, and for every other request, `http.cors.origins`.
+2. When the policy lists explicit origins, adds `Vary: Origin`.
+3. Asks `allowance(origin)` what the request's `Origin` gets (a `@Cors` policy: its own origins, clamped by an overridden `allowance()`). Without an `Origin` header, or with an origin that is neither listed nor covered by `'*'`: the request goes on with no CORS header.
+4. Listed origin: `Access-Control-Allow-Origin: <origin>` and `Access-Control-Allow-Credentials: true` (not with `@Cors({ credentials: false })`). Unlisted origin under `'*'`: `Access-Control-Allow-Origin: *`, no credentials.
+5. **Preflight** (`OPTIONS` with `Access-Control-Request-Method`): adds `Access-Control-Allow-Methods: GET,HEAD,PUT,PATCH,POST,DELETE`, `Access-Control-Allow-Headers` (the configured `allowedHeaders`, or the requested headers echoed with `Vary: Access-Control-Request-Headers`) and the route's `Access-Control-Max-Age` when its `@Cors` sets `maxAge`, then answers 204 with an empty body. The answer goes through the reply pipeline: server middlewares entered before CORS (a lower `Order`) see it in `onAfter`.
+6. Other requests: adds `Access-Control-Expose-Headers` when `exposedHeaders` is set, and the request goes on.
+
+In `onAfter`, for a framework reply of a route with a `@Cors` policy (the route the router matched), the route's answer replaces these headers: `Vary: Origin` when it lists origins, and `Access-Control-Allow-Origin`, `-Credentials` and `-Expose-Headers` by its policy. A static file, a reply an action wrote to `res` itself and a preflight keep the `onBefore` answer.
 
 `Forwarded` and every `X-Forwarded-*` header are removed from the allowed headers, configured or echoed: a page on an allowed origin must not choose what the app believes a trusted proxy said. An echoed entry that is not an RFC 9110 header name (a space, `<`, a non-ASCII byte) is dropped too.
 
@@ -24,10 +28,11 @@ Per request:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.cors` | `object \| boolean \| null` | not set | object, `null`, `true`, `false` | Absent or not an object: no CORS middleware. |
+| `http.cors` | `object \| boolean \| null` | not set | object, `null`, `true`, `false` | Absent or not an object: CORS headers on `@Cors` routes only. |
 | `http.cors.origins` | `string[] \| null` | not set | `scheme://host[:port]` entries and `'*'` | Origins that get CORS headers. Compared exactly with the browser's `Origin`. |
 | `http.cors.exposedHeaders` | `string[] \| string \| null` | not set | header names | `Access-Control-Expose-Headers` for allowed origins. |
 | `http.cors.allowedHeaders` | `string[] \| string \| null` | not set | header names | `Access-Control-Allow-Headers` for preflights; without it the requested headers are echoed. |
+| `http.cors.allowRoutePolicies` | `boolean` | `true` | | `false`: every `@Cors` is ignored, `http.cors.origins` answers everywhere. |
 
 The `http.configuration` schema validates `origins` entries with the same origin pattern, so a bad entry fails configuration loading too.
 
@@ -43,49 +48,69 @@ export default {
 };
 ```
 
+## Per-route policy: `@Cors`
+
+`@Cors({ origins, credentials?, maxAge? })` on an action, or on a controller for all its actions (an action's own wins), replaces `http.cors.origins` for that route, also when `http.cors` is not set. `exposedHeaders` and `allowedHeaders` still come from `http.cors`.
+
+A route policy replaces the global one, so it can allow more origins than `http.cors.origins`, also when it comes from a controller another package ships, and a subclass inherits it with the action. An overridden `allowance()` clamps it: a route's origin is allowed only when `allowance(origin)` allows it too, and with credentials only when both give them. The boot log lists every mounted route with a policy; `http.cors.allowRoutePolicies: false` ignores them all.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `origins` | `string[]` | required | `scheme://host[:port]` entries and `'*'`, as in `http.cors.origins`. Empty: the route answers no origin, even one `http.cors.origins` lists. |
+| `credentials` | `boolean` | `true` | `false`: a listed origin is echoed without `Access-Control-Allow-Credentials`. |
+| `maxAge` | `number` | not sent | Seconds, a whole number: `Access-Control-Max-Age` on the route's preflight answer. |
+
+A bad entry or `maxAge` throws `InvalidOption` when the controller class is declared.
+
+```ts sample
+import { BaseController, BasePath, Cors, Get, Ok, Post } from '@spinajs/http';
+
+@BasePath('widgets')
+export class WidgetController extends BaseController {
+  // Embedded on partner sites: any origin, no cookies.
+  @Cors({ origins: ['*'] })
+  @Get()
+  public list() {
+    return new Ok([]);
+  }
+
+  // Only the shop front-end may post, and its preflight is cached for 10 minutes.
+  @Cors({ origins: ['https://shop.example.com'], maxAge: 600 })
+  @Post()
+  public order() {
+    return new Ok({ ordered: true });
+  }
+}
+```
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `before()`. Or turn it off (no `http.cors`) and add your own `ServerMiddleware`. |
+| `CorsMiddleware` | `ServerMiddleware` list, Order -1, singleton | `CorsMiddleware` | none shipped | Subclass and `DI.register(Mine).as(CorsMiddleware)` before `HttpServer` resolves; override `allowance(origin)`, which returns `{ allowOrigin, credentials }` or `undefined`; it decides routes without `@Cors` and clamps the `@Cors` ones; an overridden `allowance()` always sends `Vary: Origin`. Or replace it with your own `ServerMiddleware`. |
 | `parseOrigin(value)` | exported function | | | Returns the normalized origin, or `undefined` for anything that is not an origin. Reuse it to compare origins the same way. |
 
 ### `CorsMiddleware`: custom implementation
 
-Allow every subdomain of your domain over HTTPS, a rule an exact list cannot express. The subclass decides per request and keeps the preflight answer of the default:
+Allow every subdomain of your domain over HTTPS, a rule an exact list cannot express. The subclass only changes the decision; `Vary`, the preflight answer and the exposed headers stay the default's. With it the apex domain can stay out of `http.cors.origins`, or be listed there:
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { CorsMiddleware, Request, parseOrigin } from '@spinajs/http';
-import * as express from 'express';
+import { CorsAllowance, CorsMiddleware, parseOrigin } from '@spinajs/http';
 
 const ALLOWED = /^https:\/\/([a-z0-9-]+\.)*example\.com$/;
 
 export class SubdomainCors extends CorsMiddleware {
-  public before() {
-    return (req: Request, res: express.Response, next: express.NextFunction) => {
-      res.vary('Origin');
-
-      const origin = parseOrigin(req.headers.origin);
-      if (!origin || !ALLOWED.test(origin)) {
-        return next();
-      }
-
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-      if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
-        res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
-        res.setHeader('Access-Control-Allow-Headers', 'content-type,authorization');
-        res.setHeader('Access-Control-Max-Age', '600');
-        res.status(204).end();
-        return;
-      }
-      next();
-    };
+  protected allowance(origin: string): CorsAllowance | undefined {
+    // Browsers send the serialized origin; anything else is not an origin a rule should match.
+    if (parseOrigin(origin) === origin && ALLOWED.test(origin)) {
+      return { allowOrigin: origin, credentials: true };
+    }
+    return super.allowance(origin);
   }
 }
 
+// with http.cors.origins: ['https://example.com']
 DI.register(SubdomainCors).as(CorsMiddleware);
 ```
 
@@ -95,7 +120,9 @@ DI.register(SubdomainCors).as(CorsMiddleware);
 - Origins are compared as serialized origins: `https://App.Example.com:443/` in configuration matches the browser's `https://app.example.com`.
 - `'*'` never comes with credentials. An origin listed explicitly next to `'*'` still gets its echo with credentials.
 - A preflight from a disallowed origin is not answered by this middleware; it continues to routing and usually ends in 404.
-- No `Access-Control-Max-Age` is sent: browsers repeat the preflight with their default cache time.
+- `Access-Control-Max-Age` is sent only for a `@Cors({ maxAge })` route; elsewhere browsers repeat the preflight with their default cache time.
+- A route policy reaches only framework replies of that route and preflights every route serving the asked method agrees on. A static file is answered with the global policy, and an `http.middlewares` handler answers before CORS runs at all.
+- A preflight only lets the browser send the request; whether it may read the answer is decided again by the route that answers it.
 - CORS is not access control: a non-browser client ignores it. Protect routes with [policies](13-policies.md).
 
 ## Best practices

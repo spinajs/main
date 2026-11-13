@@ -5,7 +5,7 @@ import type { UserCreated } from './queue.js';
 export class UserDto { public id: number; public name: string }
 import { CreateUserDto } from './dto.js';
 export class AdminPolicy extends BasePolicy { public isEnabled(): boolean { return true; } public async execute(): Promise<void> {} }
-export class Audit extends RouteMiddleware { public isEnabled(): boolean { return true; } public async onBefore(): Promise<void> {} public async onAfter(): Promise<void> {} public async onResponse(): Promise<void> {} }
+export class Audit extends RouteMiddleware { public isEnabled(): boolean { return true; } public async onBefore(): Promise<void> {} public async onAfter(): Promise<void> {} public onFinish(): void {} }
 
 /** Users of the system. */
 @BasePath('users')

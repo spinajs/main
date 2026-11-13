@@ -7,17 +7,22 @@ import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
 import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
-import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute } from './interfaces.js';
+import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute, ParameterType } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { __handle_error__ } from './error.js';
 import { resolveConfigErrorHandlers } from './errors/on-error.js';
+import { globalRouteMiddlewareDescriptors } from './global-route-middlewares.js';
+import { uploadMiddlewareTypes } from './route-args/FromForm.js';
 import { classLineage, derivedValidatorsOf } from './route-args/manifest-schema.js';
 import { routesWithRuntimeTypes } from './manifest-runtime-types.js';
 import { buildRoutePath, buildRouteHandlers, resolveRouteMiddlewares, resolveRoutePolicies, ControllerActionHost } from './route-builder.js';
+import { RouteIndex } from './route-index.js';
 
 // Own metadata only: an undecorated class would report the file of the base whose descriptor it reads.
 const ownSourceFile = (type: object): string | undefined => (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor | undefined)?.SourceFile;
+
+const takesUpload = (route: IRoute): boolean => [...(route.Parameters?.values() ?? [])].some((p) => p.Type === ParameterType.FromFile || p.Type === ParameterType.FromJSONFile);
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -43,6 +48,10 @@ export abstract class BaseController extends AsyncService implements IController
 
   @Autoinject(Configuration)
   protected _cfg!: Configuration;
+
+  // Optional: a controller built with `new` (a unit test) has no container to inject it.
+  @Autoinject(RouteIndex)
+  protected _routeIndex?: RouteIndex;
 
   /**
    * Express router with middleware stack
@@ -98,9 +107,13 @@ export abstract class BaseController extends AsyncService implements IController
     this._router = Express.Router();
 
     const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
+    const globalMiddlewares = globalRouteMiddlewareDescriptors(this._cfg, this._container);
     const controller = this.constructor.name;
     const lineage = classLineage(this.constructor, ownSourceFile);
     this._routes = await routesWithRuntimeTypes({ container: this._container, controller, lineage, routes: descriptor.Routes, mountPath: () => this.BasePath, log: this._log });
+    if ([...this._routes.values()].some(takesUpload)) {
+      uploadMiddlewareTypes(this._cfg, this._container);
+    }
 
     const prefix = this._cfg.get<string>('http.controllers.route.prefix');
     // Read at the first route: a controller with no routes never reads its configured path, and an unknown route type still fails first.
@@ -118,7 +131,7 @@ export abstract class BaseController extends AsyncService implements IController
       basePath ??= this.BasePath;
       const path = buildRoutePath(basePath, route, prefix);
 
-      const middlewares = await resolveRouteMiddlewares(descriptor, route, this._container);
+      const middlewares = await resolveRouteMiddlewares(descriptor, route, this._container, globalMiddlewares);
       const policies = await resolveRoutePolicies(descriptor, route, this._container, this._cfg, this._log, controller, path);
 
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
@@ -141,7 +154,10 @@ export abstract class BaseController extends AsyncService implements IController
         handleError: (handleError ??= __handle_error__(this._container)),
       });
 
-      (this._router as any)[route.InternalType as string](path, handlers);
+      // What router[method](path, ...) does, keeping the Express route the RouteIndex finds the route by.
+      const mounted = this._router.route(path);
+      (mounted as any)[route.InternalType as string](handlers);
+      this._routeIndex?.add(mounted, this, route, path);
     }
   }
 }

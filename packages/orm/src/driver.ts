@@ -150,6 +150,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   /** The table's foreign keys, one entry per column. Absent on a driver that cannot read them. */
   public tableForeignKeys?(name: string, schema?: string): Promise<LiveForeignKey[]>;
 
+  /** Whether the connection that runs migrations enforces foreign keys. Absent where that never stops a schema change. */
+  public foreignKeysEnforced?(): Promise<boolean>;
+
   public resolve() {
     this.Log = DI.resolve(Log, [`orm-driver-${this.Options.Name}`]);
     this.Log.addVariable('orm-name', this.Options.Name);

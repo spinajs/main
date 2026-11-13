@@ -636,7 +636,10 @@ export class Container extends EventEmitter implements IContainer {
         return [];
       }
 
-      const resolved = resolveEach(targetType, (r) => this.resolveType(type, r, opt ?? undefined));
+      const resolved = resolveEach(
+        targetType.map((r, slot) => ({ r, slot })),
+        ({ r, slot }) => this.resolveType(type, r, opt ?? undefined, false, slot),
+      );
 
       if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved).then(() => listed(this.get(type, false))) as any;
@@ -811,8 +814,9 @@ export class Container extends EventEmitter implements IContainer {
   /**
    * @param exact - `targetType` is the final class and this container is where it lives:
    *                no owner lookup, no following of registrations, no registry write
+   * @param slot - for an `Array.ofType` element, its index in the registry list; the collection is kept in that order
    */
-  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[], exact = false): Promise<T> | T | Promise<T> | T[] {
+  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[], exact = false, slot?: number): Promise<T> | T | Promise<T> | T[] {
     /**
      * If its a factory func, always resolve as new instance
      */
@@ -833,7 +837,7 @@ export class Container extends EventEmitter implements IContainer {
 
     // A private instance of the class that this container already holds wins over the owner's.
     if (isSingleton && owner !== this && !this.Cache.has(tType)) {
-      return owner.resolveType(sourceType, tType, options, true);
+      return owner.resolveType(sourceType, tType, options, true, slot);
     }
 
     const ownsKey = this.Registry.ownsRegistration(sName);
@@ -890,7 +894,8 @@ export class Container extends EventEmitter implements IContainer {
         true, // isSingleton
         descriptor,
         options,
-        lookupParents
+        lookupParents,
+        slot,
       ) as T;
     }
 

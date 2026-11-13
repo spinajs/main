@@ -31,7 +31,7 @@ export interface TotpServiceDeps {
   readonly sinks?: readonly AuthnEventSink[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
-  /** `authn.throttle.ipv6Prefix`. */
+  /** Otherwise `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix`. */
   readonly ipv6Prefix?: number;
   /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
   readonly hooks?: Hooks;
@@ -61,6 +61,9 @@ export class TotpService extends MfaEnrolmentService {
 
   @Config('authn.throttle.ipv6Prefix')
   protected ThrottleIpv6Prefix: unknown;
+
+  @Config('http.throttle.ipv6Prefix')
+  protected HttpIpv6Prefix: unknown;
 
   @Config('authn.mfa.encryptionKey.secret')
   protected EncryptionKey: string | null | undefined;
@@ -395,7 +398,7 @@ export class TotpService extends MfaEnrolmentService {
   }
 
   private ipv6Prefix(): number {
-    return this.deps.ipv6Prefix ?? ipv6PrefixOf(this.ThrottleIpv6Prefix);
+    return this.deps.ipv6Prefix ?? ipv6PrefixOf(this.ThrottleIpv6Prefix, this.HttpIpv6Prefix);
   }
 
   private maxAgeSeconds(): number {

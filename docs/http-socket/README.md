@@ -17,7 +17,7 @@ npm install @spinajs/http-socket
 | [Socket server and HTTP host](01-socket-server.md) | `SocketServer` attaches socket.io to an http server; `SocketHttpHost` picks which one |
 | [Socket controllers](02-controllers.md) | `@SocketController`, `@Command`, `@OnEvent`, `@OnConnect`, `@OnDisconnect`; the handler registry |
 | [Handler arguments](03-handler-arguments.md) | `@Payload` validation and hydration, `@Connection`, `@Signal`, `@Reason`, `@FromDI`, custom `SocketArg` extractors |
-| [Command pipeline and custom stages](04-command-pipeline.md) | The ordered `SocketCommandStage` chain every command passes; adding, replacing and wrapping stages |
+| [Command pipeline and socket middlewares](04-command-pipeline.md) | The ordered `SocketMiddleware` chain every command passes: the built-in stages, `onBefore`/`onAfter`/`onFinish`/`onAround`, `@UseSocketMiddleware`, replacing a stage |
 | [Error mapping](05-error-mapping.md) | Exceptions to the wire `SocketError`; `@HandleSocketException`, `SocketErrorMapper` |
 | [Stream replies](06-stream-replies.md) | Async-iterable results sent as credit-controlled chunk streams |
 | [Rooms and server push](07-rooms-and-push.md) | `SocketHub` and `SocketConnection`: rooms, pushes, server-side disconnects |

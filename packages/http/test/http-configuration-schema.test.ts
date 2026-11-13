@@ -27,6 +27,39 @@ describe('http configuration schema', () => {
     });
   });
 
+  describe('static.order', () => {
+    it('defaults to 4.5', async () => {
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
+      expect(configuration.get('http.static.order')).to.eq(4.5);
+    });
+
+    it('accepts a number and Infinity, refuses anything else', async () => {
+      expect(await bad({ static: { order: 4.5 } })).to.deep.eq([]);
+      expect(await bad({ static: { order: Infinity } })).to.deep.eq([]);
+      expect(await bad({ static: { order: 'late' } })).to.include('http.static.order');
+    });
+  });
+
+  describe('Static', () => {
+    it('accepts entries with a route, a path and express.static options', async () => {
+      expect(await bad({ static: { enabled: false }, Static: [{ Path: '/srv/a' }, { Route: '/b', Path: '/srv/b', Options: { maxAge: '1d', immutable: true, index: false, extensions: ['html'], dotfiles: 'deny' } }] })).to.deep.eq([]);
+    });
+
+    it('refuses a misspelt key, a route without a leading slash and an unknown option', async () => {
+      expect(await bad({ Static: [{ Route: '/a', Pth: '/srv/a' }] })).to.not.deep.eq([]);
+      expect(await bad({ Static: [{ Route: 'a', Path: '/srv/a' }] })).to.not.deep.eq([]);
+      expect(await bad({ Static: [{ Path: '/srv/a', Options: { maxage: 1 } }] })).to.not.deep.eq([]);
+      expect(await bad({ static: { order: 4.5, enable: true } })).to.not.deep.eq([]);
+    });
+  });
+
+  describe('bodyParsers', () => {
+    it('accepts the four parsers, refuses a misspelt key', async () => {
+      expect(await bad({ bodyParsers: { json: { limit: '1mb' }, urlencoded: {}, text: { enabled: false }, cookies: {} } })).to.deep.eq([]);
+      expect(await bad({ bodyParsers: { jsn: { limit: '1mb' } } })).to.include('http.bodyParsers.jsn');
+    });
+  });
+
   describe('trustProxy', () => {
     it('accepts a hop count, 0, a list and a comma-separated string unchanged', async () => {
       for (const value of [0, 2, ['10.0.0.0/8', 'loopback'], '10.0.0.1, 10.0.0.2', null]) {
@@ -101,6 +134,22 @@ describe('http configuration schema', () => {
       for (const ipv6Prefix of [15, 129, 64.5]) expect(await bad({ throttle: { ipv6Prefix } }), String(ipv6Prefix)).to.include('http.throttle.ipv6Prefix');
       expect(await bad({ throttle: { rules: [{ limit: 5, windowSeconds: 60 }] } })).to.include('http.throttle.rules.0.path');
       expect(await bad({ throttle: { enabled: 'maybe' } })).to.include('http.throttle.enabled');
+    });
+  });
+
+  describe('routes.middlewares', () => {
+    it('defaults to no global route middleware', async () => {
+      const { config: configuration } = await createTestApp({ scope: 'child', bootstrap: false, schemas: SCHEMAS, config: {} });
+      expect(configuration.get('http.routes.middlewares')).to.deep.eq([]);
+    });
+
+    it('accepts names, classes and { service, options } entries', async () => {
+      class SomeMiddleware {}
+      expect(await bad({ routes: { middlewares: ['RouteTiming', SomeMiddleware, { service: 'CacheControl', options: [60] }] } })).to.deep.eq([]);
+    });
+
+    it('names http.routes.middlewares when it is not a list', async () => {
+      expect(await bad({ routes: { middlewares: { service: 'RouteTiming' } } })).to.include('http.routes.middlewares');
     });
   });
 

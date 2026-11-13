@@ -4,7 +4,7 @@ The package parses request cookies with `cookie-parser`, bound to `http.cookie.s
 
 ## How it works
 
-**Parsing.** The default `http.middlewares` contain `configuredCookieParser`. On the first request it reads `http.cookie.secret` from the configuration and builds `cookieParser(secret)` once; later requests reuse it. It fills `req.cookies`, `req.signedCookies` and `req.secret`. Reading the secret on the first request, not at import, lets the app's configuration override the shipped default.
+**Parsing.** The `CookieParserMiddleware` server middleware (Order 0.5) mounts `cookieParser(secret, options)` with `http.cookie.secret` and the options of `http.bodyParsers.cookies`, read when `HttpServer` resolves. It fills `req.cookies`, `req.signedCookies` and `req.secret` before `IntlHttpMiddleware` (Order 1), authentication and the CSRF guard. `http.bodyParsers.cookies.enabled: false` mounts nothing. `configuredCookieParser` (the 3.x handler, still exported) reads the secret on the first request; a 3.x `http.middlewares` list holding it, or a `cookieParser(...)`, keeps working and the built-in is not mounted (one warning).
 
 **Reading with `@Cookie(secure)`** (`FromCookie`):
 
@@ -54,7 +54,7 @@ The `http.configuration` schema refuses an empty `secret`.
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `FromCookie` | Route argument, DI name `'FromCookie'`, singleton; reads `http.cookie.secret` in its constructor | `FromCookie` | | Subclass and `DI.register(Mine).as(FromCookie)` before the first request. |
-| Cookie parser | An entry of `http.middlewares` | `configuredCookieParser`, exported, one of `defaultMiddlewares()` | `cookieParser(secret)` from `cookie-parser` | Replace the `http.middlewares` array; keep a parser built with the same secret. |
+| Cookie parser | `@Injectable(ServerMiddleware)`, singleton | `CookieParserMiddleware`, exported | `configuredCookieParser` or `cookieParser(secret)` in `http.middlewares` (3.x) | Subclass and override `parser(options)`, or set `http.bodyParsers.cookies.enabled: false` and mount your own. |
 | Response cookies | `_setCoockies(res, options)`, exported, called by every response class | | | Call it from your own `Response.execute()` to keep the defaults and signing. |
 
 ### `FromCookie`: custom implementation
@@ -107,10 +107,10 @@ Responses keep signing with `http.cookie.secret`, so cookies migrate to the new 
 - The shipped secret `1234adreewD` is public. Anyone can forge a signed cookie until you set `http.cookie.secret`.
 - Cookies signed by responses carry the `s:` prefix, so `cookie-parser` moves them into `req.signedCookies` and removes them from `req.cookies`. Read them with `@Cookie(true)`: with the default parser, `@Cookie()` gives `null` for a signed cookie.
 - `@Cookie(true)` still accepts a cookie signed without the `s:` prefix, as responses signed them before, so sessions and other signed cookies already issued keep working.
-- `FromCookie` reads the secret once, when it is first resolved; changing the configuration later does not change it. `configuredCookieParser` likewise builds its parser on the first request.
+- `FromCookie` reads the secret once, when it is first resolved; changing the configuration later does not change it. `CookieParserMiddleware` reads it when `HttpServer` resolves; `configuredCookieParser` builds its parser on the first request.
 - `@Cookie()` reads the cookie named like the parameter; there is no option for another name.
 - `http.cookie.options` apply to every response cookie, including ones set by other packages through `IResponseOptions`; `maxAge` 15 minutes is the default lifetime of all of them.
-- Replacing `http.middlewares` without a cookie parser leaves `req.cookies` undefined and breaks `@Cookie()`.
+- `http.bodyParsers.cookies.enabled: false` without a parser of your own leaves `req.cookies` undefined and breaks `@Cookie()`. A server middleware below Order 0.5 sees no `req.cookies`.
 
 ## Best practices
 

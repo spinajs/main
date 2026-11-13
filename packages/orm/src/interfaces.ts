@@ -14,7 +14,7 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
-import type { AggregateValue, ColumnName, ColumnRef, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
+import type { AggregateValue, ColumnName, ColumnRef, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -302,6 +302,9 @@ export interface IPoolOptions {
    */
   AcquireTimeout?: number;
 }
+
+/** `db.Models.Source`: `'manifest'` takes model columns from `app.manifest.json` in `system.manifest.mode = 'require'` (D9). */
+export type ModelColumnSource = 'database' | 'manifest';
 
 /**
  * Configuration options to set in configuration file and used in OrmDriver
@@ -1278,32 +1281,32 @@ export interface IWhereBuilder<T> {
 
   where(val: boolean): this;
   where(func: WhereFunction<T>): this;
-  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  where(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   where(func: Lazy<void>): this;
   where<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
   where<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   where(statement: Wrap): this;
-  where(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
+  where(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>> | Wrap, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(func: WhereFunction<T>): this;
-  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  orWhere(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   orWhere(func: Lazy<void>): this;
   orWhere<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
   orWhere<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
+  orWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(func: WhereFunction<T>): this;
-  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  andWhere(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   andWhere(func: Lazy<void>): this;
   andWhere<C extends WhereColumn<Unbox<T>>>(column: C, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
   andWhere<C extends WhereColumn<Unbox<T>>>(column: C, value: WhereValue<Unbox<T>, C>): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
+  andWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<SourceRow<Unbox<T>>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
-  whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
+  whereObject(obj: Partial<ModelData<SourceRow<Unbox<T>>>>): this;
   whereNotNull(column: ColumnRef<Unbox<T>> | Wrap): this;
   whereNull(column: ColumnRef<Unbox<T>> | Wrap): this;
   whereNot(column: ColumnRef<Unbox<T>>, val: unknown): this;
