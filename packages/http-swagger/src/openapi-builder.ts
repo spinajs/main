@@ -212,7 +212,9 @@ function isNativeParamType(type: string): boolean {
     BODY_PARAMS.has(type) ||
     Object.prototype.hasOwnProperty.call(PARAM_LOCATION_MAP, type) ||
     type === 'FromDbModel' ||
-    type === 'FilterModelRouteArg'
+    type === 'FilterModelRouteArg' ||
+    type === 'SortRouteArg' ||
+    type === 'IncludeRouteArg'
   );
 }
 
@@ -544,7 +546,7 @@ ${line}` : line;
       // Resolve effective location. Most types come from PARAM_LOCATION_MAP,
       // but orm-http's @FromModel (Type='FromDbModel') is dynamic — it reads
       // the PK from req.params / query / body / header per Options.paramType,
-      // defaulting to path. @Filter (Type='FilterModelRouteArg') always reads from query.
+      // defaulting to path. @Filter, @Sort and @Include always read from query.
       let location: 'query' | 'path' | 'header' | 'cookie' | undefined = PARAM_LOCATION_MAP[param.Type as string];
       if (!location) {
         if (param.Type === 'FromDbModel') {
@@ -558,7 +560,7 @@ ${line}` : line;
           if (location === 'path' && !this.readsPathParam(param)) {
             location = undefined;
           }
-        } else if (param.Type === 'FilterModelRouteArg') {
+        } else if (param.Type === 'FilterModelRouteArg' || param.Type === 'SortRouteArg' || param.Type === 'IncludeRouteArg') {
           location = 'query';
         }
       }
@@ -808,6 +810,8 @@ ${line}` : line;
   private emittedParamName(param: IRouteParameter): string | undefined {
     if (param.Type === ParameterType.UserAgent) return 'User-Agent';
     if (param.Type === ParameterType.Referer) return 'Referer';
+    // orm-http's @Sort / @Include read the query key in `field` ( `order`, `include` ), not the argument name.
+    if (param.Type === 'SortRouteArg' || param.Type === 'IncludeRouteArg') return (param.Options as { field: string }).field;
 
     const options = param.Options as { paramField?: string; key?: string } | undefined;
     const headerKey = param.Type === ParameterType.FromHeader ? options?.key : undefined;
@@ -1111,6 +1115,24 @@ ${line}` : line;
     // orm-http @Filter — describe the JSON filter envelope so API consumers know what to send.
     if (param.Type === 'FilterModelRouteArg') {
       return this.buildFilterSchema(param);
+    }
+
+    // orm-http @Sort: a JSON object, `{ column, order }`, over the model's @Sortable() columns.
+    if (param.Type === 'SortRouteArg') {
+      const options = param.Options as { sortable: string[]; default: string; order: string };
+      return {
+        type: 'object',
+        properties: {
+          column: { type: 'string', enum: [...options.sortable], default: options.default },
+          order: { type: 'string', enum: ['ASC', 'DESC'], default: options.order },
+        },
+      };
+    }
+
+    // orm-http @Include: the relations a request may populate, one value per repeated key.
+    if (param.Type === 'IncludeRouteArg') {
+      const options = param.Options as { relations: string[] };
+      return { type: 'array', items: { type: 'string', enum: [...options.relations] } };
     }
 
     // orm-http @FromModel — the request carries the key the model is loaded by, not the

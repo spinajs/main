@@ -4,6 +4,8 @@
 
 `readPage` and `readSort` are pure helpers that turn that input, or raw query-string values, into a defaulted, clamped page and a whitelisted sort. They do not touch the request or the query builder.
 
+`@Sort(Model, ...)` and `@Include(Model, [...])` are route arguments that validate the sort column and the relations to populate against the model, and hand the handler typed values that `order()` and `populate()` accept under strict query typing. Prefer them over `OrderDTO` and a hand-written include list.
+
 ## How it works
 
 1. A route argument typed `PaginationDTO` or `OrderDTO`, read with `@Query()`, takes `req.query[<argument name>]`: one JSON-encoded object per argument, `?pagination={"page":2,"limit":25}`.
@@ -38,6 +40,99 @@
 | `orderBy` | `string?` | Sort column. |
 | `model` | `Class<ModelBase>` | The model class. |
 
+## Typed sort and include
+
+Sortable columns are declared once, on the model, with `@Sortable()` from `@spinajs/orm`. The decorator is typed `(target: T, key: ColumnName<T>)`, so it compiles only on a column. The names land in `IModelDescriptor.Sortable`, inherited down a model hierarchy.
+
+```ts sample
+import { Connection, HasMany, Model, ModelBase, Primary, Relation, Sortable } from '@spinajs/orm';
+
+@Connection('default')
+@Model('invoice_lines')
+export class InvoiceLine extends ModelBase<InvoiceLine> {
+  @Primary()
+  public Id: number;
+
+  public invoice_id: number;
+}
+
+@Connection('default')
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> {
+  @Primary()
+  @Sortable()
+  public Id: number;
+
+  @Sortable()
+  public IssuedAt: string;
+
+  @Sortable()
+  public Total: number;
+
+  public Notes: string;
+
+  @HasMany(InvoiceLine, { foreignKey: 'invoice_id', primaryKey: 'Id' })
+  public Lines: Relation<InvoiceLine, Invoice>;
+}
+```
+
+| Decorator | Reads | Argument type | Answers 400 for |
+| --- | --- | --- | --- |
+| `@Sort(Model, { default, order?, field? })` | `req.query[field ?? 'order']`, the JSON object `OrderDTO` reads: `?order={"column":"Total","order":"desc"}` | `Sort<M>`: `{ column: ColumnName<M>; order: SortOrder }` | a column that is not `@Sortable()`, an order other than `ASC` / `DESC` (any case), a value that is neither a JSON object nor `null` |
+| `@Include(Model, relations, { field? })` | `req.query[field ?? 'include']`: `?include=Lines`, repeated `?include=A&include=B`, or a JSON array `?include=["A","B"]` | `RelationName<M>[]` | a name outside `relations` |
+
+- `@Sort`: a missing column takes `default`, a missing order takes `order` (default `SortOrder.ASC`); an empty string counts as missing. The order comes back upper case. `default` is typed `ColumnName<M>`.
+- `@Sort` reads the model's sortable columns when the decorator runs, that is when the controller class is defined. A `default` that is not `@Sortable()`, or a model with no `@Sortable()` column, throws `InvalidArgument` there, so the controller fails to load instead of failing a request.
+- `@Include`: `relations` is typed `readonly RelationName<M>[]`, so a typo or a column name does not compile. No include is `[]`; a name sent twice is kept once.
+- The validation runs through `RouteArgs.tryHydrateParam()` with a schema built from the allowlist (`enum`), the same path as every other argument, so a rejected value is a `ValidationFailed` 400; a `?order=` that is not valid JSON is an `InvalidArgument` 400.
+- `Sort<M>.column` is typed `ColumnName<M>` (any column of the model); the `@Sortable()` allowlist is enforced at runtime. A parameter decorator cannot type its parameter, so `@Sort(User, ...)` on a parameter declared `Sort<Team>` compiles: keep the two models the same.
+- `@spinajs/http-swagger` documents `@Sort` as a JSON query parameter `{ column: enum, order: enum }` with the defaults, and `@Include` as a repeated query parameter, an array of the listed relations.
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { Connection, HasMany, Model, ModelBase, Primary, Relation, RelationName, Sortable, SortOrder } from '@spinajs/orm';
+import { Include, PaginationDTO, Sort, readPage } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('invoice_lines')
+export class InvoiceLine extends ModelBase<InvoiceLine> {
+  @Primary()
+  public Id: number;
+
+  public invoice_id: number;
+}
+
+@Connection('default')
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> {
+  @Primary()
+  @Sortable()
+  public Id: number;
+
+  @Sortable()
+  public IssuedAt: string;
+
+  @HasMany(InvoiceLine, { foreignKey: 'invoice_id', primaryKey: 'Id' })
+  public Lines: Relation<InvoiceLine, Invoice>;
+}
+
+@BasePath('invoices')
+export class InvoiceController extends BaseController {
+  /** GET /invoices?order={"column":"Id","order":"asc"}&include=Lines */
+  @Get()
+  public async list(
+    @Query() pagination: PaginationDTO | undefined,
+    @Sort(Invoice, { default: 'IssuedAt', order: SortOrder.DESC }) sort: Sort<Invoice>,
+    @Include(Invoice, ['Lines']) include: RelationName<Invoice>[],
+  ) {
+    const { limit, offset } = readPage(pagination, { defaultLimit: 25 });
+    const rows = await Invoice.select().order(sort.column, sort.order).populate(include).take(limit).skip(offset);
+
+    return new Ok(rows.map((r) => r.dehydrateWithRelations()));
+  }
+}
+```
+
 ## Helpers
 
 `readPage(input, options?)` returns `{ limit, offset }`.
@@ -56,7 +151,7 @@
 | `maxLimit` | `MAX_PAGE_LIMIT` (500) | A larger `limit` is clamped, not rejected. |
 | `invalid` | throws `InvalidArgument(message, field)` | Map a malformed value to your own error. Must throw. |
 
-`readSort(input, sortable, fallback, options?)` returns `{ column, order }`. A column outside `sortable` (case-sensitive) or an order other than `ASC` / `DESC` (any case) goes to `invalid`. A missing column is `fallback.column`; a missing order is `fallback.order`, else `SortOrder.ASC`. The order comes back upper case.
+`readSort<M>(input, sortable, fallback, options?)` returns a `Sort<M>`, `{ column, order }`; `sortable` and `fallback.column` are typed `ColumnName<M>` (any string without a type argument). A column outside `sortable` (case-sensitive) or an order other than `ASC` / `DESC` (any case) goes to `invalid`. A missing column is `fallback.column`; a missing order is `fallback.order`, else `SortOrder.ASC`. The order comes back upper case.
 
 `DEFAULT_PAGE` is the frozen `{ limit: 50, offset: 0 }`.
 
@@ -167,13 +262,14 @@ export class InvoiceController extends BaseController {
 - Each DTO is one query-string argument named after the handler parameter, JSON-encoded. `?page=2&limit=25` does **not** fill a `PaginationDTO` argument.
 - Both fields of each DTO are optional. A client may send `{}`, `{ "page": 2 }`, or nothing.
 - `limit: 0` passes the schema. Guard it before `take()`, or read the page with `readPage`, which rejects it.
-- `OrderDTO.column` is not constrained. Without a whitelist a client can sort by any column of the table.
+- `OrderDTO.column` is not constrained. Without a whitelist a client can sort by any column of the table; `@Sort` has one built in.
 - Pages are zero-based in every example here; nothing in the DTO enforces either base.
 
 ## Best practices
 
 - Default `limit` and cap it, with `readPage` or in a subclass schema.
-- Whitelist `column` with `readSort`, or with an `enum` in a subclass schema so a bad column answers `400` before your handler runs.
+- Sort with `@Sort` over `@Sortable()` columns. Without a model, whitelist `column` with `readSort`, or with an `enum` in a subclass schema so a bad column answers `400` before your handler runs.
+- Let the client choose relations with `@Include`, never with a free `string[]` passed to `populate()`.
 - Count on a `clone()` of the builder taken before `take()` / `skip()`, so the total covers the whole filtered set.
 
 ## Patterns and antipatterns
