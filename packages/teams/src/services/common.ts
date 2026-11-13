@@ -1,8 +1,7 @@
 import { AccessDenied, SYSTEM, principalKey } from '@spinajs/authz';
 import type { Principal, PrincipalRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { col } from '@spinajs/orm';
-import type { ISelectQueryBuilder } from '@spinajs/orm';
+import type { ColumnName, ISelectQueryBuilder } from '@spinajs/orm';
 
 import type { Page, Paged } from '../api.js';
 import { asActor } from '../host.js';
@@ -30,11 +29,11 @@ export function ownerOf(actor: Principal, owner: unknown): PrincipalRef {
  * One page and the total of a list query. `query` builds a fresh builder each time (marks such as `.accessible()` are
  * per builder). `.accessible()` throws AccessDenied when the plan is `none`: a list the actor may see nothing of is empty.
  */
-export async function pageOf<M extends { name: string }, V>(actor: Principal, page: Page, query: () => ISelectQueryBuilder<M[]>, view: (m: M) => V): Promise<Paged<V>> {
+export async function pageOf<M, V>(actor: Principal, page: Page, query: () => ISelectQueryBuilder<M[]>, sort: ColumnName<M>, view: (m: M) => V): Promise<Paged<V>> {
   try {
     return await asActor(actor, async () => {
       const total = await query().selectCount();
-      const rows = (await query().orderBy(col('name')).skip(page.offset).take(page.limit)) as M[];
+      const rows = (await query().orderBy(sort).skip(page.offset).take(page.limit)) as M[];
       return Object.freeze({ items: Object.freeze(rows.map(view)), total: Number(total) });
     });
   } catch (e) {
