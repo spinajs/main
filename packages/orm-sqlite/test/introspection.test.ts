@@ -1,11 +1,12 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, RawQuery } from '@spinajs/orm';
+import type { ModelColumn, ModelEntry } from '@spinajs/manifest';
+import { manifestColumns, Orm, RawQuery, type IColumnDescriptor } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
 
-import { SqliteOrmDriver } from '../src/index.js';
+import { SQLITE_SQL_DIALECT, SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db } from './common.js';
 
 const driver = () => db().Connections.get('sqlite') as SqliteOrmDriver;
@@ -97,5 +98,23 @@ describe('sqlite index and foreign-key introspection', function () {
       ['Flag', true],
       ['Note', null],
     ]);
+  });
+
+  it('flags Unique under db.Models.Source = manifest the columns tableInfo() flags, so onDuplicate() targets the same index', async () => {
+    await driver().schema().createTable('in_tags', (t) => {
+      t.string('Code', 16).primaryKey();
+    });
+    const column = (name: string, family: 'integer' | 'text', primary: boolean, unique?: true): ModelColumn => ({ name, type: { text: 'unknown' }, primary, nullable: false, sql: { family, unique } });
+    const entry = (tableName: string, columns: ModelColumn[]): ModelEntry => ({ id: `app:${tableName}`, className: tableName, tableName, columns, relations: [], accessResource: false, source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' } });
+    const unique = (columns: IColumnDescriptor[]) => columns.filter((c) => c.Unique).map((c) => c.Name);
+    const entries = [
+      entry('in_users', [column('Id', 'integer', true), column('Email', 'text', false, true), column('Name', 'text', false)]),
+      entry('in_codes', [column('TenantId', 'integer', true), column('Code', 'text', true)]),
+      entry('in_tags', [column('Code', 'text', true)]),
+    ];
+    for (const e of entries) {
+      expect(unique(manifestColumns(e, SQLITE_SQL_DIALECT)), e.tableName).to.deep.equal(unique(await driver().tableInfo(e.tableName)));
+    }
+    expect(unique(await driver().tableInfo('in_tags'))).to.deep.equal(['Code']);
   });
 });

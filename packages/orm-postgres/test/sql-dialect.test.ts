@@ -26,7 +26,9 @@ describe('postgres SQL dialect profile', function () {
   });
 
   it('maps the native types tableInfo() reports to column families', () => {
-    expect(familiesOf('VARCHAR(255)', POSTGRES_SQL_DIALECT)).to.deep.equal(['text', 'enum']);
+    // packages store uuids as string(name, 36)
+    expect(familiesOf('VARCHAR(255)', POSTGRES_SQL_DIALECT)).to.deep.equal(['text', 'enum', 'uuid']);
+    expect(familiesOf('bpchar', POSTGRES_SQL_DIALECT)).to.deep.equal(['text', 'uuid']);
     expect(familiesOf('int4', POSTGRES_SQL_DIALECT)).to.deep.equal(['integer']);
   });
 

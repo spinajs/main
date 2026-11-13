@@ -65,6 +65,12 @@ function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor):
   return declared.map((c) => ({ ...c }));
 }
 
+/** What `setDefaults()` sets on every new instance. */
+function filledOnCreate(model: Class<ModelBase>, descriptor: IModelDescriptor): string[] {
+  const uuids = declaredColumns(model, descriptor).filter((c) => c.Uuid).map((c) => c.Name);
+  return descriptor.Timestamps.CreatedAt ? [...uuids, descriptor.Timestamps.CreatedAt] : uuids;
+}
+
 function missingTablesMessage(missing: IMissingModelTable[]): string {
   const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
   return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
@@ -167,7 +173,8 @@ export class Orm extends AsyncService {
     }
 
     this.warnMissingTables(missing);
-    this.warnDrift(this.ColumnDrift);
+    // the drift of a model this call did not read was warned when it was read
+    this.warnDrift(options.models ? options.models.flatMap((m) => this.Drift.get(m) ?? []) : this.ColumnDrift);
   }
 
   /** Reads `models` ( default: all ); resolves with the tables it found missing. */
@@ -190,6 +197,7 @@ export class Orm extends AsyncService {
 
         const converters = connection.Container.get(ORM_DB_VALUE_CONVERTERS);
         const entry = manifest ? this.manifestEntryOf(manifest, m.name, descriptor.TableName) : undefined;
+        const dialect = sqlDialectOf(connection.constructor as abstract new (...args: never[]) => unknown);
 
         updateModelDescriptor(m.type, (d) => {
           d.Driver = connection;
@@ -201,7 +209,7 @@ export class Orm extends AsyncService {
             // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
             // migration dropped or renamed, and the converters their old types mapped to.
             // D9: with the manifest as the source, tableInfo() only feeds the drift check below
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : mergeColumns(declaredColumns(m.type, d), columns);
 
             /**
              * Add coverters to columns set by decorators
@@ -245,11 +253,11 @@ export class Orm extends AsyncService {
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
 
-          const drift = entry ? columnDrift(entry, columns, sqlDialectOf(connection.constructor as abstract new (...args: never[]) => unknown), descriptor.Connection!) : [];
+          const drift = entry ? columnDrift(entry, columns, dialect, descriptor.Connection!, filledOnCreate(m.type, descriptor)) : [];
           if (drift.length > 0) this.Drift.set(m.type, drift);
         } else {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry), DECORATOR_FLAGS) : declaredColumns(m.type, d);
+            d.Columns = entry ? mergeColumns(declaredColumns(m.type, d), manifestColumns(entry, dialect), DECORATOR_FLAGS) : declaredColumns(m.type, d);
           });
 
           const missingTable = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };

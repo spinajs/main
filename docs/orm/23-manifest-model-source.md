@@ -14,7 +14,7 @@ export default {
 | `'database'` (default) | the decorators merged with `tableInfo()` | the merge |
 | `'manifest'`, in `require` mode | the decorators merged with the manifest's model columns | drift checks only |
 
-With `'manifest'` in any other manifest mode the ORM warns once and keeps reading the database. A model the manifest does not list (a stale manifest) is warned about and keeps the database merge; rebuild the manifest with `spinajs build`.
+With `'manifest'` in any other manifest mode the ORM warns once and keeps reading the database. A model the manifest does not list (a stale manifest) is warned about and keeps the database merge; rebuild the manifest with `spinajs build`. So is a model whose class and table name more than one manifest model has (an app subclass of a package model with the same name): the registered class does not say which entry it is.
 
 `db.Models.Source` is a typed configuration path: apps that keep generated declarations rerun `spinajs generate:config-types` after upgrading, and `config.get('db.Models.Source')` is typed `'database' | 'manifest'`.
 
@@ -22,7 +22,9 @@ With `'manifest'` in any other manifest mode the ORM warns once and keeps readin
 
 Column types in `Schema`/`ResponseSchema` (what `orm-http` validates request bodies with and `http-swagger` publishes) do not change: a manifest column is named by its `ColumnType` (`int`, `string`, `dateTime`, …), so `Id: number` is still `{ type: 'integer' }`. **`required` does change:** it follows the TypeScript optionality of the field (`Name!: string` is required, `Nickname?: string` is not) instead of the table's `NOT NULL` flags. That is the point of the models being the source of truth, and it is the cost of the opt-in: a column declared `!:` that the table allows to be `NULL` becomes required in request validation. Review the `?:` marks of the models you opt in.
 
-**Writes change too.** `Nullable` comes from the TypeScript optionality and `DefaultValue` only from `@Column({ default })`, so the write-time `NOT NULL` check and the defaults a new instance gets follow the model, not the table. With a table column `Rank INT NOT NULL DEFAULT 0` and a model field `Rank: number` without `@Column({ default: 0 })`, `Account.create({ Name })` throws `Field Rank cannot be null` under `'manifest'`, where `'database'` took the default from the table. The boot warns about every such column (drift kind `nullability`, below).
+**Writes change too.** `Nullable` comes from the TypeScript optionality (except for `@UpdatedAt`, `@SoftDelete` and `@Archived` columns, which the ORM fills only on an update, a soft delete or an archive: the compiler records them nullable whatever their type) and `DefaultValue` only from `@Column({ default })`, so the write-time `NOT NULL` check and the defaults a new instance gets follow the model, not the table. With a table column `Rank INT NOT NULL DEFAULT 0` and a model field `Rank: number` without `@Column({ default: 0 })`, `Account.create({ Name })` throws `Field Rank cannot be null` under `'manifest'`, where `'database'` took the default from the table. The boot warns about every such column (drift kind `nullability`, below).
+
+An untargeted `onDuplicate()` conflicts on the columns flagged `Unique`: a column with `@Column({ unique: true })`, and a primary key column as the driver's `tableInfo()` would flag it, which its dialect profile states in `uniquePrimaryKey`. The profile mirrors what the driver reports, not what the database enforces: `all` by default; `none` on mssql, whose `tableInfo()` reads `Unique` from UNIQUE constraints only, though the key is unique in the database; `indexed` on sqlite, where a lone `INTEGER PRIMARY KEY` is the rowid and has no index, and a composite key's index covers no column alone. So the conflict target is the same under both sources.
 
 A column default the model declares as raw SQL (`@Column({ default: { raw: 'CURRENT_TIMESTAMP' } })`) is left to the database on insert, as a default `tableInfo()` reads as an expression is.
 
@@ -32,11 +34,11 @@ Only the columns a model declares are checked:
 
 - A declared column missing from its table fails the boot under `db.StrictTableCheck` (`Column drift (db.StrictTableCheck): column Nickname of model Account is missing from table accounts on connection default. …`) and is a warning otherwise. The check runs after the startup migrations, like the missing-table check, and is skipped when the `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). `reloadTableInfo({ strict: true })` fails on it too.
 - A declared column whose live type belongs to another family (a `boolean` stored as `int4`) is a warning.
-- A column the model requires (no `?`, no `@Column({ default })`) that the table allows to be `NULL` or fills with a default is a warning (`nullability`): writes without a value fail where the table would have accepted them.
+- A column the model requires (no `?`, no `@Column({ default })`) that the table allows to be `NULL` or fills with a default is a warning (`nullability`): writes without a value fail where the table would have accepted them. Columns every new instance gets a value for (`@Uuid`, `@CreatedAt`) are not reported, and `@UpdatedAt`, `@SoftDelete` and `@Archived` columns are nullable in the manifest.
 
 Column names are compared ignoring case on drivers whose dialect profile sets `caseInsensitiveIdentifiers` (sqlite, mysql, mssql). Families are compared only for native types the driver's profile lists in `nativeTypes`.
 
-`Orm.ColumnDrift` lists what the last reads found.
+`Orm.ColumnDrift` lists what the last reads found. `reloadTableInfo({ models })` (what `migrate()` calls for the tables it touched) warns only the drift of the models it read.
 
 A column the table has and no model declares is normal (a partial model). `select *` still puts its value on the instance, without a converter, and `save()` never writes it.
 

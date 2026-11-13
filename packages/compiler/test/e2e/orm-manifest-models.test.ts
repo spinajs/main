@@ -30,6 +30,7 @@ interface ProbeResult {
   seen?: unknown;
   legacy?: unknown;
   stored?: { name: string; legacy: string };
+  stamp?: { id: string; updated: unknown };
 }
 
 describe('db.Models.Source = manifest in require mode', function () {
@@ -79,6 +80,11 @@ describe('db.Models.Source = manifest in require mode', function () {
   it('hydrates an undeclared column raw and never writes it back', () => {
     expect(clean.legacy).to.equal('kept');
     expect(clean.stored).to.deep.equal({ name: 'grace', legacy: 'kept' });
+  });
+
+  it('inserts a model whose required @UpdatedAt the insert leaves empty: the manifest records it nullable', () => {
+    expect(clean.error).to.equal(undefined);
+    expect(clean.stamp).to.deep.equal({ id: 'number', updated: null });
   });
 
   it('fails the boot on a declared column the table lacks, under db.StrictTableCheck', () => {

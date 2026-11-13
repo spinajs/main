@@ -1738,6 +1738,17 @@ export const manifestSchema: Record<string, any> = {
         },
         "alterColumnRebuildsTable": {
           "type": "boolean"
+        },
+        "uniquePrimaryKey": {
+          "type": "string",
+          "enum": [
+            "all",
+            "none",
+            "indexed"
+          ]
+        },
+        "rowidType": {
+          "type": "string"
         }
       },
       "required": [

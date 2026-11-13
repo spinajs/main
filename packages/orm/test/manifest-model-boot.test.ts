@@ -3,12 +3,14 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { ModelColumn, ModelEntry } from '@spinajs/manifest';
 import { expect } from 'chai';
+import { DateTime } from 'luxon';
 import 'mocha';
+import * as sinon from 'sinon';
 import '@spinajs/log';
-import { Connection, DatetimeValueConverter, extractModelDescriptor, Ignore, Model, ModelBase, Orm, ORM_DB_VALUE_CONVERTERS, Primary, SqlDialect, Uuid } from '../src/index.js';
+import { Connection, CreatedAt, DatetimeValueConverter, extractModelDescriptor, Ignore, Model, ModelBase, Orm, ORM_DB_VALUE_CONVERTERS, Primary, SqlDialect, UpdatedAt, Uuid } from '../src/index.js';
 import type { IColumnDescriptor } from '../src/index.js';
 import { col, live } from './schema-diff/fixture.js';
-import { FakeSqliteDriver } from './misc.js';
+import { FakeSqliteDriver, logText } from './misc.js';
 
 const CONNECTION = 'manifest-source';
 
@@ -70,12 +72,41 @@ function defineModels() {
     public Id: number;
   }
 
-  return { Flagged, Stamped, Ghost };
+  /** Two manifest models share its class and table name (an app subclass of a package model). */
+  @Connection(CONNECTION)
+  @Model('twins')
+  class Twin extends ModelBase {
+    @Primary()
+    public Id: number;
+  }
+
+  @Connection(CONNECTION)
+  @Model('filled')
+  class Filled extends ModelBase {
+    @Primary()
+    public Id: number;
+
+    @CreatedAt()
+    public Created: DateTime;
+
+    @UpdatedAt()
+    public Updated: DateTime;
+
+    @Uuid()
+    public Ref: string;
+
+    public Plain: string;
+  }
+
+  return { Flagged, Stamped, Ghost, Twin, Filled };
 }
 
 const MANIFEST = testManifest({
   models: [entry('Flagged', 'flagged', [col('Id', { family: 'integer', inferred: true }, { primary: true }), col('Ref', { family: 'text', inferred: true }), col('Note', { family: 'text', inferred: true })]),
     entry('Stamped', 'stamped', [col('Id', { family: 'integer', inferred: true }, { primary: true }), col('At', { family: 'datetime', inferred: true }), col('Flag', { family: 'boolean', inferred: true })]),
+    entry('Twin', 'twins', [col('Id', { family: 'integer', inferred: true }, { primary: true })]),
+    { ...entry('Twin', 'twins', [col('Id', { family: 'integer', inferred: true }, { primary: true })]), id: '@acme/twins:Twin' },
+    entry('Filled', 'filled', [col('Id', { family: 'integer', inferred: true }, { primary: true }), ...['Created', 'Updated', 'Ref', 'Plain'].map((name) => col(name, { family: name === 'Ref' || name === 'Plain' ? 'text' : 'datetime', inferred: true }))]),
   ],
 });
 
@@ -104,11 +135,19 @@ describe('db.Models.Source = manifest at boot', () => {
     TABLES.set('flagged', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Ref', 'TEXT'), live('Note', 'TEXT')]);
     TABLES.set('stamped', [live('Id', 'INTEGER', { PrimaryKey: true }), live('At', 'TEXT'), live('Flag', 'INTEGER')]);
     TABLES.set('ghosts', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Legacy', 'TEXT')]);
+    TABLES.set('twins', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Legacy', 'TEXT')]);
+    TABLES.set('filled', [live('Id', 'INTEGER', { PrimaryKey: true }), ...['Created', 'Updated', 'Ref', 'Plain'].map((name) => live(name, 'TEXT'))]);
   });
 
   afterEach(async () => {
+    sinon.restore();
     await disposeTestApps();
   });
+
+  const driftWarnings = (orm: Orm) => {
+    const warn = sinon.spy((orm as unknown as { Log: { warn(...args: unknown[]): void } }).Log, 'warn');
+    return () => warn.getCalls().map(logText).filter((t) => t.startsWith('Column drift'));
+  };
 
   // first: the keys it registers stay in the process
   it("adds no datetime or date converter keys under 'database'", async () => {
@@ -130,5 +169,32 @@ describe('db.Models.Source = manifest at boot', () => {
     const columns = extractModelDescriptor(models.Flagged)!.Columns;
     expect(columns.find((c) => c.Name === 'Ref')!.Uuid).to.equal(true);
     expect(columns.find((c) => c.Name === 'Note')!.Ignore).to.equal(true);
+  });
+
+  it('warns again only the drift of the models a non-strict reload read', async () => {
+    const orm = await boot();
+    const warned = driftWarnings(orm);
+    await orm.reloadTableInfo({ models: [models.Flagged] });
+    expect(warned()).to.deep.equal([]);
+    await orm.reloadTableInfo({ models: [models.Stamped] });
+    expect(warned()).to.deep.equal(['Column drift: "column stamped.Flag is INTEGER on connection manifest-source, model Stamped declares boolean"']);
+  });
+
+  it('warns and reads the columns from the database for a model more than one manifest model matches', async () => {
+    const orm = await boot();
+    const warn = sinon.spy((orm as unknown as { Log: { warn(...args: unknown[]): void } }).Log, 'warn');
+    await orm.reloadTableInfo({ models: [models.Twin] });
+    expect(extractModelDescriptor(models.Twin)!.Columns.map((c) => `${c.Name}:${c.NativeType}`)).to.deep.equal(['Id:INTEGER', 'Legacy:TEXT']);
+    expect(warn.getCalls().map(logText).filter((t) => t.includes('more than one manifest model'))).to.have.length(1);
+  });
+
+  it('warns about the nullability of a required column unless the ORM fills it on every new instance (@CreatedAt, @Uuid)', async () => {
+    TABLES.set('filled', [live('Id', 'INTEGER', { PrimaryKey: true }), ...['Created', 'Updated', 'Ref', 'Plain'].map((name) => live(name, 'TEXT', { Nullable: true, DefaultValue: 'x' }))]);
+    const orm = await boot();
+    // the compiler records @UpdatedAt nullable; a manifest entry that does not is still checked
+    expect(orm.ColumnDrift.filter((d) => d.table === 'filled').map((d) => [d.kind, d.column])).to.deep.equal([
+      ['nullability', 'Updated'],
+      ['nullability', 'Plain'],
+    ]);
   });
 });

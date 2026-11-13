@@ -14,6 +14,11 @@ export class OrmManifestApp_2026_11_03_00_00_00 extends OrmMigration {
       // no model declares it: a partial model
       table.string('Legacy');
     });
+    await connection.schema().createTable('stamps', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Name').notNull();
+      table.dateTime('Updated');
+    });
   }
 
   public async down(_: OrmDriver): Promise<void> {}

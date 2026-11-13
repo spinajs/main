@@ -35,14 +35,25 @@ export interface IColumnDrift {
   message: string;
 }
 
+/** Throws ManifestMissing unless exactly one manifest model has the class and table name: a registered class does not say which package declared it. */
 export function manifestModelEntry(manifest: Manifest, className: string, tableName: string): ModelEntry {
-  const entry = manifest.models.find((m) => m.className === className && m.tableName === tableName);
-  if (!entry) throw new ManifestMissing(`model ${className} (table ${tableName}) is registered but not listed in the manifest models: rebuild the manifest ( spinajs build )`);
-  return entry;
+  const entries = manifest.models.filter((m) => m.className === className && m.tableName === tableName);
+  if (entries.length === 0) throw new ManifestMissing(`model ${className} (table ${tableName}) is registered but not listed in the manifest models: rebuild the manifest ( spinajs build )`);
+  if (entries.length > 1) throw new ManifestMissing(`model ${className} (table ${tableName}) matches more than one manifest model (${entries.map((e) => e.id).join(', ')})`);
+  return entries[0];
 }
 
-/** The model's column descriptors from the manifest alone, shaped as a driver's `tableInfo()` shapes them. */
-export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
+function uniqueKey(entry: ModelEntry, sql: ColumnSqlSpec, dialect: SqlDialectProfile | undefined): boolean {
+  const rule = dialect?.uniquePrimaryKey ?? 'all';
+  if (rule !== 'indexed') return rule === 'all';
+  if (entry.columns.filter((c) => c.primary).length !== 1) return false;
+  const rowid = dialect?.rowidType;
+  if (rowid === undefined) return true;
+  return sql.nativeType !== undefined ? sql.nativeType.toLowerCase() !== rowid : !familiesOf(rowid, dialect)?.includes(sql.family);
+}
+
+/** The model's column descriptors from the manifest alone, shaped as `dialect`'s driver's `tableInfo()` shapes them. */
+export function manifestColumns(entry: ModelEntry, dialect?: SqlDialectProfile): IColumnDescriptor[] {
   return entry.columns.map((column) => {
     const sql = columnSpecOf(column);
     const native = sql.nativeType ?? FAMILY_TYPES[sql.family];
@@ -59,7 +70,7 @@ export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
       AutoIncrement: autoIncrementOf({ sql, primary: column.primary }),
       Converter: null,
       Schema: undefined,
-      Unique: column.primary || sql.unique === true,
+      Unique: (column.primary && uniqueKey(entry, sql, dialect)) || sql.unique === true,
       Uuid: false,
       Ignore: false,
       Aggregate: false,
@@ -71,14 +82,17 @@ export function manifestColumns(entry: ModelEntry): IColumnDescriptor[] {
 }
 
 /** How the table accepts a write without a value of a column the model requires without a default, if it does. */
-function looserInTable(column: ModelColumn, sql: ColumnSqlSpec, found: IColumnDescriptor, dialect: SqlDialectProfile | undefined): string | undefined {
-  if (column.nullable || column.primary || sql.default !== undefined) return undefined;
+function looserInTable(column: ModelColumn, sql: ColumnSqlSpec, found: IColumnDescriptor, dialect: SqlDialectProfile | undefined, filled: readonly string[]): string | undefined {
+  if (column.nullable || column.primary || sql.default !== undefined || filled.includes(column.name)) return undefined;
   if (found.Nullable && reportsNullability(dialect, sql.family)) return 'is nullable';
   return found.DefaultValue !== null && found.DefaultValue !== undefined ? 'has a default' : undefined;
 }
 
-/** D9: only declared columns are checked; a table column no model declares is a partial model (D19), never drift. */
-export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialect: SqlDialectProfile | undefined, connection: string): IColumnDrift[] {
+/**
+ * D9: only declared columns are checked; a table column no model declares is a partial model (D19), never drift. `filled`: columns
+ * the ORM sets on every new instance (`@Uuid`, `@CreatedAt`), whose nullability in the table never fails a write.
+ */
+export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialect: SqlDialectProfile | undefined, connection: string, filled: readonly string[] = []): IColumnDrift[] {
   const fold = dialect?.caseInsensitiveIdentifiers ? (name: string) => name.toLowerCase() : (name: string) => name;
   const out: IColumnDrift[] = [];
   for (const column of entry.columns) {
@@ -93,7 +107,7 @@ export function columnDrift(entry: ModelEntry, live: IColumnDescriptor[], dialec
     if (families && !families.includes(sql.family)) {
       out.push({ ...base, kind: 'family', message: `column ${entry.tableName}.${column.name} is ${found.NativeType} on connection ${connection}, model ${entry.className} declares ${sql.family}` });
     }
-    const looser = looserInTable(column, sql, found, dialect);
+    const looser = looserInTable(column, sql, found, dialect, filled);
     if (looser) {
       out.push({ ...base, kind: 'nullability', message: `column ${entry.tableName}.${column.name} ${looser} on connection ${connection}, model ${entry.className} requires a value and states no default: writes without one fail` });
     }

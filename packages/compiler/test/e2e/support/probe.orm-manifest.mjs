@@ -5,6 +5,7 @@ const { Orm, OrmMigrator, extractModelDescriptor } = await import('@spinajs/orm'
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
 const { Account } = await import(new URL('./lib/models.js', import.meta.url).href);
+const { Stamp } = await import(new URL('./lib/stamp.js', import.meta.url).href);
 
 const result = {};
 try {
@@ -29,6 +30,8 @@ try {
     await loaded.update();
     const stored = await driver.select().from('accounts').where({ Id: loaded.Id }).first();
     result.stored = { name: stored.Name, legacy: stored.Legacy };
+    const stamp = await Stamp.create({ Name: 'ada' });
+    result.stamp = { id: typeof stamp.Id, updated: (await driver.select().from('stamps').where({ Id: stamp.Id }).first()).Updated };
   }
   await orm.dispose();
 } catch (err) {
