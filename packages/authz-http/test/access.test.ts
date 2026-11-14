@@ -336,7 +336,7 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
 
       const instance = new Unguarded();
       const route = (Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, Unguarded.prototype) as IControllerDescriptor).Routes.get('x')!;
-      expect(() => new UnscopedMiddleware('forgot the guard').isEnabled(route, instance)).to.throw(AuthzConfigError, /needs an @Access/);
+      expect(() => new UnscopedMiddleware('forgot the guard').onRegister(route, '/acc-unguarded/x', instance)).to.throw(AuthzConfigError, /needs an @Access/);
     });
 
     it('a refused request is no bypass: nothing is audited', async () => {

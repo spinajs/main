@@ -10,9 +10,10 @@ import type { TestApp } from '@spinajs/testing';
 import type express from 'express';
 
 import { appPort, httpApp, req } from './common.js';
-import { AroundMiddleware, BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
-import type { ControllerActionHost, IActionLocalStoregeContext, IController, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, HttpServer, Middleware, Ok, OnError, Req, Response, RouteClientGone, RouteMiddleware, RouteRegistrationException, Unauthorized, buildRouteHandlers } from '../src/index.js';
+import type { ControllerActionHost, IActionLocalStoregeContext, IController, IMiddlewareContext, IRoute, IRouteChainOptions, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../src/index.js';
 import { createAroundHandler } from '../src/around.js';
+import { createBeforeHandler } from '../src/route-builder.js';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -53,18 +54,16 @@ class InnerProbe extends RouteMiddleware {
     return true;
   }
 
-  public async onBefore(req: express.Request, res: express.Response) {
+  public async onBefore({ req, res }: IMiddlewareContext) {
     calls.push('inner');
     state.innerX = bag((req as Request).storage)?.x;
     state.innerY = res.locals.y;
   }
 
-  public async onResponse() {}
-
   public async onAfter() {}
 }
 
-class OwnAnswer extends AroundMiddleware {
+class OwnAnswer extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround({ res }: IRouteInvocation) {
@@ -73,7 +72,7 @@ class OwnAnswer extends AroundMiddleware {
   }
 }
 
-class Observer extends AroundMiddleware {
+class Observer extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround(inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
@@ -92,7 +91,7 @@ class Observer extends AroundMiddleware {
 }
 
 /** Calls proceed() only after the client went away. */
-class LateProceed extends AroundMiddleware {
+class LateProceed extends RouteMiddleware {
   public override readonly Stage: MiddlewareStage = 'outer';
 
   public async onAround({ res }: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
@@ -106,7 +105,7 @@ class LateProceed extends AroundMiddleware {
 }
 
 @NewInstance()
-class Nest extends AroundMiddleware {
+class Nest extends RouteMiddleware {
   constructor(private readonly label: string) {
     super();
   }
@@ -118,7 +117,7 @@ class Nest extends AroundMiddleware {
   }
 }
 
-class Twice extends AroundMiddleware {
+class Twice extends RouteMiddleware {
   public async onAround(_inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) {
     await proceed();
     try {
@@ -130,7 +129,7 @@ class Twice extends AroundMiddleware {
   }
 }
 
-class Registering extends AroundMiddleware {
+class Registering extends RouteMiddleware {
   public onRegister(route: IRoute, path: string) {
     registered.push(`${String(route.Method)} ${path}`);
   }
@@ -140,7 +139,7 @@ class Registering extends AroundMiddleware {
   }
 }
 
-class DisabledRegistering extends AroundMiddleware {
+class DisabledRegistering extends RouteMiddleware {
   public override isEnabled() {
     return false;
   }
@@ -413,7 +412,7 @@ describe('Around middleware handler', () => {
   const route = { Method: 'probe', Type: 'get' } as unknown as IRoute;
   const controller = {} as IController;
 
-  class Probe extends AroundMiddleware {
+  class Probe extends RouteMiddleware {
     constructor(public around: (inv: IRouteInvocation, proceed: () => Promise<IRouteOutcome>) => Promise<void>) {
       super();
     }
@@ -511,23 +510,25 @@ describe('Around middleware handler', () => {
   });
 });
 
+const chain = (middlewares: RouteMiddleware[]): IRouteChainOptions =>
+  ({
+    controller: {} as ControllerActionHost,
+    route: { Method: 'probe', Type: 'get' } as unknown as IRoute,
+    path: '/x/probe',
+    basePath: 'x',
+    middlewares,
+    policies: { Controller: [], Route: [] },
+    errorHandlers: [],
+  } as unknown as IRouteChainOptions);
+
 describe('Around middleware registration', () => {
-  class FailingRegister extends AroundMiddleware {
+  class FailingRegister extends RouteMiddleware {
     public onRegister() {
       throw new Error('missing peer');
     }
 
     public async onAround() {}
   }
-
-  const chain = (middlewares: RouteMiddleware[]): IRouteChainOptions =>
-    ({
-      controller: {} as ControllerActionHost,
-      route: { Method: 'probe', Type: 'get' } as unknown as IRoute,
-      path: '/x/probe',
-      basePath: 'x',
-      middlewares,
-    } as IRouteChainOptions);
 
   it('fails the route registration with RouteRegistrationException naming the middleware and the route', async () => {
     let error: unknown;
@@ -539,5 +540,104 @@ describe('Around middleware registration', () => {
 
     expect(error).to.be.instanceOf(RouteRegistrationException);
     for (const part of ['FailingRegister', 'http:GET /x/probe', 'missing peer']) expect((error as Error).message).to.contain(part);
+  });
+
+  class Redaction extends RouteMiddleware {
+    public onResponse(_response: Response) {}
+  }
+
+  class InheritedRedaction extends Redaction {
+    public async onBefore() {}
+  }
+
+  class Unrelated extends RouteMiddleware {
+    public onResponseTime() {}
+
+    public async onBefore() {}
+  }
+
+  const registrationError = async (m: RouteMiddleware) => {
+    try {
+      await buildRouteHandlers(chain([m]));
+    } catch (err) {
+      return err;
+    }
+    return undefined;
+  };
+
+  it('fails the route registration of a middleware that still defines the removed onResponse, own or inherited', async () => {
+    for (const m of [new Redaction(), new InheritedRedaction()]) {
+      const error = await registrationError(m);
+      expect(error, m.constructor.name).to.be.instanceOf(RouteRegistrationException);
+      for (const part of [m.constructor.name, 'onResponse', 'onAfter(ctx)', 'ctx.response', 'http:GET /x/probe']) expect((error as Error).message).to.contain(part);
+    }
+  });
+
+  it('builds a middleware whose method only starts with onResponse', async () => {
+    expect(await registrationError(new Unrelated())).to.eq(undefined);
+  });
+});
+
+describe('Route middleware hooks', () => {
+  class BeforeOnly extends RouteMiddleware {
+    public async onBefore() {}
+  }
+
+  class BeforeAndAfter extends RouteMiddleware {
+    public async onBefore() {}
+
+    public async onAfter() {}
+  }
+
+  class AfterOnly extends RouteMiddleware {
+    public async onAfter() {}
+  }
+
+  class FinishOnly extends RouteMiddleware {
+    public onFinish() {}
+  }
+
+  class AroundOnly extends RouteMiddleware {
+    public async onAround() {}
+  }
+
+  class AroundAndBefore extends RouteMiddleware {
+    public async onAround() {}
+
+    public async onBefore() {}
+  }
+
+  class NoHooks extends RouteMiddleware {}
+
+  const mounted = async (m: RouteMiddleware) => (await buildRouteHandlers(chain([m]))).filter((h) => h?.name === m.constructor.name).length;
+
+  it('mounts one handler per hook that runs in the chain, and an entry handler for a middleware with reply hooks only', async () => {
+    expect(await mounted(new BeforeOnly())).to.eq(1);
+    expect(await mounted(new BeforeAndAfter())).to.eq(1);
+    expect(await mounted(new AfterOnly())).to.eq(1);
+    expect(await mounted(new FinishOnly())).to.eq(1);
+    expect(await mounted(new AroundOnly())).to.eq(1);
+    expect(await mounted(new AroundAndBefore())).to.eq(2);
+    expect(await mounted(new NoHooks())).to.eq(0);
+  });
+
+  it('enables a middleware on every route unless it says otherwise', () => {
+    expect(new NoHooks().isEnabled({} as IRoute, {} as never)).to.eq(true);
+  });
+
+  it('refuses an onBefore answer that is not a Response, naming the middleware', async () => {
+    class NotAnAnswer extends RouteMiddleware {
+      public async onBefore() {
+        return { status: 204 } as unknown as Response;
+      }
+    }
+    const res = { locals: {} } as express.Response;
+    const handler = createBeforeHandler(new NotAnAnswer(), { Method: 'probe', Type: 'get' } as unknown as IRoute, {} as IController, '/x/probe');
+
+    const error = await new Promise<unknown>((resolve) => handler({} as express.Request, res, resolve));
+
+    expect(error).to.be.instanceOf(UnexpectedServerError);
+    expect((error as Error).message).to.contain('NotAnAnswer.onBefore');
+    expect(res.locals.response).to.eq(undefined);
   });
 });

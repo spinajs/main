@@ -32,6 +32,10 @@ describe('sqlite SQL dialect profile', function () {
   it('maps the native types tableInfo() reports to column families, and distrusts boolean nullability', () => {
     expect(familiesOf('INTEGER', SQLITE_SQL_DIALECT)).to.deep.equal(['integer', 'bigint']);
     expect(familiesOf('', SQLITE_SQL_DIALECT)).to.deep.equal(['json']);
+    // migrations written by hand store JSON in a string column, which sqlite reports as TEXT
+    expect(familiesOf('TEXT', SQLITE_SQL_DIALECT)).to.include('json');
+    // and a uuid in its 36-character text form
+    expect(familiesOf('TEXT', SQLITE_SQL_DIALECT)).to.include('uuid');
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'boolean')).to.equal(false);
     expect(reportsNullability(SQLITE_SQL_DIALECT, 'text')).to.equal(true);
   });
@@ -39,5 +43,6 @@ describe('sqlite SQL dialect profile', function () {
   it('declares how migrate-diff compares names and text lengths', () => {
     expect(SQLITE_SQL_DIALECT.caseInsensitiveIdentifiers).to.equal(true);
     expect(SQLITE_SQL_DIALECT.unboundedText).to.equal(true);
+    expect(SQLITE_SQL_DIALECT.alterColumnRebuildsTable).to.equal(true);
   });
 });

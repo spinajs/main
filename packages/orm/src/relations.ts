@@ -22,10 +22,10 @@ import { registerRelation } from './relation-registry.js';
  * filter-only property (`@Filterable` on something that has no DB column) - the own-table
  * select and the insert/update converters already skip it, and a relation query has to as
  * well, or every populate of the model as a relation target selects a column the table does
- * not have.
+ * not have. An `@Ignore()` property is skipped for the same reason: it usually has no column.
  */
 function selectableColumns(descriptor: IModelDescriptor): IColumnDescriptor[] {
-  return descriptor.Columns.filter((c) => !c.Virtual);
+  return descriptor.Columns.filter((c) => !c.Virtual && !c.Ignore);
 }
 
 export interface IOrmRelation {

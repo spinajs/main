@@ -10,13 +10,13 @@ It does **not** translate anything itself: translations come from `@spinajs/intl
 npm install @spinajs/intl-http
 ```
 
-Importing the package registers its services. There is no bootstrapper and no config file of its own: it reads `intl.queryParameter` and `intl.defaultLocale` from the `@spinajs/intl` config.
+Importing the package registers its services and the schema of its one key, `intl.http.vary` (default `true`, also registered again by `IntlHttpConfigBootstrapper`). It ships no config file: it reads `intl.queryParameter` and `intl.defaultLocale` from the `@spinajs/intl` config.
 
 ## Features
 
 | Feature | What it does |
 | --- | --- |
-| [Request language](01-request-language.md) | `IntlHttpMiddleware`: detects the language of every request and stores it in `req.storage.language` for translations, templates and translated models |
+| [Request language](01-request-language.md) | `IntlHttpMiddleware`: detects the language of every request and stores it in `req.storage.language` for translations, templates and translated models; answers with `Content-Language` and, unless `intl.http.vary` is `false`, a `Vary` on the headers it read |
 | [`@Lang()` route argument](02-lang-route-argument.md) | `@Lang()` and `LangArgument`: inject the request language into an action, optionally limited to a list of allowed languages |
 | [Custom language resolution](03-custom-language-resolution.md) | Refine the detected language with an extra middleware, add your own language-like route arguments, read the language in services |
 

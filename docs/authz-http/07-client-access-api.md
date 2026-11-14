@@ -66,7 +66,7 @@ Request and answer:
 
 ### `X-Access-Epoch`
 
-`AccessEpochMiddleware` (a server middleware, `Order` 11, right after `PrincipalMiddleware`) sets `X-Access-Epoch` on every response whose request has a principal, anonymous included. A request with no principal gets no header.
+`AccessEpochMiddleware` (a server middleware, `Order` 11, right after `PrincipalMiddleware`) sets `X-Access-Epoch` in its `onAfter` on every framework reply whose request has a principal, anonymous included: the action's reply, an error reply, the 404. The epoch is that of `req.storage.Principal` when the reply leaves, so an action that switches the principal sends the new one. A request with no principal gets no header.
 
 The value, `accessEpoch(principal)`, is the first 16 hex characters of a SHA-256 over the principal's key, its session handle (`principal.authn.sessionHandle`) and its ceiling. It changes on login, role switch, MFA elevation and impersonation start and end (each rotates the session), and when a token's or link's ceiling changes. It does not change when an admin grants or revokes a role; those changes arrive as [access events](08-access-events.md).
 
@@ -102,7 +102,7 @@ export default {
 - **Only a definite allow is `true`.** A conditional permission answers `false` with `conditional`; show the action and let the route decide when the row matters.
 - **A bad entry costs only its own answer.** Answers keep the request order.
 - **The subject is always the caller.** A client cannot ask about other users here.
-- **`X-Access-Epoch` is set before routing**, so it is on error answers too.
+- **`X-Access-Epoch` is set on the way out**, in `onAfter`, so it is on error answers too. A static file, a reply an action wrote to `res` itself, or a request a server middleware before `Order` 11 refused gets none.
 - **Answers are per node and per moment.** Cache them in the client until the epoch changes or an `authz.changed` event arrives.
 
 ## Best practices

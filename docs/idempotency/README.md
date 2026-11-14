@@ -45,6 +45,20 @@ const outcome = await idempotency.run(
 `running` with `retryAfterMs`, or `claimed` with an `IdempotencyHandle` that the caller completes, releases or
 abandons itself. Use it when the claim and the settle happen in different places, as in a pipeline.
 
+`peek(scope, key)` reads a key without claiming it: `done` with the reply and the fingerprint, `running` with
+`leaseUntil`, or `undefined` for a free or expired key. `@spinajs/http` uses it to replay a completed key before the
+policies run.
+
+`idempotencyPrincipal(principal)` builds the `principal` of a scope from a `@spinajs/principal` principal: its
+`principalKey` when it is unrestricted, with its authority (`ceiling`, `onBehalfOf`, `delegation`,
+`authn.impersonator`, `companions`) when it is restricted (`isRestrictedPrincipal()`), so a narrower credential of one
+identity never shares stored replies with its full session. `@spinajs/http` and `@spinajs/http-socket` scope keys with it.
+
+`isSharedScope(principal)` is true for a principal that shares its key space with other callers: none, an
+unauthenticated one, or a share link (`type: 'link'`) without `companions`. `isRandomKey(key)` is true for a UUID of
+version 4 or 7, which another caller of a shared scope can neither hit by chance nor guess. `@spinajs/http` refuses
+any other key from a shared scope (the `sharedScope` option of `@Idempotent`).
+
 ## Transactions
 
 Run `IdempotencyService.run` outside business transactions. A claim made inside a transaction joins it: it commits or

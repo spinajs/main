@@ -1,9 +1,11 @@
+import type { IncomingHttpHeaders } from 'node:http';
 import { BlockList, isIP } from 'node:net';
-import * as express from 'express';
+import type * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
+import type { IMiddlewareContext } from '../interfaces.js';
 
 /**
  * `http.trustProxy` (and `authn.http.trustProxy`): which proxies in front of the app are trusted.
@@ -123,35 +125,53 @@ export function requestOrigin(req: { headers: express.Request['headers']; socket
   return `${proto === 'https' ? 'https' : 'http'}://${host}`;
 }
 
+/** What RealIp reads: a request, or a socket.io handshake shaped like one. */
+export interface ClientAddressSource {
+  readonly headers: Readonly<IncomingHttpHeaders>;
+  readonly socket?: { readonly remoteAddress?: string };
+}
+
 /**
- * Writes `req.storage.realIp`: the client address through `http.trustProxy` only; without it, the socket address. Also
- * writes the trust it used to `req.storage.proxyTrust`, so later middlewares need not parse the setting again.
+ * Writes `req.storage.realIp`, the one client address of the app: through `http.trustProxy`, or the trust a subclass
+ * registered over RealIp resolves ({@link RealIp.proxyTrust}); without one, the socket address. A subclass that reads
+ * the address elsewhere (a CDN header) overrides {@link RealIp.clientAddress}. Also writes the trust it used to
+ * `req.storage.proxyTrust`, so later middlewares need not parse the setting again.
  */
 @Injectable(ServerMiddleware)
 export class RealIp extends ServerMiddleware {
   @Config('http.trustProxy')
   protected TrustProxy: TrustProxySetting;
 
+  private trust?: ProxyTrust;
+
   constructor() {
     super();
     this.Order = 1;
   }
 
-  public after(): ((_req: sRequest, _res: express.Response, _next: express.NextFunction) => void) | null {
-    return null;
+  /** Parses the trust, so a bad setting fails the boot. */
+  public async resolve(): Promise<void> {
+    this.effectiveTrust();
+    await super.resolve();
   }
 
-  /** The effective trust, parsed once when the middleware is built; override it to honour another setting. */
+  /** The effective trust, parsed once; override it to honour another setting. */
   protected proxyTrust(): ProxyTrust {
     return parseTrustProxy(this.TrustProxy, 'http.trustProxy');
   }
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    const trust = this.proxyTrust();
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-      req.storage.proxyTrust = trust;
-      req.storage.realIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
-      next();
-    };
+  /** The trust {@link RealIp.proxyTrust} resolves, parsed once; what `onBefore` stores as `req.storage.proxyTrust`. */
+  public effectiveTrust(): ProxyTrust {
+    return (this.trust ??= this.proxyTrust());
+  }
+
+  /** The client address by this RealIp's rule; override it to read another header. onBefore and http-socket both call it. */
+  public clientAddress(req: ClientAddressSource): string | undefined {
+    return trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], this.effectiveTrust());
+  }
+
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    storage.proxyTrust = this.effectiveTrust();
+    storage.realIp = this.clientAddress(req);
   }
 }

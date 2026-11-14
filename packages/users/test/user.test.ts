@@ -53,6 +53,11 @@ describe('User model tests', function () {
       expect(user).to.be.not.null;
     });
 
+    it('whereUser should look up the trimmed email', async () => {
+      const user = await User.query().whereUser(' test@spinajs.pl ').first();
+      expect(user?.Email).to.eq('test@spinajs.pl');
+    });
+
     it('whereLogin query scope should work', async () => {
       const user = await User.query().whereLogin('test').first();
       expect(user).to.be.not.null;

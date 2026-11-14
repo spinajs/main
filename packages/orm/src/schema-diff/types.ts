@@ -55,6 +55,10 @@ export interface DiffOptions {
   /** `table.column` entries of undeclared columns to drop (`--prune`). */
   prune?: string[];
   dialect?: SqlDialectProfile;
+  /** What the connection reports (`LiveSchema.foreignKeysEnforced`); MIG006 is raised only when it is `true`. */
+  foreignKeysEnforced?: boolean;
+  /** DESTRUCTIVE changes will run, so MIG006 checks them too. */
+  allowDestructive?: boolean;
   /** Receives MIG002–MIG005. */
   diagnostics?: Diagnostic[];
 }
