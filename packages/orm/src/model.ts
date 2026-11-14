@@ -1,12 +1,13 @@
-import type { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
+import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
-import type { IModelDescriptor, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
+import type { LiteralColumn, OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
-import type { Op } from './enums.js';
+import type { Op, SqlOperator } from './enums.js';
 import type { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
 import { OrmException } from './exceptions.js';
@@ -29,6 +30,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
+import { bulkVersionColumn, refuseReplace, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
 
 /**
  *
@@ -172,7 +174,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * dies. A relation's baseline is `snapshotRelation()`'s job, and it stores primary keys.
    */
   private snapshotColumns(): IColumnDescriptor[] {
-    return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual);
+    return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual && !c.Ignore);
   }
 
   /**
@@ -446,12 +448,12 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<InstanceType<T>> | Partial<ModelDataWithRelationDataSearchable<InstanceType<T>>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: LiteralColumn<InstanceType<T>, C>, operator: Op | SqlOperator, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase, C extends WhereColumn<InstanceType<T>>>(this: T, column: LiteralColumn<InstanceType<T>, C>, value: WhereValue<InstanceType<T>, C>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+  public static where<T extends typeof ModelBase>(this: T, column: WhereCatchAllColumn<InstanceType<T>> | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | (OrmStrict extends true ? never : PickRelations<T>), operator?: WhereOperator<Op | SqlOperator>, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, _column: unknown, _operator?: unknown, _value?: unknown): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 
@@ -476,7 +478,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -486,7 +488,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -494,7 +496,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -502,7 +504,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
@@ -510,7 +512,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Returns total count of entries in db for this model
    */
-  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<number>;
+  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>> & T['_queryScopes']) => void): Promise<number>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw new Error('Not implemented');
   }
@@ -789,7 +791,16 @@ export class ModelBase<M = unknown> implements IModelBase {
       return;
     }
 
-    const result = await (this.constructor as any).destroy(pk);
+    const lock = versionLock(this);
+    const query = (this.constructor as typeof ModelBase).destroy(pk) as unknown as DeleteQueryBuilder<ModelBase> | UpdateQueryBuilder<ModelBase>;
+    if (lock && query instanceof UpdateQueryBuilder) {
+      query.update(withVersion(lock, query.Value));
+    }
+    whereVersion(lock, query);
+
+    // `any` as before: the early return above resolves to undefined, which IModelBase.destroy() does not declare
+    const result: any = await query;
+    settleVersion(lock, result, this);
 
     return result;
   }
@@ -798,17 +809,28 @@ export class ModelBase<M = unknown> implements IModelBase {
    * If model can be in achived state - sets archived at date and saves it to db
    */
   public async archive() {
-    if (this.ModelDescriptor!.Archived) {
-      (this as ModelBase & Record<string, unknown>)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
-    } else {
+    if (!this.ModelDescriptor!.Archived) {
       throw new OrmException('archived at column not exists in model');
     }
 
-    const { query } = this.createUpdateQuery();
-    query.update(this.toSql());
-    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    const archivedAt = this.ModelDescriptor!.Archived.ArchivedAt;
+    const previous: unknown = Reflect.get(this, archivedAt);
+    Reflect.set(this, archivedAt, DateTime.utc());
 
-    const result = await query;
+    const lock = versionLock(this);
+    const { query } = this.createUpdateQuery();
+    query.update(withVersion(lock, this.toSql()));
+    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    whereVersion(lock, query);
+
+    let result: IUpdateResult;
+    try {
+      result = await query;
+      settleVersion(lock, result, this);
+    } catch (err) {
+      Reflect.set(this, archivedAt, previous);
+      throw err;
+    }
 
     // The whole model is in the database now - that is the baseline for the next update().
     this.writeBackRelationKeys();
@@ -839,10 +861,11 @@ export class ModelBase<M = unknown> implements IModelBase {
       this.hydrate(data);
     }
 
+    const lock = versionLock(this);
     const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
     const changed = this.changeSet()
       .map((c) => c.Column)
-      .filter((c) => !keyColumns.includes(c));
+      .filter((c) => !keyColumns.includes(c) && c !== lock?.column);
 
     // Nothing to write. Checked against the diff, so re-assigning a column its current value
     // no longer produces an UPDATE that sets it to what it already was.
@@ -859,10 +882,12 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    query.update(_.pick(this.toSql() as Record<string, unknown>, changed));
+    query.update(withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed)));
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    whereVersion(lock, query);
 
     const updateResult = await query;
+    settleVersion(lock, updateResult, this);
 
     this.writeBackRelationKeys();
     this.takeSnapshot();
@@ -877,8 +902,10 @@ export class ModelBase<M = unknown> implements IModelBase {
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
     // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
     // without touching the database.
+    refuseReplace(this.ModelDescriptor!, insertBehaviour);
     generateClientSideKeys(this, this.ModelDescriptor!);
     assertAssignedKeys(this, this.ModelDescriptor!);
+    const undoVersion = startVersion(this);
 
     const { query, description } = this.createInsertQuery();
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
@@ -888,7 +915,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && !c.Ignore && c.Name !== description.VersionColumn).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -928,7 +955,10 @@ export class ModelBase<M = unknown> implements IModelBase {
     // Awaited here, not by the caller: the afterQuery middleware above backfills a generated key
     // during execution, and the snapshot must include it. Taken only after the await - a throw
     // leaves the model exactly as dirty as it was.
-    const result = await query.values(this.toSql());
+    const result = await query.values(this.toSql()).catch((err: unknown) => {
+      undoVersion();
+      throw err;
+    });
 
     this.writeBackRelationKeys();
     this.takeSnapshot();
@@ -999,7 +1029,14 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     model = await this.fresh();
 
+    const returned = model as unknown as Record<string, unknown>;
     for (const c of this.ModelDescriptor!.Columns) {
+      // An ignored property the row did not return is in-memory state only; setDefaults() leaves
+      // it unset, so undefined means "not returned".
+      if (c.Ignore && returned[c.Name] === undefined) {
+        continue;
+      }
+
       (this as any)[c.Name] = (model as any)[c.Name];
     }
 
@@ -1017,6 +1054,10 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   protected setDefaults() {
     this.ModelDescriptor!.Columns?.forEach((c) => {
+      if (c.Ignore) {
+        return;
+      }
+
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
       } else if (c.DefaultValue instanceof RawQuery) {
@@ -1217,6 +1258,10 @@ function _toColumnValues(data: Record<string, unknown>, descriptor: IModelDescri
 
   for (const [key, value] of Object.entries(data)) {
     const column = descriptor.Columns.find((c) => c.Name === key);
+    if (column?.Ignore) {
+      continue;
+    }
+
     values[key] = column?.Converter && value !== null && value !== undefined ? column.Converter.toDB(value, undefined as unknown as ModelBase, column, descriptor.Converters.get(key)?.Options) : value;
   }
 
@@ -1393,7 +1438,10 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     }
 
     const { query, description } = createQuery(this, UpdateQueryBuilder);
-    return query.update(_toColumnValues(data, description));
+    const values = _toColumnValues(data, description);
+    // a bulk update has no old version to match, but it must still invalidate every copy read before it
+    const version = bulkVersionColumn(description, values);
+    return version ? query.update(values).increment(version) : query.update(values);
   },
 
   all(page?: number, perPage?: number) {
@@ -1414,6 +1462,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
 
     const { query, description, container } = createQuery(this, InsertQueryBuilder);
+    refuseReplace(description, insertBehaviour);
 
     const converter = container.resolve(ObjectToSqlConverter);
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
@@ -1432,6 +1481,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       (data as Array<InstanceType<T>>).forEach((d) => {
         generateClientSideKeys(d, description);
         assertAssignedKeys(d, description);
+        startVersionOf(description, d, d instanceof ModelBase);
       });
 
       query.values(
@@ -1448,7 +1498,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual && !c.Ignore && c.Name !== description.VersionColumn).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
@@ -1457,6 +1507,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
       generateClientSideKeys(data, description);
       assertAssignedKeys(data, description);
+      startVersionOf(description, data, data instanceof ModelBase);
 
       if (data instanceof ModelBase) {
         query.values(data.toSql());
@@ -1706,7 +1757,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return query;
   },
 
-  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SortOrder.ASC);
 
@@ -1717,7 +1768,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SortOrder.DESC);
 
@@ -1728,7 +1779,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -1744,7 +1795,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
+  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -1760,7 +1811,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.first()) as InstanceType<T>;
   },
 
-  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number> {
+  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<InstanceType<T>>) => void): Promise<number> {
     const { query } = createQuery(this as any, SelectQueryBuilder);
 
     query.count('*', 'count');

@@ -2,13 +2,13 @@ import type express from 'express';
 
 export interface CapturedJsonReply {
   status: number;
-  /** Lower-case names; only those a replay restores: REPLAYED_HEADERS and the route's own IResponseOptions.Headers. */
+  /** Lower-case names; only those a replay restores: `content-type`, `location`, `etag` and the route's own IResponseOptions.Headers. */
   headers: Record<string, string>;
   /** The JSON text sent, or null for an empty body. */
   body: string | null;
 }
 
-/** Sees each JSON reply of one response; attached by whoever replays replies (the idempotency gate). */
+/** Sees each JSON reply of one response. Internal: a middleware reads a reply in onAfter, or the sent one through proceed(). */
 export abstract class ResponseCapture {
   public abstract capture(reply: CapturedJsonReply): void;
 }

@@ -53,6 +53,8 @@ import { RunEventWriter } from '../run/RunEventWriter.js';
 import { abortWaitingRun, CancelDeps } from '../run/cancel.js';
 import { journalAttemptEnd } from '../run/end.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
+import { InlineRunner, type InlineRunOptions } from '../run/inline.js';
+import type { RunContext } from '../run/RunContext.js';
 import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
@@ -137,6 +139,9 @@ export class DefaultSchedulerService extends SchedulerService {
 
   @Autoinject(RetentionService)
   protected Retention: RetentionService;
+
+  @Autoinject(InlineRunner)
+  protected Inline: InlineRunner;
 
   /** A process that never starts the loop (CLI, API-only replica) still sees every schedule. */
   public async resolve(): Promise<void> {
@@ -251,6 +256,19 @@ export class DefaultSchedulerService extends SchedulerService {
     if (!o.wait) return { runId: run.Id };
     const timeoutMs = typeof o.wait === 'object' ? o.wait.timeoutMs : undefined;
     return { runId: run.Id, run: await this.waitForEnd(run.Id, timeoutMs) };
+  }
+
+  public override async runInline<T>(
+    schedule: string,
+    fn: (ctx: RunContext) => Promise<T>,
+    opts?: InlineRunOptions,
+  ): Promise<T> {
+    // adopt: a schedule declared after boot (its class was imported lazily)
+    const def = this.Registry.find(schedule) ?? this.Registry.adopt(schedule);
+    // its row is inserted on first use, and again when pruned while the definition lives on
+    if (!(await ScheduleModel.where('Name', schedule).first())) await this.Sync.sync([def], await this.now(), { owner: false });
+    await this.assertManualRunsAllowed(schedule);
+    return this.Inline.run(def, fn, opts);
   }
 
   /** A running run is only flagged: its holder, the reaper and the claim of a retry all end a flagged run. */

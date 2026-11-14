@@ -94,6 +94,7 @@ The `app-basic` fixture of the compiler tests has a `HealthController` and a `Us
 | Controller class name without a trailing `Controller`, and the handler name | `operationId`, such as `Users_get` |
 | `@tags` JSDoc tag on the handler | `tags`. Without it the operation is tagged with the controller name without `Controller` |
 | `@summary`, `@description`, `@deprecated` JSDoc tags | `summary`, `description`, `deprecated: true` |
+| `@Deprecated()` of `@spinajs/http` on the route or its controller | `deprecated: true` |
 | Every controller name and every route tag | The top-level `tags`, unique and sorted |
 
 The JSDoc tags are described in [Documenting routes](../http-swagger/02-documenting-routes.md). Two routes with one method and path make the generator throw `duplicate operation`, naming both operation ids.
@@ -172,6 +173,7 @@ The CLI passes no security schemes: call the function to add them.
 
 - A route inherited from an abstract base controller is served but not in the document, because the manifest lists such a base under `controllerBases` ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
+- The document has no middleware answers: the manifest holds no runtime middleware, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
 
 ## Related
 

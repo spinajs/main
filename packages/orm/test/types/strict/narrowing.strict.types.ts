@@ -1,5 +1,4 @@
-import { rel } from '@spinajs/orm';
-import type { AggregateValue, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
+import type { AggregateValue, ICompilerOutput, MinMaxValue, SelectQueryBuilder, ISelectQueryBuilder, IColumnsBuilder } from '@spinajs/orm';
 import { assertType } from '../assert.js';
 import type { Equal } from '../assert.js';
 import { Team, User } from '../models.js';
@@ -90,16 +89,66 @@ export async function populateStrict(): Promise<void> {
 }
 
 export async function populateNamesStrict(dynamic: string, anyQuery: ISelectQueryBuilder<any>): Promise<void> {
-  await User.query().populate(['Metadata', 'Team.Name']).populate({ Metadata: {} }).populate(Team).populate(rel(dynamic)).populate(null);
+  await User.query().populate(['Metadata', 'Team.Name']).populate({ Metadata: {} }).populate(Team).populate(null);
   await anyQuery.populate(dynamic).populate([dynamic]);
   // @ts-expect-error misspelled relation
   User.query().populate('Metdata');
   // @ts-expect-error misspelled relation in an array
   User.query().populate(['Metadata', 'Teem']);
-  // @ts-expect-error a non-literal relation needs rel()
+  // @ts-expect-error a plain string is rejected by populate
   User.query().populate(dynamic);
+  // @ts-expect-error a string array is rejected by populate
+  User.query().populate([dynamic]);
   // @ts-expect-error misspelled relation in the object form
   User.query().populate({ Metdata: {} });
   // @ts-expect-error a column is no relation
   User.query().populate('Email');
+}
+
+export async function streamStrict(): Promise<void> {
+  for await (const row of User.query().select('Id').stream()) {
+    assertType<Equal<typeof row.Id, number>>();
+    // @ts-expect-error an unselected column is not on the row
+    void row.Name;
+  }
+  for await (const _user of User.query().select('Id').populate('Team').stream()) {
+    assertType<Equal<typeof _user.Team.Value, Team>>();
+  }
+  for await (const _row of User.all().count('Id', 'total').stream({ batchSize: 100 })) {
+    assertType<Equal<typeof _row.total, AggregateValue>>();
+  }
+}
+
+export async function paginateStrict(computed: string): Promise<void> {
+  const page = await User.query().select('Id').paginate({ orderBy: [['CreatedAt', 'desc']], limit: 20 });
+  assertType<Equal<(typeof page.items)[number]['Id'], number>>();
+  // @ts-expect-error an unselected column is not on the row
+  void page.items[0].Name;
+  const _populated = await User.query().select('Id').populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof _populated.items)[number]['Team']['Value'], Team>>();
+  // @ts-expect-error strict mode refuses an undeclared column name
+  void User.query().paginate({ orderBy: [['Nope', 'asc']], limit: 5 });
+  // @ts-expect-error strict mode refuses a column name that is not a literal
+  void User.query().paginate({ orderBy: [[computed, 'asc']], limit: 5 });
+  // @ts-expect-error paginate() orders by the model's own columns, not a relation's
+  void User.query().paginate({ orderBy: [['Team.Id', 'asc']], limit: 5 });
+}
+
+export function untypedStrict(raw: SelectQueryBuilder<unknown>, anyRows: SelectQueryBuilder<any>): void {
+  // a builder without a model has no row to narrow, so it stays the class (`toDB()` returns one output)
+  const one: ICompilerOutput = raw.select('id').columns(['id']).count('id', 'c').max('id', 'top').toDB();
+  const other: ICompilerOutput = anyRows.select('id', 'alias').sum('id', 's').toDB();
+  void [one, other];
+}
+
+export async function objectWhereAfterProjectionStrict(): Promise<void> {
+  // the object form of where checks the model's columns, not the projection
+  await User.query().columns(['Id']).where({ Email: 'a' }).orWhere({ IsActive: true }).andWhere({ Name: null });
+  await User.query().select('Id').whereObject({ Email: 'a' });
+}
+
+export function untypedArrayStrict(rows: SelectQueryBuilder<any[]>): void {
+  // an array of `any` rows has no model either
+  const out: ICompilerOutput = rows.select('id').columns(['id']).count('id', 'c').toDB();
+  void out;
 }

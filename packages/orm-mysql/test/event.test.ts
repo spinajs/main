@@ -25,16 +25,19 @@ describe('mysql events', function () {
     expect(driver.supportedFeatures().events).to.eq(true);
 
     const result = schema()
-      .createEvent('cleanup_spine_jobs', (event) => event.every(3, 'MINUTE').comment(`it's a cleanup`).do(new RawQuery('DELETE FROM rtb.spine_jobs WHERE created_at < NOW() - INTERVAL 3 DAY')))
+      .createEvent('cleanup_spine_jobs', (event) => {
+        event.every(3, 'MINUTE').comment(`it's a cleanup`).do(new RawQuery('DELETE FROM rtb.spine_jobs WHERE created_at < NOW() - INTERVAL 3 DAY'));
+      })
       .toDB();
 
     expect(result.expression).to.eq(['CREATE EVENT `cleanup_spine_jobs`', 'ON SCHEDULE EVERY 3 MINUTE', 'ON COMPLETION NOT PRESERVE', 'ENABLE', "COMMENT 'it\\'s a cleanup'", 'DO DELETE FROM rtb.spine_jobs WHERE created_at < NOW() - INTERVAL 3 DAY'].join('\n'));
   });
 
-  // the tasks history cleanup ( @spinajs/tasks Task_2024_12_03_11_41_00 ); tasks has no mysql driver to compile it with
   it('compiles a delete whose cutoff the database computes on every run', () => {
     const result = schema()
-      .createEvent('__task_delete_old_entries', (event) => event.every(1, 'DAY').do(driver.del().from('__task_history').where('CreatedAt', '<', driver.ago(7, 'day'))))
+      .createEvent('__task_delete_old_entries', (event) => {
+        event.every(1, 'DAY').do(driver.del().from('__task_history').where('CreatedAt', '<', driver.ago(7, 'day')));
+      })
       .toDB();
 
     expect(result.expression?.split('\n').at(-1)).to.eq('DO DELETE FROM `__task_history` WHERE `CreatedAt` < (UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');

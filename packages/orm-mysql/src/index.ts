@@ -9,7 +9,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
 import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
-import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
@@ -223,28 +223,69 @@ export class MySqlOrmDriver extends SqlDriver {
         return;
       }
 
-      // Acquiring is the part that queues when the pool is saturated, so it is the part worth
-      // timing. Taking the connection explicitly, instead of letting `Pool.query` do it out of
-      // sight, is what makes `orm_pool_acquire_seconds` a real number instead of always zero.
-      const acquireStart = process.hrtime.bigint();
-
-      this.acquire((err, connection) => {
-        const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
-        this.observeAcquireSeconds(seconds);
-
-        if (err) {
+      void (async () => {
+        let connection: PoolConnection;
+        try {
+          connection = await this.acquireConnection();
+        } catch (err) {
           fail(err);
           return;
         }
 
         let released = false;
-        run(connection!, () => {
+        run(connection, () => {
           if (released) {
             return;
           }
           released = true;
-          connection!.release();
+          connection.release();
         });
+      })();
+    });
+  }
+
+  /**
+   * The rows of one statement as mysql2 emits them, with the connection paused while a batch waits. A connection whose
+   * result has ended goes back to the pool; one left before that is destroyed together with its socket.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
+    const bound = this.toDriverParams(params);
+    const connection = await this.acquireConnection();
+    const queue = new RowQueue(connection, options.batchSize);
+
+    try {
+      connection
+        .query(stmt, bound)
+        .on('result', (row: unknown) => queue.push(row))
+        .on('error', (err: unknown) => queue.fail(mapMySqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params)))
+        .on('end', () => queue.end());
+      yield* queue.read();
+    } finally {
+      if (queue.finished) {
+        connection.release();
+      } else {
+        connection.destroy();
+        // mysql2's destroy() only half-closes the socket; a paused one never reads the rest, so the server would keep
+        // sending until net_write_timeout
+        (connection as unknown as { stream?: Duplex }).stream?.destroy();
+      }
+    }
+  }
+
+  /**
+   * Acquiring is the part that queues when the pool is saturated, so it is the part worth timing. Taking the connection
+   * explicitly, instead of letting `Pool.query` do it out of sight, is what makes `orm_pool_acquire_seconds` a real number.
+   */
+  private acquireConnection(): Promise<PoolConnection> {
+    const acquireStart = process.hrtime.bigint();
+    return new Promise((resolve, reject) => {
+      this.acquire((err, connection) => {
+        this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
+        if (err || !connection) {
+          reject(err ?? new Error(`mysql pool of ${this.Options.Name} returned no connection`));
+          return;
+        }
+        resolve(connection);
       });
     });
   }
@@ -254,7 +295,7 @@ export class MySqlOrmDriver extends SqlDriver {
     // ( row count known before execution ), so it reserves one contiguous block of
     // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
     // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
-    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true };
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true };
   }
 
   public resolve() {

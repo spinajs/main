@@ -10,6 +10,7 @@ import type { ModelBase } from '../model.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { executeRecorded } from '../schema-touches.js';
 import type { SchemaTouch } from '../schema-touches.js';
+import { markWrite } from '../replica-router.js';
 import type { BuilderState } from '../extensions.js';
 
 /** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
@@ -81,6 +82,9 @@ export class Builder<T = any> implements IBuilder<T> {
     }
 
     const result = await executeRecorded(this._driver, () => this.schemaTouches(), () => this._executeOnDriver());
+    if (this._nonSelect) {
+      markWrite(this._driver);
+    }
 
     for (const middleware of this._queryMiddlewares) {
       await middleware.afterQueryExecution?.(query, result);
@@ -94,9 +98,14 @@ export class Builder<T = any> implements IBuilder<T> {
     return this.QueryContext === QueryContext.Schema ? 'all' : [];
   }
 
+  /** The connection one execution runs on. A model select may read a replica; everything else runs on the builder's own. */
+  protected executionDriver(): OrmDriver {
+    return this._driver;
+  }
+
   /** The driver round trip of one execution; a builder that needs several statements overrides it. */
   protected _executeOnDriver(): Promise<T> {
-    return this._driver.execute(this) as Promise<T>;
+    return this.executionDriver().execute(this) as Promise<T>;
   }
 
   /**
@@ -111,6 +120,11 @@ export class Builder<T = any> implements IBuilder<T> {
     const wrap = this._driver.CurrentTransaction === undefined && this._queryMiddlewares.some((m) => m.transactional?.(this as unknown as QueryBuilder) === true);
     const result = wrap ? await this._driver.transaction(() => this._executeWithQueryMiddlewares()) : await this._executeWithQueryMiddlewares();
 
+    return this._materialize(result);
+  }
+
+  /** Result middlewares, hydration and post-hydration middlewares over one driver result. `stream()` runs it once per batch. */
+  protected async _materialize(result: T): Promise<T> {
     // Snapshot the pipeline once, *after* the driver call: compiling the query is what
     // registers the relation middlewares (the driver calls `toDB()`), so this is the first
     // point at which the list is complete. Everything below runs against this immutable copy,

@@ -150,6 +150,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - Has-many and many-to-many run one extra query per relation, not per owner. When the parent query returns no rows, the extra query is skipped.
 - Belongs-to columns are aliased with the connection's `AliasSeparator` (default `$`, so `$Customer$.Name`). See [Connections](./01-connections.md).
 - `compile()` runs once per relation object. Calling `toDB()` twice produces the same SQL.
+- `clone()` copies a relation that has not compiled through the optional `IOrmRelation.cloneFor(query, owner)`, so it compiles into the clone alone. A custom relation without `cloneFor` is shared by the clone and compiles into the original query only.
 - `populate()` matches relation names case-insensitively. The static `Model.populate(relation, owner)` uses `Relations.has()` and is case-sensitive.
 - The static `Model.populate(relation, owner)` returns a builder for the related rows. It throws `OrmException` for Query and Virtual relations.
 - `Orm` resolves every `TargetModel` by class name when it starts. An unknown name throws `OrmException` (`type <T> not found for relation <name> in model <M> in file <file>`).

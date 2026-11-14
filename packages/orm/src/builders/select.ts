@@ -2,21 +2,28 @@ import { Injectable, isConstructor } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
-import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator } from '../enums.js';
+import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
-import type { RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement } from '../statements.js';
-import type { ColumnStatement, IQueryStatement } from '../statements.js';
+import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
+import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
-import type { AggregateValue, ColumnName, ColumnRef, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
+import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
 import type { ModelBase } from '../model.js';
 import type { IOrmRelation } from '../relations.js';
 import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
+import { StreamNotSupported } from '../exceptions.js';
+import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetFamilies, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
+import type { KeysetColumn } from '../keyset.js';
+import { sqlDialectOf } from '../sql-dialect.js';
+import { hasPk } from '../primary-keys.js';
+import { executeRecorded, inMigrationRun } from '../schema-touches.js';
+import { ReplicaRouter } from '../replica-router.js';
 import type { IRelationSort } from './internal.js';
-import { runCloneHooks } from './internal.js';
+import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -30,9 +37,11 @@ import { WhereBuilder } from './where.js';
 /** A select builder whose row type changed; the model's query scopes stay on it. */
 export type SelectNarrowed<B, T, R> = SelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
 /** Class counterpart of StrictAliasNarrowed, so a class-typed chain keeps the class (mergeRelations, mergeStatements, ...). */
-export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : SelectNarrowed<B, T, R>) : B;
+export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : unknown extends Unbox<T> ? B : SelectNarrowed<B, T, R>) : B;
 
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
+
+const DEFAULT_STREAM_BATCH = 500;
 
 /** Reads the driver's value of a selectCondition() column as a boolean. */
 class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
@@ -99,6 +108,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   protected _relations: IOrmRelation[] = [];
 
   protected _owner: IOrmRelation | undefined;
+
+  // Statements taken over from another builder by mergeBuilder()/mergeStatements(): they read that
+  // builder's alias, so clone() copies them without rebinding them to the copy.
+  protected _merged = new WeakSet<IQueryStatement>();
 
   /**
    * The outer builder this query is correlated to, set when this query is the sub-select of a
@@ -232,9 +245,37 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  protected _onPrimary = false;
+
+  /** Set by the keyset fallback stream on every page, so one stream never changes replica between pages. */
+  protected _pinnedDriver?: OrmDriver;
+
+  public onPrimary(): this {
+    this._onPrimary = true;
+    return this;
+  }
+
+  /** A raw `driver.select()` names its connection, so only model selects are routed, and never during a migration. */
+  protected executionDriver(): OrmDriver {
+    if (this._pinnedDriver) {
+      return this._pinnedDriver;
+    }
+
+    if (this._onPrimary || this._rowLock !== undefined || this._model === undefined || inMigrationRun()) {
+      return this._driver;
+    }
+
+    return this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+  }
+
   public clone(): this {
+    return this._cloneOwnedBy(this._owner);
+  }
+
+  // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
+  protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner, false);
+    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
@@ -242,22 +283,24 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._tableAlias = this._tableAlias;
     builder._correlationSource = this._correlationSource;
 
-    // Clone columns
-    builder._columns = this._columns.map(c => c.clone(builder));
+    // a statement clone is built from scratch, so the connector and the whereOnJoin() flag are copied by hand
+    const copy = (s: IQueryStatement) => {
+      const merged = this._merged.has(s);
+      const c = merged ? s.clone() : s.clone(builder);
+      c.Boolean = s.Boolean;
+      c.OnJoin = s.OnJoin;
+      if (merged) {
+        builder._merged.add(c);
+      }
+      return c;
+    };
 
-    // Clone joinStatements with mapped WhereBuilder references
-    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
+    builder._columns = this._columns.map(copy);
+    builder._joinStatements = this._joinStatements.map(copy);
+    builder._statements = this._statements.map(copy);
+    builder._groupStatements = this._groupStatements.map(copy);
 
-    // Clone statements with mapped WhereBuilder references
-    builder._statements = this._statements.map(c => c.clone(builder));
-
-    // Clone group-by statements (previously dropped, silently losing GROUP BY
-    // on a cloned query).
-    builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
-
-    // Carry relations and result middlewares over. These hold live objects and
-    // are shared the same way mergeRelations()/mergeBuilder() already share them.
-    builder._relations = [...this._relations];
+    builder._relations = this._relations.map((r) => r.cloneFor?.(builder, owner) ?? r);
     builder._middlewares = [...this._middlewares];
 
     /**
@@ -275,6 +318,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
     builder._database = this._database;
+    builder._onPrimary = this._onPrimary;
 
     runCloneHooks(this, builder);
 
@@ -390,6 +434,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
+    this._markMerged(builder._columns);
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
@@ -424,8 +469,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
+    this._markMerged(builder._joinStatements);
+    this._markMerged(stms);
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  private _markMerged(statements: IQueryStatement[]) {
+    for (const s of statements) this._merged.add(s);
   }
 
   /**
@@ -467,32 +518,37 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
-  public min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public min(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public min<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public min(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
   }
 
   public max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
-  public max(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public max(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public max<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public max(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MAX, as, this._tableAlias]));
     return this;
   }
 
-  public count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictSelectAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
+  public count<A extends string = 'count', C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: A): StrictSelectAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
   public count(column?: string, as?: string) {
     const c = column ?? '*';
     const a = as ?? 'count';
 
     this.clearColumns();
+    // a populated relation would join and select its columns next to the aggregate
+    this._relations = [];
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
 
     return this;
   }
 
-  public selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  public selectCount(column?: DeclaredColumn<Unbox<T>>, as?: string): Promise<number>;
+  public selectCount<C extends ColumnRef<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: string): Promise<number>;
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
@@ -502,15 +558,17 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       .then((x) => Number(x?.[a] ?? 0));
   }
 
-  public sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
-  public sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public sum<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  public sum(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public sum<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public sum(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.SUM, as, this._tableAlias]));
     return this;
   }
 
-  public avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
-  public avg(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public avg<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  public avg(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public avg<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
     return this;
@@ -581,6 +639,191 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     return res !== undefined && res !== null;
+  }
+
+  public stream(options: IStreamOptions = {}): AsyncIterable<Unbox<T>> {
+    const batchSize = options.batchSize ?? DEFAULT_STREAM_BATCH;
+    if (!Number.isSafeInteger(batchSize) || batchSize < 1) {
+      throw new InvalidArgument(`batchSize must be a positive integer, got ${String(batchSize)}`);
+    }
+
+    return this._streamRows(batchSize) as AsyncIterable<Unbox<T>>;
+  }
+
+  protected async *_streamRows(batchSize: number): AsyncGenerator<unknown> {
+    if (this._first) {
+      throw new InvalidOperation('stream() cannot follow first() or takeFirst()');
+    }
+
+    const driver = this.executionDriver();
+    if (this._driver.CurrentTransaction === undefined && !this._wantsTransaction() && (await driver.canStreamNatively())) {
+      yield* this._streamFromCursor(driver, batchSize);
+      return;
+    }
+
+    // a page is a whole statement through executeOnDb: it leaves the connection free between pages and carries the
+    // session settings, which a cursor outside a transaction cannot
+    yield* this._streamByKeyset(batchSize, driver);
+  }
+
+  /** Same test as `Builder._run`: a query middleware (authz-orm's row filter) that needs a transaction gets one per page. */
+  private _wantsTransaction(): boolean {
+    return this._queryMiddlewares.some((m) => m.transactional?.(this) === true);
+  }
+
+  protected async *_streamFromCursor(driver: OrmDriver, batchSize: number): AsyncGenerator<unknown> {
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.beforeQueryExecution(this);
+    }
+
+    // recorded like `_run`, so the migration tool's dry run sees the tables a stream reads
+    const rows = await executeRecorded(driver, () => this.schemaTouches(), () => Promise.resolve(driver.executeStream(this, { batchSize })));
+    let batch: unknown[] = [];
+
+    for await (const row of rows) {
+      batch.push(row);
+      if (batch.length === batchSize) {
+        yield* await this._streamBatch(batch);
+        batch = [];
+      }
+    }
+
+    if (batch.length !== 0) {
+      yield* await this._streamBatch(batch);
+    }
+  }
+
+  private async _streamBatch(rows: unknown[]): Promise<unknown[]> {
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.afterQueryExecution?.(this, rows);
+    }
+
+    return (await this._materialize(rows as unknown as T)) as unknown as unknown[];
+  }
+
+  /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
+  protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
+    const descriptor = extractModelDescriptor(this._model);
+    // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
+    this.toDB();
+    const sorts = this.getSorts();
+    this._assertKeysetPageable(sorts, descriptor);
+
+    const columns = keysetColumns(keysetOfSorts(sorts), descriptor);
+    assertKeysetNotNull(columns, descriptor);
+
+    let last: unknown[] | undefined;
+    for (;;) {
+      const page = executionCopy(this);
+      page._pinnedDriver = driver;
+      for (const tieBreaker of columns.slice(sorts.length)) {
+        page.order(tieBreaker.column, SortOrder.ASC);
+      }
+      if (last) {
+        applyKeysetPredicate(page, columns, last, 'after');
+      }
+      page.take(batchSize);
+
+      const rows = (await page) as unknown as unknown[];
+      yield* rows;
+
+      if (rows.length < batchSize) {
+        return;
+      }
+      last = keysetValues(columns, rows.at(-1));
+    }
+  }
+
+  private _assertKeysetPageable(sorts: ISort[], descriptor: IModelDescriptor | null | undefined): asserts descriptor is IModelDescriptor {
+    if (sorts.length === 0 || !descriptor || !hasPk(descriptor)) {
+      throw new StreamNotSupported(`stream() pages by keyset here (driver ${String(this._driver.Options.Driver)} without a cursor, a transaction or session settings), which needs order() on a model with a primary key`);
+    }
+
+    const blocker = this._keysetBlocker();
+    if (blocker) {
+      throw new StreamNotSupported(`stream() pages by keyset here and cannot keep ${blocker}`);
+    }
+  }
+
+  public async paginate(options: IKeysetPageOptions<Unbox<T>>): Promise<KeysetPage<Unbox<T>>> {
+    this._assertPageable(options);
+
+    const descriptor = extractModelDescriptor(this._model) ?? undefined;
+    const columns = keysetColumns(options.orderBy, descriptor);
+    if (descriptor) {
+      assertKeysetNotNull(columns, descriptor);
+    }
+    const backward = options.before !== undefined;
+    const cursor = options.before ?? options.after;
+
+    this._orderByKeyset(columns, backward);
+    this._selectKeysetColumns(columns, descriptor);
+    if (cursor !== undefined) {
+      const families = keysetFamilies(columns, descriptor, sqlDialectOf(this._driver.constructor as abstract new (...args: never[]) => unknown));
+      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor, families), backward ? 'before' : 'after');
+    }
+    this.take(options.limit + 1);
+
+    const rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    return keysetPage(columns, rows, options.limit, { cursor, backward });
+  }
+
+  private _orderByKeyset(columns: KeysetColumn[], backward: boolean): void {
+    for (const { column, order } of columns) {
+      this.order(column, (order === 'asc') !== backward ? SortOrder.ASC : SortOrder.DESC);
+    }
+
+    if ((this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
+      throw new InvalidArgument('paginate() cannot order by a relation column', 'orderBy');
+    }
+    const blocker = this._keysetBlocker();
+    if (blocker) {
+      throw new InvalidOperation(`paginate() cannot keep ${blocker}`);
+    }
+  }
+
+  /** Cursors are made from the rows, so a select narrowed to some columns gets the order columns added. */
+  private _selectKeysetColumns(columns: KeysetColumn[], descriptor: IModelDescriptor | undefined): void {
+    const selected = this._columns.filter((c): c is ColumnStatement => c instanceof ColumnStatement);
+    if (this._columns.length === 0 || selected.some((c) => c.Column === '*')) {
+      return;
+    }
+
+    for (const { column } of columns) {
+      const described = descriptor?.Columns.some((c) => c.Name === column && !c.Virtual);
+      if (described && !selected.some((c) => c.Column === column && !c.Alias)) {
+        this.select(column);
+      }
+    }
+  }
+
+  private _assertPageable(options: { limit: number; after?: string; before?: string }): void {
+    if (!Number.isSafeInteger(options.limit) || options.limit < 1) {
+      throw new InvalidArgument(`limit must be a positive integer, got ${String(options.limit)}`);
+    }
+
+    if (options.after !== undefined && options.before !== undefined) {
+      throw new InvalidArgument('give either after or before, not both');
+    }
+
+    if (this.getSorts().length !== 0 || this._first) {
+      throw new InvalidOperation('paginate() sets the order and the limit itself; remove order(), take(), skip() and first() from the query');
+    }
+  }
+
+  /** Each page is a fresh LIMIT past the last row of the page before, so the rows must be the table's rows in order. */
+  private _keysetBlocker(): string | undefined {
+    const { limit = -1, offset = -1 } = this._limit;
+    if (limit > 0 || offset > 0) {
+      return 'take() or skip()';
+    }
+    if (this._distinct || this._groupStatements.length !== 0 || this._columns.some((c) => c instanceof ColumnMethodStatement)) {
+      return 'distinct(), groupBy() or an aggregate column';
+    }
+    if ((this._sorts as IRelationSort[]).some((s) => s.tableAlias !== undefined || s.awaits !== undefined)) {
+      return 'an order by a relation column';
+    }
+    return undefined;
   }
 
   /**

@@ -2,8 +2,8 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-http/register-schema';
 import type { Session } from '@spinajs/authn/contracts';
-import { AuthnLogoutExtension, proxyTrustOf, publicOriginOf } from '@spinajs/authn-http';
-import { isTrustedPeer } from '@spinajs/http';
+import { AuthnLogoutExtension, publicOriginOf } from '@spinajs/authn-http';
+import { isTrustedPeer, requestProxyTrust } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
@@ -73,12 +73,6 @@ export class OidcLogoutExtension extends AuthnLogoutExtension {
   @Autoinject(OidcProviders)
   protected Providers: OidcProviders;
 
-  @Config('authn.http.trustProxy')
-  protected OwnTrust: unknown;
-
-  @Config('http.trustProxy')
-  protected SharedTrust: unknown;
-
   @Config('authn.http.publicOrigin')
   protected PublicOrigin: string | null | undefined;
 
@@ -103,7 +97,7 @@ export class OidcLogoutExtension extends AuthnLogoutExtension {
     if (configured !== undefined) return configured;
 
     const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
+    const trust = requestProxyTrust(req);
     return checkedRequestOrigin(
       { encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') },
       (peer) => isTrustedPeer(trust, peer),

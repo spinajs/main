@@ -50,6 +50,7 @@ A model typed `@Body()` takes steps 4 and 5 through `FromBody`.
 | --- | --- | --- | --- |
 | `@FromModel<T>(options?)` | Route method parameter | `FromModelOptions<T>` | Loads one row of the model; `404` when absent. |
 | `@AsModel(field?, type?)` | Route method parameter | `field?: string`, the request key; `type?: ParameterType`, where to read it (body by default) | Builds an unsaved model from the request. |
+| `@Sort(Model, options)`, `@Include(Model, relations)` | Route method parameter | see [Pagination and ordering](05-pagination-and-order.md#typed-sort-and-include) | A validated `Sort<M>` over the model's `@Sortable()` columns; a validated `RelationName<M>[]` for `populate()`. |
 
 ### `FromModelOptions`
 
@@ -190,6 +191,8 @@ export class ArticleController extends BaseController {
 ```
 
 ### Let the client choose relations to include
+
+On a listing, or wherever the handler builds its own query, prefer [`@Include`](05-pagination-and-order.md#typed-sort-and-include): it validates the names against a list typed `RelationName<M>[]`.
 
 ```ts sample
 import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';

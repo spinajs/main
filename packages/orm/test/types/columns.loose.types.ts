@@ -1,4 +1,4 @@
-import { col, RawQuery, SortOrder, SqlOperator, Wrapper } from '@spinajs/orm';
+import { RawQuery, SortOrder, SqlOperator, Wrapper } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Upload, User } from './models.js';
 import { assertType } from './assert.js';
@@ -28,7 +28,7 @@ export async function whereLoose(): Promise<void> {
   await untyped.where('whatever', 1);
   await User.destroy().where('Id', 'not a number');
   await User.update({ Email: 'x' }).where(dynamic, 1);
-  await User.query().where(col('legacy_column'), 1);
+  await User.query().where('legacy_column', 1);
 }
 
 export async function columnsLoose(): Promise<void> {
@@ -39,4 +39,11 @@ export async function columnsLoose(): Promise<void> {
   await User.update({ Email: 'x' }).increment(dynamic, 2);
   const _all = await User.query().select('Id');
   assertType<Equal<typeof _all, User[]>>();
+}
+
+export async function templateColumnsLoose(): Promise<void> {
+  await User.query().orderBy(`users.${dynamic}`).where(`${dynamic}.Id`, 1).order({ column: `x.${dynamic}` }).columns([`t.${dynamic}`]);
+  await User.query().whereColumn('Id', '=', `o.${dynamic}`).sum(`a${dynamic}.b`, 's');
+  await User.where(`${dynamic}.Id`, 1);
+  await User.update({ Email: 'x' }).increment(`users.${dynamic}`);
 }

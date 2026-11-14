@@ -204,4 +204,24 @@ describe('Query builder clone() statement rebinding', () => {
     expect(twice).to.equal(once);
     expect(once.match(/`JoinTable_exists`\.`owner_id` = /g)).to.have.length(1);
   });
+
+  it('statements merged in from another builder keep that builder', () => {
+    const connection = db()!.Connections.get('sqlite')!;
+    const nested = sqb().select('*').from('groups').setAlias('$group$').where('name', 'x');
+    nested.leftJoin({ joinTable: 'owners', joinTableAlias: '$owner$', sourceTablePrimaryKey: 'owner_id', joinTableForeignKey: 'Id', joinTableDriver: connection });
+
+    const query = sqb().select('*').from('users').setAlias('$users$').where('active', 1);
+    query.mergeStatements(nested);
+    const cloned = query.clone().setAlias('$copy$');
+
+    expect(sql(query)).to.contain('ON `$group$`.`owner_id` = `$owner$`.`Id` WHERE `$users$`.`active` = ? AND `$group$`.`name` = ?');
+    expect(sql(cloned)).to.contain('ON `$group$`.`owner_id` = `$owner$`.`Id` WHERE `$copy$`.`active` = ? AND `$group$`.`name` = ?');
+  });
+
+  it('orWhere() stays OR on the clone', () => {
+    const query = sqb().select('*').from('users').where('id', 1).orWhere('id', 2);
+
+    expect(sql(query.clone())).to.equal('SELECT * FROM `users` WHERE `id` = ? OR `id` = ?');
+    expect(sql(query.clone())).to.equal(sql(query));
+  });
 });

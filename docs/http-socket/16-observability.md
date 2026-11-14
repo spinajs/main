@@ -41,7 +41,7 @@ Other log lines worth alerting on:
 | --- | --- | --- | --- | --- |
 | `Metrics` (`@spinajs/telemetry-common`) | `Metrics` (self), singleton; read with `DI.get(Metrics) ?? DI.resolve(Metrics)` | private prom-client registry | Your subclass | `DI.register(Mine).as(Metrics)` before the first command; expose `getRegistry()` through your metrics endpoint |
 | `SocketDispatcher.observe()` | `SocketDispatcher`, singleton | debug line and two metrics | Your subclass | Override `observe(ctx, reply, ms)` and call `super` |
-| Exported helpers | functions | `socketMetrics()`, `observeCommand()`, `observeStream()`, `trackConnection()` | none | Call them from custom transports or stages |
+| Exported helpers | functions | `socketMetrics()`, `observeCommand()`, `observeStream()`, `trackConnection()` | none | Call them from custom transports or socket middlewares |
 
 ### `SocketDispatcher.observe()`: warn about slow commands
 
@@ -97,17 +97,15 @@ counter.inc({ command: ctx.handler?.fullName ?? SOCKET_UNKNOWN_COMMAND });
 import { DI, Injectable } from '@spinajs/di';
 import { Metrics } from '@spinajs/telemetry-common';
 import type { Counter } from '@spinajs/telemetry-common';
-import { ISocketCommandContext, SOCKET_UNKNOWN_COMMAND, STAGE_ORDER, SocketCommandStage } from '@spinajs/http-socket';
+import { ISocketCommandContext, SOCKET_UNKNOWN_COMMAND, STAGE_ORDER, SocketMiddleware } from '@spinajs/http-socket';
 
-@Injectable(SocketCommandStage)
-export class PrincipalTypeMetricStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class PrincipalTypeMetric extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Lookup + 1;
+
   protected counter: Counter<string> | null = null;
 
-  public get Order(): number {
-    return STAGE_ORDER.Lookup + 1;
-  }
-
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public onBefore(ctx: ISocketCommandContext): void {
     if (!this.counter) {
       const metrics = (DI.get(Metrics) ?? DI.resolve(Metrics)) as Metrics;
       this.counter = metrics.defineMetrics('app_socket', [{ name: 'commands_by_principal_total', help: 'Socket commands by principal type', type: 'counter', labelNames: ['command', 'principal'] }])
@@ -115,7 +113,6 @@ export class PrincipalTypeMetricStage extends SocketCommandStage {
     }
 
     this.counter.inc({ command: ctx.handler?.fullName ?? SOCKET_UNKNOWN_COMMAND, principal: ctx.connection.principal.type });
-    return next();
   }
 }
 ```

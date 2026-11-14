@@ -91,4 +91,20 @@ describe('extractControllers', () => {
       expect(fake.routes[0]).to.not.have.property('public');
     });
   });
+  describe('@Deprecated', () => {
+    const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+    const unitCtx = createContext(unit, 'unit', 'test/fixtures/unit');
+    const [legacy, partly, lookalike] = extractControllers(unitCtx, unit.sourceFiles.find((f) => f.fileName.endsWith('deprecated-marker.ts'))!);
+
+    it('marks every route of a class decorator deprecated, found through an import alias', () => {
+      expect(legacy.routes[0].doc).to.deep.equal({ deprecated: true });
+    });
+    it('marks a decorated route only, next to its own doc', () => {
+      expect(partly.routes.find((r) => r.handler === 'old')!.doc).to.deep.equal({ deprecated: true });
+      expect(partly.routes.find((r) => r.handler === 'current')!.doc).to.deep.equal({ description: 'Still served.' });
+    });
+    it('ignores a Deprecated that does not resolve to @spinajs/http', () => {
+      expect(lookalike.routes[0]).to.not.have.property('doc');
+    });
+  });
 });

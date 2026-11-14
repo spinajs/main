@@ -14,7 +14,7 @@ const STARTED = Symbol('slowRequestStarted');
  *
  * Config:
  *   http.slowRequest.enabled      (default true)
- *   http.slowRequest.thresholdMs  (default 1000)
+ *   http.slowRequest.thresholdMs  (default 1000); `@SlowThreshold(ms)` replaces it on a route
  */
 @Injectable(ServerMiddleware)
 export class SlowRequestWarning extends ServerMiddleware {
@@ -47,7 +47,7 @@ export class SlowRequestWarning extends ServerMiddleware {
     }
 
     const ms = Date.now() - started;
-    const threshold = this.ThresholdMs;
+    const threshold = storage?.slowThresholdMs ?? this.ThresholdMs;
     if (ms < threshold) {
       return;
     }

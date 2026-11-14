@@ -9,6 +9,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
 
 import '../schemas/provider.js';
+import { AuthzAdminRateLimit } from '../rate-limits.js';
 import { AuthzAssignmentGrant, AuthzAssignmentPatch } from '../dto/assignments.js';
 import { AuthzAttributesBody, AuthzAttributesPatch } from '../dto/attributes.js';
 import type { AuthzAdminCommandBatch } from '../dto/batch.js';
@@ -92,6 +93,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('commands')
+  @AuthzAdminRateLimit('commands')
   @Middleware(NoStore)
   public async commands(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminBatch() batch: AuthzAdminCommandBatch) {
     return this.guarded(async (admin) => results(await admin.execute(actor, batch.commands as AuthzCommand[], batch.options)), domain);
@@ -139,6 +141,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('assignments')
+  @AuthzAdminRateLimit('writes')
   public async grant(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Body({ required: true }) body: AuthzAssignmentGrant, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [asCommand({ ...body, kind: 'assignment.grant' })]);
   }
@@ -157,6 +160,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('assignments/:id')
+  @AuthzAdminRateLimit('writes')
   public async patchAssignment(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzAssignmentPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => {
       const commands: AuthzCommand[] = [];
@@ -179,6 +183,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('assignments/:id')
+  @AuthzAdminRateLimit('writes')
   public async revoke(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [byId('assignment.revoke', id)]);
   }
@@ -211,6 +216,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('links')
+  @AuthzAdminRateLimit('writes')
   @Middleware(NoStore)
   public async createLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Body({ required: true }) body: AuthzLinkCreate, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [asCommand({ ...body, kind: 'link.create' })]);
@@ -230,6 +236,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('links/:id')
+  @AuthzAdminRateLimit('writes')
   public async patchLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzLinkPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [asCommand({ ...withPathId(body, id), kind: 'link.update' })]);
   }
@@ -247,6 +254,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('links/:id')
+  @AuthzAdminRateLimit('writes')
   public async revokeLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [byId('link.revoke', id)]);
   }
@@ -279,6 +287,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('rules/:id')
+  @AuthzAdminRateLimit('writes')
   public async putRule(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzRuleBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [asCommand({ kind: 'rule.put', rule: withPathId(body, id) })]);
   }
@@ -296,6 +305,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('rules/:id')
+  @AuthzAdminRateLimit('writes')
   public async deleteRule(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [byId('rule.delete', id)]);
   }
@@ -328,6 +338,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('policies/:id')
+  @AuthzAdminRateLimit('writes')
   public async putPolicy(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzPolicyBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [asCommand({ kind: 'policy.put', policy: withPathId(body, id) })]);
   }
@@ -345,6 +356,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('policies/:id')
+  @AuthzAdminRateLimit('writes')
   public async deletePolicy(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [byId('policy.delete', id)]);
   }
@@ -376,6 +388,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('scopes/:type/:id/attributes')
+  @AuthzAdminRateLimit('writes')
   public async patchAttributes(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(TYPE_PARAM) type: string, @Param(ID_PARAM) id: string, @AdminBody() body: AuthzAttributesPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [{ kind: 'scope.setAttributes', scope: { type, id }, patch: { ...body } }]);
   }
@@ -394,6 +407,7 @@ export class AuthzAdminController extends BaseController {
    * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('scopes/:type/:id/attributes')
+  @AuthzAdminRateLimit('writes')
   public async replaceAttributes(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(TYPE_PARAM) type: string, @Param(ID_PARAM) id: string, @AdminBody() body: AuthzAttributesBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
     return this.single(domain, actor, options, () => [{ kind: 'scope.replaceAttributes', scope: { type, id }, attributes: { ...body } }]);
   }

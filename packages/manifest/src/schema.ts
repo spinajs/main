@@ -199,6 +199,12 @@ export const manifestSchema: Record<string, any> = {
           "type": "boolean",
           "const": false
         },
+        "globalRouteMiddlewares": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GlobalMiddlewareRef"
+          }
+        },
         "compilerVersion": {
           "type": "string"
         },
@@ -505,19 +511,7 @@ export const manifestSchema: Record<string, any> = {
         "middlewares": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string"
-              },
-              "options": {
-                "type": "array",
-                "items": {}
-              }
-            },
-            "required": [
-              "type"
-            ]
+            "$ref": "#/definitions/MiddlewareRef"
           }
         },
         "access": {
@@ -579,6 +573,25 @@ export const manifestSchema: Record<string, any> = {
         "type"
       ]
     },
+    "MiddlewareRef": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {}
+        },
+        "decoratorArgs": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
     "RouteEntry": {
       "type": "object",
       "properties": {
@@ -624,19 +637,7 @@ export const manifestSchema: Record<string, any> = {
         "middlewares": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string"
-              },
-              "options": {
-                "type": "array",
-                "items": {}
-              }
-            },
-            "required": [
-              "type"
-            ]
+            "$ref": "#/definitions/MiddlewareRef"
           }
         },
         "access": {
@@ -1734,6 +1735,20 @@ export const manifestSchema: Record<string, any> = {
         },
         "unboundedText": {
           "type": "boolean"
+        },
+        "alterColumnRebuildsTable": {
+          "type": "boolean"
+        },
+        "uniquePrimaryKey": {
+          "type": "string",
+          "enum": [
+            "all",
+            "none",
+            "indexed"
+          ]
+        },
+        "rowidType": {
+          "type": "string"
         }
       },
       "required": [
@@ -1816,6 +1831,21 @@ export const manifestSchema: Record<string, any> = {
         "code",
         "severity",
         "message"
+      ]
+    },
+    "GlobalMiddlewareRef": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "fromClass": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "type"
       ]
     },
     "ManifestFragment": {

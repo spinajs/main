@@ -143,7 +143,7 @@ async function logoutToken(idp: FakeIdp, claims: Record<string, unknown>): Promi
   return idp.sign(idp.keys[0], JSON.stringify(body), { typ: 'logout+jwt' });
 }
 
-const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7' };
+const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7', proxyTrust: { hops: 0 } };
 const answerOf = (r: unknown): OidcAnswer => (r as { answer: OidcAnswer }).answer;
 
 describe('authn-oidc action hooks', function () {

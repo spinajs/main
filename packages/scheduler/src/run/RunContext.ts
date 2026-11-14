@@ -8,7 +8,7 @@ import type {
   StructuredError,
   TriggeredBy,
 } from '../contract.js';
-import { RunAbortedError } from '../errors.js';
+import { isCrashError, RunAbortedError } from '../errors.js';
 import type { ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
 import type { RunModel } from '../models/RunModel.js';
@@ -231,6 +231,8 @@ export class RunContext {
       await this.closeStep(s, 'succeeded', null, opts.persistResult === false ? undefined : { value });
       return value;
     } catch (err) {
+      // a dead process writes nothing, not even its own step's failure
+      if (isCrashError(err)) throw err;
       const aborted = this.signal.aborted;
       const error = aborted
         ? null
@@ -359,9 +361,10 @@ export class RunContext {
   }
 
   /** Ends a step the task left open (it did not settle after an abort) and waits for every queued write. */
-  public async close(_outcome: ExecutionOutcome): Promise<void> {
+  public async close(outcome: ExecutionOutcome): Promise<void> {
     const s = this.open;
-    if (s && !s.closed) await this.closeStep(s, 'aborted', null);
+    const crashed = outcome.kind === 'error' && isCrashError(outcome.error);
+    if (s && !s.closed && !crashed) await this.closeStep(s, 'aborted', null);
     this.closed = true;
     await this.queue;
   }

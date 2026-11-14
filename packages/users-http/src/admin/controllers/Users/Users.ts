@@ -3,8 +3,8 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query
 import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
-import type { ISelectQueryBuilder } from '@spinajs/orm';
-import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import type { ISelectQueryBuilder, RelationName } from '@spinajs/orm';
+import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, Include, isFilterGroup, PaginationDTO, Sort } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, roleList, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthzService, GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, Principal } from '@spinajs/authz';
@@ -12,6 +12,7 @@ import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
+import { UsersRateLimit } from '../../../rate-limits.js';
 import { AccountGuard } from '../../../services/AccountGuard.js';
 // Registers AccountDisableHook: the controller scan imports this file, and an app may never import the package entry.
 import '../../../services/account-disable-hook.js';
@@ -21,17 +22,6 @@ import { withCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
 import { everyUserRow, requireEveryUser, userRowFor } from '../../../services/users-access.js';
-
-/**
- * Columns a client may sort by.
- *
- * `OrderDTO.column` is a free-form string and reaches the query builder as an
- * identifier. The compiler escapes it, so this is not an injection hole — but an
- * unknown column produced a driver error and a 500 where the request was simply
- * wrong. Whitelisting turns that into a 400 and keeps the sortable surface a
- * deliberate decision rather than "whatever columns the table happens to have".
- */
-const SORTABLE_COLUMNS = ['Uuid', 'Login', 'Email', 'IsActive', 'CreatedAt', 'LastLoginAt', 'DeletedAt'];
 
 /**
  * Upper bound on `pagination.limit`. An admin list endpoint with no ceiling is
@@ -281,28 +271,21 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param pagination.page Page number (zero-based)
    * @param pagination.limit Number of users per page (default: 10, max: 100)
-   * @param order.column Column to sort by (default: CreatedAt). One of Uuid, Login, Email, IsActive, CreatedAt, LastLoginAt, DeletedAt
-   * @param order.order Sort direction: ASC or DESC (default: DESC)
-   * @param include Relations to include — currently supports: Metadata
+   * @param sort Query key `order`, JSON `{"column":"Login","order":"ASC"}`: a `@Sortable()` column of the user model, `User` or the subclass registered as `RBAC_USER_MODEL` (default: CreatedAt), ASC or DESC in any case (default: DESC)
+   * @param include Relations to include: Metadata
    * @returns {User[]} Paginated list of user accounts, each with optional Metadata relation
-   * @response 400 Sort column is not sortable
+   * @response 400 Validation error — a sort column that is not sortable, a sort order other than ASC / DESC, or an unknown relation to include
    * @response 401 Unauthorized — no signed-in principal
    * @response 403 Forbidden — no `users:read` on every user (a conditional grant does not list)
    */
   @Get('/')
+  @UsersRateLimit('list')
   @Access('users:read', { fields: 'filter' })
   public async list(
     @CurrentPrincipal() caller: Principal,
+    @Sort(User, { default: 'CreatedAt', order: SortOrder.DESC, resolve: userModel }) sort: Sort<User>,
+    @Include(User, ['Metadata']) include: RelationName<User>[],
     @Query() pagination?: PaginationDTO,
-    @Query() order?: OrderDTO,
-    @Query({
-      type: 'array',
-      items: {
-        type: 'string',
-        enum: ['Metadata'],
-      },
-    })
-    include?: string[],
     @Filter(USER_FILTER)
     filter?: IFilterRequest,
   ) {
@@ -313,7 +296,6 @@ export class Users extends BaseController {
     // to 10 while skip fell back to 0 — so any request that sent a page but no
     // limit silently got page 0 whatever it asked for.
     const limit = Math.min(pagination?.limit || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const column = this.sortColumn(order);
 
     // Soft-deleted accounts are hidden by every model query, so a DeletedAt
     // condition could otherwise only ever match nothing.
@@ -333,10 +315,10 @@ export class Users extends BaseController {
           this.select('Value', 'user:niceName');
         },
       )
-      .populate(include ?? [])
+      .populate(include)
       .take(limit)
       .skip(limit * (pagination?.page ?? 0))
-      .order(column, order?.order ?? SortOrder.DESC)
+      .order(sort.column, sort.order)
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
     const countQuery = userModel()
@@ -391,7 +373,7 @@ export class Users extends BaseController {
    * Retrieves a single user record by UUID. Supports optional inclusion of related Metadata.
    * @security cookieAuth
    * @param user User UUID path parameter
-   * @param include Relations to include — currently supports: Metadata
+   * @param include Relations to include: Metadata
    * @returns {User} User account with optional Metadata relation
    * @response 401 Unauthorized — no signed-in principal
    * @response 403 Forbidden — no `users:read` on this user
@@ -402,16 +384,9 @@ export class Users extends BaseController {
   public async getSingleUser(
     @CurrentPrincipal() caller: Principal,
     @Param() user: string,
-    @Query({
-      type: 'array',
-      items: {
-        type: 'string',
-        enum: ['Metadata'],
-      },
-    })
-    include?: string[],
+    @Include(User, ['Metadata']) include: RelationName<User>[],
   ) {
-    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Uuid', user).populate(include ?? []).first());
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Uuid', user).populate(include).first());
     return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
@@ -420,7 +395,7 @@ export class Users extends BaseController {
    * Retrieves a single user record by login name. Supports optional inclusion of related Metadata.
    * @security cookieAuth
    * @param user User login name path parameter
-   * @param include Relations to include — currently supports: Metadata
+   * @param include Relations to include: Metadata
    * @returns {User} User account with optional Metadata relation
    * @response 401 Unauthorized — no signed-in principal
    * @response 403 Forbidden — no `users:read` on this user
@@ -431,16 +406,9 @@ export class Users extends BaseController {
   public async getByLogin(
     @CurrentPrincipal() caller: Principal,
     @Param() user: string,
-    @Query({
-      type: 'array',
-      items: {
-        type: 'string',
-        enum: ['Metadata'],
-      },
-    })
-    include?: string[],
+    @Include(User, ['Metadata']) include: RelationName<User>[],
   ) {
-    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Login', user).populate(include ?? []).first());
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Login', user).populate(include).first());
     return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
@@ -460,6 +428,7 @@ export class Users extends BaseController {
    * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
+  @UsersRateLimit('create')
   @Access('users:create')
   public async addUser(@CurrentPrincipal() caller: Principal, @Body() data: CreateUserDto) {
     const by = userActor(caller);
@@ -596,6 +565,7 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Del(':user')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async removeUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Req() req: Request) {
     const by = userActor(caller);
@@ -623,6 +593,7 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Patch(':uuid/restore')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async restoreUser(@CurrentPrincipal() caller: Principal, @Param() uuid: string) {
     // withDeleted: every model query filters soft-deleted rows out by default, and that is the one row this route exists for.
@@ -681,23 +652,4 @@ export class Users extends BaseController {
       throw duplicated;
     }
   }
-
-  /**
-   * The requested sort column, or the default. Rejects anything outside
-   * {@link SORTABLE_COLUMNS}.
-   */
-  protected sortColumn(order?: OrderDTO): string {
-    const column = order?.column;
-
-    if (!column) {
-      return 'CreatedAt';
-    }
-
-    if (!SORTABLE_COLUMNS.includes(column)) {
-      throw new InvalidArgument(`Cannot sort by '${column}'. Sortable columns are: ${SORTABLE_COLUMNS.join(', ')}`);
-    }
-
-    return column;
-  }
-
 }

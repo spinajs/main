@@ -8,6 +8,7 @@ import type { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, IRelati
 import type { ModelIndex } from '@spinajs/manifest';
 import 'reflect-metadata';
 import type { ModelBase } from './model.js';
+import type { ColumnName } from './typing.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { ManyQueryRelationList } from './relation-objects.js';
 import type { Relation } from './relation-objects.js';
@@ -301,6 +302,27 @@ export function SoftDelete() {
 }
 
 /**
+ * Marks the integer column that versions the row. `update()`, `destroy()` and `save()` write only a row still at the
+ * version the model was read at, and throw `OptimisticLockError` otherwise. One per model.
+ */
+export function Version(): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: { prototype: object; name: string }, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey) as { name: string } | undefined;
+    if (type && type.name !== 'Number') {
+      throw Error(`Property ${propertyKey} marked with @Version must be a number, but is ${type.name}. Type: ${target.name}`);
+    }
+
+    if (model.VersionColumn && model.VersionColumn !== propertyKey) {
+      throw Error(`Model ${target.name} declares @Version on ${model.VersionColumn} and on ${propertyKey}; one version column is allowed`);
+    }
+
+    model.VersionColumn = propertyKey;
+  });
+  return decorator;
+}
+
+/**
  * Enable archive mode for model. If enabled all changes creates new instance in DB and old have set archived field
  * and gets attached to new model. It enabled to track changes to model in DB and also preserve data in relations.
  *
@@ -322,6 +344,10 @@ export function Archived() {
   });
 }
 
+function ignoredPrimaryKey(model: IModelDescriptor, propertyKey: string) {
+  return new InvalidArgument(`@Ignore() cannot mark primary key ${propertyKey} of model ${model.Name}: a primary key is always persisted`);
+}
+
 /**
  * Marks a field as part of the primary key. Applying it to more than one property of the same
  * model declares a composite key; the columns are ordered by decorator evaluation order.
@@ -333,6 +359,10 @@ export function Archived() {
  */
 export function Primary(options?: IPrimaryKeyOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (model.Columns.some((c) => c.Name === propertyKey && c.Ignore)) {
+      throw ignoredPrimaryKey(model, propertyKey);
+    }
+
     if (!model.PrimaryKey.includes(propertyKey)) {
       model.PrimaryKey.push(propertyKey);
     }
@@ -396,10 +426,28 @@ export function Hidden() {
 }
 
 /**
- * Marks columns as UUID. Column will be generated ad creation
+ * Marks a column a request may sort by; `@Sort(Model)` of `@spinajs/orm-http` builds its allowlist from these.
+ * Additive down an inheritance chain, like `@Hidden()`.
+ */
+export function Sortable(): <T extends object>(target: T, propertyKey: ColumnName<T>) => void {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (!model.Sortable.includes(propertyKey)) {
+      model.Sortable.push(propertyKey);
+    }
+  });
+}
+
+/**
+ * Marks a property as not persisted: no insert, update, upsert or `save()` writes it, `dehydrate()`
+ * omits it, relation queries never select it and it is absent from the JSON schemas. A query that
+ * returns a column of that name still hydrates it.
  */
 export function Ignore() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (model.PrimaryKey.includes(propertyKey)) {
+      throw ignoredPrimaryKey(model, propertyKey);
+    }
+
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
