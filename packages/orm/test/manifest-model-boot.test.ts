@@ -36,7 +36,7 @@ class ManifestSourceConf extends FrameworkConfiguration {
   }
 }
 
-const entry = (className: string, tableName: string, columns: ModelColumn[]): ModelEntry => ({ id: `app:${className}`, className, tableName, connection: CONNECTION, columns, relations: [], accessResource: false, source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' } });
+const entry = (className: string, tableName: string, columns: ModelColumn[]): ModelEntry => ({ id: `app:${className}`, className, tableName, connection: CONNECTION, columns, relations: [], source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' } });
 
 /** Declared here rather than at module scope: @Model registers globally, and after() unregisters them. */
 function defineModels() {

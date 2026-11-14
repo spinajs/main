@@ -20,7 +20,6 @@ const author: ModelEntry = {
   indexes: [{ name: 'authors_email', columns: ['Email'], unique: true }],
   version: 'Version',
   exhaustive: true,
-  accessResource: false,
   source: src('app'),
 };
 

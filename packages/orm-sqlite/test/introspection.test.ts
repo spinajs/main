@@ -105,7 +105,7 @@ describe('sqlite index and foreign-key introspection', function () {
       t.string('Code', 16).primaryKey();
     });
     const column = (name: string, family: 'integer' | 'text', primary: boolean, unique?: true): ModelColumn => ({ name, type: { text: 'unknown' }, primary, nullable: false, sql: { family, unique } });
-    const entry = (tableName: string, columns: ModelColumn[]): ModelEntry => ({ id: `app:${tableName}`, className: tableName, tableName, columns, relations: [], accessResource: false, source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' } });
+    const entry = (tableName: string, columns: ModelColumn[]): ModelEntry => ({ id: `app:${tableName}`, className: tableName, tableName, columns, relations: [], source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' } });
     const unique = (columns: IColumnDescriptor[]) => columns.filter((c) => c.Unique).map((c) => c.Name);
     const entries = [
       entry('in_users', [column('Id', 'integer', true), column('Email', 'text', false, true), column('Name', 'text', false)]),

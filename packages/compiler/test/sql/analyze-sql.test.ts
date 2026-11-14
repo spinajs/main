@@ -7,7 +7,7 @@ import { MSSQL, MYSQL, PG, SQLITE } from './profiles.js';
 const source = { file: 'src/queries.ts', line: 7, col: 3, package: 'app' };
 const col = (name: string, text: string, nullable = false, family?: ColumnFamily): ModelColumn => ({ name, type: { text }, primary: name === 'Id', nullable, ...(family ? { sql: { family } } : {}) });
 const model = (className: string, tableName: string, columns: ModelColumn[], exhaustive = false, connection?: string): ModelEntry => ({
-  id: `app:${className}`, className, tableName, columns, relations: [], accessResource: false, ...(exhaustive ? { exhaustive: true as const } : {}), ...(connection ? { connection } : {}), source,
+  id: `app:${className}`, className, tableName, columns, relations: [], ...(exhaustive ? { exhaustive: true as const } : {}), ...(connection ? { connection } : {}), source,
 });
 
 const manifest = {

@@ -7,7 +7,7 @@ import { fixture, src } from './fixture.js';
 
 const base = { cwd: '/fixture', fileExists: () => true, fragmentMtime: () => undefined, libMtime: () => undefined };
 const users: ModelEntry = {
-  id: 'app:User', className: 'User', tableName: 'users', accessResource: false, relations: [], source: src('src/user.ts'),
+  id: 'app:User', className: 'User', tableName: 'users', relations: [], source: src('src/user.ts'),
   columns: [{ name: 'Id', type: { text: 'number' }, primary: true, nullable: false }, { name: 'Email', type: { text: 'string' }, primary: false, nullable: false }],
 };
 const dialect = (profile: SqlDialectProfile, drivers: string[]): SqlDialectEntry => ({ drivers, profile, source: src('src/index.ts') });

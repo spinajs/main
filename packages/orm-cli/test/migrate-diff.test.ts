@@ -22,7 +22,6 @@ const model = (className: string, tableName: string, columns: ModelColumn[], ext
   tableName,
   columns,
   relations: [],
-  accessResource: false,
   source: { file: 'src/models.ts', line: 1, col: 1, package: 'app' },
   ...extra,
 });
