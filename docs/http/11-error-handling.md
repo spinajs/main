@@ -378,6 +378,10 @@ export class Unavailable<T = any> extends Response<T> {
 }
 ```
 
+## Concurrent changes: 409
+
+`ConcurrencyConflict` (from `@spinajs/exceptions`) and every subclass of it, `OptimisticLockError` of `@spinajs/orm` among them, are answered by the `Conflict` response: 409 `application/problem+json`. Static `problemFields` on the subclass decide which of its fields reach the body.
+
 ## Related
 
 - [HTTP error mapping](../exceptions/03-http-error-mapping.md): the exception side, every default entry.

@@ -302,6 +302,27 @@ export function SoftDelete() {
 }
 
 /**
+ * Marks the integer column that versions the row. `update()`, `destroy()` and `save()` write only a row still at the
+ * version the model was read at, and throw `OptimisticLockError` otherwise. One per model.
+ */
+export function Version(): PropertyDecorator {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: { prototype: object; name: string }, propertyKey: string) => {
+    // Absent in a build without decorator metadata, where nothing checks the declared type.
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey) as { name: string } | undefined;
+    if (type && type.name !== 'Number') {
+      throw Error(`Property ${propertyKey} marked with @Version must be a number, but is ${type.name}. Type: ${target.name}`);
+    }
+
+    if (model.VersionColumn && model.VersionColumn !== propertyKey) {
+      throw Error(`Model ${target.name} declares @Version on ${model.VersionColumn} and on ${propertyKey}; one version column is allowed`);
+    }
+
+    model.VersionColumn = propertyKey;
+  });
+  return decorator;
+}
+
+/**
  * Enable archive mode for model. If enabled all changes creates new instance in DB and old have set archived field
  * and gets attached to new model. It enabled to track changes to model in DB and also preserve data in relations.
  *
