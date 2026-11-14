@@ -58,3 +58,6 @@ export function extendsFrameworkClass(checker: ts.TypeChecker, type: ts.Type, cl
   }
   return false;
 }
+
+/** Symbol-keyed members have an internal name (`__@metadata@<id>`) built from a process-wide counter, so it differs between builds. */
+export const isSymbolKeyed = (property: ts.Symbol): boolean => (property.escapedName as string).startsWith('__@');

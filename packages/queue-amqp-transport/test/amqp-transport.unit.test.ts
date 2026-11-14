@@ -407,6 +407,54 @@ describe('amqp queue transport - unit', function () {
     });
   });
 
+  describe('message ids and headers', () => {
+    it('publishes MessageId as the messageId property and x-spinajs-message-id, and Headers as broker headers', async () => {
+      const c = await connected();
+      await c.emit(jobMessage({ MessageId: 'm-1', Headers: { traceparent: 't-1', 'x-app': 'a' } }));
+
+      const p = c.pub.published.find((x) => x.routingKey === '/queue/default')!;
+      const published = p.options as { messageId?: string; headers?: Record<string, unknown> };
+      expect(published.messageId).to.eq('m-1');
+      expect(published.headers).to.deep.eq({ traceparent: 't-1', 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
+    });
+
+    it("does not publish the transport's own headers from Headers, so a re-emitted message starts fresh", async () => {
+      const c = await connected();
+      await c.emit(jobMessage({ MessageId: 'm-1', Headers: { 'x-retry-count': '3', 'x-error': 'old', 'x-original-destination': '/queue/a', 'x-app': 'a' } }));
+
+      const p = c.pub.published.find((x) => x.routingKey === '/queue/default')!;
+      expect((p.options as { headers?: Record<string, unknown> }).headers).to.deep.eq({ 'x-app': 'a', 'x-spinajs-message-id': 'm-1' });
+    });
+
+    it('fills MessageId and the standard headers from the delivery, leaving broker-owned headers out', async () => {
+      const c = await connected();
+      const received: IQueueMessage[] = [];
+      await c.subscribe('/queue/work', async (m) => void received.push(m));
+
+      const onMsg = c.con.consumers.get('/queue/work')!;
+      const headers = { 'x-retry-count': 2, 'x-death': [{ count: 1 }], 'x-spinajs-message-id': 'm-2' };
+      onMsg({ content: Buffer.from(JSON.stringify({ ...jobMessage(), Headers: { 'x-app': 'a' } })), properties: { headers, messageId: 'm-2' }, fields: {} });
+      await tick();
+
+      expect(received[0].MessageId).to.eq('m-2');
+      expect(received[0].Headers).to.deep.eq({ 'x-app': 'a', 'x-spinajs-message-id': 'm-2', 'x-retry-count': '2' });
+    });
+
+    it('keeps the messageId property on a retry copy', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const onMsg = c.con.consumers.get('/queue/job')!;
+      onMsg({ content: Buffer.from(JSON.stringify(jobMessage({ RetryCount: 3, MessageId: 'm-3' } as any))), properties: { headers: { 'x-spinajs-message-id': 'm-3' }, messageId: 'm-3' }, fields: {} });
+      await tick();
+
+      const sent = c.pub.published.find((s) => s.routingKey === '/queue/job.retry.100')!;
+      const retry = sent.options as { messageId?: string; headers: Record<string, unknown> };
+      expect(retry.messageId).to.eq('m-3');
+      expect(retry.headers['x-spinajs-message-id']).to.eq('m-3');
+    });
+  });
+
   describe('consume ack / retry / dead-letter', () => {
     it('acks a successfully processed message', async () => {
       const c = await connected();

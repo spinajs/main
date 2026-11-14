@@ -1,10 +1,10 @@
 # Query translation
 
-`translate(lang)` on a model select builder loads the `intl_resources` rows for every model in the result and writes them into the translated properties. It is a prototype extension: importing `@spinajs/intl-orm` adds it to every `SelectQueryBuilder`.
+`translate(lang)` on a model select builder loads the `intl_resources` rows for every model in the result and writes them into the translated properties. It is a query extension: `Orm.resolve()` adds it to every `SelectQueryBuilder`.
 
 ## How it works
 
-1. Importing `@spinajs/intl-orm` assigns `translate` to `SelectQueryBuilder.prototype` and declares `translate()`, `translated` and `AllowTranslate` on `ISelectQueryBuilder<T>` with `declare module '@spinajs/orm'`.
+1. Importing `@spinajs/intl-orm` registers `IntlQueryExtension` under `SelectQueryExtension`, and `Orm.resolve()` installs its `translate` on `SelectQueryBuilder`. The import also declares `translate()`, `translated` and `AllowTranslate` on `ISelectQueryBuilder<T>` with `declare module '@spinajs/orm'`.
 2. `query.translate(lang)` checks its target:
    - `query.Owner` is an `IntlModelRelation` (the internal query that reads `intl_resources`): returns the builder unchanged.
    - `query.Model` is unset (`driver.select()` and other raw builders), or `query.translated` is already set: returns the builder unchanged.
@@ -42,32 +42,33 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `ISelectQueryBuilder.translate(lang)` | Not in DI: assigned to `SelectQueryBuilder.prototype` when `@spinajs/intl-orm` is imported | the package's `translate` function | none | Wrap `SelectQueryBuilder.prototype.translate` after importing the package, or add your own method next to it with the same augmentation pattern. |
+| `ISelectQueryBuilder.translate(lang)` | `IntlQueryExtension` under `SelectQueryExtension`, installed by `Orm.resolve()` | `translateQuery` | none | Register a subclass of `IntlQueryExtension` with `@Injectable(SelectQueryExtension)`; it replaces the package's extension. |
 | `ISelectQueryBuilder.translated` | Not in DI: augmented builder property | set to `true` by `translate()` | none | Set it to `true` yourself to keep `IntlQueryMiddleware` off a builder. |
 | `ISelectQueryBuilder.AllowTranslate` | Not in DI: augmented builder property | `undefined` | none | Set it to `false` to keep `IntlQueryMiddleware` off a builder. |
 | `IntlModelRelation` | Class token, `@NewInstance()` | `IntlModelRelation` | none | See [Translation relation](03-translation-relation.md). |
 
-### `translate()`: wrap the prototype extension
+### `translate()`: replace the extension
 
-Wrap the method when every caller should get the same pre-processing, eg. short language codes from a URL mapped to the locales stored in `intl_resources.Lang`. Import `@spinajs/intl-orm` first: the import is what installs the original. Every select builder class inherits the wrapper, relation queries included.
+Replace the extension when every caller should get the same pre-processing, eg. short language codes from a URL mapped to the locales stored in `intl_resources.Lang`. A subclass of `IntlQueryExtension` replaces it, so `Orm.resolve()` installs your `translate` instead of the package's. An unrelated extension that also adds `translate` fails the boot with `ExtensionMethodCollision`. `translate()` exists only once the Orm has resolved; wrapping `SelectQueryBuilder.prototype.translate` at import no longer works.
 
 ```ts sample
-import { SelectQueryBuilder } from '@spinajs/orm';
-import '@spinajs/intl-orm';
+import { Injectable } from '@spinajs/di';
+import { QueryBuilder, SelectQueryExtension } from '@spinajs/orm';
+import { IntlQueryExtension, translateQuery } from '@spinajs/intl-orm';
 
 const LOCALE_BY_CODE: Record<string, string> = { en: 'en_GB', pl: 'pl_PL', de: 'de_DE' };
 
-type TranslateFn = (this: SelectQueryBuilder, lang: string) => SelectQueryBuilder;
+function translateByCode(this: QueryBuilder, lang: string): QueryBuilder {
+  return translateQuery.call(this, LOCALE_BY_CODE[lang] ?? lang);
+}
 
-const proto = SelectQueryBuilder.prototype as unknown as { translate: TranslateFn };
-const original = proto.translate;
-
-proto.translate = function (this: SelectQueryBuilder, lang: string) {
-  return original.call(this, LOCALE_BY_CODE[lang] ?? lang);
-};
+@Injectable(SelectQueryExtension)
+export class LocaleCodeTranslation extends IntlQueryExtension {
+  public readonly methods: SelectQueryExtension['methods'] = { translate: translateByCode };
+}
 ```
 
-The general pattern, with its caveats, is in [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md#prototype-extensions).
+The general pattern, with its caveats, is in [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md#query-extensions).
 
 ## Important behaviour
 

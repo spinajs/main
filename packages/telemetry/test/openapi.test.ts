@@ -136,6 +136,18 @@ describe('telemetry openapi document', function () {
     }
   });
 
+  it('documents the manifest the health endpoint reports, with a nullable hash', () => {
+    type Property = { type?: string; enum?: string[]; nullable?: boolean };
+    type Documented = { components: { schemas: { HealthResponse: { properties: { manifest?: { required: string[]; properties: Record<string, Property> } } } } } };
+    const manifest = (doc as Documented).components.schemas.HealthResponse.properties.manifest;
+
+    expect(manifest, 'HealthResponse.manifest must be documented').to.not.be.undefined;
+    expect(manifest?.required).to.have.members(['mode', 'hash']);
+    expect(manifest?.properties.mode.enum).to.deep.equal(['off', 'prefer', 'require']);
+    expect(manifest?.properties.hash).to.include({ type: 'string', nullable: true });
+    expect(Object.keys(manifest?.properties ?? {})).to.have.members(['mode', 'hash']);
+  });
+
   it('documents the buckets query parameter', () => {
     const params = op('/telemetry/timeline').parameters ?? [];
     const buckets = params.find((p: any) => p.name === 'buckets');

@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import { EventEmitter } from 'node:events';
 
 import { redactUrl, urlPath } from '../src/util/redact-url.js';
 import { AccessLog } from '../src/middlewares/AccessLog.js';
@@ -69,12 +68,12 @@ describe('request log lines redact query values', () => {
     return { lines, log: { info: record, warn: record, error: record, debug: record, trace: record } };
   }
 
-  function fire(handler: (req: any, res: any, next: () => void) => void) {
+  /** The hooks as the server runs them for one request that finished. */
+  function fire(mw: AccessLog | SlowRequestWarning) {
     const req: any = { method: 'GET', originalUrl: url, headers: {}, storage: {} };
-    const res: any = new EventEmitter();
-    res.statusCode = 200;
-    handler(req, res, () => undefined);
-    res.emit('finish');
+    const ctx = { req, res: { statusCode: 200, locals: {} } as any, storage: req.storage };
+    mw.onBefore(ctx);
+    mw.onFinish({ ...ctx, aborted: false });
   }
 
   function expectRedacted(lines: unknown[][]) {
@@ -97,7 +96,7 @@ describe('request log lines redact query values', () => {
     const { lines, log } = recordingLog();
     override(mw, { Log: log, Enabled: true });
 
-    fire(mw.before()!);
+    fire(mw);
 
     expectRedacted(lines);
   });
@@ -107,7 +106,7 @@ describe('request log lines redact query values', () => {
     const { lines, log } = recordingLog();
     override(mw, { Log: log, Enabled: true, ThresholdMs: 0 });
 
-    fire(mw.before()!);
+    fire(mw);
 
     expectRedacted(lines);
   });

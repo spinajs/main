@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, FilterOp, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { IRFragment } from '@spinajs/authz-ir';
 
 import type { NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
@@ -10,6 +11,11 @@ import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '..
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
 import { rebacListPlan, rebacListSupport } from './filter.js';
+import { rebacToIR } from '../ir.js';
+import { RebacWalk, expand } from '../expand.js';
+import type { UsersetTree } from '../expand.js';
+import { listSubjects } from '../list-subjects.js';
+import type { SubjectList } from '../list-subjects.js';
 
 export const REBAC_CHECK_OP = 'native:rebac.check' as const;
 
@@ -146,6 +152,12 @@ export class RebacModel extends AuthorizationModel {
     this.unbindSchema = undefined;
   }
 
+  /** This model's part of the policy IR; before init it compiles the namespaces from config. */
+  toIR(ctx: IRCompileContext): IRFragment {
+    const schema = this.compiled ?? NamespaceSchema.compile(this.opts.namespaces ?? ctx.config<NamespaceConfig>('namespaces', {}), this.opts.permissions ?? ctx.config<PermissionMap>('permissions', {}));
+    return rebacToIR(schema, { model: this.name, ...(ctx.permissions === undefined ? {} : { permissions: ctx.permissions }) });
+  }
+
   /** The compiled namespaces. @throws AuthzConfigError before init */
   schema(): NamespaceSchema {
     return this.compiled ?? this.uninitialised();
@@ -159,6 +171,24 @@ export class RebacModel extends AuthorizationModel {
   /** The limits in force. */
   limit(): Required<RebacLimits> {
     return this.limits;
+  }
+
+  /** Zanzibar's expand of `name` (a relation or permission) on `object`. @throws RebacLimitExceeded past maxCalls */
+  expand(object: ResourceRef, name: string): Promise<UsersetTree> {
+    return expand(this.walker(object, name), object, name);
+  }
+
+  /** The subjects of `subjectType` holding `name` (a relation or permission) on `object`. @throws RebacLimitExceeded past maxCalls */
+  listSubjects(object: ResourceRef, name: string, subjectType: ResourceType): Promise<SubjectList> {
+    return listSubjects(this.walker(object, name), object, name, subjectType);
+  }
+
+  private walker(object: ResourceRef, name: string): RebacWalk {
+    const schema = this.schema();
+    if (!schema.namespaces.has(object.type) || (schema.relation(object.type, name) === undefined && schema.permission(object.type, name) === undefined)) {
+      throw new AuthzConfigError(`${this.name}: ${object.type}#${name} is neither a relation nor a permission of the namespaces`);
+    }
+    return new RebacWalk(schema, this.store(), this.limits, (message) => new RebacLimitExceeded(`${this.name}: ${message}`));
   }
 
   /** Does `principal` hold `name` (a relation or permission) on `object`? @throws RebacLimitExceeded past maxCalls */

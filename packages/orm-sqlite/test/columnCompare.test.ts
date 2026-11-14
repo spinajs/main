@@ -1,7 +1,7 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { ICompilerOutput, ISelectQueryBuilder, Orm, Wrapper, outer } from '@spinajs/orm';
+import { ICompilerOutput, ISelectQueryBuilder, Orm, Wrapper, concat, outer } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
@@ -153,5 +153,73 @@ describe('sqlite whereColumn and outer()', function () {
 
   it('whereNotIn() names itself when a wrapped column gets a sub-query', () => {
     expect(() => driver().select().from('cc_parent').whereNotIn(Wrapper.Text('Id'), children())).to.throw(InvalidArgument, /^whereNotIn\(\): a wrapped column takes a list of values/);
+  });
+});
+
+describe('sqlite whereColumn with concat()', function () {
+  this.timeout(60000);
+
+  before(() => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
+  beforeEach(async () => {
+    await DI.resolve(Orm);
+    await driver()
+      .schema()
+      .createTable('cx_event', (table) => {
+        table.string('Name', 64);
+      });
+    await driver()
+      .schema()
+      .createTable('cx_wait', (table) => {
+        table.string('Key', 64);
+      });
+    await driver()
+      .insert()
+      .into('cx_event')
+      .values([{ Name: 'approve' }, { Name: 'approv' }, { Name: 'reject' }, { Name: 'other' }]);
+    await driver()
+      .insert()
+      .into('cx_wait')
+      .values([{ Key: 'wait:approve#1' }, { Key: 'wait:reject#2' }, { Key: 'wait:approved#1' }]);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  /** Events with a wait key in [ 'wait:<Name>#', 'wait:<Name>$' ). */
+  const withWait = (alias = 'e') => {
+    const waits = sub(driver().select().from('cx_wait', 'w').whereColumn('Key', '>=', concat('wait:', outer('Name'), '#')).whereColumn('Key', '<', concat('wait:', outer('Name'), '$')));
+    return driver().select().from('cx_event', alias).whereExist(waits);
+  };
+
+  async function names(query: PromiseLike<unknown>): Promise<string[]> {
+    return ((await query) as { Name: string }[]).map((r) => r.Name).sort();
+  }
+
+  it('compares a column with the joined text, the literals bound in order', async () => {
+    const out = compiled(withWait());
+    expect(out.expression).to.contain('`w`.`Key` >= ? || `e`.`Name` || ? AND `w`.`Key` < ? || `e`.`Name` || ?');
+    expect(out.bindings).to.deep.eq(['wait:', '#', 'wait:', '$']);
+    expect(await names(withWait().asRaw())).to.deep.eq(['approve', 'reject']);
+  });
+
+  it('a clone correlates its concat() with the clone', async () => {
+    const copy = withWait().clone().setAlias('q');
+    expect(compiled(copy).expression).to.contain('`w`.`Key` >= ? || `q`.`Name` || ?');
+    expect(await names(copy.asRaw())).to.deep.eq(['approve', 'reject']);
+  });
+
+  it('takes a wrapped column of the query itself', async () => {
+    const query = driver().select().from('cx_wait', 'w').whereColumn('Key', '<', concat(Wrapper.Text('Key'), '!'));
+    expect(compiled(query).expression).to.contain('`w`.`Key` < CAST(`w`.`Key` AS TEXT) || ?');
+    expect((await query.asRaw<unknown[]>()).length).to.eq(3);
+  });
+
+  it('refuses an empty concat()', () => {
+    expect(() => concat()).to.throw(InvalidArgument, /concat\(\): at least one part/);
   });
 });

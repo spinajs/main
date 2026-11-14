@@ -64,7 +64,10 @@ console.log(login === sameLogin, login === upload);
 
 ## Important behaviour
 
-- `@PerInstanceCheck()` caches every instance it builds, so each distinct set of options is built once. Concurrent async resolves wait for a pending creation of the class and then check it again, so two option sets resolved in parallel still get two instances.
+- `@PerInstanceCheck()` caches every instance it builds, so each distinct set of options is built once. A creation still in flight has no instance to ask yet: a concurrent resolve shares it only when its options are deep-equal, so two option sets resolved in parallel get two instances.
+- Options that are all `undefined` count as no options when matching a creation in flight. An injected dependency (`@Autoinject`, `@Inject`) resolves with `[undefined]`, a direct `DI.resolve(Class)` with `undefined`; both share one creation. `__checkInstance__` still gets the options as passed, so make it accept both.
+- A `@PerInstanceCheck()` class whose constructor synchronously resolves itself with the same options throws `Error('Circular dependency detected for <Class>')`. Only the synchronous part of the creation is checked.
+- A `@PerInstanceCheck()` class resolved alone and as an `Array.ofType(T)` element shares one creation path: the list reuses or caches the same instance a single resolve returns. See [Multiple implementations](06-multiple-implementations.md#important-behaviour).
 - `@PerInstance()` behaves exactly like `@Singleton()` in the current container: both cache one instance per concrete class.
 - A singleton resolved through a child container is created and cached in the container that registered it (usually the root), with that container's dependencies. A class registered nowhere is cached where it is first resolved: when that is the root, children reuse it; when it is a child, a sibling child builds its own. Register app-wide singletons in the root (`DI.register(Pool).asSelf()`).
 - Options passed to `resolve()` are ignored when a cached instance is returned.

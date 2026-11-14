@@ -63,7 +63,7 @@ curl -H "x-metrics-token: $METRICS_TOKEN" http://localhost:8080/metrics
 | `GET /telemetry/timeline?buckets=N` | The timeline alone, each bucket annotated with its window | `telemetry:read` |
 | `GET /telemetry/routes` | Per method+route request breakdown | `telemetry:read` |
 | `GET /telemetry/perf` | Aggregated `Perf` spans and events | `telemetry:read` |
-| `GET /telemetry/health` | Liveness: uptime, pid, node version, optional app version | public |
+| `GET /telemetry/health` | Liveness: uptime, pid, node version, optional app version, the hash of the manifest the app booted from | public |
 | `GET /telemetry/ready` | Readiness: runs every registered `HealthCheck`, 503 when one is down | public |
 
 ## Related packages

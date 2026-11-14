@@ -35,6 +35,7 @@ describe('authz.http through @Config and its schema', () => {
       events: { maxStreamsPerPrincipal: 5 },
       unguardedRoutes: 'warn',
       webhooks: [],
+      rateLimit: { checks: { limit: 120, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' }, explain: { limit: 30, windowSeconds: 60, by: 'principal' } },
     });
   });
 

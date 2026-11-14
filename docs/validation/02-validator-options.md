@@ -24,7 +24,7 @@ The `validation` configuration key holds the options of the Ajv instance inside 
 | `validation.allErrors` | `boolean` | `true` | `true`, `false` | Report every failing rule; `false` stops at the first one. |
 | `validation.removeAdditional` | `boolean \| string` | `false` | `true`, `false`, `'all'`, `'failing'` | `true`: delete properties not listed where the schema sets `additionalProperties: false`. `'all'`: delete every unlisted property. `'failing'`: delete the properties that fail `additionalProperties`. |
 | `validation.useDefaults` | `boolean \| string` | `true` | `true`, `false`, `'empty'` | Write the schema's `default` into missing properties; `'empty'` also replaces `null` and `''`. |
-| `validation.coerceTypes` | `boolean \| string` | `true` | `true`, `false`, `'array'` | Convert values to the schema `type` (`'1'` to `1`); `'array'` also wraps scalars into arrays and back. |
+| `validation.coerceTypes` | `boolean \| string` | `true` | `true`, `false`, `'array'` | Convert values to the schema `type` (`'1'` to `1`); `'array'` also wraps scalars into arrays and back. A string that would become a non-finite number (`'Infinity'`, `'1e400'`) fails the `type` rule instead. |
 | `validation.messages` | `boolean` | `false` | `true`, `false` | `false`: Ajv builds no `message`; `ValidationFailed` fills one in; see [Validation errors](07-validation-errors.md#messages). |
 | `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schemas whose `$id` starts with one of these are validated without type coercion. Your list is added to the shipped one (see [Arrays](../configuration/01-configuration-service.md#arrays)). |
 | `validation.strict.ajvStrict` | `boolean \| 'log'` | not set | `true`, `false`, `'log'` | Ajv's own strict mode, when `validation.strict` is the object above. |
@@ -66,7 +66,8 @@ The package entry also exports the default config object as its `default` export
 - **The options are read once.** `DataValidator` is a singleton built at its first resolve. A config change after that has no effect until the process restarts.
 - **`verbose: false` in your config is ignored.** `DataValidator` forces it on; the errors you receive are still reduced, see [`sanitizeError()`](07-validation-errors.md#sanitizeerror).
 - **Ajv runs in strict mode by default.** An unknown keyword (`strict mode: unknown keyword: "sku"`) or format (`unknown format "sku" ignored in schema`) makes compilation throw. Register the keyword or format instead; see [Customizing the validator](08-customizing-the-validator.md). `validation.strict: false` (or `validation.strict.ajvStrict: false` next to `idPrefixes`) silences both, and an unknown format then accepts every value.
-- **Configuration has its own Ajv.** `@spinajs/configuration` validates config files with a separate instance; formats or keywords you add to `DataValidator` do not reach it.
+- **Configuration has its own Ajv.** `@spinajs/configuration` validates config files with a separate instance; formats or keywords you add to `DataValidator` do not reach it, and neither do the finite-number checks and the throw-safe comparison of `DataValidator`.
+- **`strictNumbers` does not stop coerced infinities.** It is on by default and checks the value before coercion only. `DataValidator` adds its own check after coercion: a value coerced to `Infinity` or `-Infinity` fails `type`; see [Validating data](01-validating-data.md#important-behaviour).
 
 ### Strict schema ids
 

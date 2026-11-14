@@ -15,6 +15,9 @@
       "path": "../authz/tsconfig.build.json"
     },
     {
+      "path": "../authz-ir/tsconfig.build.json"
+    },
+    {
       "path": "../cli/tsconfig.build.json"
     },
     {
@@ -28,6 +31,9 @@
     },
     {
       "path": "../orm/tsconfig.build.json"
+    },
+    {
+      "path": "../scheduler/tsconfig.build.json"
     }
   ]
 }

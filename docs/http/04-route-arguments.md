@@ -65,11 +65,11 @@ public create(@Body() item: CreateItem) {} // { "name": "a", "count": "x" } answ
 - **Closed objects.** Derived object schemas reject undeclared properties, except at the root of a whole request part: a whole body (`@Body()` as the only body argument, `@BodyField()`) and a whole query, path or header object (`@QueryField()`, `@ParamField()`, `@HeadersField()`) accept keys they do not declare, because other readers take them from the same place (other arguments, a reauth strategy reading `reauthPassword` from the body). Nested objects and a single body field (`@Body() first: A, @Body() second: B` reads `body.first` and `body.second`) stay closed. The argument of a whole body gets a copy with the declared root keys only: an undeclared root key is accepted and dropped, so it never reaches `new Dto(value)` or a model hydrated from the DTO; read it from `req.body`, which stays as sent. This applies when the root is a closed object or an intersection of closed objects. An open root (a model from a dependency package, `Partial` of one, an index signature) passes through as before, and a union root is closed in each branch. Whole query, path and header objects are not stripped: handlers read other arguments' keys from them.
 - **Never stricter than the runtime where the compiler could not see it.** A nested class whose explicit `@Schema` the compiler could not evaluate (`x-explicit: 'partial'`) accepts anything, and so does a model from a dependency package (an open object). The intersection `A & B` of two closed objects is checked as one closed object with the properties of both, also when a member is itself such an intersection (`(A & B) & C`, inline or by `$ref`).
 - **Errors.** A failure throws `ValidationFailed`, answered as the usual 400 `application/problem+json`; the errors name the path and the rule, never the value.
-- **Startup.** Every derived schema in use is compiled once, when the controller registers its routes. One for an argument with an explicit schema or a hydrator is never compiled. One that cannot compile (an unresolved `$ref`, a schema that is not a valid JSON Schema or uses a `$schema` other than draft-07, or one that references such a schema) fails the boot in `require`, naming the argument and the schema, and leaves that argument unchecked, with a warning, in `prefer`. Arguments whose schemas compile are not affected. An argument whose index, kind or name disagrees with the manifest (a stale build) is not checked. In `off` mode, or without a manifest, nothing changes.
+- **Startup.** Every derived schema in use is compiled once, when the controller registers its routes. One for an argument with an explicit schema or a hydrator is never compiled. One that cannot compile (an unresolved `$ref`, a schema that is not a valid JSON Schema or uses a `$schema` other than draft-07, or one that references such a schema) fails the boot in `require`, naming the argument and the schema, and leaves that argument unchecked, with an error log, in `prefer`. Arguments whose schemas compile are not affected. An argument whose index, kind or name disagrees with the manifest (a stale build) is not checked. In `off` mode, or without a manifest, nothing changes.
 
 ### Body size limits
 
-The default body parsers of `http.middlewares` accept JSON and XML bodies up to 5mb and urlencoded bodies up to 100kb (the Express default; that parser sets no limit). `http.bodyLimits` sets a smaller limit under a path prefix:
+The built-in body parsers (`http.bodyParsers`, see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers)) accept JSON and XML bodies up to 5mb and urlencoded bodies up to 100kb (the Express default; that parser sets no limit). `http.bodyLimits` sets a smaller limit under a path prefix:
 
 ```ts
 // config/http.ts in your app
@@ -84,8 +84,9 @@ export default {
 ```
 
 - A rule matches the path the client requests, on a segment boundary and case-insensitively: `/auth` covers `/auth` and `/auth/login`, not `/authority`. Include `http.controllers.route.prefix` in the path when the app sets one. A controller with `@BasePath({ config, default })` is matched at its configured path, the one it is served at.
-- Rules are checked in order and the first match wins, so list the more specific paths first. Other paths keep the limits of the `http.middlewares` parsers.
-- The limit gate runs before `http.middlewares`. On a matching path it parses JSON, urlencoded and XML text bodies itself with the rule's limit, sets `req.rawBody` for JSON like the default parser, and the `http.middlewares` parsers then skip the body. A `verify` hook of your own JSON parser does not run on these paths.
+- Rules are checked in order and the first match wins, so list the more specific paths first. Other paths keep the limits of `http.bodyParsers`.
+- The rules are the `BodyLimits` server middleware (Order 3.4), mounted just before the body parsers (3.5). On a matching path it parses the body itself with the `http.bodyParsers` options (types, `verify`, `req.rawBody` for JSON) and the rule's limit in place of the parser's, and the parsers then skip the body. A chunked body is bounded too. A 413 carries the `x-request-id` and CORS headers and is access-logged.
+- When `http.middlewares` holds a handler the package did not ship, the rules run before that list instead, and their 413 has no request id or CORS headers. A body something read before the rules answers 413 on a matching path; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers).
 - A declared `Content-Length` over the limit answers 413 for any content type, before the body is read. A body that turns out larger while it is read answers 413 too (`EntityTooLargeException`).
 - The gate runs before routing, so a 413 never reaches `@OnError`.
 - A `limit` that is not a size throws `InvalidOption` when `HttpServer` resolves.
@@ -179,9 +180,9 @@ export class TenantController extends BaseController {
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.middlewares` | `express.RequestHandler[]` | includes `express.json`, `express.urlencoded`, `express.text` for XML | | The body parsers that fill `req.body` and `req.rawBody`; see [HTTP server](01-http-server.md#configuration). |
+| `http.bodyParsers` | object | JSON 5mb, urlencoded, XML text 5mb, cookies | | The body parsers that fill `req.body` and `req.rawBody`; see [Body and cookie parsers](01-http-server.md#body-and-cookie-parsers). |
 | `http.trustProxy` | see [Client IP](17-client-ip-and-trust-proxy.md) | `null` | | Decides what `@Ip()` returns. |
-| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `512b`, `16kb`, `1.5mb`, `1gb` | Per-path body limits applied before `http.middlewares`; the first prefix match wins. See [Body size limits](#body-size-limits). |
+| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `512b`, `16kb`, `1.5mb`, `1gb` | Per-path body limits applied just before the body parsers; the first prefix match wins. See [Body size limits](#body-size-limits). |
 | `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schema `$id` prefixes validated without type coercion. |
 
 ## Services and extension points
