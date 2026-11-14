@@ -1,6 +1,6 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, CreatedAt, DateTime as DateTimeColumn, IColumnDescriptor, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, CreatedAt, DateTime as DateTimeColumn, IColumnDescriptor, ICompilerOutput, Model, ModelBase, Orm, Primary, QueryContext, SqlOperator } from '@spinajs/orm';
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
 import 'mocha';
@@ -128,6 +128,14 @@ describe('sqlite @DateTime on an INTEGER column', function () {
 
       const byNumber = await MillisDoc.where('At', '>=', AT + 1000).orderBy('Id');
       expect(byNumber.map((d) => d.Id)).to.deep.eq([1, 3]);
+    });
+
+    it('filters BETWEEN by DateTime bounds and by bounds in milliseconds', async () => {
+      for (const bounds of [[DateTime.fromMillis(AT + 500), DateTime.fromMillis(AT + 2000)], [AT + 500, AT + 2000]]) {
+        const query = () => MillisDoc.query().where('At', SqlOperator.BETWEEN, bounds).orderBy('Id');
+        expect((query().toDB() as ICompilerOutput).bindings).to.deep.eq([AT + 500, AT + 2000]);
+        expect((await query()).map((d) => d.Id)).to.deep.eq([1, 3]);
+      }
     });
 
     it('filters whereIn by DateTimes and numbers', async () => {
