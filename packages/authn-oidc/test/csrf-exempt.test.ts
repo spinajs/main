@@ -17,11 +17,9 @@ class MountedGuard extends CsrfGuard {
 function post(path: string, method = 'POST'): number {
   const guard = readingFrom(new MountedGuard(), fakeContainer({ 'http.controllers.route.prefix': '' }));
   Object.defineProperty(guard, 'Log', { value: { debug: () => undefined } });
-  let status = 200;
-  const res = { status: (c: number) => ((status = c), res), json: () => res };
   const req = { method, path, url: path, headers: { host: 'app.example.test', origin: EVIL }, socket: { remoteAddress: '127.0.0.1' }, storage: {} };
-  guard.before()!(req as never, res as never, () => undefined);
-  return status;
+  expect(guard.isEnabled()).to.eq(true);
+  return guard.onBefore({ req: req as never, res: {} as never, storage: req.storage as never })?.statusCode ?? 200;
 }
 
 describe('OIDC routes and the CSRF guard (X3)', () => {

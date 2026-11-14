@@ -88,6 +88,14 @@ describe('inheritController', () => {
     expect(merged.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
   });
 
+  it('lets an own @Idempotent replace the inherited one in place, as the decorator does', () => {
+    const idempotent = (ttl: number) => ({ type: 'IdempotencyMiddleware', options: [{ ttl }] });
+    const ancestor = controller('Base', { routes: [route('save', '', { middlewares: [idempotent(60), { type: 'Audit', options: [] }] })] });
+    const override: RouteOverride = { handler: 'save', params: [], policies: [], middlewares: [{ type: 'Trace', options: [] }, idempotent(5)], source: src('src/Sub.ts', 4) };
+    const merged = inheritController(ancestor, controller('Sub'), [override]);
+    expect(merged.routes[0].middlewares).to.deep.equal([idempotent(5), { type: 'Audit', options: [] }, { type: 'Trace', options: [] }]);
+  });
+
   it('carries every field of an overridden route it does not merge', () => {
     const inherited = { ...route('get', ':id'), future: { kept: true } } as RouteEntry;
     const override: RouteOverride = { handler: 'get', params: [], policies: [], middlewares: [], source: src('src/Sub.ts', 4) };
@@ -142,5 +150,15 @@ describe('inheritSocketHandlers', () => {
   it('is idempotent on an entry that already holds the base handlers', () => {
     const once = inheritSocketHandlers({ ...base, id: 'app:T', className: 'T', commands: [], events: [], diArgs: undefined, contract: undefined }, [base]);
     expect(inheritSocketHandlers(once, [base])).to.deep.equal(once);
+  });
+
+  it('carries the class guards of the base; an own @SocketAccess replaces the inherited one', () => {
+    const admin = [{ type: 'AdminPolicy', options: [] }];
+    const guarded: SocketControllerEntry = { ...base, access: ['doc:read'], policies: [admin, access('class')] };
+    const plain = inheritSocketHandlers({ ...base, id: 'app:P', className: 'P', commands: [], events: [] }, [guarded]);
+    expect(plain).to.deep.include({ access: ['doc:read'], policies: [admin, access('class')] });
+    expect(inheritSocketHandlers(plain, [guarded]).policies).to.deep.equal(plain.policies);
+    const narrowed = inheritSocketHandlers({ ...base, id: 'app:N', className: 'N', commands: [], events: [], access: ['doc:update'], policies: [access('class')] }, [guarded]);
+    expect(narrowed).to.deep.include({ access: ['doc:update'], policies: [admin, access('class')] });
   });
 });

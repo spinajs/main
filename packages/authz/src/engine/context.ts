@@ -6,8 +6,9 @@ import type { ResourceRef, ResourceType } from '../contracts/principal.js';
 import type { RelationResolver } from '../contracts/adapter.js';
 import { ConditionCompiler } from '../conditions/contracts.js';
 import { swallow } from './run.js';
-import { MAX_DATA_VALUES, MAX_TRACE_STEPS, budget, traceStep } from './vote.js';
+import { MAX_DATA_VALUES, MAX_TRACE_STEPS, budget, traceStep, copyRef } from './vote.js';
 import type { Budget } from './vote.js';
+import type { ReadRecorder } from './support/reads.js';
 
 /** Nested `ctx.check` levels below a top-level call. */
 export const MAX_CHECK_DEPTH = 8;
@@ -55,8 +56,9 @@ export class ModelContext implements EvaluationContext {
   // One trace budget per model per check: repeated steps sharing one object must not multiply the copy.
   readonly #traceValues: Budget = budget(MAX_DATA_VALUES);
   #traced = 0;
+  readonly #reads: ReadRecorder | undefined;
 
-  constructor(private readonly host: ContextHost, private readonly owner: string, private readonly scope: Map<string, unknown>, private readonly instant: Date, private readonly depth: number, private readonly steps: TraceStep[] | undefined, cacheKey: string = owner) {
+  constructor(private readonly host: ContextHost, private readonly owner: string, private readonly scope: Map<string, unknown>, private readonly instant: Date, private readonly depth: number, private readonly steps: TraceStep[] | undefined, cacheKey: string = owner, reads?: ReadRecorder) {
     this.domain = host.domain;
     this.permissions = host.permissions;
     this.conditions = host.conditions;
@@ -64,6 +66,7 @@ export class ModelContext implements EvaluationContext {
     this.now = new Date(instant.getTime());
     this.#memoKey = l1Key('model', host.domain, cacheKey);
     this.cache = memo(scope, this.#memoKey, () => new Map<string, unknown>());
+    this.#reads = reads;
     Object.freeze(this);
   }
 
@@ -87,13 +90,16 @@ export class ModelContext implements EvaluationContext {
 
   attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null> {
     try {
-      return this.host.attributes(ref, this.scope);
+      const loaded = this.host.attributes(ref, this.scope);
+      const reads = this.#reads;
+      return reads === undefined ? loaded : loaded.then((a) => recordNode(reads, ref, a));
     } catch (e) {
       return Promise.reject(e);
     }
   }
 
   relation(type: ResourceType, name: string): RelationResolver | undefined {
+    this.#reads?.relation(this.owner, { type }, name);
     return this.host.relation(type, name);
   }
 
@@ -119,4 +125,10 @@ export class ModelContext implements EvaluationContext {
       // a step the engine cannot read is dropped, never fatal
     }
   }
+}
+
+function recordNode(reads: ReadRecorder, ref: ResourceRef, attributes: Readonly<Record<string, unknown>> | null): Readonly<Record<string, unknown>> | null {
+  const node = copyRef(ref);
+  if (node) reads.attribute(node, '', attributes);
+  return attributes;
 }

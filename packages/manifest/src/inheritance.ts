@@ -3,6 +3,7 @@ import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketControll
 
 const ACCESS_POLICY = 'AccessPolicy';
 const FIELDS_MIDDLEWARE = 'AuthzFieldsMiddleware';
+const IDEMPOTENCY_MIDDLEWARE = 'IdempotencyMiddleware';
 
 /** What a subclass declares on a method it redeclares; `route` is set when the method carries a verb decorator. */
 export interface RouteOverride {
@@ -27,8 +28,16 @@ export function inheritPolicies(inherited: PolicyRef[][], own: PolicyRef[][]): P
   return [...kept, ...own];
 }
 
+// `@Idempotent` replaces the route's existing IdempotencyMiddleware in place rather than nesting a second gate (http decorators.ts).
+function replaceIdempotency(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
+  const ownGate = own.findLast((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  const at = inherited.findIndex((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  if (!ownGate || at < 0) return [...inherited, ...own];
+  return [...inherited.map((m, i) => (i === at ? ownGate : m)), ...own.filter((m) => m.type !== IDEMPOTENCY_MIDDLEWARE)];
+}
+
 export function inheritMiddlewares(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
-  const merged = [...inherited, ...own];
+  const merged = replaceIdempotency(inherited, own);
   const firstFields = merged.findIndex((m) => m.type === FIELDS_MIDDLEWARE);
   return merged.filter((m, i) => m.type !== FIELDS_MIDDLEWARE || i === firstFields);
 }
@@ -122,12 +131,19 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
   const events = [...entry.events];
   const diArgs = [...(entry.diArgs ?? [])];
   let contract = entry.contract;
+  let { access, policies = [] } = entry;
 
   for (const base of bases) {
+    // A class's own @SocketAccess replaces the inherited one; other inherited class groups stay alternatives before its own.
+    // Groups already present are skipped, so merging an entry that already carries its bases changes nothing.
+    const present = new Set(policies.map((g) => JSON.stringify(g)));
+    const inherited = (base.policies ?? []).filter((g) => (access === undefined || !g.some((p) => p.type === 'AccessPolicy')) && !present.has(JSON.stringify(g)));
+    policies = [...inherited, ...policies];
+    access ??= base.access;
     commands.push(...base.commands.filter((c) => !commands.some((own) => own.handler === c.handler)).map((c) => ({ ...c, inheritedFrom: c.inheritedFrom ?? base.id })));
     events.push(...base.events.filter((e) => !events.some((own) => own.name === e.name)).map((e) => ({ ...e, inheritedFrom: e.inheritedFrom ?? base.id })));
     diArgs.push(...(base.diArgs ?? []).filter((a) => !diArgs.some((own) => own.handler === a.handler)));
     contract ??= base.contract;
   }
-  return { ...entry, commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
+  return { ...entry, ...(access ? { access } : {}), ...(policies.length ? { policies } : {}), commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
 }

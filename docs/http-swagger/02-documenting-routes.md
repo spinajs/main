@@ -32,6 +32,8 @@ A controller whose `file` is a placeholder such as `<dynamic>` (added with `Cont
 | `@deprecated` | method | `@deprecated Use listV2` | `deprecated: true` |
 | `@security` | method | `@security cookieAuth`, `@security cookieAuth, bearerAuth`, `@security []` | Operation-level security; see [Security](#security) |
 
+The `@Deprecated()` decorator of `@spinajs/http` ([route middlewares](../http/14-route-middlewares.md#built-in-deprecated)) marks the operation `deprecated: true` as well, when the documentation comes from the manifest.
+
 ## Paths and methods
 
 | Route declaration | Documented path |

@@ -144,7 +144,11 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
   const args = routeArguments(label, route, path, ctx);
-  const { type: returns, names: returnTypeNames } = ctx.withNames(() => ctx.typeOf(route.returnType));
+  const { type, names } = ctx.withNames(() => ctx.typeOf(route.returnType));
+  const redacted = type !== 'void' && [...route.middlewares, ...controller.middlewares].some((m) => m.type === 'AuthzFieldsMiddleware');
+  const returns = redacted ? ctx.redacted(type) : type;
+  // client.ts re-exports Redacted, so a companion imports it with the route's other types
+  const returnTypeNames = redacted ? [...names, 'Redacted'].sort() : names;
   const method = route.method === 'file' ? 'get' : route.method;
   const parts = [`method: ${literal(method)}`, `path: ${literal(path.template)}`, `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`, ...(returns === 'void' ? ['void: true'] : [])];
   return {

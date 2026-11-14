@@ -5,7 +5,7 @@
 ## How it works
 
 1. You resolve `SocketServer` (`await DI.resolve(SocketServer)`). Its `resolve()` runs once:
-   1. Reads the proxy trust from `authn.http.trustProxy`, else `http.trustProxy` (see [client address](08-principal-sources.md#client-address)).
+   1. Resolves the registered `RealIp` of `@spinajs/http` from its container and keeps it for the [client address](08-principal-sources.md#client-address). `RealIp` parses its trust setting here, so a bad entry throws `InvalidOption`.
    2. Checks `http.socket.idempotency`, `drainMs` and `shutdownRetryAfterMs`; a bad value throws `RangeError`. Warns when `drainMs` + 3 s reaches `http.shutdownTimeout`.
    3. Awaits `@ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.socketControllers')`. Loading a file runs its `@SocketController` decorators.
    4. `SocketHandlerRegistry.build()` resolves every registered controller and indexes its handlers. A duplicate name, an orphan decorator or an invalid name throws `InvalidOperation` here, before socket.io attaches.

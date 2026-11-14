@@ -7,26 +7,32 @@ import '@spinajs/templates-pug';
 
 import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
-import { existsSync } from 'fs';
 import Express, { ErrorRequestHandler, RequestHandler } from 'express';
-import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
+import type { IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
+import { __handle_error__ } from './error.js';
+import { deliverReply, lookUpRoutesIn } from './reply-pipeline.js';
+import type { ErrorReplier } from './reply-pipeline.js';
+import { globalErrorReplier, refuseRemovedHooks, serverMiddlewareHandlers } from './server-middlewares.js';
+import { RouteIndex } from './route-index.js';
+import { NotFoundMiddleware } from './middlewares/NotFound.js';
+import { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
-import './middlewares/NotFound.js';
-import './middlewares/ErrorHandler.js';
 import './middlewares/AccessLog.js';
 import './middlewares/Compression.js';
 import './middlewares/Cors.js';
 import './middlewares/SlowRequestWarning.js';
 import './middlewares/ServerTiming.js';
+import './middlewares/StaticFiles.js';
+import { limitsBeforeMiddlewares } from './middlewares/BodyParsers.js';
 
 @Injectable()
 @Inject(Templates)
@@ -39,6 +45,10 @@ export class HttpServer extends AsyncService {
 
   @Autoinject(ServerMiddleware)
   protected Middlewares!: ServerMiddleware[];
+
+  /** The routes the controllers registered; server middlewares get the match before routing. */
+  @Autoinject(RouteIndex)
+  protected Routes!: RouteIndex;
 
   @Config('http')
   protected HttpConfig!: IHttpServerConfiguration;
@@ -86,10 +96,14 @@ export class HttpServer extends AsyncService {
   protected _closePromise: Promise<void> | null = null;
 
   /**
-   * After-middlewares ( NotFound / ErrorHandler / ServerTiming ... ) attach to
-   * the Express app exactly once per instance. Restart must not re-stack them.
+   * The tail ( the 404 and the global error answer ) attaches to the Express app exactly
+   * once per instance. Restart must not re-stack it.
    */
   protected _afterAttached = false;
+
+  protected NotFound!: NotFoundMiddleware;
+
+  protected ErrorHandler!: ErrorHandlerMiddleware;
 
   public get State(): LifecycleState {
     return this._state;
@@ -109,7 +123,7 @@ export class HttpServer extends AsyncService {
     super();
   }
 
-  // An app's list replaces the shipped one, which drops security headers and body parsing without an error.
+  // An app's list replaces the shipped one, which drops the security headers without an error.
   private warnLostDefaults() {
     const missing = missingDefaultMiddlewares(this.HttpConfig.middlewares ?? []);
     if (missing.length === 0) return;
@@ -125,10 +139,15 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
-    this.Middlewares = this.Middlewares.sort((a, b) => {
-      return a.Order - b.Order;
-    });
-  
+    // Array.ofType lists instances in the order their async resolve() finished, not in registration order
+    const registered = (this.Container.getRegisteredTypes(ServerMiddleware) ?? []) as unknown[];
+    const index = new Map(this.Middlewares.map((m) => [m, registrationIndex(registered, m)]));
+    // A copy: the injected array is the DI cache's own collection, which must stay in registration order
+    this.Middlewares = [...this.Middlewares].sort((a, b) => a.Order - b.Order || index.get(a)! - index.get(b)!);
+    this.NotFound = await this.Container.resolve(NotFoundMiddleware);
+    this.ErrorHandler = await this.Container.resolve(ErrorHandlerMiddleware);
+    [...this.Middlewares, this.NotFound, this.ErrorHandler].forEach(refuseRemovedHooks);
+
     this._createServer();
 
     const f = getFs('__fs_http_response_templates__') as fsNative<IFsLocalOptions>;
@@ -138,31 +157,74 @@ export class HttpServer extends AsyncService {
       this.Log.info({ path: f.Options.basePath }, 'Response templates path at ${path}');
     }
 
-    const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? []);
-    if (bodyLimits) {
-      this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules )');
-      this.use(bodyLimits);
+    // first, so a failure of an http.middlewares handler is answered with the request storage in place
+    const routes = this.Routes;
+    this.use((req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+      (req as Request).storage = {} as IActionLocalStoregeContext;
+      lookUpRoutesIn(res, routes);
+      next();
+    });
+
+    // A handler of the app's own might read the body: the limits must come before it. Otherwise BodyLimits mounts them.
+    if (limitsBeforeMiddlewares(this.HttpConfig.middlewares)) {
+      const bodyLimits = createBodyLimitMiddleware(this.HttpConfig.bodyLimits ?? [], { parsers: this.HttpConfig.bodyParsers });
+      if (bodyLimits) {
+        this.Log.info({ rules: this.HttpConfig.bodyLimits!.length }, 'Using per-path body limits ( ${rules} rules ) before http.middlewares');
+        this.use(bodyLimits);
+      }
     }
 
     this.HttpConfig.middlewares?.forEach((m) => {
-      this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
+      this.Log.info({ middleware: m.name || 'anonymous' }, 'Using http.middlewares handler ${middleware}');
       this.use(m);
     });
     this.warnLostDefaults();
 
-    // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
-    // applied through the standard `Middlewares.before()` loop below).
+    this._mountServerMiddlewares();
+  }
 
-    // register other server middlewares
-    this.Middlewares.forEach((m) => {
-      const f = m.before();
-      if (f) {
-        this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
-        this.use(f);
+  /** The reply a throwing server `onAfter` turns into: the global error answer's. */
+  protected _errorReplier(req: Express.Request): ErrorReplier {
+    return globalErrorReplier(this.ErrorHandler, req);
+  }
+
+  private _mountServerMiddlewares() {
+    const options = { log: this.Log, container: this.Container, errorReply: (req: Express.Request) => this._errorReplier(req) };
+
+    for (const m of this.Middlewares) {
+      const name = m.constructor.name;
+
+      if (!m.isEnabled()) {
+        this.Log.info({ middleware: name }, 'Server middleware ${middleware} is disabled');
+        continue;
       }
-    });
 
-    this._serverStaticFiles();
+      const handlers = serverMiddlewareHandlers(m, options);
+      if (handlers.length > 0) {
+        this.Log.info({ middleware: name }, 'Using server middleware ${middleware}');
+        handlers.forEach((h) => this.use(h));
+      }
+    }
+  }
+
+  /** The 404 and the global error answer, both sent through the reply pipeline. */
+  private _attachTail() {
+    const notFound = this.NotFound;
+    const errorHandler = this.ErrorHandler;
+    this.use((req: Request, res: Express.Response, next: Express.NextFunction) => {
+      Promise.resolve()
+        .then(() => notFound.reply(req))
+        .then((answer) => {
+          if (isResponse(answer)) {
+            return deliverReply(req, res, answer, { container: this.Container, errorReply: this._errorReplier(req) });
+          }
+          // a replacement answering nothing still gets the framework's 404, not express's
+          next(answer ?? (NotFoundMiddleware.prototype.reply.call(notFound, req) as Error));
+          return undefined;
+        })
+        .catch(next);
+    });
+    this.use(__handle_error__(this.Container, (err, req) => errorHandler.reply(err, req as Request)));
   }
 
   /**
@@ -224,25 +286,6 @@ export class HttpServer extends AsyncService {
   }
 
   /**
-   * Server static files
-   */
-  private _serverStaticFiles() {
-    // uniqBy Path — Static entries are objects, so plain _.uniq (reference
-    // equality) would never dedupe two config entries pointing at the same dir.
-    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
-      if (!existsSync(s.Path)) {
-        this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
-        return;
-      }
-
-      const sRoute = s.Route ?? '/static';
-
-      this.Log.info({ path: s.Path, route: sRoute }, 'Serving static content from: ${path} at path: ${route}');
-      this.Express.use(sRoute, Express.static(s.Path));
-    });
-  }
-
-  /**
    * Starts http server & express
    */
   public async start(): Promise<void> {
@@ -257,17 +300,9 @@ export class HttpServer extends AsyncService {
       await this._closePromise;
     }
 
-    // add all after-middlewares once per instance ( not once per start ).
+    // after the controllers' routers, which mount while HttpServer is resolved; once per instance, not once per start
     if (!this._afterAttached) {
-      // Copy before reversing so we don't mutate the shared, already-sorted
-      // Middlewares array in place.
-      [...this.Middlewares].reverse().forEach((m) => {
-        const f = m.after();
-        if (f) {
-          this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::after() - ${middleware}');
-          this.use(f);
-        }
-      });
+      this._attachTail();
       this._afterAttached = true;
     }
 
@@ -286,6 +321,9 @@ export class HttpServer extends AsyncService {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
+        if (this.Routes.unmounted) {
+          this.Log.warn('Controllers registered routes but no controllers router was mounted in the RouteIndex: server middlewares get no ctx.route before routing, @Cors routes keep the global CORS policy and @CsrfExempt() exempts nothing.');
+        }
         this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
         res();
       });
@@ -395,8 +433,19 @@ export class HttpServer extends AsyncService {
    *
    * @param middleware - middleware function
    */
-  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the ReqStorage middleware. */
+  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the first handler HttpServer mounts. */
   public use(middleware: RequestHandler | ErrorRequestHandler | ((req: Request, res: Express.Response, next: Express.NextFunction) => void)): void {
     this.Express.use(middleware as RequestHandler | ErrorRequestHandler);
   }
+}
+
+const isResponse = (value: unknown): value is Response => typeof (value as Response | null | undefined)?.execute === 'function';
+
+/** An instance of a class that replaces a registered one ( `@Injectable(RealIp)` ) takes that one's place. */
+function registrationIndex(registered: unknown[], m: ServerMiddleware): number {
+  const own = registered.indexOf(m.constructor);
+  if (own !== -1) return own;
+
+  const replaced = registered.findIndex((t) => typeof t === 'function' && typeof t.prototype === 'object' && m instanceof t);
+  return replaced === -1 ? registered.length : replaced;
 }

@@ -74,6 +74,7 @@ export class DbSessionStore extends SessionProvider {
     const batch = Math.max(1, Math.floor(this.CleanupBatch) || 500);
     let removed = 0;
 
+    // spinajs-orm-ignore ORM102: deliberate batching, each pass deletes one cleanupBatch page until none is left
     for (;;) {
       const now = DateTime.now();
       // Ordered by the indexed column; MSSQL pages with OFFSET ... FETCH, which needs an ORDER BY.

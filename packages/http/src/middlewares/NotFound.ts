@@ -1,37 +1,20 @@
-import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
-import { ServerMiddleware } from '../interfaces.js';
+import type { Request, Response } from '../interfaces.js';
 import { redactUrl } from '../util/redact-url.js';
 
 /**
- * Catches requests that no controller route matched and turns them into a
- * standard ResourceNotFound error so {@link ErrorHandlerMiddleware} can
- * produce a proper HTTP response.
- *
- * Registered as a normal ServerMiddleware so it participates in the
- * established lifecycle (HttpServer.start() reverses by Order and applies
- * after()). Its Order is one step above MIN_SAFE_INTEGER so it lands at the
- * Express stack tail, just before the error handler.
+ * The answer for a request no static folder, route or middleware answered. `HttpServer` mounts it after routing,
+ * before {@link ErrorHandlerMiddleware}. Replace it with `DI.register(Mine).as(NotFoundMiddleware)`.
  */
-@Injectable(ServerMiddleware)
-export class NotFoundMiddleware extends ServerMiddleware {
-  constructor() {
-    super();
-    // Reverse-iteration over after() means lowest Order runs LAST and ends up
-    // at the Express stack tail. We want NotFound right before ErrorHandler
-    // (which uses MIN_SAFE_INTEGER), so we sit one step above.
-    this.Order = Number.MIN_SAFE_INTEGER;
-  }
-
-  public before(): null {
-    return null;
-  }
-
-  public after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
-    return (req, _res, next) => {
-      next(new ResourceNotFound(`Route not found: ${req.method} ${redactUrl(req.originalUrl)}`));
-    };
+@Injectable()
+export class NotFoundMiddleware {
+  /**
+   * An error goes to {@link ErrorHandlerMiddleware} (`ResourceNotFound` answers 404 through the error map); a `Response`
+   * is sent as it is. Either way the reply goes through the reply pipeline.
+   */
+  public reply(req: Request): Error | Response | Promise<Error | Response> {
+    return new ResourceNotFound(`Route not found: ${req.method} ${redactUrl(req.originalUrl)}`);
   }
 }
