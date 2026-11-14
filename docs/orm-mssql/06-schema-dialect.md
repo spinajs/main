@@ -71,6 +71,8 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `schema().createEvent()`, `dropEvent()` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | throw `MethodNotImplemented('<Driver> has no native scheduled events')`, `<Driver>` being the connection's driver string |
 | `schema().cloneTable()` | none registered | throws `TypeError` |
 
+`tableIndexes()` reads `sys.indexes` (heaps and included columns left out) and `tableForeignKeys()` reads `sys.foreign_keys`, both in `Options.Schema` (default `dbo`) of the connection's database; the `schema` argument, which `tableInfo()` reads as the database, is ignored.
+
 ### Altering tables
 
 `schema().alterTable(name, t => ...)` compiles with `MsSqlAlterTableQueryCompiler` and `MsSqlAlterColumnQueryCompiler`, one statement per change, in this order:

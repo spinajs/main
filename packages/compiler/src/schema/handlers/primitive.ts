@@ -1,8 +1,9 @@
 import ts from 'typescript';
 import type { TypeHandler } from '../derive.js';
+import { SPINAJS_TYPE } from '../wellknown.js';
 
 /** Ajv is draft-07 and validates bigint as a string pattern; `format: int64` applies only to numbers. */
-export const BIGINT_SCHEMA = { type: 'string', pattern: '^-?[0-9]+$' };
+export const BIGINT_SCHEMA = { type: 'string', pattern: '^-?[0-9]+$', [SPINAJS_TYPE]: 'bigint' };
 
 // ts.pseudoBigIntToString is not part of the public API.
 const bigintLiteral = ({ negative, base10Value }: ts.PseudoBigInt): string => (negative ? `-${base10Value}` : base10Value);

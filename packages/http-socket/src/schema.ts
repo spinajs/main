@@ -42,6 +42,7 @@ export const SOCKET_CONFIGURATION_SCHEMA = {
     transports: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['websocket', 'polling'] } },
     hooks: { type: 'object', required: ['connectTimeoutMs'], properties: { connectTimeoutMs: timerMs }, ...neitherNullNorBoolean('connectTimeoutMs') },
     ordering: { type: 'object', required: ['abortGraceMs'], properties: { abortGraceMs: timerMs }, ...neitherNullNorBoolean('abortGraceMs') },
+    access: { type: 'object', properties: { default: { enum: ['allow', 'deny'] } } },
     streams: { type: 'object', required: ['maxCredits', 'maxPerConnection', 'stallTimeoutMs'], properties: { maxCredits: positiveInteger, maxPerConnection: positiveInteger, stallTimeoutMs: { ...positiveInteger, maximum: MAX_TIMER_MS } } },
   },
 };

@@ -1,4 +1,5 @@
-import { Class, Constructor, token } from '@spinajs/di';
+import { token } from '@spinajs/di';
+import type { Class, Constructor } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import type { Relation } from './relation-objects.js';
 import type { OrmMigration, ValueConverter } from './interfaces.js';

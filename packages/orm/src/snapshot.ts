@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { IModelDescriptor, IValueConverter } from './interfaces.js';
+import type { IModelDescriptor, IValueConverter } from './interfaces.js';
 
 /**
  * The diff baseline for one model instance.

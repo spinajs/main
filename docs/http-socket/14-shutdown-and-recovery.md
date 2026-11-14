@@ -9,8 +9,8 @@
 1. `shutdown()` starts once; later calls, `dispose()` and the host's `http.server.closing` DI event share the same run.
 2. New handshakes, recovered sockets and new commands are refused with a retryable `unavailable` carrying `retryAfterMs = http.socket.shutdownRetryAfterMs`. New events are dropped.
 3. Every local connection gets `sys.shutdown { retryAfterMs }`.
-4. Running commands, open streams and their stage chains get up to `drainMs` to finish.
-5. Still running after that: commands are answered `unavailable` and open streams get `fail unavailable`, except keyed (idempotent) commands whose handler already started. Those get 1 s more to answer, and record, their real outcome, then are aborted too.
+4. Running commands, open streams and their middleware chains, with their `onFinish` hooks, get up to `drainMs` to finish.
+5. Still running after that: commands are answered `unavailable` and open streams get `fail unavailable`, except commands whose handler already started under `ctx.drainGrace`. `IdempotencyStage` sets it when it claims a key, and a middleware of your own can set it too (see [Command pipeline](04-command-pipeline.md#per-command-state)). Those get 1 s more to answer, and record, their real outcome, then are aborted too.
 6. The server waits up to 1 s for those replies to be written, disconnects only its own clients (`io.local`), and waits up to 1 s for the transports to flush and up to `drainMs` for the disconnect hooks, which can still push.
 7. It stops the principal guard, closes the adapter (waiting at most 1 s), closes engine.io, removes the listeners it added to the http server and detaches `SocketHub`. The http server stays open: the host owns it.
 

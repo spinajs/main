@@ -146,7 +146,8 @@ for (const kind of DB_KINDS) {
       const others = Array.from({ length: 1200 }, (_, i) => `user:other${i}`);
 
       const write = await statementsOf(db!.driver, () => db!.driver.transaction((driver: OrmDriver) => store.replace('user:big', sets, { driver })));
-      expect(write.statements.filter((s) => s.context === QueryContext.Insert || s.context === QueryContext.InsertReturning)).to.have.length(1);
+      const inserts = write.statements.filter((s) => s.context === QueryContext.Insert || s.context === QueryContext.InsertReturning);
+      expect(inserts.filter((s) => !s.sql.includes('authz_change_log'))).to.have.length(1);
 
       const read = await statementsOf(db!.driver, () => store.rowsOf(['user:big', ...others]));
       expect([...read.result].sort((a, b) => a.setKey.localeCompare(b.setKey))).to.deep.eq([...sets].sort((a, b) => a.setKey.localeCompare(b.setKey)));

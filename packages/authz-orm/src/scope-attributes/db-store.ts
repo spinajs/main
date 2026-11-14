@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
+import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, changeLog, principalKey, resourceKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
 import { DateTime } from 'luxon';
 
+// Registers DbChangeLog for apps that import only the scope-attributes entry: writes append to it.
+import '../changelog/index.js';
 import { requireTransaction, selectFrom } from '../records.js';
 import { SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, ScopeAttributeRecord, ScopeAttributeVersionRecord } from './records.js';
 
@@ -44,6 +46,11 @@ function leafOf(row: StoredLeaf): ScopeAttributeLeaf {
  * AuthzAdmin batch (AuthzTx.driver) on that connection.
  */
 export class DbScopeAttributeStore extends WritableScopeAttributeStore {
+  constructor() {
+    super();
+    changeLog().track('attribute');
+  }
+
   async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
     return unflattenAttributes(await this.rows(ref));
   }
@@ -86,6 +93,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const updated_at = DateTime.now();
     const updated_by = principalKey(actor).slice(0, BY_MAX);
     await ScopeAttributeRecord.insert(set.map(([path, v]) => ({ ...key, path, value_json: v, value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by, updated_at })));
+    await changeLog().append([{ kind: 'attribute', op: 'put', key: resourceKey(ref), payload: { set: Object.fromEntries(set), remove: removed }, actor: principalKey(actor) }]);
     return removed.length + set.length;
   }
 
@@ -95,6 +103,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     if (!fits(key)) return 0;
     await this.bump();
     const { RowsAffected } = await ScopeAttributeRecord.destroy().where(key);
+    if (RowsAffected > 0) await changeLog().append([{ kind: 'attribute', op: 'remove', key: resourceKey(ref) }]);
     return RowsAffected;
   }
 

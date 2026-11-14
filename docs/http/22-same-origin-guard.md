@@ -20,10 +20,10 @@
 
 `SameOriginGuard` (Order 2, after `RealIp`):
 
-1. At startup, reads `allowedOrigins()` once.
-2. Per request, calls `next()` when `appliesTo(req)` is false (by default for `GET`, `HEAD` and `OPTIONS`).
-3. Otherwise runs `checkSameOrigin()` with the own origin from `requestOrigin()` and the trust `RealIp` stored, and calls `next()` when allowed.
-4. When refused, calls `refuse(reason, req, res, next)`: by default `403` with `{ "error": { "code": "E_ORIGIN_REFUSED", "message": "Cross-origin request refused" } }`.
+1. When mounted (`isEnabled()`), reads `allowedOrigins()` once.
+2. Per request (`onBefore`), lets the request go on when `appliesTo(req)` is false (by default for `GET`, `HEAD` and `OPTIONS`).
+3. Otherwise runs `checkSameOrigin()` with the own origin from `requestOrigin()` and the trust `RealIp` stored, and lets the request go on when allowed.
+4. When refused, answers with the `Response` `refuse(reason, req)` returns: by default `403` with `{ "error": { "code": "E_ORIGIN_REFUSED", "message": "Cross-origin request refused" } }`, through the reply pipeline.
 
 ## Configuration
 
@@ -33,7 +33,7 @@ The guard has no configuration keys of its own. A subclass reads its allowed ori
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `SameOriginGuard` | abstract `ServerMiddleware`, not registered | | | Subclass, decorate with `@Injectable(ServerMiddleware)`. Override `appliesTo(req)`, `allowedOrigins()`, `refuse(reason, req, res, next)`, set `MissingOrigin` or `Order`. |
+| `SameOriginGuard` | abstract `ServerMiddleware`, not registered | | | Subclass, decorate with `@Injectable(ServerMiddleware)`. Override `appliesTo(req)`, `allowedOrigins()`, `refuse(reason, req)` (returns the `Response`), set `MissingOrigin` or `Order`. |
 | `checkSameOrigin(headers, ownOrigin, options)` | exported function | | | The decision above, for code that is not an Express middleware (a socket handshake, a controller). |
 | `parseAllowedOrigins(entries, key)` | exported function | | | A normalised `ReadonlySet<string>` for `allowedOrigins`. |
 | `OriginRefusal`, `OriginDecision`, `MissingOriginRule` | exported types | | | |

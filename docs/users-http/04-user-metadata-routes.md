@@ -122,7 +122,7 @@ DI.register(DecodedMetadataEntrySchema).asMapValue('__schemas__', 'IUserMetadata
 - `:meta` of `PATCH` is an `Id` when it is all digits, else a `Key`. One column is compared, never both.
 - A reserved key answers `404` on read, update and delete, the same as a missing entry. A write of one answers `400`.
 - The database's collation may match another spelling to a reserved row (`2fá:enabled` and `2fa:enabled`); the service checks the stored key too and refuses the write.
-- An `order.column` other than `Id`, `Key`, `Type` answers `400`.
+- `order` is read by `@Sort(FilterableUserMetadata, { default: 'Id', order: DESC })`: an `order.column` other than the `@Sortable()` columns `Id`, `Key`, `Type` answers `400`.
 - The routes need the `@Access` decision in the request. A route reached without its policy answers `403`.
 
 ## Best practices

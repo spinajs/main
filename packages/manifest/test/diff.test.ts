@@ -220,17 +220,46 @@ describe('diffManifest', () => {
       expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [req('Req')])))).to.deep.equal([]);
     });
 
-    it('renaming a whole-body parameter keeps the wire, renaming a JSON query key breaks it', () => {
+    const renamed = (name: string, from: string, to: string, handler = 'list'): string => `argument ${from} renamed to ${to} on ${name}.${handler}: generated hook variables and query keys change`;
+
+    it('renaming a whole-body argument keeps the wire: non-breaking, the client variables change', () => {
       const body = (name: string): ParamEntry => ({ ...wired(name, { in: 'body', shape: 'whole' }, true, 'Dto'), kind: 'FromBody' });
-      expect(thingsChanges(withThings(bare('list', [body('body')])), withThings(bare('list', [body('payload')])))).to.deep.equal([]);
+      expect(thingsChanges(withThings(bare('list', [body('body')])), withThings(bare('list', [body('payload')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'body', 'payload') },
+      ]);
+    });
+
+    it('renaming a query-object argument keeps the wire: non-breaking', () => {
+      const q = (name: string): ParamEntry => ({ ...wired(name, { in: 'query', shape: 'whole' }, true, 'Filter'), kind: 'FromQuery' });
+      expect(thingsChanges(withThings(bare('list', [q('filter')])), withThings(bare('list', [q('criteria')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'filter', 'criteria') },
+      ]);
+    });
+
+    it('a header renamed in code but sent under the same key: non-breaking, the client variables change', () => {
+      const header = (name: string): ParamEntry => ({ ...wired(name, { in: 'header', name: 'x-tenant', shape: 'value' }), kind: 'FromHeader' });
+      expect(thingsChanges(withThings(bare('list', [header('tenant')])), withThings(bare('list', [header('tenantId')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'tenant', 'tenantId') },
+      ]);
+    });
+
+    it('a value argument whose query name follows the argument name changes the wire: breaking', () => {
       const [change] = thingsChanges(withThings(bare('list', [wired('query', { in: 'query', name: 'query', shape: 'json' })])), withThings(bare('list', [wired('q', { in: 'query', name: 'q', shape: 'json' })])));
       expect(change).to.include({ id: 'GET /things/list', kind: 'changed', breaking: true });
       expect(change.detail).to.include('parameter query (FromQuery) removed');
     });
 
-    it('a header renamed in code but sent under the same key is not a change', () => {
-      const header = (name: string): ParamEntry => ({ ...wired(name, { in: 'header', name: 'x-tenant', shape: 'value' }), kind: 'FromHeader' });
-      expect(thingsChanges(withThings(bare('list', [header('tenant')])), withThings(bare('list', [header('tenantId')])))).to.deep.equal([]);
+    it('a value argument renamed under an explicit query name keeps the wire: non-breaking', () => {
+      const v = (name: string): ParamEntry => wired(name, { in: 'query', name: 'search', shape: 'value' });
+      expect(thingsChanges(withThings(bare('list', [v('term')])), withThings(bare('list', [v('text')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'term', 'text') },
+      ]);
+    });
+
+    it('reordering arguments without renaming them is not a change', () => {
+      const a = wired('a', { in: 'query', name: 'a', shape: 'value' });
+      const h = { ...wired('h', { in: 'header', name: 'x-h', shape: 'value' }), index: 1 };
+      expect(thingsChanges(withThings(bare('list', [a, h])), withThings(bare('list', [{ ...h, index: 0 }, { ...a, index: 1 }])))).to.deep.equal([]);
     });
   });
 
@@ -392,6 +421,43 @@ describe('diffManifest', () => {
   });
 
   describe('other sections', () => {
+    it('an added x-spinajs-type is one non-breaking schemas change per schema, and no route change', () => {
+      const head = clone();
+      for (const name of ['UserDto', 'CreateUserDto']) schemaOf(head, name).properties.name = { type: 'string', 'x-spinajs-type': 'Decimal' };
+      const diff = diffManifest(base, head);
+      expect(diff.changes).to.deep.equal([
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/CreateUserDto', breaking: false, detail: 'schema changed' },
+        { section: 'schemas', kind: 'changed', id: 'spinajs/app-basic/UserDto', breaking: false, detail: 'schema changed' },
+      ]);
+      expect(diff.breaking).to.equal(false);
+    });
+
+    it('an x-spinajs-type added to a union member (Date | number) is a non-breaking schemas change only', () => {
+      const withName = (dateTime: object): Manifest => {
+        const m = clone();
+        for (const name of ['UserDto', 'CreateUserDto']) schemaOf(m, name).properties.name = { anyOf: [dateTime, { type: 'number' }] };
+        return m;
+      };
+      const before = withName({ type: 'string', format: 'date-time' });
+      const after = withName({ type: 'string', format: 'date-time', 'x-spinajs-type': 'Date' });
+      const diff = diffManifest(before, after);
+      expect(diff.changes.map((c) => [c.section, c.id, c.breaking])).to.deep.equal([
+        ['schemas', 'spinajs/app-basic/CreateUserDto', false],
+        ['schemas', 'spinajs/app-basic/UserDto', false],
+      ]);
+      expect(diff.breaking).to.equal(false);
+    });
+
+    it('a union member that differs only in the name of an x-* property is still a different member', () => {
+      const withMember = (key: string): Manifest => {
+        const m = clone();
+        schemaOf(m, 'UserDto').properties.name = { anyOf: [{ type: 'object', properties: { [key]: { type: 'string' } } }, { type: 'number' }] };
+        return m;
+      };
+      const diff = diffManifest(withMember('x-old'), withMember('x-new'));
+      expect(find(diff.changes, 'routes', 'GET /users/:id')).to.include({ breaking: true });
+    });
+
     it('removed config module is breaking', () => {
       const head = clone();
       head.configModules = head.configModules.filter((c) => c.module !== 'app');

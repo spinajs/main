@@ -1,9 +1,9 @@
 import { Ok } from '@spinajs/http';
-import type { IResponseHeader, Response } from '@spinajs/http';
+import type { Response } from '@spinajs/http';
 import { subjectLabel } from '@spinajs/teams';
 import type { MemberEntry, Paged } from '@spinajs/teams';
 
-export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+export { NO_STORE } from '@spinajs/http';
 
 export function done(): Response {
   return new Ok({ ok: true });
