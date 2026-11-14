@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { decoratorsOf, type DecoratorInfo } from './decorators.js';
-import { baseClassOf, extendsFrameworkClass, isDeclaredIn } from './schema/framework-members.js';
+import { baseClassOf, extendsFrameworkClass, isDeclaredIn, isSymbolKeyed } from './schema/framework-members.js';
 
 export const ORM = '@spinajs/orm';
 export const RELATION_DECORATORS = new Set(['BelongsTo', 'ForwardBelongsTo', 'HasMany', 'HasManyToMany']);
@@ -55,6 +55,7 @@ function classify(checker: ts.TypeChecker, type: ts.Type, decorators: DecoratorI
 export function modelMembers(checker: ts.TypeChecker, model: ts.Type): ModelMember[] {
   const out: ModelMember[] = [];
   for (const property of checker.getPropertiesOfType(model)) {
+    if (isSymbolKeyed(property)) continue;
     const declaration = property.valueDeclaration ?? property.declarations?.[0];
     if (!declaration || !isPublicData(property, declaration) || isModelBaseMember(declaration)) continue;
     const type = checker.getTypeOfSymbolAtLocation(property, declaration);

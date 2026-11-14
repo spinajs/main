@@ -6,6 +6,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
+import { addSafeKeywords, dropNonFiniteDuplicates, isTooDeep, nonFiniteErrors, TOO_DEEP_ERROR } from './keywords.js';
 import { isStandardSchema, isThenable, standardOutcome, type StandardResult, type StandardSchemaV1 } from './standard-schema.js';
 import { addSpinajsFormats, type FormatHost } from './formats.js';
 
@@ -142,6 +143,10 @@ export class DataValidator extends AsyncService {
     resolveDefault(ajvFormats)(ajv);
     addSpinajsFormats(ajv as FormatHost);
 
+    // Before the plugin hook: a code keyword added after it would install every plugin at once. The safe
+    // uniqueItemProperties is defined now, so the plugin install keeps it.
+    addSafeKeywords(ajv, { uniqueItemProperties: true });
+
     // $merge, $patch and the ajv-keywords keywords; after ajv-formats, whose keywords would otherwise install them at once
     addKeywordPluginsOnUse(ajv);
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
@@ -262,9 +267,20 @@ export class DataValidator extends AsyncService {
 
     const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
     const ajv = strict ? this.StrictValidator : this.Validator;
-    const result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
+    let result: unknown;
+    try {
+      result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);
+    } catch (error) {
+      if (!isTooDeep(error)) throw error;
+      return [false, [{ ...TOO_DEEP_ERROR, params: {} }]];
+    }
     if (!result) {
       return [false, this.sanitizedErrors(schema, ajv)];
+    }
+
+    const nonFinite = nonFiniteErrors(target, (ajv as { opts?: { allErrors?: unknown } }).opts?.allErrors !== false);
+    if (nonFinite.length > 0) {
+      return [false, nonFinite];
     }
 
     return [true, null];
@@ -329,7 +345,11 @@ export class DataValidator extends AsyncService {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sanitizedErrors(schema?: object, ajv: any = this.Validator): IValidationError[] {
-    return ((ajv.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
+    // Written back, so a subclass reading `Validator.errors` sees neither the duplicate nor the marker.
+    const instance = ajv as { errors?: IValidationError[] | null };
+    const errors = dropNonFiniteDuplicates(instance.errors ?? []);
+    instance.errors = errors;
+    return errors.map((error) => sanitizeError(error, schema));
   }
 
   /**
