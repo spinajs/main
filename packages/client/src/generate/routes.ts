@@ -121,7 +121,8 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
   const args = routeArguments(label, route, path, ctx);
-  const returns = ctx.typeOf(route.returnType);
+  const type = ctx.typeOf(route.returnType);
+  const returns = type !== 'void' && [...route.middlewares, ...controller.middlewares].some((m) => m.type === 'AuthzFieldsMiddleware') ? ctx.redacted(type) : type;
   const method = route.method === 'file' ? 'get' : route.method;
   const parts = [`method: ${literal(method)}`, `path: ${literal(path.template)}`, `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`, ...(returns === 'void' ? ['void: true'] : [])];
   return {

@@ -7,7 +7,7 @@ import { mergeConfig } from '@spinajs/configuration';
 import type { TestApp } from '@spinajs/testing';
 
 import { httpApp, TestConfiguration } from './common.js';
-import { configuredCookieParser, defaultMiddlewares, HttpServer, missingDefaultMiddlewares } from '../src/index.js';
+import { defaultMiddlewares, HttpServer, missingDefaultMiddlewares } from '../src/index.js';
 // The built config, as in shipped-config.test.ts.
 import shipped from '../lib/config/http.js';
 
@@ -30,13 +30,9 @@ describe('default middlewares', () => {
       expect(missingDefaultMiddlewares(merged.http.middlewares)).to.deep.equal([]);
     });
 
-    it('names each missing handler', () => {
-      expect(missingDefaultMiddlewares([mine])).to.deep.equal(['helmet', 'JSON body parser', 'form body parser', 'text body parser', 'cookie parser']);
+    it('names only helmet: the body and cookie parsers are server middlewares', () => {
+      expect(missingDefaultMiddlewares([mine])).to.deep.equal(['helmet']);
       expect(missingDefaultMiddlewares(defaultMiddlewares().slice(1))).to.deep.equal(['helmet']);
-    });
-
-    it('counts the exported cookie parser', () => {
-      expect(missingDefaultMiddlewares([configuredCookieParser])).to.not.include('cookie parser');
     });
 
     it('builds new handlers on each call', () => {
@@ -94,11 +90,11 @@ describe('default middlewares', () => {
       expect(text).to.match(/own/);
     });
 
-    it('names the body parsers and the cookie parser too', async () => {
+    it('does not name the body or cookie parsers', async () => {
       await boot([mine]);
       expect(warnings()).to.have.length(1);
       const text = JSON.stringify(warnings()[0].args);
-      for (const name of ['helmet', 'JSON body parser', 'form body parser', 'text body parser', 'cookie parser']) expect(text).to.contain(name);
+      expect(text).to.not.match(/body parser|cookie parser/);
     });
   });
 });

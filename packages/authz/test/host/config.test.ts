@@ -55,7 +55,7 @@ describe('authz config schema', () => {
 
   it('accepts a valid config unchanged', () => {
     const cfg = validConfig();
-    const copy = { ...JSON.parse(JSON.stringify(cfg)), impersonation: { permission: 'user:impersonate', protectedRoles: ['admin'] }, hooks: { check: false } };
+    const copy = { ...JSON.parse(JSON.stringify(cfg)), impersonation: { permission: 'user:impersonate', protectedRoles: ['admin'] }, hooks: { check: false }, decisionLog: { mode: 'deny', allowSampleRate: 0.01, batch: { size: 100, flushMs: 1000 } } };
     expect(validate(cfg).ok).to.equal(true);
     expect(cfg).to.deep.equal(copy);
   });
@@ -70,6 +70,7 @@ describe('authz config schema', () => {
       cache: AUTHZ_DEFAULTS.cache,
       audit: AUTHZ_DEFAULTS.audit,
       hooks: AUTHZ_DEFAULTS.hooks,
+      decisionLog: AUTHZ_DEFAULTS.decisionLog,
     });
     expect(cfg.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
     expect(cfg.domains).to.deep.equal({ fs: { engine: {} } });
@@ -94,6 +95,8 @@ describe('authz config schema', () => {
     };
     fails({ engine: { modelTimeoutMs: 'x' } }, '/engine/modelTimeoutMs', 'type');
     fails({ engine: { modelTimeoutMs: 0 } }, '/engine/modelTimeoutMs', 'minimum');
+    fails({ decisionLog: { mode: 'allows' } }, '/decisionLog/mode', 'enum');
+    fails({ decisionLog: { allowSampleRate: 2 } }, '/decisionLog/allowSampleRate', 'maximum');
     fails({ domains: { root: {} } }, '/domains', 'not');
     fails({ domains: { 'bad name': {} } }, '/domains', 'pattern');
     fails({ combine: { default: {} } }, '/combine/default', 'required');

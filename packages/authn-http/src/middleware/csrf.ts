@@ -4,14 +4,12 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { isLenientAuthnEnv } from '@spinajs/authn/env';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
-import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin } from '@spinajs/http';
-import type { OriginRefusal, ProxyTrust, Request } from '@spinajs/http';
+import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, RawJsonResponse, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin, requestProxyTrust } from '@spinajs/http';
+import type { OriginRefusal, ProxyTrust, Request, Response } from '@spinajs/http';
 import { SESSION_COOKIE_BASE_NAME, appEnvOf, sessionCookieSameSite } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
-import type * as express from 'express';
 
-import { proxyTrustOf } from './client-ip.js';
 import { CSRF_REFUSED_EVENT } from './csrf-log.js';
 
 const DEPRECATED_ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
@@ -67,7 +65,7 @@ function warnRefused(log: Log, origin: string | undefined, fetchSite: unknown, o
 
 /**
  * The @spinajs/http CsrfGuard with what authn-http knows: the session cookie (bare and `__Host-`) is an ambient
- * cookie, the own origin follows authn.http.trustProxy, and refusals are logged. Replaces the plain CsrfGuard.
+ * cookie, the own origin follows the trust RealIp stored (AuthnRealIp: authn.http.trustProxy), and refusals are logged. Replaces the plain CsrfGuard.
  *
  * `authn.http.csrf.*` are deprecated aliases of `http.csrf.*` until the next major: `enabled: false` in either switches
  * the guard off, and both allowedOrigins lists count. `unauthenticatedRoutes` is ignored, since every request a
@@ -84,12 +82,6 @@ export class CsrfOriginGuard extends CsrfGuard {
   @Config('authn.http.csrf.unauthenticatedRoutes')
   protected DeprecatedUnauthenticatedRoutes: readonly string[] | undefined;
 
-  @Config('authn.http.trustProxy')
-  protected OwnTrust: unknown;
-
-  @Config('http.trustProxy')
-  protected SharedTrust: unknown;
-
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
 
@@ -99,8 +91,6 @@ export class CsrfOriginGuard extends CsrfGuard {
 
   @Logger('authn-http')
   protected Log!: Log;
-
-  protected Trust: ProxyTrust = { hops: 0 };
 
   protected enabled(): boolean {
     return super.enabled() && this.DeprecatedEnabled !== false;
@@ -118,12 +108,12 @@ export class CsrfOriginGuard extends CsrfGuard {
   }
 
   protected ownOrigin(req: Request): string | undefined {
-    return ownOrigin(req, this.Trust);
+    return ownOrigin(req, requestProxyTrust(req));
   }
 
-  protected refuse(_reason: OriginRefusal, req: Request, res: express.Response, _next: express.NextFunction): void {
+  protected refuse(_reason: OriginRefusal, req: Request): Response {
     warnRefused(this.Log, req.headers.origin, req.headers['sec-fetch-site'], this.ownOrigin(req));
-    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+    return new RawJsonResponse(HTTP_STATUS_CODE.FORBIDDEN, CSRF_REFUSED_BODY);
   }
 
   public async resolve(): Promise<void> {
@@ -131,10 +121,10 @@ export class CsrfOriginGuard extends CsrfGuard {
     await super.resolve();
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    this.Trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
+  /** At mount: the deprecated keys are reported even while the guard is off. */
+  public isEnabled(): boolean {
     this.warnDeprecated();
-    return super.before();
+    return super.isEnabled();
   }
 
   private warnDeprecated(): void {

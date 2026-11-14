@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-verify": minor
+---
+
+`defineAssertions(({ implies, separated, isolated, onlyVia, never }) => [...])` declares an app's authorization invariants (the default export of `authz.assertions.ts`), and `verifyAssertions(ir, set, { k, requireSolver })` checks them: the exact engine first, the bounded engine where it answers `unknown`. `never({ holder, permission })` takes permission globs such as `*:update` and the `public` holder; `separated(a, b)` looks for one principal with both permissions on one resource; `isolated(type, { except })` looks, over two objects of `type`, for a principal whose grants all sit under one of them reaching a resource under the other. Each result carries doctor-shaped diagnostics: `AZV001` violated (error, with the counterexample), `AZV002` holds (`holds (exact)` or `verified up to k=N`), `AZV003` opaque parts or undecided (warning), `AZV090` solver unavailable (warning, error with `requireSolver`). `formatResults(results, 'text' | 'json' | 'github')` prints them in the `doctor` output shapes.

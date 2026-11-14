@@ -1,6 +1,6 @@
 # Policies and access
 
-Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-http`) carry that information into the document: vendor extensions for tools, and readable lines in the operation description for people.
+Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-http`) carry that information into the document: vendor extensions for tools, and readable lines in the operation description for people. The answers a route middleware gives instead of the route, such as the `429` of `@RateLimit`, are documented too.
 
 ## How it works
 
@@ -20,6 +20,42 @@ Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-
 3. Otherwise the builder copies the `x-authz-*` fields onto the operation and appends one line, eg. ``**Access:** requires `invoice:read` on `invoice` (path `id`)``.
 4. It adds `401` and `403` as `$ref`s to the standard responses, unless the JSDoc documents those codes.
 
+### Route middlewares
+
+1. The builder calls `documentation(route)` on every middleware mounted on the route (`BaseController.MountedMiddlewares(method)`, see [In API documents](../http/14-route-middlewares.md#in-api-documents)), in mount order: global, controller, route.
+2. Each answer is added under its status, unless the JSDoc or `@Access` already set that status. Between middlewares the later one wins, so a route's own `@RateLimit` answers over its controller's.
+3. An answer with a `component` is registered once under `components.responses` and referred to with a `$ref`. Any other answer is inline: its description, its `headers`, and a body from `schema` or from the named `type` (resolved like `@response 429 {AuthnError}`), under `contentType` (default `application/json`).
+4. The `headers` a middleware sets on the route's own success answers go to the route's inline `2xx` responses. A `$ref` response is left alone.
+5. Its `x-` extensions are copied onto the operation; any other key in `extensions` is dropped, so a middleware cannot set `parameters`, `requestBody` or `deprecated` this way. An array extension that two middlewares set is concatenated. A key the operation already has, such as `x-authz-domain` from `@Access`, keeps its value unless both values are arrays.
+6. A middleware whose `documentation()` throws adds nothing to that route. The builder logs a warning on the `http-swagger` logger naming the middleware class and the route (e.g. `POST /reports/daily`), and documents the other middlewares and routes.
+
+For `@RateLimit` this gives ([what it documents](../http/18-throttling.md#in-api-documents)):
+
+- headers off (the default): `429` as a `$ref` to the shared `TooManyRequests` response, whose body is the `E_TOO_MANY_REQUESTS` error and whose only header is `Retry-After`;
+- headers on: an inline `429` with `Retry-After` and `X-RateLimit-*`, `X-RateLimit-*` on the success answers, and `x-rate-limit`;
+- a closed route (`limit: 0`): an inline `429` without `Retry-After`, with only `X-RateLimit-Limit` and `X-RateLimit-Remaining` when the headers are on, and no headers on the success answers ([closed routes](../http/18-throttling.md#in-api-documents));
+- a custom `answer` marked with `documentedAnswer`: its own status and description; an unmarked one adds nothing;
+- `@RateLimit({ config: false })`, or a configured `false`: nothing, since the middleware is not mounted.
+
+The `429` of a limit with the headers on:
+
+```json
+{
+  "429": {
+    "description": "Too many requests",
+    "headers": {
+      "Retry-After": { "description": "Seconds until the limit lets a request through again", "schema": { "type": "integer" } },
+      "X-RateLimit-Limit": { "description": "Requests allowed in the window", "schema": { "type": "integer" } },
+      "X-RateLimit-Remaining": { "description": "Requests left in the current window", "schema": { "type": "integer" } },
+      "X-RateLimit-Reset": { "description": "When the current window resets, in Unix seconds", "schema": { "type": "integer" } }
+    },
+    "content": { "application/json": { "schema": { "type": "object", "required": ["error"], "properties": { "error": { "type": "object" } } } } }
+  }
+}
+```
+
+The body schema above is cut short; the document carries the full `{ code, message }` object.
+
 ## Extensions
 
 | Field | Type | Present when | Meaning |
@@ -32,6 +68,7 @@ Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-
 | `x-authz-anonymous` | `true` | `@AllowAnonymous` on the route or class | Anonymous callers pass authentication |
 | `x-authz-unscoped` | `string` | `@Unscoped` on the route | The reason given |
 | `x-authz-unfiltered-input` | `string` | `@UnfilteredInput` on the route or class | The reason given |
+| `x-rate-limit` | `{ limit, windowSeconds, by? }[]` | a `@RateLimit` that sends `X-RateLimit-*` | The effective numbers of each such limit, controller first. `by` is left out when a `key` counts instead |
 
 ```json
 {
@@ -50,6 +87,8 @@ Routes guarded by `@Policy()` (`@spinajs/http`) or `@Access()` (`@spinajs/authz-
 - A policy on both the controller and the route appears twice in `x-policies`.
 - Policy names are class names. Two policy classes with one name share one anchor and one description.
 - Access lines and policy blocks are appended after the JSDoc description, access first.
+- Middleware answers come from the running app: only a controller whose routes are mounted has them. A document built from the manifest (`system.manifest.mode`) has none, see [the OpenAPI builder](07-openapi-builder.md#important-behaviour).
+- A `@response 429` in the JSDoc replaces the `429` of `@RateLimit` on that route, headers and all.
 
 ## Best practices
 

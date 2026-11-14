@@ -18,6 +18,7 @@ describe('extractControllers', () => {
   it('GET :id with path and query params, Access, doc', () => {
     const r = route('get');
     expect(r).to.deep.include({ method: 'get', path: ':id', fullPath: '/users/:id', access: ['user:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]] });
+    expect(r.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
     expect(r.params).to.deep.equal([
       { index: 0, name: 'id', kind: 'FromParams', runtimeType: { text: 'number', schema: 'spinajs/pkg-basic/UsersController_get_id', ref: { package: 'global', file: '', export: 'Number' } }, required: true, wire: { in: 'path', name: 'id', shape: 'value' } },
       { index: 1, name: 'verbose', kind: 'FromQuery', runtimeType: { text: 'boolean', schema: 'spinajs/pkg-basic/UsersController_get_verbose', ref: { package: 'global', file: '', export: 'Boolean' } }, required: false, wire: { in: 'query', name: 'verbose', shape: 'value' } },
@@ -88,6 +89,22 @@ describe('extractControllers', () => {
       const [fake] = extract('public-lookalike.ts');
       expect(fake).to.not.have.property('public');
       expect(fake.routes[0]).to.not.have.property('public');
+    });
+  });
+  describe('@Deprecated', () => {
+    const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+    const unitCtx = createContext(unit, 'unit', 'test/fixtures/unit');
+    const [legacy, partly, lookalike] = extractControllers(unitCtx, unit.sourceFiles.find((f) => f.fileName.endsWith('deprecated-marker.ts'))!);
+
+    it('marks every route of a class decorator deprecated, found through an import alias', () => {
+      expect(legacy.routes[0].doc).to.deep.equal({ deprecated: true });
+    });
+    it('marks a decorated route only, next to its own doc', () => {
+      expect(partly.routes.find((r) => r.handler === 'old')!.doc).to.deep.equal({ deprecated: true });
+      expect(partly.routes.find((r) => r.handler === 'current')!.doc).to.deep.equal({ description: 'Still served.' });
+    });
+    it('ignores a Deprecated that does not resolve to @spinajs/http', () => {
+      expect(lookalike.routes[0]).to.not.have.property('doc');
     });
   });
 });

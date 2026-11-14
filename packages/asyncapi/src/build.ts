@@ -34,9 +34,12 @@ function componentName(id: string): string {
     .replace(/[^A-Za-z0-9_]/g, '_');
 }
 
+// A `$ref` is a URI fragment, which readers percent-decode before resolving the pointer.
+const pointerToken = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1').replace(/%/g, '%25');
+
 // A channel key contains '/', which must be escaped as '~1' in a JSON pointer.
 function channelRef(address: string): string {
-  return `#/channels/${address.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+  return `#/channels/${pointerToken(address)}`;
 }
 
 function sorted<T>(record: Record<string, T>): Record<string, T> {
@@ -58,9 +61,24 @@ class Builder {
 
   constructor(private readonly manifest: Manifest) {}
 
-  public message(name: string, type: TypeRef): { $ref: string } {
-    this.messages[name] = { name, payload: type.schema ? { $ref: this.schemaRef(type.schema) } : {} };
-    return { $ref: `#/components/messages/${name}` };
+  /** `fields`: the permission whose field set redacts the payload; its properties become optional and marked (G16). */
+  public message(name: string, type: TypeRef, fields?: string): { $ref: string } {
+    const payload = type.schema ? { $ref: this.schemaRef(type.schema) } : {};
+    this.messages[name] = { name, payload: fields === undefined ? payload : this.redactable(payload, fields, 0) };
+    return { $ref: `#/components/messages/${pointerToken(name)}` };
+  }
+
+  // A component is copied inline, so commands without filtering keep it as is.
+  private redactable(schema: unknown, permission: string, depth: number): unknown {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema) || depth > 8) return schema;
+    const node = schema as Dict;
+    if (typeof node.$ref === 'string') return this.redactable(this.schemas[node.$ref.replace('#/components/schemas/', '')], permission, depth + 1);
+    const { required: _required, ...out } = node;
+    if (node.items && typeof node.items === 'object') out.items = this.redactable(node.items, permission, depth + 1);
+    if (node.properties && typeof node.properties === 'object') {
+      out.properties = Object.fromEntries(Object.entries(node.properties as Dict).map(([key, p]) => [key, p && typeof p === 'object' ? { ...(p as Dict), 'x-spina-fields': permission } : p]));
+    }
+    return out;
   }
 
   public hasSchema(id: string): boolean {
@@ -100,7 +118,7 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
   const replies = ['reply'];
   const messages: Dict = {
     request: b.message(`${key}.request`, command.payload),
-    reply: b.message(`${key}.reply`, command.result),
+    reply: b.message(`${key}.reply`, command.result, command.fields && command.access?.length ? command.access[0] : undefined),
   };
   if (errorType) {
     messages.error = b.message(`${key}.error`, errorType);
@@ -115,6 +133,47 @@ function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, err
     messages: replies.map((name) => ({ $ref: `${chan}/messages/${name}` })),
     ...(command.stream ? { 'x-spinajs-stream': true, 'x-spinajs-stream-frames': STREAM_FRAMES } : {}),
   };
+}
+
+interface SignalChannel { workflow: string; signal: string; permission?: string; version: number }
+
+/**
+ * Workflow and signal names may contain '/', '.', '{' or '}', which separate the address, the message name and the operation
+ * key or make a channel parameter. Escaping them (`/` is `$2f;`) keeps every pair apart: `a/b` + `c` and `a` + `b/c` get two
+ * channels. Not percent-encoding: `@asyncapi/parser` decodes `%` in keys and then misses them.
+ */
+const segment = (name: string): string => name.replace(/[^A-Za-z0-9_:-]/gu, (c) => `$${c.codePointAt(0)!.toString(16)};`);
+
+/** Versions share a channel: the newest documents the permission, and within one version the entry that declares one. */
+function signalChannels(manifest: Manifest): SignalChannel[] {
+  const channels = new Map<string, SignalChannel>();
+  for (const w of manifest.workflows ?? []) {
+    for (const s of w.signals) {
+      // '*' records a computed name; a literal with '#' or '*' is one signal() refuses.
+      if (/[#*]/.test(s.name)) continue;
+      const key = `${w.name}\u0000${s.name}`;
+      const known = channels.get(key);
+      if (!known || w.version > known.version || (w.version === known.version && !known.permission && s.permission)) {
+        channels.set(key, { workflow: w.name, signal: s.name, permission: s.permission, version: w.version });
+      }
+    }
+  }
+  return [...channels.values()];
+}
+
+function addWorkflowSignals(b: Builder, manifest: Manifest, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
+  for (const s of signalChannels(manifest)) {
+    const id = `${segment(s.workflow)}.${segment(s.signal)}`;
+    const address = `workflow/${segment(s.workflow)}/${segment(s.signal)}`;
+    const chan = channelRef(address);
+    channels[address] = {
+      address,
+      messages: { signal: b.message(`workflow.${id}`, { text: 'unknown' }) },
+      'x-spinajs-workflow': s.workflow,
+      ...(s.permission ? { 'x-spinajs-permission': s.permission } : {}),
+    };
+    operations[`workflow.${id}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/signal` }] };
+  }
 }
 
 export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOptions): AsyncApiDocument {
@@ -148,6 +207,8 @@ export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOpti
     };
     operations[`queue.${msg.className}.send`] = { action: 'send', channel: { $ref: chan }, messages: [{ $ref: `${chan}/messages/message` }] };
   }
+
+  addWorkflowSignals(b, manifest, channels, operations);
 
   const serverUrl = options.serverUrl;
   return {

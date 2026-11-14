@@ -54,6 +54,18 @@ describe('checkSocketContract', () => {
     expect(issues.map((i) => i.code)).to.deep.equal(['SOCK003']);
   });
 
+  it('accepts a handler derived with x-spinajs-type against a contract built before the key existed', () => {
+    const at = (extra: object) => ({ anyOf: [{ type: 'string', format: 'date-time', ...extra }, { type: 'number' }] });
+    const typed = { 'x-spinajs-type': 'Date' };
+    const versions = {
+      P: obj({ id: { type: 'string' }, at: at({}) }),
+      R: obj({ id: { type: 'string' }, title: { type: 'string' }, at: at({}) }),
+      P2: obj({ id: { type: 'string' }, at: at(typed) }),
+      R2: obj({ id: { type: 'string' }, title: { type: 'string' }, at: at(typed) }),
+    };
+    expect(checkSocketContract(manifestOf(versions), controller({ payload: ref('P2'), result: ref('R2') }, [{ name: 'ping', payload: ref('P2') }]), contract)).to.deep.equal([]);
+  });
+
   it('skips a side without a schema or with a partial explicit schema', () => {
     const partial = { ...schemas, Q: { ...obj({ other: { type: 'number' } }), 'x-explicit': 'partial' } };
     expect(checkSocketContract(manifestOf(partial), controller({ payload: ref('Q'), result: { text: 'void' } }), contract)).to.deep.equal([]);

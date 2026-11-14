@@ -7,9 +7,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
+import { isPermanentJobFailure } from './hooks.js';
 
 export * from './BlackHoleQueueClient.js';
+export { SystemTask, systemTaskOf } from '@spinajs/util';
 export * from './interfaces.js';
+export * from './headers.js';
 export * from './decorators.js';
 export * from './hooks.js';
 export * from './tracking-hook.js';
@@ -80,17 +83,14 @@ export class DefaultQueueService extends QueueService {
     await runBeforeEmit(event);
 
     const connections = this.getConnectionsForMessage(event);
-    let jobId: string | undefined;
+    event.MessageId = event.MessageId ?? uuidv4();
+    // generate only; the consumer writes the row
+    const jobId = isJob(event) ? (event.JobId = event.JobId ?? event.MessageId) : undefined;
 
     for (let c of connections) {
       const connection = this.Connections.get(c);
       if (!connection) {
         throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before emitting events to this connection.`);
-      }
-
-      if (isJob(event)) {
-        event.JobId = event.JobId ?? uuidv4(); // generate only; consumer writes the row
-        jobId = event.JobId;
       }
 
       await connection.emit(event);
@@ -254,7 +254,7 @@ export class DefaultQueueService extends QueueService {
                 // authoritative across redeliveries ( a redelivered wire message could carry a different
                 // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
                 const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
-                jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
+                jModel.Status = isPermanentJobFailure(err) || jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 if (jModel.Status === 'dead') {
                   jModel.FinishedAt = DateTime.now();
                 }

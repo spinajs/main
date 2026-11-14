@@ -95,7 +95,7 @@ Both decorators write the `queue:options` metadata only when the class has none 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Message class | The class itself, built with `DI.resolve(MessageClass)` on every delivery; `@Job()` and `@Event()` make it `@NewInstance()` | none | Shipped jobs and events: `EmailSend`, `EmailSent`, `EmailSendFailed` (`@spinajs/email`), `LazyUploadJob` (`@spinajs/http-lazy-file-uploader`), `RenderPdfJob` (`@spinajs/queue-templates-pdf`), `UserEvent` (`@spinajs/users`), `TaskSuccess`, `TaskFailed` (`@spinajs/tasks`) | Extend `QueueJob` or `QueueEvent`. Override `execute()`, `onFailed()` and `hydrate()`; inject services with `@Autoinject` |
+| Message class | The class itself, built with `DI.resolve(MessageClass)` on every delivery; `@Job()` and `@Event()` make it `@NewInstance()` | none | Shipped jobs and events: `EmailSend`, `EmailSent`, `EmailSendFailed` (`@spinajs/email`), `LazyUploadJob` (`@spinajs/http-lazy-file-uploader`), `RenderPdfJob` (`@spinajs/queue-templates-pdf`), `UserEvent` (`@spinajs/users`), `ScheduleRunSucceeded`, `ScheduleRunFailed` and the other `Schedule*` events (`@spinajs/scheduler`) | Extend `QueueJob` or `QueueEvent`. Override `execute()`, `onFailed()` and `hydrate()`; inject services with `@Autoinject` |
 
 ### Message class: custom implementation
 

@@ -75,7 +75,7 @@ export class DefaultTeamService extends TeamService {
       else if (parentId !== undefined) q = q.where('parent_id', parentId);
       return q;
     };
-    return pageOf(actor, readPage(opts.page), query, (t: Team) => toTeamView(t));
+    return pageOf(actor, readPage(opts.page), query, 'name', (t: Team) => toTeamView(t));
   }
 
   async updateTeam(actor: Principal, id: string, input: UpdateTeamInput): Promise<TeamView> {

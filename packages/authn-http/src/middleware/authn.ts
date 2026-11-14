@@ -9,7 +9,7 @@ import { CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import { SINGLETON_CREDENTIAL_HEADERS, ServerMiddleware, repeatedHeader, withProblemFields } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import type { IMiddlewareContext, Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
 import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
@@ -53,7 +53,7 @@ function bodyOf(req: Request): Uint8Array | undefined {
  * that is not undefined, else null, to req.storage.AuthnPrincipal (D26).
  *
  * The cookie is a browser-session cookie the issuer slides server side (N8a-D7), so it is never re-sent here. Store
- * errors go to next(err): no principal, never a silent anonymous. Registered on the root container when the package loads
+ * errors fail the request through the global error answer: no principal, never a silent anonymous. Registered on the root container when the package loads
  * (registerAuthnHttpV3). With authn.http.hooks.request, every request then runs the `authn.request` action hooks; a
  * refusal answers 403 `{ code }`.
  */
@@ -120,19 +120,8 @@ export class AuthnMiddleware extends ServerMiddleware {
     await super.resolve();
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    return async (req: Request, res: express.Response, next: express.NextFunction) => {
-      try {
-        await this.authenticate(req, res);
-      } catch (err) {
-        return next(err);
-      }
-      next();
-    };
-  }
-
-  public after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
-    return null;
+  public async onBefore({ req, res }: IMiddlewareContext): Promise<void> {
+    await this.authenticate(req as Request, res);
   }
 
   protected async authenticate(req: Request, res: express.Response): Promise<void> {

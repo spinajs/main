@@ -4,7 +4,8 @@ import _ from 'lodash';
 import { DI, Constructor } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
-import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
+import { HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
+import { deliverReply, repliedInPlace } from './reply-pipeline.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
 import { BadRequest, CodedHttpException } from '@spinajs/exceptions';
@@ -13,7 +14,6 @@ import { Log } from '@spinajs/log';
 import { Configuration, isProduction } from '@spinajs/configuration';
 import { redactUrl, urlPath } from './util/redact-url.js';
 import { PROBLEM_CONTENT_TYPE, toProblem } from './problem.js';
-import { guardResponseContract } from './contract.js';
 import type { ProblemDetails, ProblemOptions } from './problem.js';
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
@@ -82,83 +82,132 @@ export function answeredAsServerError(err: unknown): boolean {
     return response === null || response === ServerError || response.prototype instanceof ServerError;
 }
 
-export function __handle_error__(container: IContainer = DI.RootContainer) {
+/** The error map's reply for an error, and the problem document a failed send falls back to. */
+export interface IMappedErrorReply {
+    readonly response: HttpResponse;
+    readonly problem: ProblemDetails;
+}
 
+/** Builds the error map's reply for an error, logging the error unless `quiet`; the route's error handlers do not run here. */
+export function errorReplyFactory(): (err: any, req: Express.Request, quiet?: boolean) => IMappedErrorReply {
     const logger = DI.resolve(Log, ['http']);
     const config = DI.get(Configuration);
 
-    if(!config){
+    if (!config) {
         logger.warn('Configuration service is not registered in DI container, error handler will use default values. Register configuration service to use custom configuration');
     }
 
     const isProductionEnv = isProduction(config ?? undefined);
     const errorMap = DI.get(HTTP_ERROR_MAP) ?? null;
-    const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
-    const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
     const baseProblemOptions: ProblemOptions = {
         includeStack: config ? config.get<boolean>('http.errors.includeStack', false) === true : false,
         includeFields: config ? (config.get<string[]>('http.errors.includeFields', []) ?? []) : [],
         isProduction: isProductionEnv,
     };
 
+    const silent = { warn: () => undefined, error: () => undefined };
+
+    return (err: any, req: Express.Request, quiet = false) => {
+        const log = quiet ? silent : logger;
+        const bodyFailure = bodyFailureMessage(err, errorMap);
+        const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: urlPath(req.originalUrl) };
+
+        if (bodyFailure) {
+            log.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
+
+            const badRequest = new BadRequest(bodyFailure);
+            const ResponseClass: Constructor<HttpResponse> = (errorMap ? __resolve_error_response__(errorMap, badRequest) : null) ?? BadRequestResponse;
+            const problem = toProblem(badRequest, HTTP_STATUS_CODE.BAD_REQUEST, problemOptions);
+            const response = new ResponseClass(problem);
+            problem.status = response.statusCode;
+            return { response, problem };
+        }
+
+        log.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
+
+        const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
+        const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
+        if (!httpResponse) {
+            log.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
+        }
+
+        const redact = isProductionEnv && (ResponseClass === ServerError || ResponseClass.prototype instanceof ServerError);
+        const fields = err instanceof CodedHttpException ? [...problemOptions.includeFields, 'details'] : problemOptions.includeFields;
+        const problem = toProblem(err, HTTP_STATUS_CODE.INTERNAL_ERROR, { ...problemOptions, includeFields: fields, redact });
+        const response = new ResponseClass(problem);
+        problem.status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : response.statusCode;
+        return { response, problem };
+    };
+}
+
+/** Makes the reply for an error in place of the error map; see `ErrorHandlerMiddleware.reply`. */
+export type ErrorReplyFunction = (err: unknown, req: Express.Request) => HttpResponse | Promise<HttpResponse>;
+
+export function __handle_error__(container: IContainer = DI.RootContainer, reply?: ErrorReplyFunction) {
+
+    const logger = DI.resolve(Log, ['http']);
+    const config = DI.get(Configuration);
+    const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
+    const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
+    const replyFor = errorReplyFactory();
 
     return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         if (!err) {
             return next();
         }
 
-        let error: ProblemDetails;
-        let response: HttpResponse | null = null;
-
-        const bodyFailure = bodyFailureMessage(err, errorMap);
-        const problemOptions: ProblemOptions = { ...baseProblemOptions, instance: urlPath(req.originalUrl) };
-
-        if (bodyFailure) {
-            logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
-
-            const badRequest = new BadRequest(bodyFailure);
-            const ResponseClass: Constructor<HttpResponse> = (errorMap ? __resolve_error_response__(errorMap, badRequest) : null) ?? BadRequestResponse;
-            error = toProblem(badRequest, HTTP_STATUS_CODE.BAD_REQUEST, problemOptions);
-            response = new ResponseClass(error);
-            error.status = response.statusCode;
-        } else {
-            logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
-
-            const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
-            const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
-            if (!httpResponse) {
-                logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
-            }
-
-            const redact = isProductionEnv && (ResponseClass === ServerError || ResponseClass.prototype instanceof ServerError);
-            const fields = err instanceof CodedHttpException ? [...problemOptions.includeFields, 'details'] : problemOptions.includeFields;
-            error = toProblem(err, HTTP_STATUS_CODE.INTERNAL_ERROR, { ...problemOptions, includeFields: fields, redact });
-            response = new ResponseClass(error);
-            error.status = err instanceof CodedHttpException && isErrorStatus(err.status) ? err.status : response.statusCode;
+        // an action failing after the deadline answered for it, most often on the aborted signal: expected, not a fault
+        if (repliedInPlace(res)) {
+            logger.debug({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url} after the request was answered in its place');
+            return;
         }
 
-        guardResponseContract(res, container);
+        // the reply already started: a second one cannot be sent. As express does, a reply cut short is not ended
+        // as if it were whole: the connection is dropped.
+        if (res.headersSent) {
+            logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url} after its reply started');
+            if (!res.writableEnded) {
+                res.destroy();
+            }
+            return;
+        }
 
-        response
-            .execute(req, res)
-            .then((callback?: ResponseFunction | void) => {
-                if (callback) {
-                    callback(req, res);
-                }
-            })
-            .catch((err: Error) => {
-                // last resort error handling
-
-                logger.fatal(err, `Cannot send error response`);
-                res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-
-                if (acceptHeaders && fatalTemplate && req.accepts('html') && (acceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-                    // final fallback rendering error fails, we render embedded html error page
-                    const ticketNo = randomstring.generate(7);
-                    res.send(fatalTemplate.replace('{ticket}', ticketNo));
-                } else {
-                    res.type(PROBLEM_CONTENT_TYPE).json(error);
-                }
+        let mapped: IMappedErrorReply | undefined;
+        const send = (response: HttpResponse) =>
+            deliverReply(req, res, response, {
+                container,
+                routeContract: false,
+                error: err,
+                errorReply: async (failure) => ({ response: reply ? await reply(failure, req) : replyFor(failure, req).response, error: failure }),
             });
+
+        let sending: Promise<void>;
+        if (reply) {
+            sending = Promise.resolve().then(() => reply(err, req)).then(send);
+        } else {
+            mapped = replyFor(err, req);
+            sending = send(mapped.response);
+        }
+
+        sending.catch((sendError: Error) => {
+            // last resort error handling
+            logger.fatal(sendError, `Cannot send error response`);
+            if (res.headersSent) {
+                if (!res.writableEnded) {
+                    res.destroy();
+                }
+                return;
+            }
+            res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+
+            if (acceptHeaders && fatalTemplate && req.accepts('html') && (acceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
+                // final fallback rendering error fails, we render embedded html error page
+                const ticketNo = randomstring.generate(7);
+                res.send(fatalTemplate.replace('{ticket}', ticketNo));
+            } else {
+                // a reply function logs the error itself (ErrorHandlerMiddleware.reply does)
+                res.type(PROBLEM_CONTENT_TYPE).json((mapped ?? replyFor(err, req, true)).problem);
+            }
+        });
     }
 };

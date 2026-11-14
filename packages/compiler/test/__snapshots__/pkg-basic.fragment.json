@@ -697,7 +697,12 @@
               }
             ]
           ],
-          "middlewares": [],
+          "middlewares": [
+            {
+              "type": "AuthzFieldsMiddleware",
+              "options": []
+            }
+          ],
           "access": [
             "user:read"
           ],
@@ -902,6 +907,14 @@
       "id": "pkg-basic:DocsSocket",
       "className": "DocsSocket",
       "prefix": "docs",
+      "policies": [
+        [
+          {
+            "type": "AdminPolicy",
+            "options": []
+          }
+        ]
+      ],
       "commands": [
         {
           "name": "open",
@@ -927,6 +940,7 @@
           "access": [
             "doc:read"
           ],
+          "fields": "filter-rows",
           "policies": [
             [
               {
@@ -1165,7 +1179,12 @@
             "schema": "spinajs/pkg-basic/Tag_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         },
         {
           "name": "Name",
@@ -1174,11 +1193,14 @@
             "schema": "spinajs/pkg-basic/Tag_Name"
           },
           "primary": false,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         }
       ],
       "relations": [],
-      "accessResource": false,
       "source": {
         "file": "src/model.ts",
         "line": 4,
@@ -1198,11 +1220,15 @@
             "schema": "spinajs/pkg-basic/PostTag_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         }
       ],
       "relations": [],
-      "accessResource": false,
       "source": {
         "file": "src/model.ts",
         "line": 5,
@@ -1223,7 +1249,12 @@
             "schema": "spinajs/pkg-basic/Post_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         },
         {
           "name": "Title",
@@ -1232,7 +1263,11 @@
             "schema": "spinajs/pkg-basic/Post_Title"
           },
           "primary": false,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         },
         {
           "name": "Body",
@@ -1241,7 +1276,11 @@
             "schema": "spinajs/pkg-basic/Post_Body"
           },
           "primary": false,
-          "nullable": true
+          "nullable": true,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         },
         {
           "name": "PublishedAt",
@@ -1250,32 +1289,44 @@
             "schema": "spinajs/pkg-basic/Post_PublishedAt"
           },
           "primary": false,
-          "nullable": true
+          "nullable": true,
+          "sql": {
+            "family": "datetime",
+            "inferred": true
+          }
         }
       ],
       "relations": [
         {
           "name": "Owner",
           "kind": "belongsTo",
-          "target": "User"
+          "target": "User",
+          "foreignKey": "owner_id"
         },
         {
           "name": "MainTag",
           "kind": "forwardBelongsTo",
-          "target": "Tag"
+          "target": "Tag",
+          "foreignKey": "maintag_id"
         },
         {
           "name": "Tags",
           "kind": "hasMany",
-          "target": "Tag"
+          "target": "Tag",
+          "foreignKey": "post_id"
         },
         {
           "name": "AllTags",
           "kind": "hasManyToMany",
-          "target": "Tag"
+          "target": "Tag",
+          "junction": {
+            "model": "PostTag",
+            "sourceKey": "post_id",
+            "targetKey": "tag_id"
+          }
         }
       ],
-      "accessResource": true,
+      "accessResource": "post",
       "source": {
         "file": "src/model.ts",
         "line": 7,
@@ -1394,6 +1445,306 @@
       }
     }
   ],
+  "authz": {
+    "resources": [
+      {
+        "type": "post",
+        "model": "pkg-basic:Post",
+        "relations": [],
+        "source": {
+          "file": "src/model.ts",
+          "line": 7,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      }
+    ],
+    "permissions": [
+      {
+        "name": "post:read",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:create",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:update",
+        "declaredIn": "model"
+      },
+      {
+        "name": "post:delete",
+        "declaredIn": "model"
+      }
+    ],
+    "entryPoints": [
+      {
+        "kind": "route",
+        "id": "GET /users/:id",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:read"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 20,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "POST /users/create",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "user:create",
+                "user:update"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 26,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "DELETE /users/:id",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            },
+            {
+              "type": "AdminPolicy",
+              "options": []
+            },
+            {
+              "type": "policies.admin",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 32,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/list",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 37,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/events",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 42,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "route",
+        "id": "GET /users/ping",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": [
+                "strict"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/controller.ts",
+          "line": 47,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "docs.open",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            },
+            {
+              "type": "AccessPolicy",
+              "options": [
+                "doc:read"
+              ]
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 12,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-command",
+        "id": "docs.close",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 16,
+          "col": 3,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-event",
+        "id": "docs.created",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 9,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "socket-event",
+        "id": "docs.ping",
+        "access": [
+          [
+            {
+              "type": "AdminPolicy",
+              "options": []
+            }
+          ]
+        ],
+        "source": {
+          "file": "src/socket.ts",
+          "line": 9,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "queue-handler",
+        "id": "job:Cleanup",
+        "access": [],
+        "source": {
+          "file": "src/schedule.ts",
+          "line": 4,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "schedule",
+        "id": "cleanup",
+        "access": [],
+        "source": {
+          "file": "src/schedule.ts",
+          "line": 7,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "cli",
+        "id": "basic:hello",
+        "access": [],
+        "source": {
+          "file": "src/command.ts",
+          "line": 3,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      },
+      {
+        "kind": "cli",
+        "id": "basic:bye",
+        "access": [],
+        "source": {
+          "file": "src/command.ts",
+          "line": 8,
+          "col": 1,
+          "package": "pkg-basic"
+        }
+      }
+    ],
+    "findings": [],
+    "ignores": []
+  },
   "schemas": {
     "spinajs/basic.configuration.schema.json": {
       "$id": "spinajs/basic.configuration.schema.json",
@@ -1493,7 +1844,8 @@
     "spinajs/pkg-basic/Post_PublishedAt": {
       "$id": "spinajs/pkg-basic/Post_PublishedAt",
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "x-spinajs-type": "Date"
     },
     "spinajs/pkg-basic/Post_Title": {
       "$id": "spinajs/pkg-basic/Post_Title",
