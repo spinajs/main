@@ -53,6 +53,24 @@ describe('inheritController', () => {
     expect(merged.routes[0].inheritedFrom).to.equal('app:Base');
   });
 
+  describe('pagination', () => {
+    const paged = { kind: 'offset' as const, item: { text: 'ArticleDto' }, param: { arg: 'page', path: [] }, firstPage: 1 };
+    const ancestor = controller('Base', { routes: [route('list', '', { returnType: { text: 'Page<ArticleDto>' }, pagination: paged })] });
+
+    it('takes it from the redeclared route, as the return type', () => {
+      const own = route('list', 'all', { returnType: { text: 'ArticleDto[]' } });
+      const override: RouteOverride = { handler: 'list', route: own, params: [], policies: [], middlewares: [], source: src('src/Sub.ts', 3) };
+      const merged = inheritController(ancestor, controller('Sub', { routes: [own] }), [override]);
+      expect(merged.routes[0].returnType.text).to.equal('ArticleDto[]');
+      expect(merged.routes[0]).to.not.have.property('pagination');
+    });
+
+    it('keeps the inherited one under a verb-less override', () => {
+      const override: RouteOverride = { handler: 'list', params: [], policies: [[{ type: 'Owner', options: [] }]], middlewares: [], source: src('src/Sub.ts', 3) };
+      expect(inheritController(ancestor, controller('Sub'), [override]).routes[0].pagination).to.deep.equal(paged);
+    });
+  });
+
   it('adds route policies of a verb-less override to the inherited route', () => {
     const ancestor = controller('Base', { routes: [route('get', ':id')] });
     const override: RouteOverride = { handler: 'get', params: [], policies: [[{ type: 'Owner', options: [] }]], middlewares: [], source: src('src/Sub.ts', 4) };
@@ -68,6 +86,14 @@ describe('inheritController', () => {
     expect(merged.policies).to.deep.equal([[{ type: 'Tenant', options: [] }], access('class')]);
     expect(merged.access).to.deep.equal(['sub:use']);
     expect(merged.middlewares).to.deep.equal([{ type: 'AuthzFieldsMiddleware', options: [] }]);
+  });
+
+  it('lets an own @Idempotent replace the inherited one in place, as the decorator does', () => {
+    const idempotent = (ttl: number) => ({ type: 'IdempotencyMiddleware', options: [{ ttl }] });
+    const ancestor = controller('Base', { routes: [route('save', '', { middlewares: [idempotent(60), { type: 'Audit', options: [] }] })] });
+    const override: RouteOverride = { handler: 'save', params: [], policies: [], middlewares: [{ type: 'Trace', options: [] }, idempotent(5)], source: src('src/Sub.ts', 4) };
+    const merged = inheritController(ancestor, controller('Sub'), [override]);
+    expect(merged.routes[0].middlewares).to.deep.equal([idempotent(5), { type: 'Audit', options: [] }, { type: 'Trace', options: [] }]);
   });
 
   it('carries every field of an overridden route it does not merge', () => {

@@ -5,6 +5,7 @@ import { Authorizer } from '../../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../../src/engine/authorizer.js';
 import { FieldCombiner } from '../../../src/engine/fields.js';
 import { runAsync } from '../../../src/engine/run.js';
+import { RefBinder } from '../../../src/engine/support/ref-binder.js';
 import { AuthzConfigError, FALSE, SYSTEM, ScopeAttributeStore, TRUE, and, compileFieldGlobs, filterObject } from '../../../src/index.js';
 import type { CheckInput, Decision, DecisionRequest, FieldSet, Principal, ResourceFilter, ResourceRef, Vote } from '../../../src/index.js';
 import { RecordingLog, StaticModel, deny, permit, principal, registryOf } from '../fakes.js';
@@ -288,24 +289,23 @@ describe('B17: fields through the Authorizer', () => {
     it('B17: a fields cover that throws is logged and makes the decision non-cacheable', async () => {
       const log = new RecordingLog();
       const a = withStore(() => Promise.resolve({}), log);
-      // The third cover of the check is the fields cover (the votes' scope refs, then the allow).
-      const make = (a as any)['refBinder'].bind(a);
-      (a as any)['refBinder'] = (...args: unknown[]) => {
-        const binder = make(...args);
-        const cover = binder.cover.bind(binder);
-        let calls = 0;
-        binder.cover = function* (filters: readonly ResourceFilter[]) {
-          if (++calls === 3) throw new Error('cover down');
-          return yield* cover(filters);
-        };
-        return binder;
+      // The third cover of the check is the fields cover (the votes' scope refs, then the allow); the check has one binder.
+      const cover = Reflect.get(RefBinder.prototype, 'cover');
+      let calls = 0;
+      RefBinder.prototype.cover = function* (this: RefBinder, filters: readonly ResourceFilter[]) {
+        if (++calls === 3) throw new Error('cover down');
+        return yield* cover.call(this, filters);
       };
-      const r = await pipelineOf(a, read());
-      expect(r.decision.allowed).to.equal(true);
-      // The votes' pass already loaded the node, so the fields still bind it.
-      expect(r.decision.fields.read).to.deep.equal(['Name', 'Salary']);
-      expect(r.uncacheable).to.equal(true);
-      expect(log.at('error').some((e) => /cover down/.test(e.error?.message ?? ''))).to.equal(true);
+      try {
+        const r = await pipelineOf(a, read());
+        expect(r.decision.allowed).to.equal(true);
+        // The votes' pass already loaded the node, so the fields still bind it.
+        expect(r.decision.fields.read).to.deep.equal(['Name', 'Salary']);
+        expect(r.uncacheable).to.equal(true);
+        expect(log.at('error').some((e) => /cover down/.test(e.error?.message ?? ''))).to.equal(true);
+      } finally {
+        RefBinder.prototype.cover = cover;
+      }
     });
   });
 });

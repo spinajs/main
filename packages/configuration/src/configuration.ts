@@ -548,15 +548,15 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected loadSources() {
-    this.Sources = this.Container.resolve(Array.ofType(ConfigurationSource), [
+    const sources = this.Container.resolve(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
       this.Env,
     ]);
 
-    // sort asc sources
-    this.Sources.sort((a, b) => {
+    // A copy: the resolved list is the container's shared collection, and mergeSource() pushes into Sources.
+    this.Sources = [...sources].sort((a, b) => {
       return a.Order < b.Order ? -1 : a.Order > b.Order ? 1 : 0;
     });
   }

@@ -2,7 +2,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Wrapper, outer } from '@spinajs/orm';
+import { Wrapper, concat, outer } from '@spinajs/orm';
 import { MsSqlOrmDriver } from '../src/index.js';
 
 describe('mssql whereColumn', function () {
@@ -16,5 +16,13 @@ describe('mssql whereColumn', function () {
     const driver = await DI.resolve(MsSqlOrmDriver, [{ Name: 'mssql-cc-test', Driver: 'orm-driver-mssql' } as any]);
     const sub = driver.select().from('c', 'c').whereColumn('ParentRef', '=', outer(Wrapper.Text('Id')));
     expect((driver.select().from('p', 'p').whereExist(sub).toDB()).expression).to.contain('[c].[ParentRef] = CAST([p].[Id] AS NVARCHAR(4000))');
+  });
+
+  it('compares a column with a CONCAT of literals and an outer column', async () => {
+    const driver = await DI.resolve(MsSqlOrmDriver, [{ Name: 'mssql-cc-test', Driver: 'orm-driver-mssql' } as any]);
+    const sub = driver.select().from('w', 'w').whereColumn('Key', '>=', concat('wait:', outer('Name'), '#')).whereColumn('Key', '<', concat('wait:', outer('Name'), '$'));
+    const out = driver.select().from('e', 'e').whereExist(sub).toDB();
+    expect(out.expression).to.contain('[w].[Key] >= CONCAT(?, [e].[Name], ?) AND [w].[Key] < CONCAT(?, [e].[Name], ?)');
+    expect(out.bindings).to.deep.eq(['wait:', '#', 'wait:', '$']);
   });
 });

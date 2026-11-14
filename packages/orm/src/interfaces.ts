@@ -1,23 +1,27 @@
-import { JoinMethod, Op } from './enums.js';
+import type { JoinMethod, Op, SqlOperator } from './enums.js';
 /* eslint-disable prettier/prettier */
-import { QueryBuilder, RawQuery } from './builders.js';
-import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
-import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
-import { IOrmRelation } from './relations.js';
+import type { QueryBuilder } from './builders/base.js';
+import type { RawQuery } from './builders/raw.js';
+import type { SortOrder, WhereBoolean } from './enums.js';
+import type { ConcatExpression, IQueryStatement, OuterColumn, Wrap } from './statements.js';
+import type { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
+import type { IOrmRelation } from './relations.js';
 import type { OrmDriver } from './driver.js';
-import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
-import { ModelBase } from './model.js';
+import { NewInstance, Singleton } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
+import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import { DateTime } from 'luxon';
-import { Relation } from './relation-objects.js';
-import { Lazy } from '@spinajs/util';
+import type { DateTime } from 'luxon';
+import type { Relation } from './relation-objects.js';
+import type { Lazy } from '@spinajs/util';
+import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
-import { IConnectionResilienceOptions } from './resilience.js';
+import type { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
 import type { IModelChange, IModelSnapshot } from './snapshot.js';
+import type { ColumnSqlSpec, ModelIndex } from '@spinajs/manifest';
 
 export enum QueryContext {
   Insert,
@@ -75,6 +79,9 @@ export interface ISupportedFeature {
 
   /** Has a JSON column type of its own, rather than storing `json()` columns as text. Unset reads as false. */
   nativeJson?: boolean;
+
+  /** `executeStream` reads from a server-side cursor. Unset reads as false: `stream()` then pages by keyset. */
+  streaming?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -299,6 +306,9 @@ export interface IPoolOptions {
   AcquireTimeout?: number;
 }
 
+/** `db.Models.Source`: `'manifest'` takes model columns from `app.manifest.json` in `system.manifest.mode = 'require'` (D9). */
+export type ModelColumnSource = 'database' | 'manifest';
+
 /**
  * Configuration options to set in configuration file and used in OrmDriver
  */
@@ -332,6 +342,21 @@ export interface IDriverOptions {
    * connection never shares a transaction.
    */
   SharedServer?: string;
+
+  /**
+   * Read-only copies of this connection. Each entry is merged over these options ( `Options` as a whole ) and opened
+   * as its own driver. Model selects go to a healthy replica, in turn, unless they must see the primary.
+   */
+  Replicas?: Array<Partial<IDriverOptions>>;
+
+  /** Where model selects go while replicas exist. Default `replica`. */
+  ReadPreference?: 'primary' | 'replica';
+
+  /**
+   * `context` (default): once a read-your-writes scope wrote through this connection, the scope's selects read the
+   * primary. `off`: they keep reading replicas.
+   */
+  StickyPrimary?: 'context' | 'off';
 
   /**
    * User associatet with this connection
@@ -510,6 +535,14 @@ export interface IPrimaryKeyOptions {
   generated?: PrimaryKeyGeneration;
 }
 
+/** `@Model` options. `columns: 'exhaustive'`: the model declares every column of its table, so tooling may drop the others (D19). */
+export interface ModelOptions {
+  columns?: 'partial' | 'exhaustive';
+}
+
+/** What `@Column` states about a column: the manifest's `ColumnSqlSpec` without the analyzer's `inferred`. */
+export type ColumnSpec = Partial<Omit<ColumnSqlSpec, 'inferred'>>;
+
 export interface IModelDescriptor {
   /**
    * Primary key column names, in declaration order. Empty when the model has no @Primary().
@@ -551,6 +584,9 @@ export interface IModelDescriptor {
    * Optional, is archive mode enabled
    */
   Archived: IModelArchivedDescriptor;
+
+  /** The `@Version()` column: writes through the model match only the row at the version the model carries. */
+  VersionColumn?: string;
 
   /**
    * Column  / fields list in model
@@ -608,6 +644,18 @@ export interface IModelDescriptor {
    * Holds relation names as well as column names.
    */
   Hidden: string[];
+
+  /** Columns a request may sort by, declared with `@Sortable()`. */
+  Sortable: string[];
+
+  /** `@Column` specs by property. Schema tooling reads them; queries and hydration do not. */
+  ColumnSpecs?: Map<string, ColumnSpec>;
+
+  /** `@Index` declarations, keyed by name or by the comma-joined column list. */
+  Indexes?: Map<string, ModelIndex>;
+
+  /** From `@Model(table, { columns })`; absent means `'partial'`. */
+  ColumnsMode?: 'partial' | 'exhaustive';
 }
 
 export interface IDiscriminationMap {
@@ -1024,7 +1072,7 @@ export interface IColumnDescriptor {
    */
   Uuid: boolean | undefined;
 
-  // should be skipped when serializing to json
+  /** Set by `@Ignore()`: the property is never written, and relation queries do not select it. */
   Ignore: boolean;
 
   /**
@@ -1165,6 +1213,10 @@ export interface ISort {
   tableAlias?: string;
 }
 
+/** `ISort` whose column the strict typing checks against the model. */
+export type ColumnSort<M> = Omit<ISort, 'column'> & { column: ColumnRef<M> };
+type SortInput<M, C> = Partial<Omit<ISort, 'column'>> & { column?: LiteralColumn<M, C> };
+
 export interface IQueryBuilder {
   Table: string;
   TableAlias: string;
@@ -1257,48 +1309,59 @@ export interface IWhereBuilder<T> {
 
   where(val: boolean): this;
   where(func: WhereFunction<T>): this;
-  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  where(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   where(func: Lazy<void>): this;
-  where(column: string, operator: Op, value: any): this;
-  where(column: string, value: any): this;
+  where<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  where<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, value: WhereValue<Unbox<T>, C>): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>> | Wrap, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(func: WhereFunction<T>): this;
-  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  orWhere(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   orWhere(func: Lazy<void>): this;
-  orWhere(column: string, operator: Op, value: any): this;
-  orWhere(column: string, value: any): this;
+  orWhere<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  orWhere<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, value: WhereValue<Unbox<T>, C>): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  orWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(func: WhereFunction<T>): this;
-  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
+  andWhere(val: Partial<ModelDataWithRelationDataSearchable<SourceRow<Unbox<T>>>>): this;
   andWhere(func: Lazy<void>): this;
-  andWhere(column: string, operator: Op, value: any): this;
-  andWhere(column: string, value: any): this;
+  andWhere<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, operator: Op | SqlOperator, value: WhereValue<Unbox<T>, C>): this;
+  andWhere<C extends WhereColumn<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, value: WhereValue<Unbox<T>, C>): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  andWhere(column: WhereCatchAllColumn<Unbox<T>> | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<SourceRow<Unbox<T>>>>, operator?: WhereOperator<Op | SqlOperator>, value?: any): this;
 
-  whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
-  whereNotNull(column: string | Wrap): this;
-  whereNull(column: string | Wrap): this;
-  whereNot(column: string, val: unknown): this;
+  whereObject(obj: Partial<ModelData<SourceRow<Unbox<T>>>>): this;
+  whereNotNull(column: DeclaredColumn<Unbox<T>> | Wrap): this;
+  whereNotNull<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C> | Wrap): this;
+  whereNull(column: DeclaredColumn<Unbox<T>> | Wrap): this;
+  whereNull<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C> | Wrap): this;
+  whereNot(column: DeclaredColumn<Unbox<T>>, val: unknown): this;
+  whereNot<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, val: unknown): this;
   /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
   whereNot(condition: WhereFunction<T>): this;
-  whereIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
-  whereNotIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereIn(column: DeclaredColumn<Unbox<T>> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereIn<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn(column: DeclaredColumn<Unbox<T>> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C> | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
-  whereBetween(column: string, val: unknown[]): this;
-  whereNotBetween(column: string, val: unknown[]): this;
-  whereInSet(column: string, val: unknown[]): this;
-  whereNotInSet(column: string, val: unknown[]): this;
-  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
-  whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this;
-  whereStartsWith(column: string, prefix: string): this;
+  whereBetween(column: DeclaredColumn<Unbox<T>>, val: unknown[]): this;
+  whereBetween<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, val: unknown[]): this;
+  whereNotBetween(column: DeclaredColumn<Unbox<T>>, val: unknown[]): this;
+  whereNotBetween<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, val: unknown[]): this;
+  whereInSet(column: DeclaredColumn<Unbox<T>>, val: unknown[]): this;
+  whereInSet<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, val: unknown[]): this;
+  whereNotInSet(column: DeclaredColumn<Unbox<T>>, val: unknown[]): this;
+  whereNotInSet<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, val: unknown[]): this;
+  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query, or `concat(...)` of values and columns. */
+  whereColumn(left: DeclaredColumn<Unbox<T>> | Wrap, operator: Op, right: DeclaredColumn<Unbox<T>> | Wrap | OuterColumn | ConcatExpression): this;
+  whereColumn<C extends ColumnRef<Unbox<T>>, R extends ColumnRef<Unbox<T>>>(left: LiteralColumn<Unbox<T>, C> | Wrap, operator: Op, right: LiteralColumn<Unbox<T>, R> | Wrap | OuterColumn | ConcatExpression): this;
+  whereStartsWith(column: DeclaredColumn<Unbox<T>>, prefix: string): this;
+  whereStartsWith<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;
@@ -1324,6 +1387,34 @@ export interface IGroupByBuilder {
 
   clearGroupBy(): this;
   groupBy(expression: RawQuery | string): this;
+}
+
+/**
+ * Column methods of a select over its row type. `IColumnsBuilder`, `IOrderByBuilder` and `IGroupByBuilder`
+ * carry no row type, so they are re-declared here. Method parameter bivariance keeps a select builder
+ * assignable to the untyped interfaces.
+ */
+export interface ITypedColumnsBuilder<T> extends IColumnsBuilder, IOrderByBuilder, IGroupByBuilder {
+  columns<C extends ColumnName<Unbox<T>>>(names: C[]): StrictNarrowed<this, T, Reproject<Unbox<T>, PickColumns<Unbox<T>, C>>>;
+  columns<C extends ColumnRef<Unbox<T>>>(names: LiteralColumn<Unbox<T>, C>[]): this;
+
+  select(column: '*'): this;
+  select<C extends ColumnName<Unbox<T>>>(column: C): StrictNarrowed<this, T, Project<Unbox<T>, PickColumns<Unbox<T>, C>>>;
+  select<C extends ColumnName<Unbox<T>>, A extends string>(column: C, alias: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, ColumnTypeOf<Unbox<T>, C>>>>;
+  select<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, alias?: string): this;
+  select(rawQuery: RawQuery): this;
+  select(columns: Map<string, string>): this;
+
+  orderBy(column: DeclaredColumn<Unbox<T>>): this;
+  orderBy<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>): this;
+  orderByDescending(column: DeclaredColumn<Unbox<T>>): this;
+  orderByDescending<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>): this;
+  order(column: DeclaredColumn<Unbox<T>>, direction?: SortOrder): this;
+  order<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, direction?: SortOrder): this;
+  order<C extends ColumnRef<Unbox<T>>>(sort: SortInput<Unbox<T>, C> | Array<SortInput<Unbox<T>, C> | null | undefined> | null | undefined): this;
+
+  groupBy(expression: RawQuery | DeclaredColumn<Unbox<T>>): this;
+  groupBy<C extends ColumnRef<Unbox<T>>>(expression: RawQuery | LiteralColumn<Unbox<T>, C>): this;
 }
 
 /**
@@ -1395,27 +1486,48 @@ export interface IBuilder<T> extends PromiseLike<T> {
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
-  increment(column: string, by?: number): this;
+  increment(column: DeclaredColumn<Unbox<T>>, by?: number): this;
+  increment<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, by?: number): this;
 }
 
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
-export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
+export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
-  min(column: string, as?: string): this;
-  max(column: string, as?: string): this;
-  count(): this;
-  count(column: string, as?: string): this;
-  selectCount(): Promise<number>;
-  selectCount(column: string, as?: string): Promise<number>;
-  sum(column: string, as?: string): this;
-  avg(column: string, as?: string): this;
+  min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
+  min(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  min<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
+  max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
+  max(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  max<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
+  // The column stays optional: `count(maybe)` with `maybe: string | undefined` compiled before typed columns.
+  count<A extends string = 'count', C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: A): StrictAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
+  selectCount(column?: DeclaredColumn<Unbox<T>>, as?: string): Promise<number>;
+  selectCount<C extends ColumnRef<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: string): Promise<number>;
+  sum<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  sum(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  sum<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
+  avg<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  avg(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  avg<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
   selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;
+  /**
+   * Locks the rows read until the transaction ends (`SELECT ... FOR UPDATE`).
+   * PostgreSQL rejects it with DISTINCT, GROUP BY, aggregates or the nullable side of an outer join
+   * (a belongsTo populate is a LEFT JOIN). Relations loaded by separate queries are not locked.
+   */
+  forUpdate(): this;
+  /**
+   * Takes a shared lock on the rows read until the transaction ends; it also sees rows committed after the snapshot.
+   * Same PostgreSQL restrictions and relation caveat as `forUpdate()`.
+   */
+  forShare(): this;
+  get RowLock(): RowLockMode | undefined;
   clone(): this;
 
   /**
@@ -1447,14 +1559,32 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
+  populate<P extends PopulatePath<Unbox<T>>>(relation: P, callback?: (this: ISelectQueryBuilder<RelationTarget<Unbox<T>, Head<P>>[]>, relation: IOrmRelation) => void): Narrowed<this, T, WithPopulated<Unbox<T>, P>>;
   populate<_R = this>(relation: Constructor<ModelBase>): this;
-  populate<R = this>(relation?: string | string[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation?: PopulateName<Unbox<T>> | PopulateName<Unbox<T>>[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  populate<R = this>(relation: PopulateTree<Unbox<T>>, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;
   /**
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T>;
+
+  /**
+   * The rows of the query, hydrated and populated one batch at a time. Leaving the loop early releases the cursor.
+   * A driver without a cursor pages by keyset instead, which needs an `order()` and a primary key.
+   */
+  stream(options?: IStreamOptions): AsyncIterable<Unbox<T>>;
+
+  /**
+   * One keyset page: `options.orderBy` plus the primary key, `limit` rows past `after` or before `before`.
+   * The query must not carry its own `order()`, `take()`, `skip()` or `first()`.
+   */
+  // Spelled out instead of IKeysetPageOptions<Unbox<T>>: through the interface, TypeScript relates two builders' options by
+  // their row types, which a populated row fails against the model's; the inline shape compares only the column names.
+  paginate(options: { orderBy: Array<[DeclaredColumn<Unbox<T>>, 'asc' | 'desc']>; limit: number; after?: string; before?: string }): Promise<KeysetPage<Unbox<T>>>;
+
+  /** Reads this select from the primary even where the connection has read replicas. */
+  onPrimary(): this;
 
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
@@ -1462,6 +1592,27 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
 export interface ICompilerOutput {
   expression: string | null;
   bindings: any[] | null;
+}
+
+export interface IStreamOptions {
+  /** Rows hydrated, and relations populated, per round. Default 500. */
+  batchSize?: number;
+}
+
+export interface KeysetPage<R> {
+  items: R[];
+  /** Cursor for `after`, or null on the last page. */
+  next: string | null;
+  /** Cursor for `before`, or null on the first page. */
+  previous: string | null;
+}
+
+export interface IKeysetPageOptions<M> {
+  /** The primary key is appended as the tie-breaker. Order columns must be NOT NULL. */
+  orderBy: Array<[DeclaredColumn<M>, 'asc' | 'desc']>;
+  limit: number;
+  after?: string;
+  before?: string;
 }
 
 export interface IQueryCompiler {
@@ -1576,6 +1727,12 @@ export abstract class EventQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class DropEventQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+/** Sets transaction-local session settings; a dialect without them registers one that throws `NotSupported`. */
+@NewInstance()
+export abstract class SessionSettingsQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
@@ -2006,10 +2163,14 @@ export interface ITransactionContext {
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
 }
-/** SQL text with its `?` bindings, built by the `sql` tagged template. */
-export interface SqlFragment {
+
+export type RowLockMode = 'update' | 'share';
+
+/** SQL text with its `?` bindings, built by the `sql` tagged template. `R` is the row the statement returns; only the type checker reads it. */
+export interface SqlFragment<R = unknown> {
   readonly sql: string;
   readonly bindings: readonly unknown[];
+  readonly __row?: R;
 }
 
 /** Options of `deleteChunked`. */

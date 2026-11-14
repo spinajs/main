@@ -34,6 +34,26 @@ describe('manifest types and schema', () => {
     expect(validateManifest(JSON.parse(readFileSync(file('./fixtures/minimal.manifest.json'), 'utf8')))).to.deep.equal([]);
   });
 
+  describe('route pagination', () => {
+    const src = { file: 'src/x.ts', line: 1, col: 1, package: 'demo-app' };
+    const withRoute = (extra: Record<string, unknown>) => {
+      const m = JSON.parse(readFileSync(file('./fixtures/minimal.manifest.json'), 'utf8')) as { controllers: unknown[] };
+      const route = { method: 'get', path: '', handler: 'list', fullPath: '/users/list', params: [], returnType: { text: 'Page<UserDto>' }, policies: [], middlewares: [], source: src, ...extra };
+      m.controllers.push({ id: 'demo-app:Users', className: 'Users', basePath: 'users', policies: [], middlewares: [], routes: [route], source: src });
+      return m;
+    };
+
+    it('accepts a route without it and one with it', () => {
+      expect(validateManifest(withRoute({}))).to.deep.equal([]);
+      const pagination = { kind: 'offset', item: { text: 'UserDto' }, param: { arg: 'query', path: ['page'] }, size: { arg: 'query', path: ['pageSize'] }, firstPage: 1 };
+      expect(validateManifest(withRoute({ pagination }))).to.deep.equal([]);
+    });
+
+    it('rejects an unknown kind', () => {
+      expect(validateManifest(withRoute({ pagination: { kind: 'page', item: { text: 'UserDto' } } }))).to.not.be.empty;
+    });
+  });
+
   it('rejects a manifest that lacks required members', () => {
     expect(validateManifest({ manifestVersion: 2 })).to.not.be.empty;
     expect(validateFragment({ manifestVersion: 2 })).to.not.be.empty;

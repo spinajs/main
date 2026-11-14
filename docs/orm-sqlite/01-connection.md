@@ -58,7 +58,7 @@ Every `QueryContext` goes through the same mapping, `Schema` and `Transaction` i
 | `Nullable` | `notnull = 0` |
 | `PrimaryKey` | `pk > 0`; every column of a composite key |
 | `AutoIncrement` | the only key column, `pk = 1`, declared `INTEGER` |
-| `DefaultValue` | `dflt_value`, passed through the value converter registered for the lower-cased type in `__orm_db_value_converters__` when there is one |
+| `DefaultValue` | `dflt_value` parsed as postgres's `column_default` is: a quoted literal becomes the string, a number the number, `NULL` or no default `null`, anything else ( `CURRENT_TIMESTAMP`, an expression ) a `RawQuery`. A literal then passes through the value converter registered for the lower-cased type in `__orm_db_value_converters__` when there is one |
 | `Unique` | the column is the only column of a unique index (`PRAGMA index_list` / `PRAGMA index_info`); a column of a composite unique index is not `Unique` |
 | `IsForeignKey`, `ForeignKeyDescription` | `PRAGMA foreign_key_list` (`From`, `Table`, `To`) |
 | `Schema` | the `schema` argument, else `Options.Database` |
@@ -195,7 +195,7 @@ export class PatientConfiguration extends FrameworkConfiguration {
 - Only unique and primary-key violations become `UniqueViolation` (a `ResourceDuplicated`), on inserts, upserts and updates alike. A `NOT NULL`, `CHECK` or foreign-key failure shares the `SQLITE_CONSTRAINT` code and becomes `ConstraintViolation`.
 - A `Date` binding is written as the connection's `DatetimeValueConverter` writes it, in raw SQL too. `sqlite3` alone would bind it as epoch milliseconds, which never equals a stored datetime.
 - `tableInfo()` marks a column `Unique` when a unique index covers that column alone, because `onDuplicate()` without columns uses the `Unique` columns as its conflict target. Name a composite target explicitly: `onDuplicate(['A', 'B'])`. Table and index names are quoted in the `PRAGMA` calls.
-- `tableInfo()` tolerates a missing `__orm_db_value_converters__` map: on a driver no `Orm` registered converters for, `DefaultValue` keeps the raw value.
+- `tableInfo()` tolerates a missing `__orm_db_value_converters__` map: on a driver no `Orm` registered converters for, `DefaultValue` keeps the parsed value.
 - `OrmException` messages read `at undefined@undefined`, because SQLite has no `User` or `Host`.
 
 ## Best practices

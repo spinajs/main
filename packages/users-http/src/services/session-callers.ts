@@ -1,7 +1,6 @@
-import type { IResponseHeader } from '@spinajs/http';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 
-export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+export { NO_STORE } from '@spinajs/http';
 
 /**
  * The callers of authn-http's credential admin routes and of its `POST /user/tokens`: a session (no token, key or
