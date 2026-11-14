@@ -1,5 +1,5 @@
 import { IColumnDescriptor, IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, columnToSchema, createQuery, extractModelDescriptor } from '@spinajs/orm';
-import './builders.js';
+import { MAX_FILTERS } from './builders.js';
 import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 
 /** Bound to each model class by the orm, so `this` is the class. */
@@ -116,8 +116,8 @@ function owningDescriptor(model: IModelDescriptor, column: string): [IModelDescr
 /** The part of a column's model schema that says what one filter value may be. */
 function columnScalarSchema(owner: IModelDescriptor, col: IColumnDescriptor): object {
   const converter = owner.Converters?.get(col.Name);
-  const full = columnToSchema(col, {}, converter?.Class, converter?.Options) as Record<string, unknown>;
-  const single = (full.type === 'array' && full.items ? full.items : full) as Record<string, unknown>;
+  const full = columnToSchema(col, {}, converter?.Class, converter?.Options);
+  const single = full.type === 'array' && full.items ? full.items : full;
 
   if (typeof single.type !== 'string' || single.type === 'object' || single.type === 'array') {
     return ANY_SCALAR;
@@ -228,6 +228,7 @@ export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescripto
       op: logicalOperator,
       filters: {
         type: 'array',
+        maxItems: MAX_FILTERS,
         items: {
           type: 'object',
           anyOf: [...leaf, group],

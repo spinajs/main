@@ -28,7 +28,7 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
         model.FilterableColumns = new Map<string, IColumnFilter<unknown>>([...model.FilterableColumns.entries(), ...(ops as any)]);
       }
     } else {
-      const options: IFilterableOptions = Array.isArray(operatorsOrClass) || !operatorsOrClass ? { operators: operatorsOrClass as FilterableOperators[], query: queryFunc } : operatorsOrClass;
+      const options: IFilterableOptions = Array.isArray(operatorsOrClass) || !operatorsOrClass ? { operators: operatorsOrClass, query: queryFunc } : operatorsOrClass;
       if (!options.operators) {
         throw new Error(`Filterable decorator on ${model.Name} model, property ${propertyKey} must have operators defined`);
       }
@@ -37,7 +37,7 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
         operators: options.operators,
         query: options.query,
         value: options.value,
-      } as IColumnFilter<unknown>);
+      });
     }
 
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);

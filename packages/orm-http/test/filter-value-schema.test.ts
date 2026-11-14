@@ -6,15 +6,18 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Connection, IColumnDescriptor, IModelDescriptor, ISelectQueryBuilder, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { DataValidator } from '@spinajs/validation';
+import sinon from 'sinon';
 import '@spinajs/orm-sqlite';
-import '@spinajs/log';
+import { FrameworkLogger, Log } from '@spinajs/log';
 
 // Declares IModelDescriptor.FilterableColumns and installs `filter()` on SelectQueryBuilder.
 import '../src/extension.js';
 import '../src/builders.js';
 import { Filterable } from '../src/decorators.js';
-import { FILTER_OPERATOR_GROUPS, filterSchemaFor, MODEL_STATIC_MIXINS } from '../src/model.js';
-import { FilterableOperators, IColumnFilter } from '../src/interfaces.js';
+import { FILTER_OPERATOR_GROUPS, filterSchemaFor } from '../src/model.js';
+import { MAX_FILTERS } from '../src/builders.js';
+import { FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup } from '../src/interfaces.js';
+import { FilterStatics, installFilterStatics } from './filter-statics.js';
 
 class FilterValueSchemaConfiguration extends FrameworkConfiguration {
   protected onLoad() {
@@ -98,6 +101,7 @@ describe('orm-http filter schema checks each value against its operator and colu
   let validator: DataValidator;
   let schema: object;
   let orm: Orm;
+  let book: FilterStatics<FvsBook>;
 
   before(async () => {
     // migrateTestDatabase() refuses a container in which an earlier suite booted the Orm
@@ -109,11 +113,8 @@ describe('orm-http filter schema checks each value against its operator and colu
     validator = await DI.resolve(DataValidator);
     schema = filterSchemaFor(columns(), descriptor());
 
-    for (const model of [FvsAuthor, FvsBook]) {
-      for (const mixin in MODEL_STATIC_MIXINS) {
-        (model as any)[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(model);
-      }
-    }
+    installFilterStatics(FvsAuthor);
+    book = installFilterStatics(FvsBook);
   });
 
   // The cache stays: filters.test.ts resolves the Orm without migrating, and relies on the migrated Orm and disabled
@@ -122,10 +123,22 @@ describe('orm-http filter schema checks each value against its operator and colu
     DI.unregister(FilterValueSchemaConfiguration);
   });
 
-  function check(filters: object[], against: object = schema): { valid: boolean; data: any } {
-    const data = { op: 'and', filters };
+  /** The request as the validator left it: coerced in place. */
+  function check(filters: object[], against: object = schema): { valid: boolean; data: IFilterRequest } {
+    const data = { op: 'and', filters } as IFilterRequest;
     const [valid] = validator.tryValidate(against, data);
     return { valid, data };
+  }
+
+  /** `Value` of the entry at `path`, an index per nesting level. */
+  function valueAt(data: IFilterRequest, ...path: number[]): unknown {
+    let entries: IFilterEntry[] = data.filters ?? [];
+    let entry: IFilterEntry | undefined;
+    for (const index of path) {
+      entry = entries[index];
+      entries = entry && isFilterGroup(entry) ? entry.filters : [];
+    }
+    return entry && !isFilterGroup(entry) ? entry.Value : undefined;
   }
 
   function accepts(Column: string, Operator: string, Value?: unknown) {
@@ -161,7 +174,7 @@ describe('orm-http filter schema checks each value against its operator and colu
     it('coerce a numeric string for an integer column', () => {
       const { valid, data } = check([{ Column: 'N', Operator: 'gte', Value: '3' }]);
       expect(valid).to.eq(true);
-      expect(data.filters[0].Value).to.eq(3);
+      expect(valueAt(data, 0)).to.eq(3);
     });
 
     it('accept a fraction for a float column', () => {
@@ -178,21 +191,21 @@ describe('orm-http filter schema checks each value against its operator and colu
       for (const sent of ['05', '1e3']) {
         const { valid, data } = check([{ Column: 'S', Operator: 'eq', Value: sent }]);
         expect(valid, sent).to.eq(true);
-        expect(data.filters[0].Value, sent).to.eq(sent);
+        expect(valueAt(data, 0), sent).to.eq(sent);
       }
     });
 
     it('keeps the items of a string list as sent', () => {
       const { valid, data } = check([{ Column: 'S', Operator: 'in', Value: ['05', '1e3'] }]);
       expect(valid).to.eq(true);
-      expect(data.filters[0].Value).to.deep.equal(['05', '1e3']);
+      expect(valueAt(data, 0)).to.deep.equal(['05', '1e3']);
     });
 
     it('keeps a like value as sent, inside a nested group too', () => {
       const { valid, data } = check([{ op: 'or', filters: [{ Column: 'S', Operator: 'like', Value: '05' }, { Column: 'N', Operator: 'eq', Value: '05' }] }]);
       expect(valid).to.eq(true);
-      expect(data.filters[0].filters[0].Value).to.eq('05');
-      expect(data.filters[0].filters[1].Value).to.eq(5);
+      expect(valueAt(data, 0, 0)).to.eq('05');
+      expect(valueAt(data, 0, 1)).to.eq(5);
     });
   });
 
@@ -291,26 +304,26 @@ describe('orm-http filter schema checks each value against its operator and colu
       for (const sent of [1, true, 'a']) {
         const { valid, data } = check([{ Column: 'X', Operator: 'eq', Value: sent }], untyped);
         expect(valid, String(sent)).to.eq(true);
-        expect(data.filters[0].Value, String(sent)).to.equal(sent);
+        expect(valueAt(data, 0), String(sent)).to.equal(sent);
       }
       const { data } = check([{ Column: 'X', Operator: 'in', Value: [1, 'a', false] }], untyped);
-      expect(data.filters[0].Value).to.deep.equal([1, 'a', false]);
+      expect(valueAt(data, 0)).to.deep.equal([1, 'a', false]);
     });
 
     it('keeps the JSON type of a value for a column with a custom query', () => {
       for (const sent of [1, true, 'a', [1, 'a']]) {
         const { valid, data } = check([{ Column: 'Custom', Operator: 'eq', Value: sent }]);
         expect(valid, String(sent)).to.eq(true);
-        expect(data.filters[0].Value, String(sent)).to.deep.equal(sent);
+        expect(valueAt(data, 0), String(sent)).to.deep.equal(sent);
       }
       expect(accepts('Custom', 'eq', {})).to.eq(false);
     });
 
     it('takes an explicit value schema first, from @Filterable options', () => {
-      const book = (FvsBook as any).filterSchema();
-      expect(check([{ Column: 'State', Operator: 'eq', Value: 'draft' }], book).valid).to.eq(true);
-      expect(check([{ Column: 'State', Operator: 'eq', Value: 'deleted' }], book).valid).to.eq(false);
-      expect(check([{ Column: 'State', Operator: 'in', Value: ['draft', 'deleted'] }], book).valid).to.eq(false);
+      const bookSchema = book.filterSchema();
+      expect(check([{ Column: 'State', Operator: 'eq', Value: 'draft' }], bookSchema).valid).to.eq(true);
+      expect(check([{ Column: 'State', Operator: 'eq', Value: 'deleted' }], bookSchema).valid).to.eq(false);
+      expect(check([{ Column: 'State', Operator: 'in', Value: ['draft', 'deleted'] }], bookSchema).valid).to.eq(false);
     });
 
     it('takes an explicit value schema of a column list given to @Filter', () => {
@@ -328,39 +341,51 @@ describe('orm-http filter schema checks each value against its operator and colu
     });
   });
 
+  describe('the number of conditions', () => {
+    const condition = { Column: 'N', Operator: 'eq', Value: 1 };
+
+    it('is limited at the top level to what filter() takes', () => {
+      expect(check(Array.from({ length: MAX_FILTERS }, () => condition)).valid).to.eq(true);
+      expect(check(Array.from({ length: MAX_FILTERS + 1 }, () => condition)).valid).to.eq(false);
+      expect(() => book.query(Array.from({ length: MAX_FILTERS + 1 }, () => ({ Column: 'State', Operator: 'eq' as const, Value: 'draft' })))).to.throw(/Too many filters/);
+    });
+
+    it('is not limited inside a nested group, as filter() does not limit it', () => {
+      expect(check([{ op: 'or', filters: Array.from({ length: MAX_FILTERS + 1 }, () => condition) }]).valid).to.eq(true);
+    });
+  });
+
   describe('@Filterable', () => {
     it('keeps the positional form and carries query and value through filterColumns()', () => {
-      const book = (FvsBook as any).filterColumns() as IColumnFilter<unknown>[];
-      expect(book.find((c) => c.column === 'State')).to.deep.include({ operators: ['eq', 'in', 'between'], value: { type: 'string', enum: ['draft', 'published'] } });
-      expect(book.map((c) => c.column)).to.include('Author.Name');
+      const columns = book.filterColumns();
+      expect(columns.find((c) => c.column === 'State')).to.deep.include({ operators: ['eq', 'in', 'between'], value: { type: 'string', enum: ['draft', 'published'] } });
+      expect(columns.map((c) => c.column)).to.include('Author.Name');
     });
   });
 
   describe('strict mode', () => {
     it('compiles without a warning from the validator', () => {
-      const log = (validator as any).Log;
-      const warnings: string[] = [];
-      const warn = log.warn;
-      log.warn = (msg: unknown) => warnings.push(String(msg));
+      const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
       try {
         check([{ Column: 'N', Operator: 'eq', Value: 1 }], filterSchemaFor(columns(), descriptor()));
         check([{ Column: 'X', Operator: 'eq', Value: 1 }], filterSchemaFor([{ column: 'X', operators: ['eq', 'in'] }]));
       } finally {
-        log.warn = warn;
+        warn.restore();
       }
-      expect(warnings).to.deep.equal([]);
+      const warnings = warn.getCalls().filter((call) => call.thisValue instanceof Log && call.thisValue.Name === 'validation');
+      expect(warnings.map((call) => call.args)).to.deep.equal([]);
     });
   });
 
   describe('cost per request', () => {
     it('hands back the same schema object for a model while its columns stay loaded', () => {
-      expect((FvsBook as any).filterSchema()).to.equal((FvsBook as any).filterSchema());
+      expect(book.filterSchema()).to.equal(book.filterSchema());
     });
 
     it('builds it again once the orm has read the columns again', async () => {
-      const before = (FvsBook as any).filterSchema();
+      const before = book.filterSchema();
       await orm.reloadTableInfo({ models: [FvsBook] });
-      expect((FvsBook as any).filterSchema()).to.not.equal(before);
+      expect(book.filterSchema()).to.not.equal(before);
     });
   });
 });

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { BelongsTo, Connection, Model, ModelBase, OrmDriver, Primary, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, Connection, IWhereBuilder, Model, ModelBase, OrmDriver, Primary, SingleRelation } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
@@ -14,9 +14,9 @@ import '@spinajs/log';
 import '../src/extension.js';
 import '../src/builders.js';
 import { Filterable } from '../src/decorators.js';
-import { MODEL_STATIC_MIXINS } from '../src/model.js';
 import { FilterModelRouteArg } from '../src/route-arg.js';
-import { IFilterRequest } from '../src/interfaces.js';
+import { IFilterRequest, isFilterGroup } from '../src/interfaces.js';
+import { FilterStatics, installFilterStatics } from './filter-statics.js';
 
 class FilterValueRouteConfiguration extends FrameworkConfiguration {
   protected onLoad() {
@@ -102,7 +102,7 @@ export class FvrRow extends ModelBase {
   @Filterable(FvrOwner)
   public Owner: SingleRelation<FvrOwner>;
 
-  @Filterable(['eq', 'between'], (_operator, value) => function (this: any) {
+  @Filterable(['eq', 'between'], (_operator, value) => function (this: IWhereBuilder<unknown>) {
     this.where('N', '>=', Array.isArray(value) ? value[0] : value);
   })
   public atLeast: number;
@@ -112,6 +112,7 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
   this.timeout(15000);
 
   let routeArg: FilterModelRouteArg;
+  let rowStatics: FilterStatics<FvrRow>;
   const param = { Name: 'filter', Options: FvrRow, RuntimeType: Object, Type: 'FilterModelRouteArg' } as any;
 
   before(async () => {
@@ -129,11 +130,8 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
     await createTables(orm.Connections.get('sqlite')!);
     await orm.reloadTableInfo({ models: [FvrRow, FvrOwner] });
 
-    for (const model of [FvrRow, FvrOwner]) {
-      for (const mixin in MODEL_STATIC_MIXINS) {
-        (model as any)[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(model);
-      }
-    }
+    rowStatics = installFilterStatics(FvrRow);
+    installFilterStatics(FvrOwner);
 
     routeArg = await DI.resolve(FilterModelRouteArg);
   });
@@ -146,14 +144,19 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
 
   async function extract(filters: object[]): Promise<IFilterRequest> {
     const request = { query: { filter: JSON.stringify({ op: 'and', filters }) }, body: {} };
-    const { Args } = await routeArg.extract({ Payload: {} } as any, [], param, request as any, {} as any, {} as any);
+    const { Args } = await routeArg.extract({ Payload: {} }, [], param, request as any, {} as any, {} as any);
     return Args as IFilterRequest;
+  }
+
+  function firstValue(request: IFilterRequest): unknown {
+    const [first] = request.filters ?? [];
+    return first && !isFilterGroup(first) ? first.Value : undefined;
   }
 
   /** Ids of the rows a filter request returns, as the route would answer them. */
   async function rows(filters: object[]): Promise<number[]> {
     const request = await extract(filters);
-    const found = (await (FvrRow.query() as any).filter(request.filters, request.op)) as FvrRow[];
+    const found = await rowStatics.query(request.filters, request.op);
     return found.map((r) => r.Id).sort();
   }
 
@@ -189,7 +192,7 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
 
   it('accepts a pair of two values of the column type', async () => {
     const request = await extract([{ Column: 'N', Operator: 'between', Value: ['1', 2] }]);
-    expect((request.filters![0] as any).Value).to.deep.equal([1, 2]);
+    expect(firstValue(request)).to.deep.equal([1, 2]);
   });
 
   it('answers 400 for a value that is no number for an integer column, coerces a numeric string', async () => {
@@ -215,7 +218,7 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
     expect400(await refusal([{ Column: 'Owner.Rank', Operator: 'gte', Value: 'abc' }]));
     expect400(await refusal([{ Column: 'Owner.Rank', Operator: 'eq', Value: [7] }]));
     const request = await extract([{ Column: 'Owner.Rank', Operator: 'gte', Value: '7' }]);
-    expect((request.filters![0] as any).Value).to.eq(7);
+    expect(firstValue(request)).to.eq(7);
   });
 
   it('leaves the value shape to a custom query function', async () => {
@@ -229,8 +232,8 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
   });
 
   it('refuses an array for a single-value operator in filter() called from code, without the route argument', () => {
-    expect(() => (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'eq', Value: [1] }])).to.throw(InvalidArgument, /single value/);
-    expect(() => (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'gte', Value: [1, 2] }])).to.throw(InvalidArgument, /single value/);
+    expect(() => rowStatics.query([{ Column: 'N', Operator: 'eq', Value: [1] }])).to.throw(InvalidArgument, /single value/);
+    expect(() => rowStatics.query([{ Column: 'N', Operator: 'gte', Value: [1, 2] }])).to.throw(InvalidArgument, /single value/);
   });
 
   it('types an unsigned integer column as an integer', async () => {
@@ -247,24 +250,32 @@ describe('FilterModelRouteArg checks filter values against the operator and the 
 
   // 3.0.29 behaviour from code: `where(col, '=', null)` compiles to IS NULL, `!=` to IS NOT NULL
   it('keeps eq null and neq null as IS NULL and IS NOT NULL in filter() called from code', async () => {
-    const isNull = (await (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'eq', Value: null }])) as FvrRow[];
-    const notNull = (await (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'neq', Value: null }])) as FvrRow[];
+    const isNull = await rowStatics.query([{ Column: 'N', Operator: 'eq', Value: null }]);
+    const notNull = await rowStatics.query([{ Column: 'N', Operator: 'neq', Value: null }]);
 
     expect(isNull.map((r) => r.Id).sort()).to.deep.equal([4]);
     expect(notNull.map((r) => r.Id).sort()).to.deep.equal([1, 2, 3]);
   });
 
   it('refuses null for an ordering operator in filter() called from code, as the where builder did in 3.0.29', () => {
-    expect(() => (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'gte', Value: null }])).to.throw(InvalidArgument, /cannot be used with null/);
+    expect(() => rowStatics.query([{ Column: 'N', Operator: 'gte', Value: null }])).to.throw(InvalidArgument, /cannot be used with null/);
   });
 
   it('still refuses an undefined value in filter() called from code', () => {
-    expect(() => (FvrRow.query() as any).filter([{ Column: 'N', Operator: 'eq', Value: undefined }])).to.throw(InvalidArgument, /requires a value/);
+    expect(() => rowStatics.query([{ Column: 'N', Operator: 'eq', Value: undefined }])).to.throw(InvalidArgument, /requires a value/);
   });
 
   it('answers 400 for eq null and neq null over the route argument', async () => {
     expect400(await refusal([{ Column: 'N', Operator: 'eq', Value: null }]));
+    expect400(await refusal([{ Column: 'N', Operator: 'neq', Value: null }]));
     expect400(await refusal([{ Column: 'S', Operator: 'eq', Value: null }]));
+  });
+
+  // The text schema coerces null to "", which the builder refuses as an empty pattern.
+  it('answers 400 for like null over the route argument', async () => {
+    const err = await refusal([{ Column: 'S', Operator: 'like', Value: null }]);
+    expect400(err);
+    expect(err.message).to.match(/requires a non-empty string/);
   });
 });
 
@@ -272,12 +283,14 @@ describe('FilterModelRouteArg with an inline column list', () => {
   // Prototype-only: extract() hands the schema to tryHydrateParam, which is replaced to capture it.
   const self = Object.create(FilterModelRouteArg.prototype) as FilterModelRouteArg;
   const schemas: unknown[] = [];
-  (self as any).tryHydrateParam = async (_arg: unknown, routeParameter: { Schema: unknown }) => {
-    schemas.push(routeParameter.Schema);
-  };
+  Object.defineProperty(self, 'tryHydrateParam', {
+    value: async (_arg: unknown, routeParameter: { Schema: unknown }) => {
+      schemas.push(routeParameter.Schema);
+    },
+  });
 
   async function schemaFor(columns: object[]): Promise<unknown> {
-    await self.extract({ Payload: {} } as any, [], { Name: 'filter', Options: columns } as any, { query: {}, body: {} } as any, {} as any, {} as any);
+    await self.extract({ Payload: {} }, [], { Name: 'filter', Options: columns } as any, { query: {}, body: {} } as any, {} as any, {} as any);
     return schemas[schemas.length - 1];
   }
 
