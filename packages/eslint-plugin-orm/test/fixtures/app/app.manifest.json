@@ -3,7 +3,7 @@
   "app": { "name": "app", "version": "0.0.0", "root": ".", "outDir": "lib" },
   "models": [
     {
-      "id": "app:User", "className": "User", "tableName": "users", "accessResource": false, "relations": [],
+      "id": "app:User", "className": "User", "tableName": "users", "relations": [],
       "source": { "file": "src/models.ts", "line": 3, "col": 1, "package": "app" },
       "columns": [
         { "name": "Id", "type": { "text": "number" }, "primary": true, "nullable": false },

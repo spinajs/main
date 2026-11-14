@@ -64,6 +64,11 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
   return { columns, relations };
 }
 
+const declarations = new WeakMap<ModelEntry, ts.ClassDeclaration>();
+
+/** The class an entry of this run was extracted from. */
+export const modelDeclarationOf = (entry: ModelEntry): ts.ClassDeclaration | undefined => declarations.get(entry);
+
 function modelExtras(node: ts.ClassDeclaration, options: ts.Expression | undefined, columns: Column[], ctx: ExtractorContext): Pick<ModelEntry, 'indexes' | 'version' | 'exhaustive'> {
   const extras: Pick<ModelEntry, 'indexes' | 'version' | 'exhaustive'> = {};
   const indexes = modelIndexes(node, ctx);
@@ -80,17 +85,20 @@ export const extractModels: Extractor<ModelEntry> = (ctx, file) => {
     const model = ts.isClassDeclaration(node) && node.name ? findDecorator(node, 'Model') : undefined;
     if (ts.isClassDeclaration(node) && node.name && model) {
       const connection = literalValue(findDecorator(node, 'Connection')?.args[0], ctx) as string | undefined;
+      const accessResource = literalValue(findDecorator(node, 'AccessResource')?.args[0], ctx);
       const members = readMembers(node, ctx);
-      out.push({
+      const entry: ModelEntry = {
         id: `${ctx.packageName}:${node.name.text}`,
         className: node.name.text,
         tableName: stringArg(model.args[0], ctx),
         ...(connection ? { connection } : {}),
         ...members,
         ...modelExtras(node, model.args[1], members.columns, ctx),
-        accessResource: !!findDecorator(node, 'AccessResource'),
+        ...(typeof accessResource === 'string' ? { accessResource } : {}),
         source: ctx.sourceRef(node),
-      });
+      };
+      declarations.set(entry, node);
+      out.push(entry);
     }
     ts.forEachChild(node, visit);
   };

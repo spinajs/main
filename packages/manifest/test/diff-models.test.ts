@@ -6,7 +6,7 @@ import { fragment, src } from './support.js';
 
 const meta = { app: { name: 'app', version: '1.0.0', root: '.', outDir: 'lib' }, packages: [], generatedAt: '2026-11-03T00:00:00.000Z' };
 const col = (name: string, over: Partial<ModelColumn> = {}): ModelColumn => ({ name, type: { text: 'string' }, primary: false, nullable: false, sql: { family: 'text', inferred: true }, ...over });
-const model = (className: string, tableName: string, columns: ModelColumn[], over: Partial<ModelEntry> = {}): ModelEntry => ({ id: className, className, tableName, columns, relations: [], accessResource: false, source: src('app'), ...over });
+const model = (className: string, tableName: string, columns: ModelColumn[], over: Partial<ModelEntry> = {}): ModelEntry => ({ id: className, className, tableName, columns, relations: [], source: src('app'), ...over });
 const manifest = (...models: ModelEntry[]): Manifest => mergeFragments(fragment('app', { models }), [], meta);
 const modelChanges = (base: Manifest, head: Manifest): Change[] => diffManifest(base, head).changes.filter((c) => c.section === 'models');
 

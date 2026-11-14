@@ -189,8 +189,8 @@ export interface ControllerEntry {
 
 export interface SocketCommandEntry { name: string; handler: string; payload: TypeRef; result: TypeRef; /** The handler returns an async iterable; `result` describes one item */ stream?: true; options: { idempotent?: boolean; ordered?: 'connection' | 'client'; timeoutMs?: number }; access?: string[]; /** `@SocketAccess(…, { fields })`: the result is redacted per the decision's field set ( 'filter-rows': per row ) */ fields?: 'filter' | 'filter-rows'; policies: PolicyRef[][]; /** Index of the `@Payload` argument, which a subclass re-types through generics */ payloadIndex?: number; inheritedFrom?: string; source: SourceRef }
 /** `handler`: the method that handles the event; absent in fragments older than the field. */
-export interface SocketEventEntry { name: string; handler?: string; payload: TypeRef; payloadIndex?: number; inheritedFrom?: string }
-export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; commands: SocketCommandEntry[]; events: SocketEventEntry[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; /** Ids of the ancestor entries whose handlers are merged into this one, nearest first. */ bases?: string[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
+export interface SocketEventEntry { name: string; handler?: string; payload: TypeRef; payloadIndex?: number; access?: string[]; /** Omitted when empty. */ policies?: PolicyRef[][]; inheritedFrom?: string }
+export interface SocketControllerEntry { id: string; className: string; prefix: string; /** `id` of the `socketContracts` entry named by `@SocketController(prefix, { contract })` */ contract?: string; /** Class-level `@SocketAccess` / `@SocketPolicy`, ANDed with each handler's own; omitted when empty. */ access?: string[]; policies?: PolicyRef[][]; commands: SocketCommandEntry[]; events: SocketEventEntry[]; /** The declared type of every `@FromDI()` parameter, hooks included; omitted when there is none. */ diArgs?: { handler: string; index: number; ref?: RuntimeTypeRef; refProblem?: string }[]; /** Ids of the ancestor entries whose handlers are merged into this one, nearest first. */ bases?: string[]; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
 export interface SocketContractCommand { payload: TypeRef; result: TypeRef }
 export interface SocketContractEntry { id: string; /** Name the `defineContract` variable is exported under; lets a dependent package resolve a contract it imports */ exportName?: string; commands: Record<string, SocketContractCommand>; events: Record<string, TypeRef>; clientEvents: Record<string, TypeRef>; source: SourceRef }
 
@@ -253,7 +253,8 @@ export interface ModelEntry {
   version?: string;
   /** `@Model(table, { columns: 'exhaustive' })`: the model declares every column of its table (D19). */
   exhaustive?: true;
-  accessResource: boolean;
+  /** The `@AccessResource` / `registerAccessResource` type, nearest registered class of the chain; omitted when the model is no access resource. */
+  accessResource?: string;
   source: SourceRef;
 }
 export interface MigrationEntry { id: string; className: string; connection: string; env?: string[]; file: string; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
@@ -326,6 +327,22 @@ export interface SqlDialectEntry { drivers: string[]; profile: SqlDialectProfile
 
 export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'info'; message: string; source?: SourceRef }
 
+/**
+ * Authorization facts of the package. In `entryPoints`, `access` uses the `PolicyRef[][]` form of routes (OR between groups,
+ * AND inside) with the class and handler scopes already combined; an `AccessPolicy` ref lists its permissions as `options`.
+ */
+export interface AuthzSection {
+  resources: Array<{ type: string; model: string; relations: Array<{ name: string; kind: 'parent' | 'owner' | 'self' | 'relation'; column: string; target?: string }>; rls?: boolean | 'partial'; source: SourceRef }>;
+  permissions: Array<{ name: string; declaredIn: 'config' | 'adapter' | 'model'; list?: boolean; fields?: boolean }>;
+  entryPoints: Array<{ kind: 'route' | 'socket-command' | 'socket-event' | 'queue-handler' | 'schedule' | 'cli'; id: string; access: PolicyRef[][]; system?: string; source: SourceRef }>;
+  /** AUTHZ0xx from the flow pass. */
+  findings: Diagnostic[];
+  ignores: Array<{ code: string; reason: string; source: SourceRef }>;
+  /** Canonical PolicyIR, when the `authz.*` config is statically readable. */
+  ir?: string;
+  policyHash?: string;
+}
+
 export interface ManifestFragment {
   manifestVersion: typeof MANIFEST_VERSION;
   package: {
@@ -351,6 +368,8 @@ export interface ManifestFragment {
   sqlQueries?: ModelSqlQuery[];
   /** Omitted when the package declares no SQL dialect. */
   sqlDialects?: SqlDialectEntry[];
+  /** Omitted when the package declares no resource, permission, entry point or ignore. */
+  authz?: AuthzSection;
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

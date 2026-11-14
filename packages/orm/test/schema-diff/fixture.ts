@@ -10,7 +10,7 @@ export function col(name: string, sql: ColumnSqlSpec, options: { nullable?: bool
 export const id = (): ModelColumn => col('Id', { family: 'integer', inferred: true }, { primary: true });
 
 export function model(className: string, tableName: string, columns: ModelColumn[], extra: Partial<ModelEntry> = {}): ModelEntry {
-  return { id: `app:${className}`, className, tableName, columns, relations: [], accessResource: false, source: SOURCE, ...extra };
+  return { id: `app:${className}`, className, tableName, columns, relations: [], source: SOURCE, ...extra };
 }
 
 export function manifestOf(models: ModelEntry[]): Manifest {
