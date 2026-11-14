@@ -1,3 +1,11 @@
+# Release notes — orm, orm-sql: one SQL type normaliser
+
+## New
+
+- `@spinajs/orm`: `normalizeSqlType()` is exported: the one spelling both the model JSON schema and the datetime
+  converters of `@spinajs/orm-sql` compare a column type in (lower case, without a `(...)` size and without `unsigned`,
+  `signed` and `zerofill`).
+
 # Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
 
 ## Behaviour change

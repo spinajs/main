@@ -1,19 +1,12 @@
-import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, normalizeSqlType, toInstant } from '@spinajs/orm';
 import type { IBoolConverterOptions, IDateTimeConverterOptions } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'double precision', 'decimal', 'numeric', 'real', 'bigint', 'big int', 'smallint', 'tinyint', 'mediumint', 'int2', 'int4', 'int8', 'float4', 'float8'];
 
-/** SQLite reports the declared type verbatim (`INTEGER`, `BIGINT(20)`, `INTEGER UNSIGNED`), the other drivers a lower-case name. */
 function isNumericType(type: string | undefined): boolean {
-  const base = (type ?? '')
-    .toLowerCase()
-    .replace(/\(.*?\)/g, '')
-    .replace(/\b(unsigned|signed|zerofill)\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return DATE_NUMERICAL_TYPES.includes(base);
+  return DATE_NUMERICAL_TYPES.includes(normalizeSqlType(type ?? ''));
 }
 
 export class SqlSetConverter implements IValueConverter {

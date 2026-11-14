@@ -4,8 +4,9 @@ import { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 /**
  * SQL column type → JSON-schema shape; unlisted types fall back to `string`.
  *
- * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`, compared in lower
- * case without a `(...)` suffix. Every driver stores the column's own type verbatim ( see
+ * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`, compared as
+ * {@link normalizeSqlType} spells them: in lower case, without a `(...)` size and without
+ * `unsigned`, `signed` and `zerofill`. Every driver stores the column's own type verbatim ( see
  * orm-mysql / orm-mssql / orm-sqlite `tableInfo` ), so a `ColumnType` member whose value does
  * not name the SQL type the way the database reports it will never match, and the column
  * silently falls back to `string`.
@@ -173,16 +174,22 @@ function withoutParenthesised(text: string): string {
   }
 }
 
-// SQLite reports the type as declared (`INTEGER UNSIGNED`, `DECIMAL(10,2)`), the other drivers a lower-case DATA_TYPE.
-function sqlTypeKey(type: string | undefined): string {
-  return withoutParenthesised((type ?? '').toLowerCase())
+/**
+ * A declared SQL type as one comparable name: lower case, without a `(...)` size and without `unsigned`, `signed` and
+ * `zerofill`. SQLite reports the type as declared (`INTEGER UNSIGNED`, `DECIMAL(10,2)`), the other drivers a
+ * lower-case DATA_TYPE.
+ *
+ * @param type - the type a driver put in `IColumnDescriptor.Type`
+ */
+export function normalizeSqlType(type: string): string {
+  return withoutParenthesised(type.toLowerCase())
     .split(/\s+/)
     .filter((token) => token && !SIGN_ATTRIBUTES.has(token))
     .join(' ');
 }
 
 function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>): IColumnJsonSchema {
-  const key = sqlTypeKey(col.Type);
+  const key = normalizeSqlType(col.Type ?? '');
   const schema: IColumnJsonSchema = { ...(overrides[key] ?? SQL_TYPE_LOOKUP[key] ?? { type: 'string' }) };
   return schema;
 }
