@@ -1,5 +1,7 @@
 import { quote } from '@spinajs/util';
 import { Perf } from '@spinajs/log-common';
+import { SpinaAttr, withSpan } from '@spinajs/tracing';
+import { CHECK_SPAN, EXPLAIN_SPAN, decisionAttributes } from './tracing.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { FALSE } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -89,7 +91,18 @@ export class Authorizer {
   }
 
   async check(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    return Perf.measure('authz.check', async () => (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision, { labels: { domain: this.domain } });
+    return withSpan(CHECK_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, (span) =>
+      Perf.measure(
+        'authz.check',
+        async () => {
+          const hit = { cached: false };
+          const decision = (await runAsync(this.pipeline(input, { ...this.newRun(false, scope), hit }))).decision;
+          if (span.isRecording()) span.setAttributes(decisionAttributes(decision, hit.cached));
+          return decision;
+        },
+        { labels: { domain: this.domain } },
+      ),
+    );
   }
 
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
@@ -103,7 +116,7 @@ export class Authorizer {
   /** Every model evaluated, trace attached, caches bypassed. */
   async explain(input: CheckInput, scope?: RequestScope): Promise<Decision> {
     if (!isObject(input)) throw new AuthzConfigError(`${this.engine.where}: check input must be an object`);
-    return this.check({ ...input, explain: true }, scope);
+    return withSpan(EXPLAIN_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, () => this.check({ ...input, explain: true }, scope));
   }
 
   async checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object, scope?: RequestScope): Promise<ReadonlyMap<Permission, Decision>> {

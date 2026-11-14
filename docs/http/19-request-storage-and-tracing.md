@@ -18,6 +18,8 @@ Per request, the server middlewares fill `req.storage` in `Order`:
 
 Then the action handler runs argument extraction and the action inside `AsyncLocalStorage.run(req.storage, ...)`. Code called from there reads the same object with `DI.resolve(AsyncLocalStorage).getStore()`.
 
+Under the server span, each policy of the route runs in a `policy <Policy>` span (`spina.policy.name`, `spina.policy.result` `allow` or `deny`; a refusal sets ERROR), and argument extraction and the action run in a `route <Controller>.<action>` span (`spina.route.controller`, `spina.route.action`; a throw is recorded as an `exception` event, and sets ERROR unless it is answered with a 4xx). Route middlewares and the reply run under the server span.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
