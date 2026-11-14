@@ -16,7 +16,7 @@ Eager loading with `populate()`:
    - `RelationType.Virtual` → `VirtualRelation`
 3. `IOrmRelation.execute(callback)` runs the callback with `this` bound to the relation query (the target-side builder). A `QueryRelation` binds it to the owner query instead. A `VirtualRelation` stores it for later.
 4. When the query compiles, each relation's `compile()` runs once:
-   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares.
+   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares. When the owner query has no column list yet (`Model.query()`), the top relation adds the owner's `*` before the target columns.
    - `OneToManyRelation` adds `HasManyRelationMiddleware`. After the owners hydrate, it runs one query: `WHERE <ForeignKey> IN (<owner keys>)`.
    - `ManyToManyRelation` adds `HasManyToManyRelationMiddleware`. It runs one query on the junction table joined to the target table, filtered by `<JunctionModelSourceModelFKey_Name> IN (<owner keys>)`.
    - `QueryRelation` adds `QueryRelationMiddleware`. It calls the `@Query` callback once with all owners, then the mapper once per owner.
@@ -147,6 +147,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 
 - **A `where()` in a belongs-to populate callback filters the parent rows.** The relation query is merged into the parent query. Wrap conditions in `whereOnJoin()` to put them in the `LEFT JOIN ... ON` clause instead.
 - Joins added inside a belongs-to populate callback nest inside that relation's `LEFT JOIN`. They do not filter parent rows.
+- `Model.query()`, `Model.select()` and `Model.where()` all return full owners under a belongs-to populate, nested and multiple populates included; the owner's `*` is emitted once. An explicit owner column list, such as `query().select('Id')`, is kept as it is.
 - Has-many and many-to-many run one extra query per relation, not per owner. When the parent query returns no rows, the extra query is skipped.
 - Belongs-to columns are aliased with the connection's `AliasSeparator` (default `$`, so `$Customer$.Name`). See [Connections](./01-connections.md).
 - `compile()` runs once per relation object. Calling `toDB()` twice produces the same SQL.
