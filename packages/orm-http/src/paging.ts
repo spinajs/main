@@ -1,14 +1,10 @@
-import { SortOrder } from '@spinajs/orm';
+import { ColumnName, SortOrder } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
+import type { Sort } from './decorators.js';
 
 export interface Page {
   limit: number;
   offset: number;
-}
-
-export interface Sort {
-  column: string;
-  order: SortOrder;
 }
 
 /** Page used when a request sends none. */
@@ -81,11 +77,16 @@ export function readPage(input: unknown, options: PageOptions = {}): Page {
  * `{ column, order }` from sorting input (`OrderDTO`): a column outside `sortable` is invalid,
  * a missing one is `fallback.column`; the order is normalised to upper case, missing is `fallback.order`.
  */
-export function readSort(input: { column?: unknown; order?: unknown } | undefined, sortable: readonly string[], fallback: { column: string; order?: SortOrder }, options: SortOptions = {}): Sort {
+export function readSort<M = unknown>(
+  input: { column?: unknown; order?: unknown } | undefined,
+  sortable: readonly ColumnName<M>[],
+  fallback: { column: ColumnName<M>; order?: SortOrder },
+  options: SortOptions = {},
+): Sort<M> {
   const invalid = options.invalid ?? throwInvalidArgument;
 
   const column = input?.column;
-  if (column !== undefined && column !== null && column !== '' && (typeof column !== 'string' || !sortable.includes(column))) {
+  if (column !== undefined && column !== null && column !== '' && (typeof column !== 'string' || !(sortable as readonly string[]).includes(column))) {
     return invalid('column', `Cannot sort by ${describe(column)}. Sortable columns are: ${sortable.join(', ')}`);
   }
 
@@ -95,7 +96,7 @@ export function readSort(input: { column?: unknown; order?: unknown } | undefine
   }
 
   return {
-    column: (column as string | undefined) || fallback.column,
+    column: (column as ColumnName<M> | undefined) || fallback.column,
     order: order ? ((order as string).toUpperCase() as SortOrder) : (fallback.order ?? SortOrder.ASC),
   };
 }

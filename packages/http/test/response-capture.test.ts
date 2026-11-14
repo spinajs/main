@@ -5,10 +5,10 @@ import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log-common';
 import type { TestApp } from '@spinajs/testing';
 import { DI } from '@spinajs/di';
-import type express from 'express';
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, BufferResponse, CodedHttpException, Controllers, Created, Get, HttpServer, Middleware, Ok, Post, RouteMiddleware, attachResponseCapture } from '../src/index.js';
-import type { CapturedJsonReply } from '../src/index.js';
+import { BaseController, BasePath, BufferResponse, CodedHttpException, Controllers, Created, Get, HttpServer, Middleware, Ok, Post, RouteMiddleware } from '../src/index.js';
+import type { CapturedJsonReply, IMiddlewareContext, IReplyContext } from '../src/index.js';
+import { attachResponseCapture } from '../src/response-capture.js';
 
 const captured: CapturedJsonReply[] = [];
 
@@ -23,7 +23,7 @@ class CaptureProbe extends RouteMiddleware {
     return true;
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     attachResponseCapture(res, {
       capture: (reply) => {
         if (captureThrows) {
@@ -34,9 +34,17 @@ class CaptureProbe extends RouteMiddleware {
     });
   }
 
-  public async onResponse(): Promise<void> {}
-
   public async onAfter(): Promise<void> {}
+}
+
+class Rewrite extends RouteMiddleware {
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    ctx.response.data = { rewritten: true };
+    ctx.response.statusCode = 202;
+    ctx.res.setHeader('ETag', '"rewritten"');
+    ctx.res.setHeader('Location', '/capture/rewritten');
+    ctx.res.setHeader('X-Hook-Only', 'not-stored');
+  }
 }
 
 @BasePath('capture')
@@ -50,6 +58,12 @@ class CaptureController extends BaseController {
   @Get()
   public coded() {
     throw new CodedHttpException(404, 'capture.missing', 'No such thing');
+  }
+
+  @Get()
+  @Middleware(Rewrite)
+  public rewritten() {
+    return new Ok({ original: true }, { Headers: [{ Name: 'ETag', Value: '"original"' }] });
   }
 
   @Get()
@@ -94,6 +108,20 @@ describe('ResponseCapture', function () {
 
     expect(res.status).to.eq(201);
     expect(captured).to.deep.equal([{ status: 201, headers: { 'content-type': headersOf(res)['content-type'], location: '/capture/7', etag: headersOf(res).etag }, body: res.text }]);
+  });
+
+  it('sees the reply as onAfter left it: data, status and a header that overrides the response option', async () => {
+    const res = await req().get('capture/rewritten').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(202);
+    expect(res.body).to.deep.eq({ rewritten: true });
+    expect(headersOf(res).etag).to.eq('"rewritten"');
+    expect(captured).to.have.length(1);
+    expect(captured[0]).to.deep.include({ status: 202, body: res.text });
+    expect(captured[0].headers.etag).to.eq('"rewritten"');
+    // content-type, location and etag describe the body: kept even when a hook set them
+    expect(captured[0].headers.location).to.eq('/capture/rewritten');
+    expect(captured[0].headers).to.not.have.property('x-hook-only');
   });
 
   it('sees the headers the route set through its response options, but never Set-Cookie or a connection header', async () => {

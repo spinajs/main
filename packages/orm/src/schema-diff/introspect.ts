@@ -8,6 +8,8 @@ export interface LiveSchema {
   columns: Map<string, IColumnDescriptor[]>;
   extras: LiveExtras;
   dialect: SqlDialectProfile | undefined;
+  /** Undefined when the driver has no `foreignKeysEnforced()`. */
+  foreignKeysEnforced?: boolean;
 }
 
 /** What `driver` reports for `tables`; a table it does not find is left out of `columns`. */
@@ -27,5 +29,6 @@ export async function introspectSchema(driver: OrmDriver, tables: readonly strin
       hasRows: rows.length > 0,
     });
   }
-  return { columns, extras, dialect: sqlDialectOf(driver.constructor as abstract new (...args: never[]) => unknown) };
+  const foreignKeysEnforced = driver.foreignKeysEnforced ? await driver.foreignKeysEnforced() : undefined;
+  return { columns, extras, dialect: sqlDialectOf(driver.constructor as abstract new (...args: never[]) => unknown), foreignKeysEnforced };
 }

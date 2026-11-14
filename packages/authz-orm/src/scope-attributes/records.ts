@@ -1,6 +1,6 @@
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import type { ScopeAttributeLeaf } from '@spinajs/authz';
-import { Connection, DateTime as DateTimeColumn, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Column, Connection, DateTime as DateTimeColumn, Json, Model, ModelBase, Primary } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 export const SCOPE_ATTRIBUTE_TABLE = 'authz_scope_attribute';
@@ -36,6 +36,7 @@ export class ScopeAttributeRecord extends ModelBase<ScopeAttributeRecord> implem
 
   public value_text!: string | null;
 
+  @Column({ family: 'decimal', precision: 20, scale: 6 })
   public value_num!: number | null;
 
   public updated_by!: string | null;

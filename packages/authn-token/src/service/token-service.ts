@@ -525,7 +525,7 @@ export class DbTokenService extends TokenService {
     if (!Number.isFinite(at)) {
       throw new InvalidOperation('now must be a valid Date');
     }
-    const cutoff = DateTime.fromMillis(at);
+    const cutoff = new Date(at);
 
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
@@ -730,7 +730,7 @@ export class DbTokenService extends TokenService {
     const ip = typeof ctx.ip === 'string' && ctx.ip.length > 0 ? ctx.ip.slice(0, MAX_IP_LENGTH) : null;
     // The model types LastUsedIp as optional, but a use without an ip must clear the previous one, so null is written.
     const values = { LastUsedAt: DateTime.fromMillis(now) as DateTime<true>, LastUsedIp: ip } as unknown as Partial<AccessToken>;
-    const staleBefore = DateTime.fromMillis(now - intervalSeconds * 1000);
+    const staleBefore = new Date(now - intervalSeconds * 1000);
     // The interval sits in the WHERE clause, so of several requests racing past the same stale read only one writes.
     const result = await AccessToken.update(values)
       .where('Uuid', id)

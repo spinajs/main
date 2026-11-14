@@ -1,31 +1,62 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { NewInstance } from '@spinajs/di';
 // registers the stores and the idempotency schema before the boot
 import { IdempotencyClaimConflict, IdempotencyService } from '@spinajs/idempotency';
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 import { httpApp, req, TestConfiguration } from './common.js';
-import type express from 'express';
-import { BaseController, BasePath, BasePolicy, Body, CodedHttpException, Controllers, Created, HttpServer, Idempotent, Middleware, Ok, Param, Policy, Post, RouteMiddleware } from '../src/index.js';
-import type { Request } from '../src/interfaces.js';
+import { BaseController, BasePath, BasePolicy, Body, CodedHttpException, Controllers, Created, HttpServer, Idempotent, Middleware, Ok, Param, Policy, Post, ReplayedResponse, RouteMiddleware } from '../src/index.js';
+import type { IMiddlewareContext, IReplyContext, MiddlewareStage, Request } from '../src/interfaces.js';
 
-const state = { calls: 0, afterCalls: 0, closed: false, inPolicy: false, hold: undefined as Promise<void> | undefined, policyHold: undefined as Promise<void> | undefined };
+const state = { calls: 0, afterCalls: 0, perRequest: 0, sawReplay: [] as boolean[], outerAfter: [] as string[], closed: false, inPolicy: false, hold: undefined as Promise<void> | undefined, policyHold: undefined as Promise<void> | undefined };
 
-/** Counts onAfter (a replay is the gate's own answer, so no middleware runs for it) and sees the connection close. */
+/** Counts onAfter (the inner middlewares are not entered for a replay, so it runs for the first answer only) and sees the connection close. */
 class AfterProbe extends RouteMiddleware {
   public isEnabled(): boolean {
     return true;
   }
 
-  public async onBefore(_req: express.Request, res: express.Response): Promise<void> {
+  public async onBefore({ res }: IMiddlewareContext): Promise<void> {
     res.once('close', () => (state.closed = true));
   }
 
-  public async onResponse(): Promise<void> {}
-
-  public async onAfter(_req: express.Request, _res: express.Response): Promise<void> {
+  public async onAfter(): Promise<void> {
     state.afterCalls++;
+  }
+}
+
+/** Declared on the controller, so it is entered before the route's idempotency gate: it sees replays too. */
+class OuterAfterProbe extends RouteMiddleware {
+  public override readonly Stage: MiddlewareStage = 'outer';
+
+  public async onAfter({ response, res }: IReplyContext): Promise<void> {
+    state.outerAfter.push(String(response.statusCode));
+    res.setHeader('X-Outer-After', String(state.outerAfter.length));
+  }
+}
+
+/** Wraps the reply data; with `guarded`, it leaves a replay alone, whose stored body it already wrapped. */
+@NewInstance()
+class Envelope extends RouteMiddleware {
+  public override readonly Stage: MiddlewareStage = 'outer';
+
+  constructor(protected readonly guarded: boolean) {
+    super();
+  }
+
+  public async onAfter(ctx: IReplyContext): Promise<void> {
+    state.sawReplay.push(ctx.response instanceof ReplayedResponse);
+    if (ctx.error !== undefined || (this.guarded && ctx.response instanceof ReplayedResponse)) return;
+    ctx.response.data = { envelope: await ctx.response.data };
+  }
+}
+
+/** A header of this one request: a replay, which never enters this inner middleware, must not restore it. */
+class PerRequestHeader extends RouteMiddleware {
+  public async onAfter({ res }: IReplyContext): Promise<void> {
+    res.setHeader('X-Per-Request', String(++state.perRequest));
   }
 }
 
@@ -51,6 +82,7 @@ class IdemTestPrincipal extends BasePolicy {
 @BasePath('idem')
 @Policy(IdemTestPrincipal)
 @Middleware(AfterProbe)
+@Middleware(OuterAfterProbe)
 class IdemController extends BaseController {
   @Post()
   @Idempotent()
@@ -112,6 +144,31 @@ class IdemController extends BaseController {
     return new Ok({ call: state.calls, padding: 'x'.repeat(64) });
   }
 
+  // written below @Idempotent, so entered before the gate: it runs on replays too
+  @Post()
+  @Idempotent()
+  @Middleware(Envelope, true)
+  public async enveloped() {
+    state.calls++;
+    return new Ok({ call: state.calls });
+  }
+
+  @Post()
+  @Idempotent()
+  @Middleware(Envelope, false)
+  public async envelopedTwice() {
+    state.calls++;
+    return new Ok({ call: state.calls });
+  }
+
+  @Post()
+  @Idempotent()
+  @Middleware(PerRequestHeader)
+  public async perRequest() {
+    state.calls++;
+    return new Ok({ call: state.calls });
+  }
+
   @Post(':id/pay')
   @Idempotent()
   public async pay(@Param() id: string) {
@@ -166,6 +223,9 @@ describe('Idempotency-Key', function () {
   beforeEach(() => {
     state.calls = 0;
     state.afterCalls = 0;
+    state.outerAfter = [];
+    state.perRequest = 0;
+    state.sawReplay = [];
     state.closed = false;
     state.inPolicy = false;
     state.hold = undefined;
@@ -188,8 +248,58 @@ describe('Idempotency-Key', function () {
     expect(headersOf(first)['idempotent-replayed']).to.equal(undefined);
     expect(headersOf(again)['idempotent-replayed']).to.equal('true');
     expect(state.calls).to.equal(1);
-    // the replay is written by the gate: no middleware ran for it
+    // the inner middlewares were not entered for the replay
     expect(state.afterCalls).to.equal(1);
+  });
+
+  it('sends a replay through the reply pipeline: a middleware entered before the gate sees it in onAfter', async () => {
+    const first = await post('create', 'replay-outer-1', 'u1').send({ n: 1 });
+    const again = await post('create', 'replay-outer-1', 'u1').send({ n: 1 });
+
+    expect(headersOf(again)['idempotent-replayed']).to.equal('true');
+    expect(state.outerAfter).to.deep.equal(['201', '201']);
+    expect(headersOf(first)['x-outer-after']).to.equal('1');
+    expect(headersOf(again)['x-outer-after']).to.equal('2');
+  });
+
+  it('gives onAfter the stored body as data on a replay, so a hook that tells a replay apart sends it unchanged', async () => {
+    const first = await post('enveloped', 'envelope-1', 'u1').send({});
+    const again = await post('enveloped', 'envelope-1', 'u1').send({});
+
+    expect(first.status).to.eq(200);
+    expect(first.body).to.deep.eq({ envelope: { call: 1 } });
+    expect(again.status).to.eq(200);
+    expect(again.text).to.eq(first.text);
+    expect(headersOf(again).etag).to.eq(headersOf(first).etag);
+    expect(headersOf(again)['idempotent-replayed']).to.eq('true');
+    expect(state.sawReplay).to.deep.eq([false, true]);
+    expect(state.calls).to.eq(1);
+  });
+
+  it('sends a data change an onAfter made on a replay, and never fails the retry', async () => {
+    const first = await post('envelopedTwice', 'envelope-2', 'u1').send({});
+    const again = await post('envelopedTwice', 'envelope-2', 'u1').send({});
+    const third = await post('envelopedTwice', 'envelope-2', 'u1').send({});
+
+    expect(first.body).to.deep.eq({ envelope: { call: 1 } });
+    expect(again.status).to.eq(200);
+    expect(again.body).to.deep.eq({ envelope: { envelope: { call: 1 } } });
+    expect(third.body).to.deep.eq(again.body);
+    expect(headersOf(again)['content-type']).to.match(/json/);
+    // the stored ETag names the stored body, not the changed one
+    expect(headersOf(first).etag).to.be.a('string');
+    expect(headersOf(again).etag).to.not.eq(headersOf(first).etag);
+    expect(state.calls).to.eq(1);
+  });
+
+  it('does not replay a header an onAfter hook added for the first answer', async () => {
+    const first = await post('perRequest', 'per-request-1', 'u1').send({});
+    const again = await post('perRequest', 'per-request-1', 'u1').send({});
+
+    expect(headersOf(first)['x-per-request']).to.eq('1');
+    expect(headersOf(again)['idempotent-replayed']).to.eq('true');
+    expect(headersOf(again)['x-per-request']).to.eq(undefined);
+    expect(state.perRequest).to.eq(1);
   });
 
   it('takes the quoted form of a key as the same key', async () => {

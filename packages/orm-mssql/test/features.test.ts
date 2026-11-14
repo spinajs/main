@@ -43,4 +43,8 @@ describe('mssql supported features', function () {
   it('allows concurrent transactions', () => {
     expect(driver.supportedFeatures().concurrentTransactions).to.eq(true);
   });
+
+  it('declares a cursor', () => {
+    expect(driver.supportedFeatures().streaming).to.eq(true);
+  });
 });

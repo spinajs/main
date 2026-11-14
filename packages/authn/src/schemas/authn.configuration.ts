@@ -113,7 +113,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
         global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
         maxRows: { type: 'integer', minimum: 4, maximum: 16000000, default: 1000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows).' },
-        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, default: 64, description: 'IPv6 clients share the ip throttle keys of their prefix of this many bits (L3); IPv4 is keyed whole.' },
+        // No default: unset, authn takes http.throttle.ipv6Prefix, so authn and the http limiters count one network.
+        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, description: 'IPv6 clients share the ip throttle keys of their prefix of this many bits (L3); IPv4 is keyed whole. Unset: http.throttle.ipv6Prefix, else 64.' },
         memory: {
           type: 'object',
           default: {},
@@ -249,7 +250,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             { type: 'array', items: { type: 'string', minLength: 1 } },
             { type: 'integer', minimum: 0, nullable: true },
           ],
-          description: 'Trusted proxy CIDRs or a hop count; null falls back to http.trustProxy. true coerces to 1 hop and false to 0, never to trust-all.',
+          description: 'Trusted proxy CIDRs or a hop count; null falls back to http.trustProxy. With @spinajs/authn-http it feeds RealIp, so @RateLimit and http.throttle count the same client. true coerces to 1 hop and false to 0, never to trust-all.',
         },
       },
     },

@@ -5,8 +5,8 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
 ## How it works
 
 1. The action returns a `Response`, or a `Promise` of one. The action handler stores it in `res.locals.response`.
-2. The response handler (`__handle_response__`, the step after the action and its `onAfter` middlewares) calls `response.execute(req, res)`.
-   - Nothing stored (the action returned `undefined` or `null`): it raises `ResourceNotFound`, answered as 404.
+2. The response handler (`__handle_response__`, the step after the action) sends it through the reply pipeline: the route middlewares' `onAfter` hooks run first and may replace the `Response` or its `data` ([Route middlewares](14-route-middlewares.md#hooks)), then it calls `response.execute(req, res)`.
+   - Nothing stored (the action returned `undefined` or `null`): it raises `ResourceNotFound`, answered as 404, unless the action already sent the headers itself.
 3. `Response.execute()` awaits the data (`prepareResponse()`: a `Promise` is awaited; an array of promises is awaited with `Promise.all`).
 4. It calls `httpResponse(data, this._template, { ...options, StatusCode: options.StatusCode ?? this._errorCode })`, which returns a function `(req, res) => void`; the response handler calls it.
 5. A thrown error or rejected promise goes to the [error handler](11-error-handling.md).
@@ -176,6 +176,8 @@ Members you use when extending `Response`:
 | `protected _errorCode: number` | Default status. |
 | `protected _template: string` | Template name in `__fs_http_response_templates__` for HTML clients. |
 | `protected responseData`, `protected options` | Constructor arguments. |
+| `data` | Public accessor of `responseData`: a route middleware's `onAfter` reads or replaces the data with it. |
+| `statusCode` | The status `execute` answers with. |
 | `prepareResponse()` | Awaits the data. |
 | `execute(req, res, next?)` | Returns a `(req, res) => void` or writes the answer itself and returns nothing. |
 

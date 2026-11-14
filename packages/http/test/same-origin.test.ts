@@ -1,12 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import sinon from 'sinon';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { SameOriginGuard, checkSameOrigin, parseAllowedOrigins } from '../src/middlewares/SameOrigin.js';
 import type { MissingOriginRule, OriginRefusal } from '../src/middlewares/SameOrigin.js';
 import { parseTrustProxy } from '../src/middlewares/RealIp.js';
 import type { Request } from '../src/interfaces.js';
+import { RawJsonResponse } from '../src/response-methods/rawJson.js';
 
 const OWN = 'https://app.example.test';
 const PARTNER = 'https://partner.example.test';
@@ -100,16 +100,9 @@ describe('same-origin check', () => {
       return { method, headers: { host: 'app.example.test', ...headers }, socket: { remoteAddress, encrypted: true }, storage } as unknown as Request;
     }
 
-    function run(guard: SameOriginGuard, req: Request): { next: sinon.SinonSpy; status?: number; body?: unknown } {
-      const out: { next: sinon.SinonSpy; status?: number; body?: unknown } = { next: sinon.spy() };
-      const res = {
-        status(code: number) {
-          out.status = code;
-          return { json: (b: unknown) => (out.body = b) };
-        },
-      };
-      guard.before()!(req, res as any, out.next);
-      return out;
+    function run(guard: SameOriginGuard, req: Request): { passed: boolean; status?: number; body?: unknown } {
+      const answer = guard.onBefore({ req, res: {} as never, storage: req.storage });
+      return answer ? { passed: false, status: answer.statusCode, body: answer.data } : { passed: true };
     }
 
     it('runs after RealIp', () => {
@@ -118,33 +111,33 @@ describe('same-origin check', () => {
 
     it('lets safe methods through unchecked', () => {
       for (const method of ['GET', 'HEAD', 'OPTIONS']) {
-        expect(run(new Guard(), fakeReq(method, { origin: 'https://evil.example.test' })).next.calledOnce, method).to.eq(true);
+        expect(run(new Guard(), fakeReq(method, { origin: 'https://evil.example.test' })).passed, method).to.eq(true);
       }
     });
 
     it('passes a same-origin unsafe request and answers 403 to a cross-origin one', () => {
-      expect(run(new Guard(), fakeReq('POST', { origin: OWN })).next.calledOnce).to.eq(true);
+      expect(run(new Guard(), fakeReq('POST', { origin: OWN })).passed).to.eq(true);
       const refused = run(new Guard(), fakeReq('DELETE', { origin: 'https://evil.example.test' }));
-      expect(refused.next.called).to.eq(false);
+      expect(refused.passed).to.eq(false);
       expect(refused.status).to.eq(403);
       expect(refused.body).to.deep.eq({ error: { code: 'E_ORIGIN_REFUSED', message: 'Cross-origin request refused' } });
     });
 
     it('takes the own origin from X-Forwarded-* only through the trust RealIp stored', () => {
       const fwd = { origin: 'https://shop.example.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'shop.example.test' };
-      expect(run(new Guard(), fakeReq('POST', fwd, { proxyTrust: parseTrustProxy(['10.0.0.0/8'], 'k') })).next.calledOnce).to.eq(true);
+      expect(run(new Guard(), fakeReq('POST', fwd, { proxyTrust: parseTrustProxy(['10.0.0.0/8'], 'k') })).passed).to.eq(true);
       expect(run(new Guard(), fakeReq('POST', fwd)).status, 'no stored trust: no proxy').to.eq(403);
       expect(run(new Guard(), fakeReq('POST', fwd, { proxyTrust: parseTrustProxy(['10.0.0.0/8'], 'k') }, '192.0.2.9')).status, 'untrusted peer').to.eq(403);
     });
 
     it('honours allowed origins and the missing-origin rule', () => {
-      expect(run(new Guard([PARTNER]), fakeReq('POST', { origin: PARTNER })).next.calledOnce).to.eq(true);
+      expect(run(new Guard([PARTNER]), fakeReq('POST', { origin: PARTNER })).passed).to.eq(true);
       expect(run(new Guard(), fakeReq('POST', {})).status).to.eq(403);
-      expect(run(new Guard([], 'unless-cross-site'), fakeReq('POST', {})).next.calledOnce).to.eq(true);
+      expect(run(new Guard([], 'unless-cross-site'), fakeReq('POST', {})).passed).to.eq(true);
     });
 
     it('a bad allowed origin fails when the middleware is built', () => {
-      expect(() => new Guard(['nope']).before()).to.throw(InvalidOption, 'test.allowedOrigins');
+      expect(() => new Guard(['nope']).isEnabled()).to.throw(InvalidOption, 'test.allowedOrigins');
     });
 
     it('a subclass narrows the requests it checks and answers refusals its own way', () => {
@@ -152,15 +145,14 @@ describe('same-origin check', () => {
         protected appliesTo(req: Request) {
           return super.appliesTo(req) && (req.headers.cookie ?? '').includes('sid=');
         }
-        protected refuse(reason: OriginRefusal, _req: Request, _res: unknown, next: (err?: unknown) => void) {
+        protected refuse(reason: OriginRefusal) {
           this.refusals.push(reason);
-          next(new Error(reason));
+          return new RawJsonResponse(401, { refused: reason });
         }
       }
       const guard = new CookieGuard();
-      expect(run(guard, fakeReq('POST', { origin: 'https://evil.example.test' })).next.calledOnceWithExactly(), 'no cookie: not checked').to.eq(true);
-      const out = run(guard, fakeReq('POST', { origin: 'null', cookie: 'sid=1' }));
-      expect(out.next.firstCall.args[0]).to.be.instanceOf(Error);
+      expect(run(guard, fakeReq('POST', { origin: 'https://evil.example.test' })).passed, 'no cookie: not checked').to.eq(true);
+      expect(run(guard, fakeReq('POST', { origin: 'null', cookie: 'sid=1' }))).to.deep.eq({ passed: false, status: 401, body: { refused: 'malformed-origin' } });
       expect(guard.refusals).to.deep.eq(['malformed-origin']);
     });
   });

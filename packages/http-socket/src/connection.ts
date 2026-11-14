@@ -2,9 +2,8 @@ import { Socket } from 'socket.io';
 import type { Principal } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { assertPushName } from './push-name.js';
-import type { ProxyTrust } from '@spinajs/http';
+import type { RealIp } from '@spinajs/http';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake } from './interfaces.js';
-import { clientAddressOf } from './client-address.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const cookies = Object.create(null) as Record<string, string>;
@@ -40,7 +39,7 @@ export function parseCookies(header: string | undefined): Record<string, string>
   return cookies;
 }
 
-export function toHandshake(socket: Socket, trust: ProxyTrust): ISocketHandshake {
+export function toHandshake(socket: Socket, realIp: Pick<RealIp, 'clientAddress'>): ISocketHandshake {
   const h = socket.handshake;
 
   return {
@@ -48,7 +47,7 @@ export function toHandshake(socket: Socket, trust: ProxyTrust): ISocketHandshake
     headers: h.headers,
     rawHeaders: socket.request?.rawHeaders,
     cookies: parseCookies(h.headers.cookie),
-    address: clientAddressOf(h.address, h.headers, trust),
+    address: realIp.clientAddress({ headers: h.headers, socket: { remoteAddress: h.address } }) ?? h.address,
     peerAddress: h.address,
     url: h.url,
     query: { ...h.query },

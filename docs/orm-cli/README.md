@@ -24,6 +24,7 @@ The package ships a config file that appends its command directory to `system.di
 | [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, with its startup migrations switched off |
 | [Command discovery](07-command-discovery.md) | The `system.dirs.cli` config fragment, how `Cli` finds the commands, and running them without the bin |
 | [Customizing commands](08-customizing-commands.md) | Replace or extend a shipped command through DI, override its protected hooks, or build your own command on the exported pieces |
+| [Generating migrations](09-generating-migrations.md) | `migrate-diff`: a migration from the difference between the models and the database, `--check` for CI, `--sql` to read the DDL |
 
 ## Quick start
 
