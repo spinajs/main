@@ -22,6 +22,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "sim": "node --loader ts-node/esm bin/sim.mjs",
     "coverage": "c8 npm run test",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/simulation"
@@ -45,11 +46,19 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
-    "@spinajs/durable": "3.0.23"
+    "@spinajs/durable": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "devDependencies": {
-    "@types/node": "^22.14.1"
+    "@spinajs/queue": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
+    "@types/node": "^22.14.1",
+    "uuid": "^9.0.0"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

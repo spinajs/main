@@ -12,6 +12,7 @@ import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import type { ISaveOptions, ISaveResult } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 import type { ISortedPlan } from './subject-sorter.js';
+import { settleVersion, startVersion, versionLock, whereVersion, withVersion } from './versioning.js';
 import type { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
 
 /** Rows per batched statement when the caller does not say. */
@@ -92,6 +93,7 @@ export class SubjectExecutor {
     // without touching the database.
     generateClientSideKeys(model, descriptor);
     assertAssignedKeys(model, descriptor);
+    startVersion(model);
 
     const { query, container } = this.query(model.constructor, InsertQueryBuilder);
     const mapper = container.resolve(ServerResponseMapper);
@@ -124,10 +126,12 @@ export class SubjectExecutor {
         continue;
       }
 
+      const lock = versionLock(subject.Model);
       const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
-      const update = query.update(payload);
+      const update = query.update(withVersion(lock, payload));
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
-      await update;
+      whereVersion(lock, update);
+      settleVersion(lock, await update, subject.Model);
 
       subject.Model.takeSnapshot();
 
@@ -155,7 +159,7 @@ export class SubjectExecutor {
     const keyColumns = pkColumns(subject.Descriptor);
     const changed = subject.Model.changeSet()
       .map((c) => c.Column)
-      .filter((c) => !keyColumns.includes(c));
+      .filter((c) => !keyColumns.includes(c) && c !== subject.Descriptor.VersionColumn);
     if (changed.length === 0) {
       return null;
     }

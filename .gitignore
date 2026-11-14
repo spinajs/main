@@ -93,6 +93,9 @@ packages/*/__cache__/
 # docs:check scratch (scripts/check-doc-samples.mjs)
 .tmp/
 
+# simulation reports (npm run sim -- --out sim-reports)
+sim-reports/
+
 # graphify: built locally (`graphify update .`, refreshed by the pre-push hook), never committed
 graphify-out/
 
@@ -191,6 +194,7 @@ graphify-out/
 !/docs/session-provider-db/
 !/docs/session-provider-dynamodb/
 !/docs/session-provider-redis/
+!/docs/simulation/
 !/docs/teams/
 !/docs/teams-http/
 !/docs/telemetry/

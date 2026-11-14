@@ -344,6 +344,21 @@ export interface IDriverOptions {
   SharedServer?: string;
 
   /**
+   * Read-only copies of this connection. Each entry is merged over these options ( `Options` as a whole ) and opened
+   * as its own driver. Model selects go to a healthy replica, in turn, unless they must see the primary.
+   */
+  Replicas?: Array<Partial<IDriverOptions>>;
+
+  /** Where model selects go while replicas exist. Default `replica`. */
+  ReadPreference?: 'primary' | 'replica';
+
+  /**
+   * `context` (default): once a read-your-writes scope wrote through this connection, the scope's selects read the
+   * primary. `off`: they keep reading replicas.
+   */
+  StickyPrimary?: 'context' | 'off';
+
+  /**
    * User associatet with this connection
    */
   User?: string;
@@ -569,6 +584,9 @@ export interface IModelDescriptor {
    * Optional, is archive mode enabled
    */
   Archived: IModelArchivedDescriptor;
+
+  /** The `@Version()` column: writes through the model match only the row at the version the model carries. */
+  VersionColumn?: string;
 
   /**
    * Column  / fields list in model
@@ -1564,6 +1582,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   // Spelled out instead of IKeysetPageOptions<Unbox<T>>: through the interface, TypeScript relates two builders' options by
   // their row types, which a populated row fails against the model's; the inline shape compares only the column names.
   paginate(options: { orderBy: Array<[DeclaredColumn<Unbox<T>>, 'asc' | 'desc']>; limit: number; after?: string; before?: string }): Promise<KeysetPage<Unbox<T>>>;
+
+  /** Reads this select from the primary even where the connection has read replicas. */
+  onPrimary(): this;
 
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }

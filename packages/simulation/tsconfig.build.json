@@ -8,5 +8,5 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../di/tsconfig.build.json" }, { "path": "../durable/tsconfig.build.json" }]
+  "references": [{ "path": "../di/tsconfig.build.json" }, { "path": "../durable/tsconfig.build.json" }, { "path": "../configuration/tsconfig.build.json" }, { "path": "../log/tsconfig.build.json" }, { "path": "../orm/tsconfig.build.json" }, { "path": "../orm-sqlite/tsconfig.build.json" }, { "path": "../testing/tsconfig.build.json" }]
 }

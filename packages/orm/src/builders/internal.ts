@@ -3,6 +3,7 @@ import { OrmException } from '../exceptions.js';
 import { QueryMethod } from '../enums.js';
 import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
 import type { IQueryStatement } from '../statements.js';
+import type { IOrmRelation } from '../relations.js';
 import { QueryBuilder } from './base.js';
 
 /**
@@ -51,12 +52,20 @@ export function runCloneHooks(source: QueryBuilder, clone: QueryBuilder): void {
   for (const hook of cloneHooks) hook(source, clone);
 }
 
+/** A clone of a relation's query that `owner`, a copy of that relation made by `IOrmRelation.cloneFor`, owns. */
+export function cloneOwnedBy(query: ISelectQueryBuilder, owner: IOrmRelation): ISelectQueryBuilder {
+  if (!isSelectQuery(query)) {
+    throw new InvalidArgument('a relation query must be a SelectQueryBuilder to be cloned with its relation');
+  }
+
+  return (query as unknown as { _cloneOwnedBy(owner: IOrmRelation): ISelectQueryBuilder })._cloneOwnedBy(owner);
+}
+
 export const EXECUTION_LISTS = ['_statements', '_joinStatements', '_columns', '_groupStatements', '_sorts', '_relations', '_middlewares', '_queryMiddlewares'] as const;
 
 /**
  * A copy of `query` for one more execution (a builder runs once): it owns the lists that the caller, a query
- * middleware or the execution appends to, and shares the statements. `clone()` rebinds every statement to the
- * copy, so a join or where merged in from a nested relation query would read the copy's alias instead of its own.
+ * middleware or the execution appends to, and shares the statements instead of cloning them as `clone()` does.
  * `setAlias()` on a copy writes through to the statements it shares with the original.
  */
 export function executionCopy<Q extends object>(query: Q): Q {

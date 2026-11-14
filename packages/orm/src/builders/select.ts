@@ -20,7 +20,8 @@ import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns,
 import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { hasPk } from '../primary-keys.js';
-import { executeRecorded } from '../schema-touches.js';
+import { executeRecorded, inMigrationRun } from '../schema-touches.js';
+import { ReplicaRouter } from '../replica-router.js';
 import type { IRelationSort } from './internal.js';
 import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
@@ -107,6 +108,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   protected _relations: IOrmRelation[] = [];
 
   protected _owner: IOrmRelation | undefined;
+
+  // Statements taken over from another builder by mergeBuilder()/mergeStatements(): they read that
+  // builder's alias, so clone() copies them without rebinding them to the copy.
+  protected _merged = new WeakSet<IQueryStatement>();
 
   /**
    * The outer builder this query is correlated to, set when this query is the sub-select of a
@@ -240,9 +245,37 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  protected _onPrimary = false;
+
+  /** Set by the keyset fallback stream on every page, so one stream never changes replica between pages. */
+  protected _pinnedDriver?: OrmDriver;
+
+  public onPrimary(): this {
+    this._onPrimary = true;
+    return this;
+  }
+
+  /** A raw `driver.select()` names its connection, so only model selects are routed, and never during a migration. */
+  protected executionDriver(): OrmDriver {
+    if (this._pinnedDriver) {
+      return this._pinnedDriver;
+    }
+
+    if (this._onPrimary || this._rowLock !== undefined || this._model === undefined || inMigrationRun()) {
+      return this._driver;
+    }
+
+    return this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+  }
+
   public clone(): this {
+    return this._cloneOwnedBy(this._owner);
+  }
+
+  // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
+  protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner, false);
+    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
@@ -250,22 +283,24 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._tableAlias = this._tableAlias;
     builder._correlationSource = this._correlationSource;
 
-    // Clone columns
-    builder._columns = this._columns.map(c => c.clone(builder));
+    // a statement clone is built from scratch, so the connector and the whereOnJoin() flag are copied by hand
+    const copy = (s: IQueryStatement) => {
+      const merged = this._merged.has(s);
+      const c = merged ? s.clone() : s.clone(builder);
+      c.Boolean = s.Boolean;
+      c.OnJoin = s.OnJoin;
+      if (merged) {
+        builder._merged.add(c);
+      }
+      return c;
+    };
 
-    // Clone joinStatements with mapped WhereBuilder references
-    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
+    builder._columns = this._columns.map(copy);
+    builder._joinStatements = this._joinStatements.map(copy);
+    builder._statements = this._statements.map(copy);
+    builder._groupStatements = this._groupStatements.map(copy);
 
-    // Clone statements with mapped WhereBuilder references
-    builder._statements = this._statements.map(c => c.clone(builder));
-
-    // Clone group-by statements (previously dropped, silently losing GROUP BY
-    // on a cloned query).
-    builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
-
-    // Carry relations and result middlewares over. These hold live objects and
-    // are shared the same way mergeRelations()/mergeBuilder() already share them.
-    builder._relations = [...this._relations];
+    builder._relations = this._relations.map((r) => r.cloneFor?.(builder, owner) ?? r);
     builder._middlewares = [...this._middlewares];
 
     /**
@@ -283,6 +318,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
     builder._database = this._database;
+    builder._onPrimary = this._onPrimary;
 
     runCloneHooks(this, builder);
 
@@ -398,6 +434,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
+    this._markMerged(builder._columns);
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
@@ -432,8 +469,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
+    this._markMerged(builder._joinStatements);
+    this._markMerged(stms);
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  private _markMerged(statements: IQueryStatement[]) {
+    for (const s of statements) this._merged.add(s);
   }
 
   /**
@@ -496,6 +539,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const a = as ?? 'count';
 
     this.clearColumns();
+    // a populated relation would join and select its columns next to the aggregate
+    this._relations = [];
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
 
@@ -610,14 +655,15 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       throw new InvalidOperation('stream() cannot follow first() or takeFirst()');
     }
 
-    if (!this._wantsTransaction() && (await this._driver.canStreamNatively())) {
-      yield* this._streamFromCursor(batchSize);
+    const driver = this.executionDriver();
+    if (this._driver.CurrentTransaction === undefined && !this._wantsTransaction() && (await driver.canStreamNatively())) {
+      yield* this._streamFromCursor(driver, batchSize);
       return;
     }
 
     // a page is a whole statement through executeOnDb: it leaves the connection free between pages and carries the
     // session settings, which a cursor outside a transaction cannot
-    yield* this._streamByKeyset(batchSize);
+    yield* this._streamByKeyset(batchSize, driver);
   }
 
   /** Same test as `Builder._run`: a query middleware (authz-orm's row filter) that needs a transaction gets one per page. */
@@ -625,13 +671,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._queryMiddlewares.some((m) => m.transactional?.(this) === true);
   }
 
-  protected async *_streamFromCursor(batchSize: number): AsyncGenerator<unknown> {
+  protected async *_streamFromCursor(driver: OrmDriver, batchSize: number): AsyncGenerator<unknown> {
     for (const middleware of this._queryMiddlewares) {
       await middleware.beforeQueryExecution(this);
     }
 
     // recorded like `_run`, so the migration tool's dry run sees the tables a stream reads
-    const rows = await executeRecorded(this._driver, () => this.schemaTouches(), () => Promise.resolve(this._driver.executeStream(this, { batchSize })));
+    const rows = await executeRecorded(driver, () => this.schemaTouches(), () => Promise.resolve(driver.executeStream(this, { batchSize })));
     let batch: unknown[] = [];
 
     for await (const row of rows) {
@@ -656,7 +702,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
-  protected async *_streamByKeyset(batchSize: number): AsyncGenerator<unknown> {
+  protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
     const descriptor = extractModelDescriptor(this._model);
     // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
     this.toDB();
@@ -669,6 +715,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     let last: unknown[] | undefined;
     for (;;) {
       const page = executionCopy(this);
+      page._pinnedDriver = driver;
       for (const tieBreaker of columns.slice(sorts.length)) {
         page.order(tieBreaker.column, SortOrder.ASC);
       }

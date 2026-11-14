@@ -15,6 +15,7 @@ import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { registerRelation } from './relation-registry.js';
+import { cloneOwnedBy } from './builders/internal.js';
 
 
 /**
@@ -51,6 +52,12 @@ export interface IOrmRelation {
   Name: string;
 
   Descriptor: IRelationDescriptor;
+
+  /**
+   * This relation for `query`, a clone of the query it belongs to whose owning relation is `owner`.
+   * Without it a clone shares the relation, which compiles into the original query only.
+   */
+  cloneFor?(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation;
 }
 
 function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
@@ -91,6 +98,22 @@ export abstract class OrmRelation implements IOrmRelation {
 
   public abstract execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void;
   public abstract executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void;
+
+  // A compiled relation is shared: the clone already copied the joins, columns and middlewares it added.
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    if (this._compiled) {
+      return this;
+    }
+
+    // a copy of the instance, not a new one: constructors differ per relation and the populate callbacks already ran
+    const copy = Object.assign(Object.create(Object.getPrototypeOf(this) as object) as this, this);
+    copy._query = query;
+    if (this.parentRelation) {
+      copy.parentRelation = owner as NativeOrmRelation;
+    }
+
+    return copy;
+  }
 }
 
 @Inject(Container)
@@ -127,6 +150,15 @@ export abstract class NativeOrmRelation extends OrmRelation {
   }
 
   public abstract compile(): void;
+
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    const copy = super.cloneFor(query, owner) as this;
+    if (copy !== this) {
+      copy._relationQuery = cloneOwnedBy(this._relationQuery, copy);
+    }
+
+    return copy;
+  }
 
   public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) {
     if (callback) {
@@ -336,6 +368,15 @@ export class ManyToManyRelation extends NativeOrmRelation {
 
   public get RelationQuery() {
     return this._relationQuery;
+  }
+
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    const copy = super.cloneFor(query, owner) as this;
+    if (copy !== this) {
+      copy._joinQuery = cloneOwnedBy(this._joinQuery, copy);
+    }
+
+    return copy;
   }
 
   constructor(_container: Container, protected _orm: Orm, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {

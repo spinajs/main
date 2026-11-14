@@ -41,3 +41,10 @@ registerOpenApiParamType('ContentDigestArg', (param) => ({
   description: 'RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`',
   schema: { type: 'string' },
 }));
+
+// @spinajs/orm-http's @KeysetQuery(). Registered here because orm-http must not depend on http-swagger.
+registerOpenApiParamType('KeysetQueryRouteArg', () => [
+  { in: 'query', name: 'limit', required: false, description: 'Rows per page; default 50, clamped to 500', schema: { type: 'integer', minimum: 1 } },
+  { in: 'query', name: 'after', required: false, description: 'The `next` cursor of the page before', schema: { type: 'string' } },
+  { in: 'query', name: 'before', required: false, description: 'The `previous` cursor of the page after', schema: { type: 'string' } },
+]);
