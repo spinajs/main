@@ -2,9 +2,10 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { AuthnLogoutExtension } from '@spinajs/authn-http';
+import { AuthnLogoutExtension, AuthnRealIp } from '@spinajs/authn-http';
 import type { Session } from '@spinajs/authn/contracts';
-import type { Request } from '@spinajs/http';
+import { parseTrustProxy } from '@spinajs/http';
+import type { RealIp, Request } from '@spinajs/http';
 
 import { OidcDiscovery } from '../src/discovery.js';
 import { OIDC_ID_TOKEN_KEY, OidcLogoutExtension, OidcRpLogout } from '../src/logout-extension.js';
@@ -166,6 +167,18 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
     };
     const requestOf = (headers: Record<string, string> = {}, peer = '203.0.113.9'): Request =>
       ({ get: (name: string) => ({ host: 'app.example.test', ...headers })[name.toLowerCase()], socket: { encrypted: true, remoteAddress: peer } }) as unknown as Request;
+    /** `requestOf` after `realIp` ran on it, as the server runs RealIp before any route. */
+    const throughRealIp = (realIp: RealIp, headers: Record<string, string> = {}, peer?: string): Request => {
+      const req = Object.assign(requestOf(headers, peer), { headers: { host: 'app.example.test', ...headers }, storage: {} });
+      realIp.onBefore({ req: req as never, res: {} as never, storage: req.storage });
+      return req;
+    };
+    class AppRealIp extends AuthnRealIp {
+      protected override proxyTrust() {
+        return parseTrustProxy(['203.0.113.0/24'], 'test');
+      }
+    }
+    const appRealIp = (): AppRealIp => readingFrom(new AppRealIp(), fakeContainer({ 'authn.http.trustProxy': 0, 'http.trustProxy': null }));
 
     it('is registered as an AuthnLogoutExtension', () => {
       expect((DI.getRegisteredTypes(AuthnLogoutExtension) ?? []).map((t) => t.name)).to.include('OidcLogoutExtension');
@@ -179,14 +192,23 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
       expect(u.searchParams.get('post_logout_redirect_uri')).to.eq(`${ORIGIN}/`);
     });
 
-    it('takes the origin from forwarded headers only through a trusted proxy', async () => {
+    it('takes the origin from forwarded headers only through a proxy the request trusts', async () => {
       const w = await worldWith();
       const session = await loggedIn(w);
       const forwarded = { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'public.example.test' };
-      const trusted = (await extensionFor(w, { shared: '203.0.113.0/24' }).afterLogout(session, requestOf(forwarded))) as { redirect: string };
+      const trusted = (await extensionFor(w).afterLogout(session, throughRealIp(appRealIp(), forwarded))) as { redirect: string };
       expect(new URL(trusted.redirect).searchParams.get('post_logout_redirect_uri')).to.eq('https://public.example.test/');
-      const untrusted = (await extensionFor(w).afterLogout(session, requestOf(forwarded))) as { redirect: string };
+      const untrusted = (await extensionFor(w).afterLogout(session, throughRealIp(appRealIp(), forwarded, '198.51.100.7'))) as { redirect: string };
       expect(new URL(untrusted.redirect).searchParams.get('post_logout_redirect_uri')).to.eq(`${ORIGIN}/`);
+      const noRealIp = (await extensionFor(w, { shared: '203.0.113.0/24' }).afterLogout(session, requestOf(forwarded))) as { redirect: string };
+      expect(new URL(noRealIp.redirect).searchParams.get('post_logout_redirect_uri'), 'without RealIp no proxy is trusted').to.eq(`${ORIGIN}/`);
+    });
+
+    it('follows the trust of the RealIp registered for the app, not authn.http.trustProxy', async () => {
+      const w = await worldWith();
+      const forwarded = { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'public.example.test' };
+      const answer = await extensionFor(w, { own: 0 }).afterLogout(await loggedIn(w), throughRealIp(appRealIp(), forwarded));
+      expect(postLogoutOf(answer)).to.eq('https://public.example.test/');
     });
 
     const postLogoutOf = (answer: unknown) => new URL((answer as { redirect: string }).redirect).searchParams.get('post_logout_redirect_uri');

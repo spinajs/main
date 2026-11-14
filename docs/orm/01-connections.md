@@ -86,6 +86,7 @@ sequenceDiagram
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after its startup migrations, when a registered model on a configured connection has no table. Not checked when the cached `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). |
+| `db.Models.Source` | `'database' \| 'manifest'` | `'database'` | `'database'`, `'manifest'` | Where model columns come from at boot. `'manifest'` (with `system.manifest.mode = 'require'`) uses `app.manifest.json` and keeps `tableInfo()` for drift checks of declared columns only. See [Model columns from the manifest](23-manifest-model-source.md). |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 
 How each driver applies `Pool.*` and `Options` is driver-specific: see [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md) and [`@spinajs/orm-mssql`](../orm-mssql/README.md).
@@ -116,7 +117,7 @@ this.Config = _.merge(this.Config, {
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
-| `Orm` | Opens connections, registers models and migrations, applies the startup migrations, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `Migrator`, `StrictTableCheck`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
+| `Orm` | Opens connections, registers models and migrations, applies the startup migrations, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `Migrator`, `StrictTableCheck`, `ColumnDrift`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
 | `OrmMigrator` | Applies the migrations and their `data()` seeds for the `Orm` that boots it. See [Migrations](10-migrations.md). | `OrmMigrator` | Not overridden. Pass `IOrmMigratorOptions` on first resolve, before the `Orm`. |
 | `OrmDriver` | One database connection: executes builders, opens transactions, creates query builders, probes health. | Dialect drivers: `SqliteOrmDriver`, `MySqlOrmDriver`, `MySqlSSHOrmDriver`, `MsSqlOrmDriver`, `PostgresOrmDriver` | Register a driver class under the token named in `db.Connections[].Driver`. |
 | `OrmConnection` | DI factory returning the driver stored under a name, or `null`. | Registered by `Orm.resolve()` | Not overridden. |

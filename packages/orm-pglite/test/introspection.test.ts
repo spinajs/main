@@ -3,10 +3,11 @@ import { expect } from 'chai';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import type { Class } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm } from '@spinajs/orm';
+import { manifestColumns, Orm, type IColumnDescriptor } from '@spinajs/orm';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
-import { PgliteOrmDriver } from '../src/index.js';
+import { PGLITE_SQL_DIALECT, PgliteOrmDriver } from '../src/index.js';
+import { col, id, model } from './migrate-diff.fixture.js';
 
 const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] };
 
@@ -78,5 +79,16 @@ describe('postgres index and foreign-key introspection (on PGlite)', function ()
 
     expect(codes.find((c) => c.Name === 'Code')!.MaxLength).to.equal(32);
     expect(codes.find((c) => c.Name === 'TenantId')!.MaxLength).to.equal(-1);
+  });
+
+  it('flags Unique under db.Models.Source = manifest the columns tableInfo() flags: every primary key column', async () => {
+    const unique = (columns: IColumnDescriptor[]) => columns.filter((c) => c.Unique).map((c) => c.Name);
+    const entries = [
+      model('User', 'in_users', [id(), col('Email', { family: 'text', unique: true })]),
+      model('Code', 'in_codes', [col('TenantId', { family: 'integer' }, { primary: true }), col('Code', { family: 'text', length: 32 }, { primary: true })]),
+    ];
+    for (const e of entries) {
+      expect(unique(manifestColumns(e, PGLITE_SQL_DIALECT)), e.tableName).to.deep.equal(unique(await driver.tableInfo(e.tableName, 'shop')));
+    }
   });
 });

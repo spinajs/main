@@ -1,4 +1,4 @@
-import { Exception, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
+import { ConcurrencyConflict, Exception, InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
 import type { IDriverOptions } from './interfaces.js';
 
 /**
@@ -103,3 +103,22 @@ export class ConnectionMismatch extends OrmException {
 
 /** Two query extensions, or an extension and the builder itself, define the same method name. */
 export class ExtensionMethodCollision extends InvalidOperation {}
+
+/** The driver has no cursor and the query cannot be paged by keyset in its place. */
+export class StreamNotSupported extends InvalidOperation {}
+
+/** A page cursor that does not decode or was made for another order. Cursors are spec-checked, not signed. */
+export class InvalidCursor extends InvalidArgument {}
+
+/** A versioned row changed or vanished after the model was read: its `@Version` column no longer holds the model's version. */
+export class OptimisticLockError extends ConcurrencyConflict {
+  public static problemFields = ['model', 'key', 'expectedVersion'];
+
+  constructor(
+    public model: string,
+    public key: unknown,
+    public expectedVersion: number | null,
+  ) {
+    super(`${model} ${Array.isArray(key) ? key.join(',') : String(key)} was changed or deleted since it was read (expected version ${String(expectedVersion)})`);
+  }
+}

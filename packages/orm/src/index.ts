@@ -6,6 +6,7 @@ export * from './source-file.js';
 export * from './migration-environment.js';
 export * from './migration-sources.js';
 export * from './manifest-migration-source.js';
+export * from './manifest-model-source.js';
 export * from './descriptor.js';
 export * from './primary-keys.js';
 export * from './resilience.js';
@@ -59,3 +60,4 @@ export * from './schema-diff/index.js';
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
 // Import directly from './metadata.js' if needed.
 export * from './session-settings.js';
+export * from './replica-router.js';

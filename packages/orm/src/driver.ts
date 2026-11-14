@@ -10,7 +10,7 @@ import { ConnectionSessionSettings } from './session-settings.js';
 import type { SessionSettings } from './session-settings.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { OrmException } from './exceptions.js';
+import { OrmException, StreamNotSupported } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
 import type { IntervalUnit } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -109,6 +109,22 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   public abstract execute(builder: Builder<any>): Promise<any[] | any>;
 
   /**
+   * The rows of one select, read from a server-side cursor. Drivers that set `supportedFeatures().streaming`
+   * override it; `SelectQueryBuilder.stream()` pages by keyset on the others.
+   */
+  public executeStream(_builder: Builder<any>, _options: { batchSize: number }): AsyncIterable<unknown> {
+    throw new StreamNotSupported(`driver ${this.Options.Driver} cannot stream rows`);
+  }
+
+  /**
+   * Whether `stream()` may hold a cursor now. Not inside a transaction, whose connection the cursor would hold, and not
+   * under session settings: they are transaction-local, and a cursor runs outside one.
+   */
+  public async canStreamNatively(): Promise<boolean> {
+    return this.supportedFeatures().streaming === true && this.CurrentTransaction === undefined && (await this.sessionSettings()) === undefined;
+  }
+
+  /**
    * Checks if database is avaible
    * @returns false if cannot reach database
    */
@@ -149,6 +165,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
   /** The table's foreign keys, one entry per column. Absent on a driver that cannot read them. */
   public tableForeignKeys?(name: string, schema?: string): Promise<LiveForeignKey[]>;
+
+  /** Whether the connection that runs migrations enforces foreign keys. Absent where that never stops a schema change. */
+  public foreignKeysEnforced?(): Promise<boolean>;
 
   public resolve() {
     this.Log = DI.resolve(Log, [`orm-driver-${this.Options.Name}`]);

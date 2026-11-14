@@ -29,6 +29,7 @@ import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, badRequest, refusedByHook } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 const TOKEN_ID = TOKEN_ID_PARAM.$id;
 
@@ -88,6 +89,7 @@ export class AuthnTokensController extends BaseController {
    * @security cookieAuth
    */
   @Post('tokens')
+  @AuthnSessionRateLimit('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(byField({ reauthPassword: uniformFailure, name: invalidTokenName, expiresAt: invalidExpiry, kind: invalidKind, roles: invalidRoles, profile: invalidProfile, scope: invalidTokenScope }, unknownField))
   public async create(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnTokenCreateBody, @ClientContext() client: AuthnClientContext) {
@@ -146,6 +148,7 @@ export class AuthnTokensController extends BaseController {
    * @security cookieAuth
    */
   @Post('tokens/:uuid/rotate')
+  @AuthnSessionRateLimit('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   @OnInvalidInput(bySchema(TOKEN_ID, tokenNotFound, byField({ reauthPassword: uniformFailure, graceSeconds: invalidGrace }, unknownField)))
   // The body last: route args are extracted from the last parameter on, so the body is checked before the id, as before.

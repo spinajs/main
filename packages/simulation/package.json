@@ -1,0 +1,66 @@
+{
+  "name": "@spinajs/simulation",
+  "version": "3.0.23",
+  "description": "Deterministic simulation for SpinaJS durable engines: virtual clock, seeded randomness, fault injection, seed replay",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "sim": "node --loader ts-node/esm bin/sim.mjs",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/simulation"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "simulation",
+    "testing"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/durable": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/queue": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
+    "@types/node": "^22.14.1",
+    "uuid": "^9.0.0"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

@@ -10,10 +10,11 @@ import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { reauthCredentials } from '../../policies/v3/fresh-auth.js';
 import { ActiveSessionOnly } from '../../policies/v3/session-state.js';
 import { OnInvalidInput } from '../../validation/answers.js';
-import { uniformFailure } from '../../validation/login.js';
+import { throttledPassword, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, contextOf, onLiveSession } from '../routes.js';
+import { AuthnSessionRateLimit } from '../../rate-limits.js';
 
 /**
  * Fresh authentication that lasts (A13): the password re-authenticates the active session, which then moves to a new
@@ -38,6 +39,7 @@ export class AuthnReauthController extends BaseController {
    * @security cookieAuth
    */
   @Post('reauth')
+  @AuthnSessionRateLimit('reauth', { answer: throttledPassword })
   @Policy(ActiveSessionOnly)
   @OnInvalidInput(uniformFailure)
   public async reauth(@Body({ required: true }) body: AuthnReauthBody, @ClientContext() client: AuthnClientContext): Promise<Ok | Unauthorized> {

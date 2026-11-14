@@ -1,5 +1,7 @@
 import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
+import type { IDocumentedAnswer, IDocumentedHeader, IRouteMiddlewareDoc, RouteMiddleware } from '@spinajs/http';
+import { Logger, Log } from '@spinajs/log';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
@@ -175,6 +177,19 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
 };
 
 /**
+ * A middleware's `x-` extensions onto `target`; a key in `presetKeys` keeps its value unless both values are arrays.
+ * Other keys are dropped: a middleware configured from JS or JSON is not held to the type and could set operation keys.
+ */
+function mergeExtensions(target: Record<string, unknown>, extensions: Record<string, unknown>, presetKeys: ReadonlySet<string>): void {
+  for (const [key, value] of Object.entries(extensions)) {
+    if (!key.startsWith('x-')) continue;
+    const current = target[key];
+    if (Array.isArray(current) && Array.isArray(value)) target[key] = [...current, ...value];
+    else if (!presetKeys.has(key)) target[key] = value;
+  }
+}
+
+/**
  * Which side of the wire a schema describes. A model's `@Schema` is the WRITE contract
  * (what a client may send); its columns are the READ contract (what the API hands back).
  * They are not the same object and must not be documented as one.
@@ -212,7 +227,9 @@ function isNativeParamType(type: string): boolean {
     BODY_PARAMS.has(type) ||
     Object.prototype.hasOwnProperty.call(PARAM_LOCATION_MAP, type) ||
     type === 'FromDbModel' ||
-    type === 'FilterModelRouteArg'
+    type === 'FilterModelRouteArg' ||
+    type === 'SortRouteArg' ||
+    type === 'IncludeRouteArg'
   );
 }
 
@@ -242,6 +259,9 @@ export class OpenApiBuilder {
 
   @Autoinject(SchemaProvider)
   protected SchemaProviders!: SchemaProvider[];
+
+  @Logger('http-swagger')
+  protected Log!: Log;
 
   constructor(config: ISwaggerConfig) {
     this.config = config;
@@ -316,6 +336,7 @@ export class OpenApiBuilder {
 
       if (controller.instance) this.applyAccess(operation, controller.instance, methodNameStr);
       this.applyPolicies(operation, docCache, methodNameStr);
+      if (controller.instance) this.applyMiddlewares(operation, controller.instance, methodName, route, `${httpMethod.toUpperCase()} ${fullPath}`);
 
       if (!this.document.paths[fullPath]) {
         this.document.paths[fullPath] = {};
@@ -407,6 +428,84 @@ ${line}` : line;
       const refName = this.registerStandardResponse(code);
       if (refName) operation.responses[code] = { $ref: `#/components/responses/${refName}` };
     }
+  }
+
+  /**
+   * Add what the route's mounted middlewares document. A status the JSDoc or `applyAccess` set stays; between
+   * middlewares the later mounted one wins, so a route's own `@RateLimit` answers over its controller's.
+   * Success headers go to the route's own inline 2xx answers. An extension key already on the operation
+   * (`x-authz-*` from `applyAccess`/`applyPolicies`) stays, unless both values are arrays: those concatenate.
+   * A middleware whose `documentation()` throws is left out with a warning, so one bad middleware cannot fail the document.
+   */
+  private applyMiddlewares(operation: IOpenApiOperation, controller: Partial<Pick<BaseController, 'MountedMiddlewares'>>, method: string | symbol, route: IRoute, label: string): void {
+    // addController is also fed hand-built instances (tests, tooling) that are no BaseController
+    const docs = (controller.MountedMiddlewares?.(method) ?? []).flatMap((m) => this.middlewareDoc(m, route, label) ?? []);
+    if (docs.length === 0) return;
+
+    const routeStatuses = Object.keys(operation.responses);
+    const answers: Record<string, IDocumentedAnswer> = {};
+    const successHeaders: Record<string, IDocumentedHeader> = {};
+    const extensions = operation as unknown as Record<string, unknown>;
+    const presetKeys = new Set(Object.keys(extensions));
+
+    for (const doc of docs) {
+      Object.assign(answers, doc.responses);
+      Object.assign(successHeaders, doc.headers);
+      mergeExtensions(extensions, doc.extensions ?? {}, presetKeys);
+    }
+
+    for (const [status, answer] of Object.entries(answers)) {
+      if (!routeStatuses.includes(status)) operation.responses[status] = this.middlewareResponse(answer);
+    }
+
+    if (Object.keys(successHeaders).length === 0) return;
+    for (const status of routeStatuses) {
+      const response = operation.responses[status];
+      if (!status.startsWith('2') || response.$ref) continue;
+      response.headers = { ...response.headers, ...this.documentedHeaders(successHeaders) };
+    }
+  }
+
+  private middlewareDoc(middleware: RouteMiddleware, route: IRoute, label: string): IRouteMiddlewareDoc | undefined {
+    try {
+      return middleware.documentation?.(route);
+    } catch (error) {
+      this.Log.warn({ middleware: middleware.constructor.name, route: label, error }, 'Middleware ${middleware} could not document ${route}, its answers are left out of the document');
+      return undefined;
+    }
+  }
+
+  /**
+   * A middleware's answer, inline or as a `$ref` to its `component`. Registered here, not through
+   * registerStandardResponse: those components are problem+json, a middleware's answer has a body of its own.
+   */
+  private middlewareResponse(answer: IDocumentedAnswer): IOpenApiResponse {
+    if (!answer.component) return this.documentedResponse(answer);
+
+    if (!this.registeredResponses.has(answer.component)) {
+      const responses = ((this.document.components ??= {}).responses ??= {});
+      responses[answer.component] = this.documentedResponse(answer);
+      this.registeredResponses.add(answer.component);
+    }
+    return { $ref: `#/components/responses/${answer.component}` };
+  }
+
+  private documentedResponse(answer: IDocumentedAnswer): IOpenApiResponse {
+    const schema = answer.schema
+      ? this.convertJsonSchema(answer.schema)
+      : answer.type
+        ? this.expandNamedSchemas(this.inferSchemaFromString(answer.type), 'response')
+        : undefined;
+
+    return {
+      description: answer.description,
+      ...(schema ? { content: { [answer.contentType ?? 'application/json']: { schema } } } : {}),
+      ...(answer.headers ? { headers: this.documentedHeaders(answer.headers) } : {}),
+    };
+  }
+
+  private documentedHeaders(headers: Record<string, IDocumentedHeader>): NonNullable<IOpenApiResponse['headers']> {
+    return Object.fromEntries(Object.entries(headers).map(([name, header]) => [name, { description: header.description, schema: { type: header.type } }]));
   }
 
   /**
@@ -544,7 +643,7 @@ ${line}` : line;
       // Resolve effective location. Most types come from PARAM_LOCATION_MAP,
       // but orm-http's @FromModel (Type='FromDbModel') is dynamic — it reads
       // the PK from req.params / query / body / header per Options.paramType,
-      // defaulting to path. @Filter (Type='FilterModelRouteArg') always reads from query.
+      // defaulting to path. @Filter, @Sort and @Include always read from query.
       let location: 'query' | 'path' | 'header' | 'cookie' | undefined = PARAM_LOCATION_MAP[param.Type as string];
       if (!location) {
         if (param.Type === 'FromDbModel') {
@@ -558,7 +657,7 @@ ${line}` : line;
           if (location === 'path' && !this.readsPathParam(param)) {
             location = undefined;
           }
-        } else if (param.Type === 'FilterModelRouteArg') {
+        } else if (param.Type === 'FilterModelRouteArg' || param.Type === 'SortRouteArg' || param.Type === 'IncludeRouteArg') {
           location = 'query';
         }
       }
@@ -808,6 +907,8 @@ ${line}` : line;
   private emittedParamName(param: IRouteParameter): string | undefined {
     if (param.Type === ParameterType.UserAgent) return 'User-Agent';
     if (param.Type === ParameterType.Referer) return 'Referer';
+    // orm-http's @Sort / @Include read the query key in `field` ( `order`, `include` ), not the argument name.
+    if (param.Type === 'SortRouteArg' || param.Type === 'IncludeRouteArg') return (param.Options as { field: string }).field;
 
     const options = param.Options as { paramField?: string; key?: string } | undefined;
     const headerKey = param.Type === ParameterType.FromHeader ? options?.key : undefined;
@@ -1111,6 +1212,24 @@ ${line}` : line;
     // orm-http @Filter — describe the JSON filter envelope so API consumers know what to send.
     if (param.Type === 'FilterModelRouteArg') {
       return this.buildFilterSchema(param);
+    }
+
+    // orm-http @Sort: a JSON object, `{ column, order }`, over the model's @Sortable() columns.
+    if (param.Type === 'SortRouteArg') {
+      const options = param.Options as { sortable: readonly string[]; columns?: () => readonly string[]; default: string; order: string };
+      return {
+        type: 'object',
+        properties: {
+          column: { type: 'string', enum: [...(options.columns?.() ?? options.sortable)], default: options.default },
+          order: { type: 'string', enum: ['ASC', 'DESC'], default: options.order },
+        },
+      };
+    }
+
+    // orm-http @Include: the relations a request may populate, one value per repeated key.
+    if (param.Type === 'IncludeRouteArg') {
+      const options = param.Options as { relations: string[] };
+      return { type: 'array', items: { type: 'string', enum: [...options.relations] } };
     }
 
     // orm-http @FromModel — the request carries the key the model is loaded by, not the

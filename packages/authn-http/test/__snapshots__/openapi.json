@@ -88,6 +88,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -153,6 +171,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -287,6 +323,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -354,6 +408,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -417,6 +489,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -477,6 +567,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnRevokedCount"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -588,6 +696,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -776,6 +902,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -924,7 +1068,7 @@
           "Keys"
         ],
         "summary": "Key challenge",
-        "description": "Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the\nchallenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the\nsame as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429\nwith Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)\nis a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.\n400 `invalid_purpose`, `invalid_kid`.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
+        "description": "Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the\nchallenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the\nsame as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429\nwith Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)\nis a budget of the owner's own, which a burst of challenges would spend; the route's rate limit caps it per ip.\n400 `invalid_purpose`, `invalid_kid`.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
         "responses": {
           "200": {
             "description": "The challenge to sign",
@@ -942,6 +1086,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -1563,6 +1725,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1645,6 +1825,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1720,6 +1918,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -1812,6 +2028,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1860,6 +2094,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnPasskeyCeremony"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -2002,6 +2254,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2080,6 +2350,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -2327,6 +2615,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -2627,6 +2933,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -2939,6 +3263,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -3273,6 +3615,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3329,6 +3689,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3369,6 +3747,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the limit lets a request through again",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }

@@ -28,10 +28,11 @@ export default {
   `GET /auth/oidc/:provider/callback`, and for linking
   `POST` / `DELETE /auth/oidc/:provider/link`.
 - The provider must have `<origin>/auth/oidc/<name>/callback` registered
-  exactly, or the `redirectUri` you configure. The origin follows
-  `authn.http.trustProxy` (else `http.trustProxy`): forwarded proto and host
-  count only from a trusted proxy. Behind a TLS proxy without that setting the
-  derived origin is http, which the provider refuses; a warning says so.
+  exactly, or the `redirectUri` you configure. The origin follows the trust
+  `RealIp` stored for the request (`authn.http.trustProxy`, else
+  `http.trustProxy`): forwarded proto and host count only from a trusted
+  proxy. Behind a TLS proxy without that setting the derived origin is http,
+  which the provider refuses; a warning says so.
 - Needs `NonceStore` and `IdentityLinkStore` (contracts of `@spinajs/authn`;
   the app imports `@spinajs/authn-orm` for the tables `authn_nonce`, `authn_identity`), `AuthnService`, `SessionIssuer`, and for
   linking an `OidcAccountLinks` registration (see below).

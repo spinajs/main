@@ -1,15 +1,18 @@
 import type express from 'express';
 import type { Log } from '@spinajs/log';
+import type { IContainer } from '@spinajs/di';
 import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 
 import type { HttpMiddleware, Request, Response, ServerMiddleware } from './interfaces.js';
 import { createServerAroundHandler } from './around.js';
-import { enterMiddleware, sendReply, serverContextOf } from './reply-pipeline.js';
+import { deliverReply, enterMiddleware, repliedInPlace, serverContextOf } from './reply-pipeline.js';
 import type { ErrorReplier } from './reply-pipeline.js';
 import type { ErrorHandlerMiddleware } from './middlewares/ErrorHandler.js';
 
 export interface IServerMountOptions {
   readonly log: Log;
+  /** The server's container: its `http.contractTesting` checks the answers of `onBefore`. */
+  readonly container?: IContainer;
   /** The error reply of a throwing server `onAfter` (D8): the global error answer's. */
   readonly errorReply: (req: express.Request) => ErrorReplier;
 }
@@ -52,16 +55,23 @@ function createServerBeforeHandler(m: ServerMiddleware, enters: boolean, options
     if (enters) {
       enterMiddleware(res, 'server', m, serverContextOf(req, res));
     }
+    // a deadline answered while this onBefore ran: the rest of the chain has nothing to answer
+    if (repliedInPlace(res)) {
+      return;
+    }
     if (answer === undefined || answer === null) {
       next();
     } else if (!isResponse(answer)) {
       next(new UnexpectedServerError(`${name}.onBefore returned something that is not a Response`));
     } else {
-      sendReply(req, res, answer, { errorReply: options.errorReply(req) }).catch(next);
+      deliverReply(req, res, answer, { container: options.container, errorReply: options.errorReply(req) }).catch(next);
     }
   };
 
   return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (repliedInPlace(res)) {
+      return;
+    }
     let result: unknown;
     try {
       result = m.onBefore!(serverContextOf(req, res));
@@ -81,6 +91,9 @@ function createServerBeforeHandler(m: ServerMiddleware, enters: boolean, options
 
 function createServerEntryHandler(m: ServerMiddleware, handler?: express.RequestHandler): express.RequestHandler {
   return named((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (repliedInPlace(res)) {
+      return;
+    }
     enterMiddleware(res, 'server', m, serverContextOf(req, res));
     if (handler) {
       return handler(req, res, next);

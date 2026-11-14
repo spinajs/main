@@ -1,13 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Constructor } from '@spinajs/di';
-import { BadRequest, Forbidden, InvalidOperation, IOFail, JsonValidationFailed, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
+import { BadRequest, ConcurrencyConflict, Forbidden, InvalidOperation, IOFail, JsonValidationFailed, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
 import { DI } from '@spinajs/di';
 
 import { __resolve_error_response__, answeredAsServerError } from '../src/error.js';
 import { Response as HttpResponse } from '../src/interfaces.js';
 import { ForbiddenResponse } from '../src/response-methods/forbidden.js';
 import { BadRequestResponse } from '../src/response-methods/badRequest.js';
+import { Conflict } from '../src/response-methods/conflict.js';
 import '../src/response-methods/index.js';
 
 /**
@@ -86,5 +87,17 @@ describe('JsonValidationFailed http mapping', () => {
   it('is registered to the 400 response', () => {
     const map = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__')!;
     expect(__resolve_error_response__(map, new JsonValidationFailed('schema mismatch'))).to.equal(BadRequestResponse);
+  });
+});
+
+describe('ConcurrencyConflict http mapping', () => {
+  class StaleRow extends ConcurrencyConflict {}
+
+  it('is answered with 409 Conflict, also through a subclass', () => {
+    const map = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__')!;
+
+    expect(__resolve_error_response__(map, new ConcurrencyConflict('changed'))).to.equal(Conflict);
+    expect(__resolve_error_response__(map, new StaleRow('changed'))).to.equal(Conflict);
+    expect(answeredAsServerError(new StaleRow('changed'))).to.eq(false);
   });
 });

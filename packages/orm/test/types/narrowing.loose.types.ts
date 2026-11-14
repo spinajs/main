@@ -56,3 +56,30 @@ export async function populateLoose(dynamic: string): Promise<void> {
   assertType<Equal<typeof unsure.Nul.Populated, true>>();
   void [withMeta, returned, owned, unsure];
 }
+
+export async function streamLoose(): Promise<void> {
+  for await (const _user of User.query().where('Id', 1).order('Id').stream({ batchSize: 10 })) {
+    assertType<Equal<typeof _user, User>>();
+  }
+  // loose mode keeps the model type through a projection
+  for await (const _user of User.query().select('Id').stream()) {
+    assertType<Equal<typeof _user, User>>();
+  }
+  for await (const _user of User.query().populate('Team').stream()) {
+    assertType<Equal<typeof _user.Team.Value, Team>>();
+  }
+  for await (const _user of User.all().stream()) {
+    assertType<Equal<typeof _user, User>>();
+  }
+}
+
+export async function paginateLoose(computed: string): Promise<void> {
+  const page = await User.query().where('IsActive', true).paginate({ orderBy: [['CreatedAt', 'desc']], limit: 20 });
+  assertType<Equal<typeof page.items, User[]>>();
+  assertType<Equal<typeof page.next, string | null>>();
+  // loose mode accepts a name the model does not declare
+  const _byComputed = await User.query().select('Id').paginate({ orderBy: [[computed, 'asc']], limit: 20, after: page.next ?? undefined });
+  assertType<Equal<typeof _byComputed.items, User[]>>();
+  const _populated = await User.query().populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof _populated.items)[number]['Team']['Value'], Team>>();
+}

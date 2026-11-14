@@ -9,6 +9,7 @@ import { DI } from '@spinajs/di';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { OrmException } from './exceptions.js';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
+import { executionCopy } from './builders/internal.js';
 
 export { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 
@@ -68,9 +69,10 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
     };
 
     if (pks.length !== 0) {
-      this._relationQuery.whereIn(this._description.ForeignKey, pks);
-      this._relationQuery.middleware(hydrateMiddleware);
-      return (await this._relationQuery) as any;
+      const query = executionCopy(this._relationQuery);
+      query.whereIn(this._description.ForeignKey, pks);
+      query.middleware(hydrateMiddleware);
+      return (await query) as any;
     }
 
     return [];
@@ -143,10 +145,11 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
       },
     };
 
-    this._relationQuery.whereIn(this._description.PrimaryKey, pks);
-    this._relationQuery.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
-    this._relationQuery.middleware(hydrateMiddleware);
-    return (await this._relationQuery) as any;
+    const query = executionCopy(this._relationQuery);
+    query.whereIn(this._description.PrimaryKey, pks);
+    query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
+    query.middleware(hydrateMiddleware);
+    return (await query) as any;
   }
 }
 
@@ -247,11 +250,12 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
     };
 
     if (pks.length !== 0) {
-      this._relationQuery.whereIn(this._description.ForeignKey, pks);
-      this._relationQuery.middleware(new BelongsToRelationResultTransformMiddleware());
-      this._relationQuery.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
-      this._relationQuery.middleware(hydrateMiddleware);
-      return (await this._relationQuery) as any;
+      const query = executionCopy(this._relationQuery);
+      query.whereIn(this._description.ForeignKey, pks);
+      query.middleware(new BelongsToRelationResultTransformMiddleware());
+      query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
+      query.middleware(hydrateMiddleware);
+      return (await query) as any;
     }
 
     return [];

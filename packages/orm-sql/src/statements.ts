@@ -40,6 +40,8 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * A statement that holds a live reference to a BUILDER must rebind that reference to the
  * builder it is handed. `SelectQueryBuilder.clone()` and `WhereBuilder.clone()` pass the new
  * builder to every statement they copy, precisely so the copies stop pointing at the original.
+ * `SelectQueryBuilder.clone()` passes none to a statement merged in from another builder ( a
+ * nested relation query ), which keeps reading that builder's alias.
  * Anything that reads `builder.TableAlias` at BUILD time and kept the original produced SQL
  * naming an alias the cloned query never declares.
  *

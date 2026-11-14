@@ -6,10 +6,10 @@ Every request carries `req.storage`, a per-request object that the server middle
 
 Per request, the server middlewares fill `req.storage` in `Order`:
 
-1. `HttpServer`'s first handler, before `http.bodyLimits` and `http.middlewares`, sets `req.storage = {}`. (`RequestStorage` is a deprecated class, no longer registered as a server middleware.)
-2. `TracingMiddleware` (Order -3) starts the OpenTelemetry SERVER span in `onAround`, as a child of an inbound `traceparent`, and runs the rest of the request with it active. Its `onFinish`, when the request finishes, names it `<METHOD> <route path>` (`http.route`) if a route matched, sets `http.response.status_code`, and ends it. ERROR on a 5xx (`error.type` is the status, with an `exception` event for the error the reply answers) and on a client that left before the status line went out (`error.type` `aborted`, no status code). A streamed reply the client closed after its status line keeps that status and gets `spina.http.aborted: true`. A method outside the standard ones is recorded as `_OTHER` (`http.request.method_original` keeps it) and the span is named `HTTP`. A failure to start the span is logged and the request runs untraced.
-3. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header, `traceId` and `spanId` from the active span (without one, it continues the inbound `traceparent` or starts a trace), and the outbound `traceparent` response header.
-4. `RealIp` (Order 1) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
+1. `TracingMiddleware` (Order -3) starts the OpenTelemetry SERVER span in `onAround`, as a child of an inbound `traceparent`, and runs the rest of the request with it active. Its `onFinish`, when the request finishes, names it `<METHOD> <route path>` (`http.route`) if a route matched, sets `http.response.status_code`, and ends it. ERROR on a 5xx (`error.type` is the status, with an `exception` event for the error the reply answers) and on a client that left before the status line went out (`error.type` `aborted`, no status code). A streamed reply the client closed after its status line keeps that status and gets `spina.http.aborted: true`. A method outside the standard ones is recorded as `_OTHER` (`http.request.method_original` keeps it) and the span is named `HTTP`. A failure to start the span is logged and the request runs untraced.
+2. `HttpServer`'s first handler, before `http.middlewares` and every server middleware, sets `req.storage = {}`. (`RequestStorage` is a deprecated class, no longer registered as a server middleware.)
+3. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header. It continues the inbound `traceparent` header, or starts a new trace, sets `traceId` and `spanId`, and the outbound `traceparent` response header.
+4. `RealIp` (Order 1; `AuthnRealIp` with `@spinajs/authn-http`) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
 5. `ResponseTime` (Order 2) sets `responseStart` in `onBefore`; its `onAfter`, when the reply is ready, sets `responseEnd`, `responseTime` (ms) and the `x-response-time` header.
 6. `ServerTiming` (Order 2) creates `serverTiming = []` in `onBefore`; its `onAfter` appends `total` and writes the `Server-Timing` header from all entries, after the route middlewares' `onAfter` (`RouteTiming`'s `route` entry).
 7. `AccessLog` (Order 2) logs one line in `onFinish`, aborted requests too (`aborted: true`, no status).
@@ -51,6 +51,7 @@ export default {
 | `responseStart`, `responseEnd`, `responseTime` | `ResponseTime` | Timing; `responseEnd` and `responseTime` exist only once the reply is ready, and not for static files or replies an action wrote to `res` itself. |
 | `serverTiming` | `ServerTiming` | `IServerTimingEntry[]`: `{ name, dur?, desc? }`; push your own. |
 | `perf` | `PerfRollup` | `IPerfScope` accumulator filled by the `Perf` facade. |
+| `signal`, `deadline` | `RequestDeadline`, `@Deadline` | `AbortSignal` aborted at the deadline or when the client goes away, and the deadline in epoch ms; see [Request deadlines](29-request-deadlines.md). |
 
 The access log line carries `method`, `path` (query values redacted), `status`, `ms`, `ip`, `requestId` and `userAgent`.
 

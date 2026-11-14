@@ -5,9 +5,11 @@ Two seams shape what happens to an uploaded file between the multipart parser an
 ## How it works
 
 1. `FromFile` builds the list of middleware descriptors: `http.upload.middlewares` first, then `options.middlewares` of the `@File()`.
-2. It resolves each descriptor:
+2. It resolves each descriptor from the root container:
    - a string or a class: `DI.resolve(descriptor)`;
    - `{ service, options }`: `DI.resolve(service, [options])`, so `options` is the first constructor argument.
+
+   An entry of `http.upload.middlewares` is first turned into its class: a name is the class name of a `FileUploadMiddleware` registered under that name (`@Injectable()`) or as `FileUploadMiddleware` (`@Injectable(FileUploadMiddleware)`). The route's own `options.middlewares` are resolved as written. Register upload middlewares in the root container: the startup check also sees the controller's container, the request does not.
 3. For each middleware in order, for each file, it awaits `beforeUpload(file, uploadOptions)` and merges the returned object into the file with `Object.assign`.
 4. When `options.fs` differs from the default upload provider, `ImmediateFileUploader` copies every file from the upload directory to `file.Provider` and deletes the temporary copy.
 5. When `options.uploader` is set, it resolves it like a middleware descriptor (`DI.resolve(service, [options ?? {}])`) and awaits `upload(file)` for every file. The returned files replace the ones the action receives.
@@ -18,6 +20,8 @@ Two seams shape what happens to an uploaded file between the multipart parser an
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.upload.middlewares` | `UploadFileMiddlewareDescriptor[]` | `['FileInfoMiddleware']` | class name strings, classes, `{ service, options }` | Middlewares for every `@File()`/`@Files()`, before the route's own. |
+
+Each controller with an upload route checks the entries at startup: a name that no `FileUploadMiddleware` has, a class that does not extend it, or an entry of another shape fails the startup with `InvalidOption`, naming `http.upload.middlewares` and the entry. The route's own `options.middlewares` are resolved per request.
 
 ```ts
 export default {

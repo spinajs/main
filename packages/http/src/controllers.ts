@@ -11,6 +11,7 @@ import { ManifestControllerMetadata } from './manifest-controller-metadata.js';
 import { BaseController } from './base-controller.js';
 import { ControllerSource } from './controller-sources.js';
 import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
+import { RouteIndex } from './route-index.js';
 
 export class Controllers extends AsyncService {
   /**
@@ -33,6 +34,10 @@ export class Controllers extends AsyncService {
 
   @Autoinject()
   protected Server!: HttpServer;
+
+  // Optional: a Controllers built with `new` (a unit test) has no container to inject it.
+  @Autoinject(RouteIndex)
+  protected Routes?: RouteIndex;
 
   /**
    * Single Express router that all controllers' routers are mounted onto.
@@ -193,6 +198,7 @@ export class Controllers extends AsyncService {
       }
 
       this.ControllersRouter.use(controller.instance.Router);
+      this.Routes?.mounted();
       if (controller.type) {
         this.RegisteredTypes.add(controller.type);
       }
@@ -206,6 +212,7 @@ export class Controllers extends AsyncService {
     // one mounts onto Express exactly once. Dynamic adds land here too,
     // which is how `add()` avoids the old Express-stack juggling.
     this.ControllersRouter = Express.Router();
+    this.Routes?.mount(this.ControllersRouter);
 
     // Discovery is delegated to ControllerSource services (filesystem scan,
     // DI registry, custom app sources). All lists are merged and deduped in

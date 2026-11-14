@@ -4634,12 +4634,6 @@
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     }
   },
   "packages/http/test/redact-url.test.ts": {
@@ -5566,11 +5560,6 @@
       "count": 2
     },
     "promise/catch-or-return": {
-      "count": 1
-    }
-  },
-  "packages/orm-mysql/test/event.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
       "count": 1
     }
   },
@@ -6736,13 +6725,13 @@
       "count": 1
     },
     "@typescript-eslint/no-redundant-type-constituents": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 42
+      "count": 41
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 14
@@ -7697,26 +7686,6 @@
   },
   "packages/session-provider-redis/src/index.ts": {
     "@typescript-eslint/only-throw-error": {
-      "count": 1
-    }
-  },
-  "packages/tasks/src/decorators.ts": {
-    "@typescript-eslint/no-unsafe-function-type": {
-      "count": 1
-    }
-  },
-  "packages/tasks/src/models/__task_history.ts": {
-    "@typescript-eslint/no-wrapper-object-types": {
-      "count": 1
-    }
-  },
-  "packages/tasks/test/Tasks/TestTask2.ts": {
-    "promise/param-names": {
-      "count": 1
-    }
-  },
-  "packages/tasks/test/task.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
       "count": 1
     }
   },

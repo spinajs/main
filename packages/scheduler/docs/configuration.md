@@ -66,9 +66,7 @@ queue retries the job, and for `runOn: 'all'`.
 A `schedules[]` entry with the name of a `@Schedule` class overrides that
 decorator's options; setting any of `cron`/`every`/`at`/`manual` replaces the
 decorator's timing. An entry with `task: '<ClassName>'` creates another schedule
-from that `@Schedule` class (starting from its options); `task` can also name a
-`@Task` method of `@spinajs/tasks` (README, "Scheduling a `@Task` method"). A class
-name wins over a `@Task` with the same name. Names are at most 128 characters.
+from that `@Schedule` class (starting from its options). Names are at most 128 characters.
 `emit` and `retry.retryOn` can only be set in code.
 
 ```ts sample
@@ -82,7 +80,6 @@ const schedules: ConfigScheduleEntry[] = [
     retry: { attempts: 3, backoff: 'exponential', delay: '1m', maxDelay: '30m' },
     pauseAfterFailures: 5,
   },
-  { name: 'digest', task: 'send-digest', cron: '0 8 * * *', retry: { attempts: 3 } },
   { name: 'scheduler-retention', enabled: false },
 ];
 

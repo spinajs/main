@@ -23,6 +23,9 @@ describe('mysql SQL dialect profile', function () {
 
   it('maps the native types tableInfo() reports to column families', () => {
     expect(familiesOf('tinyint', MYSQL_SQL_DIALECT)).to.deep.equal(['integer', 'boolean']);
+    // packages store uuids as string(name, 36)
+    expect(familiesOf('varchar', MYSQL_SQL_DIALECT)).to.include('uuid');
+    expect(familiesOf('char', MYSQL_SQL_DIALECT)).to.include('uuid');
   });
 
   it('declares how migrate-diff compares names and text lengths', () => {

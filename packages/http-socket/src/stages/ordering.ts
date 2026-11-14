@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { principalKey } from '@spinajs/authz';
 import { SocketException } from '@spinajs/http-socket-common';
-import { IRegisteredHandler, ISocketCommandContext, ISocketServerConfig, ISocketStageRegistration, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { IRegisteredHandler, ISocketCommandContext, ISocketServerConfig, ISocketStageRegistration, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 import { SerialQueue } from '../queue.js';
 import { isStreamResult } from '../stream.js';
@@ -16,8 +16,8 @@ import { isStreamResult } from '../stream.js';
  * has completed. Pipelining, resends and refusals before this stage ( rate, in flight, a drop ) could
  * otherwise let it overtake. Any mode honours `after`; without `ordered` it is a check, not a wait.
  */
-@Injectable(SocketCommandStage)
-export class OrderingStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class OrderingStage extends SocketMiddleware {
   @Logger('http-socket')
   protected Log: Log;
 
@@ -40,13 +40,13 @@ export class OrderingStage extends SocketCommandStage {
     }
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, proceed: () => Promise<unknown>): Promise<unknown> {
     const mode = ctx.handler?.descriptor.Options.ordered;
 
     // a durable command on an unordered command: it still runs only after its predecessor, but takes no queue place
     if (!mode) {
       await this.assertAfter(ctx);
-      return next();
+      return proceed();
     }
 
     // clientId is chosen by the client, so another principal sending the same one must not stall this queue;
@@ -63,7 +63,7 @@ export class OrderingStage extends SocketCommandStage {
 
       // The place is held until the handler settles: releasing on abort would let a resent command
       // run while the aborted one still applies. A handler that never settles is cut loose after the grace.
-      const running = next();
+      const running = proceed();
       const settled = new Promise<boolean>((resolve) => {
         let timer: NodeJS.Timeout | undefined;
         const onAbort = () => {

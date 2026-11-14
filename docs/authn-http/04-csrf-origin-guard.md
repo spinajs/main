@@ -5,7 +5,7 @@
 What it adds to `CsrfGuard`:
 
 - the session cookie (`authn.session.cookie.name`, default `ssid`, bare and with `__Host-`) is an ambient cookie;
-- the own origin follows `authn.http.trustProxy`, falling back to `http.trustProxy`;
+- the own origin follows the trust `AuthnRealIp` stored for the request (`authn.http.trustProxy`, falling back to `http.trustProxy`; read with `requestProxyTrust(req)`);
 - every refusal is logged as a rate-limited warning;
 - the deprecated `authn.http.csrf.*` keys still work;
 - the boot fails when the session cookie is `SameSite=None` without a CSRF defence (see below).

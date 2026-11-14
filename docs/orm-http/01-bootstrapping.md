@@ -132,6 +132,10 @@ export async function bootstrap() {
 }
 ```
 
+## Read-your-writes per request
+
+Importing `@spinajs/orm-http` registers `ReadYourWritesScope`, a server middleware that runs each request in a read-your-writes scope. On a connection with `Replicas`, a request that wrote through a query builder reads its own writes back from the primary. Requests that only read go to replicas. The scope is the ORM's own `AsyncLocalStorage`, separate from the request store of `@spinajs/http` (`19-request-storage-and-tracing`): it opens with the server middlewares, before argument extraction, and the same scope serves queue consumers and scheduled jobs through `readYourWrites(fn)`. See [Read replicas](../orm/24-read-replicas.md).
+
 ## Related
 
 - [Model statics and builder extension](10-model-statics-and-builder-extension.md): the statics this bootstrapper binds, and how to add your own.

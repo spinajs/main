@@ -31,6 +31,7 @@ export function createDefaultModelDescriptor(): IModelDescriptor {
     Schema: {},
     ResponseSchema: {},
     Hidden: [],
+    Sortable: [],
   };
 }
 

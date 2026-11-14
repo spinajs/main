@@ -65,19 +65,10 @@
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
-  "peerDependencies": {
-    "@spinajs/tasks": "3.0.23"
-  },
-  "peerDependenciesMeta": {
-    "@spinajs/tasks": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
-    "@spinajs/tasks": "3.0.23",
     "@spinajs/threading": "3.0.23",
     "@types/node": "^22.14.1",
     "@spinajs/testing": "3.0.23"

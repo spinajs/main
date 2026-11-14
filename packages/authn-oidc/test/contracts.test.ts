@@ -10,7 +10,7 @@ import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 
 import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
-import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcClientConfig, OidcConfig, OidcEndpoints, OidcEntraTenantId, OidcExternalSubject, OidcMappedClaims, OidcPreset, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcReservedParam, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../src/contracts.js';
+import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcClientConfig, OidcConfig, OidcEndpoints, OidcEntraTenantId, OidcExternalSubject, OidcMappedClaims, OidcPreset, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcRateLimitSetting, OidcReservedParam, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../src/contracts.js';
 import * as contracts from '../src/contracts.js';
 import * as index from '../src/index.js';
 
@@ -37,7 +37,7 @@ const INDEX_VALUES = [
   'OidcStrategy', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'checkedRequestOrigin', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
   'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
-  'stateClaim', 'validateIdToken', 'buildOidcOptions',
+  'stateClaim', 'validateIdToken', 'buildOidcOptions', 'AUTHN_OIDC_RATE_LIMITS', 'AUTHN_OIDC_RATE_LIMITED_ROUTES', 'AUTHN_OIDC_SESSION_RATE_LIMITS', 'OidcRateLimit', 'OidcSessionRateLimit', 'OidcThrottledResponse', 'isNavigation', 'oidcFailure', 'oidcThrottled',
 ].sort();
 
 const secret: OidcSecretRef = { secret: 'env://OIDC_CORP_SECRET' };
@@ -409,7 +409,7 @@ describe('authn-oidc contracts', () => {
     });
 
     it('OidcConfig, OidcMappedClaims and OidcExternalSubject are exactly the chosen shapes', () => {
-      same<OidcConfig, { readonly providers: Readonly<Record<string, OidcProviderConfig>>; readonly redirects?: { readonly success?: OidcAppPath; readonly failure?: OidcAppPath } }>(true);
+      same<OidcConfig, { readonly providers: Readonly<Record<string, OidcProviderConfig>>; readonly redirects?: { readonly success?: OidcAppPath; readonly failure?: OidcAppPath }; readonly rateLimit?: { readonly begin?: OidcRateLimitSetting; readonly callback?: OidcRateLimitSetting } }>(true);
       same<OidcMappedClaims, { readonly name?: string; readonly groups?: readonly string[]; readonly raw: Readonly<Record<string, unknown>> }>(true);
       same<OidcExternalSubject, { readonly provider: OidcStrategyName; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims: OidcMappedClaims; readonly sid?: string }>(true);
       const asCore: ExternalSubject = { provider: 'oidc:corp', subject: 's', claims: { raw: {} } } satisfies OidcExternalSubject;

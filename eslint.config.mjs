@@ -23,7 +23,7 @@ export default defineConfig(
     ],
   },
   {
-    files: ['packages/*/{src,test}/**/*.ts'],
+    files: ['packages/*/{src,test,suites}/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommendedTypeChecked, promise.configs['flat/recommended'], security.configs.recommended, authz.configs.recommended],
     languageOptions: {
       parserOptions: {
