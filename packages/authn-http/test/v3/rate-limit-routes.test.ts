@@ -172,6 +172,24 @@ describe('the shipped rate limits of the anonymous authn routes', () => {
       });
     }
 
+    it("documents authn's throttled 429 as an AuthnError with Retry-After; a route answering the login failure documents none", () => {
+      const documented: string[] = [];
+      const limits: [ControllerClass, string, string, string][] = [...ROUTES, [AuthnVerificationController, 'request', '/auth/verify/request', 'verifyRequest'], [AuthnKeysController, 'register', '/auth/keys', 'keys']];
+      for (const [controller, method, path, name] of limits) {
+        const doc = mounted(rateLimitOf(controller, method), path, undefined).mw.documentation({} as IRoute);
+        if (!doc?.responses) {
+          expect(doc, name).to.deep.eq({});
+          continue;
+        }
+        documented.push(name);
+        expect(Object.keys(doc.responses), name).to.deep.eq(['429']);
+        expect(doc.responses['429'], name).to.include({ description: 'Too many attempts', type: 'AuthnError' });
+        expect(Object.keys(doc.responses['429'].headers ?? {}), name).to.deep.eq(['Retry-After']);
+        expect(doc.headers, `${name} sends no X-RateLimit-*`).to.eq(undefined);
+      }
+      expect(documented).to.deep.eq(['keysChallenge', 'passkeysChallenge', 'codeRequest', 'passwordResetRequest', 'verify', 'register', 'verifyRequest', 'keys']);
+    });
+
     it('login answers the uniform 401 failure body; the others their 429 throttled body', async () => {
       const login = answerOf(rateLimitOf(AuthnLoginController, 'login').answer!(60));
       expect([login.status, login.body]).to.deep.eq([401, AUTHN_FAILURE_BODY]);

@@ -1,23 +1,5 @@
-import { RateLimit, rateLimitSchema } from '@spinajs/http';
-import type { IRateLimitOptions, RateLimitDefault } from '@spinajs/http';
-
-export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, RateLimitDefault>>;
-
-/** The schema of a `rateLimit` object: one `rateLimitSchema` entry per route group, an unknown name refused. */
-export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>) {
-  return {
-    type: 'object',
-    default: {},
-    propertyNames: { enum: Object.keys(defaults) },
-    properties: Object.fromEntries((Object.keys(defaults) as N[]).map((name) => [name, rateLimitSchema(defaults[name], routes[name])])),
-    description: 'Per-route @RateLimit settings: { limit, windowSeconds, by, headers } over the shipped default, or false for no limit.',
-  };
-}
-
-/** A `@RateLimit` factory over `<root>.<name>` config keys with `defaults` for each name. */
-export function configuredRateLimit<N extends string>(root: string, defaults: RateLimitDefaults<N>) {
-  return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'headers' | 'key'> = {}) => RateLimit({ config: `${root}.${name}`, default: defaults[name], ...options });
-}
+import { configuredRateLimit } from '@spinajs/http';
+import type { RateLimitDefaults } from '@spinajs/http';
 
 /**
  * `authz.http.rateLimit.<name>` defaults. `principal` counts the request's principal (an anonymous one by address);

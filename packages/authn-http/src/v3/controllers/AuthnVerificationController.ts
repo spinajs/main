@@ -4,7 +4,7 @@ import { PasswordService } from '@spinajs/authn/contracts';
 
 import { ClientContext } from '../../args/authn.js';
 import { AuthnVerifyBody } from '../../dto/verification.js';
-import { AddressVerificationRegistered, tooManyRequests, verifyThrottled } from '../../password/index.js';
+import { AddressVerificationRegistered, throttled, tooManyRequests, verifyThrottled } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { IpThrottle } from '../../middleware/ip-throttle.js';
 import { AuthnRateLimit, AuthnSessionRateLimit } from '../../rate-limits.js';
@@ -18,6 +18,8 @@ const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
 // One answer for every refused secret, so it tells a used link from an expired or a forged one apart for nobody (A02).
 const invalidSecret = () => badRequest('invalid_secret', 'the verification link is invalid or has expired');
+
+const verifyRequestThrottled = throttled('too many verification requests, try again later');
 
 /**
  * Address verification routes over the optional `requestVerification` and `redeemVerification` of the PasswordService
@@ -39,7 +41,7 @@ export class AuthnVerificationController extends BaseController {
    * @security cookieAuth
    */
   @Post('auth/verify/request')
-  @AuthnSessionRateLimit('verifyRequest', { answer: (retryAfter) => tooManyRequests('too many verification requests, try again later', retryAfter) })
+  @AuthnSessionRateLimit('verifyRequest', { answer: verifyRequestThrottled })
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async request(@ClientContext() client: AuthnClientContext) {
     const session = activeSessionOf(client);

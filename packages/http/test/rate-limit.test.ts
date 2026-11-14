@@ -11,8 +11,8 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 
 import { httpApp, req, TestConfiguration } from './common.js';
-import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, rateLimitSchema, resolveRouteMiddlewares } from '../src/index.js';
-import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IThrottleRule } from '../src/index.js';
+import { BaseController, BasePath, CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, Get, HttpServer, MemoryThrottleStore, Ok, Post, RateLimit, RateLimitMiddleware, RawJsonResponse, ThrottleMiddleware, ThrottleStore, configuredRateLimit, documentedAnswer, rateLimitSchema, rateLimitsSchema, resolveRouteMiddlewares } from '../src/index.js';
+import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, IRouteMiddlewareDoc, IThrottleRule, RateLimitDefaults, RateLimitSchemaOptions, RouteMiddleware } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import httpConfig from '../src/config/http.js';
 import { globalRouteMiddlewareDescriptors } from '../src/global-route-middlewares.js';
@@ -27,8 +27,13 @@ interface IRun {
   answerHeaders?: Record<string, string>;
 }
 
+// chai-http types the response headers as any.
+const header = (res: { header: unknown }, name: string) => (res.header as Record<string, string | undefined>)[name];
+
 const ROUTE = { InternalType: 'post', Method: 'login' } as unknown as IRoute;
 
+const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
+const routeMiddlewaresOf = (type: object, method: string) => descriptorOf(type).Routes.get(method)!.Middlewares;
 /** A middleware built with `new` gets what its @Autoinject properties would, from `container`. */
 async function wired<T extends RateLimitMiddleware>(mw: T, container: IContainer): Promise<T> {
   readingFrom(mw, container);
@@ -138,7 +143,7 @@ class RateLimitOptionsController extends BaseController {
 class RateLimitConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
-    (this.Config as Record<string, unknown>).test = { rateLimit: { tight: { limit: 1 }, off: false } };
+    this.Config.test = { rateLimit: { tight: { limit: 1 }, off: false } };
   }
 }
 
@@ -183,6 +188,158 @@ class RateLimitFloorConfiguration extends TestConfiguration {
     const http = (this.Config as Record<string, Record<string, unknown>>).http;
     http.routes = { ...(http.routes as object), middlewares: [{ service: 'RateLimitMiddleware', options: [1, 60] }] };
   }
+}
+
+const refusedAnswer = documentedAnswer((retryAfterSeconds: number) => new RawJsonResponse(401, { error: 'uniform' }, { Headers: [{ Name: 'Retry-After', Value: String(retryAfterSeconds) }] }), {
+  status: 401,
+  description: 'Refused',
+  type: 'UniformError',
+  retryAfter: true,
+});
+
+const bareAnswer = documentedAnswer(() => new RawJsonResponse(403, { error: 'bare' }), { status: 403, description: 'Refused, no Retry-After' });
+
+@BasePath('rate-limited-docs')
+class RateLimitDocsController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: bareAnswer })
+  public bare() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: bareAnswer, headers: true })
+  public bareLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 0, windowSeconds: 60, answer: bareAnswer, headers: true })
+  public bareClosedLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, headers: true, key: () => 'k' })
+  public keyed() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit(2, 60)
+  public quiet() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, headers: true })
+  public loud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ config: 'test.rateLimit.tight', default: { limit: 5, windowSeconds: 60, headers: true } })
+  public configured() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 0, windowSeconds: 60 })
+  public closed() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 0, windowSeconds: 60, headers: true })
+  public closedLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: refusedAnswer })
+  public marked() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: refusedAnswer, headers: true })
+  public markedLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: uniformAnswer })
+  public unmarked() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: uniformAnswer, headers: true })
+  public unmarkedLoud() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ config: 'test.rateLimit.off', default: { limit: 1, windowSeconds: 60 } })
+  public off() {
+    return new Ok();
+  }
+
+  @Post()
+  @RateLimit({ limit: 5, windowSeconds: 60, by: 'principal', headers: true })
+  @RateLimit({ limit: 50, windowSeconds: 3600, by: 'principal', headers: true })
+  public twice() {
+    return new Ok();
+  }
+}
+
+const throttledAnswer = documentedAnswer((retryAfterSeconds: number) => new RawJsonResponse(429, { error: 'throttled', message: `retry in ${retryAfterSeconds}` }), {
+  status: 429,
+  description: 'Too many attempts',
+  type: 'AuthnError',
+});
+
+@BasePath('rate-limited-docs-floor')
+class RateLimitDocsFloorController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: throttledAnswer })
+  public limited() {
+    return new Ok();
+  }
+
+  @Post()
+  public floored() {
+    return new Ok();
+  }
+}
+
+@BasePath('rate-limited-docs-controller')
+@RateLimit(10, 60)
+class RateLimitDocsControllerLimitController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 2, windowSeconds: 60, answer: throttledAnswer })
+  public limited() {
+    return new Ok();
+  }
+}
+
+const TOO_MANY_REQUESTS_SCHEMA = {
+  type: 'object',
+  required: ['error'],
+  properties: { error: { type: 'object', required: ['code', 'message'], properties: { code: { type: 'string', enum: ['E_TOO_MANY_REQUESTS'] }, message: { type: 'string' } } } },
+};
+const RATE_LIMIT_HEADERS = ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'];
+
+const isRateLimit = (m: RouteMiddleware): m is RateLimitMiddleware => m instanceof RateLimitMiddleware;
+
+/** The documentation of every RateLimitMiddleware mounted on each route of `type`, in mounted order. */
+async function mountedDocs(app: TestApp, type: object): Promise<Map<string, (IRouteMiddlewareDoc | undefined)[]>> {
+  const controller = (await (await app.resolve(Controllers)).Controllers).find((c) => c.type === type)!.instance as BaseController;
+  const docs = new Map<string, (IRouteMiddlewareDoc | undefined)[]>();
+  for (const [method, route] of descriptorOf(type).Routes) {
+    docs.set(String(method), controller.MountedMiddlewares(method).filter(isRateLimit).map((m) => m.documentation(route)));
+  }
+  return docs;
 }
 
 class BrokenStore extends ThrottleStore {
@@ -255,7 +412,6 @@ describe('RateLimitMiddleware', () => {
   });
 
   describe('declared unlimited: { config: false }', () => {
-    const descriptorOf = (type: object) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, (type as { prototype: object }).prototype) as IControllerDescriptor;
     const enabledLimits = async (type: object, method: string, globals: { Type: typeof RateLimitMiddleware; Options: unknown[] }[]) => {
       const descriptor = descriptorOf(type);
       const route = descriptor.Routes.get(method)!;
@@ -299,6 +455,72 @@ describe('RateLimitMiddleware', () => {
       const schema = rateLimitSchema({ limit: 30, windowSeconds: 60, by: 'ip' }, 'POST /x', { headers: false }) as { anyOf: { propertyNames?: unknown; properties?: Record<string, unknown> }[] };
       expect(schema.anyOf[1].propertyNames).to.deep.eq({ enum: ['limit', 'windowSeconds', 'by'] });
       expect(schema.anyOf[1].properties).to.not.have.property('headers');
+    });
+  });
+
+  describe('rateLimitsSchema', () => {
+    const defaults = { checks: { limit: 600, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' } } as const satisfies RateLimitDefaults;
+    const routes = { checks: 'POST /authz/checks', events: 'GET /authz/events' };
+    type Schema = { default: unknown; propertyNames: unknown; properties: Record<string, unknown>; description: string };
+
+    it('has one entry per name, defaults to {} and refuses unknown names', () => {
+      const schema = rateLimitsSchema(defaults, routes) as Schema;
+      expect(schema.default).to.deep.equal({});
+      expect(schema.propertyNames).to.deep.equal({ enum: ['checks', 'events'] });
+      expect(schema.properties.checks).to.deep.equal(rateLimitSchema(defaults.checks, routes.checks));
+      expect(schema.properties.events).to.deep.equal(rateLimitSchema(defaults.events, routes.events));
+    });
+
+    it('takes a description', () => {
+      expect((rateLimitsSchema(defaults, routes, 'Login limits') as Schema).description).to.equal('Login limits');
+    });
+
+    it('passes { headers: false } to every entry and leaves headers out of its default description', () => {
+      expect((rateLimitsSchema(defaults, routes) as Schema).description).to.contain('{ limit, windowSeconds, by, headers }');
+      const schema = rateLimitsSchema(defaults, routes, undefined, { headers: false }) as Schema;
+      expect(schema.description).to.contain('{ limit, windowSeconds, by }');
+      expect(schema.properties.checks).to.deep.equal(rateLimitSchema(defaults.checks, routes.checks, { headers: false }));
+      expect(schema.properties.events).to.deep.equal(rateLimitSchema(defaults.events, routes.events, { headers: false }));
+    });
+  });
+
+  describe('configuredRateLimit', () => {
+    it("declares RateLimitMiddleware with <root>.<name> and that name's default", () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } });
+      const answer = () => new Ok({});
+      const key = () => 'k';
+      class C {}
+      limit('checks', { answer, key })(C.prototype, 'checks', {});
+      limit('checks')(C.prototype, 'plain', {});
+      // @ts-expect-error headers of a configured route come from its config, which rateLimitsSchema lets set them
+      limit('checks', { headers: false });
+      const [mw] = routeMiddlewaresOf(C, 'checks');
+      expect(mw.Type).to.eq(RateLimitMiddleware);
+      expect(mw.Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' }, answer, key }]);
+      expect(routeMiddlewaresOf(C, 'plain')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
+    });
+
+    it('keeps its config key and default over options that name them', () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } });
+      class C {}
+      limit('checks', { config: 'other.key', default: { limit: 1, windowSeconds: 1 } } as IRateLimitOptions)(C.prototype, 'checks', {});
+      expect(routeMiddlewaresOf(C, 'checks')[0].Options).to.deep.eq([{ config: 'authz.http.rateLimit.checks', default: { limit: 600, windowSeconds: 60, by: 'principal' } }]);
+    });
+
+    it('adds no headers key without opts.headers', () => {
+      const limit = configuredRateLimit('authz.http.rateLimit', { checks: { limit: 600, windowSeconds: 60, by: 'principal' } }, { headers: undefined });
+      class C {}
+      limit('checks')(C.prototype, 'checks', {});
+      expect(routeMiddlewaresOf(C, 'checks')[0].Options[0]).to.not.have.property('headers');
+    });
+
+    it('fixes the headers of every route it declares with { headers: false }', () => {
+      const lock: RateLimitSchemaOptions = { headers: false };
+      const limit = configuredRateLimit('authn.rateLimit', { login: { limit: 30, windowSeconds: 60, by: 'ip' } }, lock);
+      const answer = () => new Ok({});
+      class C {}
+      limit('login', { answer, headers: true } as IRateLimitOptions)(C.prototype, 'login', {});
+      expect(routeMiddlewaresOf(C, 'login')[0].Options).to.deep.eq([{ config: 'authn.rateLimit.login', default: { limit: 30, windowSeconds: 60, by: 'ip' }, answer, headers: false }]);
     });
   });
 
@@ -673,36 +895,47 @@ describe('RateLimitMiddleware', () => {
     });
 
     it('answers 429 over the limit through the reply pipeline, a route of its own counter, a route without it unlimited, X-RateLimit-* only on a route that opts in', async () => {
+      const controller = (await (await app.resolve(Controllers)).Controllers).find((c) => c.type === RateLimitedController)!.instance as BaseController;
+      const loginLimits = controller.MountedMiddlewares('login').filter((m) => m instanceof RateLimitMiddleware);
+      const otherLimits = controller.MountedMiddlewares('other').filter((m) => m instanceof RateLimitMiddleware);
+      expect(loginLimits).to.have.length(1);
+      expect(otherLimits).to.have.length(1);
+      expect(loginLimits[0]).to.not.eq(otherLimits[0]);
+      expect(controller.MountedMiddlewares('free').filter((m) => m instanceof RateLimitMiddleware)).to.deep.eq([]);
+      expect(controller.MountedMiddlewares('nope')).to.deep.eq([]);
+      const loginBefore = sinon.spy(loginLimits[0], 'onBefore');
+
       const first = await req().post('rate-limited/login');
       expect(first.status).to.eq(200);
-      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(first, 'x-ratelimit-limit')).to.eq(undefined);
       expect((await req().post('rate-limited/login')).status).to.eq(200);
 
       const limited = await req().post('rate-limited/login');
       expect(limited.status).to.eq(429);
-      expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
+      expect(Number(header(limited, 'retry-after'))).to.be.within(1, 60);
       expect(Object.keys(limited.header).filter((h) => h.startsWith('x-ratelimit-'))).to.deep.eq([]);
       expect(limited.body).to.deep.eq({ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } });
+      expect(loginBefore.callCount).to.eq(3);
 
       expect((await req().post('rate-limited/other')).status).to.eq(200);
       for (let i = 0; i < 3; i++) {
         const free = await req().get('rate-limited/free');
         expect(free.status).to.eq(200);
-        expect(free.header['x-ratelimit-limit']).to.eq(undefined);
+        expect(header(free, 'x-ratelimit-limit')).to.eq(undefined);
       }
 
       // the suite's afterEach disposes the app, so the route that opts in is checked here
       const opted = await req().post('rate-limited/opted');
       expect(opted.status).to.eq(200);
-      expect(opted.header['x-ratelimit-limit']).to.eq('2');
-      expect(opted.header['x-ratelimit-remaining']).to.eq('1');
-      expect((await req().post('rate-limited/opted')).header['x-ratelimit-remaining']).to.eq('0');
+      expect(header(opted, 'x-ratelimit-limit')).to.eq('2');
+      expect(header(opted, 'x-ratelimit-remaining')).to.eq('1');
+      expect(header(await req().post('rate-limited/opted'), 'x-ratelimit-remaining')).to.eq('0');
 
       const optedLimited = await req().post('rate-limited/opted');
       expect(optedLimited.status).to.eq(429);
-      expect(Number(optedLimited.header['retry-after'])).to.be.within(1, 60);
-      expect(optedLimited.header['x-ratelimit-limit']).to.eq('2');
-      expect(optedLimited.header['x-ratelimit-remaining']).to.eq('0');
+      expect(Number(header(optedLimited, 'retry-after'))).to.be.within(1, 60);
+      expect(header(optedLimited, 'x-ratelimit-limit')).to.eq('2');
+      expect(header(optedLimited, 'x-ratelimit-remaining')).to.eq('0');
     });
   });
 
@@ -726,20 +959,20 @@ describe('RateLimitMiddleware', () => {
     it('limits by the configured numbers with the route answer and no X-RateLimit-* headers; a config false mounts nothing', async () => {
       const first = await req().post('rate-limited-options/login');
       expect(first.status).to.eq(200);
-      expect(first.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(first, 'x-ratelimit-limit')).to.eq(undefined);
 
       const limited = await req().post('rate-limited-options/login');
       expect(limited.status).to.eq(401);
       expect(limited.body).to.deep.eq({ error: 'uniform' });
-      expect(Number(limited.header['retry-after'])).to.be.within(1, 60);
-      expect(limited.header['x-ratelimit-limit']).to.eq(undefined);
-      expect(limited.header['x-ratelimit-remaining']).to.eq(undefined);
+      expect(Number(header(limited, 'retry-after'))).to.be.within(1, 60);
+      expect(header(limited, 'x-ratelimit-limit')).to.eq(undefined);
+      expect(header(limited, 'x-ratelimit-remaining')).to.eq(undefined);
 
       // the suite's afterEach disposes the app, so the route whose config key is false is checked here
       for (let i = 0; i < 3; i++) {
         const res = await req().post('rate-limited-options/unlimited');
         expect(res.status).to.eq(200);
-        expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+        expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
       }
     });
   });
@@ -769,13 +1002,177 @@ describe('RateLimitMiddleware', () => {
         for (let i = 0; i < 3; i++) {
           const res = await req().post(path);
           expect(res.status, `${path} ${i + 1}`).to.eq(200);
-          expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+          expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
         }
       }
       for (const path of ['rate-limited-off/login', 'rate-limited-floor/other']) {
         expect((await req().post(path)).status, path).to.eq(200);
         expect((await req().post(path)).status, path).to.eq(429);
       }
+    });
+  });
+
+  describe('documentation', function () {
+    this.timeout(15000);
+    let app: TestApp;
+    // the suite's afterEach disposes the app after the first test, so the mounted middlewares are read up front
+    let docs: Map<string, (IRouteMiddlewareDoc | undefined)[]>;
+    const docOf = (method: string): IRouteMiddlewareDoc => {
+      const mounted = docs.get(method)!;
+      expect(mounted, method).to.have.length(1);
+      expect(mounted[0], method).to.not.eq(undefined);
+      return mounted[0]!;
+    };
+
+    before(async () => {
+      app = await httpApp({
+        configuration: RateLimitConfiguration,
+        register: (c) => c.register(RateLimitDocsController).as(BaseController),
+        resolve: [Intl, Controllers],
+      });
+      docs = await mountedDocs(app, RateLimitDocsController);
+    });
+
+    after(async () => {
+      await app.dispose();
+    });
+
+    it('documents nothing before the route is mounted, or when the configured limit is false', async () => {
+      expect(new RateLimitMiddleware(2, 60).documentation(ROUTE)).to.eq(undefined);
+
+      const off = await makeObjectMiddleware({ config: 'test.rateLimit.off', default: { limit: 1, windowSeconds: 60 } }, { test: { rateLimit: { off: false } } });
+      expect(off.isEnabled(ROUTE, CONTROLLER)).to.eq(false);
+      expect(off.documentation(ROUTE)).to.eq(undefined);
+      expect(docs.get('off')).to.deep.eq([]);
+    });
+
+    it('the default answer without headers: the shared TooManyRequests 429 with Retry-After, nothing else', () => {
+      const doc = docOf('quiet');
+      expect(Object.keys(doc)).to.deep.eq(['responses']);
+      expect(Object.keys(doc.responses!)).to.deep.eq(['429']);
+      const answer = doc.responses!['429'];
+      expect(answer.component).to.eq('TooManyRequests');
+      expect(answer.schema).to.deep.eq(TOO_MANY_REQUESTS_SCHEMA);
+      expect(answer.description).to.be.a('string').and.not.eq('');
+      expect(answer.headers).to.have.keys('Retry-After');
+      expect(answer.headers!['Retry-After'].type).to.eq('integer');
+    });
+
+    it('the default answer with headers: an inline 429 with X-RateLimit-*, the headers on success and the effective numbers', () => {
+      const doc = docOf('loud');
+      const answer = doc.responses!['429'];
+      expect(answer.component).to.eq(undefined);
+      expect(answer.schema).to.deep.eq(TOO_MANY_REQUESTS_SCHEMA);
+      expect(answer.headers).to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
+      expect(doc.headers).to.have.keys(...RATE_LIMIT_HEADERS);
+      for (const name of RATE_LIMIT_HEADERS) expect(doc.headers![name].type, name).to.eq('integer');
+      expect(doc.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60, by: 'ip' }] });
+    });
+
+    it('a configured limit documents the numbers and the headers flag it resolved, never its config key', () => {
+      const doc = docOf('configured');
+      expect(doc.headers).to.have.keys(...RATE_LIMIT_HEADERS);
+      expect(doc.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 1, windowSeconds: 60, by: 'ip' }] });
+      expect(JSON.stringify(doc)).to.not.include('test.rateLimit');
+    });
+
+    it('a closed route (limit 0): a 429 without Retry-After', () => {
+      const closed = docOf('closed');
+      expect(Object.keys(closed)).to.deep.eq(['responses']);
+      expect(closed.responses!['429'].component).to.eq(undefined);
+      expect(closed.responses!['429'].schema).to.deep.eq(TOO_MANY_REQUESTS_SCHEMA);
+      expect(closed.responses!['429'].headers).to.eq(undefined);
+
+      const loud = docOf('closedLoud');
+      expect(loud.responses!['429'].component).to.eq(undefined);
+      expect(loud.responses!['429'].headers).to.have.keys('X-RateLimit-Limit', 'X-RateLimit-Remaining');
+      expect(loud.headers, 'a closed route has no success answer').to.eq(undefined);
+      expect(loud.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 0, windowSeconds: 60, by: 'ip' }] });
+    });
+
+    it('a marked custom answer documents its own status, type and Retry-After; X-RateLimit-* only with headers', () => {
+      const marked = docOf('marked');
+      expect(Object.keys(marked)).to.deep.eq(['responses']);
+      expect(Object.keys(marked.responses!)).to.deep.eq(['401']);
+      const answer = marked.responses!['401'];
+      expect(answer).to.include({ description: 'Refused', type: 'UniformError' });
+      expect(answer.headers).to.have.keys('Retry-After');
+      expect(answer.component).to.eq(undefined);
+      expect(answer.schema).to.eq(undefined);
+
+      const loud = docOf('markedLoud');
+      expect(Object.keys(loud.responses!)).to.deep.eq(['401']);
+      expect(loud.responses!['401']).to.include({ description: 'Refused', type: 'UniformError' });
+      expect(loud.responses!['401'].headers, 'the headers onBefore sets next to the answer').to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
+      expect(loud.headers).to.have.keys(...RATE_LIMIT_HEADERS);
+      expect(loud.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60, by: 'ip' }] });
+    });
+
+    it("a mark without retryAfter: no Retry-After unless the middleware sets it; a closed route's answer gets Limit and Remaining only", () => {
+      expect(docOf('bare')).to.deep.eq({ responses: { '403': { description: 'Refused, no Retry-After' } } });
+      expect(docOf('bareLoud').responses!['403'].headers).to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
+      expect(docOf('bareClosedLoud').responses!['403'].headers).to.have.keys('X-RateLimit-Limit', 'X-RateLimit-Remaining');
+    });
+
+    it('a custom key publishes no by: the key, not the address or principal, is counted', () => {
+      expect(docOf('keyed').extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60 }] });
+    });
+
+    it('an unmarked custom answer documents no answer; X-RateLimit-* only with headers', () => {
+      expect(docOf('unmarked')).to.deep.eq({});
+
+      const loud = docOf('unmarkedLoud');
+      expect(loud.responses).to.eq(undefined);
+      expect(loud.headers).to.have.keys(...RATE_LIMIT_HEADERS);
+      expect(loud.extensions).to.deep.eq({ 'x-rate-limit': [{ limit: 2, windowSeconds: 60, by: 'ip' }] });
+    });
+
+    it('two @RateLimits on one route document apart, each with its own numbers', () => {
+      const mounted = docs.get('twice')!;
+      expect(mounted).to.have.length(2);
+      const limits = mounted.map((doc) => (doc!.extensions!['x-rate-limit'] as unknown[])[0]);
+      expect(limits).to.have.deep.members([
+        { limit: 5, windowSeconds: 60, by: 'principal' },
+        { limit: 50, windowSeconds: 3600, by: 'principal' },
+      ]);
+      for (const doc of mounted) expect(doc!.responses!['429'].headers).to.have.keys('Retry-After', ...RATE_LIMIT_HEADERS);
+    });
+  });
+
+  describe('documentation under a global floor', function () {
+    this.timeout(15000);
+    let app: TestApp;
+    let docs: Map<string, (IRouteMiddlewareDoc | undefined)[]>;
+    let controllerLimitDocs: Map<string, (IRouteMiddlewareDoc | undefined)[]>;
+
+    before(async () => {
+      app = await httpApp({
+        configuration: RateLimitFloorConfiguration,
+        register: (c) => {
+          c.register(RateLimitDocsFloorController).as(BaseController);
+          c.register(RateLimitDocsControllerLimitController).as(BaseController);
+        },
+        resolve: [Intl, Controllers],
+      });
+      docs = await mountedDocs(app, RateLimitDocsFloorController);
+      controllerLimitDocs = await mountedDocs(app, RateLimitDocsControllerLimitController);
+    });
+
+    after(async () => {
+      await app.dispose();
+    });
+
+    it("the floor never shadows a route's own marked answer; a controller limit is mounted before the route's", () => {
+      expect(docs.get('floored')).to.have.length(1);
+      expect(docs.get('floored')![0]!.responses!['429'].component).to.eq('TooManyRequests');
+
+      // a route's own @RateLimit replaces the floor (route-builder: a class declared locally wins over its global entry)
+      expect(docs.get('limited')).to.deep.eq([{ responses: { '429': { description: 'Too many attempts', type: 'AuthnError' } } }]);
+
+      const [controllerLimit, own] = controllerLimitDocs.get('limited')!;
+      expect(controllerLimitDocs.get('limited')).to.have.length(2);
+      expect(controllerLimit!.responses!['429'].component).to.eq('TooManyRequests');
+      expect(own).to.deep.eq({ responses: { '429': { description: 'Too many attempts', type: 'AuthnError' } } });
     });
   });
 
@@ -802,7 +1199,7 @@ describe('RateLimitMiddleware', () => {
     it('answers the error reply and never runs the action (fail closed)', async () => {
       const res = await req().post('rate-limited-broken/guarded');
       expect(res.status).to.eq(500);
-      expect(res.header['x-ratelimit-limit']).to.eq(undefined);
+      expect(header(res, 'x-ratelimit-limit')).to.eq(undefined);
       expect(BrokenStoreController.calls).to.eq(0);
     });
   });

@@ -257,6 +257,66 @@ export class WebhookController extends BaseController {
 }
 ```
 
+### In API documents
+
+A mounted `RateLimitMiddleware` tells API document generators what it adds to its route (`documentation(route)`, see [route middlewares](./14-route-middlewares.md)):
+
+- The default answer: a `429` with the `E_TOO_MANY_REQUESTS` body and `Retry-After`, the shared `TooManyRequests` response. A closed route's 429 (`limit: 0`) has no `Retry-After`.
+- With the headers on, as the decorator and the configured value resolve them: `X-RateLimit-*` and `Retry-After` on the throttled answer, the default one or a marked `answer` (a closed route sends only `X-RateLimit-Limit` and `X-RateLimit-Remaining`), `X-RateLimit-*` on the route's own success answers (a closed route has none), and an `x-rate-limit` extension with the effective `{ limit, windowSeconds, by }`, without `by` when a `key` counts instead. With them off, the numbers stay out of the document. The configuration key never appears.
+- An `answer` of the route documents nothing unless it is marked with `documentedAnswer(fn, { status, description, type?, retryAfter? })`: the document then shows that status with its description, the named body `type` (resolved like `@response 429 {AuthnError}`) and, with `retryAfter: true`, `Retry-After`. `documentedAnswer` marks `fn` itself and returns it; `answerDocOf(fn)` reads the mark.
+- Each `RateLimitMiddleware` on a route documents on its own; a generator decides which one wins for a status. A route's own `@RateLimit` is mounted after the controller's, and replaces a global floor of the same class. `@spinajs/http-swagger` lets the later one win, so the route's own answer is documented, keeps a status the JSDoc documents, and lists the `x-rate-limit` entries of each limit that sends `X-RateLimit-*` ([Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares)).
+
+```ts sample
+import { BaseController, BasePath, Ok, Post, RateLimit, RawJsonResponse, documentedAnswer } from '@spinajs/http';
+
+const throttledSignIn = documentedAnswer(
+  (retryAfterSeconds: number) => new RawJsonResponse(401, { error: { code: 'E_SIGN_IN_FAILED' } }, { Headers: [{ Name: 'Retry-After', Value: String(retryAfterSeconds) }] }),
+  { status: 401, description: 'Sign-in failed', type: 'SignInError', retryAfter: true },
+);
+
+@BasePath('sign-in')
+export class DocumentedSignInController extends BaseController {
+  @Post()
+  @RateLimit({ limit: 30, windowSeconds: 60, answer: throttledSignIn })
+  public password() {
+    return new Ok();
+  }
+}
+```
+
+### Configured limits of a package
+
+A package with several configured routes keeps their shipped limits in one table and builds both the schema and the decorators from it:
+
+| Export | Meaning |
+| --- | --- |
+| `RateLimitDefaults<N>` | A read-only table of `RateLimitDefault` per route name `N`. |
+| `rateLimitsSchema(defaults, routes, description?, opts?)` | The JSON schema of the package's `rateLimit` object: one `rateLimitSchema(defaults[name], routes[name], opts)` entry per name, `{}` by default, an unknown name refused. `routes` names what each entry limits, for its description. |
+| `configuredRateLimit(root, defaults, opts?)` | A factory `(name, { answer?, key? }) => @RateLimit` reading `<root>.<name>` over `defaults[name]`. A route takes no `headers` of its own: `opts.headers: false` keeps them off every route of the factory, `true` sends them unless the config says otherwise. |
+
+```ts sample
+import { configuredRateLimit, rateLimitsSchema } from '@spinajs/http';
+import type { RateLimitDefaults } from '@spinajs/http';
+
+export const REPORTS_RATE_LIMITS = Object.freeze({
+  generate: { limit: 10, windowSeconds: 600, by: 'principal' },
+} as const satisfies RateLimitDefaults);
+
+const { default: _root, ...settings } = rateLimitsSchema(REPORTS_RATE_LIMITS, { generate: 'POST /reports' });
+
+export const REPORTS_RATE_LIMIT_SCHEMA = {
+  $id: 'app/reports.rate-limit.configuration.schema.json',
+  $configurationModule: 'reports.rateLimit',
+  ...settings,
+};
+
+// @ReportsRateLimit('generate') on the route
+export const ReportsRateLimit = configuredRateLimit('reports.rateLimit', REPORTS_RATE_LIMITS);
+```
+
+- Pass the same `opts` to both helpers. With `{ headers: false }` the schema refuses a configured `headers` at boot, and every route of the factory refuses it when it mounts. `{ headers: true }` is no lock: the config may still turn them off. Without `opts.headers`, the config decides the headers of each route.
+- Register the schema as the shipped packages do: `registerConfigurationSchemaAtImport` at import and `registerConfigurationSchema` in a `Bootstrapper` (both from `@spinajs/configuration`).
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |

@@ -65,6 +65,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 - **Query, path and header values are coerced.** Handlers of `@QueryField()`, `@ParamField()`, `@HeadersField()` and object-typed `@Query()` get the derived types instead of strings: `query.exact === 'true'` turns `false`, because `exact` is now the boolean `true`, `?ids=7` becomes `[7]`, and a repeated scalar (`?page=1&page=2`) answers 400.
 - **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` and `@FromDI()` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `diArgs`, `classProperties`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
 - **Undeclared root keys of a whole body are dropped from the argument.** A DTO built from a whole body (`@Body()` as the only body argument, `@BodyField()`) gets only its declared root keys; read others (`reauthPassword`, a CSRF token) from `req.body`, which stays as sent.
+- **The served OpenAPI document has no middleware answers.** `@spinajs/http-swagger` serves `manifestToOpenApi()`, which sees no runtime middleware: no `429` of `@RateLimit`, no `X-RateLimit-*` headers, no `x-rate-limit`. Document them with `@response` where a generated client needs them. See [middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour).
 
 ### Runtime modes
 

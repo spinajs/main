@@ -1,4 +1,4 @@
-import { BadRequestResponse, HTTP_STATUS_CODE, Ok } from '@spinajs/http';
+import { BadRequestResponse, HTTP_STATUS_CODE, Ok, documentedAnswer } from '@spinajs/http';
 import type { PasswordViolation } from '@spinajs/authn/contracts';
 
 import { PASSWORD_HARD_CAP } from '../policies/v3/fresh-auth.js';
@@ -38,13 +38,17 @@ export class TooManyRequestsResponse<T = unknown> extends BadRequestResponse<T> 
 export const tooManyRequests = (message: string, retryAfterSeconds: number): TooManyRequestsResponse =>
   new TooManyRequestsResponse({ error: 'throttled', message }, { Headers: [NO_STORE, { Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) }] });
 
+/** The {@link tooManyRequests} answer of `message`, marked for API documents as the `AuthnError` 429 it sends. */
+export const throttled = (message: string): ((retryAfterSeconds: number) => TooManyRequestsResponse) =>
+  documentedAnswer((retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests(message, retryAfterSeconds), { status: 429, description: 'Too many attempts', type: 'AuthnError', retryAfter: true });
+
 /** 429 for a throttled reset request. Its keys are the normalised login and the client ip, whether or not the account exists. */
-export const resetRequestThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many reset requests, try again later', retryAfterSeconds);
+export const resetRequestThrottled = throttled('too many reset requests, try again later');
 
-export const codeRequestThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many code requests, try again later', retryAfterSeconds);
+export const codeRequestThrottled = throttled('too many code requests, try again later');
 
-export const verifyThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many verification attempts, try again later', retryAfterSeconds);
+export const verifyThrottled = throttled('too many verification attempts, try again later');
 
-export const registerThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many registrations, try again later', retryAfterSeconds);
+export const registerThrottled = throttled('too many registrations, try again later');
 
-export const passkeyChallengeThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many passkey challenges, try again later', retryAfterSeconds);
+export const passkeyChallengeThrottled = throttled('too many passkey challenges, try again later');

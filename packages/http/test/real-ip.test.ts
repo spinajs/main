@@ -4,7 +4,7 @@ import sinon from 'sinon';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { RealIp, parseTrustProxy, parseTrustProxyOverride, requestProxyTrust, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
-import type { ClientAddressSource } from '../src/middlewares/RealIp.js';
+import type { ClientAddressSource, ProxyTrust } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -18,8 +18,12 @@ async function realIp(trustProxy: unknown) {
   return readingFrom(new RealIp(), child);
 }
 
-function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, extra: Record<string, unknown> = {}) {
-  return { headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: socket }, storage: {} as Record<string, unknown>, ...extra } as any;
+interface IFakeReq extends ClientAddressSource {
+  storage: { realIp?: string; proxyTrust?: ProxyTrust };
+}
+
+function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, extra: Record<string, unknown> = {}): IFakeReq {
+  return { headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: socket }, storage: {}, ...extra };
 }
 
 /** Runs the onBefore hook the server would run for `req`. */
@@ -192,7 +196,7 @@ describe('trusted client address (RealIp)', () => {
     it('a link-local socket peer is the client address, without its zone id', async () => {
       const req = fakeReq(SPOOF, 'fe80::1%eth0');
       run(await realIp(undefined), req);
-      expect((req as { storage: { realIp?: string } }).storage.realIp).to.eq('fe80::1');
+      expect(req.storage.realIp).to.eq('fe80::1');
     });
 
     it('a bad http.trustProxy fails when the middleware is resolved', async () => {

@@ -26,6 +26,7 @@ These limits cap volume. The service-side `AuthnThrottle` backoff (the `mfa` and
 - "429" is authn's own throttled body, `{ "error": "throttled", "message": "too many requests, try again later" }` with `Retry-After` and `Cache-Control: no-store`, the body a throttled reset or verification request gets.
 - No route sends `X-RateLimit-*` headers, as on every authn route, and the schema refuses `headers` in `authn.http.rateLimit.<name>`. The routes that check a code or a password keep the answer they give when the service throttles them (A02), so a client cannot tell the limit from a wrong code or password, and each route has one throttled answer.
 - Each route counts apart, also where two routes share a config key: `mfa/verify` and `mfa/recovery` each allow 10.
+- In the OpenAPI document of `@spinajs/http-swagger`, the routes that answer 429 document a `429` with the `AuthnError` body and `Retry-After`. The routes that answer 401 or 202 when throttled document nothing more: that is an answer they give anyway ([Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares)).
 - Reads and deletes of the caller's own tokens, keys, passkeys and sessions, `GET /user/mfa`, `GET` and `DELETE /auth/impersonate` and `GET /auth/active-role` have no limit.
 
 ## What is counted

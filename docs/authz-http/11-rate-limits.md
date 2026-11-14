@@ -37,33 +37,4 @@ An entry is `{ limit?, windowSeconds?, by?, headers? }` merged over the default 
 
 ## Configured limits in another package
 
-`@spinajs/users-http`, `@spinajs/teams-http` and `@spinajs/authz-http-admin` ship their limits with the helpers this package exports:
-
-| Export | Meaning |
-| --- | --- |
-| `RateLimitDefaults<N>` | A read-only table of `RateLimitDefault` (`@spinajs/http`) per route name `N`. |
-| `rateLimitsSchema(defaults, routes)` | The JSON schema of a `rateLimit` object: one [`rateLimitSchema`](../http/18-throttling.md#the-options-form-configured-limits-answer-headers-key) entry per name, an unknown name refused. Every entry accepts `headers`. |
-| `configuredRateLimit(root, defaults)` | A factory `(name, { answer?, headers?, key? }) => @RateLimit` reading `<root>.<name>` over `defaults[name]`. |
-
-```ts sample
-import { configuredRateLimit, rateLimitsSchema } from '@spinajs/authz-http';
-import type { RateLimitDefaults } from '@spinajs/authz-http';
-
-export const REPORTS_RATE_LIMITS = Object.freeze({
-  generate: { limit: 10, windowSeconds: 600, by: 'principal' },
-} as const satisfies RateLimitDefaults);
-
-const { default: _root, ...settings } = rateLimitsSchema(REPORTS_RATE_LIMITS, { generate: 'POST /reports' });
-
-export const REPORTS_RATE_LIMIT_SCHEMA = {
-  $id: 'app/reports.rate-limit.configuration.schema.json',
-  $configurationModule: 'reports.rateLimit',
-  ...settings,
-};
-
-// @ReportsRateLimit('generate') on the route
-export const ReportsRateLimit = configuredRateLimit('reports.rateLimit', REPORTS_RATE_LIMITS);
-```
-
-- Register the schema as the shipped packages do: `registerConfigurationSchemaAtImport` at import and `registerConfigurationSchema` in a `Bootstrapper` (both from `@spinajs/configuration`).
-- A route created with `{ headers: false }` refuses a configured `headers` when it mounts (`InvalidOption`), though `rateLimitsSchema` lets it through the boot check. For such a route, build the schema entry with `rateLimitSchema(default, route, { headers: false })` instead.
+`@spinajs/users-http`, `@spinajs/teams-http` and `@spinajs/authz-http-admin` ship their limits as this package does, with `@spinajs/http`'s [`rateLimitsSchema` and `configuredRateLimit`](../http/18-throttling.md#configured-limits-of-a-package).

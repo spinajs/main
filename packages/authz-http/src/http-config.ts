@@ -1,9 +1,10 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { serviceTokenField } from '@spinajs/authz';
+import { rateLimitsSchema } from '@spinajs/http';
 import type { IRateLimitSettings } from '@spinajs/http';
 
-import { AUTHZ_HTTP_RATE_LIMITED_ROUTES, AUTHZ_HTTP_RATE_LIMITS, rateLimitsSchema } from './rate-limit/index.js';
+import { AUTHZ_HTTP_RATE_LIMITED_ROUTES, AUTHZ_HTTP_RATE_LIMITS } from './rate-limit/index.js';
 
 /** One `authz.http.services` entry as configured. */
 export interface ServiceEntry {

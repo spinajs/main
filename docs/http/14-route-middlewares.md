@@ -53,6 +53,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `onAfter?(ctx): void \| Promise<void>` | in the reply pipeline, before the reply is sent | `IReplyContext` | read or change the reply: `ctx.response`, its `data`, the headers on `ctx.res`; read `ctx.error` |
 | `onFinish?(ctx): void \| Promise<void>` | once the response finished or the client went away | `IFinishContext` | log, record metrics; a throw is logged on the `http` logger |
 | `onAround?(invocation, proceed): Promise<void>` | wraps the rest of the chain | `IRouteInvocation` and `proceed` | see [Around middlewares](#around-middlewares) |
+| `documentation?(route): IRouteMiddlewareDoc \| undefined` | when an API document is generated, on the instance mounted on the route (`BaseController.MountedMiddlewares(method)`) | the route | describe the answers it gives instead of the route (`responses`), the headers it sets on the route's own success answers (`headers`) and `x-` extensions; see [In API documents](#in-api-documents) |
 
 ### Contexts
 
@@ -273,6 +274,7 @@ export default { http: { routes: { middlewares } } };
 | `onAfter?(ctx): void \| Promise<void>` | On every reply, before it is sent: `ctx.response`, `ctx.error`. |
 | `onFinish?(ctx): void \| Promise<void>` | After the response finished, or the client went away (`ctx.aborted`). |
 | `onAround?(invocation, proceed): Promise<void>` | Wraps the rest of the chain. See [Around middlewares](#around-middlewares). |
+| `documentation?(route): IRouteMiddlewareDoc \| undefined` | What the middleware adds to the route's API document. See [In API documents](#in-api-documents). |
 
 ### `RouteMiddleware`: custom implementation
 
@@ -406,6 +408,64 @@ export class ReportsController extends BaseController {
   }
 }
 ```
+
+## In API documents
+
+A middleware that answers instead of the route, or sets headers on its answers, can say so in the route's API document. An API document generator (`@spinajs/http-swagger`) calls `documentation(route)` on each instance mounted on the route, after `onRegister`. `BaseController.MountedMiddlewares(method)` lists them in mount order, keyed by the route's method name like `Routes`. `undefined` adds nothing.
+
+| `IRouteMiddlewareDoc` field | Type | Meaning |
+| --- | --- | --- |
+| `responses` | `Record<string, IDocumentedAnswer>` | The answers the middleware gives instead of the route, by status code |
+| `headers` | `Record<string, IDocumentedHeader>` | Headers it sets on the route's own success answers |
+| `extensions` | ``Record<`x-${string}`, unknown>`` | Vendor extensions for the operation; arrays concatenate across middlewares |
+
+| `IDocumentedAnswer` field | Meaning |
+| --- | --- |
+| `description` | Required |
+| `headers` | `{ description, type: 'integer' \| 'string' }` by header name |
+| `schema` | JSON schema of the body, rendered inline |
+| `type` | A named type resolved like `@response 429 {AuthnError}`, used when there is no `schema` |
+| `component` | A shared `components/responses` name: registered once, then referred to |
+| `contentType` | Default `application/json` |
+
+`@spinajs/http-swagger` copies only the `x-` keys of `extensions` onto the operation, and leaves out a middleware whose `documentation()` throws, with a warning, without failing the document. How it merges the rest (a status from the JSDoc wins, a later middleware wins over an earlier one) is in [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares). `@RateLimit` documents its `429` this way: [Throttling](18-throttling.md#in-api-documents).
+
+```ts sample
+import { BaseController, BasePath, Get, IRouteMiddlewareDoc, Middleware, Ok, RawJsonResponse, Response, RouteMiddleware } from '@spinajs/http';
+
+/** Answers 503 while the reports database is migrated. */
+export class ReportsMaintenance extends RouteMiddleware {
+  public static active = false;
+
+  public onBefore(): Response | undefined {
+    return ReportsMaintenance.active ? new RawJsonResponse(503, { error: { code: 'E_MAINTENANCE' } }, { Headers: [{ Name: 'Retry-After', Value: '300' }] }) : undefined;
+  }
+
+  public documentation(): IRouteMiddlewareDoc {
+    return {
+      responses: {
+        '503': {
+          description: 'Reports are being migrated',
+          component: 'ReportsMaintenance',
+          schema: { type: 'object', properties: { error: { type: 'object', properties: { code: { type: 'string', enum: ['E_MAINTENANCE'] } } } } },
+          headers: { 'Retry-After': { description: 'Seconds until the reports are back', type: 'integer' } },
+        },
+      },
+    };
+  }
+}
+
+@BasePath('reports')
+@Middleware(ReportsMaintenance)
+export class MaintainedReportsController extends BaseController {
+  @Get()
+  public daily() {
+    return new Ok({ total: 3 });
+  }
+}
+```
+
+Every route of the controller documents `503` as a `$ref` to `#/components/responses/ReportsMaintenance`.
 
 ## Built-in: `RouteTiming`
 

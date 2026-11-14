@@ -35,4 +35,13 @@ describe('the @spinajs/http root', () => {
     expect(Object.getPrototypeOf(http.ServerMiddleware)).to.eq(http.HttpMiddleware);
     for (const name of ['RawJsonResponse', 'ReplayedResponse']) expect(http, name).to.have.property(name);
   });
+
+  it('exports the configured rate limit helpers', () => {
+    for (const name of ['RateLimit', 'rateLimitSchema', 'rateLimitsSchema', 'configuredRateLimit', 'documentedAnswer', 'answerDocOf']) expect(http, name).to.have.property(name);
+    const doc: http.IAnswerDoc = { status: 429, description: 'Too many attempts' };
+    expect(http.answerDocOf(http.documentedAnswer(() => new http.RawJsonResponse(429, {}), doc))).to.eq(doc);
+    const defaults: http.RateLimitDefaults<'x'> = { x: { limit: 1, windowSeconds: 1, by: 'ip' } };
+    const opts: http.RateLimitSchemaOptions = { headers: false };
+    expect(http.rateLimitsSchema(defaults, { x: 'GET /x' }, undefined, opts).propertyNames).to.deep.eq({ enum: ['x'] });
+  });
 });

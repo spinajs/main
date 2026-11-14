@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, MemoryThrottleStore, RateLimitMiddleware, resolveRouteMiddlewares } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IMiddlewareContext, IMiddlewareDescriptor, IRateLimitOptions, IRoute, Response } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
@@ -61,13 +60,13 @@ describe('the shipped rate limits of the OIDC routes', () => {
   }
 
   it('back-channel logout is declared unlimited: the IdP sends one token per session, and a refused one leaves a session alive', () => {
-    expect(rateLimitsOf('backchannelLogout').map((m) => m.Options)).to.deep.eq([[{ config: false }]]);
+    expect(rateLimitsOf('backchannelLogout').map((m) => m.Options as unknown[])).to.deep.eq([[{ config: false }]]);
   });
 
   it('back-channel logout mounts no limit under a global floor, nor under a controller-level @RateLimit', async () => {
     const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, OidcController.prototype) as IControllerDescriptor;
     const floor: IMiddlewareDescriptor[] = [{ Type: RateLimitMiddleware, Options: [1, 60] }];
-    const withControllerLimit = { ...descriptor, Middlewares: [...descriptor.Middlewares, { Type: RateLimitMiddleware, Options: [1, 60] }] } as IControllerDescriptor;
+    const withControllerLimit: IControllerDescriptor = { ...descriptor, Middlewares: [...descriptor.Middlewares, { Type: RateLimitMiddleware, Options: [1, 60] }] };
     const enabledLimits = async (d: IControllerDescriptor, method: string) => {
       const route = d.Routes.get(method)!;
       const { container } = await createTestApp({ scope: 'child', bootstrap: false, config: {} });
@@ -108,8 +107,8 @@ describe('the shipped rate limits of the OIDC routes', () => {
         schemas: [AUTHN_OIDC_CONFIGURATION_SCHEMA],
         config: { authn: { oidc: { redirects: { failure: '/signin-failed' } } } },
       });
-      const answer = new OidcThrottledResponse(42).answerFor(request({ 'sec-fetch-mode': 'navigate' }), undefined, config as Configuration);
-      expect(answer).to.deep.eq(login('/signin-failed', appEnvOf(config as Configuration)).failure({ navigation: true }, 42));
+      const answer = new OidcThrottledResponse(42).answerFor(request({ 'sec-fetch-mode': 'navigate' }), undefined, config);
+      expect(answer).to.deep.eq(login('/signin-failed', appEnvOf(config)).failure({ navigation: true }, 42));
       expect([answer.status, answer.location, answer.headers]).to.deep.eq([303, '/signin-failed', { 'retry-after': '42' }]);
     });
   });

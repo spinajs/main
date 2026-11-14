@@ -170,7 +170,7 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
     /** `requestOf` after `realIp` ran on it, as the server runs RealIp before any route. */
     const throughRealIp = (realIp: RealIp, headers: Record<string, string> = {}, peer?: string): Request => {
       const req = Object.assign(requestOf(headers, peer), { headers: { host: 'app.example.test', ...headers }, storage: {} });
-      realIp.onBefore({ req: req as never, res: {} as never, storage: req.storage as never });
+      realIp.onBefore({ req: req as never, res: {} as never, storage: req.storage });
       return req;
     };
     class AppRealIp extends AuthnRealIp {

@@ -1,9 +1,11 @@
+import { rateLimitsSchema } from '@spinajs/http';
+
 import { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema } from './rate-limit-config.js';
 
 export { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema };
 export type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
 
-const RATE_LIMITED_ROUTES: Readonly<Record<string, string>> = { ...AUTHN_HTTP_RATE_LIMITED_ROUTES, ...AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES };
+const RATE_LIMITED_ROUTES = { ...AUTHN_HTTP_RATE_LIMITED_ROUTES, ...AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES };
 const RATE_LIMITS = { ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS };
 
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
@@ -59,13 +61,7 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         basePath: { type: 'string', minLength: 1, description: 'Where the credential admin routes mount, without the global route prefix. Unset: authn/admin/users.' },
       },
     },
-    rateLimit: {
-      type: 'object',
-      default: {},
-      description: 'The per-route limits (@RateLimit) of the anonymous routes and of the routes with a session; read once when the routes mount.',
-      propertyNames: { enum: Object.keys(RATE_LIMITS) },
-      properties: Object.fromEntries(Object.entries(RATE_LIMITS).map(([name, settings]) => [name, rateLimitSchema(settings, RATE_LIMITED_ROUTES[name], { headers: false })])),
-    },
+    rateLimit: rateLimitsSchema(RATE_LIMITS, RATE_LIMITED_ROUTES, 'The per-route limits (@RateLimit) of the anonymous routes and of the routes with a session; read once when the routes mount.', { headers: false }),
     logout: {
       type: 'object',
       properties: {

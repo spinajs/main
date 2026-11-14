@@ -1,7 +1,7 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
-import { configuredRateLimit, rateLimitsSchema } from '@spinajs/authz-http';
-import type { RateLimitDefaults } from '@spinajs/authz-http';
+import { configuredRateLimit, rateLimitsSchema } from '@spinajs/http';
+import type { RateLimitDefaults } from '@spinajs/http';
 
 /**
  * `authz.http.admin.rateLimit.<name>` defaults. `principal` counts the request's principal; while an admin impersonates

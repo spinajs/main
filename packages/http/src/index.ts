@@ -65,6 +65,8 @@ export * from './middlewares/MaintenanceMode.js';
 export * from './middlewares/ConcurrencyLimit.js';
 export * from './middlewares/RequestDeadline.js';
 export * from './middlewares/RateLimit.js';
+export { answerDocOf, documentedAnswer } from './middlewares/rate-limit-answer.js';
+export type { IAnswerDoc } from './middlewares/rate-limit-answer.js';
 export * from './middlewares/ResponseTime.js';
 export * from './middlewares/RouteTiming.js';
 export * from './middlewares/CacheControl.js';

@@ -7,8 +7,8 @@ import type { IValidationError } from '@spinajs/validation';
 
 import { Middleware } from '../decorators.js';
 import { RouteMiddleware } from '../interfaces.js';
-import type { IController, IMiddlewareContext, IRoute, MiddlewareStage, Response } from '../interfaces.js';
-import { quietRateLimitAnswer, rateLimitAnswer, retryAfterSeconds, setRateLimitHeaders, tooManyRequests } from './rate-limit-answer.js';
+import type { IController, IDocumentedAnswer, IMiddlewareContext, IRoute, IRouteMiddlewareDoc, MiddlewareStage, Response } from '../interfaces.js';
+import { answerDocOf, quietRateLimitAnswer, rateLimitAnswer, rateLimitHeadersDoc, retryAfterDoc, retryAfterSeconds, setRateLimitHeaders, tooManyRequests, tooManyRequestsDoc } from './rate-limit-answer.js';
 import { ThrottleStore } from './Throttle.js';
 
 /** What one request is counted against: its client address, or its authenticated principal. */
@@ -24,6 +24,14 @@ export interface IRateLimitSettings {
 
 /** Settings with their defaults filled in; `headers` stays optional, so a table of defaults need not name it. */
 export type RateLimitDefault = Required<Pick<IRateLimitSettings, 'limit' | 'windowSeconds' | 'by'>> & { headers?: boolean };
+
+/**
+ * The `headers` the routes of a configured limit declare in code. `false`: they never send `X-RateLimit-*`, and
+ * `headers` is no configurable key. `true`: they send them unless the config says otherwise. Unset: the config decides.
+ */
+export interface RateLimitSchemaOptions {
+  headers?: boolean;
+}
 
 export interface IRateLimitOptions {
   /**
@@ -77,6 +85,9 @@ const SETTINGS_PROPERTIES = {
   headers: { enum: [true, false] },
 };
 
+/** The keys a configured limit (or `default`) may set: `headers` only where the route has not ruled it out in code. */
+const settingsKeys = (opts?: RateLimitSchemaOptions): readonly string[] => (opts?.headers === false ? SETTINGS_KEYS.filter((k) => k !== 'headers') : SETTINGS_KEYS);
+
 const settingsObject = (keys: readonly string[]) => ({
   type: 'object',
   // propertyNames, not additionalProperties: removeAdditional would drop a misspelt key without a word.
@@ -127,13 +138,47 @@ function describe(error: IValidationError, label: string): string {
  * over `defaults`, or `false` for none. Schema only: the middleware checks the value again when the route mounts.
  * `opts.headers: false` (the route's own `@RateLimit({ headers: false })`) leaves `headers` out of the accepted keys.
  */
-export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: { headers?: boolean }): Record<string, unknown> {
-  const keys = opts?.headers === false ? SETTINGS_KEYS.filter((k) => k !== 'headers') : SETTINGS_KEYS;
+export function rateLimitSchema(defaults: Readonly<IRateLimitSettings>, route: string, opts?: RateLimitSchemaOptions): Record<string, unknown> {
+  const keys = settingsKeys(opts);
   return {
     default: { ...defaults },
     description: `The limit of ${route}: { ${keys.join(', ')} } merged over the default, or false for none.`,
     anyOf: [{ enum: [false] }, settingsObject(keys)],
   };
+}
+
+/** The shipped limit of each configured route group of a package, by name. */
+export type RateLimitDefaults<N extends string = string> = Readonly<Record<N, RateLimitDefault>>;
+
+/**
+ * The JSON schema of a package's `rateLimit` object: one {@link rateLimitSchema} entry per name in `defaults` (with
+ * `opts`), an unknown name refused.
+ */
+export function rateLimitsSchema<N extends string>(defaults: RateLimitDefaults<N>, routes: Readonly<Record<N, string>>, description?: string, opts?: RateLimitSchemaOptions) {
+  return {
+    type: 'object',
+    default: {},
+    propertyNames: { enum: Object.keys(defaults) },
+    properties: Object.fromEntries((Object.keys(defaults) as N[]).map((name) => [name, rateLimitSchema(defaults[name], routes[name], opts)])),
+    description: description ?? `Per-route @RateLimit settings: { ${settingsKeys(opts).join(', ')} } over the shipped default, or false for no limit.`,
+  };
+}
+
+/**
+ * A `@RateLimit` factory over the config keys `<root>.<name>`, each over `defaults[name]`. A route takes no `headers`
+ * of its own. `opts.headers: false` keeps `headers` off every route of the factory and, passed to
+ * {@link rateLimitsSchema} too, out of the schema; `true` only sends them unless the config says otherwise.
+ */
+export function configuredRateLimit<N extends string>(root: string, defaults: RateLimitDefaults<N>, opts: RateLimitSchemaOptions = {}) {
+  return (name: N, options: Pick<IRateLimitOptions, 'answer' | 'key'> = {}): ReturnType<typeof RateLimit> => RateLimit({ ...options, config: `${root}.${name}`, default: defaults[name], ...(opts.headers !== undefined ? { headers: opts.headers } : {}) });
+}
+
+/** A marked `answer`, with the headers `onBefore` sets on `res` next to it when the route sends `X-RateLimit-*`. */
+function customAnswerDoc(answer: unknown, closed: boolean, headers: boolean): Record<string, IDocumentedAnswer> | undefined {
+  const doc = answerDocOf(answer);
+  if (!doc) return undefined;
+  const sent = { ...(doc.retryAfter || (headers && !closed) ? retryAfterDoc() : {}), ...(headers ? rateLimitHeadersDoc(closed) : {}) };
+  return { [String(doc.status)]: { description: doc.description, ...(doc.type !== undefined ? { type: doc.type } : {}), ...(Object.keys(sent).length > 0 ? { headers: sent } : {}) } };
 }
 
 const defined = (settings: Partial<IRateLimitSettings>): Partial<IRateLimitSettings> => Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
@@ -235,7 +280,7 @@ export class RateLimitMiddleware extends RouteMiddleware {
 
     const { res } = ctx;
     const { answer } = this.options;
-    const headers = settings.headers ?? this.options.headers ?? false;
+    const headers = this.sendsHeaders(settings);
 
     // A closed route never opens, so a window reset or Retry-After would only invite a pointless retry.
     if (settings.limit === 0) {
@@ -255,6 +300,33 @@ export class RateLimitMiddleware extends RouteMiddleware {
     const retryAfter = retryAfterSeconds(hit);
     if (headers) res.set('Retry-After', String(retryAfter));
     return answer(retryAfter);
+  }
+
+  /**
+   * What the limit adds to the route's API document: its throttled answer (a custom `answer` only when marked with
+   * `documentedAnswer`) and, when it sends them, the `X-RateLimit-*` headers and its effective numbers. Several
+   * limits on one route document apart; a document generator decides which wins.
+   */
+  public override documentation(_route: IRoute): IRouteMiddlewareDoc | undefined {
+    const settings = this.settings;
+    if (!settings) return undefined;
+
+    const headers = this.sendsHeaders(settings);
+    const closed = settings.limit === 0;
+    const responses = this.options.answer ? customAnswerDoc(this.options.answer, closed, headers) : { '429': tooManyRequestsDoc(closed, headers) };
+    if (!headers) return responses ? { responses } : {};
+    // A custom key counts on its own value first, so `by` would misstate what is counted.
+    const counted = this.options.key ? {} : { by: settings.by };
+    return {
+      ...(responses ? { responses } : {}),
+      // a closed route never lets a request through to a success answer
+      ...(closed ? {} : { headers: rateLimitHeadersDoc() }),
+      extensions: { 'x-rate-limit': [{ limit: settings.limit, windowSeconds: settings.windowSeconds, ...counted }] },
+    };
+  }
+
+  private sendsHeaders(settings: RateLimitDefault): boolean {
+    return settings.headers ?? this.options.headers ?? false;
   }
 
   private current(): Partial<IRateLimitSettings> {

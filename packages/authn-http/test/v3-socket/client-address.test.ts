@@ -59,7 +59,8 @@ async function socketAddress(): Promise<string> {
 }
 
 async function requestAddress(): Promise<string | null> {
-  return (await new Client().get(`/${AUTHN_PROBE_PATH}`, { 'X-Forwarded-For': CLIENT })).body.clientIp;
+  const res = await new Client().get(`/${AUTHN_PROBE_PATH}`, { 'X-Forwarded-For': CLIENT });
+  return (res.body as { clientIp: string | null }).clientIp;
 }
 
 describe('@spinajs/authn-http/socket: a socket gets the client address AuthnRealIp gives a request', function () {

@@ -1,13 +1,17 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { buildRoutePath, createActionHandler, resolveRoutePolicies } from '../src/route-builder.js';
+import { buildRouteHandlers, buildRoutePath, createActionHandler, resolveRoutePolicies } from '../src/route-builder.js';
 import { Ok } from '../src/response-methods/ok.js';
 import { RouteRegistrationException } from '../src/exceptions.js';
 import { answerEarly } from '../src/reply-pipeline.js';
-import type { IControllerDescriptor, IRoute } from '../src/interfaces.js';
+import type { IControllerDescriptor, IRoute, RouteMiddleware } from '../src/interfaces.js';
 
 const route = (partial: Partial<IRoute>): IRoute => partial as IRoute;
+
+interface IFakeRes {
+  locals: { response?: unknown };
+}
 
 describe('route-builder', () => {
   describe('buildRoutePath', () => {
@@ -78,13 +82,85 @@ describe('route-builder', () => {
     });
   });
 
+  describe('buildRouteHandlers', () => {
+    it('hands onMounted the enabled middlewares, the same objects onRegister ran on', async () => {
+      const registered: unknown[] = [];
+      const enabled = {
+        isEnabled: () => true,
+        onRegister() {
+          registered.push(this);
+        },
+      };
+      const disabled = {
+        isEnabled: () => false,
+        onRegister() {
+          registered.push(this);
+        },
+      };
+      const mounted: (readonly RouteMiddleware[])[] = [];
+
+      await buildRouteHandlers({
+        controller: {} as any,
+        route: route({ Method: 'action', Type: 'get' as any, Parameters: new Map() }),
+        path: '/test/action',
+        basePath: '/test',
+        middlewares: [enabled, disabled] as unknown as RouteMiddleware[],
+        policies: { Controller: [], Route: [] },
+        errorHandlers: [],
+        storage: new AsyncLocalStorage(),
+        container: {} as any,
+        log: {} as any,
+        handleError: () => undefined,
+        onMounted: (m) => mounted.push(m),
+      });
+
+      expect(registered).to.have.length(1);
+      expect(registered[0]).to.eq(enabled);
+      expect(mounted).to.have.length(1);
+      expect(mounted[0]).to.have.length(1);
+      expect(mounted[0][0]).to.eq(enabled);
+    });
+
+    it('does not call onMounted when an onRegister refuses the route', async () => {
+      const refusing = {
+        isEnabled: () => true,
+        onRegister() {
+          throw new Error('refused');
+        },
+      };
+      let mounted = 0;
+
+      const error = await buildRouteHandlers({
+        controller: {} as any,
+        route: route({ Method: 'action', Type: 'get' as any, Parameters: new Map() }),
+        path: '/test/action',
+        basePath: '/test',
+        middlewares: [refusing] as unknown as RouteMiddleware[],
+        policies: { Controller: [], Route: [] },
+        errorHandlers: [],
+        storage: new AsyncLocalStorage(),
+        container: {} as any,
+        log: {} as any,
+        handleError: () => undefined,
+        onMounted: () => mounted++,
+      }).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+      expect(error).to.be.instanceOf(RouteRegistrationException);
+      expect((error as Error).message).to.include('refused');
+      expect(mounted).to.eq(0);
+    });
+  });
+
   describe('createActionHandler', () => {
     it('stores the action result for the route sender', async () => {
       const controller = { action: async () => new Ok() } as any;
       const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
-      const res = { locals: {} } as any;
+      const res: IFakeRes = { locals: {} };
 
-      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res as never, () => resolve()));
 
       expect(res.locals.response).to.be.instanceOf(Ok);
     });
@@ -93,10 +169,10 @@ describe('route-builder', () => {
       let ran = false;
       const controller = { action: async () => (ran = true) } as any;
       const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), new AsyncLocalStorage());
-      const res = { locals: {} } as any;
-      answerEarly(res, new Ok({ early: true }));
+      const res: IFakeRes = { locals: {} };
+      answerEarly(res as never, new Ok({ early: true }));
 
-      await new Promise<void>((resolve) => handler({ storage: {} } as any, res, () => resolve()));
+      await new Promise<void>((resolve) => handler({ storage: {} } as any, res as never, () => resolve()));
 
       expect(ran).to.eq(false);
       expect(res.locals.response).to.be.instanceOf(Ok);

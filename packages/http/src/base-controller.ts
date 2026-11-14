@@ -7,7 +7,7 @@ import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
 import { configuredMountPath, controllerMountPath } from '@spinajs/manifest';
-import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute, ParameterType } from './interfaces.js';
+import { IController, IControllerDescriptor, IActionLocalStoregeContext, IRoute, ParameterType, RouteMiddleware } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { __handle_error__ } from './error.js';
@@ -33,6 +33,8 @@ export abstract class BaseController extends AsyncService implements IController
   protected _router!: Express.Router;
 
   private _routes?: Map<string | symbol, IRoute>;
+
+  private _mounted = new Map<string | symbol, readonly RouteMiddleware[]>();
 
   @Autoinject(Container)
   protected _container!: IContainer;
@@ -95,7 +97,14 @@ export abstract class BaseController extends AsyncService implements IController
     return controllerMountPath(BasePath, this.constructor.name);
   }
 
+  /** The middlewares mounted on the route of an action; empty for an unknown action. */
+  public MountedMiddlewares(method: string | symbol): readonly RouteMiddleware[] {
+    return this._mounted.get(method) ?? [];
+  }
+
   public async resolve() {
+    // resolve() may run again on the same instance; its routes then mount afresh.
+    this._mounted.clear();
     await super.resolve();
 
     const descriptor = this.Descriptor;
@@ -152,6 +161,7 @@ export abstract class BaseController extends AsyncService implements IController
         container: this._container,
         log: this._log,
         handleError: (handleError ??= __handle_error__(this._container)),
+        onMounted: (mounted) => this._mounted.set(route.Method, mounted),
       });
 
       // What router[method](path, ...) does, keeping the Express route the RouteIndex finds the route by.
