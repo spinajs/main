@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import http from 'node:http';
 import { DI } from '@spinajs/di';
 import { Intl } from '@spinajs/intl';
@@ -373,16 +374,16 @@ describe('Audit route middleware', function () {
   for (const failWith of ['throw', 'reject'] as const) {
     it(`logs a sink that fails (${failWith}) and never fails the request`, async () => {
       const log = DI.resolve(Log, ['http']);
-      const original = log.error;
       const logged: unknown[][] = [];
-      log.error = ((...args: unknown[]) => logged.push(args)) as typeof log.error;
+      // A stub's restore deletes its own property; assigning the original back would shadow the prototype for later suites.
+      const error = sinon.stub(log, 'error').callsFake((...args: unknown[]) => void logged.push(args));
       MemoryAuditSink.failWith = failWith;
       try {
         const res = await req().post('audited/create').send({ name: 'x' });
         expect(res.status).to.eq(200);
         for (let i = 0; i < 50 && logged.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
       } finally {
-        log.error = original;
+        error.restore();
       }
 
       expect(logged).to.have.length(1);
@@ -432,14 +433,13 @@ describe('Audit declared globally ( http.routes.middlewares )', function () {
 describe('LogAuditSink', () => {
   it('writes the record as one info line on the audit logger', () => {
     const log = DI.resolve(Log, ['audit']);
-    const original = log.info;
     const lines: unknown[][] = [];
-    log.info = ((...args: unknown[]) => lines.push(args)) as typeof log.info;
+    const info = sinon.stub(log, 'info').callsFake((...args: unknown[]) => void lines.push(args));
     const record: IAuditRecord = { at: new Date(), route: 'http:POST /x', method: 'POST', url: '/x', status: 201, ms: 3, aborted: false };
     try {
       void new LogAuditSink().write(record);
     } finally {
-      log.info = original;
+      info.restore();
     }
 
     expect(lines).to.have.length(1);

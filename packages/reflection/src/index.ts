@@ -45,8 +45,8 @@ async function loadGlob(configPath: string): Promise<typeof import('glob')> {
  *   matcher would be ignored.
  *
  * The scanned dirs come from the root container's Configuration; the manifest and its effective mode from the
- * decorated instance's container lineage. The result is cached per decorated property and effective manifest
- * settings, so an app booted with another mode lists again.
+ * decorated instance's container lineage. The result is cached per decorated property, effective manifest settings and
+ * scanned dirs, so an app booted with another mode or other dirs lists again.
  */
 export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string, options: ListOptions = {}) {
   return _listOrResolveFromFiles(filter, configPath, false, typeMatcher, options);
@@ -68,14 +68,14 @@ function _listOrResolveFromFiles(
     _check_arg(_is_string(), _non_empty())(filter, 'filter');
     _check_arg(_is_string(), _non_empty())(configPath, 'configPath');
 
-    // Keyed by the settings' content and the loaded manifest: every app registers its own settings object, and an
-    // identity key would make a second app with the same mode re-resolve what the first one already listed.
+    // Keyed by the settings' content, the scanned dirs and the loaded manifest: every app registers its own settings
+    // object, and an identity key would make a second app with the same mode re-resolve what the first one already listed.
     const cache = new Map<string, WeakMap<object, Promise<Array<ClassInfo<any>>>>>();
 
     const getter = function (this: { Container?: IContainer } | undefined) {
       const owner = this?.Container;
       const container = owner ?? DI.RootContainer;
-      const settingsKey = JSON.stringify(manifestSettingsOf(container) ?? null);
+      const settingsKey = JSON.stringify([manifestSettingsOf(container) ?? null, DI.get(Configuration)?.get<unknown>(configPath) ?? null]);
       let byManifest = cache.get(settingsKey);
       if (!byManifest) {
         byManifest = new WeakMap();
