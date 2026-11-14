@@ -19,6 +19,9 @@
 - Over `@Filter()`, a typed value is never `null`, alone or as a member of a list or pair, also when the declared
   `value` schema allows `null`: the request answers 400. Filter with `isnull` / `notnull` instead. A `like` value of
   `null` is coerced to `""`, which `filter()` refuses as an empty pattern, also with 400.
+- The `@Filter()` schema refuses more than 100 top-level filters (`maxItems`, the `MAX_FILTERS` that `filter()`
+  applies): the request answers 400 from validation, before `filter()` runs. The answer was already 400. The filters
+  of a nested group are not limited by either.
 - Called from code, `filter()` keeps the 3.0.29 handling of `null`: `eq null` and `neq null` compile to `IS NULL` /
   `IS NOT NULL`, and `null` for `gt` .. `lte` throws `InvalidArgument`. It now refuses an array for `eq` .. `lte` with
   `InvalidArgument` (`SINGLE_VALUE_REQUIRED`).
@@ -33,7 +36,7 @@
 ## New
 
 - `@spinajs/orm-http`: the options form `@Filterable({ operators, query?, aggregate?, value? })` (`IFilterableOptions`),
-  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS` and `filterSchemaFor(columns, model?)`.
+  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS`, `filterSchemaFor(columns, model?)` and `MAX_FILTERS`.
 
 ## Known
 
@@ -43,7 +46,8 @@
   columns (`int2` .. `int8`, `float4`, `float8`, `bool`), so an `@Filter()` value on such a column is checked as a string
   instead of the column's type (`"abc"` passes, a number is coerced to text).
 
-> Docs: `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`.
+> Docs: `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`,
+> `docs/orm-http/08-custom-route-args-and-hydrators.md`.
 
 # Release notes — orm: the model JSON schema reads SQL column types in any case
 

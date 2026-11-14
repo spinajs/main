@@ -325,6 +325,7 @@ describe('Http orm tests', function () {
           },
           filters: {
             type: 'array',
+            maxItems: 100,
             items: {
               type: 'object',
               anyOf: [
