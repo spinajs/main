@@ -57,6 +57,7 @@ describe('buildClientModel', () => {
       kind: 'query',
       args: [{ name: 'id', type: 'number', typeNames: [], required: true, wire: { in: 'path', name: 'id', shape: 'value' }, schema: 'spinajs/app-basic/UsersController_get_id' }],
       returns: 'UserDto',
+      returnTypeNames: ['UserDto'],
       returnSchema: 'spinajs/app-basic/UserDto',
       definition: "{ method: 'get', path: '/users/{id}', args: [{ in: 'path', name: 'id', shape: 'value' }] }",
     });
@@ -64,6 +65,10 @@ describe('buildClientModel', () => {
 
   it('records the type names an argument type mentions', () => {
     expect(routeOf(model, 'users', 'list').args.map((a) => a.typeNames)).to.deep.equal([['ListQuery']]);
+  });
+
+  it('records the type names a reply type mentions', () => {
+    expect([routeOf(model, 'users', 'create').returnTypeNames, routeOf(model, 'health', 'get').returnTypeNames, routeOf(model, 'users', 'avatar').returnTypeNames]).to.deep.equal([['UserDto', 'ValidationProblem'], [], []]);
   });
 
   it('leaves the schema id out where the manifest has none', () => {
