@@ -65,6 +65,15 @@ function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefin
   return models.map((m) => (m.accessResource === undefined && types.has(m.id) ? { ...m, accessResource: types.get(m.id) } : m));
 }
 
+function buildFields(meta: MergeMeta): Pick<Manifest, 'buildEnv' | 'schemaDerivation' | 'globalRouteMiddlewares' | 'compilerVersion'> {
+  return {
+    ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
+    ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
+    ...(meta.globalRouteMiddlewares?.length ? { globalRouteMiddlewares: meta.globalRouteMiddlewares } : {}),
+    ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
+  };
+}
+
 /** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
 export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
   const fragments = [...deps, app];
@@ -109,10 +118,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     ...(authz ? { authz } : {}),
     schemas,
     diagnostics,
-    ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
-    ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
-    ...(meta.globalRouteMiddlewares?.length ? { globalRouteMiddlewares: meta.globalRouteMiddlewares } : {}),
-    ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
+    ...buildFields(meta),
     generatedAt: meta.generatedAt ?? new Date().toISOString(),
     hash: '',
   };
