@@ -7,7 +7,6 @@ import { ScheduleNotFound } from '../contract.js';
 import { getBuiltinDeclarations, getScheduleDeclarations } from '../decorators.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { buildDefinitions } from './definitions.js';
-import { findTaskMethods } from '../tasks/task-methods.js';
 import { blackHoleConnections, type QueueRoutingConfig } from '../emit/routing.js';
 // the built-in retention schedule, also in processes that never load the index (CLI)
 import '../retention/SchedulerRetentionTask.js';
@@ -34,9 +33,6 @@ export class ScheduleRegistry extends AsyncService {
 
   protected validateParamsSchema: (schema: object) => string | null = () => null;
 
-  protected warnShadowed = (name: string, kept: string, dropped: string): void =>
-    this.Log.warn(`schedule ${name}: @Schedule ${kept} replaces the schedule of @Task ${dropped} with the same name`);
-
   public async resolve(): Promise<void> {
     await this.ScheduleFiles;
     this.config = resolveSchedulerConfig(this.RawConfig);
@@ -51,9 +47,7 @@ export class ScheduleRegistry extends AsyncService {
       declarations: [...getScheduleDeclarations(), ...getBuiltinDeclarations(this.config)],
       config: this.config.schedules,
       tickMs: this.config.tick,
-      findTaskMethods,
       validateParamsSchema: this.validateParamsSchema,
-      onShadowed: this.warnShadowed,
     });
 
     this.definitions = new Map(defs.map((d) => [d.name, d]));
@@ -98,9 +92,7 @@ export class ScheduleRegistry extends AsyncService {
       declarations,
       config: this.config.schedules.filter((s) => s.name === name),
       tickMs: this.config.tick,
-      findTaskMethods,
       validateParamsSchema: this.validateParamsSchema,
-      onShadowed: this.warnShadowed,
     });
     this.definitions.set(name, def);
     return def;

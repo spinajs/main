@@ -25,10 +25,10 @@ stdout carries the result (the file path, the DDL, or the change list); diagnost
 
 ## Models of packages the app does not use
 
-The manifest lists the models of every package reachable through the app's dependencies, including packages the app never imports (a scheduler or task package a dependency ships, for example). Their tables then come out as `createTable` lines. The manifest records which package declares each model, but not which packages the app imports, so name them:
+The manifest lists the models of every package reachable through the app's dependencies, including packages the app never imports (a scheduler package a dependency ships, for example). Their tables then come out as `createTable` lines. The manifest records which package declares each model, but not which packages the app imports, so name them:
 
 ```bash
-spinajs migrate-diff --check --exclude-package @spinajs/scheduler,@spinajs/tasks
+spinajs migrate-diff --check --exclude-package @spinajs/scheduler
 spinajs migrate-diff --check --package @spinajs/users,@spinajs/teams
 ```
 

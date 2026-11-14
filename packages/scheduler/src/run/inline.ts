@@ -6,7 +6,6 @@ import type { AbortReason, RunStatus, TriggeredBy } from '../contract.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import { RunModel } from '../models/RunModel.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { isStackingTaskMethod } from '../tasks/task-methods.js';
 import { withRunContext } from './current.js';
 import type { ExecutionOutcome } from './outcome.js';
 import type { RunContext } from './RunContext.js';
@@ -93,7 +92,7 @@ export class InlineRunner {
   public async run<T>(def: ScheduleDefinition, body: InlineBody<T>, opts: InlineRunOptions = {}): Promise<T> {
     // the caller sees the failure: an automatic retry would run the schedule's task, not this body
     const inlineDef: ScheduleDefinition = { ...def, retry: undefined, emit: undefined };
-    const local = def.runOn === 'all' && !isStackingTaskMethod(def.task);
+    const local = def.runOn === 'all';
     if (local) this.enterLocal(def.name);
     try {
       const run = await this.claim(inlineDef, opts, local);
@@ -130,9 +129,7 @@ export class InlineRunner {
   /** `local`: a `runOn: 'all'` run, which must not overlap a run of the schedule this replica holds (as the loop's). */
   protected async claim(def: ScheduleDefinition, opts: InlineRunOptions, local: boolean): Promise<RunModel> {
     const now = await this.Clock.sync();
-    // a @Task with taskStacking never waited for its own earlier calls
-    const forced = local || isStackingTaskMethod(def.task);
-    const lease = forced ? null : await this.Leases.takeScheduleLease(def.name, now);
+    const lease = local ? null : await this.Leases.takeScheduleLease(def.name, now);
     if (lease === false) throw new ScheduleOverlap(def.name, await this.runningRunId(def.name));
     if (local) {
       const mine = await this.heldRunId(def.name, now);
@@ -160,7 +157,7 @@ export class InlineRunner {
         LeaseOwner: this.Leases.ReplicaId,
         LeaseUntil: now + this.Leases.LeaseTtl,
         CancelRequested: false,
-        Forced: forced,
+        Forced: local,
         ResumeFrom: null,
       });
     } catch (err) {

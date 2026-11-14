@@ -8,7 +8,6 @@ import {
   defaultReplicaId,
   defineSchedule,
   FakeClock,
-  registerTaskMethod,
   RunAbortedError,
   RunAttemptModel,
   RunConflict,
@@ -30,15 +29,13 @@ chai.use(chaiAsPromised);
 
 class InlineBody extends ScheduledTask {}
 class LateBody extends ScheduledTask {}
-class StackingTaskAdapter extends ScheduledTask {}
 class CrashingStep extends ScheduledTask {
   public execute(ctx: RunContext) {
     return ctx.step('work', () => Promise.reject(crash()));
   }
 }
-const unregisterAdapter = registerTaskMethod('inline-stacking', StackingTaskAdapter, { stacking: true });
 
-const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-stacking', 'inline-all', 'inline-every', 'loop-crash', 'inline-late'];
+const NAMES = ['inline-skip', 'inline-queue', 'inline-retry', 'inline-all', 'inline-every', 'loop-crash', 'inline-late'];
 const crash = () => Object.assign(new Error('process died'), { crash: true });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -50,8 +47,6 @@ describe('SchedulerService.runInline', () => {
     defineSchedule(InlineBody, 'inline-skip', { manual: true });
     defineSchedule(InlineBody, 'inline-queue', { manual: true, overlap: 'queue' });
     defineSchedule(InlineBody, 'inline-retry', { manual: true, retry: { attempts: 3 } });
-    // overlap 'skip' here: stacking comes from the @Task registration, not from the definition
-    defineSchedule(StackingTaskAdapter, 'inline-stacking', { manual: true });
     defineSchedule(InlineBody, 'inline-all', { manual: true, runOn: 'all', overlap: 'skip' });
     defineSchedule(InlineBody, 'inline-every', { every: '1m', runOn: 'all' });
     defineSchedule(CrashingStep, 'loop-crash', { manual: true });
@@ -62,7 +57,6 @@ describe('SchedulerService.runInline', () => {
     sinon.restore();
     NAMES.forEach(undefineSchedule);
   });
-  after(() => unregisterAdapter());
 
   const runsOf = (schedule: string) => RunModel.where('Schedule', schedule);
   const onlyRun = async (schedule: string) => {
@@ -135,17 +129,6 @@ describe('SchedulerService.runInline', () => {
     expect(err.runId).to.eq(null);
     expect(await runsOf('inline-skip')).to.have.length(0);
     expect((await scheduleRow('inline-skip')).LeaseOwner).to.eq('other-replica');
-  });
-
-  it('lets concurrent calls of a stacking @Task schedule run side by side without the lease', async () => {
-    const gate = deferred();
-    const calls = [1, 2, 3].map((n) => service.runInline('inline-stacking', () => gate.promise.then(() => n)));
-    await untilRuns('inline-stacking', 3);
-    expect((await runsOf('inline-stacking')).map((r) => r.Forced)).to.deep.eq([true, true, true]);
-
-    gate.resolve();
-    expect(await Promise.all(calls)).to.deep.eq([1, 2, 3]);
-    expect((await runsOf('inline-stacking')).map((r) => r.Status)).to.deep.eq(['succeeded', 'succeeded', 'succeeded']);
   });
 
   it("runs one of two concurrent calls of a runOn: 'all' schedule on this replica", async () => {

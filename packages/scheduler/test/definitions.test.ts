@@ -3,7 +3,6 @@ import {
   buildDefinitions,
   BuildDefinitionsInput,
   definitionHash,
-  registerTaskMethod,
   ScheduledTask,
   ScheduleDeclaration,
   ScheduleValidationError,
@@ -101,36 +100,6 @@ describe('buildDefinitions', () => {
     expect(defs[1].task).to.eq(Reconciler);
   });
 
-  it('creates a schedule from a @Task method named in config', () => {
-    class TaskAdapter extends ScheduledTask {}
-    const defs = buildDefinitions({
-      ...input([], [{ name: 'digest', task: 'send-digest', cron: '0 8 * * *' }]),
-      findTaskMethods: (n) => (n === 'send-digest' ? [TaskAdapter] : []),
-    });
-    expect(defs[0]).to.include({ name: 'digest', task: TaskAdapter, source: 'config' });
-  });
-
-  it('rejects a @Task name declared by more than one method', () => {
-    class A1 extends ScheduledTask {}
-    class A2 extends ScheduledTask {}
-    const p = problems(() =>
-      buildDefinitions({
-        ...input([], [{ name: 'digest', task: 'send-digest', every: '1h' }]),
-        findTaskMethods: () => [A1, A2],
-      }),
-    );
-    expect(p.join()).to.match(/digest.*'send-digest' is declared by more than one @Task method/);
-  });
-
-  it('prefers a @Schedule class over a @Task method with the same name', () => {
-    class SameNameTask extends ScheduledTask {}
-    const defs = buildDefinitions({
-      ...input([decl('reconciler', { every: '5m' })], [{ name: 'copy', task: 'Reconciler', every: '1h' }]),
-      findTaskMethods: () => [SameNameTask],
-    });
-    expect(defs.find((d) => d.name === 'copy')!.task).to.eq(Reconciler);
-  });
-
   it('reports every problem at once', () => {
     const p = problems(() =>
       buildDefinitions(
@@ -186,34 +155,5 @@ describe('buildDefinitions', () => {
     expect(p.join('\n')).to.match(/longer than 128 characters/);
     expect(p.join('\n')).to.match(/dup.*cron/);
     expect(buildDefinitions(input([decl('y'.repeat(128), { every: '1m' })]))).to.have.length(1);
-  });
-
-  it("does not carry a @Task schedule's overlap into a config entry of the same name", () => {
-    class TaskAdapter extends ScheduledTask {}
-    const undo = registerTaskMethod('stacked', TaskAdapter);
-    try {
-      const [def] = buildDefinitions(
-        input([decl('stacked', { manual: true, overlap: 'queue' }, TaskAdapter)], [{ name: 'stacked', every: '1h' }]),
-      );
-      expect(def).to.include({ overlap: 'skip', task: TaskAdapter });
-    } finally {
-      undo();
-    }
-  });
-
-  it('lets a @Schedule win over a @Task method schedule of the same name, in either order', () => {
-    class TaskAdapter extends ScheduledTask {}
-    const undo = registerTaskMethod('shared-name', TaskAdapter);
-    try {
-      const both = [decl('shared-name', { manual: true }, TaskAdapter), decl('shared-name', { every: '1m' })];
-      for (const declarations of [both, [...both].reverse()]) {
-        const shadowed: string[][] = [];
-        const [def] = buildDefinitions({ ...input(declarations), onShadowed: (...names) => void shadowed.push(names) });
-        expect(def.task).to.eq(Reconciler);
-        expect(shadowed).to.deep.eq([['shared-name', 'Reconciler', 'TaskAdapter']]);
-      }
-    } finally {
-      undo();
-    }
   });
 });

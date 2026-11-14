@@ -51,6 +51,5 @@ export async function sendDailyDigest(send: () => Promise<void>): Promise<boolea
 ## Related packages
 
 - [`@spinajs/orm-threading`](../orm-threading/README.md): `OrmMutex`, the database-backed `Mutex` implementation.
-- [`@spinajs/tasks`](../tasks/README.md): `@Task()` locks each run with `mutex_acquire()` and renews the lock while it runs; see [Task locking](../tasks/02-task-locking.md).
 - [`@spinajs/di`](../di/README.md): the container `Mutex`, the `__log__` factory and the critical section registry live in.
 - [`@spinajs/log`](../log/README.md): registers the `__log__` factory that `criticalSection` needs.

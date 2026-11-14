@@ -129,7 +129,7 @@ export async function useRecordingQueue() {
 
 ## Important behaviour
 
-- **Every sender goes through `QueueService`.** The static `emit()`, `ev()` and `_ev()` all resolve it, so a replacement also sees messages emitted by other packages (`@spinajs/email`, `@spinajs/users`, `@spinajs/tasks`).
+- **Every sender goes through `QueueService`.** The static `emit()`, `ev()` and `_ev()` all resolve it, so a replacement also sees messages emitted by other packages (`@spinajs/email`, `@spinajs/users`, `@spinajs/scheduler`).
 - **Building the service needs the `Configuration` resolved**, because `@AutoinjectService` reads it synchronously. Resolve `Configuration` first, as the framework bootstrap does.
 - **`dispose()` waits for the connections.** It disposes them in parallel, logs each failure, and clears the `Map` once all have settled.
 - **Message hooks and tracking hooks live in `DefaultQueueService`.** A from-scratch implementation runs none of them unless it calls them itself; `runBeforeEmit()`, `runAroundHandle()` and `tracked()` are not exported.

@@ -197,9 +197,6 @@
       "path": "packages/template-mjml/tsconfig.build.json"
     },
     {
-      "path": "packages/tasks/tsconfig.build.json"
-    },
-    {
       "path": "packages/durable/tsconfig.build.json"
     },
     {
