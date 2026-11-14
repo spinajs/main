@@ -29,6 +29,10 @@ export default defineConfig(
 
 SpinaJS lints its own packages with this rule (root `eslint.config.mjs`).
 
+The compiler is authoritative: `spinajs build` records every entry point and its access in the manifest, and
+`spinajs doctor` checks them across classes, inheritance and packages (AUTHZ003, AUTHZ004, AUTHZ005, AUTHZ007,
+AUTHZ008, AUTHZ009). These rules look at one file and are the fast editor path to the same findings.
+
 ## `require-accessible`
 
 A select on an `@AccessResource` model must call `.accessible(permission)`, use `.unscoped(reason)`, or run
@@ -45,8 +49,9 @@ Single-object loads are not reported, as the runtime guard does not refuse them:
 `getOrFail(id)`, `find([id])`, `findOrFail([id])`, and `where('<primary key>', id)` with no other where
 (the primary key is the `@Primary()` property). The route's `@Access` check-before covers them.
 
-Any arrow or function passed to `runAs(...)` or `x.runAs(...)` exempts what it contains. Writes (`create`,
-`insert`, `update`, `destroy`) are not checked.
+An arrow or function passed to `runAs(SYSTEM, ...)` or `x.runAs(SYSTEM, ...)` exempts what it contains. A
+`runAs` of any other principal does not: its queries read only what that principal may, so they still need
+`.accessible()`. Writes (`create`, `insert`, `update`, `destroy`) are not checked.
 
 A model is an access resource when its class, or a class it extends, has `@AccessResource(...)`, however
 the decorator or the class is imported or renamed.
@@ -56,6 +61,8 @@ the decorator or the class is imported or renamed.
 - `resources: string[]`: class names to treat as access resources. Decorators do not survive into `.d.ts`
   files, so models a package ships compiled (`User` from `@spinajs/users`, `JobModel` from
   `@spinajs/authz-queue`) are only found when listed here.
+- `legacyRunAsExemption: boolean` (default `false`): any `runAs(...)` callback exempts its queries, as before
+  4.0. Removed in 5.0.
 
 ### What it misses
 
@@ -76,6 +83,23 @@ existing controllers and many test fixtures.
 - `guardDecorators: string[]`: extra decorator names that guard a route.
 
 A guard on a base class is not seen: repeat it on the subclass or list your wrapper in `guardDecorators`.
+
+## `require-socket-access`
+
+A socket command or event (`@Command`, `@OnEvent`) must have `@SocketAccess`, `@SocketPolicy` or
+`@SocketPolicyGroup` on it or on its class: under `http.socket.access.default: 'deny'` the server refuses it
+(`no_policy`). In `configs.recommended` as an error. Like `require-access`, a guard on a base class is not seen;
+`spinajs doctor` (AUTHZ003) follows inheritance.
+
+### Options
+
+- `guardDecorators: string[]`: extra decorator names that guard a socket handler.
+
+## `require-handler-access`
+
+A queue job (a class with `@Job(...)` or one that extends `QueueJob`, not abstract) must declare the permissions
+it needs with `@Job({ access })`, or say why it needs none with `@SystemTask(reason)`. `runAs: 'system'` alone
+does not count. In `configs.recommended` as a warning in 4.x (`spinajs doctor` AUTHZ004 / AUTHZ009 warn too).
 
 ## `no-raw-request`
 
