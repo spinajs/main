@@ -1,3 +1,16 @@
+# Release notes — orm: query() with a belongs-to populate keeps the owner's columns
+
+## Fixes
+
+- `@spinajs/orm`: `Model.query().populate('<belongsTo>')` returned owners whose own columns were all `null` (only the
+  relation was filled), and ordering by an owner column such as `Id` failed as ambiguous. A dotted
+  `Model.query().where('Relation.Column', x)` and orm-http's `Model.filter()` on a `Relation.Column` did the same.
+  `query()` now selects all owner columns under a belongs-to populate, as `select()` and `where()` do. An explicit column
+  list (`query().select('Id').populate(...)`) is kept. Calling `select()` before `populate()` as a workaround still
+  works.
+
+> Docs: `docs/orm/05-query-builder.md`, `docs/orm/06-relations.md`.
+
 # Release notes — orm: a NULL belongs-to stays empty under a nested populate
 
 ## Fixes

@@ -185,6 +185,12 @@ export class BelongsToRelation extends NativeOrmRelation {
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
+    // An empty column list compiles to `SELECT *`; once the target's columns are merged in it is
+    // no longer empty, so keep the owner's own columns explicitly ( `query()` starts with none ).
+    if (!this.parentRelation && this._query.getColumns().length === 0) {
+      this._query.select('*');
+    }
+
     // merge relation builder into parent, but skip join-scoped conditions ( routed to ON above )
     // todo: fix this cast
     (this._query as any).mergeBuilder(this._relationQuery, false);

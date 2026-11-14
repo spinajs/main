@@ -53,7 +53,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `Model.select()` | `SelectQueryBuilder` with `select('*')` | yes | model instances |
 | `Model.where(...)` | `SelectQueryBuilder` with `select('*')` and the condition | yes | model instances |
-| `Model.query()` | `SelectQueryBuilder`, no column list | yes | model instances |
+| `Model.query()` | `SelectQueryBuilder`, no column list: it compiles to all owner columns, with or without a populated belongsTo | yes | model instances |
 | `Model.all(page?, perPage?)` | `select('*')`, plus `take(perPage).skip(page * perPage)` when `page >= 0` and `perPage > 0` | yes | model instances |
 | `Model.update(data)` | `UpdateQueryBuilder` with `update(data)`; a model instance as `data` throws `OrmException` | yes | driver result |
 | `Model.destroy(pks?)` | `DeleteQueryBuilder` filtered by `whereAnyPk()`; an `UpdateQueryBuilder` setting `DeletedAt` for a `@SoftDelete` model. Without `pks`, the same builder with `requireWhere()` and no condition | yes | driver result |
@@ -319,6 +319,7 @@ export class TenantMiddleware extends QueryMiddleware {
 
 - `driver.now()` is the database's clock, a bound `Date` is the application's. Compare one stored column with one of them consistently: on hosts whose clocks drift apart the two disagree near a boundary.
 - A builder executes at most once. Awaiting it again resolves with the memoized result and runs no hook. Call `clone()` on a select for a second round trip.
+- A belongsTo populate joins its target and adds the target's aliased columns to the owner's column list. When the list is still empty at that point, the owner's `*` is added first, so `query()`, `select()` and `where()` all return full owners under a populate, a dotted `where('Relation.Column', ...)` included. An explicit `select('Id')`, before or after `populate()`, is kept as it is.
 - `afterQueryCreation` runs inside the constructor, before `createQuery()` sets the table and before the caller's `where()` / `values()`. `beforeQueryExecution` and `afterQueryExecution` run for every builder that executes, schema builders included.
 - `clone()` does not run `afterQueryCreation` again. It copies the statements, which already carry the middleware constraints.
 - When a middleware asks for a transaction, a throwing before-hook skips the statement and rolls back; a throwing after-hook rolls the statement back. Without a transaction an after-hook error cannot undo the statement.
