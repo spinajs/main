@@ -223,6 +223,16 @@ describe('ListFromFiles manifest fast path', () => {
     expect(globSync.called).to.equal(false);
   });
 
+  it('lists again when a later app scans other dirs', async () => {
+    const Lister = listerOf();
+    const first = await createTestApp({ config, register: withManifest(manifest, 'off') });
+    expect((await first.container.resolve(Lister).Items).map((i) => i.name)).to.include('FooService');
+    await disposeTestApps();
+
+    const other = await createTestApp({ config: { system: { dirs: { singletons: [join(root, 'test', 'test-services', 'default')] } } }, register: withManifest(manifest, 'off') });
+    expect((await other.container.resolve(Lister).Items).map((i) => i.name)).to.deep.equal(['FooServiceDefault']);
+  });
+
   it('prefer mode without a manifest scans', async () => {
     const globSync = sinon.spy(glob, 'sync');
     const app = await createTestApp({ config, register: (c) => registerManifestSettings(c, { mode: 'prefer', path: 'app.manifest.json' }) });
