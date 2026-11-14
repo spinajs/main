@@ -1,5 +1,12 @@
 import { AsyncService } from '@spinajs/di';
-import { InvalidArgument, InvalidOperation, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
+import {
+  InvalidArgument,
+  InvalidOperation,
+  MethodNotImplemented,
+  ResourceDuplicated,
+  ResourceNotFound,
+} from '@spinajs/exceptions';
+import type { RunContext } from './run/RunContext.js';
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'retrying' | 'dead' | 'aborted' | 'emitted' | 'skipped' | 'misfired';
 /** A run never passes through `failed` or `aborted` on its way to `retrying`, so these are final. */
@@ -251,6 +258,19 @@ export abstract class SchedulerService extends AsyncService {
   public abstract listErrors(filter?: ErrorFilter): Promise<ErrorGroupInfo[]>;
   public abstract setErrorStatus(fingerprint: string, status: ErrorGroupStatus, ctx: ActionContext): Promise<ErrorGroupInfo>;
   public abstract prune(ctx: ActionContext): Promise<PruneResult>;
+
+  /**
+   * Runs `fn` now, in this process, as a `manual` run of `schedule` under the run lease and heartbeat,
+   * and returns or rethrows its result. Throws `ScheduleOverlap` on an `overlap: 'skip'` schedule
+   * whose lease another run holds. Concrete, so implementations written before it keep compiling.
+   */
+  public runInline<T>(
+    schedule: string,
+    _fn: (ctx: RunContext) => Promise<T>,
+    _opts?: { triggeredBy?: string; params?: unknown },
+  ): Promise<T> {
+    return Promise.reject(new MethodNotImplemented(`${this.constructor.name} does not run '${schedule}' inline`));
+  }
 }
 
 export class ScheduleNotFound extends ResourceNotFound {

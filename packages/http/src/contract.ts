@@ -69,33 +69,69 @@ function check(res: Express.Response, route: ContractRoute | undefined, body: un
   return errors && errors.length > 0 ? { ...where, errors } : undefined;
 }
 
+interface IArmedGuard {
+  readonly json: Express.Response['json'];
+  container: IContainer;
+  route?: ContractRoute;
+  settings: ContractSettings;
+  validator: ContractValidator;
+}
+
+const ARMED = Symbol('contractGuard');
+
+type Guarded = Express.Response & { [ARMED]?: IArmedGuard };
+
 /**
  * Validates the JSON body of this response when `http.contractTesting.enabled` is set and a validator is registered
  * in `container` (the one serving the request). A problem document must match PROBLEM_DETAILS_SCHEMA; any other body
  * must match the schema the route declares for its status. In `throw` mode a response violation fails the request
  * with a 500; a problem violation is only recorded, since the error path has no other answer to give.
  * Only `res.json` is observed: file, stream and other non-JSON bodies are not checked.
+ *
+ * The reply pipeline calls it for every reply it sends. A guard not used yet (the reply failed before `res.json`, or was
+ * not JSON) is re-armed by the next call, never stacked, so a body is checked once and by the last call's rules.
  */
 export function guardResponseContract(res: Express.Response, container: IContainer, route?: ContractRoute): void {
   const settings = container.get(Configuration)?.get<ContractSettings>('http.contractTesting', {}) ?? {};
   const validator = container.get(CONTRACT_VALIDATOR);
+  const guarded = res as Guarded;
+  const armed = guarded[ARMED];
+
   if (!settings.enabled || !validator) {
+    if (armed) {
+      disarm(guarded, armed);
+    }
     return;
   }
 
-  const json = res.json;
+  if (armed) {
+    armed.container = container;
+    armed.route = route;
+    armed.settings = settings;
+    armed.validator = validator;
+    return;
+  }
+
+  const guard: IArmedGuard = { json: res.json, container, route, settings, validator };
+  guarded[ARMED] = guard;
   res.json = function (this: Express.Response, body?: unknown) {
     // One shot: a thrown violation must not trap the error response that follows in the same guard.
-    res.json = json;
+    disarm(guarded, guard);
 
-    const violation = body === undefined || body === null ? undefined : check(res, route, body, validator);
+    const violation = body === undefined || body === null ? undefined : check(res, guard.route, body, guard.validator);
     if (violation) {
-      container.get(CONTRACT_VIOLATIONS)?.record(violation);
+      guard.container.get(CONTRACT_VIOLATIONS)?.record(violation);
       DI.resolve(Log, ['http']).error({ violation }, 'Response contract violation in ${violation.controller}.${violation.handler}');
-      if (violation.kind === 'response' && settings.mode !== 'log') {
+      if (violation.kind === 'response' && guard.settings.mode !== 'log') {
         throw new ResponseContractViolation(violation);
       }
     }
-    return json.call(this, body);
+    return guard.json.call(this, body);
   } as Express.Response['json'];
+}
+
+// assigned, not deleted: a deleted property puts `res` into dictionary mode
+function disarm(res: Guarded, guard: IArmedGuard): void {
+  res.json = guard.json;
+  res[ARMED] = undefined;
 }

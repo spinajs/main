@@ -5,12 +5,13 @@ import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmMigrator } from '@spinajs/orm';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, RealIp, ServerMiddleware, ThrottleMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 import * as barrel from '../../src/index.js';
-import { ClientIp } from '../../src/middleware/client-ip.js';
+import { AuthnRealIp, ClientIp } from '../../src/middleware/client-ip.js';
+import { mounted } from '../support/server-hooks.js';
 import { AUTHN_PROBE_PATH } from './probe.js';
 import { TestConfiguration, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 import { fakeContainer } from '@spinajs/testing';
@@ -33,13 +34,20 @@ async function startServer(): Promise<void> {
   await startHttpServer();
 }
 
-/** Restarts the server so ClientIp reads the given trust settings when the middleware is built. */
-async function restartWith(authnTrust: unknown, httpTrust: unknown): Promise<void> {
+/** Restarts the server with new address middlewares, which read the given settings when they are resolved. */
+async function restartWith(authnTrust: unknown, httpTrust: unknown, throttle: unknown = { enabled: false }): Promise<void> {
   await releaseHttpServer();
+  for (const type of [ClientIp, RealIp, AuthnRealIp, ThrottleMiddleware] as Class<unknown>[]) DI.uncache(type);
+  DI.uncache(ServerMiddleware);
   const config = DI.get(Configuration)!;
   config.set('authn.http.trustProxy', authnTrust);
   config.set('http.trustProxy', httpTrust);
+  config.set('http.throttle', throttle);
   await startServer();
+}
+
+async function status(xff: string): Promise<number> {
+  return (await req().get(AUTHN_PROBE_PATH).set('Accept', 'application/json').set('X-Forwarded-For', xff)).status;
 }
 
 async function clientIp(xff?: string): Promise<string | null> {
@@ -51,8 +59,8 @@ async function clientIp(xff?: string): Promise<string | null> {
 
 const BASE = { 'authn.http.trustProxy': null, 'http.trustProxy': null };
 
-function unitClientIp(values: Record<string, unknown>): ClientIp {
-  const mw = new ClientIp();
+function unitRealIp(values: Record<string, unknown>): AuthnRealIp {
+  const mw = new AuthnRealIp();
   Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ ...BASE, ...values }) });
   return mw;
 }
@@ -90,10 +98,19 @@ describe('ClientIp (A05, SR-03)', function () {
     DI.uncache(OrmMigrator);
   });
 
-  it('the barrel exports the lane ClientIp, registered as a ServerMiddleware', () => {
+  it('the barrel exports the lane ClientIp, registered as a ServerMiddleware, and AuthnRealIp', () => {
     expect(barrel.ClientIp).to.eq(ClientIp);
-    expect(new ClientIp().Order).to.eq(1);
+    expect(barrel.AuthnRealIp).to.eq(AuthnRealIp);
+    expect(new ClientIp().Order).to.eq(2);
     expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(ClientIp);
+  });
+
+  it('the running server mounts one RealIp, an AuthnRealIp, before ClientIp', () => {
+    const list = (DI.get(HttpServer) as unknown as { Middlewares: ServerMiddleware[] }).Middlewares;
+    const realIps = list.filter((m) => m instanceof RealIp);
+    expect(realIps).to.have.length(1);
+    expect(realIps[0]).to.be.instanceOf(AuthnRealIp);
+    expect(list.indexOf(realIps[0])).to.be.lessThan(list.findIndex((m) => m instanceof ClientIp));
   });
 
   it('without trust the client is the socket address', () => {
@@ -125,19 +142,29 @@ describe('ClientIp (A05, SR-03)', function () {
     expect(await clientIp(`198.51.100.1, ${SPOOF}`)).to.eq(socketAddress);
   });
 
+  it('report §3.2: with only authn.http.trustProxy, http.throttle counts each client behind the proxy', async () => {
+    await restartWith(1, null, { enabled: true, rules: [{ path: `/${AUTHN_PROBE_PATH}`, methods: ['GET'], limit: 1, windowSeconds: 60 }] });
+    try {
+      expect([await status('203.0.113.31'), await status('203.0.113.32'), await status('203.0.113.31')]).to.deep.eq([200, 200, 429]);
+    } finally {
+      await restartWith(null, null);
+    }
+  });
+
   it('a link-local socket peer is the client, without the zone id Node appends, and matches linklocal', () => {
     const run = (values: Record<string, unknown>) => {
       const storage: Record<string, unknown> = {};
-      unitClientIp(values).before()!({ headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage } as never, {} as never, () => undefined);
+      const req = { headers: { 'x-forwarded-for': SPOOF }, socket: { remoteAddress: 'fe80::1%eth0' }, storage };
+      mounted(unitRealIp(values))!(req, {}, () => undefined);
+      mounted(new ClientIp())!(req, {}, () => undefined);
       return storage.ClientIp;
     };
     expect(run({})).to.eq('fe80::1');
     expect(run({ 'authn.http.trustProxy': 'linklocal' })).to.eq(SPOOF);
   });
 
-  it('a bad value fails when the middleware is built, naming the key', () => {
-    expect(() => unitClientIp({ 'authn.http.trustProxy': 'nope' }).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
-    expect(() => unitClientIp({ 'authn.http.trustProxy': null, 'http.trustProxy': -1 }).before()).to.throw(InvalidOption, 'http.trustProxy');
-    expect(unitClientIp({}).after()).to.eq(null);
+  it('a bad value fails when the middleware is resolved, naming the key', async () => {
+    await expect(unitRealIp({ 'authn.http.trustProxy': 'nope' }).resolve()).to.be.rejectedWith(InvalidOption, 'authn.http.trustProxy');
+    await expect(unitRealIp({ 'authn.http.trustProxy': null, 'http.trustProxy': -1 }).resolve()).to.be.rejectedWith(InvalidOption, 'http.trustProxy');
   });
 });

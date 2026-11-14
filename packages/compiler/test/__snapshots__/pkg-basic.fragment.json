@@ -697,7 +697,12 @@
               }
             ]
           ],
-          "middlewares": [],
+          "middlewares": [
+            {
+              "type": "AuthzFieldsMiddleware",
+              "options": []
+            }
+          ],
           "access": [
             "user:read"
           ],
@@ -935,6 +940,7 @@
           "access": [
             "doc:read"
           ],
+          "fields": "filter-rows",
           "policies": [
             [
               {
@@ -1173,7 +1179,12 @@
             "schema": "spinajs/pkg-basic/Tag_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         },
         {
           "name": "Name",
@@ -1182,7 +1193,11 @@
             "schema": "spinajs/pkg-basic/Tag_Name"
           },
           "primary": false,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         }
       ],
       "relations": [],
@@ -1205,7 +1220,12 @@
             "schema": "spinajs/pkg-basic/PostTag_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         }
       ],
       "relations": [],
@@ -1229,7 +1249,12 @@
             "schema": "spinajs/pkg-basic/Post_Id"
           },
           "primary": true,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "integer",
+            "autoIncrement": true,
+            "inferred": true
+          }
         },
         {
           "name": "Title",
@@ -1238,7 +1263,11 @@
             "schema": "spinajs/pkg-basic/Post_Title"
           },
           "primary": false,
-          "nullable": false
+          "nullable": false,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         },
         {
           "name": "Body",
@@ -1247,7 +1276,11 @@
             "schema": "spinajs/pkg-basic/Post_Body"
           },
           "primary": false,
-          "nullable": true
+          "nullable": true,
+          "sql": {
+            "family": "text",
+            "inferred": true
+          }
         },
         {
           "name": "PublishedAt",
@@ -1256,29 +1289,41 @@
             "schema": "spinajs/pkg-basic/Post_PublishedAt"
           },
           "primary": false,
-          "nullable": true
+          "nullable": true,
+          "sql": {
+            "family": "datetime",
+            "inferred": true
+          }
         }
       ],
       "relations": [
         {
           "name": "Owner",
           "kind": "belongsTo",
-          "target": "User"
+          "target": "User",
+          "foreignKey": "owner_id"
         },
         {
           "name": "MainTag",
           "kind": "forwardBelongsTo",
-          "target": "Tag"
+          "target": "Tag",
+          "foreignKey": "maintag_id"
         },
         {
           "name": "Tags",
           "kind": "hasMany",
-          "target": "Tag"
+          "target": "Tag",
+          "foreignKey": "post_id"
         },
         {
           "name": "AllTags",
           "kind": "hasManyToMany",
-          "target": "Tag"
+          "target": "Tag",
+          "junction": {
+            "model": "PostTag",
+            "sourceKey": "post_id",
+            "targetKey": "tag_id"
+          }
         }
       ],
       "accessResource": "post",
@@ -1799,7 +1844,8 @@
     "spinajs/pkg-basic/Post_PublishedAt": {
       "$id": "spinajs/pkg-basic/Post_PublishedAt",
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "x-spinajs-type": "Date"
     },
     "spinajs/pkg-basic/Post_Title": {
       "$id": "spinajs/pkg-basic/Post_Title",

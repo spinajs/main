@@ -8,6 +8,7 @@ export interface MergeMeta {
   generatedAt?: string;
   buildEnv?: string;
   schemaDerivation?: false;
+  globalRouteMiddlewares?: Manifest['globalRouteMiddlewares'];
   compilerVersion?: string;
 }
 
@@ -64,6 +65,15 @@ function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefin
   return models.map((m) => (m.accessResource === undefined && types.has(m.id) ? { ...m, accessResource: types.get(m.id) } : m));
 }
 
+function buildFields(meta: MergeMeta): Pick<Manifest, 'buildEnv' | 'schemaDerivation' | 'globalRouteMiddlewares' | 'compilerVersion'> {
+  return {
+    ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
+    ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
+    ...(meta.globalRouteMiddlewares?.length ? { globalRouteMiddlewares: meta.globalRouteMiddlewares } : {}),
+    ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
+  };
+}
+
 /** Dependencies come first so that, with "last wins" at runtime, the app overrides its packages. */
 export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], meta: MergeMeta): Manifest {
   const fragments = [...deps, app];
@@ -77,6 +87,9 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
   const authz = mergeAuthz(fragments);
+  const workflows = plain((f) => f.workflows ?? []);
+  const sqlQueries = collect((f) => f.sqlQueries ?? []);
+  const sqlDialects = plain((f) => f.sqlDialects ?? []);
 
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
@@ -99,12 +112,13 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     commands: plain((f) => f.commands),
     ...(app.scanFiles?.length ? { scanFiles: app.scanFiles } : {}),
     queueMessages: plain((f) => f.queueMessages),
+    ...(workflows.length ? { workflows } : {}),
+    ...(sqlQueries.length ? { sqlQueries } : {}),
+    ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
     schemas,
     diagnostics,
-    ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
-    ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
-    ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
+    ...buildFields(meta),
     generatedAt: meta.generatedAt ?? new Date().toISOString(),
     hash: '',
   };

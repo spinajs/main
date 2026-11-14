@@ -373,8 +373,8 @@ describe('Sqlite model functions', function () {
     const result = await TestOwned.where('Id', '>', 0).populate('Owner');
 
     expect(result.length).to.eq(2);
-    expect(result[0].Owner.Value!.Id).to.eq(1);
-    expect(result[1].Owner.Value!.Id).to.eq(2);
+    expect(result[0].Owner.Value.Id).to.eq(1);
+    expect(result[1].Owner.Value.Id).to.eq(2);
   });
 
   it('Should hydrate single belongs to', async () => {
@@ -390,7 +390,7 @@ describe('Sqlite model functions', function () {
 
     const result = await owned_by_has_many_1.where('Id', '>', 0).populate('File');
     expect(result.length).to.eq(1);
-    expect(result[0].File.Value!.Val).to.eq('leaf');
+    expect(result[0].File.Value.Val).to.eq('leaf');
   });
 
   it('Should proper hydrate hasMany with belongsTo relation', async () => {
@@ -471,20 +471,20 @@ describe('Sqlite model functions', function () {
 
     expect(result.length).to.eq(2);
 
-    expect(result[0].Owner.Value!.Many.length).to.eq(4);
-    expect(result[1].Owner.Value!.Many.length).to.eq(4);
+    expect(result[0].Owner.Value.Many.length).to.eq(4);
+    expect(result[1].Owner.Value.Many.length).to.eq(4);
 
-    expect(result[0].Owner.Value!.Many[0].Id).to.eq(1);
-    expect(result[0].Owner.Value!.Many[1].Id).to.eq(2);
-    expect(result[0].Owner.Value!.Many[2].Id).to.eq(3);
-    expect(result[0].Owner.Value!.Many[3].Id).to.eq(4);
-    expect(result[1].Owner.Value!.Many[0].Id).to.eq(5);
-    expect(result[1].Owner.Value!.Many[1].Id).to.eq(6);
-    expect(result[1].Owner.Value!.Many[2].Id).to.eq(7);
-    expect(result[1].Owner.Value!.Many[3].Id).to.eq(8);
+    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
 
-    expect(result[0].Owner.Value!.Owner.Value!.Id).to.eq(1);
-    expect(result[1].Owner.Value!.Owner.Value!.Id).to.eq(2);
+    expect(result[0].Owner.Value.Owner.Value!.Id).to.eq(1);
+    expect(result[1].Owner.Value.Owner.Value!.Id).to.eq(2);
   });
 
   it('model relation belongsto should populate ', async () => {
@@ -530,17 +530,17 @@ describe('Sqlite model functions', function () {
     expect(result2.length).to.eq(2);
     expect(result.length).to.eq(2);
 
-    expect(result[0].Owner.Value!.Many.length).to.eq(4);
-    expect(result[1].Owner.Value!.Many.length).to.eq(4);
+    expect(result[0].Owner.Value.Many.length).to.eq(4);
+    expect(result[1].Owner.Value.Many.length).to.eq(4);
 
-    expect(result[0].Owner.Value!.Many[0].Id).to.eq(1);
-    expect(result[0].Owner.Value!.Many[1].Id).to.eq(2);
-    expect(result[0].Owner.Value!.Many[2].Id).to.eq(3);
-    expect(result[0].Owner.Value!.Many[3].Id).to.eq(4);
-    expect(result[1].Owner.Value!.Many[0].Id).to.eq(5);
-    expect(result[1].Owner.Value!.Many[1].Id).to.eq(6);
-    expect(result[1].Owner.Value!.Many[2].Id).to.eq(7);
-    expect(result[1].Owner.Value!.Many[3].Id).to.eq(8);
+    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
   });
 
   it('model relation set should work', async () => {

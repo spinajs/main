@@ -131,3 +131,20 @@ export async function confirmEnrolment(driver: OrmDriver, identity: string, secr
   return rowsAffected(await driver.update().in('mfa').update({ confirmed_at: at }).where('identity', identity).whereNull('confirmed_at').where(toRawQuery(same))) === 1;
 }
 ```
+
+## Typed raw SQL
+
+`sql<Row>` declares the row a statement returns, and `executeSql` runs a fragment and returns the rows:
+
+```ts
+import { executeSql, sql } from '@spinajs/orm';
+
+const rows = await executeSql(sql<{ Id: number; Email: string }>`SELECT Id, Email FROM users WHERE Id = ${id}`);
+// rows: { Id: number; Email: string }[]
+await executeSql(sql`DELETE FROM sessions WHERE ExpiresAt < ${now}`, { connection: 'sessions' });
+```
+
+The rows are what the driver returns: no model, no hydration, no value converters. `spinajs build` records every
+`sql` template in the manifest (`sqlQueries`) so `spinajs doctor` can check it against the models. A template that
+interpolates another fragment or `sql.raw` is dynamic and is not checked. Put `-- spinajs-sql-ignore` in a template to
+skip it.

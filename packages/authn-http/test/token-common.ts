@@ -7,8 +7,6 @@ import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
-import express from 'express';
-import cookieParser from 'cookie-parser';
 
 import { registerRootSchemas } from './support/root-schemas.js';
 import { dropOwnCompiledDirs } from './token-db-common.js';
@@ -112,7 +110,8 @@ export class TestConfiguration extends FrameworkConfiguration {
       http: {
         port: 0,
         cookie: { secret: COOKIE_SECRET },
-        middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser(COOKIE_SECRET)],
+        // the built-in parser server middlewares (http.bodyParsers defaults, the cookie parser signed with http.cookie.secret)
+        middlewares: [],
         AcceptHeaders: 1,
       },
       authn: {

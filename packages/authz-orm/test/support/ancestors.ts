@@ -2,18 +2,19 @@ import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_RESOURCE_ANCESTOR_TABLE, AuthzResourceAncestor_2026_10_14_00_00_00 } from '../../src/ancestors/index.js';
 import type { AncestorRow } from '../../src/ancestors/index.js';
+import { createChangeLogTables, dropChangeLogTables } from './changelog.js';
 import type { Dialect, TestDb } from './db.js';
 
-/** Creates the table on `dialect` and points the alias `authz` there: the resource tables of a test live on `dialect`. */
+/** Creates the table, with the changelog a resource write appends to, on `dialect` and points the alias `authz` there: the resource tables of a test live on `dialect`. */
 export async function createAncestorTable(db: TestDb, dialect: Dialect): Promise<void> {
   await db.raw(`DROP TABLE IF EXISTS "${AUTHZ_RESOURCE_ANCESTOR_TABLE}"`, [], dialect);
   await new AuthzResourceAncestor_2026_10_14_00_00_00().up(db.driver(dialect));
-  await db.useAuthz(dialect);
+  await createChangeLogTables(db, dialect);
 }
 
 export async function dropAncestorTable(db: TestDb, dialect: Dialect): Promise<void> {
   await db.raw(`DROP TABLE IF EXISTS "${AUTHZ_RESOURCE_ANCESTOR_TABLE}"`, [], dialect);
-  await db.useAuthz('sqlite');
+  await dropChangeLogTables(db, dialect);
 }
 
 /** `type:id>type:id@depth`, sorted: easy to compare in a deep equal. */
