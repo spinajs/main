@@ -3,15 +3,15 @@ import { expect } from 'chai';
 import { Intl } from '@spinajs/intl';
 import type { TestApp } from '@spinajs/testing';
 
-import { dir, httpApp, req, TestConfiguration } from './common.js';
-import { Controllers, HttpServer } from '../src/index.js';
+import { httpApp, req, TestConfiguration } from './common.js';
+import { BaseController, Controllers, HttpServer } from '../src/index.js';
+import { ValidationTraps } from './controllers-validation/ValidationTraps.js';
 
 // TestConfiguration leaves out the validation section, so Ajv would not coerce; these are the shipped defaults.
 class CoercingConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
     this.Config.validation = { allErrors: true, removeAdditional: false, useDefaults: true, coerceTypes: true, messages: false };
-    (this.Config.system as { dirs: { controllers: string[] } }).dirs.controllers = [dir('./controllers-validation')];
   }
 }
 
@@ -24,7 +24,8 @@ describe('http: non-finite numbers and deep-equal traps answer 400', function ()
   let app: TestApp;
 
   before(async () => {
-    app = await httpApp({ configuration: CoercingConfiguration, resolve: [Intl, Controllers] });
+    // Registered, not scanned: ResolveFromFiles caches a scan by manifest settings, not dirs, so an earlier suite's scan would win.
+    app = await httpApp({ configuration: CoercingConfiguration, register: (c) => c.register(ValidationTraps).as(BaseController), resolve: [Intl, Controllers] });
     await (await app.resolve(HttpServer)).start();
   });
 
