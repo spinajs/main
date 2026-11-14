@@ -1902,7 +1902,7 @@
   },
   "packages/authz-rbac/test/admin/db/backend.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/unbound-method": {
       "count": 4
@@ -5420,9 +5420,6 @@
     }
   },
   "packages/orm-http/src/decorators.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     }
@@ -5886,9 +5883,6 @@
     "@typescript-eslint/no-misused-promises": {
       "count": 2
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     },
@@ -5896,10 +5890,10 @@
       "count": 1
     },
     "complexity": {
-      "count": 2
+      "count": 1
     },
     "no-useless-assignment": {
-      "count": 3
+      "count": 2
     },
     "prettier/prettier": {
       "count": 1
@@ -6680,13 +6674,13 @@
   },
   "packages/orm/src/hydrators.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
+      "count": 27
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -7323,9 +7317,6 @@
     "@typescript-eslint/ban-ts-comment": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
     "prettier/prettier": {
       "count": 1
     }
@@ -7947,11 +7938,6 @@
   "packages/teams/test/invitations/create.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
-    }
-  },
-  "packages/teams/test/support/db.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/teams/test/support/stack.ts": {
