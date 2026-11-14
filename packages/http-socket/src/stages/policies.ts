@@ -1,9 +1,9 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { SocketPolicyGate } from '../policies.js';
 
-@Injectable(SocketCommandStage)
-export class PoliciesStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class PoliciesStage extends SocketMiddleware {
   @Autoinject()
   protected Gate: SocketPolicyGate;
 
@@ -11,8 +11,7 @@ export class PoliciesStage extends SocketCommandStage {
     return STAGE_ORDER.Policies;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onBefore(ctx: ISocketCommandContext): Promise<void> {
     await this.Gate.check(ctx);
-    return next();
   }
 }

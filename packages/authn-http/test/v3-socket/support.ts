@@ -33,6 +33,7 @@ export interface SocketOptions {
   origin?: string;
   /** sent as repeated `Authorization` header lines */
   repeatedAuthorization?: string[];
+  headers?: Record<string, string>;
 }
 
 const opened: ClientSocket[] = [];
@@ -40,7 +41,7 @@ let clients = 0;
 let ids = 0;
 
 export function socketTo(o: SocketOptions = {}): ClientSocket {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...o.headers };
   if (o.cookie) headers.cookie = `${cookieName()}=${encodeURIComponent(o.cookie)}`;
   if (o.origin) headers.origin = o.origin;
   // an array value makes Node write one header line per element

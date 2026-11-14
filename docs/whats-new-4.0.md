@@ -19,6 +19,9 @@ spinajs build        # writes app.manifest.json and prints diagnostics and a sum
 
 With a manifest in effect, the boot reads the lists instead of scanning directories and parsing `.d.ts` files, and does not load `typescript`. The compiler never runs your code. See [`@spinajs/compiler`](compiler/README.md), [`spinajs build`](cli/README.md#build) and [`@spinajs/manifest`](manifest/README.md).
 
+- **Inherited routes.** A controller's entry lists the routes and socket handlers it inherits from its base classes, in its own package or a dependency, at the subclass's path and with the types the subclass binds, so `BaseCrud<ArticleDto>` validates `ArticleDto` and the generators, doctor and `manifest:diff` see those routes. See [What is extracted](compiler/README.md#what-is-extracted).
+- **What runs is what was reviewed.** `GET /telemetry/health` reports the hash of the manifest the app booted from, the hash `spinajs build` prints and `manifest:diff` shows in the pull request. See [Check what runs](manifest/deploying.md#check-what-runs).
+
 ### Doctor
 
 `spinajs doctor` reads the manifest and reports wiring mistakes that would otherwise be a 500 at runtime: an injected token nothing registers (`DI001`), a dependency cycle (`DI002`), two routes with the same path (`HTTP001`), a route with no `@Access`, `@Policy`, `@AllowAnonymous` or `@Public` (`HTTP002`), a socket handler that disagrees with its contract (`SOCK001-003`).
@@ -104,6 +107,10 @@ See [`@spinajs/testing`](testing/README.md), [createTestApp](testing/01-create-t
 
 HTTP errors follow RFC 9457: `type`, `title`, `status`, `detail`, `instance` and, when present, `code` or `errors`. Other fields of an exception are not copied into the body; declare the ones a client needs in a static `problemFields`. In production an unmapped 500 answers `detail: "Internal server error"`. See [Error handling](http/11-error-handling.md) and the [upgrade note](upgrading/4.0.md#error-bodies-are-applicationproblemjson).
 
+### One middleware contract for routes and the server
+
+Route and server middlewares implement the same optional hooks with one context object: `onBefore(ctx)` (may answer with a `Response`), `onAfter(ctx)` on every framework reply, error replies included, `onFinish(ctx)` once the response finished or the client left, and `onAround(ctx, proceed)`. `http.routes.middlewares` mounts route middlewares on every route of the app. See [Route middlewares](http/14-route-middlewares.md), [Server middlewares](http/15-server-middlewares.md) and the [upgrade note](upgrading/4.0.md#http-middlewares).
+
 ### Config arrays replace
 
 An array your app configures replaces the array a package sets, as a scalar does. 3.x concatenated them.
@@ -115,7 +122,7 @@ export default { http: { socket: { transports: ['websocket'] } } };
 // 4.0: ['websocket']   (3.x: ['websocket', 'polling', 'websocket'])
 ```
 
-Some lists keep concatenating (`system.dirs.*`, `COMPOSED_CONFIG_ARRAYS`). `http.middlewares` is the one to check: a list of your own drops the shipped `helmet`, body parsers and cookie parser unless you start from `defaultMiddlewares()`. The full rules are in the [upgrade guide](upgrading/4.0.md#config-arrays-replace-the-default) and [Configuration](configuration/01-configuration-service.md).
+Some lists keep concatenating (`system.dirs.*`, `COMPOSED_CONFIG_ARRAYS`). `http.middlewares` is the one to check: a list of your own drops the shipped `helmet` unless you start from `defaultMiddlewares()`. The body and cookie parsers are server middlewares configured in `http.bodyParsers`. The full rules are in the [upgrade guide](upgrading/4.0.md#config-arrays-replace-the-default) and [Configuration](configuration/01-configuration-service.md).
 
 ### Decorator metadata is optional
 

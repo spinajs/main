@@ -4,6 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AsyncLocalStorage } from 'async_hooks';
 import { renderTemplate } from '@spinajs/log-common';
+import { NotSupported } from '@spinajs/exceptions';
 
 import { OrmDriver } from '../src/driver.js';
 import { Orm } from '../src/orm.js';
@@ -162,6 +163,12 @@ describe('OrmDriver transaction contract ( F2, B24 )', () => {
     });
 
     expect(d.CurrentTransaction).to.be.undefined;
+  });
+});
+
+describe('OrmDriver.epochMillis', () => {
+  it('throws NotSupported on a driver that does not implement it', async () => {
+    await expect(new FakeTxDriver().epochMillis()).to.be.rejectedWith(NotSupported, 'cannot read the database time');
   });
 });
 

@@ -128,7 +128,18 @@ function compareEnum(b: Schema, h: Schema, path: string, w: Walk): void {
   if (checked.some((v) => !keys.has(canonicalize(v)))) report(w, true, path, request ? 'enum value removed' : 'enum value added');
 }
 
-const memberKey = (m: unknown): string => (isSchema(m) && typeof m.$ref === 'string' ? `ref:${m.$ref}` : canonicalize(m));
+// Keys of these hold schemas by name, so a property called `x-foo` is data, not an extension keyword.
+const NAMED_SCHEMAS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
+
+/** `x-*` keys never change what a member accepts, and a compiler upgrade adds them (`x-spinajs-type`). */
+function withoutExtensions(value: unknown, named = false): unknown {
+  if (Array.isArray(value)) return value.map((item) => withoutExtensions(item));
+  if (!isSchema(value)) return value;
+  const kept = Object.entries(value).filter(([key]) => named || !key.startsWith('x-'));
+  return Object.fromEntries(kept.map(([key, child]) => [key, withoutExtensions(child, !named && NAMED_SCHEMAS.has(key))]));
+}
+
+const memberKey = (m: unknown): string => (isSchema(m) && typeof m.$ref === 'string' ? `ref:${m.$ref}` : canonicalize(withoutExtensions(m)));
 
 const memberLabel = (m: unknown): string => (isSchema(m) && typeof m.$ref === 'string' ? (m.$ref.split('/').pop() ?? m.$ref) : 'inline');
 
@@ -139,7 +150,7 @@ function membersOf(s: Schema, other: Schema, key: 'anyOf' | 'oneOf'): unknown[] 
   const own: unknown = s[key];
   if (Array.isArray(own)) return own as unknown[];
   if (!Array.isArray(other[key]) || s.anyOf !== undefined || s.oneOf !== undefined) return undefined;
-  return [Object.fromEntries(Object.entries(s).filter(([k]) => !ANNOTATIONS.has(k)))];
+  return [Object.fromEntries(Object.entries(s).filter(([k]) => !ANNOTATIONS.has(k) && !k.startsWith('x-')))];
 }
 
 function compareUnion(b: Schema, h: Schema, path: string, w: Walk): void {

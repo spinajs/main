@@ -6,16 +6,19 @@ Every request carries `req.storage`, a per-request object that the server middle
 
 Per request, the server middlewares fill `req.storage` in `Order`:
 
-1. `RequestStorage` (Order -2) sets `req.storage = {}`.
-2. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header. It continues the inbound `traceparent` header, or starts a new trace, sets `traceId` and `spanId`, and the outbound `traceparent` response header.
-3. `RealIp` (Order 1) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
-4. `ResponseTime` (Order 2) sets `responseStart`; a patched `res.end` sets `responseEnd`, `responseTime` (ms) and the `x-response-time` header.
-5. `ServerTiming` (Order 2) creates `serverTiming = []`; a patched `res.end` appends `total` and writes the `Server-Timing` header from all entries.
-6. `AccessLog` (Order 2) logs one line on `res.on('finish')`.
-7. `SlowRequestWarning` (Order 2) warns on `finish` when the request took `thresholdMs` or longer.
-8. `PerfRollup` (Order 2) creates `perf = { requestId, byName: {} }` and flushes it to the `Perf` sinks of `@spinajs/log` on `finish`, labelled with method, route path and status.
+1. `TracingMiddleware` (Order -3) starts the OpenTelemetry SERVER span in `onAround`, as a child of an inbound `traceparent`, and runs the rest of the request with it active. Its `onFinish`, when the request finishes, names it `<METHOD> <route path>` (`http.route`) if a route matched, sets `http.response.status_code`, and ends it. ERROR on a 5xx (`error.type` is the status, with an `exception` event for the error the reply answers) and on a client that left before the status line went out (`error.type` `aborted`, no status code). A streamed reply the client closed after its status line keeps that status and gets `spina.http.aborted: true`. A method outside the standard ones is recorded as `_OTHER` (`http.request.method_original` keeps it) and the span is named `HTTP`. A failure to start the span is logged and the request runs untraced.
+2. `HttpServer`'s first handler, before `http.middlewares` and every server middleware, sets `req.storage = {}`. (`RequestStorage` is a deprecated class, no longer registered as a server middleware.)
+3. `RequestId` (Order 1) sets `requestId` (UUID v4) and the `x-request-id` response header. It continues the inbound `traceparent` header, or starts a new trace, sets `traceId` and `spanId`, and the outbound `traceparent` response header.
+4. `RealIp` (Order 1; `AuthnRealIp` with `@spinajs/authn-http`) sets `realIp`; see [Client IP](17-client-ip-and-trust-proxy.md).
+5. `ResponseTime` (Order 2) sets `responseStart` in `onBefore`; its `onAfter`, when the reply is ready, sets `responseEnd`, `responseTime` (ms) and the `x-response-time` header.
+6. `ServerTiming` (Order 2) creates `serverTiming = []` in `onBefore`; its `onAfter` appends `total` and writes the `Server-Timing` header from all entries, after the route middlewares' `onAfter` (`RouteTiming`'s `route` entry).
+7. `AccessLog` (Order 2) logs one line in `onFinish`, aborted requests too (`aborted: true`, no status).
+8. `SlowRequestWarning` (Order 2) warns in `onFinish` when the request took `thresholdMs` or longer; an aborted request is not judged.
+9. `PerfRollup` (Order 2) creates `perf = { requestId, byName: {} }` in `onBefore` and flushes it to the `Perf` sinks of `@spinajs/log` in `onFinish`, labelled with method, the matched route's path (else the request path) and status. An aborted request is not flushed.
 
 Then the action handler runs argument extraction and the action inside `AsyncLocalStorage.run(req.storage, ...)`. Code called from there reads the same object with `DI.resolve(AsyncLocalStorage).getStore()`.
+
+Under the server span, each policy of the route runs in a `policy <Policy>` span (`spina.policy.name`, `spina.policy.result` `allow` or `deny`; a refusal sets ERROR), and argument extraction and the action run in a `route <Controller>.<action>` span (`spina.route.controller`, `spina.route.action`; a throw is recorded as an `exception` event, and sets ERROR unless it is answered with a 4xx). Route middlewares and the reply run under the server span.
 
 ## Configuration
 
@@ -47,9 +50,10 @@ export default {
 | `traceId`, `spanId` | `RequestId` | W3C trace context, merged into log lines. |
 | `realIp` | `RealIp` | Client address; also `@Ip()`. |
 | `proxyTrust` | `RealIp` | The parsed proxy trust `realIp` came from; read it with `requestProxyTrust(req)`. |
-| `responseStart`, `responseEnd`, `responseTime` | `ResponseTime` | Timing; `responseEnd` and `responseTime` exist only after the answer. |
+| `responseStart`, `responseEnd`, `responseTime` | `ResponseTime` | Timing; `responseEnd` and `responseTime` exist only once the reply is ready, and not for static files or replies an action wrote to `res` itself. |
 | `serverTiming` | `ServerTiming` | `IServerTimingEntry[]`: `{ name, dur?, desc? }`; push your own. |
 | `perf` | `PerfRollup` | `IPerfScope` accumulator filled by the `Perf` facade. |
+| `signal`, `deadline` | `RequestDeadline`, `@Deadline` | `AbortSignal` aborted at the deadline or when the client goes away, and the deadline in epoch ms; see [Request deadlines](29-request-deadlines.md). |
 
 The access log line carries `method`, `path` (query values redacted), `status`, `ms`, `ip`, `requestId` and `userAgent`.
 
@@ -57,10 +61,10 @@ The access log line carries `method`, `path` (query values redacted), `status`, 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `IActionLocalStoregeContext` | interface of `req.storage` | the fields above | `language` (`@spinajs/intl-http`), authz principal and decision fields (`@spinajs/authz-http`) | Add fields with `declare module '@spinajs/http' { interface IActionLocalStoregeContext { ... } }` and fill them from a server middleware with Order above -2. |
+| `IActionLocalStoregeContext` | interface of `req.storage` | the fields above | `language` (`@spinajs/intl-http`), authz principal and decision fields (`@spinajs/authz-http`) | Add fields with `declare module '@spinajs/http' { interface IActionLocalStoregeContext { ... } }` and fill them from a server middleware's `onBefore`. |
 | `AsyncLocalStorage` | Class `AsyncLocalStorage` from `node:async_hooks`, DI singleton (unregistered, resolves to itself) | one instance shared by `@spinajs/http` and `@spinajs/log` | | Do not replace; read it with `DI.resolve(AsyncLocalStorage)`. |
 | `AccessLog`, `ServerTiming`, `SlowRequestWarning`, `PerfRollup` | `ServerMiddleware` list, Order 2 | themselves | | `DI.register(Mine).as(AccessLog)` and so on; see [Server middlewares](15-server-middlewares.md#replacing-a-shipped-middleware). |
-| `RequestStorage`, `RequestId`, `ResponseTime` | `ServerMiddleware` list | themselves | | Exported as `RequestStorage`, `RequestIdMiddleware`, `ResponseTime`; not replaceable by class. |
+| `RequestId`, `ResponseTime` | `ServerMiddleware` list | themselves | | Exported as `RequestIdMiddleware`, `ResponseTime`; not replaceable by class. |
 
 ### `IActionLocalStoregeContext`: custom fields
 
@@ -69,8 +73,7 @@ Carry the tenant of each request in the storage, so repositories pick it up with
 ```ts sample
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI, Injectable } from '@spinajs/di';
-import { IActionLocalStoregeContext, Request, ServerMiddleware } from '@spinajs/http';
-import * as express from 'express';
+import { IActionLocalStoregeContext, IMiddlewareContext, ServerMiddleware } from '@spinajs/http';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -78,7 +81,7 @@ declare module '@spinajs/http' {
   }
 }
 
-/** Order 1.5: after RequestStorage (-2), RequestId and RealIp (1). */
+/** Order 1.5: after RequestId and RealIp (1). */
 @Injectable(ServerMiddleware)
 export class TenantFromHost extends ServerMiddleware {
   constructor() {
@@ -86,16 +89,9 @@ export class TenantFromHost extends ServerMiddleware {
     this.Order = 1.5;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      // acme.app.example.com → acme
-      req.storage.tenant = req.hostname.split('.')[0];
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+  public onBefore({ req, storage }: IMiddlewareContext) {
+    // acme.app.example.com → acme
+    storage.tenant = req.hostname.split('.')[0];
   }
 }
 
@@ -113,12 +109,13 @@ export class InvoiceRepository {
 
 ## Important behaviour
 
-- `AsyncLocalStorage.run()` wraps argument extraction and the action. Policies, `onBefore` route middlewares and server middlewares run outside it: read `req.storage` there.
-- `x-request-id`, `traceparent`, `x-response-time` and `Server-Timing` are written in `before()` or by patching `res.end`, because `after()` handlers never run for matched routes.
+- `AsyncLocalStorage.run()` wraps argument extraction and the action, and the route middlewares' `onAfter` and `onFinish`. Policies, `onBefore` and `onAround` route middlewares and server middlewares run outside it: read `req.storage` (`ctx.storage`) there.
+- `x-request-id` and `traceparent` are set in `onBefore`, so every answer has them, static files included. `x-response-time` and `Server-Timing` are set in `onAfter`, so only framework replies have them: not static files, nor replies an action wrote to `res` itself.
 - An inbound `traceparent` is continued, so a client can choose the trace id of its request.
 - `Server-Timing` is on by default and reveals internal timings to every client.
 - The access log redacts query values (`/a?token=x` → `/a?token=[redacted]`); paths are logged as they are. Keep secrets out of paths.
 - Every request gets a new `requestId`; an inbound `x-request-id` is not reused.
+- A request refused by `http.bodyLimits` or a body parser of `http.middlewares` (a 413, a malformed JSON 400) is answered before every server middleware: it gets no server span and no `x-request-id`.
 
 ## Best practices
 

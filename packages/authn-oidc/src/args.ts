@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
-import { Parameter, Route, RouteArgs } from '@spinajs/http';
-import type { IRouteArgsResult, IRouteCall, IRouteParameter, IRoute, Request } from '@spinajs/http';
+import { Parameter, Route, RouteArgs, requestProxyTrust } from '@spinajs/http';
+import type { IRouteArgsResult, IRouteCall, IRouteParameter, IRoute, ProxyTrust, Request } from '@spinajs/http';
 import type * as express from 'express';
 
 /** What the origin and the context of an OIDC request need from the connection. */
@@ -10,6 +10,8 @@ export interface OidcConnection {
   readonly peer: string | undefined;
   /** authn-http's ClientIp: the trusted-proxy chain's client address. */
   readonly clientIp: string | undefined;
+  /** The trust RealIp used for this request (`requestProxyTrust`), so the origin trusts the proxies realIp trusts. */
+  readonly proxyTrust: ProxyTrust;
 }
 
 // DI keys route args by class name, so these two carry an Oidc prefix.
@@ -34,7 +36,12 @@ export class OidcConnectionArg extends RouteArgs {
 
   public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: Request): Promise<IRouteArgsResult> {
     const socket = req.socket as { encrypted?: boolean; remoteAddress?: string } | undefined;
-    const connection: OidcConnection = { encrypted: socket?.encrypted === true, peer: socket?.remoteAddress, clientIp: (req.storage as { ClientIp?: string } | undefined)?.ClientIp };
+    const connection: OidcConnection = {
+      encrypted: socket?.encrypted === true,
+      peer: socket?.remoteAddress,
+      clientIp: (req.storage as { ClientIp?: string } | undefined)?.ClientIp,
+      proxyTrust: requestProxyTrust(req),
+    };
     return { CallData: callData, Args: connection };
   }
 }

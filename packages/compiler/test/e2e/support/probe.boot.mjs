@@ -19,7 +19,7 @@ nodeModule.registerHooks({
 if (process.env.E2E_APP_SOURCE === '1') await import(new URL('lib/plugin/registrations.js', import.meta.url).href);
 const { PrincipalMiddleware } = await import('@spinajs/authz-http');
 const { DI, Bootstrapper } = await import('@spinajs/di');
-const { Configuration, BaseFileSource } = await import('@spinajs/configuration');
+const { Configuration, BaseFileSource, bootedManifestOf } = await import('@spinajs/configuration');
 const { BaseController, Controllers, HttpServer, ServerMiddleware, FilesystemControllerSource } = await import('@spinajs/http');
 const { Orm, FilesystemMigrationSource } = await import('@spinajs/orm');
 const { ScheduleRegistry } = await import('@spinajs/scheduler');
@@ -84,6 +84,7 @@ try {
   DI.unregister(ServerMiddleware, PrincipalMiddleware);
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
+  result.booted = bootedManifestOf(DI.RootContainer);
   await DI.resolve(fsService);
   await DI.resolve(Intl);
   const orm = await DI.resolve(Orm);

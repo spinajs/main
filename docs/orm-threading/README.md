@@ -54,4 +54,3 @@ export async function rebuildSearchIndex(rebuild: () => Promise<void>): Promise<
 - [`@spinajs/orm`](../orm/README.md): models, migrations and connections the `__mutex__` table runs on.
 - [`@spinajs/configuration`](../configuration/README.md): supplies `threading.mutex.tenant`, `threading.mutex.ttl` and `threading.mutex.checkInterval`.
 - [`@spinajs/di`](../di/README.md): the container `Mutex` is registered in and resolved from.
-- [`@spinajs/tasks`](../tasks/README.md): its `@Task()` decorator locks each task through `mutex_acquire()` with a `ttl` and renews it while the task runs, when `taskStacking` is off.

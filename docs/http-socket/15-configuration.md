@@ -40,7 +40,9 @@ Everything the socket server reads lives under `http.socket`, plus `system.dirs.
 | `http.socket.adapter` | adapter | `undefined` | a socket.io adapter | Rooms and pushes across instances |
 | `system.dirs.socketControllers` | string[] | `[]` | folders | Folders scanned for socket controllers |
 
-Keys of other packages the server reads: `http.trustProxy`, `authn.http.trustProxy` (client address), `http.shutdownTimeout` (drain warning), `configuration.isProduction` (`internal` error details), `authz` (field settings of `fields: 'filter'`).
+Keys of other packages the server reads: `http.trustProxy`, and `authn.http.trustProxy` with `@spinajs/authn-http` loaded (client address, through the registered `RealIp`), `http.shutdownTimeout` (drain warning), `configuration.isProduction` (`internal` error details), `authz` (field settings of `fields: 'filter'`).
+
+Import `@spinajs/authn-http` before `SocketServer` resolves. The server resolves `RealIp` once, when it starts; registered later, `AuthnRealIp` reaches http but not the sockets, and authn-http logs an error naming the fix.
 
 ## Services and extension points
 

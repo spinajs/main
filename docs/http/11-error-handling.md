@@ -13,7 +13,7 @@ An API whose clients branch on a stable error code throws a [`CodedHttpException
 Errors reach the handler from two places:
 
 - **Matched routes.** Every route's handler chain ends with the [route error handlers](#route-error-handlers), then `__handle_response__()`, then `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
-- **Everything else.** `NotFoundMiddleware.after()` turns an unmatched request into `ResourceNotFound`; `ErrorHandlerMiddleware.after()`, last in the Express stack, runs `__handle_error__()` for it and for errors from server middlewares.
+- **Everything else.** `HttpServer` ends the Express stack with a fixed tail: `NotFoundMiddleware.reply(req)` answers an unmatched request (by default with `ResourceNotFound`), and the global error answer runs `__handle_error__()` with `ErrorHandlerMiddleware.reply(error, req)` for it and for errors from server middlewares and body parsers. Both replies go through the reply pipeline, so the `onAfter` of the [server middlewares](15-server-middlewares.md) entered for the request see them.
 
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
@@ -61,8 +61,8 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Error map | String token `'__http_error_map__'`, a `Map<string, Constructor<Response>>` filled with `asMapValue`, read with `DI.get` | entries from the response classes (see [Responses](10-responses.md#response-classes)) | `OrmNotFound` maps `OrmNotFoundException` (`@spinajs/orm-http`) | `@HandleException` on your response class. Re-registering a name replaces its entry. Register before `Controllers` resolves. |
-| `NotFoundMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER` | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; see [Server middlewares](15-server-middlewares.md). |
-| `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
+| `NotFoundMiddleware` | Class, resolved by `HttpServer` when it resolves; singleton. Not a server middleware. | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; override `reply(req)`: return an error for the global error answer, or a `Response` to send. |
+| `ErrorHandlerMiddleware` | Class, resolved by `HttpServer` when it resolves; singleton. Not a server middleware. | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)` before `HttpServer` resolves; override `reply(error, req)`, which returns the `Response` (the error map's by default, and logs the error). A throw there falls back to the fatal answer. A replacement that still defines the 3.x `after()` fails `HttpServer.resolve()`. |
 | `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
 
 The building blocks of the route error handlers are exported for custom route chains and error handlers (a custom controller base, a test, an `@OnError` handler):
@@ -72,7 +72,7 @@ The building blocks of the route error handlers are exported for custom route ch
 | `markStage(res, stage)` | Records the `ErrorStage` the chain is in on `res.locals`; the policy gate, middleware wrappers and action handler call it. A `res` without `locals` is ignored. |
 | `stageOf(res)` | The stage last recorded on `res`; `'action'` when none was. |
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
-| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
+| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption`, naming the key and the entry, for an entry that is not `{ service: '<name>' }` or names no `ErrorHandlerService` (a type registered as `ErrorHandlerService`, or a subclass registered under its own name). |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
 | `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's message, which can reveal internals. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
@@ -229,14 +229,14 @@ An `@OnError` handler can also return `new CodedHttpExceptionResponse(exception)
 | --- | --- |
 | `on` | One error class or an array of classes. The handler runs only when the error is an `instanceof` one of them. `Error` catches everything. |
 | `handler` | `(err, ctx: ErrorContext) => Error \| Response \| void`, sync or async. |
-| `stages` | Optional `ErrorStage[]`: `'policy'`, `'middleware'` (route middleware `onBefore`), `'arguments'` (input filters, required check, conversion, validation, hydration), `'action'` (the action and `onResponse`), `'after'` (route middleware `onAfter`). Omitted: every stage. |
+| `stages` | Optional `ErrorStage[]`: `'policy'`, `'middleware'` (route middleware `onBefore`), `'arguments'` (input filters, required check, conversion, validation, hydration), `'action'` (the action), `'after'` (a route middleware `onAfter` that threw while the reply was being sent). Omitted: every stage. |
 
 What the handler returns decides what happens next:
 
 | Return | Effect |
 | --- | --- |
 | an `Error` | It replaces the error. Later handlers match their `on` against the new error; the global handler answers what is left. |
-| a `Response` | The error is swallowed and this response is the answer. `onAfter` and `onResponse` do not run, as for any error answer. |
+| a `Response` | The error is swallowed and this response is the answer. It goes through the reply pipeline: route middlewares' `onAfter` see it, with `ctx.error` set to the error it answers. |
 | nothing | The handler did something else (log, audit, metrics) and the error continues unchanged. |
 
 `ErrorContext` carries `req`, `res`, `route`, `controller`, `stage` and `container` (the controller's DI container).
@@ -314,7 +314,7 @@ export class CountInvalidInput extends ErrorHandlerService {
 // config: { http: { errors: { handlers: [{ service: 'CountInvalidInput' }] } } }
 ```
 
-A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fails every controller at startup with `InvalidOption`.
+A name in `http.errors.handlers` that no registered `ErrorHandlerService` has, or an entry of another shape, fails every controller at startup with `InvalidOption` naming the key and the entry.
 
 ## Important behaviour
 
@@ -378,9 +378,13 @@ export class Unavailable<T = any> extends Response<T> {
 }
 ```
 
+## Concurrent changes: 409
+
+`ConcurrencyConflict` (from `@spinajs/exceptions`) and every subclass of it, `OptimisticLockError` of `@spinajs/orm` among them, are answered by the `Conflict` response: 409 `application/problem+json`. Static `problemFields` on the subclass decide which of its fields reach the body.
+
 ## Related
 
 - [HTTP error mapping](../exceptions/03-http-error-mapping.md): the exception side, every default entry.
 - [Responses](10-responses.md): the response classes and content negotiation.
 - [Data transformers](12-data-transformers.md): reshape error bodies with `x-error-transform`.
-- [Server middlewares](15-server-middlewares.md): where `NotFoundMiddleware` and `ErrorHandlerMiddleware` sit.
+- [Server middlewares](15-server-middlewares.md): where `NotFoundMiddleware` and `ErrorHandlerMiddleware` sit in the request timeline.

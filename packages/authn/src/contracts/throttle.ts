@@ -63,12 +63,15 @@ export const DEFAULT_THROTTLE_PARAMS: ThrottleParams = Object.freeze({
   global: null,
 });
 
-/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
-export const ipv6PrefixOf = (configured: unknown): number => (typeof configured === 'number' ? configured : DEFAULT_IPV6_PREFIX);
+/**
+ * The IPv6 prefix of the ip keys: `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix` (the prefix `@RateLimit`
+ * and `http.throttle` count), else 64. Each is taken as a config read delivers it: only a number counts.
+ */
+export const ipv6PrefixOf = (configured: unknown, httpPrefix?: unknown): number => (typeof configured === 'number' ? configured : typeof httpPrefix === 'number' ? httpPrefix : DEFAULT_IPV6_PREFIX);
 
 /**
  * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
- * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ * ({@link ipv6PrefixOf}), so its addresses share one row (L3).
  */
 export function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null {
   return isNonEmptyString(ctx.ip) ? { kind: 'ip', value: throttleIp(ctx.ip, v6Prefix) } : null;

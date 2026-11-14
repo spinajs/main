@@ -97,7 +97,8 @@ export function routeSignature(controller: ControllerEntry, route: RouteEntry, c
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
   const args = routeArguments(label, route, path, ctx);
-  const returns = ctx.typeOf(route.returnType);
+  const type = ctx.typeOf(route.returnType);
+  const returns = type !== 'void' && [...route.middlewares, ...controller.middlewares].some((m) => m.type === 'AuthzFieldsMiddleware') ? ctx.redacted(type) : type;
   const parts = [
     `method: ${literal(route.method === 'file' ? 'get' : route.method)}`,
     `path: ${literal(path.template)}`,

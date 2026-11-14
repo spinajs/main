@@ -1,13 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { Socket } from 'socket.io';
-import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
 import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame, isStreamCredit } from '@spinajs/http-socket-common';
-import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
+import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketMiddleware } from './interfaces.js';
 import { SocketConnection } from './connection.js';
-import { SocketCommandContext } from './context.js';
+import { SocketClientGone, SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
 import { TokenBucket, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
@@ -36,6 +36,13 @@ function aborted(signal: AbortSignal): Promise<never> {
 function unsentPackets(socket: Socket): number {
   return (socket.conn as unknown as { writeBuffer?: unknown[] }).writeBuffer?.length ?? 0;
 }
+
+const isThenable = (value: unknown): value is PromiseLike<unknown> => typeof (value as PromiseLike<unknown> | null)?.then === 'function';
+
+const settle = (work: Promise<unknown>): Promise<CommandOutcome> => work.then(
+  (result) => ({ result }),
+  (error: unknown) => ({ error }),
+);
 
 /** True once every promise settled; false when `ms` passes first. */
 function within(work: Array<Promise<unknown>>, ms: number): Promise<boolean> {
@@ -77,8 +84,6 @@ export class SocketDispatcher extends AsyncService {
   @Autoinject()
   protected Als: AsyncLocalStorage<ISocketCallStorage>;
 
-  protected Stages: SocketCommandStage[] = [];
-
   protected runtimes = new Map<string, IConnectionRuntime>();
 
   /** recovered connections the re-check refused before their connect hooks; their disconnect hooks are skipped too */
@@ -91,19 +96,13 @@ export class SocketDispatcher extends AsyncService {
   /** From arrival to written reply, or to the end of its stream; the shutdown drain waits for them. */
   protected replies = new Set<Promise<void>>();
 
-  /** Stage chains, which can outlive an aborted reply; an idempotency claim settles only when its chain does. */
+  /** Middleware chains, which can outlive an aborted reply, and their onFinish hooks; a middleware records the outcome only when its chain settles. */
   protected chains = new Set<Promise<void>>();
 
   protected hookRuns = new Set<Promise<void>>();
 
   /** Set by shutdown: every new command is answered with it. */
   protected refusal: SocketException | null = null;
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
-    this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
-  }
 
   /** @internal called by SocketServer */
   public attach(connection: SocketConnection, socket: Socket): IConnectionRuntime {
@@ -162,12 +161,12 @@ export class SocketDispatcher extends AsyncService {
 
   /**
    * @internal Aborts every running command on every connection ( shutdown ). With `spareStarted`, a command whose
-   * idempotency claim already reached its handler keeps running: it may commit any moment, and only its real outcome tells.
+   * handler started under `drainGrace` keeps running: it may commit any moment, and only its real outcome tells.
    */
   public abortAll(reason: SocketException, spareStarted = false): void {
     for (const runtime of this.runtimes.values()) {
       for (const ctx of runtime.running.values()) {
-        if (!(spareStarted && ctx.idempotency?.started)) {
+        if (!(spareStarted && ctx.drainGrace && ctx.handlerStarted)) {
           ctx.abort(reason);
         }
       }
@@ -180,8 +179,8 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /**
-   * @internal True once every command received so far has been answered, its stream ( if any ) has ended and its stage
-   * chain has settled, so its idempotency claim is recorded or released; false when `ms` passes first.
+   * @internal True once every command received so far has been answered, its stream ( if any ) has ended and its middleware
+   * chain and onFinish hooks have settled, so every middleware has recorded its outcome; false when `ms` passes first.
    */
   public drained(ms: number): Promise<boolean> {
     return within([...this.replies, ...this.chains], ms);
@@ -203,8 +202,8 @@ export class SocketDispatcher extends AsyncService {
     work.then(forget, forget);
   }
 
-  /** Runs one command through the stages and the handler; never rejects. */
-  public async execute(ctx: SocketCommandContext): Promise<CommandReply> {
+  /** Runs one command through its middlewares and the handler; never rejects. */
+  public async execute(ctx: SocketCommandContext, chain: readonly SocketMiddleware[] = this.chainOf(ctx)): Promise<CommandReply> {
     const runtime = ctx.runtime;
     const started = performance.now();
     runtime.running.set(ctx.request.id, ctx);
@@ -212,25 +211,30 @@ export class SocketDispatcher extends AsyncService {
     let reply: CommandReply;
 
     try {
-      // D14: stages, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
-      const chain = this.Als.run(ctx.storage, () => this.next(ctx, 0));
+      // D14: middlewares, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
+      const running = this.Als.run(ctx.storage, () => this.next(ctx, chain, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
-      this.track(
-        this.chains,
-        chain.then(
-          () => undefined,
-          () => undefined,
-        ),
+      // onFinish sees the chain's own outcome, also when no onAfter wrote it and when an abort answered the client.
+      ctx.chainSettled = running.then(
+        (result) => {
+          ctx.result = result;
+          ctx.error = undefined;
+        },
+        (error: unknown) => {
+          ctx.result = undefined;
+          ctx.error = error;
+        },
       );
+      this.track(this.chains, ctx.chainSettled);
       const abort = aborted(ctx.signal);
       abort.catch(() => undefined);
 
       let result: unknown;
       try {
-        result = await Promise.race([chain, abort]);
+        result = await Promise.race([running, abort]);
       } catch (err) {
         // the answer is out already; a stream the handler returns later is closed instead of left open
-        void chain.then((late) => this.closeStream(late), () => undefined);
+        void running.then((late) => this.closeStream(late), () => undefined);
         throw err;
       }
       reply = await this.toReply(ctx, result);
@@ -309,14 +313,35 @@ export class SocketDispatcher extends AsyncService {
       // answered by the rate stage, so the size stage still comes first ( spec §5.2 )
       ctx.rateRefusal = limited;
     }
+    const chain = this.chainOf(ctx);
     // a stream acks at once, so its run is tracked too: the shutdown drain must see open streams
-    this.track(
-      this.replies,
-      this.execute(ctx).then((answer) => {
-        this.send(reply, answer, raw.name);
-        // after the ack, so the client knows the id is a stream before its first chunk
-        return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
-      }),
+    const replied = this.execute(ctx, chain).then((answer) => {
+      this.send(reply, answer, raw.name);
+      // after the ack, so the client knows the id is a stream before its first chunk
+      return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
+    });
+    this.track(this.replies, replied);
+    if (chain.some((middleware) => middleware.onFinish)) {
+      this.track(
+        this.chains,
+        replied.then(() => this.finish(ctx)),
+      );
+    }
+  }
+
+  /** onFinish of the entered middlewares, inner first, once the reply is out and the chain settled; never rejects. */
+  protected async finish(ctx: SocketCommandContext): Promise<void> {
+    await ctx.chainSettled;
+    if (!ctx.finishing) {
+      return;
+    }
+
+    await Promise.all(
+      [...ctx.finishing].reverse().map((middleware) =>
+        this.Als.run(ctx.storage, async () => middleware.onFinish!(ctx)).catch((err: unknown) =>
+          this.Log.error({ error: err, command: ctx.request.name, middleware: middleware.constructor.name }, 'Socket middleware ${middleware} failed in onFinish of command ${command}'),
+        ),
+      ),
     );
   }
 
@@ -528,29 +553,114 @@ export class SocketDispatcher extends AsyncService {
     };
   }
 
-  protected next(ctx: SocketCommandContext, index: number): Promise<unknown> {
-    const stage = this.Stages[index];
+  /** Picked by name on arrival, so a command's own middlewares run before the lookup too. */
+  protected chainOf(ctx: SocketCommandContext): readonly SocketMiddleware[] {
+    return this.Registry.chainFor(ctx.request.name);
+  }
 
-    if (!stage) {
+  protected next(ctx: SocketCommandContext, chain: readonly SocketMiddleware[], index: number): Promise<unknown> {
+    if (ctx.signal.aborted) {
+      return Promise.reject(new SocketClientGone({ beforeHandler: true }, ctx.signal.reason as SocketException));
+    }
+
+    const middleware = chain[index];
+
+    if (!middleware) {
       return this.invoke(ctx);
     }
 
-    return stage.execute(ctx, () => this.next(ctx, index + 1));
+    const rest = () =>
+      this.next(ctx, chain, index + 1).catch((err: unknown) => {
+        throw this.goneBeforeHandler(ctx, err);
+      });
+
+    if (!middleware.onAround) {
+      return this.step(ctx, middleware, rest);
+    }
+
+    ctx.enter(middleware);
+    let called = false;
+    const proceed = () => {
+      if (called) {
+        return Promise.reject(new SocketException('internal', `proceed() called twice by ${middleware.constructor.name}`));
+      }
+      called = true;
+      return this.step(ctx, middleware, rest);
+    };
+
+    try {
+      // an untyped onAround may return a plain value
+      return Promise.resolve(middleware.onAround(ctx, proceed));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  /** One middleware's onBefore, the rest of the chain, then its onAfter. A synchronous onBefore costs no tick. */
+  protected step(ctx: SocketCommandContext, middleware: SocketMiddleware, rest: () => Promise<unknown>): Promise<unknown> {
+    let before: unknown;
+    try {
+      before = middleware.onBefore?.(ctx);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
+    return isThenable(before) ? Promise.resolve(before).then((answer) => this.past(ctx, middleware, answer, rest)) : this.past(ctx, middleware, before, rest);
+  }
+
+  /** What follows a resolved onBefore: its answer, or the rest of the chain, through the middleware's onAfter. */
+  protected past(ctx: SocketCommandContext, middleware: SocketMiddleware, answer: unknown, rest: () => Promise<unknown>): Promise<unknown> {
+    if (!middleware.onAround) {
+      ctx.enter(middleware);
+    }
+
+    if (!middleware.onAfter) {
+      return answer !== undefined ? Promise.resolve(answer) : rest();
+    }
+
+    const outcome = answer !== undefined ? Promise.resolve<CommandOutcome>({ result: answer }) : settle(rest());
+    return outcome
+      .then((settled) => this.after(ctx, middleware, settled))
+      .then((after) => {
+        if ('error' in after) {
+          throw after.error;
+        }
+        return after.result;
+      });
+  }
+
+  protected async after(ctx: SocketCommandContext, middleware: SocketMiddleware, outcome: CommandOutcome): Promise<CommandOutcome> {
+    const failed = 'error' in outcome;
+    ctx.result = failed ? undefined : outcome.result;
+    ctx.error = failed ? outcome.error : undefined;
+
+    try {
+      await middleware.onAfter!(ctx);
+    } catch (err) {
+      return { error: err };
+    }
+
+    return failed ? outcome : { result: ctx.result };
+  }
+
+  /** A later middleware that waited on the signal ( ready, the ordering queue, an idempotency join ) throws the bare reason. */
+  protected goneBeforeHandler(ctx: SocketCommandContext, err: unknown): unknown {
+    return ctx.signal.aborted && err === ctx.signal.reason && !ctx.handlerStarted ? new SocketClientGone({ beforeHandler: true }, err as SocketException) : err;
   }
 
   protected async invoke(ctx: SocketCommandContext): Promise<unknown> {
     if (ctx.signal.aborted) {
-      throw ctx.signal.reason;
+      throw new SocketClientGone({ beforeHandler: true }, ctx.signal.reason as SocketException);
     }
 
     const handler = ctx.handler;
     const args = ctx.args;
 
     if (!handler || !args) {
-      throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in stage is missing');
+      throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in middleware is missing');
     }
 
-    ctx.idempotency?.start();
+    ctx.markHandlerStarted();
 
     return handler.controller[handler.descriptor.Method as string](...args);
   }
@@ -595,13 +705,10 @@ export class SocketDispatcher extends AsyncService {
       throw ctx.signal.reason;
     }
 
-    // the queue place is released when the handler returns, long before the stream ends; the registry refuses async generators
-    if (ctx.handler?.descriptor.Options.ordered) {
-      throw new SocketException('failed_precondition', `ordered command ${name} cannot reply with a stream`);
-    }
-
-    if (ctx.handler?.descriptor.Options.idempotent) {
-      throw new SocketException('failed_precondition', `idempotent command ${name} cannot reply with a stream`);
+    // the registry refuses an async generator under a stage's refusal; this is any other async iterable
+    const refusal = ctx.handler?.streamRefusal;
+    if (refusal) {
+      throw new SocketException('failed_precondition', `${refusal} command ${name} cannot reply with a stream`);
     }
 
     if (credits === undefined) {

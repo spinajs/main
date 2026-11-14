@@ -23,6 +23,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 describe('Sqlite - relations test', function () {
   this.timeout(10000);
+  const sb = sinon.createSandbox();
 
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
@@ -42,6 +43,7 @@ describe('Sqlite - relations test', function () {
   });
 
   afterEach(() => {
+    sb.restore();
     DI.clearCache();
   });
 
@@ -159,7 +161,6 @@ describe('Sqlite - relations test', function () {
   });
 
   it('Should sync only dirty models', async () => {
-    const sb = sinon.createSandbox();
     sb.spy(ModelBase.prototype);
 
     const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
