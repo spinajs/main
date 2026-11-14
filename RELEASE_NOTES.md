@@ -1,3 +1,143 @@
+# Release notes — orm, orm-sql, orm-sqlite, orm-http: numeric datetime columns, BETWEEN, typed filter values, belongs-to populates
+
+## Breaking changes
+
+- `@spinajs/orm-sql`: `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` all attach
+  `DatetimeValueConverter`, which wrote Unix seconds into a numeric column only when the reported column type was spelled
+  exactly like an entry of a lower-case list. SQLite reports the type as declared, and the schema builder declares
+  `INTEGER`, `REAL` and `DECIMAL`, so on SQLite every such column received ISO text next to its integers. SQLite sorts all
+  text above all numbers, so `where('At', '>=', ...)`, `orderBy('At')` and the soft-delete and archive filters returned
+  wrong rows. The type is now compared in any case, without a `(...)` size and without `unsigned`, `signed` and
+  `zerofill`, and `real`, `numeric`, `double precision`, `big int`, `int2` / `int4` / `int8` and `float4` / `float8` count
+  as numeric. Columns that now receive Unix seconds:
+  - SQLite: `INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, `DECIMAL(10,0)`, `INTEGER UNSIGNED`, `BIGINT(20)`, `UNSIGNED BIG INT`,
+    `INT8`, `DOUBLE PRECISION` and the other numeric spellings, in any case, which received ISO text. `DATETIME`,
+    `TIMESTAMP` and `TEXT` columns keep ISO text.
+  - MSSQL: `numeric` and `real`.
+  - MySQL and PostgreSQL report type names that matched already; nothing changes there.
+
+  The timestamp decorators always write seconds. Reads accept both forms, but comparisons and ordering need one.
+  **Action needed:** on SQLite, convert the text rows of such a column once before upgrading, here column `At` of table
+  `t`:
+
+  ```sql
+  -- Unix seconds: the default, and what the timestamp decorators write
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text';
+  -- a column you switch to @DateTime({ unit: 'milliseconds' })
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text';
+  ```
+
+  `'2026-11-13T23:26:44.654Z'` becomes `1794612404` or `1794612404654`, `'2026-11-13 23:26:46.001'` becomes
+  `1794612406` or `1794612406001`; integer rows are left alone.
+
+## Behaviour change
+
+- `@spinajs/orm-http`: `@Filter()` checks each filter value against its operator and its column. Before, every column
+  accepted a string, an integer, a boolean or an array for any operator: `eq [1]` and `gte "abc"` on an integer column
+  were accepted and reached the query, `between [1]` failed in the database with a 500, and a `null` value was coerced to
+  `""` and compared with that. Now each operator takes its own shape:
+  - `eq`, `neq`, `gt`, `gte`, `lt`, `lte`: one value of the column's type;
+  - `like`, `b-like`, `e-like`, `regexp`: a string;
+  - `in`, `nin`, `in-set`, `nin-set`: a non-empty array of values of the column's type;
+  - `between`, `notbetween`: an array of exactly two;
+  - `isnull`, `notnull`, `exists`, `n-exists`: no value.
+
+  The column's type comes from the new `value` schema (`@Filterable({ operators, query, aggregate, value })`, or `value`
+  in an `IColumnFilter`), else from the model column's JSON schema (a `Relation.Column` filter reads the related model's
+  column), else any scalar. A value is coerced only to the type of its own column: `"20"` for an integer column becomes
+  `20`, `"05"` for a text column stays `"05"`. A malformed filter that answered 200 or 500 now answers 400.
+- Over `@Filter()`, a typed value is never `null`, alone or as a member of a list or pair: the request answers 400. Filter
+  with `isnull` / `notnull` instead.
+- Called from code, `filter()` keeps the 3.0.29 handling of `null`: `eq null` and `neq null` compile to `IS NULL` /
+  `IS NOT NULL`, and `null` for `gt` .. `lte` throws `InvalidArgument`. It now refuses an array for `eq` .. `lte` with
+  `InvalidArgument` (`SINGLE_VALUE_REQUIRED`), and a `between` / `notbetween` array of more than two values with
+  `InvalidArgument` (`LENGTH_TOO_LONG`).
+- A column with a custom `query` function, and a virtual filter-only column, stay loose unless they declare `value`: they
+  take any value except an object, for every operator, uncoerced. Such a column now receives `null` as `null` and a
+  fraction as a number, where coercion used to hand it `""` and a string. A query function that tested for `""` tests for
+  `null` now.
+- The filter value of a column with `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` or `@Archived()` must
+  be a full RFC 3339 date-time such as `2024-01-01T00:00:00Z`, also when the column stores numbers. A date alone
+  (`2024-01-01`) or a number answers 400.
+- `@spinajs/orm`: the model JSON schema looked a column's type up verbatim, and SQLite reports types as declared, so
+  every SQLite column fell back to `{ type: 'string' }`. Types are now read in any case, without a `(...)` size and without
+  `unsigned`, `signed` and `zerofill`, and `integer`, `big int`, `real` and `numeric` are known. On SQLite, `INTEGER` and
+  `INTEGER UNSIGNED` columns now publish `integer`, `REAL`, `DECIMAL(...)` and `NUMERIC` columns `number`, and `BOOLEAN`
+  columns `boolean`, in `descriptor.Schema`, `descriptor.ResponseSchema`, the validation of a model taken as a request
+  body, the OpenAPI document and the filter value schema above. On MSSQL, `real` and `numeric` columns, and on PostgreSQL
+  `numeric` columns in the request schema, become `number` instead of `string`. Driver response overrides still apply.
+  `columnToSchema()` is now exported.
+
+## New
+
+- `@spinajs/orm`, `@spinajs/orm-sql`: `@DateTime({ unit: 'milliseconds' })` stores epoch milliseconds in a numeric
+  column. The unit applies to writes, reads and to `where()`, `whereIn()` and BETWEEN bindings, where a `DateTime` and a
+  plain number are both written as whole milliseconds: a fraction of a millisecond is floored. The default stays
+  `'seconds'`; any other value throws `InvalidArgument`. `toJSON()` still emits ISO 8601.
+  `toInstant()` and `instantFromDb()` take an optional `unit` argument; `DateTimeUnit` and `IDateTimeConverterOptions`
+  are exported. Numeric text from the driver (pg `int8`, MSSQL `bigint`, mysql2 `DECIMAL`), which read as `null`, is
+  now read in the column's unit when it is neither ISO 8601 nor SQL datetime text. `DateTimeHydrator` of `@spinajs/http`
+  still reads a numeric route argument as Unix seconds.
+- `@spinajs/orm`: `@DateTime({ nullable: true })` accepts a property typed `DateTime | null`. Before, it threw at class
+  definition, because TypeScript emits `Object` as the design type of that union.
+- `@spinajs/orm`, `@spinajs/orm-sql`: `@Bool({ nullable: true })` maps a `boolean | null` property. Before, `@Bool()`
+  threw at class definition (`must be boolean type, but is Object`), and the converter read NULL as `false` and wrote
+  `null` as `0`, so "unknown" was stored and read as "false". With the option NULL stays `null` on insert, update,
+  hydrate and `toJSON()` / `dehydrate()`, and `where('Flag', null)` finds the NULL rows. Without it nothing changes. A
+  hand-written nullable boolean converter can be replaced by the option.
+- `@spinajs/orm-sqlite`: `ForeignKeys` connection option (`db.Connections[]`), default `false`. SQLite enforces foreign
+  keys only with `PRAGMA foreign_keys = ON` on each connection, and the driver never sent it, so the foreign keys that
+  migrations declare were not enforced. With `ForeignKeys: true` the driver runs the pragma on the writer and reads it
+  back before any statement can use the handle, on connect and on every health-check reconnect; the connect fails with
+  `OrmException` when the SQLite build ignores the pragma. The workaround the docs showed, a driver subclass that sends
+  the pragma after `super.connect()`, left a window in which a write could store an orphan row; it still works, and the
+  option replaces it. With the option on, altering a column (`.modify()`) of a table another table references throws
+  `NotSupported`, and `dropTable()` of a referenced table deletes the referencing rows under `ON DELETE CASCADE` or is
+  rejected with `ConstraintViolation` while they exist. To change such a table, switch the pragma off around the change,
+  outside any transaction: see `docs/orm-sqlite/04-schema-and-ddl.md`.
+- `@spinajs/orm-http`: the options form `@Filterable({ operators, query?, aggregate?, value? })` (`IFilterableOptions`),
+  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS`, and `filterSchemaFor(columns, model?)`.
+
+## Fixes
+
+- `@spinajs/orm`: `Model.query().populate('<belongsTo>')` returned owners whose own columns were all `null` (only the
+  relation was filled), and ordering by an owner column such as `Id` failed as ambiguous. A dotted
+  `Model.query().where('Relation.Column', x)` and orm-http's `Model.filter()` on a `Relation.Column` did the same.
+  `query()` now selects all owner columns under a belongs-to populate, as `select()` and `where()` do. An explicit column
+  list (`query().select('Id').populate(...)`) is kept. Calling `select()` before `populate()` as a workaround still
+  works.
+- `@spinajs/orm`: a belongs-to whose foreign key is NULL is now empty (`Value` is `undefined`, `Populated` is `true`) also
+  when a relation is populated under it: `populate('Plan.Forecast')`, or three levels such as `populate('B.C.D')`. Before,
+  the nested populate made the hydrator build a model whose every column was null, so "is there a plan?" answered yes. A
+  belongs-to row whose values are all `null` or `undefined` counts as absent; before, only `null` did, so `hydrate()` with
+  a hand-built `{ B: { Name: undefined } }` built a `B` model and now leaves `B` empty.
+- `@spinajs/orm`, `@spinajs/orm-sql`, `@spinajs/orm-http`: `where(column, 'between', [from, to])` (also `not between`,
+  `orWhere()`, `andWhere()`) compiled to `column BETWEEN ?` with the whole pair bound as one value, so every database
+  refused it and every orm-http `between` / `notbetween` filter answered 500. It now compiles to `BETWEEN ? AND ?`,
+  converts each bound like a `whereIn()` value (a `@DateTime` column takes `DateTime` bounds), qualifies the column with
+  the query alias also after `populate()`, and keeps the `OR` of `orWhere()`. A model instance as a bound binds its
+  primary key; one with a composite key throws `InvalidArgument`. A `RawQuery` as the whole range
+  (`RawQuery.create('? AND ?', [1, 2])`) still works; a `RawQuery` as one member of the pair throws `InvalidArgument`, as
+  does any value that is not an array of exactly two members or holds `null`, `undefined` or `NaN`. A `@Filterable`
+  query function written to rewrite `between` can be dropped.
+- `@spinajs/orm-sql`: a single `where()` value, `whereIn()` / `whereNotIn()` values and BETWEEN bounds now reach the
+  column's declared converter with the options its decorator stored; before, single values and `whereIn()` passed
+  `null`. This matters for a custom converter that reads its options.
+- `@spinajs/orm`: `String(error)`, template literals and loggers printed `OrmException` and its subclasses
+  (`OrmNotFoundException`, `NoRowsAffected`, `MigrationLockLostException`, ...) as `undefined`. They now print
+  `<Name>: <message>`, since the empty `toString()` override is gone.
+- `@spinajs/orm-mssql`: imports `MigrationLock`, which the driver used without importing, so the repository builds from
+  source again.
+
+## Known
+
+- The OpenAPI document of `@spinajs/http-swagger` describes the filter `Value` as before; it does not publish the
+  per-operator value shapes `@Filter()` now enforces.
+
+> Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm/05-query-builder.md`, `docs/orm/06-relations.md`,
+> `docs/orm/11-json-schema.md`, `docs/orm-sql/05-value-converters-and-defaults.md`, `docs/orm-sqlite/01-connection.md`,
+> `docs/orm-sqlite/04-schema-and-ddl.md`, `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`.
+
 # Release notes — validation: coerced infinities and comparisons that throw
 
 ## Security fix
