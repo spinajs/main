@@ -72,7 +72,7 @@ describe('authz section', () => {
     expect(entry('job:Reindex')).to.not.have.property('system');
     expect(entry('job:Sweep')).to.deep.include({ access: [], system: 'purges expired drafts of every tenant' });
     expect(entry('event:DocSeen')).to.deep.include({ kind: 'queue-handler', access: [] });
-    expect(authz.entryPoints.filter((e) => e.kind === 'queue-handler').map((e) => e.id)).to.deep.equal(['job:Reindex', 'job:Sweep', 'event:DocSeen']);
+    expect(authz.entryPoints.filter((e) => e.kind === 'queue-handler').map((e) => e.id)).to.deep.equal(['job:Reindex', 'job:Sweep', 'event:DocSeen', 'event:DocPublished']);
     expect(entry('nightly')).to.deep.include({ kind: 'schedule', system: 'nightly reindex' });
     expect(entry('docs:sync')).to.deep.include({ kind: 'cli', access: [] });
   });
@@ -81,6 +81,34 @@ describe('authz section', () => {
     expect(authz.ignores).to.deep.equal([{ code: 'AUTHZ001', reason: 'the export reads every document on purpose', source: { file: 'src/controller.ts', line: 10, col: 3, package: 'authz-pkg' } }]);
     expect(authz.findings).to.deep.equal([]);
     expect(authz).to.not.have.property('ir');
+  });
+
+  it('gives a socket subclass the class guards of its base, its own @SocketAccess replacing the inherited one', () => {
+    const child = fragment.socketControllers.find((c) => c.className === 'ChildSocket')!;
+    expect(child).to.deep.include({ access: ['doc:read'], policies: [[admin], [{ type: 'AccessPolicy', options: ['class'] }]] });
+    expect(entry('child.own')?.access).to.deep.equal([[admin], [access('doc:read')]]);
+    expect(entry('child.base')?.access).to.deep.equal([[admin], [access('doc:read')]]);
+    const narrow = fragment.socketControllers.find((c) => c.className === 'NarrowSocket')!;
+    expect(narrow).to.deep.include({ access: ['doc:update'], policies: [[admin], [{ type: 'AccessPolicy', options: ['class'] }]] });
+    expect(entry('narrow.base')?.access).to.deep.equal([[admin], [access('doc:update')]]);
+  });
+
+  it('records the literal resource extractor and anonymous access with the permissions', () => {
+    const share = { type: 'AccessPolicy', options: ['doc:share', { allowAnonymous: true, resource: { type: 'doc' } }] };
+    expect(entry('narrow.share')?.access).to.deep.equal([[admin, share], [access('doc:update'), share]]);
+    expect(entry('GET /open/note/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['doc:read', { allowAnonymous: true, resource: { type: 'doc' } }] }]]);
+    expect(entry('GET /open/model/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['doc:update', { resource: { model: 'authz-pkg:Note' } }] }]]);
+    expect(entry('GET /open/typed/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['report:run', { resource: { type: 'report' } }] }]]);
+  });
+
+  it('declares @Public and a bare @AllowAnonymous as the access of an otherwise unguarded route', () => {
+    expect(entry('GET /open/health')?.access).to.deep.equal([[{ type: 'Public', options: ['load balancer probe'] }]]);
+    expect(entry('GET /open/ping')?.access).to.deep.equal([[{ type: 'AllowAnonymous', options: [] }]]);
+  });
+
+  it('takes the @SystemTask of an event class for its consume() handler', () => {
+    expect(entry('event:DocPublished')).to.deep.include({ kind: 'queue-handler', access: [], system: 'mirrors every published document to the search index' });
+    expect(entry('event:DocSeen')).to.not.have.property('system');
   });
 
   it('crosses OR-of-AND scopes, an empty scope requiring nothing', () => {

@@ -20,7 +20,7 @@ interface Registration {
 
 const RELATION_DECORATORS: Record<string, ResourceRelation['kind']> = { Parent: 'parent', Owner: 'owner', Self: 'self', Relation: 'relation' };
 
-function classSymbolOf(expr: ts.Expression, checker: ts.TypeChecker): ts.Symbol | undefined {
+export function classSymbolOf(expr: ts.Expression, checker: ts.TypeChecker): ts.Symbol | undefined {
   const symbol = checker.getSymbolAtLocation(expr);
   return symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 }
@@ -118,7 +118,7 @@ function relationsOf(symbol: ts.Symbol, registration: Registration | undefined, 
   });
 }
 
-const modelIdOf = (symbol: ts.Symbol, ctx: ExtractorContext): string => {
+export const modelIdOf = (symbol: ts.Symbol, ctx: ExtractorContext): string => {
   const declaration = symbol.declarations?.[0];
   const pkg = declaration?.getSourceFile().isDeclarationFile ? declaringPackage(declaration) : ctx.packageName;
   return `${pkg}:${symbol.name}`;
