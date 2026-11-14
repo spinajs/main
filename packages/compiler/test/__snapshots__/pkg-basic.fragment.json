@@ -1493,7 +1493,8 @@
     "spinajs/pkg-basic/Post_PublishedAt": {
       "$id": "spinajs/pkg-basic/Post_PublishedAt",
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "x-spinajs-type": "Date"
     },
     "spinajs/pkg-basic/Post_Title": {
       "$id": "spinajs/pkg-basic/Post_Title",

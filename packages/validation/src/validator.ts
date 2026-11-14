@@ -8,6 +8,7 @@ import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, Log } from '@spinajs/log-common';
 import { addSafeKeywords, dropNonFiniteDuplicates, isTooDeep, nonFiniteErrors, TOO_DEEP_ERROR } from './keywords.js';
 import { isStandardSchema, isThenable, standardOutcome, type StandardResult, type StandardSchemaV1 } from './standard-schema.js';
+import { addSpinajsFormats, type FormatHost } from './formats.js';
 
 // import default souces
 import './sources.js';
@@ -140,6 +141,7 @@ export class DataValidator extends AsyncService {
 
     // add common formats validation eg: date time
     resolveDefault(ajvFormats)(ajv);
+    addSpinajsFormats(ajv as FormatHost);
 
     // Before the plugin hook: a code keyword added after it would install every plugin at once. The safe
     // uniqueItemProperties is defined now, so the plugin install keeps it.

@@ -46,6 +46,26 @@ describe('generateClient', () => {
     expect(typecheck(output)).to.deep.equal([]);
   });
 
+  it('ignores x-spinajs-type: the client equals the one generated without it', async () => {
+    const mark = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(mark);
+      if (typeof node !== 'object' || node === null) return node;
+      const copy = Object.fromEntries(Object.entries(node).map(([key, child]) => [key, mark(child)]));
+      return copy.type === 'string' ? { ...copy, 'x-spinajs-type': 'Decimal' } : copy;
+    };
+    const typed = { ...manifest, schemas: mark(manifest.schemas) as Manifest['schemas'] };
+    expect(JSON.stringify(typed.schemas)).to.include('"x-spinajs-type":"Decimal"');
+    expect(await generateClient({ manifest: typed })).to.equal(output);
+  });
+
+  it('types a decimal string as a string', async () => {
+    const amount = { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' };
+    const schemas = { 'x/Price': { $id: 'x/Price', type: 'object', properties: { amount }, required: ['amount'], additionalProperties: false } };
+    const generated = await generateClient({ manifest: extend(manifest, [route('price', 'get', '/items/price', [], { text: 'Price', schema: 'x/Price' })], schemas) });
+    expect(generated).to.include('amount: string;');
+    expect(generated).to.not.include('spinajs-type');
+  });
+
   it('is deterministic and LF only', async () => {
     expect(await generateClient({ manifest })).to.equal(output);
     expect(output).to.not.include('\r');

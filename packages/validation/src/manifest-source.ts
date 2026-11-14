@@ -4,6 +4,7 @@ import { Autoinject, Container, Injectable, type IContainer } from '@spinajs/di'
 import { addKeywordPluginsOnUse, effectiveManifestOf } from '@spinajs/configuration';
 import type { Manifest } from '@spinajs/manifest';
 import { ValidationFailed, type IValidationError } from './exceptions/index.js';
+import { addSpinajsFormats } from './formats.js';
 import { SchemaSource, type ISchema, type ISchemaObject } from './types.js';
 import { addSafeKeywords, dropNonFiniteDuplicates, isTooDeep, nonFiniteErrors, TOO_DEEP_ERROR } from './keywords.js';
 
@@ -289,7 +290,7 @@ export class ManifestValidator {
       // `$data` and the keyword plugins as in DataValidator: the closure of a derived argument holds the published body
       // of an explicit `@Schema` class, whose `prohibited`, `range` or `$merge` would otherwise be skipped, and whose
       // `$data` limit would make Ajv refuse the whole argument. `verbose` lets `sanitizeError` find a `$data` rule.
-      ajv = withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, $data: true, verbose: true, coerceTypes: coerce ? 'array' : false }));
+      ajv = addSpinajsFormats(withFormats(new Ajv({ strict: false, strictNumbers: true, allErrors: true, messages: false, $data: true, verbose: true, coerceTypes: coerce ? 'array' : false })));
       // Before the plugin hook, as in DataValidator.createAjv(): a code keyword added after it installs every plugin.
       addSafeKeywords(ajv, { uniqueItemProperties: true });
       addKeywordPluginsOnUse(ajv);

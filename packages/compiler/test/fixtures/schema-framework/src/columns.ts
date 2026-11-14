@@ -1,5 +1,6 @@
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
-import { BelongsTo, HasMany, Hidden, Model, ModelBase, Primary, Relation, Virtual } from '@spinajs/orm';
+import { BelongsTo, DateTime, HasMany, Hidden, Model, ModelBase, Primary, Relation, Virtual } from '@spinajs/orm';
+import { DateTime as Instant } from 'luxon';
 import { Author, Book } from './models.js';
 
 export abstract class Stamped<T> extends ModelBase<T> {
@@ -12,6 +13,7 @@ export class Note extends Stamped<Note> {
   @Hidden() public Secret: string;
   @Virtual() public Score: number;
   @BelongsTo('Author') public Writer: Author;
+  @DateTime() public SeenAt: Instant;
   protected cache: string;
   private _body: string;
 

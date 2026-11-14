@@ -335,6 +335,16 @@ describe('socket contract enforcement', function () {
       });
     });
 
+    it('enforces the decimal format of a Decimal member the compiler marked with x-spinajs-type', async () => {
+      const amount = { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' };
+      const greet = SCHEMAS['spinajs/app/Greet'];
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': { ...greet, properties: { ...greet.properties, amount } } } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', amount: '12.50' }))).to.deep.equal({ hello: 'ada' });
+      expect(errorOf(await command(client, 'ctr.say', { name: 'ada', amount: '1e3' })).code).to.equal('invalid_argument');
+      client.close();
+    });
+
     it('accepts an intersection of closed objects, and only what its members declare', async () => {
       const part = (name: string, type: string) => ({ $id: `spinajs/app/${name}`, type: 'object', properties: { [name]: { type } }, required: [name], additionalProperties: false });
       const schemas = {
