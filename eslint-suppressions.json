@@ -7689,16 +7689,6 @@
       "count": 1
     }
   },
-  "packages/tasks/src/decorators.ts": {
-    "@typescript-eslint/no-unsafe-function-type": {
-      "count": 1
-    }
-  },
-  "packages/tasks/src/models/__task_history.ts": {
-    "@typescript-eslint/no-wrapper-object-types": {
-      "count": 1
-    }
-  },
   "packages/teams-http/src/schemas/provider.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1

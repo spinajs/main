@@ -4,7 +4,7 @@ The package reference is [`packages/scheduler/README.md`](../../packages/schedul
 
 ## Inline runs
 
-`SchedulerService.runInline(schedule, fn, opts?)` runs `fn` now, in the calling process, as a `manual` run of `schedule`, and resolves with what `fn` returns. It is how app code starts tracked work itself, and how the deprecated `@Task()` decorator of `@spinajs/tasks` runs every call.
+`SchedulerService.runInline(schedule, fn, opts?)` runs `fn` now, in the calling process, as a `manual` run of `schedule`, and resolves with what `fn` returns. It is how app code starts tracked work itself.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -30,7 +30,7 @@ export async function rebuildNow(): Promise<{ documents: number }> {
 ### How it works
 
 1. Finds the schedule's definition. A schedule declared after the registry was built (its class was imported lazily) is adopted on first use and its `__scheduler_schedule` row is inserted. An unknown name throws `ScheduleNotFound`; a hard-paused schedule throws `SchedulePaused`.
-2. Takes the schedule lease, whatever the schedule's `overlap`: an inline call never waits. When another run holds the lease, throws `ScheduleOverlap` (a `RunConflict`: HTTP 409, CLI exit 3) and writes nothing. A schedule row that was pruned while its definition lives on is inserted again first. Two kinds of run take no schedule lease (`Forced`). Runs of a `runOn: 'all'` schedule are per replica: a call throws `ScheduleOverlap` while this replica already runs the schedule (another inline call, or a live run row leased to this replica, such as the loop's). Runs of the schedule a `@Task` with `taskStacking: true` registers run side by side; that flag comes from the `@Task` declaration, so a config entry of the same name does not change it.
+2. Takes the schedule lease, whatever the schedule's `overlap`: an inline call never waits. When another run holds the lease, throws `ScheduleOverlap` (a `RunConflict`: HTTP 409, CLI exit 3) and writes nothing. A schedule row that was pruned while its definition lives on is inserted again first. Runs of a `runOn: 'all'` schedule take no schedule lease (`Forced`) and are per replica instead: a call throws `ScheduleOverlap` while this replica already runs the schedule (another inline call, or a live run row leased to this replica, such as the loop's).
 3. Inserts the run row already `running` and leased to this process, trigger `manual`, `TriggeredBy` `{ kind: 'service', id: opts.triggeredBy }` (default `{ kind: 'system', id: 'inline' }`), and `Params` from `opts.params` when it is an object. No scheduler loop can claim it.
 4. Executes `fn(ctx)` with the run's `RunContext` (also through `currentRunContext()`), under the run heartbeat that renews the run and schedule leases, and with the schedule's `timeout`.
 5. Finishes the run (`succeeded` with the value as `Result`, or `failed` with the error), journals it, releases the schedule lease and runs the usual finalizers: health, error groups, metrics and the `ScheduleRun*` events.

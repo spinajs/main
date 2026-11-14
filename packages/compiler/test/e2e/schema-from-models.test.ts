@@ -46,9 +46,9 @@ describe('schema from models: users, teams and authz-orm against their own migra
     process.stdout.write(`${[...(result.changes ?? []), ...(result.diagnostics ?? [])].join('\n')}\n`);
     expect(result.error).to.equal(undefined);
     expect((result.diagnostics ?? []).filter((d) => d.startsWith('error '))).to.deep.equal([]);
-    // tables of packages the app imports none of the migrations of (scheduler, tasks) or whose migrations are opt-in (authz-orm audit)
+    // tables of packages the app imports none of the migrations of (scheduler) or whose migrations are opt-in (authz-orm audit)
     const scheduler = ['', '_error', '_run', '_run_attempt', '_run_log', '_run_step'].map((t) => `createTable __scheduler${t}`);
-    expect(result.changes).to.deep.equal([...scheduler, 'createTable __task_history', 'createTable __tasks', 'createTable authz_audit', 'createTable authz_decision_log']);
+    expect(result.changes).to.deep.equal([...scheduler, 'createTable authz_audit', 'createTable authz_decision_log']);
     expect(result.diagnostics).to.deep.equal([]);
   });
 });

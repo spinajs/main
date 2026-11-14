@@ -42,7 +42,7 @@ A replacement implements all seven abstract methods:
 
 ### When to register
 
-Register before anything resolves `Mutex`: before the first `mutex_*` call and before any service that injects it is built. `@spinajs/tasks` calls `mutex_acquire()` when a task runs, so a registration in your app's startup code, before tasks are scheduled, is in time.
+Register before anything resolves `Mutex`: before the first `mutex_*` call and before any service that injects it is built. A registration in your app's startup code, before the first lock is taken, is in time.
 
 The last registration wins. Registering a subclass after `DI.register(OrmMutex).as(Mutex)` replaces it for every later resolve.
 

@@ -20,7 +20,6 @@ npm install @spinajs/scheduler
 The package ships its migration (`Scheduler_2026_10_15_00_00_00`, connection
 `default`), its default configuration and its CLI commands. `@spinajs/queue` (events,
 emit mode) and `@spinajs/telemetry-common` (metrics) are regular dependencies.
-The deprecated `@spinajs/tasks` depends on this package, not the other way round.
 
 ## Declare a schedule
 
@@ -82,11 +81,6 @@ services in reverse resolution order, so `DI.dispose()` stops the scheduler befo
 the ORM connection it writes to closes, and the queue service (resolved when the
 scheduler starts) after it.
 
-**`@Task` files and migrations.** `@spinajs/tasks` registers its `__tasks`
-migration when it is imported. Import `@spinajs/tasks` (or your `@Task` files)
-before the ORM boots; a `@Task` file first imported through
-`system.dirs.schedules` comes too late for the migration.
-
 **Inline runs.** `SchedulerService.runInline(schedule, fn, opts?)` runs `fn` now, in
 the calling process, as a `manual` run of `schedule`, and returns or rethrows its
 result. See [Inline runs](../../docs/scheduler/README.md#inline-runs).
@@ -106,7 +100,7 @@ result. See [Inline runs](../../docs/scheduler/README.md#inline-runs).
 | `result(data)` | JSON result (otherwise the return value of `execute`) |
 
 `currentRunContext()` returns the same context from code that cannot take it as a
-parameter (a scheduled `@Task` method); it is `undefined` outside a run.
+parameter (code called from `execute` or from a `runInline` body); it is `undefined` outside a run.
 
 Throw `NonRetryableError` to fail without automatic retries. One step runs at a
 time (a nested or concurrent `step()` throws). What the step row cannot store throws
@@ -187,25 +181,6 @@ capped at 99 until success).
 - An `emitted` run gets no `progress` events; `getRun()` shows the mirrored progress.
 - A manual retry of a failed emit run emits a new job: if the old job still ran, the work runs twice.
 - `retention` never purges an `emitted` run; end a stuck one with `cancel`.
-
-## Scheduling a `@Task` method
-
-Every `@Task` from `@spinajs/tasks` is a `manual` schedule named after the task, and a
-configuration entry can name it in `task`:
-
-```ts
-schedules: [{ name: 'digest', task: 'send-digest', cron: '0 8 * * *', retry: { attempts: 3 } }]
-```
-
-The run is tracked like any other (status, attempts, errors, retries; steps and
-progress through `currentRunContext()`), and the task's `__task_history` row is
-still written, once per attempt, while `tasks.legacyHistory` is on. Manual-run params
-come from `currentRunContext()!.params`; the method is called without arguments. An
-instance method's class is resolved through DI. A direct call of the decorated method
-is an inline run of the task's own schedule, so it is excluded against runs of that
-schedule, not against runs of a config entry with another name. A config entry does
-not inherit the `@Task`'s `overlap`. A `@Schedule` with the same name as a `@Task`
-wins, with a warning. The definition shows the task as `Task:<name>`.
 
 ## CLI
 

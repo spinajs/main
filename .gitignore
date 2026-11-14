@@ -195,7 +195,6 @@ graphify-out/
 !/docs/session-provider-dynamodb/
 !/docs/session-provider-redis/
 !/docs/simulation/
-!/docs/tasks/
 !/docs/teams/
 !/docs/teams-http/
 !/docs/telemetry/
