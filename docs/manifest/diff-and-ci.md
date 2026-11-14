@@ -84,11 +84,12 @@ A route is identified by its method and full path (`GET /users/:id`). Renaming a
 | Required parameter added | yes |
 | Optional parameter added | no |
 | Handler or controller class renamed under the same method and path | no |
+| Argument renamed while its wire name stays the same | no |
 | Parameter or response type changed | see the schema rules below |
 
 A rename under the same `METHOD fullPath` is a `changed` entry with the detail `client method users.get renamed to users.read: generated hooks and query keys change`. HTTP callers are unaffected, but a client generated with `generate:client` names its methods, hooks and query keys after the controller (class name without `Controller`, first letter lowered) and the handler, so the finding tells a reviewer the frontend must follow. A handler without a path of its own is not covered: its URL moves with the name, so it stays a removal plus an addition.
 
-A parameter is identified by where it travels (query key, header, whole body), so renaming the argument in code while the wire name stays the same is not a change. Arguments the framework injects (the request, the response, DI values, models loaded with `@FromModel`) are not request parameters and are ignored.
+A parameter is identified by where it travels (query key, header, whole body), so renaming the argument in code while the wire name stays the same does not touch the wire. A generated client keys its hook variables and query keys by argument name, so the diff still reports it, as a non-breaking `changed` entry with the detail `argument body renamed to payload on users.create: generated hook variables and query keys change`. A value argument sent under its own name (a plain `@Query` or `@Header` argument without an explicit name) moves the wire when renamed, so it stays a breaking removal plus addition. Reordering arguments is not a change. Arguments the framework injects (the request, the response, DI values, models loaded with `@FromModel`) are not request parameters and are ignored.
 
 ### Schema directions
 
