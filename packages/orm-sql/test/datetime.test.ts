@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
+import { IColumnDescriptor } from '@spinajs/orm';
 
 import { IsoDatetimeValueConverter, SqlDatetimeValueConverter } from '../src/converters.js';
 
@@ -73,5 +74,28 @@ describe('IsoDatetimeValueConverter (PostgreSQL, SQLite, MSSQL)', () => {
 
   it('reads its own text back', () => {
     expect(c.fromDB('2026-10-19T12:00:00.123Z')!.toMillis()).to.eq(AT);
+  });
+});
+
+describe('datetime converters on a numeric column', () => {
+  const at = DateTime.fromMillis(1794612404654, { zone: 'utc' });
+  const column = (Type: string) => ({ Name: 'At', Type }) as IColumnDescriptor;
+  const c = new IsoDatetimeValueConverter();
+
+  it('writes a number to a numeric column whatever the case of its declared type', () => {
+    for (const Type of ['INTEGER', 'Integer', 'integer', 'BIGINT', 'INT', 'BIGINT(20)', 'int(11) unsigned', 'INTEGER UNSIGNED', 'UNSIGNED BIG INT', 'INT8', 'REAL', 'NUMERIC', 'numeric(18,0)', 'DOUBLE PRECISION', 'FLOAT', 'DECIMAL(10,0)']) {
+      expect(c.toDB(at, undefined, column(Type)), Type).to.equal(1794612404);
+    }
+  });
+
+  it('writes text to a column whose type is not numeric', () => {
+    for (const Type of ['DATETIME', 'datetime', 'TIMESTAMP', 'datetime2', 'datetimeoffset', 'TEXT', 'varchar(32)', 'timestamptz', 'interval']) {
+      expect(c.toDB(at, undefined, column(Type)), Type).to.equal('2026-11-13T23:26:44.654Z');
+    }
+  });
+
+  it('reads a number as seconds without the option', () => {
+    expect(c.fromDB(1794612404)!.toMillis()).to.equal(1794612404000);
+    expect(c.toDB(1794612404, undefined, column('INTEGER'))).to.equal(1794612404);
   });
 });

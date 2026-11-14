@@ -2,7 +2,18 @@ import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehy
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
-const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
+const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'double precision', 'decimal', 'numeric', 'real', 'bigint', 'big int', 'smallint', 'tinyint', 'mediumint', 'int2', 'int4', 'int8', 'float4', 'float8'];
+
+/** SQLite reports the declared type verbatim (`INTEGER`, `BIGINT(20)`, `INTEGER UNSIGNED`), the other drivers a lower-case name. */
+function isNumericType(type: string | undefined): boolean {
+  const base = (type ?? '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/\b(unsigned|signed|zerofill)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return DATE_NUMERICAL_TYPES.includes(base);
+}
 
 export class SqlSetConverter implements IValueConverter {
   public toDB(value: unknown) {
@@ -221,7 +232,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
         return dt.toUnixInteger();
     }
 
-    if (column && DATE_NUMERICAL_TYPES.includes(column.Type)) {
+    if (column && isNumericType(column.Type)) {
       return dt.toUnixInteger();
     }
 

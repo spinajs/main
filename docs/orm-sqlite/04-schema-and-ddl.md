@@ -41,7 +41,7 @@ The driver container resolves these converters for model columns, `where()` valu
 
 | Token | SQLite implementation | Writes | Reads |
 | --- | --- | --- | --- |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z` <!-- TODO(docs-hook): verify whether a datetime property on an INTEGER column is written as Unix seconds; SqlDatetimeValueConverter matches lower-case type names and PRAGMA table_info reports upper case --> | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z`; Unix seconds into a numeric column such as `INTEGER`, whatever the case of the declared type | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
 | `BooleanValueConverter` | `SqlBooleanValueConverter` (shared) | `1` / `0` | `true` for `1`, `1n`, `true` and `'1'` |
 | `SetValueConverter` | `SqlSetConverter` (shared) | comma-joined text | split on `,` |
 
