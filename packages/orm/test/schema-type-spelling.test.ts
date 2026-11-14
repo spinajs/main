@@ -1,20 +1,23 @@
 import * as chai from 'chai';
 import 'mocha';
-import { buildModelJsonSchema } from '../src/schema.js';
+import { buildModelJsonSchema, columnToSchema } from '../src/schema.js';
 import { IColumnDescriptor, IModelDescriptor } from '../src/interfaces.js';
 
 const expect = chai.expect;
 
-function typeOf(Type: string, descriptor: Partial<IModelDescriptor> = {}): unknown {
-  const col = { Name: 'col', Type, MaxLength: 0, Comment: '', Nullable: false, AutoIncrement: false, Ignore: false, Converter: null } as unknown as IColumnDescriptor;
-  return buildModelJsonSchema({ ...descriptor, Columns: [col] } as unknown as IModelDescriptor, 'response').properties.col.type;
+function column(Type: string): IColumnDescriptor {
+  return { Name: 'col', Type, MaxLength: 0, Comment: '', Nullable: false, AutoIncrement: false, Ignore: false, Converter: null } as unknown as IColumnDescriptor;
+}
+
+function typeOf(Type: string): string | undefined {
+  return columnToSchema(column(Type)).type;
 }
 
 /**
  * SQLite's `PRAGMA table_info` reports a column type the way the table declared it ( `INTEGER`,
  * `REAL`, `DECIMAL(10,2)` ), not the lower-case `DATA_TYPE` MySQL and MSSQL hand back.
  */
-describe('buildModelJsonSchema reads a SQL type in any spelling', () => {
+describe('columnToSchema and buildModelJsonSchema read a SQL type in any spelling', () => {
   it('maps the type SQLite reports for an int() column to integer', () => {
     expect(typeOf('INTEGER')).to.eq('integer');
   });
@@ -45,11 +48,14 @@ describe('buildModelJsonSchema reads a SQL type in any spelling', () => {
 
   it('still maps the camel-case ColumnType value of a declared dateTime column', () => {
     expect(typeOf('dateTime')).to.eq('string');
-    const col = { Name: 'col', Type: 'dateTime', MaxLength: 0, Comment: '', Nullable: false, AutoIncrement: false, Ignore: false, Converter: null } as unknown as IColumnDescriptor;
-    expect(buildModelJsonSchema({ Columns: [col] } as unknown as IModelDescriptor).properties.col.format).to.eq('date-time');
+    expect(buildModelJsonSchema({ Columns: [column('dateTime')] } as unknown as IModelDescriptor)).to.have.nested.property('properties.col.format', 'date-time');
   });
 
-  it('applies a driver response override whatever the spelling', () => {
-    expect(typeOf('DECIMAL(10,2)', { Driver: { ResponseSchemaTypes: { decimal: { type: 'integer' } } } } as unknown as Partial<IModelDescriptor>)).to.eq('integer');
+  it('applies a driver response override whatever the spelling of the column type and of the override key', () => {
+    for (const key of ['decimal', 'DECIMAL']) {
+      const descriptor = { Columns: [column('DECIMAL(10,2)')], Driver: { ResponseSchemaTypes: { [key]: { type: 'integer' } } } } as unknown as IModelDescriptor;
+      expect(buildModelJsonSchema(descriptor, 'response'), key).to.have.nested.property('properties.col.type', 'integer');
+      expect(columnToSchema(column('DECIMAL(10,2)'), { [key]: { type: 'integer' } }).type, key).to.eq('integer');
+    }
   });
 });

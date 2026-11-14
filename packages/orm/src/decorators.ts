@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import type { IDateTimeConverterOptions } from './converters.js';
+import type { IBoolConverterOptions, IDateTimeConverterOptions } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
@@ -719,8 +719,8 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
  * Mark field as datetime type. It will ensure that conversion to & from DB is valid, eg. sqlite DB
  * saves datetime as TEXT and ISO8601 strings
  *
- * @param options.unit - what a numeric column counts since the epoch, `'seconds'` by default
- * @param options.nullable - allows a property typed `DateTime | null`, whose design type is `Object`
+ * @param options - `unit`: what a numeric column counts since the epoch, `'seconds'` by default; `nullable`: allows a
+ *                  property typed `DateTime | null`, whose design type is `Object`
  */
 export function DateTime(options?: IDateTimeConverterOptions & { nullable?: boolean }) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
@@ -770,12 +770,11 @@ export function DateTime(options?: IDateTimeConverterOptions & { nullable?: bool
  *
  * @param options - `nullable`: keep NULL instead of coercing it to `false`
  */
-export function Bool(options?: { nullable?: boolean }) {
+export function Bool(options?: IBoolConverterOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     // TypeScript emits `Object` as the design type of `boolean | null`
-    const accepted = options?.nullable ? ['Boolean', 'Object'] : ['Boolean'];
-    if (!accepted.includes(type?.name)) {
+    if (type?.name !== 'Boolean' && !(options?.nullable && type === Object)) {
       throw new InvalidArgument(`property ${propertyKey} must be boolean type, but is ${type?.name}`);
     }
 

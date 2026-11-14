@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { ForwardRefFunction, IModelDescriptor, RelationType } from './interfaces.js';
+import { ForwardRefFunction, IModelDescriptor, IRelationDescriptor, RelationType } from './interfaces.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { ModelBase } from './model.js';
 import { Injectable, isConstructor } from '@spinajs/di';
@@ -112,6 +112,10 @@ export class OneToManyRelationHydrator extends ModelHydrator {
   }
 }
 
+function resolveTargetModel(relation: IRelationDescriptor) {
+  return !isConstructor(relation.TargetModel) ? (relation.TargetModel as ForwardRefFunction)() : relation.TargetModel;
+}
+
 // A NULL belongsTo still arrives as a row of nulls, plus one nested row per relation populated
 // under it, so only those relation keys may recurse; any other non-null value is data.
 function isAbsentRelationRow(row: object, descriptor: IModelDescriptor | null): boolean {
@@ -122,7 +126,7 @@ function isAbsentRelationRow(row: object, descriptor: IModelDescriptor | null): 
 
     const nested = descriptor?.Relations.get(name);
     if (nested?.Type === RelationType.One && typeof value === 'object' && !(value instanceof ModelBase)) {
-      return isAbsentRelationRow(value, extractModelDescriptor(nested.TargetModel));
+      return isAbsentRelationRow(value, extractModelDescriptor(resolveTargetModel(nested)));
     }
 
     return false;
@@ -154,7 +158,7 @@ export class OneToOneRelationHydrator extends ModelHydrator {
           continue;
         }
 
-        const targetModel = !isConstructor(val.TargetModel) ? (val.TargetModel as ForwardRefFunction)() : val.TargetModel;
+        const targetModel = resolveTargetModel(val);
         let tEntity = undefined;
         if (!isAbsentRelationRow(values[key], extractModelDescriptor(targetModel))) {
           tEntity = new targetModel();

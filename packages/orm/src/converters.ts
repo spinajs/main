@@ -13,6 +13,12 @@ export interface IDateTimeConverterOptions {
   unit?: DateTimeUnit;
 }
 
+/** Options of the boolean converters, set by `@Bool({ nullable })`. */
+export interface IBoolConverterOptions {
+  /** Keep NULL as `null` in both directions instead of coercing it to `false` / `0`. */
+  nullable?: boolean;
+}
+
 const EPOCH_TEXT = /^-?\d+(\.\d+)?$/;
 
 function fromEpoch(value: number, unit: DateTimeUnit): DateTime {

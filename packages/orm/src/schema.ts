@@ -4,8 +4,9 @@ import { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 /**
  * SQL column type → JSON-schema shape; unlisted types fall back to `string`.
  *
- * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`, compared in lower
- * case without a `(...)` suffix. Every driver stores the column's own type verbatim ( see
+ * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`, compared as
+ * {@link normalizeSqlType} spells them: in lower case, without a `(...)` size and without
+ * `unsigned`, `signed` and `zerofill`. Every driver stores the column's own type verbatim ( see
  * orm-mysql / orm-mssql / orm-sqlite `tableInfo` ), so a `ColumnType` member whose value does
  * not name the SQL type the way the database reports it will never match, and the column
  * silently falls back to `string`.
@@ -77,7 +78,7 @@ export function buildModelJsonSchema(descriptor: IModelDescriptor, kind: ModelSc
   const properties: Record<string, any> = {};
   const required: string[] = [];
   const hidden = kind === 'response' ? new Set(descriptor.Hidden ?? []) : new Set<string>();
-  const overrides = kind === 'response' ? lowerCaseKeys(driverResponseTypes(descriptor)) : {};
+  const overrides = kind === 'response' ? driverResponseTypes(descriptor) : {};
 
   for (const col of descriptor.Columns ?? []) {
     if (!col || col.Ignore || !col.Name || hidden.has(col.Name)) {
@@ -135,12 +136,15 @@ function isConverterNamed(ctor: unknown, name: string): boolean {
   return false;
 }
 
-interface IColumnJsonSchema {
+/** The JSON-schema property {@link columnToSchema} builds for one column. */
+export interface IColumnJsonSchema {
   type?: string;
   format?: string;
   maxLength?: number;
   description?: string;
   nullable?: boolean;
+  items?: IColumnJsonSchema;
+  enum?: unknown[];
   [keyword: string]: unknown;
 }
 
@@ -152,9 +156,15 @@ function lowerCaseKeys(map: Record<string, any>): Record<string, any> {
 
 const SIGN_ATTRIBUTES = new Set(['unsigned', 'signed', 'zerofill']);
 
-// SQLite reports the type as declared (`INTEGER UNSIGNED`, `DECIMAL(10,2)`), the other drivers a lower-case DATA_TYPE.
-function sqlTypeKey(type: string | undefined): string {
-  return (type ?? '')
+/**
+ * A declared SQL type as one comparable name: lower case, without a `(...)` size and without `unsigned`, `signed` and
+ * `zerofill`. SQLite reports the type as declared (`INTEGER UNSIGNED`, `DECIMAL(10,2)`), the other drivers a
+ * lower-case DATA_TYPE.
+ *
+ * @param type - the type a driver put in `IColumnDescriptor.Type`
+ */
+export function normalizeSqlType(type: string): string {
+  return type
     .toLowerCase()
     .replace(/\([^)]*\)/g, ' ')
     .split(/\s+/)
@@ -163,7 +173,7 @@ function sqlTypeKey(type: string | undefined): string {
 }
 
 function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>): IColumnJsonSchema {
-  const key = sqlTypeKey(col.Type);
+  const key = normalizeSqlType(col.Type ?? '');
   const schema: IColumnJsonSchema = { ...(overrides[key] ?? SQL_TYPE_LOOKUP[key] ?? { type: 'string' }) };
   return schema;
 }
@@ -173,18 +183,18 @@ function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>
  * Adds `maxLength`, `description` and `nullable` when the column has them.
  *
  * @param col - column to describe
- * @param overrides - per-type shapes that win over the shared map ( response flavour only ), keyed in lower case
+ * @param overrides - per-type shapes that win over the shared map ( response flavour only ), keyed by type in any case
  * @param declaredConverter - converter class the model's decorators asked for, from
  *                            `descriptor.Converters` ( `@DateTime()`, `@CreatedAt()`, ... )
  * @param declaredOptions - the `Options` the decorator stored next to that converter
  */
-export function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): any {
+export function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): IColumnJsonSchema {
   // The declared class wins over the resolved instance: a decorator is an explicit statement
   // about the property, while the instance is only there when the container had the converter
   // registered on that connection.
   const converter = declaredConverter ?? (col.Converter as { constructor?: unknown } | null | undefined)?.constructor;
 
-  const schema = baseColumnSchema(col, overrides);
+  const schema = baseColumnSchema(col, lowerCaseKeys(overrides));
 
   if (isConverterNamed(converter, 'BooleanValueConverter')) {
     schema.type = 'boolean';
