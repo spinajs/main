@@ -187,7 +187,7 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 - All conditions sit in one `andWhere(...)` group, so they AND with conditions you add yourself.
 - Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries, an array for a single-value operator) are `InvalidArgument` and answer `400`. `@Filter()` rejects most of them earlier, also with a `400`.
 - `.filter()` called from code does not run the value schema: it checks presence, arrays for list and pair operators, a single value for `eq` to `lte`, and strings for the `like` family, not the column type.
-- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does.
+- The schema refuses more than 100 top-level entries (`MAX_FILTERS`), the limit `.filter()` applies: such a request answers `400` from validation, before `.filter()` runs. Neither limits the entries of a nested group.
 - Columns copied with `@Filterable(OtherModel)` (`Author.Name`) populate the relation and AND the condition onto the whole query. They cannot be ORed with other entries.
 - A column marked aggregate (`@Filterable(ops, null, true)`) lands in `HAVING`, ANDed with the rest of the query. It cannot be ORed with other entries either.
 - `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.

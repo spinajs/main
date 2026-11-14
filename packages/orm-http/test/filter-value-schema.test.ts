@@ -15,6 +15,7 @@ import '../src/extension.js';
 import '../src/builders.js';
 import { Filterable } from '../src/decorators.js';
 import { FILTER_OPERATOR_GROUPS, filterSchemaFor } from '../src/model.js';
+import { MAX_FILTERS } from '../src/builders.js';
 import { FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup } from '../src/interfaces.js';
 import { FilterStatics, installFilterStatics } from './filter-statics.js';
 
@@ -337,6 +338,20 @@ describe('orm-http filter schema checks each value against its operator and colu
       expect(accepts('Secret', 'eq', 1)).to.eq(false);
       expect(accepts('S', 'gt', 'a')).to.eq(false);
       expect(check([{ op: 'or', filters: [{ Column: 'S', Operator: 'gt', Value: 'a' }] }]).valid).to.eq(false);
+    });
+  });
+
+  describe('the number of conditions', () => {
+    const condition = { Column: 'N', Operator: 'eq', Value: 1 };
+
+    it('is limited at the top level to what filter() takes', () => {
+      expect(check(Array.from({ length: MAX_FILTERS }, () => condition)).valid).to.eq(true);
+      expect(check(Array.from({ length: MAX_FILTERS + 1 }, () => condition)).valid).to.eq(false);
+      expect(() => book.query(Array.from({ length: MAX_FILTERS + 1 }, () => ({ Column: 'State', Operator: 'eq' as const, Value: 'draft' })))).to.throw(/Too many filters/);
+    });
+
+    it('is not limited inside a nested group, as filter() does not limit it', () => {
+      expect(check([{ op: 'or', filters: Array.from({ length: MAX_FILTERS + 1 }, () => condition) }]).valid).to.eq(true);
     });
   });
 

@@ -1,5 +1,5 @@
 import { IColumnDescriptor, IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, columnToSchema, createQuery, extractModelDescriptor } from '@spinajs/orm';
-import './builders.js';
+import { MAX_FILTERS } from './builders.js';
 import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 
 /** Bound to each model class by the orm, so `this` is the class. */
@@ -228,6 +228,7 @@ export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescripto
       op: logicalOperator,
       filters: {
         type: 'array',
+        maxItems: MAX_FILTERS,
         items: {
           type: 'object',
           anyOf: [...leaf, group],
