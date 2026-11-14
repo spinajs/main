@@ -115,7 +115,7 @@ The column's type comes from, in this order:
 2. The model column, for a column with a table behind it: its `type`, `format` and `enum` from the model's JSON schema. An integer column takes integers, a float column numbers, a `@DateTime()` column ISO-8601 date-time strings. A `set` column takes the type of one set item. A column copied with `@Filterable(OtherModel)` (`Author.Name`) is typed by `OtherModel`'s column.
 3. Otherwise any string, number or boolean.
 
-Over `@Filter()` a typed value is never `null`, alone or in a list or pair: coercion would turn it into `0`, `false` or `""` and compare with that, so the request answers `400`. Filter on `isnull` / `notnull` instead. Called from code, `.filter()` runs no schema, and `eq null` / `neq null` still compile to `IS NULL` / `IS NOT NULL`.
+Over `@Filter()` a typed value is never `null`, alone or in a list or pair, also when the declared `value` schema allows `null`: coercion would turn it into `0`, `false` or `""` and compare with that, so the request answers `400`. A `like` family value of `null` is coerced to `""`, which `.filter()` refuses as an empty pattern, also with a `400`. Filter on `isnull` / `notnull` instead. Called from code, `.filter()` runs no schema, and `eq null` / `neq null` still compile to `IS NULL` / `IS NOT NULL`.
 
 A column with a custom `query` and no `value`, and a virtual filter-only column without `value`, take any string, number, boolean, array or `null` for every operator, uncoerced: their code decides what the value means. A `null` reaches the query function as `null`; before this schema, coercion handed it `""`.
 
@@ -187,7 +187,7 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 - All conditions sit in one `andWhere(...)` group, so they AND with conditions you add yourself.
 - Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries, an array for a single-value operator) are `InvalidArgument` and answer `400`. `@Filter()` rejects most of them earlier, also with a `400`.
 - `.filter()` called from code does not run the value schema: it checks presence, arrays for list and pair operators, a single value for `eq` to `lte`, and strings for the `like` family, not the column type.
-- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does.
+- The schema refuses more than 100 top-level entries (`MAX_FILTERS`), the limit `.filter()` applies, before any value rule runs. Neither limits the entries of a nested group.
 - Columns copied with `@Filterable(OtherModel)` (`Author.Name`) populate the relation and AND the condition onto the whole query. They cannot be ORed with other entries.
 - A column marked aggregate (`@Filterable(ops, null, true)`) lands in `HAVING`, ANDed with the rest of the query. It cannot be ORed with other entries either.
 - `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.

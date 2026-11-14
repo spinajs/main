@@ -25,7 +25,7 @@ A filter column can carry its own SQL: `IColumnFilter.query` receives the client
 | `column` | `string?` | Column name the client sends as `Column`. |
 | `operators` | `FilterableOperators[]` | Operators the schema allows. |
 | `query` | `((operator, value) => WhereFunction<T>) \| null` | Custom SQL; absent or `null` uses the built-in operator. |
-| `value` | `object?` | JSON schema of one filter value. List and pair operators take an array of it, the `like` family a string. Without it a custom column takes any value shape, and a plain one in an inline list any string, number or boolean. |
+| `value` | `object?` | JSON schema of one filter value. List and pair operators take an array of it, the `like` family a string. A value typed by it is never `null` over `@Filter()`, also when the schema allows `null`. Without it a custom column takes any value shape, and a plain one in an inline list any string, number or boolean. |
 
 ## Services and extension points
 

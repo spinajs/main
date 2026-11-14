@@ -1,4 +1,4 @@
-# Release notes — orm, orm-sql, orm-sqlite, orm-http: numeric datetime columns, BETWEEN, typed filter values, belongs-to populates
+# Release notes — orm, orm-sql, orm-sqlite, orm-http, orm-mysql, orm-postgres, orm-mssql: numeric datetime columns, BETWEEN, typed filter values, belongs-to populates
 
 ## Breaking changes
 
@@ -18,20 +18,39 @@
 
   The timestamp decorators always write seconds. Reads accept both forms, but comparisons and ordering need one.
   **Action needed:** on SQLite, convert the text rows of such a column once before upgrading, here column `At` of table
-  `t`:
+  `t`. First list the text that `strftime` cannot read; fix or delete those rows by hand:
+
+  ```sql
+  SELECT Id, At FROM t WHERE typeof(At) = 'text' AND strftime('%s', At) IS NULL;
+  ```
+
+  Then convert:
 
   ```sql
   -- Unix seconds: the default, and what the timestamp decorators write
-  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text';
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
   -- a column you switch to @DateTime({ unit: 'milliseconds' })
-  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text';
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
   ```
 
   `'2026-11-13T23:26:44.654Z'` becomes `1794612404` or `1794612404654`, `'2026-11-13 23:26:46.001'` becomes
-  `1794612406` or `1794612406001`; integer rows are left alone.
+  `1794612406` or `1794612406001`; integer rows are left alone. Without the `IS NOT NULL` guard, text that `strftime`
+  cannot read becomes NULL in a nullable column, and in a `NOT NULL` column the whole `UPDATE` fails and converts
+  nothing.
 
 ## Behaviour change
 
+- `@spinajs/orm-sql`: a value bound against a column without a declared converter is converted the same way in
+  `where()`, `whereIn()` / `whereNotIn()` and BETWEEN: by the value's class, which now also sees the model's column in
+  `whereIn()` and BETWEEN. Before, a `Date` or `DateTime` bound against an undecorated numeric column was written as Unix
+  seconds by `where()` but as datetime text by `whereIn()` and BETWEEN, so `whereIn('At', [dt])` found no row and
+  BETWEEN compared text with numbers. All three now bind Unix seconds against a numeric column: on SQLite `INTEGER`,
+  `REAL`, `NUMERIC` and the other numeric spellings, on MySQL and MSSQL the numeric types, on PostgreSQL `int2` ..
+  `int8`, `numeric`, `float4` and `float8`. Against any other column they bind the dialect's datetime text, as `where()`
+  did; on PostgreSQL a `DateTime` against a `date` column binds the calendar day in all three. Checked on SQLite and in
+  compiled MySQL-dialect SQL; MySQL, PostgreSQL and MSSQL were not run against a server. `where('Flag', false)` on a
+  column without a converter now binds `0`, as `true` bound `1` and `whereIn()` did. A wrapped column
+  (`Wrapper.Date(...)`) keeps its handling.
 - `@spinajs/orm-http`: `@Filter()` checks each filter value against its operator and its column. Before, every column
   accepted a string, an integer, a boolean or an array for any operator: `eq [1]` and `gte "abc"` on an integer column
   were accepted and reached the query, `between [1]` failed in the database with a 500, and a `null` value was coerced to
@@ -46,8 +65,11 @@
   in an `IColumnFilter`), else from the model column's JSON schema (a `Relation.Column` filter reads the related model's
   column), else any scalar. A value is coerced only to the type of its own column: `"20"` for an integer column becomes
   `20`, `"05"` for a text column stays `"05"`. A malformed filter that answered 200 or 500 now answers 400.
-- Over `@Filter()`, a typed value is never `null`, alone or as a member of a list or pair: the request answers 400. Filter
-  with `isnull` / `notnull` instead.
+- Over `@Filter()`, a typed value is never `null`, alone or as a member of a list or pair, also when the declared
+  `value` schema allows `null`: the request answers 400. Filter with `isnull` / `notnull` instead. A `like` value of
+  `null` is coerced to `""`, which `filter()` refuses as an empty pattern, also with 400.
+- The `@Filter()` schema refuses more than 100 top-level filters (`maxItems`, the `MAX_FILTERS` that `filter()`
+  applies), before any value rule runs. The answer stays 400. The filters of a nested group are not limited by either.
 - Called from code, `filter()` keeps the 3.0.29 handling of `null`: `eq null` and `neq null` compile to `IS NULL` /
   `IS NOT NULL`, and `null` for `gt` .. `lte` throws `InvalidArgument`. It now refuses an array for `eq` .. `lte` with
   `InvalidArgument` (`SINGLE_VALUE_REQUIRED`), and a `between` / `notbetween` array of more than two values with
@@ -66,7 +88,9 @@
   columns `boolean`, in `descriptor.Schema`, `descriptor.ResponseSchema`, the validation of a model taken as a request
   body, the OpenAPI document and the filter value schema above. On MSSQL, `real` and `numeric` columns, and on PostgreSQL
   `numeric` columns in the request schema, become `number` instead of `string`. Driver response overrides still apply.
-  `columnToSchema()` is now exported.
+  `columnToSchema()` is now exported; it returns the exported `IColumnJsonSchema` and reads the keys of `overrides` in any
+  case. `normalizeSqlType()` is exported: the one spelling both this schema and the datetime converters compare a column
+  type in.
 
 ## New
 
@@ -83,8 +107,10 @@
 - `@spinajs/orm`, `@spinajs/orm-sql`: `@Bool({ nullable: true })` maps a `boolean | null` property. Before, `@Bool()`
   threw at class definition (`must be boolean type, but is Object`), and the converter read NULL as `false` and wrote
   `null` as `0`, so "unknown" was stored and read as "false". With the option NULL stays `null` on insert, update,
-  hydrate and `toJSON()` / `dehydrate()`, and `where('Flag', null)` finds the NULL rows. Without it nothing changes. A
-  hand-written nullable boolean converter can be replaced by the option.
+  hydrate and `toJSON()` / `dehydrate()`. Without it nothing changes. `where('Flag', null)` finds the NULL rows with or
+  without the option; `whereIn('Flag', [null, true])` binds NULL, which matches no row, so it finds only the `true` rows:
+  use `whereNull('Flag')` for the NULL rows. A hand-written nullable boolean converter can be replaced by the option;
+  `IBoolConverterOptions` is exported.
 - `@spinajs/orm-sqlite`: `ForeignKeys` connection option (`db.Connections[]`), default `false`. SQLite enforces foreign
   keys only with `PRAGMA foreign_keys = ON` on each connection, and the driver never sent it, so the foreign keys that
   migrations declare were not enforced. With `ForeignKeys: true` the driver runs the pragma on the writer and reads it
@@ -96,7 +122,7 @@
   rejected with `ConstraintViolation` while they exist. To change such a table, switch the pragma off around the change,
   outside any transaction: see `docs/orm-sqlite/04-schema-and-ddl.md`.
 - `@spinajs/orm-http`: the options form `@Filterable({ operators, query?, aggregate?, value? })` (`IFilterableOptions`),
-  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS`, and `filterSchemaFor(columns, model?)`.
+  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS`, `filterSchemaFor(columns, model?)` and `MAX_FILTERS`.
 
 ## Fixes
 
@@ -133,10 +159,15 @@
 
 - The OpenAPI document of `@spinajs/http-swagger` describes the filter `Value` as before; it does not publish the
   per-operator value shapes `@Filter()` now enforces.
+- On PostgreSQL the driver reports the type names `int2`, `int4`, `int8`, `float4`, `float8` and `bool`, which the model
+  JSON schema does not map: integer, float and boolean columns there still publish `{ type: 'string' }`, and an
+  `@Filter()` value on such a column is checked as a string instead of the column's type (`"abc"` passes, a number is
+  coerced to text). `@DateTime()` on the integer and float columns is not affected; it writes Unix seconds.
 
 > Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm/05-query-builder.md`, `docs/orm/06-relations.md`,
 > `docs/orm/11-json-schema.md`, `docs/orm-sql/05-value-converters-and-defaults.md`, `docs/orm-sqlite/01-connection.md`,
-> `docs/orm-sqlite/04-schema-and-ddl.md`, `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`.
+> `docs/orm-sqlite/04-schema-and-ddl.md`, `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`,
+> `docs/orm-http/08-custom-route-args-and-hydrators.md`.
 
 # Release notes — validation: coerced infinities and comparisons that throw
 
