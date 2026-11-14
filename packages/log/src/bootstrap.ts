@@ -1,7 +1,7 @@
 import { Configuration, registerConfigurationSchema } from "@spinajs/configuration";
 import { Injectable, Bootstrapper, DI } from "@spinajs/di";
 import { Log, setLogContextProvider } from "@spinajs/log-common";
-import { LogContext, scalarContext } from "./context.js";
+import { ambientLogContext } from "./trace-context.js";
 import { wirePerfScope } from "./perf.js";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration.js";
 
@@ -59,8 +59,9 @@ export class LogBotstrapper extends Bootstrapper {
     // Feed the ambient async-context store into every log entry ( merged at
     // lowest precedence by createLogMessageObject ). LogContext resolves the
     // same DI-singleton AsyncLocalStorage the http module runs per action, so
-    // logs inherit requestId / realIp / ... for free.
-    setLogContextProvider(() => scalarContext(LogContext.active()));
+    // logs inherit requestId / realIp / ... for free; the ids of the active
+    // OpenTelemetry span come on top.
+    setLogContextProvider(ambientLogContext);
 
     // Wire the per-request perf accumulator onto the same async store.
     wirePerfScope();
