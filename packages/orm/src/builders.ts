@@ -41,6 +41,15 @@ function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
 }
 
+function isBetweenOperator(lowerCaseOperator: string): boolean {
+  return lowerCaseOperator === String(SqlOperator.BETWEEN) || lowerCaseOperator === String(SqlOperator.NOT_BETWEEN);
+}
+
+/** A RawQuery bound would be bound as an object: the statement emits a plain `?` for each member. */
+function isRangePair(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 2 && value.every((x) => x !== null && x !== undefined && !Number.isNaN(x) && !(x instanceof RawQuery));
+}
+
 @NewInstance()
 @Inject(Container)
 export class Builder<T = any> implements IBuilder<T> {
@@ -1056,8 +1065,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`value cannot be NaN`);
       }
 
+      const op = String(o).toLowerCase();
       if (sVal === null) {
-        const op = String(o).toLowerCase();
         // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
         if (op === SqlOperator.EQ) {
           return self.whereNull(c);
@@ -1066,6 +1075,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           return self.whereNotNull(c);
         }
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
+      }
+
+      if (isBetweenOperator(op) && !(sVal instanceof RawQuery) && !isRangePair(sVal)) {
+        throw new InvalidArgument(`operator ${o} takes a RawQuery or an array of exactly two values, none of them null, undefined, NaN or a RawQuery`);
       }
 
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));

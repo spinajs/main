@@ -1,7 +1,7 @@
 import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, LikeLiteral, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
-import { Autoinject, NewInstance } from '@spinajs/di';
+import { Autoinject, Constructor, IContainer, NewInstance } from '@spinajs/di';
 import { isNullOrWhitespace } from '@spinajs/util';
 
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -279,6 +279,11 @@ export class SqlWhereStatement extends WhereStatement {
       };
     }
 
+    const op = String(this._operator).toLowerCase();
+    if (op === String(SqlOperator.BETWEEN) || op === String(SqlOperator.NOT_BETWEEN)) {
+      return this.buildRange(column);
+    }
+
     if (column instanceof Wrap) {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]);
       column = wrapper.wrap();
@@ -286,12 +291,7 @@ export class SqlWhereStatement extends WhereStatement {
       column = _columnWrap(this.Quoter, column, this._builder.TableAlias, this.IsAggregate);
 
       if (val instanceof ModelBase) {
-        // A composite key unwraps to a tuple, which would bind an array into a single `?`.
-        const pk = val.PrimaryKeyValue;
-        if (Array.isArray(pk)) {
-          throw new InvalidArgument(`cannot use model ${val.constructor.name} as a where value: it has a composite primary key (${val.PrimaryKeyName.join(', ')}). Compare the key columns explicitly.`);
-        }
-        val = pk;
+        val = primaryKeyOf(val);
       } else {
         const dsc = extractModelDescriptor(this._model);
         let converter: ValueConverter | null = null;
@@ -314,6 +314,56 @@ export class SqlWhereStatement extends WhereStatement {
       Statements: [`${column} ${this._operator.toUpperCase()}${binding}`],
     };
   }
+
+  protected buildRange(column: string | Wrap): IQueryStatementResult {
+    const target = column instanceof Wrap ? this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, column, this._builder.TableAlias, this.IsAggregate);
+    const convert = columnValueConverter(this._container, this._model, this._column);
+
+    return {
+      Bindings: (this._value as unknown[]).map((bound) => (bound instanceof ModelBase ? primaryKeyOf(bound) : convert(bound))),
+      Statements: [`${target} ${this._operator.toUpperCase()} ? AND ?`],
+    };
+  }
+}
+
+function primaryKeyOf(model: ModelBase): unknown {
+  // A composite key unwraps to a tuple, which would bind an array into a single `?`.
+  const pk = model.PrimaryKeyValue;
+  if (Array.isArray(pk)) {
+    throw new InvalidArgument(`cannot use model ${model.constructor.name} as a where value: it has a composite primary key (${model.PrimaryKeyName.join(', ')}). Compare the key columns explicitly.`);
+  }
+  return pk;
+}
+
+/** The conversion `where()` applies to each value compared with `column`: the model's declared converter with its options, else one chosen by the value's class. */
+function columnValueConverter(container: IContainer, model: Constructor<ModelBase> | undefined, column: string | Wrap): (value: unknown) => unknown {
+  const descriptor = model ? extractModelDescriptor(model) : undefined;
+  // A wrapped column is compared as the wrapper's type, not the column's.
+  const declared = typeof column === 'string' ? descriptor?.Converters.get(column) : undefined;
+
+  if (descriptor && declared) {
+    const columnDescriptor = descriptor.Columns.find((c) => c.Name === column);
+    const converter = container.resolve<ValueConverter>(declared.Class);
+    return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, declared.Options);
+  }
+
+  const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
+  if (!converters) {
+    return (value) => value;
+  }
+
+  const byClass = new Map<string, ValueConverter>();
+  return (value): unknown => {
+    const type = value !== null && value !== undefined ? value.constructor.name : undefined;
+    if (!type || !converters.has(type)) {
+      return value;
+    }
+
+    if (!byClass.has(type)) {
+      byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
+    }
+    return byClass.get(type)!.toDB(value, null as any, null as any, null);
+  };
 }
 
 /**
@@ -565,36 +615,9 @@ export class SqlInStatement extends InStatement {
     return JSON.stringify(values);
   }
 
-  /** Resolves the conversion `where()` applies once per column: the model's declared converter, else one chosen by the value's class. */
+  /** Resolves the conversion `where()` applies once per column: the model's declared converter with its options, else one chosen by the value's class. */
   protected valueConverter(): (value: unknown) => unknown {
-    const container = this._builder.Container;
-    const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
-    // A wrapped column is compared as the wrapper's type, not the column's.
-    const declared = typeof this._column === 'string' ? descriptor?.Converters.get(this._column) : undefined;
-
-    if (declared) {
-      const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
-      const converter = container.resolve<ValueConverter>(declared.Class);
-      return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, null);
-    }
-
-    const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
-    if (!converters) {
-      return (value) => value;
-    }
-
-    const byClass = new Map<string, ValueConverter>();
-    return (value): unknown => {
-      const type = value !== null && value !== undefined ? value.constructor.name : undefined;
-      if (!type || !converters.has(type)) {
-        return value;
-      }
-
-      if (!byClass.has(type)) {
-        byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
-      }
-      return byClass.get(type)!.toDB(value, null as any, null as any, null);
-    };
+    return columnValueConverter(this._builder.Container, this._builder.Model, this._column);
   }
 }
 

@@ -1,3 +1,28 @@
+# Release notes — orm, orm-sql, orm-http: where() with BETWEEN binds the pair
+
+## Behaviour change
+
+- `@spinajs/orm-http`: called from code, `filter()` refuses a `between` / `notbetween` array of more than two values with
+  `InvalidArgument` (`LENGTH_TOO_LONG`).
+
+## Fixes
+
+- `@spinajs/orm`, `@spinajs/orm-sql`, `@spinajs/orm-http`: `where(column, 'between', [from, to])` (also `not between`,
+  `orWhere()`, `andWhere()`) compiled to `column BETWEEN ?` with the whole pair bound as one value, so every database
+  refused it and every orm-http `between` / `notbetween` filter answered 500. It now compiles to `BETWEEN ? AND ?`,
+  converts each bound like a `whereIn()` value (a `@DateTime` column takes `DateTime` bounds), qualifies the column with
+  the query alias also after `populate()`, and keeps the `OR` of `orWhere()`. A model instance as a bound binds its
+  primary key; one with a composite key throws `InvalidArgument`. A `RawQuery` as the whole range
+  (`RawQuery.create('? AND ?', [1, 2])`) still works; a `RawQuery` as one member of the pair throws `InvalidArgument`, as
+  does any value that is not an array of exactly two members or holds `null`, `undefined` or `NaN`. A `@Filterable`
+  query function written to rewrite `between` can be dropped.
+- `@spinajs/orm-sql`: `whereIn()` / `whereNotIn()` values and BETWEEN bounds now reach the column's declared converter
+  with the options its decorator stored; before, `whereIn()` passed `null`. This matters for a custom converter that
+  reads its options. On a `@Bool({ nullable: true })` column, `whereIn('Flag', [null, true])` therefore binds NULL,
+  which matches no row, so it finds only the `true` rows: use `whereNull('Flag')` for the NULL rows.
+
+> Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm/05-query-builder.md`, `docs/orm-http/03-filtering.md`.
+
 # Release notes — orm, orm-sql: @Bool({ nullable: true })
 
 ## New
