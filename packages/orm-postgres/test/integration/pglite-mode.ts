@@ -29,6 +29,7 @@ export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
   'postgres lockTableShared (integration)': 'second-session: checks the SHARE lock from another pg.Client session',
   'postgres OrmMigrator table info re-read (integration)': 'server-admin: creates and drops a database per test through an admin session',
   'postgres strict table check (integration)': 'server-admin: creates and drops a database per test through an admin session',
+  'postgres read replicas (integration)': 'server-admin: creates and drops a database through an admin session',
   'postgres integration - time (database default zone America/New_York)': 'server-admin: sets the database default time zone through an admin session',
   'postgres integration - infrastructure recovers the pool after the server restarts, without restarting the process': 'server-restart: restarts the docker container of the server',
   'postgres integration - transactions keeps a REPEATABLE READ snapshot against a concurrent commit': 'second-session: commits from another session inside the transaction',

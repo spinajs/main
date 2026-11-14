@@ -20,7 +20,8 @@ import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns,
 import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { hasPk } from '../primary-keys.js';
-import { executeRecorded } from '../schema-touches.js';
+import { executeRecorded, inMigrationRun } from '../schema-touches.js';
+import { ReplicaRouter } from '../replica-router.js';
 import type { IRelationSort } from './internal.js';
 import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
@@ -240,6 +241,29 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  protected _onPrimary = false;
+
+  /** Set by the keyset fallback stream on every page, so one stream never changes replica between pages. */
+  protected _pinnedDriver?: OrmDriver;
+
+  public onPrimary(): this {
+    this._onPrimary = true;
+    return this;
+  }
+
+  /** A raw `driver.select()` names its connection, so only model selects are routed, and never during a migration. */
+  protected executionDriver(): OrmDriver {
+    if (this._pinnedDriver) {
+      return this._pinnedDriver;
+    }
+
+    if (this._onPrimary || this._rowLock !== undefined || this._model === undefined || inMigrationRun()) {
+      return this._driver;
+    }
+
+    return this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+  }
+
   public clone(): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner, false);
@@ -283,6 +307,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
     builder._database = this._database;
+    builder._onPrimary = this._onPrimary;
 
     runCloneHooks(this, builder);
 
@@ -610,14 +635,15 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       throw new InvalidOperation('stream() cannot follow first() or takeFirst()');
     }
 
-    if (!this._wantsTransaction() && (await this._driver.canStreamNatively())) {
-      yield* this._streamFromCursor(batchSize);
+    const driver = this.executionDriver();
+    if (this._driver.CurrentTransaction === undefined && !this._wantsTransaction() && (await driver.canStreamNatively())) {
+      yield* this._streamFromCursor(driver, batchSize);
       return;
     }
 
     // a page is a whole statement through executeOnDb: it leaves the connection free between pages and carries the
     // session settings, which a cursor outside a transaction cannot
-    yield* this._streamByKeyset(batchSize);
+    yield* this._streamByKeyset(batchSize, driver);
   }
 
   /** Same test as `Builder._run`: a query middleware (authz-orm's row filter) that needs a transaction gets one per page. */
@@ -625,13 +651,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._queryMiddlewares.some((m) => m.transactional?.(this) === true);
   }
 
-  protected async *_streamFromCursor(batchSize: number): AsyncGenerator<unknown> {
+  protected async *_streamFromCursor(driver: OrmDriver, batchSize: number): AsyncGenerator<unknown> {
     for (const middleware of this._queryMiddlewares) {
       await middleware.beforeQueryExecution(this);
     }
 
     // recorded like `_run`, so the migration tool's dry run sees the tables a stream reads
-    const rows = await executeRecorded(this._driver, () => this.schemaTouches(), () => Promise.resolve(this._driver.executeStream(this, { batchSize })));
+    const rows = await executeRecorded(driver, () => this.schemaTouches(), () => Promise.resolve(driver.executeStream(this, { batchSize })));
     let batch: unknown[] = [];
 
     for await (const row of rows) {
@@ -656,7 +682,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
-  protected async *_streamByKeyset(batchSize: number): AsyncGenerator<unknown> {
+  protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
     const descriptor = extractModelDescriptor(this._model);
     // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
     this.toDB();
@@ -669,6 +695,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     let last: unknown[] | undefined;
     for (;;) {
       const page = executionCopy(this);
+      page._pinnedDriver = driver;
       for (const tieBreaker of columns.slice(sorts.length)) {
         page.order(tieBreaker.column, SortOrder.ASC);
       }
