@@ -5,7 +5,7 @@ export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
-import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, RowQueue } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
@@ -153,6 +153,31 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
+  /** The rows of one statement in tedious's stream mode, with the request paused while a batch waits. Leaving early cancels the request. */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
+    const request = this._connectionPool.request();
+    request.stream = true;
+    this.toDriverParams(params).forEach((value, index) => request.input(`p${index}`, value));
+
+    const queue = new RowQueue(request, options.batchSize);
+    request.on('row', (row: unknown) => queue.push(row));
+    request.on('error', (err: unknown) => queue.fail(mapMsSqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params)));
+    request.on('done', () => queue.end());
+    // in stream mode the outcome arrives through the events above; the promise repeats it
+    void request.query(toNamedParameters(stmt.replaceAll('`', ''), params?.length ?? 0)).catch(() => undefined);
+
+    let complete = false;
+    try {
+      yield* queue.read();
+      complete = true;
+    } finally {
+      if (!complete) {
+        request.cancel();
+        await queue.discard();
+      }
+    }
+  }
+
   public supportedFeatures(): ISupportedFeature {
     return {
       /**
@@ -174,6 +199,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       insertIdIsFirstOfBatch: false,
       concurrentTransactions: true,
       nativeJson: false,
+      streaming: true,
     };
   }
 
