@@ -43,8 +43,9 @@
 - `@spinajs/orm-sql`: a value bound against a column without a declared converter is converted the same way in
   `where()`, `whereIn()` / `whereNotIn()` and BETWEEN: by the value's class, which now also sees the model's column in
   `whereIn()` and BETWEEN. Before, a `Date` or `DateTime` bound against an undecorated numeric column was written as Unix
-  seconds by `where()` but as datetime text by `whereIn()` and BETWEEN, so `whereIn('At', [dt])` found no row and
-  BETWEEN compared text with numbers. All three now bind Unix seconds against a numeric column: on SQLite `INTEGER`,
+  seconds by `where()` on MySQL, PostgreSQL and MSSQL (except MSSQL `numeric` and `real`), but as datetime text by
+  `whereIn()` and BETWEEN, so `whereIn('At', [dt])` found no row and BETWEEN compared text with numbers. On SQLite all
+  three wrote text, because the type comparison was case-sensitive (see the first breaking change). All three now bind Unix seconds against a numeric column: on SQLite `INTEGER`,
   `REAL`, `NUMERIC` and the other numeric spellings, on MySQL and MSSQL the numeric types, on PostgreSQL `int2` ..
   `int8`, `numeric`, `float4` and `float8`. Against any other column they bind the dialect's datetime text, as `where()`
   did; on PostgreSQL a `DateTime` against a `date` column binds the calendar day in all three. Checked on SQLite and in
@@ -69,7 +70,8 @@
   `value` schema allows `null`: the request answers 400. Filter with `isnull` / `notnull` instead. A `like` value of
   `null` is coerced to `""`, which `filter()` refuses as an empty pattern, also with 400.
 - The `@Filter()` schema refuses more than 100 top-level filters (`maxItems`, the `MAX_FILTERS` that `filter()`
-  applies), before any value rule runs. The answer stays 400. The filters of a nested group are not limited by either.
+  applies): the request answers 400 from validation, before `filter()` runs. The answer was already 400. The filters
+  of a nested group are not limited by either.
 - Called from code, `filter()` keeps the 3.0.29 handling of `null`: `eq null` and `neq null` compile to `IS NULL` /
   `IS NOT NULL`, and `null` for `gt` .. `lte` throws `InvalidArgument`. It now refuses an array for `eq` .. `lte` with
   `InvalidArgument` (`SINGLE_VALUE_REQUIRED`), and a `between` / `notbetween` array of more than two values with
@@ -167,7 +169,8 @@
 > Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm/05-query-builder.md`, `docs/orm/06-relations.md`,
 > `docs/orm/11-json-schema.md`, `docs/orm-sql/05-value-converters-and-defaults.md`, `docs/orm-sqlite/01-connection.md`,
 > `docs/orm-sqlite/04-schema-and-ddl.md`, `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`,
-> `docs/orm-http/08-custom-route-args-and-hydrators.md`.
+> `docs/orm-http/08-custom-route-args-and-hydrators.md`, `docs/orm-sql/03-statements.md`,
+> `docs/orm-sqlite/06-query-dialect.md`.
 
 # Release notes — validation: coerced infinities and comparisons that throw
 

@@ -65,6 +65,12 @@ describe('a value bound against a column without a declared converter', () => {
     });
   }
 
+  it('binds false as 0 and true as 1 in where() and whereIn()', () => {
+    expect(bindings(WhereConversion.query().where('At', false))).to.deep.eq([0]);
+    expect(bindings(WhereConversion.query().where('At', true))).to.deep.eq([1]);
+    expect(bindings(WhereConversion.query().whereIn('At', [false, true]))).to.deep.eq([0, 1]);
+  });
+
   it('leaves a value of a class without a converter alone', () => {
     expect(bindings(WhereConversion.query().where('At', '>=', 5))).to.deep.eq([5]);
     expect(bindings(WhereConversion.query().whereIn('Txt', ['a', 'b']))).to.deep.eq(['a', 'b']);
