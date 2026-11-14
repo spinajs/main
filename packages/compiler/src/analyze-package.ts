@@ -18,6 +18,8 @@ import { extractMigrations } from './extractors/migrations.js';
 import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
+import { accessResources } from './extractors/access-resources.js';
+import { authzSectionOf } from './extractors/authz.js';
 import { extractWorkflows } from './extractors/workflows.js';
 import { extractSqlQueries } from './extractors/sql.js';
 import { extractSqlDialects } from './extractors/sql-dialects.js';
@@ -122,6 +124,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const workflows = run(extractWorkflows);
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
+  const { models, resources } = accessResources(ctx, files, run(extractModels));
+  const authz = authzSectionOf(ctx, files, { resources });
 
   const sqlQueries = run(extractSqlQueries);
   const sqlDialects = run(extractSqlDialects);
@@ -145,7 +149,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     socketContracts: run(extractSocketContracts),
     configModules: run(extractConfigModules),
     configUsages: run(extractConfigUsages),
-    models: run(extractModels),
+    models,
     migrations: marked('migrations', migrations),
     schedules: marked('schedules', schedules),
     commands: marked('commands', commands),
@@ -154,6 +158,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     ...(workflows.length ? { workflows } : {}),
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
+    ...(authz ? { authz } : {}),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

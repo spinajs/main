@@ -146,6 +146,12 @@ A build with `--no-schemas` records `schemaDerivation: false`. Its socket contra
 
 A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
+### Authorization facts
+
+The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
+
+`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet.
+
 ### Route pagination
 
 A route whose reply is the `@spinajs/http` `Page<T>` or `CursorPage<T>` (see [Paginated replies](../http/10-responses.md#paginated-replies)) carries `pagination`. Every other route has no such key, so a manifest of an app without paginated routes is byte for byte what it was before the field existed, hash included. `manifestVersion` stays 2.
