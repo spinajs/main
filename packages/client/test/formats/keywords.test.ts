@@ -7,10 +7,10 @@ import { describeInput, serverAjv } from './server-ajv.js';
 const LENGTH_CORPUS = ['', 'a', 'ab', 'é', 'é', '😀', '😀😀', '\ud83d', '\ude00', '\ude00\ud83d', 'a\ud83d', '👨‍👩‍👧', '🇵🇱', 'x😀y'];
 
 const JSON_CORPUS: unknown[] = [null, true, false, 0, -0, 1, 1.5, '', '0', 'a', [], [0], [-0], [1, 2], [2, 1], {}, { a: 1 }, { a: 1, b: 2 }, { b: 2, a: 1 }, { a: [1, { b: null }] }, { a: undefined }, [[]], [{}], { '': 0 }, { valueOf: 1 }, { toString: false },
-  // fast-deep-equal walks keys from the end: the key order decides whether it throws or answers false first.
+  // nested own valueOf keys, in both key orders
   { x: { valueOf: 1 }, y: 1 }, { x: { a: 1 }, y: 2 }, { y: 1, x: { valueOf: 1 } }, { y: 2, x: { a: 1 } }];
 
-/** A verdict, or 'throws': fast-deep-equal, and so Ajv, throws on data with an own non-function valueOf or toString. */
+/** A verdict, or 'throws', so a comparison that throws on one side only is a mismatch. */
 function outcome(run: () => boolean): boolean | 'throws' {
   try {
     return run();
@@ -95,11 +95,11 @@ describe('@spinajs/client/formats: keyword helpers', function () {
     fc.assert(fc.property(json(), (value) => outcome(() => ajvEqual(value, structuredClone(value))) !== false));
   });
 
-  it('ajvEqual throws where Ajv throws: on data with an own valueOf or toString key', () => {
-    expect(() => ajv.compile({ const: { a: 1 } })({ valueOf: 1 })).to.throw(TypeError);
-    expect(() => ajvEqual({ valueOf: 1 }, { a: 1 })).to.throw(TypeError);
-    expect(() => ajvEqual({ toString: false }, { a: 1 })).to.throw(TypeError);
-    expect(ajvEqual({ a: 1 }, { valueOf: 1 })).to.be.false;
+  it('ajvEqual compares own valueOf and toString keys as data, as the server does', () => {
+    expect(ajv.compile({ const: { a: 1 } })({ valueOf: 1 })).to.be.false;
+    expect(ajvEqual({ valueOf: 1 }, { a: 1 })).to.be.false;
+    expect(ajvEqual({ toString: false }, { a: 1 })).to.be.false;
+    expect(ajvEqual({ valueOf: 1 }, { valueOf: 1 })).to.be.true;
   });
 
   it('ajvEqual treats 0 and -0 as equal and ignores key order', () => {
@@ -134,8 +134,9 @@ describe('@spinajs/client/formats: keyword helpers', function () {
       });
     }
 
-    it('lets repeated "__proto__" strings through when Ajv hashes string items', () => {
-      expect(ajvUniqueItems(['__proto__', '__proto__'], ['string'])).to.be.true;
+    it('counts repeated "__proto__" strings as duplicates when string items are hashed', () => {
+      expect(ajv.compile({ type: 'array', items: { type: 'string' }, uniqueItems: true })(['__proto__', '__proto__'])).to.be.false;
+      expect(ajvUniqueItems(['__proto__', '__proto__'], ['string'])).to.be.false;
       expect(ajvUniqueItems(['__proto__', '__proto__'])).to.be.false;
     });
   });

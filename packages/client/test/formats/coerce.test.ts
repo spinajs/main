@@ -72,8 +72,10 @@ describe('@spinajs/client/formats: coercion', function () {
   it('keeps the server quirks a query string can hit', () => {
     expect(coerceNumber(' ')).to.equal(0);
     expect(coerceNumber('0x10')).to.equal(16);
-    expect(coerceNumber('Infinity')).to.equal(Infinity);
-    expect(coerceInteger('-Infinity')).to.equal(-Infinity);
+    // the server refuses a non-finite number after coercing to it
+    expect(coerceNumber('Infinity')).to.equal('Infinity');
+    expect(coerceInteger('-Infinity')).to.equal('-Infinity');
+    expect(coerceNumber('1e400')).to.equal('1e400');
     expect(coerceInteger('1.5')).to.equal('1.5');
     expect(coerceNumber(['2'])).to.equal(2);
     expect(coerceBoolean('TRUE')).to.equal('TRUE');
