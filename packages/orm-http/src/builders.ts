@@ -28,6 +28,10 @@ const ValidationHelpers = {
     _check_arg(_non_undefined(
       new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a value, got: ${filter.Value}`, filter.Column, 'VALUE_REQUIRED')
     ))(filter.Value, filter.Column);
+
+    if (Array.isArray(filter.Value)) {
+      throw new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a single value, got an array`, filter.Column, 'SINGLE_VALUE_REQUIRED');
+    }
   },
 
   noValidation: () => {
