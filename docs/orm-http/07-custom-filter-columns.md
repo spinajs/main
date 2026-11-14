@@ -5,7 +5,7 @@ A filter column can carry its own SQL: `IColumnFilter.query` receives the client
 ## How it works
 
 1. Declare the column with `@Filterable(operators, queryFunc)` on the model, or as `{ column, operators, query }` in an `IColumnFilter[]` list.
-2. The schema still limits the column to `operators`. The query function never sees an operator outside that list.
+2. The schema still limits the column to `operators`. The query function never sees an operator outside that list. It takes any string, number, boolean, array or `null` as `Value`, for every operator, unless the column declares a `value` schema; then `Value` is checked by operator as for a plain column (see [Value schema](03-filtering.md#value-schema)).
 3. `SelectQueryBuilder.filter()` checks the column and operator as for any column.
 4. It calls `query(operator, value)` and invokes the returned `WhereFunction` with the current group builder as `this`.
 5. The built-in operator and its value check are skipped: the function owns both.
@@ -15,6 +15,7 @@ A filter column can carry its own SQL: `IColumnFilter.query` receives the client
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Filterable(operators, queryFunc, isAggregate?)` | Model property | `queryFunc: (operator: FilterableOperators, value: any) => WhereFunction<unknown>`, or `null` to keep the built-in SQL | The column is filtered by `queryFunc`. A property with no column gets a virtual one. |
+| `@Filterable({ operators, query, aggregate?, value? })` | Model property | the same as an options object, and `value`: the JSON schema of one filter value | As above; with `value` the schema checks `Value` by operator before `query` runs. |
 | `@Filter(columns)` | Route method parameter | `IColumnFilter[]` | Validates against those columns instead of a model's. |
 
 `IColumnFilter<T>`:
@@ -24,6 +25,7 @@ A filter column can carry its own SQL: `IColumnFilter.query` receives the client
 | `column` | `string?` | Column name the client sends as `Column`. |
 | `operators` | `FilterableOperators[]` | Operators the schema allows. |
 | `query` | `((operator, value) => WhereFunction<T>) \| null` | Custom SQL; absent or `null` uses the built-in operator. |
+| `value` | `object?` | JSON schema of one filter value. List and pair operators take an array of it, the `like` family a string. Without it a custom column takes any value shape, and a plain one in an inline list any string, number or boolean. |
 
 ## Services and extension points
 
@@ -70,7 +72,8 @@ export class Person extends ModelBase<Person> {
 ## Important behaviour
 
 - The operator passed to `query` is a `FilterableOperators` value (`eq`, `like`, `b-like`...). Passing it straight to `where()` fails for `eq`, `neq`, `b-like`, `e-like` and the others that are not SQL.
-- No value check runs for a custom column. Validate `value` yourself and throw `InvalidArgument` for a `400`.
+- No value check runs in `.filter()` for a custom column, and the schema checks only that `Value` is a string, number, boolean, array or `null`, and does not coerce it. Declare `value` to have the schema check it by operator, or validate `value` yourself and throw `InvalidArgument` for a `400`.
+- `filterColumns()` returns `value` too, and an inline list passed to `@Filter(list)` honours it.
 - No escaping runs either. A `like` built as `` `%${value}%` `` lets the client's `%` and `_` act as wildcards: a value of `%` matches every row. Pass `LikeLiteral.contains(value)` (or `startsWith` / `endsWith`) as the operand instead, as the built-in operators do.
 - The function's conditions form one bracketed condition, joined to the other entries at the same level by that level's `op`, like a built-in column.
 - Wrap several conditions in one `this.where(function () { ... })` so an `orWhere` inside does not leak into the surrounding group.

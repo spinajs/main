@@ -178,7 +178,7 @@ function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>
  *                            `descriptor.Converters` ( `@DateTime()`, `@CreatedAt()`, ... )
  * @param declaredOptions - the `Options` the decorator stored next to that converter
  */
-function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): any {
+export function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): any {
   // The declared class wins over the resolved instance: a decorator is an explicit statement
   // about the property, while the instance is only there when the container had the converter
   // registered on that connection.
