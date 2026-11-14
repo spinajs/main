@@ -15,13 +15,14 @@ import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
 import { abortWaitingRun } from './run/cancel.js';
 import { journalAttemptEnd } from './run/end.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
+import { InlineRunner } from './run/inline.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
 import { RunFinalizer } from './run/RunFinalizer.js';
 import { SchedulerSignals } from './signals.js';
 import { DefinitionSync } from './store/DefinitionSync.js';
 import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
 import { defaultReplicaId } from './store/replica.js';
-import { Clock, DbClock, TimerHandle } from './time/clock.js';
+import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from './time/occurrences.js';
 import { nextOccurrence } from './time/spec.js';
 import { toStructuredError } from './tracking/structured.js';
@@ -92,6 +93,9 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   @Autoinject(SchedulerSignals)
   protected Signals: SchedulerSignals;
+
+  @Autoinject(InlineRunner)
+  protected Inline: InlineRunner;
 
   public readonly ReplicaId: string;
   public Leases: LeaseStore;
@@ -283,7 +287,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       // a paused occurrence is dropped, like a paused leader schedule's (resume re-anchors on now)
       if (halted.has(def.name)) continue;
 
-      if ([...this.active.values()].some((h) => h.schedule === def.name)) {
+      if (this.runsScheduleLocally(def.name)) {
         await this.recordWithoutRunning(def, 'skipped', due, now, 'overlap', null);
         continue;
       }
@@ -310,10 +314,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     return false;
   }
 
-  /** Any run of the schedule in this process, forced or not. */
+  /** Any run of the schedule on this replica, forced or not, its inline runs included. */
   protected runsScheduleLocally(schedule: string): boolean {
     for (const h of this.active.values()) if (h.schedule === schedule) return true;
-    return false;
+    return this.Inline.isRunningLocally(schedule, this.ReplicaId);
   }
 
   /** Every path that claims a queued/retrying run for this process goes through this check first. */

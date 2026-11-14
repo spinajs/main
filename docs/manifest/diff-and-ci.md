@@ -61,7 +61,7 @@ Result: **BREAKING** (5 breaking of 6 changes)
 
 This is the snapshot `packages/manifest/test/__snapshots__/breaking.md`, rendered from the `app-basic` fixture and an edited copy of it.
 
-The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
+The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`, `workflows`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
 
@@ -134,6 +134,7 @@ A route that is served only by a registration (an entry with `mountedBy`) is com
 | `services` | never | Registration, lifetime or `async` changed |
 | `commands` | never | CLI command options or arguments changed |
 | `socket` | never | A command or event added, removed, or with a changed payload or result schema |
+| `workflows` | A workflow version removed: its unfinished instances are left without code to run on. Within one version, `signals changed` when a signal is removed or newly needs a permission (added or changed): its senders are rejected | Each `name@version` is a row of its own, so a new version is `added`. `class changed` and a signal that is only added or loses its permission are non-breaking. Signal order does not count |
 
 Socket changes are reported, not classified. Review them by hand.
 

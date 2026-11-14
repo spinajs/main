@@ -1,17 +1,21 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
+import { RelationType } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import type { IQueryStatement } from './statements.js';
-import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
+import { NewInstance, DI, Inject, Container } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware, VirtualRelationMiddleware } from './middlewares.js';
-import { ModelBase } from './model.js';
+import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import { Orm as OrmClass } from './orm.js';
 import type { OrmDriver } from './driver.js';
-import _ from 'lodash';
+import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { registerRelation } from './relation-registry.js';
+import { cloneOwnedBy } from './builders/internal.js';
 
 
 /**
@@ -19,10 +23,10 @@ import { extractModelDescriptor } from './descriptor.js';
  * filter-only property (`@Filterable` on something that has no DB column) - the own-table
  * select and the insert/update converters already skip it, and a relation query has to as
  * well, or every populate of the model as a relation target selects a column the table does
- * not have.
+ * not have. An `@Ignore()` property is skipped for the same reason: it usually has no column.
  */
 function selectableColumns(descriptor: IModelDescriptor): IColumnDescriptor[] {
-  return descriptor.Columns.filter((c) => !c.Virtual);
+  return descriptor.Columns.filter((c) => !c.Virtual && !c.Ignore);
 }
 
 export interface IOrmRelation {
@@ -48,6 +52,12 @@ export interface IOrmRelation {
   Name: string;
 
   Descriptor: IRelationDescriptor;
+
+  /**
+   * This relation for `query`, a clone of the query it belongs to whose owning relation is `owner`.
+   * Without it a clone shares the relation, which compiles into the original query only.
+   */
+  cloneFor?(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation;
 }
 
 function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
@@ -88,6 +98,22 @@ export abstract class OrmRelation implements IOrmRelation {
 
   public abstract execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void;
   public abstract executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void;
+
+  // A compiled relation is shared: the clone already copied the joins, columns and middlewares it added.
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    if (this._compiled) {
+      return this;
+    }
+
+    // a copy of the instance, not a new one: constructors differ per relation and the populate callbacks already ran
+    const copy = Object.assign(Object.create(Object.getPrototypeOf(this) as object) as this, this);
+    copy._query = query;
+    if (this.parentRelation) {
+      copy.parentRelation = owner as NativeOrmRelation;
+    }
+
+    return copy;
+  }
 }
 
 @Inject(Container)
@@ -125,6 +151,15 @@ export abstract class NativeOrmRelation extends OrmRelation {
 
   public abstract compile(): void;
 
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    const copy = super.cloneFor(query, owner) as this;
+    if (copy !== this) {
+      copy._relationQuery = cloneOwnedBy(this._relationQuery, copy);
+    }
+
+    return copy;
+  }
+
   public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) {
     if (callback) {
       callback.call(this._relationQuery, this);
@@ -157,6 +192,11 @@ export class BelongsToRelation extends NativeOrmRelation {
 
     if (!this.parentRelation && !this._query.TableAlias) {
       this._query.setAlias(`${this._separator}${this._description.SourceModel!.name}${this._separator}`);
+    }
+
+    // No columns compiles to `SELECT *`, but the merge below adds the joined ones, and the queried model's would be lost.
+    if (this._query.getColumns().length === 0) {
+      this._query.select('*');
     }
 
     // whereOnJoin() conditions go to the LEFT JOIN ON clause - folded into parent WHERE
@@ -330,6 +370,15 @@ export class ManyToManyRelation extends NativeOrmRelation {
     return this._relationQuery;
   }
 
+  public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
+    const copy = super.cloneFor(query, owner) as this;
+    if (copy !== this) {
+      copy._joinQuery = cloneOwnedBy(this._joinQuery, copy);
+    }
+
+    return copy;
+  }
+
   constructor(_container: Container, protected _orm: Orm, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {
     super(_container, _query, _description, _parentRelation);
 
@@ -425,3 +474,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
     this._compiled = true;
   }
 }
+
+registerRelation('recursive', BelongsToRecursiveRelation);
+registerRelation(RelationType.One, BelongsToRelation);
+registerRelation(RelationType.Many, OneToManyRelation);
+registerRelation(RelationType.ManyToMany, ManyToManyRelation);
+registerRelation(RelationType.Query, QueryRelation);
+registerRelation(RelationType.Virtual, VirtualRelation);

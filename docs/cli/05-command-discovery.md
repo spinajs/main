@@ -38,7 +38,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Command directories | Config key `system.dirs.cli`, read once per `Cli` instance | This package's `cli` directory (holds `configuration:dump`) | Directories appended by `@spinajs/fs`, `@spinajs/http`, `@spinajs/http-swagger`, `@spinajs/email`, `@spinajs/orm-cli`, `@spinajs/templates`, `@spinajs/templates-pdf`, `@spinajs/templates-image`, `@spinajs/tasks`, `@spinajs/users` and others | Append a directory in a config file of your app or package |
+| Command directories | Config key `system.dirs.cli`, read once per `Cli` instance | This package's `cli` directory (holds `configuration:dump`) | Directories appended by `@spinajs/fs`, `@spinajs/http`, `@spinajs/http-swagger`, `@spinajs/email`, `@spinajs/orm-cli`, `@spinajs/templates`, `@spinajs/templates-pdf`, `@spinajs/templates-image`, `@spinajs/users` and others | Append a directory in a config file of your app or package |
 | Module loader | String token `'__module_loader__'` in `@spinajs/di`, an object with `load(path)` | none (`import()` / `require()`) | none shipped | `DI.register(loader).asValue('__module_loader__')`; used for every file `@spinajs/di` loads, not only commands |
 
 ### Ship commands from your own package

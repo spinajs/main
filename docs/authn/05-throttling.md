@@ -34,7 +34,7 @@ For `login`, from each candidate strategy's `throttleKeys`:
 - An `account` key of an interactive strategy becomes `login:<value>`. A per-request strategy's becomes `request:<value>|<ip>`, so failures sent from another address never delay the credential's owner.
 - For each account key, when `ctx.ip` is set, the service adds `account-ip` = `<account key>|<ip>`. A strategy's own `account-ip` keys are dropped.
 - The shared keys: `ip` (when `ctx.ip` is set) and `global` with value `login` (when `authn.throttle.global` is set).
-- In all three keys that carry the address (`ip`, `account-ip` and a per-request `account`), an IPv6 address is replaced by its network, `<network>/<prefix>`, with the prefix from `authn.throttle.ipv6Prefix`: a client that owns a whole /64 cannot get a fresh row for each address. IPv4 and IPv4-mapped addresses are keyed whole. Audit events and `ClientIp` keep the full address. The `ip` key of every other call site is built the same way, through `ipKey(ctx, ipv6Prefix)` (null without an address): the `mfa` and `reauth` identity keys (`identityThrottleKeys(id, ctx, ipv6Prefix)`), the `reset` and `register` flows, token revocation, key login challenges, `POST /auth/verify` and `POST /auth/passkeys/challenge`. `ipv6PrefixOf(value)` turns a config read into the prefix, with the default 64.
+- In all three keys that carry the address (`ip`, `account-ip` and a per-request `account`), an IPv6 address is replaced by its network, `<network>/<prefix>`, with the prefix from `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix` (the prefix `@RateLimit` and `http.throttle` count), else 64: a client that owns a whole /64 cannot get a fresh row for each address. IPv4 and IPv4-mapped addresses are keyed whole. Audit events and `ClientIp` keep the full address. The `ip` key of every other call site is built the same way, through `ipKey(ctx, ipv6Prefix)` (null without an address): the `mfa` and `reauth` identity keys (`identityThrottleKeys(id, ctx, ipv6Prefix)`), the `reset` and `register` flows, token revocation, key login challenges, `POST /auth/verify` and `POST /auth/passkeys/challenge`. `ipv6PrefixOf(value)` turns a config read into the prefix, with the default 64.
 - The attempt counts the union of every candidate's keys, once. `succeed` gets only the answering strategy's keys and the shared ones.
 
 For `mfa` and `reauth`: `account` = the identity id, `account-ip` = `<identity id>|<ip>`, and `ip` when `ctx.ip` is set.
@@ -65,7 +65,7 @@ A login to your own account cannot clear failures spent on other accounts.
 | `authn.throttle.resetAfterSeconds` | `integer` | `86400` | ≥ 1 | A key with no counted attempt for this long starts from zero |
 | `authn.throttle.global` | `BackoffParams \| null` | `null` | as above | One key for all logins. Off by default: one attacker could slow every login |
 | `authn.throttle.maxRows` | `integer` | `1000000` | 4 to 16000000 | Rows a `MemoryAuthnThrottle` keeps per flow; memory grows with 4 × `maxRows` |
-| `authn.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | Prefix length that IPv6 clients are grouped by in every throttle `ip` key |
+| `authn.throttle.ipv6Prefix` | `integer` | unset: `http.throttle.ipv6Prefix`, else `64` | 16 to 128 | Prefix length that IPv6 clients are grouped by in every throttle `ip` key. Set to another value than `http.throttle.ipv6Prefix`, the boot warns: authn and the http limiters would count different networks. |
 | `authn.throttle.memory.sweepBatch` | `integer` | `8` | 1 to 1000 | Expired rows `MemoryAuthnThrottle` checks per attempt |
 | `authn.throttle.memory.fullRetrySeconds` | `integer` | `60` | 1 to 3600 | `Retry-After` of a full table with no delay to wait for |
 | `authn.throttle.memory.holdOffMs` | `integer` | `1000` | 0 to 60000 | Pause before the next scan of a nearly full table |
@@ -178,7 +178,8 @@ Register a throttle as a class, not a factory: a factory is called once per cont
 ## Best practices
 
 - Use `DbAuthnThrottle` behind a load balancer or with several instances. Keep `MemoryAuthnThrottle` for development, tests and a single instance.
-- Set `http.trustProxy` or `authn.http.trustProxy` behind a proxy. Without it every client has the proxy's address and shares one `ip` key.
+- Set `http.trustProxy` or `authn.http.trustProxy` behind a proxy, not both. Without it every client has the proxy's address and shares one `ip` key. With `@spinajs/authn-http`, `authn.http.trustProxy` also feeds http's `RealIp`, so the authn keys and `@RateLimit` see the same client ([Client IP](../http/17-client-ip-and-trust-proxy.md#one-client-address-with-authn)).
+- Set the IPv6 prefix once, in `http.throttle.ipv6Prefix`; authn falls back to it.
 - Leave `authn.throttle.global` off unless you accept that one attacker can slow every login.
 
 ## Patterns and antipatterns

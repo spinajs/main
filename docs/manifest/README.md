@@ -65,6 +65,7 @@ Check these before you set `prefer` or `require` (`off` changes none of them):
 - **Query, path and header values are coerced.** Handlers of `@QueryField()`, `@ParamField()`, `@HeadersField()` and object-typed `@Query()` get the derived types instead of strings: `query.exact === 'true'` turns `false`, because `exact` is now the boolean `true`, `?ids=7` becomes `[7]`, and a repeated scalar (`?page=1&page=2`) answers 400.
 - **Decorator metadata becomes optional.** Argument types (`@Body() dto: Dto`, `@Param() id: number`), socket `@Payload` and `@FromDI()` types and the types of `@Autoinject()` / `@LazyInject()` properties that name none come from the manifest (`TypeRef.ref`, `diArgs`, `classProperties`) when the build emits no `design:*` metadata. See [Building without decorator metadata](#building-without-decorator-metadata).
 - **Undeclared root keys of a whole body are dropped from the argument.** A DTO built from a whole body (`@Body()` as the only body argument, `@BodyField()`) gets only its declared root keys; read others (`reauthPassword`, a CSRF token) from `req.body`, which stays as sent.
+- **The served OpenAPI document has no middleware answers.** `@spinajs/http-swagger` serves `manifestToOpenApi()`, which sees no runtime middleware: no `429` of `@RateLimit`, no `X-RateLimit-*` headers, no `x-rate-limit`. Document them with `@response` where a generated client needs them. See [middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour).
 
 ### Runtime modes
 
@@ -133,6 +134,10 @@ The build records the `APP_ENV` it ran under as `buildEnv` (omitted by a build w
 
 The build records the `@spinajs/compiler` version that produced it as `compilerVersion`, which the hash leaves out like `generatedAt`, so upgrading the compiler alone does not change the hash. `manifest:diff` warns when base and head record different versions (see [Diffing two manifests](#diffing-two-manifests)).
 
+The build records the `http.routes.middlewares` of its configuration as `globalRouteMiddlewares`, one `{ type }` per entry in config order, a class entry by its name with `fromClass: true` (omitted when there are none). Their options are never recorded: config values can hold secrets or objects that do not serialize. The runtime still reads the configuration it boots with; the field documents what every route gets before its controller's and its own middlewares (a global whose type the controller or route also declares is left out there), and lets `spinajs doctor` check the names without `--config` (`CFG004`, which skips class entries). It is part of the manifest hash.
+
+A controller's or route's `middlewares` are listed in source order; the runtime applies decorators bottom-up, so it mounts one list in reverse. `options` are the literal arguments of `@Middleware(Type, ...options)`, the constructor options. A decorator that mounts its own middleware (`@Accepts`, `@BotCheck`, `@Idempotent`, ...) records `decoratorArgs`, its own literal arguments, which need not be the constructor options (`@Consumes('a', 'b')` passes `[['a', 'b']]`, `@Idempotent` fills in defaults). Either field is omitted when an argument is not a plain JSON literal in the source.
+
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 
 **Run it from the folder the app runs from.** `system.dirs` is usually computed from `process.cwd()`, so the build warns with `CLI001` when that is not the `tsconfig` folder. It is a warning and not a refusal, because an app that runs from its build folder gets the right dirs only from there. A configured dir of the app with no source folder behind it gets `CMP008`, so a partly wrong working directory shows as more than per-class warnings. Paths are compared physically, so a release folder behind a symlink maps either way, and `manifest.app.root` holds the physical path. A manifest carried from one release folder to the next keeps pointing at the old one while that folder exists: set `SPINAJS_MANIFEST_ROOT` in such a layout.
@@ -187,3 +192,24 @@ Models work too. `@HasMany`, `@HasManyToMany`, `@Virtual` and `@JunctionTable` r
 Relations read the root container, as the ORM does elsewhere, so an app in an isolated child container with its own manifest needs `withManifest` to hold it in root.
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` boots `app-basic` compiled with `emitDecoratorMetadata: false` in `require`, in a separate process, and compares what it serves with the build that has metadata. `orm-no-metadata.test.ts` does the same for a timestamped model with relations against sqlite.
+
+## Models (schema v2)
+
+`models[].columns[].sql` (`ColumnSqlSpec`) is the column's type family plus what `@Column` states (length, precision,
+scale, default, unique, autoIncrement, version). `inferred: true` marks a family taken from the TypeScript type
+because `@Column` did not state one (or is absent); the other members are never inferred. `enum` is never inferred.
+`relations[]` carry `foreignKey`, `primaryKey` and, for many-to-many, `junction { model, sourceKey, targetKey }`. A key
+that defaults to a primary key is left out: it is the primary key of the target (`belongsTo`) or of the owner
+(`hasMany`, `hasManyToMany`). `indexes`, `version` (the `@Version` column) and `exhaustive` are optional.
+
+`diffManifest` has a `models` section keyed `<connection>:<table>` over the union of the models on that table. A
+removed table or column, a column made NOT NULL, an explicit family change, or a smaller length, precision or scale
+is breaking.
+
+## SQL queries
+
+`sqlQueries[]` (`ModelSqlQuery`) lists every `sql` template of `@spinajs/orm` in the package: `text` with one `?` per
+interpolation, `placeholders`, `dynamic` (it interpolates a fragment or `sql.raw`), the declared row of `sql<R>` as
+`declaredRow` and `declaredColumns`, `lists` (interpolations bound to an array) and `connection` when the template is
+passed straight to `executeSql(…, { connection })`. Merged ids are `<package>:<file>:<line>:<col>`. The section is
+omitted when no package has a template.

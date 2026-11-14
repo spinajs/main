@@ -3,7 +3,9 @@ import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _between } from '@spinajs/util';
 import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
-import * as express from 'express';
+import type { IMiddlewareContext, IReplyContext } from '@spinajs/http';
+
+export * from './schema.js';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -24,6 +26,15 @@ function extractLanguageFromRequest(req: sRequest, param: string) {
   }
 
   return null;
+}
+
+// RFC 5646 in its common shape: a 2-3 letter language, then subtags. `_` is taken for `-` (`pt_BR`).
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/;
+
+/** The language as a `Content-Language` value, or undefined when it is no language tag (a header must never fail). */
+function contentLanguageOf(language: string | undefined): string | undefined {
+  const tag = language?.replace(/_/g, '-');
+  return tag !== undefined && LANGUAGE_TAG.test(tag) ? tag : undefined;
 }
 
 export function Lang(allowedLanguages?: string[]) {
@@ -74,26 +85,63 @@ export class IntlHttpMiddleware extends ServerMiddleware {
   @Config('intl.defaultLocale')
   protected defaultLocale!: string;
 
+  @Config('intl.http.vary', { defaultValue: true })
+  protected Vary!: boolean;
+
+  protected varyFields?: string[];
+
   constructor() {
     super();
-    // Must run AFTER RequestStorage (Order -2) which creates req.storage;
-    // otherwise `req.storage.language = ...` dereferences undefined and every
-    // request 500s. Sit alongside RealIp / RequestId.
     this.Order = 1;
   }
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-      const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
-
-      _validate(lang);
-
-      req.storage.language = lang ?? this.defaultLocale;
-      next();
-    };
+  public onBefore({ req, storage }: IMiddlewareContext): void {
+    storage.language = this.detectLanguage(req as sRequest);
   }
-  public after(): ((req: express.Request, res: express.Response, next: express.NextFunction) => void) | null {
-    return null;
+
+  /**
+   * `Content-Language` when the language is a language tag and the answer set none, and, unless `intl.http.vary` is
+   * false, `Vary` on the request headers {@link varyHeaders} names.
+   */
+  public onAfter({ res, response, storage }: IReplyContext): void {
+    const contentLanguage = contentLanguageOf(storage.language);
+    if (contentLanguage && !res.hasHeader('Content-Language') && !response.headers.some((h) => h.Name.toLowerCase() === 'content-language')) {
+      res.setHeader('Content-Language', contentLanguage);
+    }
+    if (!this.Vary) {
+      return;
+    }
+    const fields = (this.varyFields ??= this.varyHeaders());
+    // a hook's header replaces the answer's own one of the same name, so a Vary the answer set is joined here
+    const own = response.headers.find((h) => h.Name.toLowerCase() === 'vary');
+    if (own) {
+      const listed = String(own.Value).split(',').map((f) => f.trim()).filter(Boolean);
+      if (listed.includes('*')) {
+        return;
+      }
+      const missing = fields.filter((f) => !listed.some((l) => l.toLowerCase() === f.toLowerCase()));
+      response.setHeader('Vary', [...listed, ...missing].join(', '));
+    } else {
+      res.vary(fields.join(', '));
+    }
+  }
+
+  /**
+   * The request headers {@link detectLanguage} reads, for `Vary`: the cookie and the `x-<name>` header. A subclass that
+   * reads more (`Accept-Language`) adds them here. Called once, on the first reply.
+   */
+  protected varyHeaders(): string[] {
+    return ['Cookie', `X-${this.LangQueryParameter.charAt(0).toUpperCase()}${this.LangQueryParameter.slice(1)}`];
+  }
+
+  /**
+   * The language of the request: query, cookie, then `x-<name>` header, else `intl.defaultLocale`. Throws
+   * InvalidArgument for an explicit value that is not 2 to 5 characters.
+   */
+  protected detectLanguage(req: sRequest): string {
+    const lang = extractLanguageFromRequest(req, this.LangQueryParameter) as string | null;
+    _validate(lang);
+    return lang ?? this.defaultLocale;
   }
 }
 

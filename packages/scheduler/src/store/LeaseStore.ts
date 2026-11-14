@@ -28,7 +28,7 @@ export interface RunExpiry {
   nextAttemptAt: number | null;
 }
 
-type ScheduleLeaseTake = 'free' | 'own' | false;
+export type ScheduleLeaseTake = 'free' | 'own' | false;
 
 const leaseFree = (now: number) =>
   function (this: IWhereBuilder<unknown>) {
@@ -83,7 +83,7 @@ export class LeaseStore {
    * Same rule as `leaseFree`, split in two statements to tell whether the expired lease was this
    * replica's own: a run of this replica may still be relying on it, so a failed claim must not release it.
    */
-  protected async takeScheduleLease(name: string, now: number): Promise<ScheduleLeaseTake> {
+  public async takeScheduleLease(name: string, now: number): Promise<ScheduleLeaseTake> {
     const values = { LeaseOwner: this.ReplicaId, LeaseUntil: now + this.LeaseTtl, UpdatedAt: now };
     const me = this.ReplicaId;
     const fromOthers = await ScheduleModel.update(values)

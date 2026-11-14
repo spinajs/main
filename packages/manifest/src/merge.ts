@@ -8,6 +8,7 @@ export interface MergeMeta {
   generatedAt?: string;
   buildEnv?: string;
   schemaDerivation?: false;
+  globalRouteMiddlewares?: Manifest['globalRouteMiddlewares'];
   compilerVersion?: string;
 }
 
@@ -58,6 +59,9 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const controllerBases = collect((f) => f.controllerBases ?? []);
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
+  const workflows = plain((f) => f.workflows ?? []);
+  const sqlQueries = collect((f) => f.sqlQueries ?? []);
+  const sqlDialects = plain((f) => f.sqlDialects ?? []);
 
   const manifest: Manifest = {
     manifestVersion: MANIFEST_VERSION,
@@ -80,10 +84,14 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     commands: plain((f) => f.commands),
     ...(app.scanFiles?.length ? { scanFiles: app.scanFiles } : {}),
     queueMessages: plain((f) => f.queueMessages),
+    ...(workflows.length ? { workflows } : {}),
+    ...(sqlQueries.length ? { sqlQueries } : {}),
+    ...(sqlDialects.length ? { sqlDialects } : {}),
     schemas,
     diagnostics,
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
     ...(meta.schemaDerivation === false ? { schemaDerivation: false as const } : {}),
+    ...(meta.globalRouteMiddlewares?.length ? { globalRouteMiddlewares: meta.globalRouteMiddlewares } : {}),
     ...(meta.compilerVersion ? { compilerVersion: meta.compilerVersion } : {}),
     generatedAt: meta.generatedAt ?? new Date().toISOString(),
     hash: '',

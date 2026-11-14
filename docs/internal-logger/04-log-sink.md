@@ -19,7 +19,7 @@
 | `@spinajs/log` | Returns the cached `Log.Loggers` entry for the name. Before `Configuration` is resolved, returns an `InternalLoggerProxy`. Otherwise resolves `__logImplementation__` with the name | The framework logger with its targets and rules |
 | `@spinajs/electron` (renderer entry) | Returns the cached `ElectronRendererLogger.Loggers` entry, or resolves `__logImplementation__` | `ElectronRendererLogger`, which sends entries to the main process |
 
-Both packages register the same factory under `Log` as well. Other packages resolve `__log__` directly as a logger (`@spinajs/tasks`, `@spinajs/threading`), so they call level methods such as `info()` on it, not only `write()`.
+Both packages register the same factory under `Log` as well. Other packages resolve `__log__` directly as a logger (`@spinajs/threading`), so it calls level methods such as `info()` on it, not only `write()`.
 
 ## Services and extension points
 

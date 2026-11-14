@@ -12,4 +12,4 @@ Extraction rules, the fragment contract and the diagnostics are documented in [d
 | `CFG010` | A configuration schema that is not a literal |
 | `SCH001` to `SCH006` | JSON Schema derivation and explicit `@Schema` arguments |
 
-`runDoctor` adds the rules of [spinajs doctor](../../docs/compiler/doctor.md): `DI001` to `DI003`, `HTTP001` to `HTTP006`, `CFG001` to `CFG003`, `BLD001`, `ORM001`, `SCH003` and `SOCK001` to `SOCK006`.
+`runDoctor` adds the rules of [spinajs doctor](../../docs/compiler/doctor.md): `DI001` to `DI003`, `HTTP001` to `HTTP006`, `CFG001` to `CFG004`, `BLD001`, `ORM001`, `SCH003`, `SOCK001` to `SOCK006` and `WF001` to `WF003`.

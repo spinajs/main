@@ -4,7 +4,7 @@ import { baseClassOf, extendsFrameworkClass, isDeclaredIn, isSymbolKeyed } from 
 
 export const ORM = '@spinajs/orm';
 export const RELATION_DECORATORS = new Set(['BelongsTo', 'ForwardBelongsTo', 'HasMany', 'HasManyToMany']);
-const COMPUTED_DECORATORS = new Set(['Virtual', 'Query', 'Historical']);
+const COMPUTED_DECORATORS = new Set(['Virtual', 'Query', 'Historical', 'Ignore']);
 
 export interface ModelMember {
   name: string;

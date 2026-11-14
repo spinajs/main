@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "types": {
+    "user": {
+      "relations": {},
+      "permissions": {}
+    },
+    "folder": {
+      "relations": {
+        "parent": {
+          "allowed": [
+            "folder"
+          ],
+          "source": {
+            "kind": "ancestor",
+            "via": "folder"
+          }
+        },
+        "viewer": {
+          "allowed": [
+            "user",
+            "user:*"
+          ],
+          "source": {
+            "kind": "tuples",
+            "store": "authz_rebac_tuple"
+          }
+        },
+        "edit": {
+          "allowed": [
+            "user"
+          ],
+          "source": {
+            "kind": "tuples",
+            "store": "authz_rebac_tuple"
+          }
+        }
+      },
+      "permissions": {
+        "edit": {
+          "union": [
+            {
+              "this": true
+            },
+            {
+              "tupleToUserset": {
+                "tupleset": "parent",
+                "computed": "edit"
+              }
+            }
+          ]
+        },
+        "view": {
+          "union": [
+            {
+              "computed": "viewer"
+            },
+            {
+              "computed": "edit"
+            },
+            {
+              "tupleToUserset": {
+                "tupleset": "parent",
+                "computed": "view"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "permissions": {
+    "folder:read": {
+      "type": "folder",
+      "relation": "view",
+      "list": true,
+      "source": {
+        "origin": "test"
+      }
+    },
+    "folder:update": {
+      "type": "folder",
+      "relation": "edit",
+      "list": false,
+      "source": {
+        "origin": "test"
+      }
+    }
+  },
+  "caveats": {},
+  "combine": {
+    "default": {
+      "algorithm": "deny-overrides"
+    }
+  },
+  "principal": {
+    "ceiling": false,
+    "delegation": false,
+    "ancestry": "parent",
+    "roles": {}
+  },
+  "opaque": []
+}

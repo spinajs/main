@@ -107,6 +107,15 @@
       "path": "packages/orm-postgres/tsconfig.build.json"
     },
     {
+      "path": "packages/orm-pglite/tsconfig.build.json"
+    },
+    {
+      "path": "packages/testing-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/orm-conformance/tsconfig.build.json"
+    },
+    {
       "path": "packages/orm-sql/tsconfig.build.json"
     },
     {
@@ -176,6 +185,9 @@
       "path": "packages/telemetry-otel/tsconfig.build.json"
     },
     {
+      "path": "packages/tracing/tsconfig.build.json"
+    },
+    {
       "path": "packages/templates-pdf/tsconfig.build.json"
     },
     {
@@ -185,13 +197,16 @@
       "path": "packages/template-mjml/tsconfig.build.json"
     },
     {
-      "path": "packages/tasks/tsconfig.build.json"
+      "path": "packages/durable/tsconfig.build.json"
     },
     {
       "path": "packages/scheduler/tsconfig.build.json"
     },
     {
       "path": "packages/scheduler-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/workflow/tsconfig.build.json"
     },
     {
       "path": "packages/threading/tsconfig.build.json"
@@ -254,6 +269,9 @@
       "path": "packages/eslint-plugin-authz/tsconfig.build.json"
     },
     {
+      "path": "packages/eslint-plugin-orm/tsconfig.build.json"
+    },
+    {
       "path": "packages/authz-orm/tsconfig.build.json"
     },
     {
@@ -275,10 +293,19 @@
       "path": "packages/authz-convert/tsconfig.build.json"
     },
     {
+      "path": "packages/authz-ir/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-verify/tsconfig.build.json"
+    },
+    {
       "path": "packages/teams/tsconfig.build.json"
     },
     {
       "path": "packages/teams-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/studio/tsconfig.build.json"
     },
     {
       "path": "packages/codemods/tsconfig.build.json"
@@ -288,6 +315,9 @@
     },
     {
       "path": "packages/upload/tsconfig.build.json"
+    },
+    {
+      "path": "packages/idempotency/tsconfig.build.json"
     },
     {
       "path": "packages/authn/tsconfig.build.json"
@@ -330,6 +360,9 @@
     },
     {
       "path": "packages/openapi/tsconfig.build.json"
+    },
+    {
+      "path": "packages/simulation/tsconfig.build.json"
     }
   ]
 }

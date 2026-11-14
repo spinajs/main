@@ -20,5 +20,8 @@ export const failedLogin: InputAnswer = async (_input, _err, ctx) => {
 /** A login route's answer to a throttled client: the login failure body with Retry-After (A06). */
 export const throttledLogin = (retryAfterSeconds: number): Unauthorized => authnFailureResponse(retryAfterSeconds);
 
+/** A throttled password check of a session (re-authentication, password change): the login failure body without Retry-After (N3). */
+export const throttledPassword = (): Unauthorized => authnFailureResponse();
+
 /** The login failure body (A02) and nothing else: a refused code or re-authentication input. */
 export const uniformFailure: InputAnswer = () => authnFailureResponse();

@@ -1,16 +1,19 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { Class } from '@spinajs/di';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
+import type { Class } from '@spinajs/di';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import type { QueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
 import type { ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
-import { ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import type { ISaveOptions, ISaveResult } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
-import { ISortedPlan } from './subject-sorter.js';
-import { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
+import type { ISortedPlan } from './subject-sorter.js';
+import { settleVersion, startVersion, versionLock, whereVersion, withVersion } from './versioning.js';
+import type { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
 
 /** Rows per batched statement when the caller does not say. */
 export const DEFAULT_SAVE_CHUNK = 100;
@@ -90,6 +93,7 @@ export class SubjectExecutor {
     // without touching the database.
     generateClientSideKeys(model, descriptor);
     assertAssignedKeys(model, descriptor);
+    startVersion(model);
 
     const { query, container } = this.query(model.constructor, InsertQueryBuilder);
     const mapper = container.resolve(ServerResponseMapper);
@@ -122,10 +126,12 @@ export class SubjectExecutor {
         continue;
       }
 
+      const lock = versionLock(subject.Model);
       const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
-      const update = query.update(payload);
+      const update = query.update(withVersion(lock, payload));
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
-      await update;
+      whereVersion(lock, update);
+      settleVersion(lock, await update, subject.Model);
 
       subject.Model.takeSnapshot();
 
@@ -153,7 +159,7 @@ export class SubjectExecutor {
     const keyColumns = pkColumns(subject.Descriptor);
     const changed = subject.Model.changeSet()
       .map((c) => c.Column)
-      .filter((c) => !keyColumns.includes(c));
+      .filter((c) => !keyColumns.includes(c) && c !== subject.Descriptor.VersionColumn);
     if (changed.length === 0) {
       return null;
     }

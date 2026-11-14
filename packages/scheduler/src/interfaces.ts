@@ -1,19 +1,11 @@
 import type { Constructor } from '@spinajs/di';
+import type { NormalizedRetry, RetryPolicyOptions } from '@spinajs/durable';
 import type { QueueJob } from '@spinajs/queue';
 import type { ScheduleSpec } from './time/spec.js';
 import type { ScheduledTask } from './ScheduledTask.js';
 
 export type Duration = number | string;
 export type MisfireOption = 'skip' | 'run-once' | `catch-up(${number})`;
-
-export interface RetryPolicyOptions {
-  /** Total attempts including the first one. */
-  attempts: number;
-  backoff?: 'fixed' | 'exponential';
-  delay?: Duration;
-  maxDelay?: Duration;
-  retryOn?: (err: unknown) => boolean;
-}
 
 export interface ScheduleOptions {
   cron?: string;
@@ -38,17 +30,9 @@ export interface ScheduleOptions {
 
 export interface ConfigScheduleEntry extends Omit<ScheduleOptions, 'emit' | 'retry'> {
   name: string;
-  /** Class name of a `@Schedule` class, or the name of a `@Task` method; a class name wins. */
+  /** Class name of a `@Schedule` class. */
   task?: string;
   retry?: Omit<RetryPolicyOptions, 'retryOn'>;
-}
-
-export interface NormalizedRetry {
-  attempts: number;
-  backoff: 'fixed' | 'exponential';
-  delayMs: number;
-  maxDelayMs: number;
-  retryOn?: (err: unknown) => boolean;
 }
 
 export type MisfirePolicy = { kind: 'skip' } | { kind: 'run-once' } | { kind: 'catch-up'; max: number };

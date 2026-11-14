@@ -21,6 +21,9 @@
       "path": "../exceptions/tsconfig.json"
     },
     {
+      "path": "../durable/tsconfig.json"
+    },
+    {
       "path": "../configuration/tsconfig.json"
     },
     {
@@ -55,9 +58,6 @@
     },
     {
       "path": "../validation/tsconfig.json"
-    },
-    {
-      "path": "../tasks/tsconfig.json"
     },
     {
       "path": "../threading/tsconfig.json"

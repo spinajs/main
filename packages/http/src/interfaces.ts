@@ -1,4 +1,5 @@
 import * as express from 'express';
+import type { ResolvedIdempotentOptions } from './idempotency/options.js';
 import { Constructor, AsyncService, Class, DI, isPromise } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { fs, IFileInfo } from '@spinajs/fs';
@@ -8,7 +9,9 @@ import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
 import type { IBodyLimitRule } from './body-limits.js';
+import type { IBodyParsersConfiguration } from './body-parser-options.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
+import type { CapturedJsonReply } from './response-capture.js';
 
 /**
  * Accept header enum
@@ -78,20 +81,32 @@ export interface IHttpServerConfiguration {
   port: number;
 
   /**
-   * Middlewares used by server
+   * Raw Express handlers mounted before the server middlewares ( helmet by default )
    */
   middlewares: express.RequestHandler[];
 
   /**
-   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
-   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   * Per-path body size limits, applied just before the body parsers. The first prefix match wins; other paths keep the
+   * limits of `bodyParsers` ( 5mb JSON by default ).
    */
   bodyLimits?: IBodyLimitRule[];
+
+  /**
+   * Options of the built-in body and cookie parser server middlewares
+   */
+  bodyParsers?: IBodyParsersConfiguration;
 
   /**
    * Static files folder. Feel free to override this per app
    */
   Static: IHttpStaticFileConfiguration[];
+
+  static?: {
+    /** false: the StaticFiles middleware serves no `Static` entry. Default true. */
+    enabled?: boolean;
+    /** The `Order` of the StaticFiles server middleware. Default 4.5; `Infinity` mounts it after all of them. */
+    order?: number;
+  };
 
   /**
    * Whitch accept headers we support (default JSON & HTML)
@@ -113,14 +128,39 @@ export interface IHttpServerConfiguration {
  */
 export interface IHttpStaticFileConfiguration {
   /**
-   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
+   * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg; default `/static`
    */
-  Route: string;
+  Route?: string;
 
   /**
    * full path to folder with static content
    */
   Path: string;
+
+  /** `express.static` (serve-static) options of this directory. */
+  Options?: IHttpStaticFileOptions;
+}
+
+/** The JSON-configurable `express.static` options. */
+export interface IHttpStaticFileOptions {
+  /** Cache-Control max-age, in milliseconds or an ms string ('1d'). Default 0. */
+  maxAge?: number | string;
+  /** Adds `immutable` to Cache-Control; needs `maxAge`. */
+  immutable?: boolean;
+  /** Dot files: 'ignore' (default, 404 as if absent), 'allow' or 'deny' (403). */
+  dotfiles?: 'allow' | 'deny' | 'ignore';
+  etag?: boolean;
+  lastModified?: boolean;
+  /** Directory index file(s); false disables. Default 'index.html'. */
+  index?: string | string[] | false;
+  /** Extensions tried when a file is not found, e.g. ['html']. */
+  extensions?: string[] | false;
+  /** false answers a missing file with 404 instead of passing it on to the later middlewares and routing. Default true. */
+  fallthrough?: boolean;
+  /** Redirect a directory path to its trailing slash. Default true. */
+  redirect?: boolean;
+  acceptRanges?: boolean;
+  cacheControl?: boolean;
 }
 
 export enum FileTypeEnum {
@@ -294,6 +334,15 @@ export interface IActionLocalStoregeContext {
    * Perf facade during the action and flushed by {@link PerfRollup} at finish.
    */
   perf?: IPerfScope;
+  /** `@SlowThreshold(ms)` of the route: {@link SlowRequestWarning} judges the request against it. */
+  slowThresholdMs?: number;
+  /**
+   * Aborted when the request's deadline passed ({@link RequestDeadline}, `@Deadline`; reason a `TimeoutError`) or its
+   * client went away (an `AbortError`). Pass it to the I/O of the action. Set only while a deadline applies.
+   */
+  signal?: AbortSignal;
+  /** When the request's deadline passes, in epoch milliseconds. */
+  deadline?: number;
 }
 
 export interface IResponseHeader {
@@ -311,19 +360,6 @@ export interface IResponseOptions {
   Headers?: IResponseHeader[];
   Coockies?: ICookie[];
   StatusCode?: HTTP_STATUS_CODE;
-}
-
-export abstract class ServerMiddleware extends AsyncService {
-  public Order!: number;
-
-  public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
-  /**
-   * Returns the handler attached to the Express stack after controllers
-   * during HttpServer.start(). May be a regular 3-arg request handler OR a
-   * 4-arg Express error handler — the latter is needed to wire the global
-   * error middleware (see ErrorHandlerMiddleware) through the same lifecycle.
-   */
-  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null;
 }
 
 /**
@@ -452,6 +488,11 @@ export enum HTTP_STATUS_CODE {
    * app is still starting up. Used by the telemetry readiness endpoint.
    */
   SERVICE_UNAVAILABLE = 503,
+
+  /**
+   * Nothing answered the request by its deadline ( see RequestDeadline )
+   */
+  GATEWAY_TIMEOUT = 504,
 }
 
 /**
@@ -586,7 +627,7 @@ export enum ParameterType {
   FromHeader = 'FromHeader',
 
   /**
-   * Client IP resolved by the RealIp middleware (X-Forwarded-For through http.trustProxy only)
+   * Client IP resolved by the RealIp middleware (X-Forwarded-For through the trust RealIp resolves)
    */
   Ip = 'IpRouteArgs',
 
@@ -823,6 +864,9 @@ export interface IRoute {
    * Why the route is public on purpose (`@Public`). Metadata only: it does not change request handling.
    */
   Public?: string;
+
+  /** `@Idempotent()` options; the route runs behind the Idempotency-Key gate. */
+  Idempotency?: ResolvedIdempotentOptions;
 }
 
 export interface IOnErrorDescriptor {
@@ -856,35 +900,166 @@ export interface IController {
   BasePath: string;
 }
 
+export type MiddlewareStage = 'beforePolicy' | 'outer' | 'inner';
+
 /**
- * Middlewares are classes that can change request object or perform specific task before & after route execution
- * eg. route parameter logging / headers check etc.
+ * What every middleware hook gets. `route`, `controller` and `path` are set for a route middleware. A server middleware
+ * gets in `onBefore` and `onAround` the route the `RouteIndex` matches before routing (best effort: the real route is
+ * the router's); in `onAfter` and `onFinish` the route the router matched, else that pre-routing match.
  */
-export abstract class RouteMiddleware {
+export interface IMiddlewareContext {
+  readonly req: express.Request;
+  readonly res: express.Response;
+  /** The request's own store: the same object as `req.storage` and the action's AsyncLocalStorage context. */
+  readonly storage: IActionLocalStoregeContext;
+  readonly route?: IRoute;
+  readonly controller?: IController;
+  /** `http:<METHOD> <mounted path>` */
+  readonly path?: string;
+}
+
+/** What `onAfter` gets: the reply about to be sent. */
+export interface IReplyContext extends IMiddlewareContext {
+  /** The action's reply, an error reply, or the `Response` an `onBefore` answered with. A hook may replace it; the final value is sent. */
+  response: Response;
+  /** The error the reply answers, when it is an error reply. */
+  readonly error?: unknown;
+}
+
+/** What `onFinish` gets. */
+export interface IFinishContext extends IMiddlewareContext {
+  /** The client went away before the response finished. */
+  readonly aborted: boolean;
+}
+
+/** What an around middleware gets for one request. */
+export interface IRouteInvocation extends IMiddlewareContext {
+  readonly route: IRoute;
+  readonly controller: IController;
+  readonly path: string;
+}
+
+/** How the rest of the route chain answered, as `proceed()` resolves it. */
+export interface IRouteOutcome {
+  /** The JSON reply as sent, or null when the answer was not a JSON reply. */
+  readonly reply: CapturedJsonReply | null;
+  /** The error the chain raised, when the error handlers answered it, or the error of a throwing `onAfter`; the reply is that error's answer. */
+  readonly error?: unknown;
+}
+
+/**
+ * The hooks a middleware may implement; a hook it leaves out is not mounted. Only a middleware the chain entered (its
+ * `onBefore` resolved, or it has none, or its `onAround` started) gets `onAfter` and `onFinish`.
+ *
+ * State is shared, never copied: every hook sees the same `req`, `res` and `storage` for the whole request.
+ */
+export abstract class HttpMiddleware extends AsyncService {
   /**
-   * Inform, if middleware is enabled for given action
+   * Before the handler. Returning a `Response` answers the request: nothing after this middleware runs; `onAfter` and
+   * `onFinish` still do. May return synchronously: a server middleware chain then goes on in the same tick.
    */
-  public abstract isEnabled(route: IRoute, controller: IController): boolean;
+  public onBefore?(ctx: IMiddlewareContext): void | Response | Promise<void | Response>;
 
   /**
-   * Called before action in middleware stack eg. to modify req or resp objects.
-   * Its express middleware func
+   * In the reply pipeline, for every framework reply (success, error, early answer, replay), before it is sent; inner
+   * (last entered) first. Not called when the headers are already sent. A throw turns the reply into the error reply
+   * for that error. May return synchronously: the pipeline then goes on without a tick.
    */
-  public abstract onBefore(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
+  public onAfter?(ctx: IReplyContext): void | Promise<void>;
+
+  /** Once the response finished, or the client went away (`aborted`); not awaited by the next one. A throw is logged. */
+  public onFinish?(ctx: IFinishContext): void | Promise<void>;
 
   /**
-   * Called after action response, is framework middleware
-   * Used to modify response returned by actions in controller
-   * eg. filter out data
-   *
+   * Wraps everything after this middleware: the later middlewares, the action, the error handlers and the reply.
+   * `proceed()` runs that chain once and settles when the response finished; it rejects with RouteClientGone when the
+   * client went away first. Not calling it ends the chain: the middleware must then answer, with `sendReply()` (the
+   * entered middlewares' `onAfter` see the answer) or on `res` itself, and the answer must be sent, or its sending
+   * awaited, before the returned promise settles; otherwise the request is answered 500. A throw before `proceed()`
+   * goes to the route's error handlers (a server middleware's to the global error answer).
    */
-  public abstract onResponse(response: Response, route: IRoute, controller: IController): Promise<void>;
+  public onAround?(invocation: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+}
+
+/** A response header a route middleware sets, for API documents. */
+export interface IDocumentedHeader {
+  description: string;
+  type: 'integer' | 'string';
+}
+
+/** One answer a route middleware gives instead of the route, for API documents. */
+export interface IDocumentedAnswer {
+  description: string;
+  headers?: Record<string, IDocumentedHeader>;
+  /** JSON schema of the body, rendered inline. */
+  schema?: Record<string, unknown>;
+  /** A named type resolved like `@response 429 {AuthnError}`. */
+  type?: string;
+  /** Shared `components/responses` name; registered once. */
+  component?: string;
+  /** Default `application/json`. */
+  contentType?: string;
+}
+
+/** What a route middleware adds to the API document of a route it is mounted on. */
+export interface IRouteMiddlewareDoc {
+  /** Answers this middleware gives instead of the route, by status code. */
+  responses?: Record<string, IDocumentedAnswer>;
+  /** Headers this middleware sets on the route's own success answers. */
+  headers?: Record<string, IDocumentedHeader>;
+  /** `x-` extensions; arrays concatenate across middlewares. */
+  extensions?: Record<`x-${string}`, unknown>;
+}
+
+/**
+ * A middleware of one route, or of every route of a controller (`@Middleware`). Typed per-request state goes on
+ * `req.storage` (declaration merging on {@link IActionLocalStoregeContext}), untyped per-response state on `res.locals`.
+ * `onAfter` and `onFinish` run inside the action's AsyncLocalStorage context; `onBefore` and `onAround` outside it.
+ */
+export abstract class RouteMiddleware extends HttpMiddleware {
+  /**
+   * 'beforePolicy' runs before the policy gate, so its onAfter and onFinish see a policy refusal; 'outer' runs right
+   * after the gate, before every 'inner' middleware. Within a stage, the global ones (`http.routes.middlewares`) first,
+   * then the controller's and the route's in declaration order. Unset means 'inner'.
+   */
+  public readonly Stage?: MiddlewareStage;
+
+  /** Whether the middleware is mounted on this route at all; every route by default. */
+  public isEnabled(_route: IRoute, _controller: IController): boolean {
+    return true;
+  }
 
   /**
-   * Called after action in middleware stack eg. to modify express response.
-   * Its express middleware func
+   * Called once when the route is mounted, for enabled middlewares only, with the mounted path. A throw fails the
+   * registration with RouteRegistrationException.
    */
-  public abstract onAfter(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
+  public onRegister?(route: IRoute, path: string, controller: IController): Promise<void> | void;
+
+  public onAround?(invocation: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void>;
+
+  /**
+   * Called by API document generators on the instance mounted on the route (`BaseController.MountedMiddlewares`),
+   * after `onRegister`. Undefined adds nothing.
+   */
+  public documentation?(route: IRoute): IRouteMiddlewareDoc | undefined;
+}
+
+/**
+ * A middleware of every request, mounted by `HttpServer` before static files and routing, in ascending `Order` (ties in
+ * DI registration order). Its `onAfter` and `onFinish` run after the route's, in the exact reverse of the order it was
+ * entered in. `onBefore` and `onAround` get no route; `onAfter` and `onFinish` get it when the request matched one.
+ * Static files and replies an action wrote to `res` itself get `onFinish` only.
+ */
+export abstract class ServerMiddleware extends HttpMiddleware {
+  public Order!: number;
+
+  /** Called once, when `HttpServer` mounts the middleware: false mounts nothing. Settings are parsed here or in `resolve()`, never per request. */
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  /** A third-party Express handler (compression) mounted at `Order` in place of `onBefore`/`onAround`; null mounts the hooks. */
+  public handler?(): express.RequestHandler | null;
 }
 
 /**
@@ -911,9 +1086,39 @@ export abstract class Response<T = any> {
 
   constructor(protected responseData?: T | Promise<T> | null, protected options?: IResponseOptions) { }
 
-  /** Status code `execute` answers with. */
+  /** Status code `execute` answers with. Setting it is what `IResponseOptions.StatusCode` does. */
   public get statusCode(): number {
     return this.options?.StatusCode ?? this._errorCode;
+  }
+
+  public set statusCode(status: number) {
+    this.options = { ...this.options, StatusCode: status };
+  }
+
+  /** The data `execute` sends; an `onAfter` hook may replace it. */
+  public get data(): T | Promise<T> | null | undefined {
+    return this.responseData;
+  }
+
+  public set data(data: T | Promise<T> | null | undefined) {
+    this.responseData = data;
+  }
+
+  /** The cookies `execute` sets, from `IResponseOptions.Coockies`. */
+  public get cookies(): readonly ICookie[] {
+    return this.options?.Coockies ?? [];
+  }
+
+  /** The headers `execute` sets, from `IResponseOptions.Headers`. */
+  public get headers(): readonly IResponseHeader[] {
+    return this.options?.Headers ?? [];
+  }
+
+  /** Sets a header `execute` sends, replacing one of the same name (case-insensitive) the response already had. */
+  public setHeader(name: string, value: IResponseHeader['Value']): this {
+    const others = this.headers.filter((h) => h.Name.toLowerCase() !== name.toLowerCase());
+    this.options = { ...this.options, Headers: [...others, { Name: name, Value: value }] };
+    return this;
   }
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {

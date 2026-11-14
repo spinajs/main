@@ -22,7 +22,9 @@ export * from './expressions.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery, StreamNotSupported } from '@spinajs/orm';
+import { SQLITE_SQL_DIALECT } from './sql-dialect.js';
+export { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import { Class, Injectable, NewInstance } from '@spinajs/di';
@@ -59,6 +61,24 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
   }
 }
 
+const quoteSqliteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
+
+const QUOTED_DEFAULT = /^'((?:[^']|'')*)'$/;
+const NUMERIC_DEFAULT = /^[+-]?\d+(\.\d+)?$/;
+
+/** `dflt_value` is the default's SQL text: a literal becomes its value, anything else ( CURRENT_TIMESTAMP, an expression ) a RawQuery. */
+function parseSqliteDefault(sql: unknown): unknown {
+  if (typeof sql !== 'string') return sql ?? null;
+  if (/^NULL$/i.test(sql)) return null;
+  const quoted = QUOTED_DEFAULT.exec(sql);
+  if (quoted) return quoted[1].replace(/''/g, "'");
+  if (!NUMERIC_DEFAULT.test(sql)) return RawQuery.create(sql);
+  const value = Number(sql);
+  // an int64 default past 2^53 keeps its digits
+  return Number.isInteger(value) && !Number.isSafeInteger(value) ? sql : value;
+}
+
+@SqlDialect(SQLITE_SQL_DIALECT)
 @Injectable('orm-driver-sqlite')
 @NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
@@ -73,6 +93,9 @@ export class SqliteOrmDriver extends SqlDriver {
   protected ReadPool: sqlite3.Database[] = [];
 
   private _readCursor = -1;
+
+  /** Outside WAL a read in progress keeps the writer from committing, so a stream would lock out every write. */
+  private _walJournal = false;
 
   /** Resolves when the open transaction ends; `null` while none is open. */
   private _writerGate: Promise<void> | null = null;
@@ -129,19 +152,23 @@ export class SqliteOrmDriver extends SqlDriver {
     };
   }
 
+  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+    return this.withSessionSettings(() => this.gatedStatement(stmt, params, queryContext));
+  }
+
   /**
    * Holds a writer-handle statement from outside the open transaction's async path until that
    * transaction ends: on the one writer handle it would otherwise run inside the transaction and
    * commit or roll back with it. The ones it lets through are tracked, so the next `BEGIN` waits
    * for them.
    */
-  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+  private gatedStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     if (this.TransactionStorage.getStore() !== undefined || !this.usesWriter(queryContext)) {
       return this.runStatement(stmt, params, queryContext);
     }
 
     if (this._writerGate !== null) {
-      return this._writerGate.then(() => this.executeOnDb(stmt, params, queryContext));
+      return this._writerGate.then(() => this.gatedStatement(stmt, params, queryContext));
     }
 
     const running = this.runStatement(stmt, params, queryContext);
@@ -289,11 +316,52 @@ export class SqliteOrmDriver extends SqlDriver {
     });
   }
 
+  /**
+   * Steps one prepared statement on a read handle. The writer handle cannot hold one: `BEGIN` waits for a statement in
+   * progress there, and the stream's next relation batch would wait for that transaction.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], _options: { batchSize: number }): AsyncGenerator<unknown> {
+    if (!this.Db) {
+      throw new Error('cannot execute sqlite statement, no db connection avaible');
+    }
+    if (this.usesWriter(QueryContext.Select)) {
+      throw new StreamNotSupported(`connection ${this.Options.Name} has no read handle to stream from`);
+    }
+
+    const handle = this.handleFor(QueryContext.Select);
+    const fail = (err: unknown) => mapSqliteError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params ? params.join(',') : 'none');
+    const statement = await new Promise<sqlite3.Statement>((resolve, reject) => {
+      const prepared: sqlite3.Statement = handle.prepare(stmt, this.toDriverParams(params), (err: Error | null) => {
+        if (err) {
+          prepared.finalize();
+          reject(fail(err));
+          return;
+        }
+        resolve(prepared);
+      });
+    });
+
+    try {
+      for (;;) {
+        const row = await new Promise<unknown>((resolve, reject) => {
+          statement.get((err: Error | null, r: unknown) => (err ? reject(fail(err)) : resolve(r)));
+        });
+        if (row === undefined) {
+          return;
+        }
+
+        yield row;
+      }
+    } finally {
+      await new Promise<void>((resolve) => statement.finalize(() => resolve()));
+    }
+  }
+
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
   }
 
   public async ping(): Promise<boolean> {
@@ -334,6 +402,8 @@ export class SqliteOrmDriver extends SqlDriver {
       });
     });
 
+    // read, never set: the journal mode is a persistent property of the file
+    this._walJournal = await new Promise<boolean>((resolve) => this.Db.get('PRAGMA journal_mode', (err: unknown, row?: { journal_mode?: string }) => resolve(!err && row?.journal_mode === 'wal')));
     await this.openReadPool(filename);
     this.setState(ConnectionState.Connected);
 
@@ -599,29 +669,17 @@ export class SqliteOrmDriver extends SqlDriver {
     // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
     const converters = this.Container.get(ORM_DB_VALUE_CONVERTERS) ?? new Map<string, Class<ValueConverter>>();
 
-    const quoted = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
-
-    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${quoted(name)});`, [] as any, QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)});`, [] as any, QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null as any;
     }
 
-    // get all indices for table
-    const indexList = (await this.executeOnDb(`PRAGMA index_list(${quoted(name)})`, [] as any, QueryContext.Select)) as IIndexInfoList[];
-    const uIndices: string[] = [];
-
     // only a single-column unique index makes its column unique on its own: onDuplicate() turns
     // Unique columns into the conflict target, which must match one index exactly
-    for (const idx of indexList.filter((i) => i.unique === 1)) {
-      const iInfo = (await this.executeOnDb(`PRAGMA index_info(${quoted(idx.name)})`, [] as any, QueryContext.Select)) as IIndexInfo[];
-      if (iInfo.length === 1) {
-        uIndices.push(iInfo[0].name);
-      }
-    }
+    const uIndices = (await this.readIndexes(name)).filter((i) => i.unique === 1 && i.columns.length === 1).map((i) => i.columns[0]);
 
-    // get all foreign keys
-    const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list(${quoted(name)})`, [] as any, QueryContext.Select)) as IForeignKeyList[];
+    const foreignKeys = await this.readForeignKeys(name);
 
     // PRAGMA table_info reports `pk` as the 1-BASED POSITION within the primary key, not a
     // boolean. Every column with pk > 0 is part of the key.
@@ -630,11 +688,12 @@ export class SqliteOrmDriver extends SqlDriver {
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
       const converter = converters.get(r.type.toLocaleLowerCase());
+      const value = parseSqliteDefault(r.dflt_value);
       return {
         Type: r.type,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: converter ? this.Container.resolve<ValueConverter>(converter).fromDB(r.dflt_value) : r.dflt_value,
+        DefaultValue: converter && value !== null && !(value instanceof RawQuery) ? this.Container.resolve<ValueConverter>(converter).fromDB(value) : value,
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,
@@ -660,5 +719,62 @@ export class SqliteOrmDriver extends SqlDriver {
         Unique: uIndices.includes(r.name),
       };
     });
+  }
+
+  public async tableIndexes(name: string, _schema?: string): Promise<LiveIndex[]> {
+    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => ({ name: i.name, columns: i.columns, unique: i.unique === 1, primary: i.origin === 'pk' }));
+
+    if (!indexes.some((i) => i.primary)) {
+      // An INTEGER PRIMARY KEY is the rowid itself and has no index of its own to list.
+      const info = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as ITableInfo[];
+      const key = info.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+      if (key.length > 0) {
+        indexes.push({ name: 'PRIMARY', columns: key, unique: true, primary: true });
+      }
+    }
+
+    return indexes.sort(compareByName);
+  }
+
+  // The pragma is per connection: read it on the writer handle, which runs the migrations.
+  public foreignKeysEnforced(): Promise<boolean> {
+    if (!this.Db) {
+      throw new Error('cannot read PRAGMA foreign_keys, no db connection');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.Db.get('PRAGMA foreign_keys', (err: Error | null, row?: { foreign_keys: number }) => (err ? reject(err) : resolve(row?.foreign_keys === 1)));
+    });
+  }
+
+  public async tableForeignKeys(name: string, _schema?: string): Promise<LiveForeignKey[]> {
+    const keys = [...(await this.readForeignKeys(name))].sort((a, b) => a.id - b.id || a.seq - b.seq);
+
+    return keys.map((fk) => ({
+      // sqlite keeps no constraint name in its catalog
+      name: `fk_${name}_${fk.id}`,
+      column: fk.from,
+      table: fk.table,
+      references: fk.to,
+      onDelete: referentialRule(fk.on_delete),
+      onUpdate: referentialRule(fk.on_update),
+    }));
+  }
+
+  /** PRAGMA index_list with each index's columns in key order. */
+  private async readIndexes(name: string): Promise<Array<IIndexInfoList & { columns: string[] }>> {
+    const list = (await this.executeOnDb(`PRAGMA index_list(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as IIndexInfoList[];
+    const indexes: Array<IIndexInfoList & { columns: string[] }> = [];
+
+    for (const index of list) {
+      const info = (await this.executeOnDb(`PRAGMA index_info(${quoteSqliteIdentifier(index.name)})`, [], QueryContext.Select)) as IIndexInfo[];
+      indexes.push({ ...index, columns: [...info].sort((a, b) => a.seqno - b.seqno).map((c) => c.name) });
+    }
+
+    return indexes;
+  }
+
+  private async readForeignKeys(name: string): Promise<IForeignKeyList[]> {
+    return (await this.executeOnDb(`PRAGMA foreign_key_list(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as IForeignKeyList[];
   }
 }

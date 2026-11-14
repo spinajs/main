@@ -1,7 +1,8 @@
-import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler } from './compilers.js';
+import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedSessionSettingsCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported } from '@spinajs/orm';
+import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
@@ -12,6 +13,7 @@ export * from './statements.js';
 export * from './literals.js';
 export * from './views.js';
 export * from './converters.js';
+export * from './row-queue.js';
 
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
@@ -50,6 +52,15 @@ export abstract class SqlDriver extends OrmDriver {
     return params.map((p): unknown => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
   }
 
+  /** The select builder always emits a FROM, so this statement goes straight to `executeOnDb`, which joins the transaction in scope. */
+  public async epochMillis(): Promise<number> {
+    const stmt = `SELECT ${this.Container.resolve(SqlExpressions).epochMillis()} AS ms`;
+    this.Log?.trace({ sql: stmt, bindings: [], context: String(QueryContext.Select) }, '%s', stmt);
+    const [row] = (await this.executeOnDb(stmt, [], QueryContext.Select)) as Array<{ ms: number | string }>;
+    // Postgres and MSSQL return a BIGINT as text.
+    return Number(row.ms);
+  }
+
   public execute(builder: Builder<any>) {
     try {
       const compiled = builder.toDB();
@@ -84,6 +95,46 @@ export abstract class SqlDriver extends OrmDriver {
       this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during query execution, model: ${model}, context: ${context}');
       throw err;
     }
+  }
+
+  public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {
+    if (!(await this.canStreamNatively())) {
+      throw new StreamNotSupported(`driver ${this.Options.Driver} cannot hold a cursor here`);
+    }
+
+    const compiled = builder.toDB() as ICompilerOutput;
+    const expression = compiled.expression ?? '';
+    const bindings = compiled.bindings ?? [];
+    this.logQuery(expression, bindings, builder);
+
+    const rows = this.executeStreamOnDb(expression, bindings, options)[Symbol.asyncIterator]();
+    let next: IteratorResult<unknown> | undefined;
+    try {
+      // the cursor opens on the first read, which is what the span measures
+      next = await Perf.measure('orm.query', () => rows.next(), {
+        labels: { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) },
+        fields: { sql: expression, bindings },
+      });
+      while (next.done !== true) {
+        yield next.value;
+        next = await rows.next();
+      }
+    } catch (err) {
+      this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during stream execution, model: ${model}, context: ${context}');
+      throw err;
+    } finally {
+      if (next?.done !== true) {
+        await rows.return?.();
+      }
+    }
+  }
+
+  /**
+   * The cursor over one statement. A driver that sets `supportedFeatures().streaming` overrides it. Only `executeStream` calls it,
+   * after `canStreamNatively()`: never inside a transaction or under session settings, so it reads on a pooled connection of its own.
+   */
+  public executeStreamOnDb(_stmt: string, _params: unknown[], _options: { batchSize: number }): AsyncIterable<unknown> {
+    throw new StreamNotSupported(`driver ${this.Options.Driver} cannot stream rows`);
   }
 
   public resolve() {
@@ -134,5 +185,6 @@ export abstract class SqlDriver extends OrmDriver {
 
     this.Container.register(SqlCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
     this.Container.register(SqlDropDatabaseQueryCompiler).as(DropDatabaseCompiler);
+    this.Container.register(UnsupportedSessionSettingsCompiler).as(SessionSettingsQueryCompiler);
   }
 }

@@ -1,17 +1,20 @@
 /* eslint-disable prettier/prettier */
-import { Constructor, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { createQuery, SelectQueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
-import { OrmException } from './exceptions.js';
+import { OptimisticLockError, OrmException } from './exceptions.js';
 import { IdentityMap } from './identity-map.js';
-import { IIdentityMap, IModelDescriptor, ISaveOptions, ISaveResult, RelationType } from './interfaces.js';
+import { RelationType } from './interfaces.js';
+import type { IIdentityMap, IModelDescriptor, ISaveOptions, ISaveResult } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { pkKeyString, whereAnyPk } from './primary-keys.js';
 import { snapshotEquals, snapshotFromRow } from './snapshot.js';
 import { SubjectBuilder } from './subject-builder.js';
 import { SubjectExecutor } from './subject-executor.js';
 import { SubjectSorter } from './subject-sorter.js';
+import { captureWriteState, versionLock } from './versioning.js';
 
 /**
  * The `save()` entry point: one transaction, one identity map, one ordered plan.
@@ -39,25 +42,32 @@ export class UnitOfWork {
       throw new OrmException(`model ${descriptor.Name} has invalid connection ${descriptor.Connection}`);
     }
 
-    return await driver.transaction(async () => {
-      const identityMap = UnitOfWork.identityMapFor(driver);
-      const builder = new SubjectBuilder(identityMap);
+    const rollbacks: Array<() => void> = [];
+    try {
+      return await driver.transaction(async () => {
+        const identityMap = UnitOfWork.identityMapFor(driver);
+        const builder = new SubjectBuilder(identityMap);
 
-      const models = builder.collect(root);
-      UnitOfWork.assertSingleConnection(models, descriptor, driver);
+        const models = builder.collect(root);
+        UnitOfWork.assertSingleConnection(models, descriptor, driver);
+        rollbacks.push(captureWriteState(models));
 
-      if (options?.reload) {
-        await UnitOfWork.reloadSnapshots(models, driver);
-      }
+        if (options?.reload) {
+          await UnitOfWork.reloadSnapshots(models, driver);
+        }
 
-      const set = builder.buildFrom(models);
-      const plan = new SubjectSorter().sort(set);
-      const result = await new SubjectExecutor(options ?? {}, driver).execute(plan);
+        const set = builder.buildFrom(models);
+        const plan = new SubjectSorter().sort(set);
+        const result = await new SubjectExecutor(options ?? {}, driver).execute(plan);
 
-      UnitOfWork.resnapshotRelations(models);
+        UnitOfWork.resnapshotRelations(models);
 
-      return result;
-    });
+        return result;
+      });
+    } catch (err) {
+      rollbacks.forEach((rollback) => rollback());
+      throw err;
+    }
   }
 
   /**
@@ -143,7 +153,8 @@ export class UnitOfWork {
    * would clobber whatever another process wrote. The model has to move too.
    *
    * This is a last-write-wins rebase, not conflict detection: two callers editing the same
-   * column still race, and neither is told.
+   * column still race, and neither is told. A `@Version` model is the exception: it keeps the
+   * version it was read at, so the stale one gets `OptimisticLockError`.
    */
   protected static async reloadSnapshots(models: ModelBase[], root: OrmDriver): Promise<void> {
     const byConstructor = new Map<Constructor<ModelBase>, ModelBase[]>();
@@ -182,30 +193,39 @@ export class UnitOfWork {
         const row = byKey.get(pkKeyString(model, descriptor));
 
         if (!row) {
+          if (descriptor.VersionColumn) {
+            throw new OptimisticLockError(ctor.name, model.PrimaryKeyValue, versionLock(model)!.expected);
+          }
+
           // The row is gone. Clearing the snapshot reclassifies the model as an INSERT,
           // which re-creates it rather than emitting an UPDATE that matches nothing.
           model.clearSnapshot();
           continue;
         }
 
-        const baseline = model.Snapshot!.Columns;
-        const current = snapshotFromRow(descriptor, row);
-        const converterOf = new Map((descriptor.Columns ?? []).map((c) => [c.Name, c.Converter]));
-
-        for (const [name, value] of current) {
-          // eslint-disable-next-line security/detect-object-injection
-          const callerEdited = !snapshotEquals(baseline.get(name), (model as any)[name], converterOf.get(name));
-
-          if (!callerEdited) {
-            // Untouched by this caller: adopt the database's value so it is neither written
-            // back stale nor reported as a change.
-            // eslint-disable-next-line security/detect-object-injection
-            (model as any)[name] = value;
-          }
-
-          baseline.set(name, value);
-        }
+        UnitOfWork.rebaseOnRow(model, row, descriptor);
       }
+    }
+  }
+
+  protected static rebaseOnRow(model: ModelBase, row: Record<string, unknown>, descriptor: IModelDescriptor): void {
+    const baseline = model.Snapshot!.Columns;
+    const current = snapshotFromRow(descriptor, row);
+    const converterOf = new Map((descriptor.Columns ?? []).map((c) => [c.Name, c.Converter]));
+
+    for (const [name, value] of current) {
+      // eslint-disable-next-line security/detect-object-injection
+      const callerEdited = !snapshotEquals(baseline.get(name), (model as any)[name], converterOf.get(name));
+
+      // The version stays the one the model was read at, so a stale model is still refused.
+      if (!callerEdited && name !== descriptor.VersionColumn) {
+        // Untouched by this caller: adopt the database's value so it is neither written
+        // back stale nor reported as a change.
+        // eslint-disable-next-line security/detect-object-injection
+        (model as any)[name] = value;
+      }
+
+      baseline.set(name, value);
     }
   }
 

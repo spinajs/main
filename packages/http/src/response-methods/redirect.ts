@@ -16,17 +16,20 @@ export class Redirect extends Response {
   protected url: string;
   protected status: number;
 
+  // the base keeps responseOptions too, so `cookies`, `headers`, `statusCode` and `setHeader()` of an onAfter hook see
+  // and change what is sent
   constructor(url: string, status: number = HTTP_STATUS_CODE.FOUND, protected responseOptions?: IResponseOptions) {
-    super(null);
+    super(null, responseOptions);
 
     this.url = url;
     this.status = status;
+    this._errorCode = status;
   }
 
   public async execute(_req: express.Request, res: express.Response) {
-    _setCoockies(res, this.responseOptions);
-    _setHeaders(res, this.responseOptions);
+    _setCoockies(res, this.options);
+    _setHeaders(res, this.options);
 
-    res.redirect(this.status, this.url);
+    res.redirect(this.statusCode, this.url);
   }
 }

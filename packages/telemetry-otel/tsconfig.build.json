@@ -12,6 +12,9 @@
   ],
   "references": [
     {
+      "path": "../authz/tsconfig.build.json"
+    },
+    {
       "path": "../configuration-common/tsconfig.build.json"
     },
     {

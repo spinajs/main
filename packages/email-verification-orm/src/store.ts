@@ -103,6 +103,7 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
 
   protected async deleteInBatches(d: OrmDriver, table: string, filter: (q: IWhereBuilder<unknown>) => unknown): Promise<number> {
     let removed = 0;
+    // spinajs-orm-ignore ORM102: deliberate batching, each pass deletes one CLEANUP_BATCH page until none is left
     for (;;) {
       const select = d.select().from(table).columns(['key']).orderBy('key').take(CLEANUP_BATCH);
       filter(select);

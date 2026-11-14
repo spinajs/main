@@ -16,7 +16,7 @@ Eager loading with `populate()`:
    - `RelationType.Virtual` → `VirtualRelation`
 3. `IOrmRelation.execute(callback)` runs the callback with `this` bound to the relation query (the target-side builder). A `QueryRelation` binds it to the owner query instead. A `VirtualRelation` stores it for later.
 4. When the query compiles, each relation's `compile()` runs once:
-   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares.
+   - `BelongsToRelation` adds a `LEFT JOIN` on the target table to the same query. Target columns come back aliased as `<sep><Relation><sep>.<column>`. `BelongsToRelationResultTransformMiddleware` nests them, and `BelongsToPopulateDataMiddleware` runs the nested relations' middlewares. A query that selects no columns (`Model.query()`) first selects `<sep><Model><sep>.*`, so the queried model keeps its own columns next to the joined ones.
    - `OneToManyRelation` adds `HasManyRelationMiddleware`. After the owners hydrate, it runs one query: `WHERE <ForeignKey> IN (<owner keys>)`.
    - `ManyToManyRelation` adds `HasManyToManyRelationMiddleware`. It runs one query on the junction table joined to the target table, filtered by `<JunctionModelSourceModelFKey_Name> IN (<owner keys>)`.
    - `QueryRelation` adds `QueryRelationMiddleware`. It calls the `@Query` callback once with all owners, then the mapper once per owner.
@@ -150,6 +150,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - Has-many and many-to-many run one extra query per relation, not per owner. When the parent query returns no rows, the extra query is skipped.
 - Belongs-to columns are aliased with the connection's `AliasSeparator` (default `$`, so `$Customer$.Name`). See [Connections](./01-connections.md).
 - `compile()` runs once per relation object. Calling `toDB()` twice produces the same SQL.
+- `clone()` copies a relation that has not compiled through the optional `IOrmRelation.cloneFor(query, owner)`, so it compiles into the clone alone. A custom relation without `cloneFor` is shared by the clone and compiles into the original query only.
 - `populate()` matches relation names case-insensitively. The static `Model.populate(relation, owner)` uses `Relations.has()` and is case-sensitive.
 - The static `Model.populate(relation, owner)` returns a builder for the related rows. It throws `OrmException` for Query and Virtual relations.
 - `Orm` resolves every `TargetModel` by class name when it starts. An unknown name throws `OrmException` (`type <T> not found for relation <name> in model <M> in file <file>`).

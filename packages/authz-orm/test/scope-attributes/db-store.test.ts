@@ -4,10 +4,10 @@ import 'mocha';
 import { AuthzConfigError, GLOBAL, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
 import type { AuthzTx, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, MIGRATION_DESCRIPTION_SYMBOL, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, MIGRATION_DESCRIPTION_SYMBOL, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore } from '../../src/index.js';
+import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, ScopeAttributeRecord } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createScopeAttributeTables, dropScopeAttributeTables } from '../support/scope-attributes.js';
@@ -67,6 +67,10 @@ describe('DbScopeAttributeStore', function () {
   it('the migration is registered on the authz connection', () => {
     expect(DI.getRegisteredTypes('__migrations__')).to.include(AuthzScopeAttribute_2026_10_02_00_00_00);
     expect((AuthzScopeAttribute_2026_10_02_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal('authz');
+  });
+
+  it('the model declares value_num as the decimal(20,6) its migration creates, for migrate-diff and the manifest', () => {
+    expect(extractModelDescriptor(ScopeAttributeRecord)!.ColumnSpecs?.get('value_num')).to.deep.equal({ family: 'decimal', precision: 20, scale: 6 });
   });
 
   it('is a WritableScopeAttributeStore', () => {

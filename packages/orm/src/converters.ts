@@ -2,7 +2,8 @@ import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
+import { ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces.js';
+import type { IUniversalConverterOptions, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
 /**
@@ -196,7 +197,7 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
     // actual relation manages; serialize unrelated FK columns like normal ones.
     const relationForeignKeys = new Set(relArr.map((r) => r.ForeignKey));
 
-    model.ModelDescriptor!.Columns?.filter((x) => !x.Virtual && (!x.IsForeignKey || !relationForeignKeys.has(x.Name))).forEach((c) => {
+    model.ModelDescriptor!.Columns?.filter((x) => !x.Virtual && !x.Ignore && (!x.IsForeignKey || !relationForeignKeys.has(x.Name))).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
@@ -238,7 +239,7 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
     const obj = {};
     const relArr = [...descriptor.Relations.values()];
 
-    descriptor.Columns.filter((c) => !c.Virtual).forEach((c) => {
+    descriptor.Columns.filter((c) => !c.Virtual && !c.Ignore).forEach((c) => {
       const val = (model as any)[c.Name];
       if (val === undefined) return;
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, undefined as unknown as ModelBase, c, descriptor.Converters.get(c.Name)?.Options) : val;

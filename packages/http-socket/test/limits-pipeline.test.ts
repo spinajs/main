@@ -4,7 +4,7 @@ import sinon from 'sinon';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
-import { ISocketCommandContext, SocketCommandStage } from '../src/interfaces.js';
+import { ISocketCommandContext, SocketMiddleware } from '../src/interfaces.js';
 import { DI } from '@spinajs/di';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { SocketDispatcher } from '../src/dispatcher.js';
@@ -151,9 +151,9 @@ describe('socket pipeline limits', function () {
   describe('a payload that cannot be measured', () => {
     const stage = async (payload: unknown) => {
       t = await startServer();
-      const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
-      const size = stages.find((s) => s instanceof SizeStage)!;
-      return size.execute({ payload } as ISocketCommandContext, async () => 'next');
+      const middlewares = (await DI.resolve(Array.ofType(SocketMiddleware))) as SocketMiddleware[];
+      const size = middlewares.find((s) => s instanceof SizeStage) as SizeStage;
+      return Promise.resolve().then(() => size.onBefore({ payload } as ISocketCommandContext));
     };
 
     it('maps a BigInt payload to invalid_argument', async () => {

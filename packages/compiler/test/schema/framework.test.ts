@@ -100,7 +100,7 @@ describe('schema derivation: model columns', () => {
 
   it('lists inherited and writable accessor columns, public members only, in the models section', () => {
     expect(note.columns.map((c) => c.name)).to.deep.equal(['Id', 'Secret', 'SeenAt', 'Body', 'CreatedAt']);
-    expect(note.relations).to.deep.equal([{ name: 'Writer', kind: 'belongsTo', target: 'Author' }]);
+    expect(note.relations).to.deep.equal([{ name: 'Writer', kind: 'belongsTo', target: 'Author', foreignKey: 'writer_id' }]);
   });
   it('derives the schema from the same columns, @Hidden ones left out, and the relations', () => {
     expect(registered('Note')).to.deep.equal({

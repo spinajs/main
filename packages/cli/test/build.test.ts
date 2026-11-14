@@ -191,4 +191,13 @@ describe('build', function () {
       expect((await received({}, true))?.requireAppDirs).to.equal(false);
     });
   });
+
+  it('hands the global route middlewares of the configuration to the compiler', async () => {
+    const entries = ['RouteTiming', { service: 'Audit', options: [1] }];
+    const cmd = new WithDirs(undefined);
+    const values: Record<string, unknown> = { 'http.routes.middlewares': entries };
+    cmd['Config'] = { get: (path: string | string[], fallback: unknown) => values[[path].flat().join('.')] ?? fallback } as unknown as Configuration;
+    await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json') });
+    expect((cmd.received as { globalRouteMiddlewares?: unknown })?.globalRouteMiddlewares).to.deep.equal(entries);
+  });
 });

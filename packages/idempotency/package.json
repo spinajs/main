@@ -1,0 +1,87 @@
+{
+  "name": "@spinajs/idempotency",
+  "version": "3.0.23",
+  "description": "One idempotency service for SpinaJS: leased claims, stored replies and request fingerprints for http, sockets and queues",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing/index.d.ts",
+      "import": "./lib/testing/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": ["lib/testing/index.d.ts"]
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/idempotency",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "idempotency",
+    "idempotency-key"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/durable": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/principal": "3.0.23"
+  },
+  "peerDependencies": {
+    "mocha": ">=10"
+  },
+  "peerDependenciesMeta": {
+    "mocha": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

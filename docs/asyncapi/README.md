@@ -1,6 +1,6 @@
 # `@spinajs/asyncapi`
 
-`manifestToAsyncApi(manifest, { title, version, serverUrl?, errorSchemaId? })` turns an `app.manifest.json` into an AsyncAPI 3.0 document that describes the socket commands and events and the queue messages of the app. It is a pure function: no DI, no filesystem, deterministic output.
+`manifestToAsyncApi(manifest, { title, version, serverUrl?, errorSchemaId? })` turns an `app.manifest.json` into an AsyncAPI 3.0 document that describes the socket commands and events, the queue messages and the workflow signals of the app. It is a pure function: no DI, no filesystem, deterministic output.
 
 For the HTTP routes, see [`@spinajs/openapi`](../openapi/README.md).
 
@@ -81,6 +81,7 @@ Channels are named after the transport:
 | Socket command | `socket/<prefix>/<command>` | `<prefix>.<command>.send` (payload) and `<prefix>.<command>.receive` (reply) |
 | Socket event | `socket/<prefix>/events/<event>` | `<prefix>.events.<event>.receive` |
 | Queue message | `queue/<className>` | `queue.<className>.send` |
+| Workflow signal | `workflow/<name>/<signal>` | `workflow.<name>.<signal>.send` |
 
 A command channel carries a `request` and a `reply` message; an event channel an `event` message; a queue channel a `message`. Message names are `<prefix>.<command>.request`, `<prefix>.<command>.reply`, `<prefix>.events.<event>` and the class name, and each points at a schema under `components.schemas`.
 
@@ -91,6 +92,7 @@ Queue routing keys come from configuration at runtime, so a queue channel carrie
 | Command marked `stream` | `x-spinajs-stream: true` on its `receive` operation, and `x-spinajs-stream-frames: ['chunk', 'end', 'fail']`. The reply message is one item |
 | Command option `idempotent`, `ordered`, `timeoutMs` | `x-idempotent`, `x-ordered`, `x-timeout-ms` on the `send` operation |
 | Command `@Access` permissions | `x-authz-permission` on the `send` operation |
+| Workflow signal | `x-spinajs-workflow` (the workflow name) on the channel, and `x-spinajs-permission` when the newest version that waits for the signal declares one (within one version, an entry with a permission wins). All versions share the channel; a computed signal name (`'*'`) and a name with `#` or `*` get none. The `signal` message has an empty payload schema. In the address, the message name and the operation key, every character of a workflow or signal name other than a letter, a digit, `_`, `:` and `-` is written as `$<hex code point>;` (`a/b` is `a$2f;b`), so `a/b` + `c` and `a` + `b/c` stay two channels |
 
 Payload schemas are copied into `components.schemas` without `$id`, `$schema` and `x-*` keys.
 

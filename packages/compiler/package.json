@@ -7,6 +7,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./sql": {
+      "types": "./lib/sql/index.d.ts",
+      "import": "./lib/sql/index.js"
     }
   },
   "type": "module",
@@ -43,6 +47,7 @@
   "dependencies": {
     "@spinajs/manifest": "3.0.23",
     "json-schema-to-typescript": "^16.0.0",
+    "node-sql-parser": "~5.4.0",
     "typescript": "~5.9.0"
   },
   "devDependencies": {
@@ -59,6 +64,7 @@
     "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
+    "@spinajs/teams": "3.0.23",
     "@spinajs/users": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "@types/luxon": "^3.6.1",

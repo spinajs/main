@@ -1,5 +1,5 @@
 import { isConstructor, collapseInheritedDescriptor } from '@spinajs/di';
-import { IMigrationDescriptor, IModelDescriptor } from "./interfaces.js";
+import type { IMigrationDescriptor, IModelDescriptor } from "./interfaces.js";
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
 
 export function createDefaultModelDescriptor(): IModelDescriptor {
@@ -31,6 +31,7 @@ export function createDefaultModelDescriptor(): IModelDescriptor {
     Schema: {},
     ResponseSchema: {},
     Hidden: [],
+    Sortable: [],
   };
 }
 

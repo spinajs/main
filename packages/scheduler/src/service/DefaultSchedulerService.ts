@@ -53,11 +53,13 @@ import { RunEventWriter } from '../run/RunEventWriter.js';
 import { abortWaitingRun, CancelDeps } from '../run/cancel.js';
 import { journalAttemptEnd } from '../run/end.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
+import { InlineRunner, type InlineRunOptions } from '../run/inline.js';
+import type { RunContext } from '../run/RunContext.js';
 import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
 import { LeaseStore } from '../store/LeaseStore.js';
-import { Clock, DbClock, TimerHandle } from '../time/clock.js';
+import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from '../time/occurrences.js';
 import { ERROR_GROUP_STATUSES } from './statuses.js';
 import { nextOccurrence } from '../time/spec.js';
@@ -137,6 +139,9 @@ export class DefaultSchedulerService extends SchedulerService {
 
   @Autoinject(RetentionService)
   protected Retention: RetentionService;
+
+  @Autoinject(InlineRunner)
+  protected Inline: InlineRunner;
 
   /** A process that never starts the loop (CLI, API-only replica) still sees every schedule. */
   public async resolve(): Promise<void> {
@@ -253,6 +258,19 @@ export class DefaultSchedulerService extends SchedulerService {
     return { runId: run.Id, run: await this.waitForEnd(run.Id, timeoutMs) };
   }
 
+  public override async runInline<T>(
+    schedule: string,
+    fn: (ctx: RunContext) => Promise<T>,
+    opts?: InlineRunOptions,
+  ): Promise<T> {
+    // adopt: a schedule declared after boot (its class was imported lazily)
+    const def = this.Registry.find(schedule) ?? this.Registry.adopt(schedule);
+    // its row is inserted on first use, and again when pruned while the definition lives on
+    if (!(await ScheduleModel.where('Name', schedule).first())) await this.Sync.sync([def], await this.now(), { owner: false });
+    await this.assertManualRunsAllowed(schedule);
+    return this.Inline.run(def, fn, opts);
+  }
+
   /** A running run is only flagged: its holder, the reaper and the claim of a retry all end a flagged run. */
   public async cancel(runId: string, ctx: ActionContext): Promise<RunInfo> {
     // every write is conditional on the state just read; a run that moved on meanwhile is looked at again
@@ -308,6 +326,7 @@ export class DefaultSchedulerService extends SchedulerService {
     if (!failed.length) return { runIds: [] };
 
     const retried = new Set<string>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per ID_BATCH failed run ids
     for (let i = 0; i < failed.length; i += ID_BATCH) {
       const ids = failed.slice(i, i + ID_BATCH).map((f) => f.Id);
       for (const child of await RunModel.query().whereIn('ParentRunId', ids)) {

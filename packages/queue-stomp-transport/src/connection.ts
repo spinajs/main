@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueMessage, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, readQueueHeaders, withoutTransportHeaders } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -77,7 +77,10 @@ const DEFAULT_PREFETCH = 1;
  * STOMP header carrying the number of times a job has already been retried.
  * Set by this transport when it reschedules a failed job.
  */
-const RETRY_COUNT_HEADER = 'x-retry-count';
+const RETRY_COUNT_HEADER = QueueHeaders.RetryCount;
+
+/** SEND frame headers stompjs or the broker own; stompjs spreads the frame headers over `destination`. */
+const FRAME_HEADERS = new Set(['destination', 'receipt', 'transaction', 'content-length', 'content-type', 'message-id', 'subscription', 'ack']);
 
 /**
  * Describes a subscription we want to keep alive across reconnects.
@@ -560,6 +563,8 @@ export class StompQueueClient extends QueueClient {
           qMessage.CreatedAt = DateTime.fromISO(qMessage.CreatedAt as unknown as string);
         }
 
+        this.fromFrame(qMessage, message);
+
         // two-argument then: a failed settle must not be treated as a failed handler
         // eslint-disable-next-line promise/catch-or-return -- both handlers settle the message and log their own errors, there is nothing left to catch
         desc.callback(qMessage).then(
@@ -571,6 +576,17 @@ export class StompQueueClient extends QueueClient {
     );
 
     this.Log.success({ channel: desc.channel, durable: !!desc.durable }, 'Channel ${channel}, durable: ${durable} subscribed and ready to receive messages !');
+  }
+
+  /**
+   * STOMP's own `message-id` is the broker's id, so the MessageId travels in `x-spinajs-message-id`. The body wins for
+   * MessageId; the frame's standard headers win over the body's, since retries and dead letters rewrite them.
+   */
+  protected fromFrame(qMessage: IQueueMessage, message: Stomp.IMessage): void {
+    const messageId = qMessage.MessageId ?? message.headers?.[QueueHeaders.MessageId];
+    const standard = readQueueHeaders(message.headers);
+    if (messageId !== undefined) qMessage.MessageId = messageId;
+    if (qMessage.Headers || Object.keys(standard).length > 0) qMessage.Headers = { ...qMessage.Headers, ...standard };
   }
 
   /**
@@ -613,6 +629,9 @@ export class StompQueueClient extends QueueClient {
       if ((qMessage as IQueueJob).JobId) {
         headers['correlation-id'] = (qMessage as IQueueJob).JobId!;
       }
+      if (qMessage.MessageId) {
+        headers[QueueHeaders.MessageId] = qMessage.MessageId;
+      }
 
       if (delay > 0) {
         headers['AMQ_SCHEDULED_DELAY'] = `${delay}`;
@@ -633,7 +652,7 @@ export class StompQueueClient extends QueueClient {
     }
 
     // retries exhausted - route to dead-letter
-    this.deadLetter(message, this.getDeadLetterChannelForMessage(qMessage), desc.channel, reason, attempt);
+    this.deadLetter(message, this.getDeadLetterChannelForMessage(qMessage), desc.channel, reason, attempt, qMessage.MessageId);
   }
 
   /**
@@ -650,7 +669,7 @@ export class StompQueueClient extends QueueClient {
    * to unblock the source queue. When no dead-letter channel is configured the message is
    * dropped ( acked ) with a warning - we never nack-loop a poison message forever.
    */
-  protected deadLetter(message: Stomp.IMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number) {
+  protected deadLetter(message: Stomp.IMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number, messageId: string | undefined = message.headers?.[QueueHeaders.MessageId]) {
     if (!dlq) {
       // retries are already exhausted here; nacking would just redeliver into another exhausted
       // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
@@ -662,12 +681,15 @@ export class StompQueueClient extends QueueClient {
     const headers: Stomp.StompHeaders = {
       persistent: 'true',
       'content-type': 'application/json',
-      'x-original-destination': channel,
-      'x-error': reason,
+      [QueueHeaders.OriginalDestination]: channel,
+      [QueueHeaders.Error]: reason,
     };
 
     if (attempt !== undefined) {
       headers[RETRY_COUNT_HEADER] = `${attempt}`;
+    }
+    if (messageId) {
+      headers[QueueHeaders.MessageId] = messageId;
     }
 
     this.sendWithReceipt(dlq, message.body, headers)
@@ -727,7 +749,12 @@ export class StompQueueClient extends QueueClient {
    */
   protected publishMessage(message: IQueueMessage): Promise<void> {
     const channels = this.getChannelForMessage(message);
-    const headers: Stomp.StompHeaders = { 'content-type': 'application/json' };
+    // application headers first, so every header set below wins over them
+    const headers: Stomp.StompHeaders = { ..._.omitBy(withoutTransportHeaders(message.Headers), (_value, name) => FRAME_HEADERS.has(name.toLowerCase())), 'content-type': 'application/json' };
+
+    if (message.MessageId) {
+      headers[QueueHeaders.MessageId] = message.MessageId;
+    }
 
     // tie jobs to their JobModel row for broker-side traceability
     if ((message as IQueueJob).JobId) {

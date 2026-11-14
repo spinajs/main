@@ -1,18 +1,20 @@
-import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { ServerMiddleware } from '../interfaces.js';
+import type { IFinishContext, IMiddlewareContext } from '../interfaces.js';
 import { redactUrl } from '../util/redact-url.js';
 
+const STARTED = Symbol('slowRequestStarted');
+
 /**
- * Logs a warning when a request exceeds a configurable duration threshold.
- * Cheap diagnostic visibility for performance regressions.
+ * Logs a warning when a request exceeds a configurable duration threshold, once the response finished. A request
+ * the client went away from is not judged.
  *
  * Config:
  *   http.slowRequest.enabled      (default true)
- *   http.slowRequest.thresholdMs  (default 1000)
+ *   http.slowRequest.thresholdMs  (default 1000); `@SlowThreshold(ms)` replaces it on a route
  */
 @Injectable(ServerMiddleware)
 export class SlowRequestWarning extends ServerMiddleware {
@@ -30,34 +32,37 @@ export class SlowRequestWarning extends ServerMiddleware {
     this.Order = 2;
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    if (!this.Enabled) return null;
-    const log = this.Log;
-    const threshold = this.ThresholdMs;
-    return (req, res, next) => {
-      const startedAt = Date.now();
-      res.on('finish', () => {
-        const ms = Date.now() - startedAt;
-        if (ms >= threshold) {
-          const path = redactUrl(req.originalUrl);
-          log.warn(
-            {
-              method: req.method,
-              path,
-              ms,
-              threshold,
-              status: res.statusCode,
-              requestId: req.storage?.requestId,
-            },
-            'Slow request: ${method} ${path} took ${ms}ms (threshold ${threshold}ms)',
-          );
-        }
-      });
-      next();
-    };
+  public isEnabled(): boolean {
+    return this.Enabled;
   }
 
-  public after(): null {
-    return null;
+  public onBefore({ res }: IMiddlewareContext): void {
+    (res.locals as Record<symbol, number>)[STARTED] = Date.now();
+  }
+
+  public onFinish({ req, res, storage, path, aborted }: IFinishContext): void {
+    const started = (res.locals as Record<symbol, number | undefined>)[STARTED];
+    if (aborted || started === undefined) {
+      return;
+    }
+
+    const ms = Date.now() - started;
+    const threshold = storage?.slowThresholdMs ?? this.ThresholdMs;
+    if (ms < threshold) {
+      return;
+    }
+
+    this.Log.warn(
+      {
+        method: req.method,
+        path: redactUrl(req.originalUrl),
+        route: path,
+        ms,
+        threshold,
+        status: res.statusCode,
+        requestId: storage?.requestId,
+      },
+      'Slow request: ${method} ${path} took ${ms}ms (threshold ${threshold}ms)',
+    );
   }
 }

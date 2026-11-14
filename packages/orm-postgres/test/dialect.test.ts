@@ -86,7 +86,7 @@ describe('postgres dialect', function () {
   });
 
   it('reports RETURNING support and no events', () => {
-    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: true });
+    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: true, streaming: false });
   });
 
   describe('positional parameters', () => {

@@ -49,6 +49,8 @@ function unique(values: string[]): string[] {
 /** Maps manifest schemas to TypeScript type expressions and records which named schemas the output references. */
 export class TypeContext {
   public readonly used = new Set<string>();
+  /** Some route or command returns `Redacted<…>`, which the generated file then imports from the runtime. */
+  public usesRedacted = false;
   private readonly names = new Map<string, string>();
 
   constructor(public readonly manifest: Manifest) {
@@ -82,6 +84,11 @@ export class TypeContext {
     if (!this.schemaOf(id)) return 'unknown';
     this.used.add(id);
     return this.nameOf(id);
+  }
+
+  public redacted(type: string): string {
+    this.usesRedacted = true;
+    return `Redacted<${type}>`;
   }
 
   public typeOf(ref: TypeRef): string {
