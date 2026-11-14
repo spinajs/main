@@ -1,4 +1,4 @@
-import { Exception, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
+import { Exception, InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
 import type { IDriverOptions } from './interfaces.js';
 
 /**
@@ -106,3 +106,6 @@ export class ExtensionMethodCollision extends InvalidOperation {}
 
 /** The driver has no cursor and the query cannot be paged by keyset in its place. */
 export class StreamNotSupported extends InvalidOperation {}
+
+/** A page cursor that does not decode or was made for another order. Cursors are spec-checked, not signed. */
+export class InvalidCursor extends InvalidArgument {}

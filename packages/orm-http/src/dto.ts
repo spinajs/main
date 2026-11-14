@@ -1,5 +1,6 @@
 import { SortOrder } from '@spinajs/orm';
 import { Schema } from '@spinajs/validation';
+import { DEFAULT_PAGE } from './paging.js';
 
 @Schema({
   type: 'object',
@@ -36,6 +37,25 @@ export class OrderDTO {
   public column?: string;
 
   constructor(data: Partial<OrderDTO>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema({
+  type: 'object',
+  $id: 'arrow.common.KeysetPaginationDTO',
+  properties: {
+    limit: { type: 'number', minimum: 1 },
+    after: { type: 'string' },
+    before: { type: 'string' },
+  },
+})
+export class KeysetPaginationDTO {
+  public limit: number = DEFAULT_PAGE.limit;
+  public after?: string;
+  public before?: string;
+
+  constructor(data: Partial<KeysetPaginationDTO>) {
     Object.assign(this, data);
   }
 }

@@ -6,7 +6,8 @@ import express from 'express';
 import _ from 'lodash';
 import { IColumnFilter, IncludeRouteArgOptions, SortRouteArgOptions } from './interfaces.js';
 import { filterSchemaFor } from './model.js';
-import { readSort } from './paging.js';
+import { readPage, readSort } from './paging.js';
+import { KeysetPaginationDTO } from './dto.js';
 
 function parseJson(value: string, field: string): unknown {
   try {
@@ -66,6 +67,37 @@ export class FilterModelRouteArg extends RouteArgs {
 
     let result = await this.tryHydrateParam(parsed, rParam, route);
     return { CallData: callData, Args: result };
+  }
+}
+
+function cursorParam(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw new InvalidArgument(`${name} must be one page cursor`, name);
+  }
+
+  return value;
+}
+
+/** `?limit=&after=&before=` as a `KeysetPaginationDTO`. `limit` takes `readPage`'s default and ceiling. */
+@Injectable()
+export class KeysetQueryRouteArg extends RouteArgs {
+  public get SupportedType(): string {
+    return 'KeysetQueryRouteArg';
+  }
+
+  public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: express.Request) {
+    const after = cursorParam(req.query.after, 'after');
+    const before = cursorParam(req.query.before, 'before');
+    if (after !== undefined && before !== undefined) {
+      throw new InvalidArgument('give either after or before, not both', 'after');
+    }
+
+    const { limit } = readPage({ limit: req.query.limit });
+    return { CallData: callData, Args: new KeysetPaginationDTO({ limit, after, before }) };
   }
 }
 

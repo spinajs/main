@@ -1557,6 +1557,14 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   stream(options?: IStreamOptions): AsyncIterable<Unbox<T>>;
 
+  /**
+   * One keyset page: `options.orderBy` plus the primary key, `limit` rows past `after` or before `before`.
+   * The query must not carry its own `order()`, `take()`, `skip()` or `first()`.
+   */
+  // Spelled out instead of IKeysetPageOptions<Unbox<T>>: through the interface, TypeScript relates two builders' options by
+  // their row types, which a populated row fails against the model's; the inline shape compares only the column names.
+  paginate(options: { orderBy: Array<[DeclaredColumn<Unbox<T>>, 'asc' | 'desc']>; limit: number; after?: string; before?: string }): Promise<KeysetPage<Unbox<T>>>;
+
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
 
@@ -1568,6 +1576,22 @@ export interface ICompilerOutput {
 export interface IStreamOptions {
   /** Rows hydrated, and relations populated, per round. Default 500. */
   batchSize?: number;
+}
+
+export interface KeysetPage<R> {
+  items: R[];
+  /** Cursor for `after`, or null on the last page. */
+  next: string | null;
+  /** Cursor for `before`, or null on the first page. */
+  previous: string | null;
+}
+
+export interface IKeysetPageOptions<M> {
+  /** The primary key is appended as the tie-breaker. Order columns must be NOT NULL. */
+  orderBy: Array<[DeclaredColumn<M>, 'asc' | 'desc']>;
+  limit: number;
+  after?: string;
+  before?: string;
 }
 
 export interface IQueryCompiler {

@@ -444,6 +444,50 @@ describe('Http orm tests', function () {
     });
   });
 
+  describe('keyset pages', function () {
+    interface KeysetBody {
+      items: Array<{ Id: number }>;
+      next: string | null;
+      previous: string | null;
+    }
+
+    it('walks the test table one row per page', async () => {
+      const all = (await req().get('keyset/tests?limit=500').set('Accept', 'application/json')).body as KeysetBody;
+      const ids: number[] = [];
+      let url = 'keyset/tests?limit=1';
+
+      for (let pages = 0; pages < 50; pages++) {
+        const res = await req().get(url).set('Accept', 'application/json');
+        expect(res).to.have.status(200);
+        const body = res.body as KeysetBody;
+        ids.push(...body.items.map((i) => i.Id));
+        if (body.next === null) {
+          break;
+        }
+        url = `keyset/tests?limit=1&after=${encodeURIComponent(body.next)}`;
+      }
+
+      expect(all.items.length).to.be.greaterThan(1);
+      expect(ids).to.deep.equal(all.items.map((i) => i.Id));
+    });
+
+    it('answers 400 problem+json for a cursor made for another order', async () => {
+      // a well-formed cursor whose spec hash is not the route's `[['Id', 'asc']]`: the only check an unsigned cursor gets
+      const foreign = Buffer.from(JSON.stringify({ h: 'not-this-order', v: [1] })).toString('base64url');
+      const res = await req().get(`keyset/tests?limit=1&after=${foreign}`).set('Accept', 'application/json');
+
+      expect(res).to.have.status(400);
+      expect(res.type).to.eq('application/problem+json');
+      expect((res.body as { title: string }).title).to.eq('Invalid Cursor');
+    });
+
+    it('answers 400 for after and before together', async () => {
+      const res = await req().get('keyset/tests?after=a&before=b').set('Accept', 'application/json');
+
+      expect(res).to.have.status(400);
+      });
+    });
+
   describe('@Sort and @Include route args', function () {
     const get = (url: string) => req().get(`sort-include/${url}`).set('Accept', 'application/json');
     const order = (value: unknown) => encodeURIComponent(JSON.stringify(value));

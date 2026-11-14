@@ -49,6 +49,11 @@ export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[])
   return Route(Parameter('FilterModelRouteArg', null, model));
 }
 
+/** Reads `?limit=&after=&before=` into a `KeysetPaginationDTO` for `query.paginate()`. */
+export function KeysetQuery() {
+  return Route(Parameter('KeysetQueryRouteArg', null, {}));
+}
+
 /** A sort request. The type admits any column of `M`; `@Sort` narrows it to the `@Sortable()` ones at runtime. */
 export interface Sort<M = unknown> {
   column: ColumnName<M>;

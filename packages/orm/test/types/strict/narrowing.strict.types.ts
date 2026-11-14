@@ -119,6 +119,21 @@ export async function streamStrict(): Promise<void> {
   }
 }
 
+export async function paginateStrict(computed: string): Promise<void> {
+  const page = await User.query().select('Id').paginate({ orderBy: [['CreatedAt', 'desc']], limit: 20 });
+  assertType<Equal<(typeof page.items)[number]['Id'], number>>();
+  // @ts-expect-error an unselected column is not on the row
+  void page.items[0].Name;
+  const _populated = await User.query().select('Id').populate('Team').paginate({ orderBy: [['Id', 'asc']], limit: 5 });
+  assertType<Equal<(typeof _populated.items)[number]['Team']['Value'], Team>>();
+  // @ts-expect-error strict mode refuses an undeclared column name
+  void User.query().paginate({ orderBy: [['Nope', 'asc']], limit: 5 });
+  // @ts-expect-error strict mode refuses a column name that is not a literal
+  void User.query().paginate({ orderBy: [[computed, 'asc']], limit: 5 });
+  // @ts-expect-error paginate() orders by the model's own columns, not a relation's
+  void User.query().paginate({ orderBy: [['Team.Id', 'asc']], limit: 5 });
+}
+
 export function untypedStrict(raw: SelectQueryBuilder<unknown>, anyRows: SelectQueryBuilder<any>): void {
   // a builder without a model has no row to narrow, so it stays the class (`toDB()` returns one output)
   const one: ICompilerOutput = raw.select('id').columns(['id']).count('id', 'c').max('id', 'top').toDB();

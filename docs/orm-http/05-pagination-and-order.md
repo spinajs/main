@@ -424,6 +424,19 @@ export async function byAuthorName() {
 }
 ```
 
+## Keyset pages
+
+`@KeysetQuery()` reads `?limit=&after=&before=` into a `KeysetPaginationDTO` for `query.paginate()`. `limit` takes the same default (50) and ceiling (500) as `readPage`. Sending `after` and `before` together, or a cursor that is not a single string, answers 400.
+
+```ts
+@Get()
+public async list(@KeysetQuery() page: KeysetPaginationDTO) {
+  return new Ok(await Order.select().paginate({ orderBy: [['CreatedAt', 'desc']], ...page }));
+}
+```
+
+A cursor that does not decode, or was made for another order, answers 400 `application/problem+json` with the title `Invalid Cursor`. Cursors are spec-checked, not signed: a crafted one moves the start of the page and nothing else, because the query's `where()` still applies.
+
 ## Related
 
 - [Filtering](03-filtering.md): filter the same listing with `@Filter()`.
