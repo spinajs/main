@@ -38,35 +38,43 @@ export function ajvMultipleOf(n: number): (value: number) => boolean {
   };
 }
 
-function objectsEqual(a: object, b: object): boolean {
-  const proto = Object.getPrototypeOf(a) as object | null;
-  if (proto !== Object.getPrototypeOf(b)) return false;
-  if (Array.isArray(a)) {
-    const other = b as unknown[];
-    if (a.length !== other.length) return false;
-    for (let i = a.length; i-- !== 0; ) {
-      if (!ajvEqual(a[i], other[i])) return false;
-    }
-    return true;
+function arraysEqual(a: unknown[], b: unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = a.length; i-- !== 0; ) {
+    if (!ajvEqual(a[i], b[i])) return false;
   }
-  if (a instanceof RegExp) return a.source === (b as RegExp).source && a.flags === (b as RegExp).flags;
-  if (proto !== null && proto !== Object.prototype) {
-    // Only a prototype's own comparison is used: a `valueOf` or `toString` key on the value itself is data.
-    const { valueOf, toString } = proto as { valueOf?: unknown; toString?: unknown };
-    if (typeof valueOf === 'function' && valueOf !== Object.prototype.valueOf) return valueOf.call(a) === valueOf.call(b);
-    if (typeof toString === 'function' && toString !== Object.prototype.toString) return toString.call(a) === toString.call(b);
-  }
+  return true;
+}
+
+// Only a prototype's own comparison is used: a `valueOf` or `toString` key on the value itself is data.
+// undefined when the prototype has none and the values are compared by their keys.
+function prototypeEqual(proto: object, a: object, b: object): boolean | undefined {
+  const { valueOf, toString } = proto as { valueOf?: unknown; toString?: unknown };
+  if (typeof valueOf === 'function' && valueOf !== Object.prototype.valueOf) return valueOf.call(a) === valueOf.call(b);
+  if (typeof toString === 'function' && toString !== Object.prototype.toString) return toString.call(a) === toString.call(b);
+  return undefined;
+}
+
+function keysEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
   for (let i = keys.length; i-- !== 0; ) {
     if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
   }
   for (let i = keys.length; i-- !== 0; ) {
-    if (!ajvEqual((a as Record<string, unknown>)[keys[i]], (b as Record<string, unknown>)[keys[i]])) return false;
+    if (!ajvEqual(a[keys[i]], b[keys[i]])) return false;
   }
   return true;
 }
 
+function objectsEqual(a: object, b: object): boolean {
+  const proto = Object.getPrototypeOf(a) as object | null;
+  if (proto !== Object.getPrototypeOf(b)) return false;
+  if (Array.isArray(a)) return arraysEqual(a, b as unknown[]);
+  if (a instanceof RegExp) return a.source === (b as RegExp).source && a.flags === (b as RegExp).flags;
+  const byPrototype = proto !== null && proto !== Object.prototype ? prototypeEqual(proto, a, b) : undefined;
+  return byPrototype ?? keysEqual(a as Record<string, unknown>, b as Record<string, unknown>);
+}
 /**
  * Deep equality as the server decides `const`, `enum` and `uniqueItems`: 0 equals -0, NaN equals NaN, key order is
  * ignored. A plain object is compared by its own keys, so `{"valueOf":1}` is data and never throws.
