@@ -130,6 +130,8 @@ export async function paginateStrict(computed: string): Promise<void> {
   void User.query().paginate({ orderBy: [['Nope', 'asc']], limit: 5 });
   // @ts-expect-error strict mode refuses a column name that is not a literal
   void User.query().paginate({ orderBy: [[computed, 'asc']], limit: 5 });
+  // @ts-expect-error paginate() orders by the model's own columns, not a relation's
+  void User.query().paginate({ orderBy: [['Team.Id', 'asc']], limit: 5 });
 }
 
 export function untypedStrict(raw: SelectQueryBuilder<unknown>, anyRows: SelectQueryBuilder<any>): void {
