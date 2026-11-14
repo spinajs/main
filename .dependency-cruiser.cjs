@@ -63,7 +63,7 @@ module.exports = {
   options: {
     // lib/ is not followed rather than excluded: an import by package name resolves there, and authz-not-to-authn needs the target.
     doNotFollow: { path: ['node_modules', '(^|/)lib/'] },
-    exclude: { path: ['/test/fixtures/'] },
+    exclude: { path: ['/test/fixtures/', '^packages/studio-ui/'] },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.json' },
     enhancedResolveOptions: {

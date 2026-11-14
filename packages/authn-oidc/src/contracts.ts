@@ -168,7 +168,18 @@ export interface OidcConfig {
     readonly success?: OidcAppPath;
     readonly failure?: OidcAppPath;
   };
+  /**
+   * The per-address limits of the begin and callback routes, merged over 60 a minute each; false takes one off.
+   * Back-channel logout has none.
+   */
+  readonly rateLimit?: {
+    readonly begin?: OidcRateLimitSetting;
+    readonly callback?: OidcRateLimitSetting;
+  };
 }
+
+/** One authn.oidc.rateLimit entry: settings merged over the shipped default, or false for no limit. */
+export type OidcRateLimitSetting = { readonly limit?: number; readonly windowSeconds?: number; readonly by?: 'ip' | 'principal' } | false;
 
 /** N10 ships one per OidcPresetId; a provider config fills the '{name}' placeholders of its issuer. */
 export type OidcPreset = {

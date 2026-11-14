@@ -1,19 +1,18 @@
 import { Injectable } from '@spinajs/di';
 import { untilAborted } from '../limits.js';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 
 /**
  * Holds a command until the connection's connect hooks are done. After the size, rate and in-flight
  * checks, so commands sent while the hooks run stay bounded; a deadline, cancel or disconnect ends the wait.
  */
-@Injectable(SocketCommandStage)
-export class ReadyStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class ReadyStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Ready;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onBefore(ctx: ISocketCommandContext): Promise<void> {
     await untilAborted(ctx.runtime.ready, ctx.signal);
-    return next();
   }
 }

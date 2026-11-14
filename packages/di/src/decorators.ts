@@ -228,6 +228,7 @@ function propertyInjection<T>(type: Class<unknown>, propertyKey: string | symbol
       autoinject: true,
       autoinjectKey: propertyKey,
       inject: type,
+      ...(opt.optional ? { optional: true as const } : {}),
       // A synchronous throw would leave the already started async siblings unhandled; reject instead.
       resolveFunc: (_data: unknown, container: IContainer) => {
         try {
@@ -320,6 +321,7 @@ export function LazyInject<T>(service?: Class<T> | TypedArray<T> | string, optio
       autoinject: true,
       autoinjectKey: key,
       inject,
+      lazy: true,
       resolveFunc: (_data: unknown, container: IContainer) => new LazyInjectBinding(container, inject),
     });
     const explicit = isConstructor(service) ? service : undefined;

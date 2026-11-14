@@ -1,6 +1,8 @@
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
+import { AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA } from './changelog/schema.js';
+
 export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-orm.configuration.schema.json',
   $configurationModule: 'authz.orm',
@@ -11,6 +13,15 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
     domain: { type: 'string', minLength: 1, default: 'root' },
     // The model property that carries `.withAccess()` answers (design §10.3).
     accessField: { type: 'string', minLength: 1, default: '$access' },
+    // Row level security (`authz:rls`, Postgres): `session` sets the spina.* settings on every transaction; `bypassRole` is the role SYSTEM connects as.
+    rls: {
+      type: 'object',
+      properties: {
+        session: { type: 'boolean', default: false },
+        bypassRole: { type: 'string', minLength: 1 },
+      },
+      additionalProperties: false,
+    },
   },
 };
 
@@ -20,5 +31,6 @@ registerConfigurationSchemaAtImport(AUTHZ_ORM_CONFIGURATION_SCHEMA);
 export class AuthzOrmConfigBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerConfigurationSchema(AUTHZ_ORM_CONFIGURATION_SCHEMA);
+    registerConfigurationSchema(AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA);
   }
 }

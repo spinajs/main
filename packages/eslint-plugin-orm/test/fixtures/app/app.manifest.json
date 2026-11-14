@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 2,
+  "app": { "name": "app", "version": "0.0.0", "root": ".", "outDir": "lib" },
+  "models": [
+    {
+      "id": "app:User", "className": "User", "tableName": "users", "accessResource": false, "relations": [],
+      "source": { "file": "src/models.ts", "line": 3, "col": 1, "package": "app" },
+      "columns": [
+        { "name": "Id", "type": { "text": "number" }, "primary": true, "nullable": false },
+        { "name": "Email", "type": { "text": "string" }, "primary": false, "nullable": false },
+        { "name": "Name", "type": { "text": "string" }, "primary": false, "nullable": true }
+      ]
+    }
+  ],
+  "sqlDialects": [
+    {
+      "drivers": ["orm-driver-postgres"],
+      "source": { "file": "src/index.ts", "line": 1, "col": 1, "package": "@spinajs/orm-postgres" },
+      "profile": {
+        "name": "postgresql", "grammar": "PostgresQL", "placeholders": "dollar",
+        "families": { "bigint": "string", "decimal": "string", "date": "Date", "datetime": "Date", "time": "string", "json": "unknown" },
+        "count": "string",
+        "sum": { "integer": "string", "bigint": "string", "decimal": "string", "float": "number" },
+        "avg": { "integer": "string", "bigint": "string", "decimal": "string", "float": "number" },
+        "predicates": "boolean"
+      }
+    }
+  ],
+  "sqlQueries": [
+    { "id": "src/queries.ts:2:18", "text": "SELECT Id, Email FROM users", "placeholders": 0, "dynamic": false, "source": { "file": "src/queries.ts", "line": 2, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:3:18", "text": "SELECT Id, Name FROM users WHERE Id = ?", "placeholders": 1, "dynamic": false, "declaredRow": { "text": "{ Id: number; Name: string | null; }" }, "declaredColumns": [{ "name": "Id", "ts": "number", "nullable": false }, { "name": "Name", "ts": "string", "nullable": true }], "source": { "file": "src/queries.ts", "line": 3, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:4:18", "text": "SELECT Name FROM users", "placeholders": 0, "dynamic": false, "declaredRow": { "text": "{ Name: string; }" }, "declaredColumns": [{ "name": "Name", "ts": "string", "nullable": false }], "source": { "file": "src/queries.ts", "line": 4, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:5:18", "text": "SELECT Nmae FROM users", "placeholders": 0, "dynamic": false, "source": { "file": "src/queries.ts", "line": 5, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:6:18", "text": "SELECT Id + 1 FROM users", "placeholders": 0, "dynamic": false, "source": { "file": "src/queries.ts", "line": 6, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:7:18", "text": "SELECT Id FROM users WHERE ?", "placeholders": 0, "dynamic": true, "source": { "file": "src/queries.ts", "line": 7, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:8:18", "text": "INSERT INTO users (Email) VALUES (?)", "placeholders": 1, "dynamic": false, "source": { "file": "src/queries.ts", "line": 8, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:9:18", "text": "Id = ?", "placeholders": 1, "dynamic": false, "source": { "file": "src/queries.ts", "line": 9, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:10:18", "text": "SELECT Id FROM usrs", "placeholders": 0, "dynamic": false, "source": { "file": "src/queries.ts", "line": 10, "col": 18, "package": "app" } },
+    { "id": "src/queries.ts:11:18", "text": "SELECT COUNT(*) AS n FROM users", "placeholders": 0, "dynamic": false, "source": { "file": "src/queries.ts", "line": 11, "col": 18, "package": "app" } }
+  ]
+}

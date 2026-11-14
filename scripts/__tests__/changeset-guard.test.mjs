@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { requiresChangeset } from '../changeset-guard.mjs';
+import { isPrivatePackage, requiresChangeset } from '../changeset-guard.mjs';
 
 test('package src change without a changeset requires one', () => {
   assert.equal(requiresChangeset(['packages/http/src/index.ts']), true);
@@ -32,4 +32,16 @@ test('empty diff requires nothing', () => {
 test('a deleted changeset does not satisfy the guard', () => {
   assert.equal(requiresChangeset([{ path: 'packages/di/src/a.ts', status: 'M' }, { path: '.changeset/old.md', status: 'D' }]), true);
   assert.equal(requiresChangeset([{ path: 'packages/di/src/a.ts', status: 'M' }, { path: '.changeset/new.md', status: 'A' }]), false);
+});
+
+test('a private package needs no changeset; a published package next to it still does', () => {
+  const privateOnly = (name) => name === 'orm-conformance';
+  assert.equal(requiresChangeset(['packages/orm-conformance/src/index.ts', 'packages/orm-conformance/cases/a.case.ts'], privateOnly), false);
+  assert.equal(requiresChangeset(['packages/orm-conformance/src/index.ts', 'packages/orm/src/a.ts'], privateOnly), true);
+});
+
+test('isPrivatePackage reads "private" from the package.json under packages/', () => {
+  assert.equal(isPrivatePackage('orm-conformance'), true);
+  assert.equal(isPrivatePackage('orm'), false);
+  assert.equal(isPrivatePackage('no-such-package'), false);
 });

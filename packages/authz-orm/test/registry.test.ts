@@ -119,4 +119,21 @@ describe('authz-orm registry', () => {
     unregisterResource(B);
     expect(classesOf('task')).to.deep.equal([A]);
   });
+
+
+  it('keeps changelog on unless a registration turns it off, and refuses a non-boolean', () => {
+    const On = model('On');
+    const Off = model('Off');
+    const Legacy = model('Legacy');
+    AccessResource('on')(On);
+    AccessResource('off', { changelog: false })(Off);
+    registerAccessResource(Legacy, 'legacy', { owner: 'owner_id', changelog: false });
+
+    expect(entryOf(On)!.changelog).to.equal(true);
+    expect(entryOf(Off)!.changelog).to.equal(false);
+    expect(entryOf(Legacy)!.changelog).to.equal(false);
+    expect(() => registerAccessResource(Legacy, 'legacy', { owner: 'owner_id' })).to.throw(AuthzConfigError, /other options/);
+    expect(() => registerAccessResource(model('Bad'), 'bad', { changelog: 'no' as unknown as boolean })).to.throw(AuthzConfigError, /changelog must be a boolean/);
+    expect(() => AccessResource('bad', null as unknown as { changelog?: boolean })).to.throw(AuthzConfigError, /options must be an object/);
+  });
 });

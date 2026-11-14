@@ -1,4 +1,4 @@
-import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver, ConcatExpression, SqlExpressions } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -40,6 +40,8 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * A statement that holds a live reference to a BUILDER must rebind that reference to the
  * builder it is handed. `SelectQueryBuilder.clone()` and `WhereBuilder.clone()` pass the new
  * builder to every statement they copy, precisely so the copies stop pointing at the original.
+ * `SelectQueryBuilder.clone()` passes none to a statement merged in from another builder ( a
+ * nested relation query ), which keeps reading that builder's alias.
  * Anything that reads `builder.TableAlias` at BUILD time and kept the original produced SQL
  * naming an alias the cloned query never declares.
  *
@@ -314,6 +316,7 @@ export class SqlWhereStatement extends WhereStatement {
  * `left <op> right` over two columns. Each side is qualified by its query's alias, or by the table
  * without one: in a correlated sub-query an unqualified name could bind to the inner table. An `outer()`
  * side is resolved at build time through the correlation source, which a clone's EXISTS / IN rebinds.
+ * A `concat()` right side joins its columns, qualified the same way, and its values bound in order.
  */
 @NewInstance()
 export class SqlColumnCompareStatement extends ColumnCompareStatement {
@@ -325,12 +328,30 @@ export class SqlColumnCompareStatement extends ColumnCompareStatement {
   }
 
   public build(): IQueryStatementResult {
-    const right = this._right instanceof OuterColumn ? this.side(this._right.Column, outerBuilder(this._builder, this._right.Levels)) : this.side(this._right, this._builder);
+    const right = this._right instanceof ConcatExpression ? this.concatenation(this._right) : { sql: this.operand(this._right), bindings: [] };
 
     return {
-      Bindings: [],
-      Statements: [`${this.side(this._left, this._builder)} ${this._operator.toUpperCase()} ${right}`],
+      Bindings: right.bindings,
+      Statements: [`${this.side(this._left, this._builder)} ${this._operator.toUpperCase()} ${right.sql}`],
     };
+  }
+
+  private operand(column: string | Wrap | OuterColumn): string {
+    return column instanceof OuterColumn ? this.side(column.Column, outerBuilder(this._builder, column.Levels)) : this.side(column, this._builder);
+  }
+
+  private concatenation(expression: ConcatExpression): { sql: string; bindings: unknown[] } {
+    const bindings: unknown[] = [];
+    const parts = expression.Parts.map((part) => {
+      if (part instanceof OuterColumn || part instanceof Wrap) {
+        return this.operand(part);
+      }
+
+      bindings.push(part);
+      return '?';
+    });
+
+    return { sql: this._builder.Container.resolve(SqlExpressions).concat(...parts), bindings };
   }
 
   private side(column: string | Wrap, builder: IWhereBuilder<any>): string {

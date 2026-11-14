@@ -1,14 +1,16 @@
-import { Class, ClassInfo } from '@spinajs/di';
+import type { Class, ClassInfo } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import type { OrmDriver } from './driver.js';
-import { OrmMigration } from './interfaces.js';
+import type { OrmMigration } from './interfaces.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
 import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
-import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import { DefaultMigrationService } from './migration-service.js';
+import type { IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 import type { ModelBase } from './model.js';
-import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
+import { recordSchemaTouches, runAsMigration, touchAllTables } from './schema-touches.js';
+import type { SchemaTouches } from './schema-touches.js';
 
 /**
  * Re-exported from `./symbols.js` ( a leaf module ) rather than defined here, so this module can
@@ -113,7 +115,11 @@ export class MigrationRunner {
    * result from a typo is indistinguishable from "already up to date", so the CLI would exit 0
    * reporting "0 migrations applied" and the operator would believe the schema is current.
    */
-  public async up(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
+  public up(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
+    return runAsMigration(() => this.runUp(name, options));
+  }
+
+  private async runUp(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
     const executed: OrmMigration[] = [];
     const opened = new Set<OrmDriver>();
     const touches: SchemaTouches = new Map();
@@ -209,7 +215,11 @@ export class MigrationRunner {
    * lies. Fixing it means giving `IMigrationDownOptions` an "only these" notion, i.e. reshaping the
    * service contract, so it is deliberately not done inside this facade.
    */
-  public async down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
+  public down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
+    return runAsMigration(() => this.runDown(name, options));
+  }
+
+  private async runDown(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
 
     for (const [driver, units] of this.plan(name, options?.force ?? true, options?.connection)) {

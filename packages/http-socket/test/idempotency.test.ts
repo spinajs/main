@@ -1,15 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
-import { Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Unauthenticated } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { BasePolicy } from '@spinajs/http';
 import { Command, Payload, Signal, SocketController, SocketPolicy } from '../src/decorators.js';
 import type { ISocketPolicyRequest } from '../src/policies.js';
 import { ELSEWHERE_RETRY_AFTER_MS, IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from '../src/idempotency.js';
-import type { IdempotentReply } from '../src/interfaces.js';
+import { MemoryIdempotencyStore as LeasedMemoryStore, idempotencyKey } from '@spinajs/idempotency';
+import { SocketPrincipalSource } from '../src/interfaces.js';
+import type { IdempotentReply, ISocketHandshake } from '../src/interfaces.js';
+import type { SocketConnection } from '../src/connection.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 
 export const idemRuns = new Map<string, number>();
@@ -139,6 +143,29 @@ export class IdempotencySocket extends BaseSocketController {
   }
 }
 
+const IDEM_USER: Principal = { type: 'user', id: 'idem-u1', authenticated: true, source: 'session', attributes: {} };
+
+/** The same user with less or borrowed authority: a scoped token, an admin impersonating them. */
+export class IdemNarrowedSource extends SocketPrincipalSource {
+  public readonly name = 'idem-narrowed';
+  public readonly order = 7;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    switch (handshake.auth.token) {
+      case 'idem-full':
+        return IDEM_USER;
+      case 'idem-scoped':
+        return { ...IDEM_USER, source: 'token', ceiling: { roles: ['viewer'] } };
+      case 'idem-impersonated':
+        return { ...IDEM_USER, authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(0), impersonator: { type: 'user', id: 'admin' } } };
+      default:
+        return null;
+    }
+  }
+}
+
+DI.register(IdemNarrowedSource).as(SocketPrincipalSource);
+
 /** Counts claims, so a test can see that the configured store class is the one in use. */
 @Injectable(IdempotencyStore)
 export class IdemCountingStore extends MemoryIdempotencyStore {
@@ -232,6 +259,22 @@ describe('socket idempotent commands', function () {
     }
 
     expect(idemRuns.get('s')).to.equal(3);
+  });
+
+  it("never replays the full session's reply to a scoped token or an impersonator of the same user and clientId", async () => {
+    const full = await connect('idem-authority', 'idem-full');
+    const first = resultOf(await command(full, 'idem.count', { tag: 'a' }, { idempotencyKey: 'k1' }));
+    full.close();
+
+    for (const token of ['idem-scoped', 'idem-impersonated']) {
+      const narrowed = await connect('idem-authority', token);
+      expect(resultOf(await command(narrowed, 'idem.count', { tag: 'a' }, { idempotencyKey: 'k1' }))).to.not.deep.equal(first);
+      narrowed.close();
+    }
+
+    const again = await connect('idem-authority', 'idem-full');
+    expect(resultOf(await command(again, 'idem.count', { tag: 'a' }, { idempotencyKey: 'k1' }))).to.deep.equal(first);
+    expect(idemRuns.get('a')).to.equal(3);
   });
 
   it('stores a final error and replays it with the same errorId', async () => {
@@ -450,6 +493,26 @@ describe('SocketIdempotency', () => {
     });
 
   type Claim = { claim: { settle(o: unknown): Promise<unknown> } };
+
+  it("scopes a restricted principal's keys by its authority and keeps an unrestricted principal's 4.0 and 3.x keys", () => {
+    const conn = (principal: Principal) => ({ principal, clientId: 'c1' }) as unknown as SocketConnection;
+    const leased = idempotency(new LeasedMemoryStore() as unknown as IdempotencyStore);
+    const legacy = idempotency(new MemoryIdempotencyStore());
+
+    const full = conn(IDEM_USER);
+    const restricted = [
+      { ...IDEM_USER, ceiling: { roles: ['viewer'] } },
+      { ...IDEM_USER, companions: [{ type: 'user', id: 'alice' }] },
+      { ...IDEM_USER, onBehalfOf: { ...IDEM_USER, id: 'idem-u2' } },
+    ].map(conn);
+
+    for (const idem of [leased, legacy]) {
+      const scopes = [full, ...restricted].map((c) => idem.scope(c, 'k'));
+      expect(new Set(scopes).size).to.equal(scopes.length);
+    }
+    expect(legacy.scope(full, 'k')).to.equal('user%3Aidem-u1:c1:k');
+    expect(leased.scope(full, 'k')).to.equal(idempotencyKey({ namespace: 'socket', principal: JSON.stringify(['user:idem-u1', 'c1']) }, 'k'));
+  });
   const live = () => new AbortController().signal;
 
   beforeEach(() => (logged = []));

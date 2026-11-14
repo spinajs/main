@@ -33,6 +33,7 @@ import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
 import { COOKIE_SECRET, TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 import { fakeContainer, setPastSchema } from '@spinajs/testing';
+import { mounted } from '../support/server-hooks.js';
 
 const PUBLIC_ORIGIN = 'https://api.example.test';
 
@@ -784,7 +785,7 @@ describe('AuthnMiddleware units', () => {
 
     async function run(mw: AuthnMiddleware, r: Request) {
       const res = fakeRes();
-      const handler = mw.before()!;
+      const handler = mounted(mw)!;
       const err = await new Promise<unknown>((done) => handler(r, res as never, (e?: unknown) => done(e)));
       return { err, res };
     }

@@ -1,6 +1,7 @@
 import { AuthorizationModel, AuthzClock, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FieldSet, IRCompileContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
+import type { IRFragment } from '@spinajs/authz-ir';
 import { Configuration } from '@spinajs/configuration';
 import { Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -24,6 +25,7 @@ import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/r
 import { SetsExtension } from './sets/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
+import { rbacToIR } from '../ir.js';
 
 export interface RbacModelOptions {
   readonly roles: RoleStore;
@@ -166,6 +168,12 @@ export class RbacModel extends AuthorizationModel {
     return this.grants;
   }
 
+  /** This model's part of the policy IR, from the roles and grants of `init` and the config rules. @throws AuthzConfigError before `init` */
+  toIR(_ctx: IRCompileContext): IRFragment {
+    const { config, db } = ruleStoreParts(this.opts.rules);
+    return rbacToIR(this.roleGraph(), this.grantIndex(), this.permissions(), { model: this.name, rules: config?.all() ?? [], storedRules: db !== undefined });
+  }
+
   applies(permission: PermissionDef, _type: ResourceType): boolean {
     const index = this.grantIndex();
     return index.granted(permission.name) || index.denied(permission.name);
@@ -304,6 +312,12 @@ export class RbacModel extends AuthorizationModel {
     // The other extensions add no subjects, and rules would ask the context for attributes the service cannot give.
     const extensions = this.extensions.filter((e) => e instanceof SetsExtension);
     return readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, { ...this.sources(), extensions });
+  }
+
+  /** Roles the config gives at GLOBAL without an assignment row (anonymousRoles, serviceRoles). */
+  configRoles(): ReadonlySet<string> {
+    const { anonymousRoles, serviceRoles } = this.state();
+    return new Set([...anonymousRoles, ...[...serviceRoles.values()].flat()]);
   }
 
   /** The link store of the options (share links). */

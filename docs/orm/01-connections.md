@@ -86,6 +86,7 @@ sequenceDiagram
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after its startup migrations, when a registered model on a configured connection has no table. Not checked when the cached `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). |
+| `db.Models.Source` | `'database' \| 'manifest'` | `'database'` | `'database'`, `'manifest'` | Where model columns come from at boot. `'manifest'` (with `system.manifest.mode = 'require'`) uses `app.manifest.json` and keeps `tableInfo()` for drift checks of declared columns only. See [Model columns from the manifest](23-manifest-model-source.md). |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 
 How each driver applies `Pool.*` and `Options` is driver-specific: see [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md) and [`@spinajs/orm-mssql`](../orm-mssql/README.md).
@@ -116,7 +117,7 @@ this.Config = _.merge(this.Config, {
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
-| `Orm` | Opens connections, registers models and migrations, applies the startup migrations, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `Migrator`, `StrictTableCheck`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
+| `Orm` | Opens connections, registers models and migrations, applies the startup migrations, reads table info, wires relations. Exposes `Connections`, `Models`, `Migrations`, `Migrator`, `StrictTableCheck`, `ColumnDrift`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. |
 | `OrmMigrator` | Applies the migrations and their `data()` seeds for the `Orm` that boots it. See [Migrations](10-migrations.md). | `OrmMigrator` | Not overridden. Pass `IOrmMigratorOptions` on first resolve, before the `Orm`. |
 | `OrmDriver` | One database connection: executes builders, opens transactions, creates query builders, probes health. | Dialect drivers: `SqliteOrmDriver`, `MySqlOrmDriver`, `MySqlSSHOrmDriver`, `MsSqlOrmDriver`, `PostgresOrmDriver` | Register a driver class under the token named in `db.Connections[].Driver`. |
 | `OrmConnection` | DI factory returning the driver stored under a name, or `null`. | Registered by `Orm.resolve()` | Not overridden. |
@@ -138,6 +139,7 @@ this.Config = _.merge(this.Config, {
 | `tableInfo(name, schema?)` | Abstract. Returns the table's `IColumnDescriptor[]`. `findColumn(columns, name)` from `@spinajs/orm` picks one: the exact name, else the only one equal ignoring case, with `Name` spelled as the table spells it. |
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
 | `now()` | A `RawQuery` holding the database's current instant, from the dialect's `NowExpression`: `where('ExpiresAt', '>', driver.now())`. See [Query builder](05-query-builder.md#filtering). |
+| `ago(amount, unit)` | `now()` less `amount` seconds, minutes, hours or days, as a `RawQuery` the database computes: `where('CreatedAt', '<', driver.ago(7, 'day'))`. From the dialect's `SqlExpressions.ago()`. See [Query builder](05-query-builder.md#filtering). |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
 | `lockTableShared(table)` | Keeps other writers off `table` until the transaction in scope ends; readers go on. Throws `InvalidOperation` outside a transaction, `NotSupported` on a driver that does not implement it. See [Transactions](08-transactions.md#shared-table-lock). |

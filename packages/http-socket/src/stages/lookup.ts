@@ -1,10 +1,10 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { SocketHandlerRegistry } from '../registry.js';
 
-@Injectable(SocketCommandStage)
-export class LookupStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class LookupStage extends SocketMiddleware {
   @Autoinject()
   protected Registry: SocketHandlerRegistry;
 
@@ -12,7 +12,7 @@ export class LookupStage extends SocketCommandStage {
     return STAGE_ORDER.Lookup;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public onBefore(ctx: ISocketCommandContext): void {
     const handler = this.Registry.command(ctx.request.name);
 
     if (!handler) {
@@ -25,6 +25,5 @@ export class LookupStage extends SocketCommandStage {
     if (timeoutMs !== undefined && timeoutMs > 0) {
       ctx.armDeadline(timeoutMs);
     }
-    return next();
   }
 }

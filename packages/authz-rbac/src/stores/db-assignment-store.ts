@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, changeLog, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
@@ -64,6 +64,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   constructor(protected readonly container: IContainer) {
     super();
+    changeLog().track('assignment');
   }
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
@@ -119,16 +120,19 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     }
 
     await bumpVersion(tx, this.domain(), where);
-    return rowToAssignment(row);
+    const assignment = rowToAssignment(row);
+    await this.logChanges([{ kind: 'assignment', op: existing ? 'put' : 'add', key: assignment.id, payload: assignment, actor: principalKey(actor) }]);
+    return assignment;
   }
 
   /** Unknown id ⇒ `AuthzAdminFailure('not_found')`. */
-  async revoke(id: string, _actor: PrincipalRef, tx: AuthzTx): Promise<void> {
+  async revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void> {
     const where = `${this.name}.revoke`;
     requireTransaction(AssignmentRecord, tx, where);
-    await requireRow(id);
+    const row = await requireRow(id);
     await AssignmentRecord.destroy().where('id', id);
     await bumpVersion(tx, this.domain(), where);
+    await this.logChanges([{ kind: 'assignment', op: 'remove', key: id, payload: rowToAssignment(row), actor: principalKey(actor) }]);
   }
 
   /** Replaces the tags (`assignment.setTags`); returns the updated assignment. */
@@ -139,7 +143,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const row = await requireRow(id);
     await AssignmentRecord.update({ tags: text }).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return rowToAssignment({ ...row, tags: text });
+    return this.logPut(rowToAssignment({ ...row, tags: text }));
   }
 
   /** Adds tags (`assignment.addTags`); returns the updated assignment. */
@@ -156,7 +160,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   /** `AdminAssignmentStore.update`: the tags and/or expiry given, in one write and one bump. */
-  async update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, _actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
+  async update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
     const where = `${this.name}.update`;
     requireTransaction(AssignmentRecord, tx, where);
     const change: { tags?: string; expires_at?: DateTime | null } = {};
@@ -166,7 +170,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const row = await requireRow(id);
     if (Object.keys(change).length > 0) await AssignmentRecord.update(recordValues<AssignmentRecord>(change)).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return rowToAssignment({ ...row, ...change });
+    return this.logPut(rowToAssignment({ ...row, ...change }), actor);
   }
 
   /** Sets or clears (`null`) the expiry (`assignment.setExpiry`); returns the updated assignment. */
@@ -177,7 +181,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const expires_at = toDateTime(expiresAt);
     await AssignmentRecord.update(recordValues<AssignmentRecord>({ expires_at })).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return rowToAssignment({ ...row, expires_at });
+    return this.logPut(rowToAssignment({ ...row, expires_at }));
   }
 
   /** Deletes the rows at `scope` matching `subject` and `role`, expired ones too (`assignment.revokeWhere`); returns them. */
@@ -283,7 +287,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
       if (RowsAffected > 0) {
         await bumpVersion(tx, this.domain(), where);
-        return rowToAssignment({ ...row, tags });
+        return this.logPut(rowToAssignment({ ...row, tags }));
       }
 
       if (attempt >= TAG_RETRIES) {
@@ -307,7 +311,14 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     }
 
     await bumpVersion(tx, this.domain(), where);
-    return rows.map(rowToAssignment);
+    const gone = rows.map(rowToAssignment);
+    await this.logChanges(gone.map((a) => ({ kind: 'assignment', op: 'remove', key: a.id, payload: a })));
+    return gone;
+  }
+
+  private async logPut(assignment: Assignment, actor?: PrincipalRef): Promise<Assignment> {
+    await this.logChanges([{ kind: 'assignment', op: 'put', key: assignment.id, payload: assignment, ...(actor ? { actor: principalKey(actor) } : {}) }]);
+    return assignment;
   }
 }
 

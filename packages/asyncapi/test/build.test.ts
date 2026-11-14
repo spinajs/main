@@ -27,6 +27,18 @@ describe('manifestToAsyncApi', () => {
     expect(rendered).to.equal(readFileSync(snapshotPath, 'utf8'));
   });
 
+  it('drops x-spinajs-type: the document equals the one built without it', () => {
+    const mark = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(mark);
+      if (typeof node !== 'object' || node === null) return node;
+      const copy = Object.fromEntries(Object.entries(node).map(([key, child]) => [key, mark(child)]));
+      return copy.type === 'string' ? { ...copy, 'x-spinajs-type': 'Decimal' } : copy;
+    };
+    const typed = { ...manifest, schemas: mark(manifest.schemas) as Manifest['schemas'] };
+    expect(JSON.stringify(typed.schemas)).to.include('"x-spinajs-type":"Decimal"');
+    expect(JSON.stringify(manifestToAsyncApi(typed, options))).to.equal(JSON.stringify(doc));
+  });
+
   it('is valid AsyncAPI 3.0', async () => {
     const { document, diagnostics } = await new Parser().parse(JSON.stringify(doc));
     expect(diagnostics.filter((d) => Number(d.severity) === Number(DiagnosticSeverity.Error))).to.deep.equal([]);
@@ -98,4 +110,18 @@ describe('manifestToAsyncApi', () => {
   it('stream frames match the socket wire protocol', () => {
     expect(doc.operations['chat.history.receive']['x-spinajs-stream-frames']).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.end, WIRE_EVENTS.fail]);
   });
+
+  it("marks the reply of a field-filtered command: optional properties with x-spina-fields (G16)", () => {
+    const m = structuredClone(manifest);
+    const history = m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!;
+    Object.assign(history, { access: ['chat:read'], fields: 'filter-rows' });
+    const out = manifestToAsyncApi(m, options);
+    expect((out.components.messages['chat.history.reply'] as { payload: unknown }).payload).to.deep.equal({
+      type: 'object',
+      properties: { id: { type: 'string', 'x-spina-fields': 'chat:read' }, text: { type: 'string', 'x-spina-fields': 'chat:read' } },
+      additionalProperties: false,
+    });
+    expect((out.components.schemas.ChatMessage as { required?: unknown }).required).to.deep.equal(['id', 'text']);
+  });
 });
+

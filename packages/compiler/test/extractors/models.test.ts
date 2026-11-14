@@ -19,16 +19,16 @@ describe('extractModels', () => {
   it('Post columns, relations, connection', () => {
     expect(post).to.deep.include({ id: 'pkg-basic:Post', connection: 'default', accessResource: true });
     expect(post.columns).to.deep.equal([
-      { name: 'Id', type: { text: 'number', schema: 'spinajs/pkg-basic/Post_Id' }, primary: true, nullable: false },
-      { name: 'Title', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Title' }, primary: false, nullable: false },
-      { name: 'Body', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Body' }, primary: false, nullable: true },
-      { name: 'PublishedAt', type: { text: 'Date', schema: 'spinajs/pkg-basic/Post_PublishedAt' }, primary: false, nullable: true },
+      { name: 'Id', type: { text: 'number', schema: 'spinajs/pkg-basic/Post_Id' }, primary: true, nullable: false, sql: { family: 'integer', autoIncrement: true, inferred: true } },
+      { name: 'Title', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Title' }, primary: false, nullable: false, sql: { family: 'text', inferred: true } },
+      { name: 'Body', type: { text: 'string', schema: 'spinajs/pkg-basic/Post_Body' }, primary: false, nullable: true, sql: { family: 'text', inferred: true } },
+      { name: 'PublishedAt', type: { text: 'Date', schema: 'spinajs/pkg-basic/Post_PublishedAt' }, primary: false, nullable: true, sql: { family: 'datetime', inferred: true } },
     ]);
     expect(post.relations).to.deep.equal([
-      { name: 'Owner', kind: 'belongsTo', target: 'User' },
-      { name: 'MainTag', kind: 'forwardBelongsTo', target: 'Tag' },
-      { name: 'Tags', kind: 'hasMany', target: 'Tag' },
-      { name: 'AllTags', kind: 'hasManyToMany', target: 'Tag' },
+      { name: 'Owner', kind: 'belongsTo', target: 'User', foreignKey: 'owner_id' },
+      { name: 'MainTag', kind: 'forwardBelongsTo', target: 'Tag', foreignKey: 'maintag_id' },
+      { name: 'Tags', kind: 'hasMany', target: 'Tag', foreignKey: 'post_id' },
+      { name: 'AllTags', kind: 'hasManyToMany', target: 'Tag', junction: { model: 'PostTag', sourceKey: 'post_id', targetKey: 'tag_id' } },
     ]);
   });
 });

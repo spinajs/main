@@ -1,0 +1,1 @@
+{ "name": "pkg-models-v2", "version": "1.0.0", "type": "module", "private": true, "main": "lib/index.js" }
