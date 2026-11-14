@@ -1,5 +1,6 @@
 /* eslint-disable prettier/prettier */
-import { ForwardRefFunction, RelationType } from './interfaces.js';
+import { ForwardRefFunction, IModelDescriptor, RelationType } from './interfaces.js';
+import { extractModelDescriptor } from './descriptor.js';
 import { ModelBase } from './model.js';
 import { Injectable, isConstructor } from '@spinajs/di';
 import { OneToManyRelationList, SingleRelation } from './relation-objects.js';
@@ -111,6 +112,23 @@ export class OneToManyRelationHydrator extends ModelHydrator {
   }
 }
 
+// A NULL belongsTo still arrives as a row of nulls, plus one nested row per relation populated
+// under it, so only those relation keys may recurse; any other non-null value is data.
+function isAbsentRelationRow(row: object, descriptor: IModelDescriptor | null): boolean {
+  return Object.entries(row).every(([name, value]) => {
+    if (value === null || value === undefined) {
+      return true;
+    }
+
+    const nested = descriptor?.Relations.get(name);
+    if (nested?.Type === RelationType.One && typeof value === 'object' && !(value instanceof ModelBase)) {
+      return isAbsentRelationRow(value, extractModelDescriptor(nested.TargetModel));
+    }
+
+    return false;
+  });
+}
+
 @Injectable(ModelHydrator)
 export class OneToOneRelationHydrator extends ModelHydrator {
   public hydrate(target: ModelBase, values: any): void {
@@ -136,9 +154,10 @@ export class OneToOneRelationHydrator extends ModelHydrator {
           continue;
         }
 
+        const targetModel = !isConstructor(val.TargetModel) ? (val.TargetModel as ForwardRefFunction)() : val.TargetModel;
         let tEntity = undefined;
-        if (!Object.values(values[key]).every((x) => x === null)) {
-          tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
+        if (!isAbsentRelationRow(values[key], extractModelDescriptor(targetModel))) {
+          tEntity = new targetModel();
           tEntity.hydrate(values[key]);
           (tEntity as any)['__relationKey__'] = key;
         }
