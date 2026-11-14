@@ -34,7 +34,7 @@ The result is the command's chain, kept as `handler.middlewares`. A middleware w
 | 300 | `InFlight` | `InFlightStage` | `onAround` | Holds one of `maxInFlightPerConnection` slots until the handler settles | `resource_exhausted`, `retryAfterMs: 100` |
 | 320 | `Ready` | `ReadyStage` | `onBefore` | Waits for the connection's connect hooks | the abort reason (deadline, cancel, disconnect) |
 | 350 | `Authentication` | `AuthenticationStage` | `onBefore` | `SocketPrincipalGuard.ensure()`; refreshes `Principal` and `AuthnPrincipal` in the store | `unauthenticated` |
-| 400 | `Lookup` | `LookupStage` | `onBefore` | Finds the handler, sets `ctx.handler`, arms `timeoutMs` | `unimplemented` |
+| 400 | `Lookup` | `LookupStage` | `onBefore` | Finds the handler, sets `ctx.handler`, arms `timeoutMs`, refuses a handler with no policy under `access.default: 'deny'` | `unimplemented`, `forbidden` (`no_policy`) |
 | 500 | `Idempotency` | `IdempotencyStage` | `onAround`, `onRegister` | Replays, joins or claims an `idempotencyKey`. On a claim it sets `drainGrace` and adds the claim as an outcome recorder. `onRegister` refuses streams of `idempotent` commands | see [Durable commands](12-durable-commands.md) |
 | 550 | `Ordering` | `OrderingStage` | `onAround`, `onRegister` | Serial queue for `ordered`, which records the outcome before it frees the place; the `after` fence. `onRegister` refuses streams of `ordered` commands | `unavailable` with `details.after` |
 | 600 | `Policies` | `PoliciesStage` | `onBefore` | `@SocketPolicy` and `@SocketAccess` through `SocketPolicyGate` | `unauthenticated`, `forbidden`, `invalid_argument` |
