@@ -1,3 +1,43 @@
+# Release notes — orm-sql: @DateTime matches numeric column types in any case
+
+## Breaking changes
+
+- `@spinajs/orm-sql`: `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` all attach
+  `DatetimeValueConverter`, which wrote Unix seconds into a numeric column only when the reported column type was spelled
+  exactly like an entry of a lower-case list. SQLite reports the type as declared, and the schema builder declares
+  `INTEGER`, `REAL` and `DECIMAL`, so on SQLite every such column received ISO text next to its integers. SQLite sorts all
+  text above all numbers, so `where('At', '>=', ...)`, `orderBy('At')` and the soft-delete and archive filters returned
+  wrong rows. The type is now compared in any case, without a `(...)` size and without `unsigned`, `signed` and
+  `zerofill`, and `real`, `numeric`, `double precision`, `big int`, `int2` / `int4` / `int8` and `float4` / `float8` count
+  as numeric. Columns that now receive Unix seconds:
+  - SQLite: `INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, `DECIMAL(10,0)`, `INTEGER UNSIGNED`, `BIGINT(20)`, `UNSIGNED BIG INT`,
+    `INT8`, `DOUBLE PRECISION` and the other numeric spellings, in any case, which received ISO text. `DATETIME`,
+    `TIMESTAMP` and `TEXT` columns keep ISO text.
+  - MSSQL: `numeric` and `real`.
+  - MySQL and PostgreSQL report type names that matched already; nothing changes there.
+
+  The timestamp decorators always write seconds. Reads accept both forms, but comparisons and ordering need one.
+  **Action needed:** on SQLite, convert the text rows of such a column once before upgrading, here column `At` of table
+  `t`. First list the text that `strftime` cannot read; fix or delete those rows by hand:
+
+  ```sql
+  SELECT Id, At FROM t WHERE typeof(At) = 'text' AND strftime('%s', At) IS NULL;
+  ```
+
+  Then convert:
+
+  ```sql
+  -- Unix seconds: the default, and what the timestamp decorators write
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+  ```
+
+  `'2026-11-13T23:26:44.654Z'` becomes `1794612404`, `'2026-11-13 23:26:46.001'` becomes `1794612406`; integer rows are
+  left alone. Without the `IS NOT NULL` guard, text that `strftime` cannot read becomes NULL in a nullable column, and in
+  a `NOT NULL` column the whole `UPDATE` fails and converts nothing.
+
+> Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm-sql/05-value-converters-and-defaults.md`,
+> `docs/orm-sqlite/04-schema-and-ddl.md`.
+
 # Release notes — orm-http: filter values are checked against the operator and the column
 
 ## Behaviour change
