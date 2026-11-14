@@ -124,14 +124,16 @@ describe('DataValidator boot cost', function () {
     expect(() => new EarlyAccess().strictBeforeResolve()).to.throw(InvalidOperation, /super\.resolve\(\)/);
   });
 
+  // `uniqueItemProperties` is DataValidator's own, defined up front so the install keeps it; `transform` marks ajv-keywords.
   it('installs no keyword plugin until a schema uses one', () => {
-    const plugin = () => addKeyword.getCalls().filter((c) => ['$merge', 'uniqueItemProperties'].includes((c.args[0] as { keyword?: string })?.keyword ?? '')).length;
+    const plugin = () => addKeyword.getCalls().filter((c) => ['$merge', 'transform'].includes((c.args[0] as { keyword?: string })?.keyword ?? '')).length;
     expect(plugin()).to.equal(0);
 
     const schema = { $id: 'boot.Unique', type: 'array', uniqueItemProperties: ['id'] };
     expect(validator.tryValidate(schema, [{ id: 1 }, { id: 1 }])[0]).to.equal(false);
     expect(validator.tryValidate(schema, [{ id: 1 }, { id: 2 }])[0]).to.equal(true);
     expect(plugin()).to.equal(2);
+    expect(validator.tryValidate(schema, [{ id: { a: 1 } }, { id: { valueOf: 1 } }])[0], 'the safe comparison survived the install').to.equal(true);
   });
 });
 

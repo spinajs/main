@@ -143,7 +143,7 @@ const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 interface Operation {
   operationId?: string;
   requestBody?: { content?: Record<string, { schema?: unknown } | undefined> };
-  responses: Record<string, { content: Record<string, { schema: unknown }> }>;
+  responses: Record<string, { content: Record<string, { schema: unknown }>; headers?: Record<string, unknown> }>;
 }
 
 interface Schema {
@@ -223,6 +223,19 @@ describe('OpenAPI document of the 3.0 authn routes', function () {
     expect(op('post /auth/login').responses['401'].content['application/json'].schema).to.deep.eq(ref('AuthnFailure'));
     expect(op('post /auth/active-role').responses['403'].content['application/json'].schema).to.deep.eq(ref('AuthnError'));
     expect(spec.components.schemas.AuthnUnauthorized.oneOf).to.deep.eq([ref('AuthnFailure'), ref('AuthnError')]);
+  });
+
+  it('documents the 429 of a rate-limited route as its marked AuthnError answer', () => {
+    const tooMany = op('post /auth/code/request').responses['429'];
+    expect(tooMany.content['application/json'].schema).to.deep.eq(ref('AuthnError'));
+    expect(Object.keys(tooMany.headers ?? {})).to.deep.eq(['Retry-After']);
+    expect(op('post /auth/code/request').responses['202'].headers).to.eq(undefined);
+  });
+
+  it('documents no 429 where the limit answers with the login failure', () => {
+    const { responses } = op('post /auth/login');
+    expect(responses['401'].content['application/json'].schema).to.deep.eq(ref('AuthnFailure'));
+    expect(responses['429']).to.eq(undefined);
   });
 
   it('matches the committed snapshot', () => {

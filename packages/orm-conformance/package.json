@@ -1,0 +1,44 @@
+{
+  "name": "@spinajs/orm-conformance",
+  "version": "3.0.23",
+  "private": true,
+  "description": "Differential ORM tests: one query corpus against sqlite, PGlite, PostgreSQL, MySQL and MSSQL",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/orm-conformance"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-mssql": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-pglite": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23",
+    "luxon": "^3.6.1"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.6.1",
+    "chai": "^4.3.7"
+  }
+}

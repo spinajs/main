@@ -4,6 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Post, Query } from '@spinajs/http';
 import { InvitationService } from '@spinajs/teams';
 import '../schemas/provider.js';
+import { TeamsRateLimit } from '../rate-limits.js';
 
 import { NO_STORE, done } from '../http/answers.js';
 import { guarded } from '../http/errors.js';
@@ -50,6 +51,7 @@ export class TeamInvitationsController extends BaseController {
    * @response 404 {TeamsError} not_found: the team or the group does not exist
    */
   @Post(':team/invitations')
+  @TeamsRateLimit('invite')
   @Access('team:invitations.manage', { resource: TEAM })
   public async create(@CurrentPrincipal() caller: Principal, @Param() team: string, @Body() body: CreateInvitationBody) {
     return guarded(async () => {
@@ -90,6 +92,7 @@ export class TeamInvitationsController extends BaseController {
    * @response 409 {TeamsError} invitation_expired, invitation_revoked or invitation_used_up
    */
   @Post(':team/invitations/:invitation/resend')
+  @TeamsRateLimit('resend')
   @Access('team:invitations.manage', { resource: TEAM })
   public async resend(@CurrentPrincipal() caller: Principal, @Param() team: string, @Param() invitation: string) {
     return guarded(async () => {

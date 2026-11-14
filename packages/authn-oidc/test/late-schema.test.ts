@@ -27,7 +27,7 @@ const APP_PROCESS = `
   DI.register(() => ({})).as(AuthnService);
   DI.register(() => ({})).as(SessionIssuer);
   const { OidcBeginQuery } = await import('./lib/dto.js');
-  const connection = { encrypted: false, peer: '127.0.0.1', clientIp: undefined };
+  const connection = { encrypted: false, peer: '127.0.0.1', clientIp: undefined, proxyTrust: { hops: 0 } };
   try {
     const controller = await DI.resolve(OidcController);
     const response = await controller.begin('corp', new OidcBeginQuery({}), null, connection);

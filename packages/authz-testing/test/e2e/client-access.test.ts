@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 
-import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00 } from '@spinajs/authz-orm';
+import { AccessResource, AuthzChangeLog_2026_11_04_00_00_00, AuthzResourceAncestor_2026_10_14_00_00_00 } from '@spinajs/authz-orm';
 import { TestDb } from './support/db.js';
 import { E2eAdminBackend } from './support/stack.js';
 // authz-http's own test app and header principal source (x-user: <id>). They load authz-http from its src, so this
@@ -56,7 +56,7 @@ async function startClientApp(): Promise<ClientAccessApp> {
   DI.setESMModuleSupport();
   const db = await TestDb.open();
   const driver = db.driver('sqlite');
-  for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+  for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzResourceAncestor_2026_10_14_00_00_00(), new AuthzChangeLog_2026_11_04_00_00_00()]) await m.up(driver);
   // The Orm read the table info before the tables existed.
   await db.orm.reloadTableInfo();
   Doc = (await db.define({ name: 'Doc', columns: {}, decorate: (m) => AccessResource('doc')(m) })) as never;

@@ -1,4 +1,4 @@
-import { Connection, Model } from '@spinajs/orm';
+import { Connection, Model, Sortable } from '@spinajs/orm';
 
 import { UserMetadataBase } from '@spinajs/users';
 import { Filterable } from '@spinajs/orm-http';
@@ -10,6 +10,10 @@ import { Filterable } from '@spinajs/orm-http';
 @Connection('default')
 @Model('users_metadata')
 export class FilterableUserMetadata extends UserMetadataBase {
+  @Sortable()
+  public Id: number;
+
+  @Sortable()
   @Filterable(['eq', 'like', 'b-like', 'e-like'])
   public get Key(): string {
     return super.Key;
@@ -23,6 +27,7 @@ export class FilterableUserMetadata extends UserMetadataBase {
     super.Key = value;
   }
 
+  @Sortable()
   @Filterable(['eq'])
   public Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
 }

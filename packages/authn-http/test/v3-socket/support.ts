@@ -14,6 +14,8 @@ export async function startSockets(revalidateMs: number): Promise<void> {
     throw new Error('http.socket is not configured: build packages/http-socket, whose lib/config holds its defaults');
   }
   cfg.set(['http', 'socket', 'auth', 'revalidateMs'], revalidateMs);
+  // the probes' `who` commands answer any caller; the policies under test sit on the other commands
+  cfg.set(['http', 'socket', 'access', 'default'], 'allow');
   await DI.resolve(SocketServer);
 }
 
@@ -33,6 +35,7 @@ export interface SocketOptions {
   origin?: string;
   /** sent as repeated `Authorization` header lines */
   repeatedAuthorization?: string[];
+  headers?: Record<string, string>;
 }
 
 const opened: ClientSocket[] = [];
@@ -40,7 +43,7 @@ let clients = 0;
 let ids = 0;
 
 export function socketTo(o: SocketOptions = {}): ClientSocket {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...o.headers };
   if (o.cookie) headers.cookie = `${cookieName()}=${encodeURIComponent(o.cookie)}`;
   if (o.origin) headers.origin = o.origin;
   // an array value makes Node write one header line per element

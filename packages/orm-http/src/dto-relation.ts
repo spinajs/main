@@ -79,6 +79,7 @@ export class RelationResolverHydrator extends ArgHydrator {
     // Enforce "every @Relation DTO must have a @Schema" once per class.
     assertDtoHasSchema(ctor);
 
+    // spinajs-orm-ignore ORM102: one lookup per @Relation field the DTO class declares, each against its own model
     await Promise.all(
       [...relDesc.Relations.values()].map(async (rel) => {
         const value = (dto as any)[rel.field];

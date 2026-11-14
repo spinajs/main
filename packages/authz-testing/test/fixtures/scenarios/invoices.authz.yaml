@@ -1,0 +1,41 @@
+name: impact summary 3.3
+ir_file: ../../../../authz-ir/test/fixtures/impact-3-3.ir.json
+columns:
+  - object: invoice:i1
+    model: Invoice
+    column: project_id
+    value: project:p1
+  - object: invoice:i1
+    model: Invoice
+    column: author_id
+    value: user:carl
+tuples:
+  - user: org:o1
+    relation: parent
+    object: project:p1
+  - user: user:ann
+    relation: accountant
+    object: org:o1
+  - user: user:carl
+    relation: clerk
+    object: $global:$global
+  - user: user:cleo
+    relation: clerk
+    object: $global:$global
+tests:
+  - name: roles reach down the scope chain, the clerk grant needs the owner
+    check:
+      - user: user:ann
+        object: invoice:i1
+        assertions:
+          invoice:read: true
+          invoice:approve: true
+      - user: user:carl
+        object: invoice:i1
+        assertions:
+          invoice:read: true
+          invoice:approve: false
+      - user: user:cleo
+        object: invoice:i1
+        assertions:
+          invoice:read: false

@@ -1,0 +1,27 @@
+# Spina Studio UI (packages/studio-ui) is built on ckit, which GitHub cannot reach: its scripts print SKIP there.
+# This job runs where ckit is available. CKIT_REPO is a CI variable set by the owner (clone URL with a read token).
+stages: [studio-ui]
+
+studio-ui:
+  stage: studio-ui
+  image: node:22
+  variables:
+    CKIT_PATH: $CI_PROJECT_DIR/.ckit
+  rules:
+    - changes:
+        - packages/studio-ui/**/*
+        - packages/studio/src/contracts/**/*
+        - scripts/link-ckit.mjs
+        - scripts/require-ckit.mjs
+        - .gitlab-ci.yml
+  script:
+    - git clone "$CKIT_REPO" "$CKIT_PATH"
+    - git -C "$CKIT_PATH" checkout "$(node -p "require('./packages/studio-ui/ckit.lock').commit")"
+    - (cd "$CKIT_PATH" && npm ci --ignore-scripts && npm run build)
+    - npm ci
+    - node node_modules/typescript-7/lib/tsc.js -b packages/studio/tsconfig.build.json
+    - npm run link:ckit
+    - npm run link:ckit -- --check
+    - npm run typecheck -w @spinajs/studio-ui
+    - npm test -w @spinajs/studio-ui
+    - npm run build -w @spinajs/studio-ui

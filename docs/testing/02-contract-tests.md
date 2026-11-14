@@ -17,8 +17,13 @@ const app = await createTestApp({
 
 ## What is checked
 
+Every reply the [reply pipeline](../http/14-route-middlewares.md#how-it-works) sends is checked once, after the last `onAfter`: the action's, an `@OnError` answer, the error map's, the answer of a route or server `onBefore`, a reply an `onAround` sends itself with `sendReply()`, an `@Idempotent` replay and the 404 of a request no route matched.
+
 - A JSON body against the schema its route declares for the status: `returnType.schema` for 2xx, the `doc.responses` entry of that status otherwise. The body goes through a JSON round trip first, so a `Date` is compared as the string the client receives. A body that cannot be serialized (a cycle, a `BigInt`) is recorded as a violation.
-- A problem document (`application/problem+json`) against `PROBLEM_DETAILS_SCHEMA`, on any route and on 404s no route answers. A broken problem is recorded, never turned into another response.
+- A problem document (`application/problem+json`) against `PROBLEM_DETAILS_SCHEMA`, on any route, on 404s no route answers and on server `onBefore` answers. A broken problem is recorded, never turned into another response.
+- A server middleware's answer sent after a route matched (a server `onAround` answering with `sendReply()` while the action runs) is held to that route's schema, like the route's own answers; a problem document is held to the problem schema only.
+- The error map's reply and the global error answer (`ErrorHandlerMiddleware.reply`) are not the route's own answers: they are checked as problem documents only, never against the route's schema. An `@OnError` answer is the route's, so it is.
+- A replay sends the stored bytes, which were checked when they were first sent. A replay whose body an `onAfter` changed is serialised again and checked.
 - Nothing else. Only `res.json` is observed, so files, streams, `sendFile`, HTML, empty bodies (204, redirects), routes or controllers the manifest does not know, and routes or statuses without a derived schema are not checked. A clean run means every JSON body that had a schema matched it, not that every response was verified.
 
 Schemas reach Ajv without their `x-*` keys. An `x-explicit: 'partial'` entry is documentation only (the runtime `@Schema` validates), so it accepts anything. A model from a dependency derives to an open object and accepts any object.

@@ -84,7 +84,7 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | --- | --- | --- |
 | `WhereStatement` | `where(column, [operator,] value)`, `whereNull`, `whereNotNull`, `whereNot` | `column`, `operator`, `value`, owning `WhereBuilder` |
 | `WhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | nested `WhereBuilder`, `not` (`true` for `whereNot`). `WhereQueryStatement.isGroup(statement)` recognizes one by a `Symbol.for` brand, also across two loaded copies of the ORM. |
-| `ColumnCompareStatement` | `whereColumn(left, operator, right)` | `left`, `operator`, `right` (a column, a `Wrap` or an `OuterColumn` from `outer()`), owning `WhereBuilder` |
+| `ColumnCompareStatement` | `whereColumn(left, operator, right)` | `left`, `operator`, `right` (a column, a `Wrap`, an `OuterColumn` from `outer()` or a `ConcatExpression` from `concat()`), owning `WhereBuilder` |
 | `RawQueryStatement` | `where(RawQuery)`, `where(boolean)` | `query`, `bindings` |
 | `LazyQueryStatement` | `where(Lazy)` | `callback`, `context` |
 | `InStatement` | `whereIn` / `whereNotIn` with an array | `column`, `values`, `not`, owning builder |
@@ -191,6 +191,7 @@ Point a connection at it with `Driver: 'orm-driver-sqlite-nulls-last'`. Other co
 - An array from `toDB()` (multi-statement DDL) is sent one `executeOnDb` per statement, each awaited before the next.
 - No dialect is a fallback for another: `IdentifierQuoter`, `LiteralQuoter`, `ServerResponseMapper` and `TableExistsCompiler` have no default registration, so a missing one fails on first use instead of emitting another dialect's SQL.
 - `QueryContext.Transaction` is set by drivers for their own `BEGIN` / `COMMIT` statements; builders never use it.
+- `@spinajs/orm` has no runtime import cycle, and CI keeps it that way: dependency-cruiser's `no-circular` rule (`npm run deps`) plus `scripts/check-orm-cycles.mjs`, which fails when the known-violations baseline lists an orm cycle again. `SelectQueryBuilder.populate()` finds the relation classes through a registry that `relations.ts` fills when it loads, so import the package entry (`@spinajs/orm`), not single files of it.
 
 ## Best practices
 

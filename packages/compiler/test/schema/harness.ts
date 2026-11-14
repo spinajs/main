@@ -7,7 +7,8 @@ import { deriveSchema, DeriveOptions, DeriveResult, JsonSchema } from '../../src
 const FIXTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'schema');
 let program: ts.Program | undefined;
 
-function fixture(): { checker: ts.TypeChecker; file: ts.SourceFile } {
+/** Builds the fixture program once; a suite calls it in `before()` so no single test pays for the build. */
+export function fixture(): { checker: ts.TypeChecker; file: ts.SourceFile } {
   program ??= createProgramFromTsconfig(path.join(FIXTURE_DIR, 'tsconfig.json')).program;
   const file = program.getSourceFile(path.join(FIXTURE_DIR, 'types.ts'));
   if (!file) throw new Error('fixture types.ts not in program');

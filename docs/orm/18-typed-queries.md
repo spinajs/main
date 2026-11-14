@@ -1,0 +1,110 @@
+# Typed queries
+
+The query builder knows the columns of the model it queries. Loose mode, the default, suggests column names in the editor and accepts any string. Strict mode, which is opt-in per package, rejects unknown columns and values of the wrong type at compile time.
+
+## Turn on strict mode
+
+Add one file to your package's `src/`, for example `src/orm-strict.d.ts`:
+
+```ts
+export {};
+
+declare module '@spinajs/orm' {
+  interface OrmTypeRegistry {
+    strictColumns: true;
+  }
+}
+```
+
+It is a declaration file, so `tsc` never copies it to `lib/`. Your package's consumers keep their own mode. The setting applies to every file of the TypeScript program that contains it: `tsconfig.build.json` (the build), and `tsconfig.json` (the editor and eslint, including your tests).
+
+## What strict mode checks
+
+| Call | Accepted column | Value |
+| --- | --- | --- |
+| `where`, `orWhere`, `andWhere` | a column of the model, a relation (`where('Owner', 5)` compares its foreign key), `Relation.column` | the column's TS type, an array of it, `null` or a `RawQuery`; a `DateTime` column also takes a `Date` |
+| `whereIn`, `whereNull`, `whereBetween`, `whereColumn`, ... | a column, a literal `table.column`, a `Wrap` where it was accepted before | unchecked |
+| `select`, `columns`, `orderBy`, `order`, `groupBy`, `min`, `max`, `count`, `sum`, `avg`, `increment` | a column, a literal `table.column` | n/a |
+
+A column is a property the model class declares that is not a function or a relation. Members of `ModelBase` (`PrimaryKeyValue`, `IsDirty`, ...) are not columns. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`), and a model that declares no columns, accept any name in both modes.
+
+The model statics are typed the same way: `User.where('Email', x)`, `User.where('Id', '>', x)` and `User.where({ Email: x })` check the column and the value like the builder's `where`, and the builder passed to `User.first(cb)`, `last`, `newest`, `oldest` and `count` is typed with the model instance.
+
+## Columns the type cannot see
+
+Strict mode has no unchecked cast. Declare the column on the model when the model owns it. For a column the model does not declare (one another package added to the table) or a column of a joined table, qualify it with the table. A literal `table.column` (or a union of such literals) is accepted without a check against the model.
+
+```ts
+await User.query().where('users.EmailVerifiedAt', null);
+```
+
+The qualified name has to be a literal. A template that leaves part of the name open, such as `` `users.${input}` `` or `` `${alias}.Id` ``, has a type like `` `users.${string}` `` and is rejected in strict mode, the same as a plain `string`: it could name any column.
+
+```ts
+await User.query().orderBy(`users.${input}`); // error in strict mode
+```
+
+A name computed at runtime, such as a sort column from a request, must be narrowed to `ColumnName<User>` before it reaches the builder: check it against a list of the allowed columns typed `ColumnName<User>[]`. A plain `string` is rejected. A `ColumnName<M>` of a generic `M` passes through to a builder of `M`.
+
+```ts
+import type { ColumnName } from '@spinajs/orm';
+
+const SORTABLE: ColumnName<User>[] = ['Email', 'CreatedAt'];
+const isSortable = (name: string): name is ColumnName<User> => (SORTABLE as string[]).includes(name);
+
+if (isSortable(input)) await User.query().orderBy(input);
+```
+
+## Result types
+
+### `populate()` (both modes)
+
+`populate('Relation')` with a literal relation name narrows the result: a to-one relation has `Populated: true` and a `Value` typed as the related model, and a to-many relation has `Populated: true`. `populate('a.b')` narrows `a`. The callback's `this` is a query on the related model.
+
+How far `Value` narrows depends on how the model declares the relation. A required property (`Team: SingleRelation<Team>`) says the model guarantees the row, so `Value` is `Team`. An optional property (`Owner?: SingleRelation<User>`), or one typed `SingleRelation<User> | undefined` or `| null`, allows a missing row, and a missing row leaves `Value` undefined (the LEFT JOIN finds nothing), so `Value` is `User | undefined`.
+
+```ts
+const user = await User.where('Id', 1).populate('Team').populate('Owner').first();
+user.Team.Value.Name; // Team, not Team | null | undefined
+user.Owner.Value?.Name; // User | undefined: the row may be missing
+```
+
+The narrowing only adds to the type, so code that compiled before still compiles. A relation name held in an array, an object or a model class populates as before, without narrowing; so does a name held in a `string` in loose mode.
+
+In strict mode every relation name is checked: a literal, each element of an array and each key of the object form must be a relation of the model. For `'Relation.nested'`, only the first segment is checked. A `string` or `string[]` is rejected: narrow a name computed at runtime to `RelationName<User>` first, the same way as a column above.
+
+```ts
+import type { RelationName } from '@spinajs/orm';
+
+const include: RelationName<User>[] = ['Metadata'];
+await User.query().populate(include);
+```
+
+### Projections and aggregates (strict mode)
+
+In strict mode the row type follows the select list:
+
+| Call | Row |
+| --- | --- |
+| `select('Id')` | `{ Id }`; further `select(...)` calls add to it |
+| `select('Email', 'Mail')` | adds `{ Mail: string }` |
+| `columns(['Id', 'Email'])` | `{ Id, Email }`, replacing earlier selects |
+| `count()`, `count('Id')` | `{ count: AggregateValue }`, replacing the select list |
+| `count('Id', 'total')` | `{ total: AggregateValue }` |
+| `min/max('Id', 'top')` | adds `{ top: <column type> \| null }`; a `DateTime` or `Date` column gives `Date \| string \| number \| null` |
+| `sum/avg('Id', 's')` | adds `{ s: AggregateValue \| null }` |
+| `select('*')`, `select(raw)`, an aggregate without alias, an alias held in a `string` | unchanged |
+
+`AggregateValue` is `number | string`: postgres returns COUNT, and SUM/AVG of exact numbers, as strings, and no converter runs on an alias. Convert it with `Number(...)` where you need a number. For the same reason `min`/`max` of a date column return the driver's raw value, not a luxon `DateTime`. `MIN`, `MAX`, `SUM` and `AVG` over zero rows return `NULL`, so their aliases include `null`; `COUNT` never does.
+
+`where` (including its object form), `orderBy` and the rest keep accepting every column of the model after a projection. A builder without a model (`driver.select()`, `ISelectQueryBuilder<any>`) is never narrowed and keeps its own type. Loose mode never narrows a projection, because loose code reads unselected fields of hydrated models.
+
+## Important behaviour
+
+- Loose mode changes nothing at runtime and rejects nothing that compiled before, with one exception: a `first`, `last`, `newest`, `oldest` or `count` callback annotated with the class type (`User.first((b: IWhereBuilder<typeof User>) => ...)`) no longer compiles. Annotate it with the model instance, `IWhereBuilder<User>`, or leave the parameter unannotated.
+- Strict mode is types only: the same SQL runs either way.
+- A non-literal string column (`where(name, value)` with `name: string`, or a template such as `` `t.${name}` ``) is an error in strict mode. Type the variable as a union of the columns it can hold (`ColumnName<Model>`), or as a union of literal qualified names (`'t.Id' | 't.Name'`).
+- Strict projection on a builder of a generic model `M`: the projected type stays unresolved, so a column method (`where`, `orderBy`, `whereIn`, ...) called after `select`, `columns` or an aggregate does not compile. Call the column methods before the projection.
+- Strict projection: call a query scope declared with `this: ISelectQueryBuilder<Model[]>` **before** `select`, `columns` or an aggregate, because the projected builder no longer is an `ISelectQueryBuilder<Model[]>`.
+- Call query scopes **before** `populate()`. A scope declared with `this: ISelectQueryBuilder<Model[]>` after a populate makes TypeScript compare the narrowed builder with the whole `ISelectQueryBuilder<Model[]>`: about 20,000 type instantiations per model and relation set, against about 1,000 the other way round.
+- Strict projection: an exported function that returns a projected builder or row needs an explicit return type. Declaration files keep the narrowing types unevaluated, and a loose consumer would read them as the full model.

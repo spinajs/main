@@ -27,6 +27,8 @@ export interface DomainConfig {
   readonly audit: { readonly denials: boolean; readonly runAs: boolean; readonly unscoped: boolean; readonly service?: string };
   readonly bus: { readonly service?: string };
   readonly principals: { readonly anonymousEnabled: boolean };
+  /** Root-level only: every domain logs to the same sink. `captureInputs` unset: on outside production. */
+  readonly decisionLog: { readonly mode: 'off' | 'deny' | 'sampled' | 'all'; readonly allowSampleRate: number; readonly captureInputs?: boolean; readonly service?: string; readonly batch: { readonly size: number; readonly flushMs: number } };
 }
 
 /** The value at `path` in `tree`, by own properties only: a domain named 'constructor' must not resolve through the prototype. */
@@ -79,6 +81,8 @@ export function readDomainConfig(tree: unknown, lineage: readonly string[]): Dom
   const combine = nearest === undefined ? DEFAULT_COMBINE : (clone(configAt(nearest, ['combine'])) as CombineConfig);
 
   const busService = configAt(tree, ['bus', 'service']) as string | undefined;
+  const decisionLog = { ...AUTHZ_DEFAULTS.decisionLog, ...clone(configAt(tree, ['decisionLog']) ?? {}) };
+  const batch = { ...AUTHZ_DEFAULTS.decisionLog.batch, ...clone(configAt(tree, ['decisionLog', 'batch']) ?? {}) };
   const anonymous = configAt(tree, ['principals', 'anonymous', 'enabled']) as boolean | undefined;
   const parent = levels.length > 1 ? (configAt(own, ['parent']) as string | undefined) : undefined;
   const models = configAt(own, ['models']) as string[] | undefined;
@@ -96,6 +100,7 @@ export function readDomainConfig(tree: unknown, lineage: readonly string[]): Dom
     audit,
     bus: busService === undefined ? {} : { service: busService },
     principals: { anonymousEnabled: anonymous ?? AUTHZ_DEFAULTS.principals.anonymous.enabled },
+    decisionLog: { ...decisionLog, batch },
   };
   return deepFreeze(result);
 }

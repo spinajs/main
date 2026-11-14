@@ -1,0 +1,67 @@
+{
+  "name": "@spinajs/studio",
+  "version": "3.0.23",
+  "description": "Spina Studio server: a guarded local and staging API over traces, logs, the DI graph, routes and authz",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./contracts": {
+      "types": "./lib/contracts/index.d.ts",
+      "import": "./lib/contracts/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha --exit -p tsconfig.json \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/studio"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "dependencies": {
+    "@spinajs/authz": "3.0.23",
+    "@spinajs/authz-http": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/configuration-common": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/manifest": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.23",
+    "@spinajs/fs": "3.0.23",
+    "express": "^5.1.0"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

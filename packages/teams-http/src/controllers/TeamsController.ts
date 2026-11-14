@@ -5,6 +5,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query } from '@spinajs/http';
 import { TeamService } from '@spinajs/teams';
 import '../schemas/provider.js';
+import { TeamsRateLimit } from '../rate-limits.js';
 
 import { done } from '../http/answers.js';
 import { guarded } from '../http/errors.js';
@@ -56,6 +57,7 @@ export class TeamsController extends BaseController {
    * @response 409 {TeamsError} conflict: the slug is taken
    */
   @Post('/')
+  @TeamsRateLimit('create')
   @Access('team:create', { resource: PARENT_TEAM })
   public async create(@CurrentPrincipal() caller: Principal, @Body() body: CreateTeamBody) {
     return guarded(async () => new Ok(await this.Teams.createTeam(caller, definedOnly({ slug: body.slug, name: body.name, description: body.description, parentId: body.parentId }))));

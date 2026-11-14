@@ -11,6 +11,8 @@ export interface AccessMarks {
   readonly env?: Readonly<Record<string, unknown>>;
   readonly unscoped?: string;
   readonly withAccess?: readonly Permission[];
+  /** `.withFields()`: the permission whose field set each row gets. */
+  readonly withFields?: Permission;
   /** `.within()` calls: the refs of one call are OR-ed, the calls are AND-ed. */
   readonly within?: readonly (readonly ResourceRef[])[];
 }
