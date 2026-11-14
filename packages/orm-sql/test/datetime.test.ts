@@ -98,4 +98,36 @@ describe('datetime converters on a numeric column', () => {
     expect(c.fromDB(1794612404)!.toMillis()).to.equal(1794612404000);
     expect(c.toDB(1794612404, undefined, column('INTEGER'))).to.equal(1794612404);
   });
+
+  it('keeps milliseconds when the column asks for them', () => {
+    const options = { unit: 'milliseconds' as const };
+    const written = c.toDB(at, undefined, column('INTEGER'), options);
+    expect(written).to.equal(1794612404654);
+    expect(c.fromDB(written, undefined, options)!.toMillis()).to.equal(1794612404654);
+    expect(new SqlDatetimeValueConverter().toDB(at, undefined, column('bigint'), options)).to.equal(1794612404654);
+  });
+
+  it('writes whole milliseconds for an instant with a fraction of a millisecond', () => {
+    const options = { unit: 'milliseconds' as const };
+    expect(c.toDB(DateTime.fromSeconds(1794612404.6547), undefined, column('INTEGER'), options)).to.equal(1794612404654);
+    expect(c.toDB(DateTime.fromMillis(1794612404654.7), undefined, column('int8'), options)).to.equal(1794612404654);
+    expect(c.toDB(1794612404654.7, undefined, column('INTEGER'), options)).to.equal(1794612404654);
+  });
+
+  it('reads a number given to a milliseconds column as milliseconds', () => {
+    expect(c.toDB(1794612404654, undefined, column('INTEGER'), { unit: 'milliseconds' })).to.equal(1794612404654);
+    expect(c.toDB(1794612404654, undefined, column('INTEGER'), { unit: 'milliseconds' }, {})).to.equal('2026-11-13T23:26:44.654Z');
+    expect(c.toDB(1794612404654, undefined, column('TEXT'), { unit: 'milliseconds' })).to.equal('2026-11-13T23:26:44.654Z');
+  });
+
+  it('reads integer text, as pg int8 and MSSQL bigint arrive, in the declared unit', () => {
+    expect(c.fromDB('1794612404654', undefined, { unit: 'milliseconds' })!.toMillis()).to.equal(1794612404654);
+    expect(c.fromDB('1794612404')!.toMillis()).to.equal(1794612404000);
+    expect(c.fromDB('1794612404.654')!.toMillis()).to.equal(1794612404654);
+  });
+
+  it('writes text to a text column and dehydrates as ISO 8601 under the milliseconds unit', () => {
+    expect(c.toDB(at, undefined, column('TEXT'), { unit: 'milliseconds' })).to.equal('2026-11-13T23:26:44.654Z');
+    expect(c.toDB(at, undefined, column('INTEGER'), { unit: 'milliseconds' }, {})).to.equal('2026-11-13T23:26:44.654Z');
+  });
 });

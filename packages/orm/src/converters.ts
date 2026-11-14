@@ -5,17 +5,31 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
+/** How a datetime stored in a numeric column counts from the Unix epoch. */
+export type DateTimeUnit = 'seconds' | 'milliseconds';
+
+/** Options of the datetime converters, set by `@DateTime({ unit })`. */
+export interface IDateTimeConverterOptions {
+  unit?: DateTimeUnit;
+}
+
 /** Options of the boolean converters, set by `@Bool({ nullable })`. */
 export interface IBoolConverterOptions {
   /** Keep NULL as `null` in both directions instead of coercing it to `false` / `0`. */
   nullable?: boolean;
 }
 
+const EPOCH_TEXT = /^-?\d+(\.\d+)?$/;
+
+function fromEpoch(value: number, unit: DateTimeUnit): DateTime {
+  return unit === 'milliseconds' ? DateTime.fromMillis(value, { zone: 'utc' }) : DateTime.fromSeconds(value, { zone: 'utc' });
+}
+
 /**
  * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value or
- * an invalid date. Text without an offset is read as UTC, a number as unix seconds.
+ * an invalid date. Text without an offset is read as UTC, a number as `unit` since the epoch.
  */
-export function toInstant(value: unknown, column?: string): DateTime | null {
+export function toInstant(value: unknown, column?: string, unit: DateTimeUnit = 'seconds'): DateTime | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
@@ -26,7 +40,7 @@ export function toInstant(value: unknown, column?: string): DateTime | null {
   } else if (value instanceof Date) {
     dt = DateTime.fromJSDate(value);
   } else if (typeof value === 'number') {
-    dt = DateTime.fromSeconds(value);
+    dt = fromEpoch(value, unit);
   } else if (typeof value === 'string') {
     dt = DateTime.fromISO(value, { zone: 'utc' });
     if (!dt.isValid) {
@@ -43,10 +57,10 @@ export function toInstant(value: unknown, column?: string): DateTime | null {
 }
 
 /**
- * Reads a driver's datetime value (Date, DateTime, ISO or SQL text, unix seconds) as a DateTime in UTC; null for no
- * value and for one that is not a valid datetime.
+ * Reads a driver's datetime value (Date, DateTime, ISO or SQL text, a number of `unit` since the epoch) as a DateTime
+ * in UTC; null for no value and for one that is not a valid datetime.
  */
-export function instantFromDb(value: unknown): DateTime | null {
+export function instantFromDb(value: unknown, unit: DateTimeUnit = 'seconds'): DateTime | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
@@ -57,13 +71,17 @@ export function instantFromDb(value: unknown): DateTime | null {
   } else if (value instanceof Date) {
     dt = DateTime.fromJSDate(value, { zone: 'utc' });
   } else if (typeof value === 'number') {
-    dt = DateTime.fromSeconds(value, { zone: 'utc' });
+    dt = fromEpoch(value, unit);
   } else {
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the driver value may be any type; whatever is not text parses as invalid
     const text = String(value);
     dt = DateTime.fromISO(text, { zone: 'utc' });
     if (!dt.isValid) {
       dt = DateTime.fromSQL(text, { zone: 'utc' });
+    }
+    // pg int8, MSSQL bigint and mysql2 decimal arrive as text; ISO first, so an ISO basic date (20261019) stays a date
+    if (!dt.isValid && EPOCH_TEXT.test(text)) {
+      dt = fromEpoch(Number(text), unit);
     }
   }
 

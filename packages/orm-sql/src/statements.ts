@@ -305,7 +305,7 @@ export class SqlWhereStatement extends WhereStatement {
           }
         }
 
-        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : value;
+        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, dsc?.Converters.get(this._column as string)?.Options ?? null) : value;
       }
     }
 
