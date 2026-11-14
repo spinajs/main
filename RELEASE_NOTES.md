@@ -1,3 +1,13 @@
+# Release notes — orm: a NULL belongs-to stays empty under a nested populate
+
+## Fixes
+
+- `@spinajs/orm`: a belongs-to whose foreign key is NULL is now empty (`Value` is `undefined`, `Populated` is `true`) also
+  when a relation is populated under it: `populate('Plan.Forecast')`, or three levels such as `populate('B.C.D')`. Before,
+  the nested populate made the hydrator build a model whose every column was null, so "is there a plan?" answered yes. A
+  belongs-to row whose values are all `null` or `undefined` counts as absent; before, only `null` did, so `hydrate()` with
+  a hand-built `{ B: { Name: undefined } }` built a `B` model and now leaves `B` empty.
+
 # Release notes — orm: OrmException prints its message
 
 ## Fixes
