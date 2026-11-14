@@ -1,3 +1,25 @@
+# Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
+
+## Behaviour change
+
+- `@spinajs/orm-sql`: a value bound against a column without a declared converter is converted the same way in
+  `where()`, `whereIn()` / `whereNotIn()` and BETWEEN: by the value's class, which now also sees the model's column in
+  `whereIn()` and BETWEEN. Before, a `Date` or `DateTime` bound against an undecorated numeric column was written as Unix
+  seconds by `where()` on MySQL, PostgreSQL and MSSQL (except MSSQL `numeric` and `real`), but as datetime text by
+  `whereIn()` and BETWEEN, so `whereIn('At', [dt])` found no row and BETWEEN compared text with numbers. On SQLite all
+  three wrote text, because the declared type was not recognised as numeric (see "orm-sqlite: @DateTime writes Unix
+  seconds into a numeric column" below). All three now bind Unix seconds against a numeric column: on SQLite `INTEGER`,
+  `REAL`, `NUMERIC` and the other numeric spellings, on MySQL and MSSQL the integer, `decimal`, `float` and `double`
+  types (still not MSSQL `numeric` and `real`), on PostgreSQL `int2` .. `int8`, `numeric`, `float4` and `float8`.
+  Against any other column they bind the dialect's datetime text, as `where()` did; on PostgreSQL
+  a `DateTime` against a `date` column binds the calendar day in all three. Checked on SQLite and in compiled
+  MySQL-dialect SQL; MySQL, PostgreSQL and MSSQL were not run against a server. `where('Flag', false)` on a column
+  without a converter now binds `0`, as `true` bound `1` and `whereIn()` did. A wrapped column (`Wrapper.Date(...)`)
+  keeps its handling.
+
+> Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm/05-query-builder.md`, `docs/orm-sql/03-statements.md`,
+> `docs/orm-sqlite/06-query-dialect.md`.
+
 # Release notes — orm, orm-sql, orm-mysql, orm-postgres: @DateTime({ unit: 'milliseconds' })
 
 ## New
