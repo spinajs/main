@@ -54,6 +54,20 @@ module.exports = {
       to: { path: ['^packages/(authn|authz|users)[^/]*/', '(^|/)node_modules/@spinajs/(authn|authz|users)[^/]*/'] },
     },
     {
+      name: 'client-runtime-self-contained',
+      severity: 'error',
+      comment: '@spinajs/client/runtime runs in browser bundles: no npm packages, no Node built-ins; only @spinajs/client/formats from the rest of the package.',
+      from: { path: '^packages/client/src/runtime/' },
+      to: { pathNot: ['^packages/client/src/runtime/', '^packages/client/src/formats/'] },
+    },
+    {
+      name: 'client-formats-leaf',
+      severity: 'error',
+      comment: '@spinajs/client/formats runs in browser bundles and imports nothing outside its own folder.',
+      from: { path: '^packages/client/src/formats/' },
+      to: { pathNot: '^packages/client/src/formats/' },
+    },
+    {
       name: 'no-deprecated-core',
       severity: 'warn',
       from: {},

@@ -46,12 +46,17 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-/** Maps manifest schemas to TypeScript type expressions and records which named schemas the output references. */
+/**
+ * Maps manifest schemas to TypeScript type expressions and records which named schemas the output references.
+ *
+ * @internal
+ */
 export class TypeContext {
-  public readonly used = new Set<string>();
+  private readonly referenced = new Set<string>();
   /** Some route or command returns `Redacted<…>`, which the generated file then imports from the runtime. */
   public usesRedacted = false;
   private readonly names = new Map<string, string>();
+  private sealed = false;
 
   constructor(public readonly manifest: Manifest) {
     const bySegment = new Map<string, string[]>();
@@ -80,9 +85,19 @@ export class TypeContext {
     return isSchema(schema) ? schema : undefined;
   }
 
+  public get used(): ReadonlySet<string> {
+    return this.referenced;
+  }
+
+  /** After this, referencing a schema outside `used` throws: every emitter must print from the same schema set. */
+  public seal(): void {
+    this.sealed = true;
+  }
+
   public reference(id: string): string {
     if (!this.schemaOf(id)) return 'unknown';
-    this.used.add(id);
+    if (this.sealed && !this.referenced.has(id)) throw new Error(`generateClient: schema '${id}' is outside the client model; buildClientModel must resolve it`);
+    this.referenced.add(id);
     return this.nameOf(id);
   }
 
