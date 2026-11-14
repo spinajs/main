@@ -1,3 +1,4 @@
+import { buildReplayMap, type JournalRecord } from '@spinajs/durable';
 import type { StepStatus } from '../contract.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import type { RunModel } from '../models/RunModel.js';
@@ -21,34 +22,15 @@ export interface StepRecord {
 export function buildResumeMap(rows: StepRecord[], fromStep?: string): Map<string, unknown> {
   const sorted = [...rows].sort((a, b) => a.Attempt - b.Attempt || a.Seq - b.Seq);
   const counters = new Map<number, Map<string, number>>();
-  const keyed = sorted.map((row) => {
+  const records = sorted.map((row): JournalRecord => {
     const c = counters.get(row.Attempt) ?? new Map<string, number>();
     counters.set(row.Attempt, c);
     const n = (c.get(row.Name) ?? 0) + 1;
     c.set(row.Name, n);
-    return { key: `${row.Name}#${n}`, row };
+    return { key: `${row.Name}#${n}`, status: row.Status, result: row.Result, resultStored: row.ResultStored, attempt: row.Attempt, seq: row.Seq };
   });
-
-  let excluded = new Set<string>();
-  if (fromStep !== undefined) {
-    const attempts = [...new Set(sorted.map((r) => r.Attempt))].reverse();
-    for (const a of attempts) {
-      const inAttempt = keyed.filter((x) => x.row.Attempt === a);
-      const idx = inAttempt.findIndex((x) => x.row.Name === fromStep);
-      if (idx >= 0) {
-        excluded = new Set(inAttempt.slice(idx).map((x) => x.key));
-        break;
-      }
-    }
-  }
-
-  const map = new Map<string, unknown>();
-  for (const { key, row } of keyed) {
-    if (excluded.has(key)) continue;
-    if ((row.Status === 'succeeded' || row.Status === 'skipped') && row.ResultStored !== false)
-      map.set(key, row.Result);
-  }
-  return map;
+  // the first run of a step name within an attempt is always occurrence 1
+  return buildReplayMap(records, fromStep === undefined ? undefined : `${fromStep}#1`);
 }
 
 /**

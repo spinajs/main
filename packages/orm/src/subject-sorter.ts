@@ -1,7 +1,8 @@
 /* eslint-disable prettier/prettier */
 import { OrmException } from './exceptions.js';
 import type { ModelBase } from './model.js';
-import { IJunctionDelta, IOrphanDelta, IPendingForeignKey, Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { SubjectOperation } from './subject.js';
+import type { IJunctionDelta, IOrphanDelta, IPendingForeignKey, Subject, SubjectSet } from './subject.js';
 
 /**
  * Raised when the insert order cannot be satisfied because two or more rows reference each

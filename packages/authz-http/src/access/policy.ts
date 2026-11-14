@@ -33,6 +33,8 @@ export function forbidden(decision: Decision, trace?: unknown): AccessDenied {
   const reason = publicReason(decision.reason);
   if (reason) body.reason = reason;
   if (trace !== undefined) body.trace = trace;
+  // Set while a decision log is registered: the id support asks for, which leaks nothing.
+  if (decision.id !== undefined) body.decisionId = decision.id;
   return withProblemFields(new AccessDenied(decision), body);
 }
 

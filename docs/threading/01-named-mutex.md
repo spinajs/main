@@ -217,5 +217,4 @@ export class StockSync extends AsyncService {
 
 - [Mutex backends](02-mutex-backends.md): the `Mutex` contract, registration and custom backends.
 - [Database mutex](../orm-threading/01-database-mutex.md): how `OrmMutex` implements each method, and its limits.
-- [Task locking](../tasks/02-task-locking.md): `@Task()` uses `mutex_acquire()`, `mutex_renew()` and `mutex_release()`.
 - [Critical section and rate limit](03-critical-section-and-rate-limit.md): in-process queuing that needs no backend.

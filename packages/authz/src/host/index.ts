@@ -1,4 +1,5 @@
 export * from './storage.js';
+export * from './changelog.js';
 export * from './bus.js';
 export * from './audit.js';
 export * from './cache.js';
@@ -12,3 +13,4 @@ export * from './domains.js';
 export * from './listed-models.js';
 export * from './authz.js';
 export * from './push.js';
+export * from './decision-log-tap.js';

@@ -6,6 +6,8 @@ It documents what the build recorded. For the live document of a running server,
 
 Routes a controller inherits are documented on the controller, under its path, with the types it binds (`ArticlesController extends BaseCrud<ArticleDto>` documents `GET /articles/{id}` returning `ArticleDto`, as `Articles_get`). A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass. A registration inside `bootstrap()`, a function, a loop or a `try` is conditional: both controllers stay, so on a path both serve generation fails with `duplicate operation` and `spinajs doctor` reports HTTP001. Register an override at module top level.
 
+Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
+
 ## Install
 
 ```sh
@@ -94,6 +96,7 @@ The `app-basic` fixture of the compiler tests has a `HealthController`, a `Users
 | Controller class name without a trailing `Controller`, and the handler name | `operationId`, such as `Users_get` |
 | `@tags` JSDoc tag on the handler | `tags`. Without it the operation is tagged with the controller name without `Controller` |
 | `@summary`, `@description`, `@deprecated` JSDoc tags | `summary`, `description`, `deprecated: true` |
+| `@Deprecated()` of `@spinajs/http` on the route or its controller | `deprecated: true` |
 | Every controller name and every route tag | The top-level `tags`, unique and sorted |
 
 The JSDoc tags are described in [Documenting routes](../http-swagger/02-documenting-routes.md). Two routes with one method and path make the generator throw `duplicate operation`, naming both operation ids.
@@ -171,6 +174,7 @@ The CLI passes no security schemes: call the function to add them.
 ## Known limits
 
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
+- The document has no middleware answers: the manifest holds no runtime middleware, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
 
 ## Related
 

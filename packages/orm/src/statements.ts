@@ -1,10 +1,11 @@
-import { IJoinStatementOptions } from './interfaces.js';
+import type { IJoinStatementOptions } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
 import { ColumnMethods, SqlOperator, WhereBoolean } from './enums.js';
-import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
+import { NewInstance, Container, Inject } from '@spinajs/di';
+import type { Class, Constructor, IContainer } from '@spinajs/di';
 import _ from 'lodash';
-import { IColumnDescriptor } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { IColumnDescriptor } from './interfaces.js';
+import type { ModelBase } from './model.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
@@ -26,7 +27,7 @@ export interface IQueryStatement {
   Boolean: WhereBoolean;
 
   // set by whereOnJoin() - statement is emitted in the relation JOIN ON clause
-  // instead of parent query WHERE ( does not survive clone() )
+  // instead of parent query WHERE ( a statement's own clone() drops it, SelectQueryBuilder.clone() copies it )
   OnJoin?: boolean;
 
   build(): IQueryStatementResult;
@@ -268,14 +269,35 @@ export function outer(column: string | Wrap, levels = 1): OuterColumn {
   return new OuterColumn(column, levels);
 }
 
+/** A part of {@link concat}: a value, bound as a parameter, or a column ( `outer()`, or a `Wrap` of the query's own column ). */
+export type ConcatPart = string | number | OuterColumn | Wrap;
+
+/** The text of `Parts` joined by the dialect's `SqlExpressions.concat`; see {@link concat}. */
+export class ConcatExpression {
+  constructor(public readonly Parts: readonly ConcatPart[]) {}
+}
+
+/**
+ * `whereColumn('Key', '>=', concat('wait:', outer('Name'), '#'))`: the right side of `whereColumn()` as joined text.
+ * A string or number part is always a bound value, never a column; reference a column with `outer()` or a `Wrap`.
+ * On PostgreSQL a `concat()` of only value parts needs a cast (the parameter types are unknown); use at least one column part.
+ */
+export function concat(...parts: ConcatPart[]): ConcatExpression {
+  if (parts.length === 0) {
+    throw new InvalidArgument('concat(): at least one part is required');
+  }
+
+  return new ConcatExpression(parts);
+}
+
 @NewInstance()
 export abstract class ColumnCompareStatement extends QueryStatement {
   protected _left: string | Wrap;
   protected _operator: SqlOperator;
-  protected _right: string | Wrap | OuterColumn;
+  protected _right: string | Wrap | OuterColumn | ConcatExpression;
   protected _builder: WhereBuilder<any>;
 
-  constructor(left: string | Wrap, operator: SqlOperator, right: string | Wrap | OuterColumn, builder: WhereBuilder<any>) {
+  constructor(left: string | Wrap, operator: SqlOperator, right: string | Wrap | OuterColumn | ConcatExpression, builder: WhereBuilder<any>) {
     super();
     this._left = left;
     this._operator = operator;

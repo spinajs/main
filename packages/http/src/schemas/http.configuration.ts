@@ -10,6 +10,7 @@ const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
 // anyOf with const null first: as a type union Ajv warns, and coerceTypes would turn null into '' or false.
 const headerList = { anyOf: [{ type: 'array', items: { type: 'string' } }, { const: null }, { type: 'string' }] };
 const positiveInteger = { type: 'integer', minimum: 1 };
+const bodySize = { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' };
 
 export const HTTP_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/http.configuration.schema.json',
@@ -34,7 +35,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       ],
       default: null,
       description:
-        'Proxies in front of the app whose X-Forwarded-For counts (RealIp, and authn ClientIp when authn.http.trustProxy is null): a hop count, or addresses, CIDRs and the names loopback, linklocal and uniquelocal (an array, or a comma-separated string). null or 0: no proxy. true coerces to one hop and false to none, never to trust-all. The first X-Forwarded-Proto and -Host value from a trusted proxy counts too, so that proxy must overwrite both headers.',
+        'Proxies in front of the app whose X-Forwarded-For counts (RealIp, the client address of every limiter; with @spinajs/authn-http a set authn.http.trustProxy wins): a hop count, or addresses, CIDRs and the names loopback, linklocal and uniquelocal (an array, or a comma-separated string). null or 0: no proxy. true coerces to one hop and false to none, never to trust-all. The first X-Forwarded-Proto and -Host value from a trusted proxy counts too, so that proxy must overwrite both headers.',
     },
     cors: {
       anyOf: [
@@ -44,24 +45,81 @@ export const HTTP_CONFIGURATION_SCHEMA = {
             origins: { type: ['array', 'null'], items: { anyOf: [{ const: '*' }, { type: 'string', pattern: ORIGIN_PATTERN }] } },
             exposedHeaders: headerList,
             allowedHeaders: headerList,
+            allowRoutePolicies: { type: 'boolean', description: 'false: @Cors route policies are ignored. Default true.' },
           },
         },
         { const: null },
         { type: 'boolean' },
       ],
-      description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
+      description: 'Absent or falsy: only routes marked @Cors get CORS headers. Origins are listed as scheme://host[:port] or the one entry *.',
     },
     bodyLimits: {
       type: 'array',
       default: [],
       description:
-        'Per-path request body limits, applied before http.middlewares. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the 5mb default.',
+        'Per-path request body limits, applied by BodyLimits (Order 3.4) just before the body parsers. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the http.bodyParsers limits.',
       items: {
         type: 'object',
         required: ['path', 'limit'],
         properties: {
           path: nonEmpty,
-          limit: { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' },
+          limit: bodySize,
+        },
+      },
+    },
+    bodyParsers: {
+      type: 'object',
+      default: {},
+      // propertyNames, not additionalProperties: the configuration's removeAdditional would drop a misspelt key silently
+      propertyNames: { enum: ['json', 'urlencoded', 'text', 'cookies'] },
+      description:
+        'The built-in parser server middlewares: json (JsonBodyParser, limit 5mb), urlencoded (UrlencodedBodyParser), text (TextBodyParser, XML types, limit 5mb), all at Order 3.5, and cookies (CookieParserMiddleware, Order 0.5, signed with http.cookie.secret). Each takes enabled (default true) and the options of its express or cookie-parser function.',
+      properties: Object.fromEntries(
+        ['json', 'urlencoded', 'text', 'cookies'].map((kind) => [kind, { type: 'object', properties: { enabled: { enum: [true, false] }, limit: { anyOf: [{ type: 'integer', minimum: 0 }, bodySize] } } }]),
+      ),
+    },
+    static: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: ['enabled', 'order'] },
+      properties: {
+        enabled: { enum: [true, false], default: true, description: 'false: the StaticFiles server middleware serves no http.Static entry.' },
+        // Ajv's number type refuses Infinity, the value that restores the 3.x placement.
+        order: {
+          anyOf: [{ type: 'number' }, { const: Infinity }],
+          default: 4.5,
+          description: 'The Order of the StaticFiles server middleware, which serves every http.Static entry: after CsrfGuard (4), before authentication (5). Infinity: after every server middleware.',
+        },
+      },
+    },
+    Static: {
+      type: 'array',
+      description: 'Static directories served by the StaticFiles server middleware, each at its own Route. Packages and the app each add entries: the lists concatenate.',
+      items: {
+        type: 'object',
+        required: ['Path'],
+        propertyNames: { enum: ['Route', 'Path', 'Options'] },
+        properties: {
+          Route: { type: 'string', pattern: '^/', default: '/static' },
+          Path: nonEmpty,
+          Options: {
+            type: 'object',
+            description: 'express.static (serve-static) options of this directory.',
+            propertyNames: { enum: ['maxAge', 'immutable', 'dotfiles', 'etag', 'lastModified', 'index', 'extensions', 'fallthrough', 'redirect', 'acceptRanges', 'cacheControl'] },
+            properties: {
+              maxAge: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'string', minLength: 1 }] },
+              immutable: { enum: [true, false] },
+              dotfiles: { enum: ['allow', 'deny', 'ignore'] },
+              etag: { enum: [true, false] },
+              lastModified: { enum: [true, false] },
+              index: { anyOf: [{ const: false }, nonEmpty, { type: 'array', items: nonEmpty }] },
+              extensions: { anyOf: [{ const: false }, { type: 'array', items: nonEmpty }] },
+              fallthrough: { enum: [true, false] },
+              redirect: { enum: [true, false] },
+              acceptRanges: { enum: [true, false] },
+              cacheControl: { enum: [true, false] },
+            },
+          },
         },
       },
     },
@@ -90,6 +148,19 @@ export const HTTP_CONFIGURATION_SCHEMA = {
           default: [],
           description: 'App-wide route error handlers ( ErrorHandlerService names ), run after the route and controller @OnError handlers, in this order.',
           items: { type: 'object', required: ['service'], properties: { service: nonEmpty } },
+        },
+      },
+    },
+    routes: {
+      type: 'object',
+      default: {},
+      properties: {
+        // No item schema: a class entry is a function, which no JSON schema type accepts. Entries are checked at boot.
+        middlewares: {
+          type: 'array',
+          default: [],
+          description:
+            'Route middlewares mounted on every route, before the controller and route @Middleware ones: a RouteMiddleware name, a RouteMiddleware class, or { service, options } with constructor options.',
         },
       },
     },
@@ -129,9 +200,56 @@ export const HTTP_CONFIGURATION_SCHEMA = {
               methods: { type: 'array', items: nonEmpty },
               limit: positiveInteger,
               windowSeconds: positiveInteger,
+              headers: { type: 'boolean', description: 'true: send X-RateLimit-* headers on every request the rule counts, the 429 included. Default false: the 429 carries only Retry-After.' },
             },
           },
         },
+      },
+    },
+    maintenance: {
+      type: 'object',
+      default: {},
+      description: 'MaintenanceMode: answers 503 with Retry-After to every request but the allowed paths. MaintenanceMode.enable() and disable() switch it at runtime.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        retryAfter: { type: 'integer', minimum: 0, default: 60, description: 'Seconds sent in Retry-After.' },
+        allow: { type: 'array', default: [], items: { type: 'string', pattern: '^/' }, description: 'Path prefixes answered as usual, on a segment boundary, case-insensitively (health checks, an admin API).' },
+        message: { ...nonEmpty, description: 'The error message of the 503 body.' },
+      },
+    },
+    audit: {
+      type: 'object',
+      default: {},
+      description: 'The Audit route middleware, mounted with @Middleware(Audit) or http.routes.middlewares. @Middleware(Audit, options) overrides these per route; its redact list adds to this one.',
+      properties: {
+        methods: { type: 'array', items: nonEmpty, description: 'HTTP methods audited, eg. ["POST", "PUT", "PATCH", "DELETE"]; unset audits every method.' },
+        redact: {
+          type: 'array',
+          default: ['password', 'token', 'secret', 'authorization', 'cookie', 'card'],
+          items: nonEmpty,
+          description: 'Keys whose values are recorded as [redacted], matched as case-insensitive substrings at any depth of the body and the query. Replaces the default list.',
+        },
+        includeBody: { type: 'boolean', default: true },
+        maxBodyBytes: { type: 'integer', minimum: 0, default: 16384, description: 'A larger body, as JSON after redaction, is left out and only its size recorded.' },
+      },
+    },
+    concurrency: {
+      type: 'object',
+      default: {},
+      description: 'ConcurrencyLimit: load shedding. A request over max requests served at once by this process is answered 503 with Retry-After.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        max: { type: 'integer', minimum: 1, default: 500, description: 'Requests served at once.' },
+        retryAfter: { type: 'integer', minimum: 0, default: 1, description: 'Seconds sent in Retry-After.' },
+      },
+    },
+    deadline: {
+      type: 'object',
+      default: {},
+      description: 'RequestDeadline: a deadline for every request. When it passes, req.storage.signal aborts and a request nothing was sent for yet is answered 504.',
+      properties: {
+        enabled: { type: 'boolean', default: false },
+        ms: { type: 'integer', minimum: 1, default: 30000, description: 'Milliseconds a request may take. @Deadline(ms) on a route can only shorten it.' },
       },
     },
     bot: BOT_CONFIGURATION_SCHEMA,

@@ -228,6 +228,7 @@ export interface IOpenApiExample {
 export interface IOpenApiResponse {
   description?: string;
   content?: Record<string, IOpenApiMediaType>;
+  headers?: Record<string, { description?: string; schema: IOpenApiSchema }>;
   $ref?: string;
 }
 
@@ -259,6 +260,7 @@ export interface IOpenApiSchema {
   anyOf?: IOpenApiSchema[];
   allOf?: IOpenApiSchema[];
   example?: unknown;
+  default?: unknown;
 }
 
 export interface IOpenApiComponents {

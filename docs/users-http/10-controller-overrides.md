@@ -15,7 +15,7 @@ Every controller of this package is an ordinary DI class. Subclass it, register 
 | --- | --- | --- | --- | --- |
 | `UserController` | Class key; singleton; mounted by the scan | `UserController` | yours | `DI.register(Mine).as(UserController)`. Fields: `AccessDomain` (`@Config('authz.http.access.domain')`). |
 | `UserMetadataController` | Class key; singleton | `UserMetadataController` | yours | `DI.register(Mine).as(UserMetadataController)`. Field: `Metadata` (`UserMetadataService`). |
-| `Users` | Class key; singleton | `Users` | yours | `DI.register(Mine).as(Users)`. Hooks: `sortColumn(order)`, `asDuplicateResponse(work)`. Field: `AccountGuard` (the role replacement). |
+| `Users` | Class key; singleton | `Users` | yours | `DI.register(Mine).as(Users)`. Hook: `asDuplicateResponse(work)`. Field: `AccountGuard` (the role replacement). |
 | `Security` | Class key; singleton | `Security` | yours | `DI.register(Mine).as(Security)`. The account guard of its routes is `AccountDisableHook`, a `users.*` before hook, not a field. |
 | `Profile` | Class key; singleton | `Profile` | yours | `DI.register(Mine).as(Profile)`. Field: `ProfileService` (`UserProfileProvider`). |
 
@@ -46,26 +46,6 @@ export class AppUserController extends UserController {
 
 DI.register(AppUserController).as(UserController);
 ```
-
-### `Users`: sort the admin list by login by default
-
-`Users.sortColumn(order)` picks the sort column and refuses unknown ones with `400`. Override it to change the default and keep the whitelist through `super`.
-
-```ts sample
-import { DI } from '@spinajs/di';
-import type { OrderDTO } from '@spinajs/orm-http';
-import { Users } from '@spinajs/users-http';
-
-export class LoginOrderedUsers extends Users {
-  protected sortColumn(order?: OrderDTO): string {
-    return order?.column ? super.sortColumn(order) : 'Login';
-  }
-}
-
-DI.register(LoginOrderedUsers).as(Users);
-```
-
-The direction still defaults to `DESC`; clients send `order={"order":"ASC"}` for A to Z.
 
 ## Important behaviour
 

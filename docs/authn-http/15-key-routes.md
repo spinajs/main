@@ -79,7 +79,7 @@ Field rules for `POST /user/keys`:
 
 ## Important behaviour
 
-- **Register challenges count against no throttle here**: each throttle flow is the owner's own budget, which a burst of challenges would spend. Cap the route per ip with `http.throttle` ([Throttling](../http/18-throttling.md)).
+- **Register challenges count against no throttle here**: each throttle flow is the owner's own budget, which a burst of challenges would spend. The route's shipped [rate limit](25-rate-limits.md) (`authn.http.rateLimit.keysChallenge`) caps every challenge, register ones included, per ip.
 - **One 404 for every foreign kid.** A key of another user answers like an unknown one; revoking an already revoked key of the caller changes nothing.
 - **Key login ends a held session**, as password login does.
 
