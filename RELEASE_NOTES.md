@@ -1,3 +1,16 @@
+# Release notes — orm, orm-sql: @Bool({ nullable: true })
+
+## New
+
+- `@spinajs/orm`, `@spinajs/orm-sql`: `@Bool({ nullable: true })` maps a `boolean | null` property. Before, `@Bool()`
+  threw at class definition (`must be boolean type, but is Object`), and the converter read NULL as `false` and wrote
+  `null` as `0`, so "unknown" was stored and read as "false". With the option NULL stays `null` on insert, update,
+  hydrate and `toJSON()` / `dehydrate()`. Without it nothing changes. `where('Flag', null)` finds the NULL rows with or
+  without the option. A hand-written nullable boolean converter can be replaced by the option; `IBoolConverterOptions`
+  is exported.
+
+> Docs: `docs/orm/04-converters-and-hydration.md`, `docs/orm-sql/05-value-converters-and-defaults.md`.
+
 # Release notes — orm-sqlite: ForeignKeys connection option
 
 ## New

@@ -53,7 +53,8 @@ The column text comes from one protected method, `write(dt)`, which receives a v
 
 - `toDB(value, model, column, options)` (4 arguments: a write or a where binding) returns `1` / `0`.
 - `toDB(value, model, column, options, dehydrateOptions)` (5 arguments, even when the fifth is `undefined`: `dehydrate()`) returns `true` / `false`, matching the `{ type: 'boolean' }` the JSON schema publishes.
-- `fromDB()` is `true` for `1`, `1n`, `true` and `'1'`.
+- `fromDB()` is `true` for `1`, `1n`, `true` and `'1'`, and `false` for anything else, NULL included.
+- With `@Bool({ nullable: true })` (`options.nullable`), `null` and `undefined` stay `null` in both methods and on both `toDB()` paths.
 
 ### `SqlSetConverter`
 
