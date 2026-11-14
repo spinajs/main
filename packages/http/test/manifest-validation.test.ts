@@ -252,17 +252,21 @@ describe('request validation from the manifest', function () {
       expect(error?.message).to.not.match(/data\/|must be|schema is invalid/);
     });
 
-    it('in prefer, warns naming the schema and still validates the arguments whose schemas are valid', async () => {
+    // An argument left unchecked is an error to see, not a warning, though prefer still boots.
+    it('in prefer, logs an error naming the schema and still validates the arguments whose schemas are valid', async () => {
+      const error = sinon.spy(FrameworkLogger.prototype, 'error');
       const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
       let app: TestApp | undefined;
       try {
         app = await boot(refused());
-        const problems = warn.getCalls().map((call) => (call.args[0] as { problem?: string }).problem ?? '');
-        expect(problems.filter((p) => p.includes(`schema ${CREATE_ITEM} is not a valid JSON Schema`))).to.not.be.empty;
+        const problemsOf = (spy: sinon.SinonSpy) => spy.getCalls().map((call) => (call.args[0] as { problem?: string }).problem ?? '').filter((p) => p.includes(`schema ${CREATE_ITEM} is not a valid JSON Schema`));
+        expect(problemsOf(error)).to.not.be.empty;
+        expect(problemsOf(warn)).to.be.empty;
         expect((await post('create', { name: 'a', count: 'x' })).status).to.eq(200);
         expect((await post('both', { name: 'a' })).status).to.eq(400);
         expect((await get('search?page=two')).status).to.eq(400);
       } finally {
+        error.restore();
         warn.restore();
         await app?.dispose();
       }

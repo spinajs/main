@@ -10,6 +10,7 @@ import { WIRE_EVENTS, defineContract } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, OnEvent, Payload, SocketController } from '../src/decorators.js';
 import { SocketContractEnforcer } from '../src/contract.js';
+import type { IRegisteredHandler } from '../src/interfaces.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
 import { ContractSocket, OkSocket, seen } from './contract-sockets.js';
 import { ITestServer, command, configure, errorOf, manifestFromEnv, open, resultOf, startServer } from './harness.js';
@@ -241,6 +242,61 @@ describe('socket contract enforcement', function () {
       client.close();
     });
 
+    it('refuses a payload whose object has its own valueOf or toString with invalid_argument, not an internal error', async () => {
+      const greet = SCHEMAS['spinajs/app/Greet'];
+      const traps = { ...greet, properties: { ...greet.properties, tags: { type: 'array', uniqueItems: true }, meta: { const: { a: 1 } }, kind: { enum: [{ a: 1 }, 'plain'] } } };
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': traps } }));
+      const client = await open(await start('require'));
+      for (const [payload, expected] of [
+        [{ name: 'ada', tags: [{ valueOf: 1 }, { valueOf: 1 }] }, 'uniqueItems@/tags'],
+        [{ name: 'ada', meta: { toString: false } }, 'const@/meta'],
+        [{ name: 'ada', kind: { valueOf: 1 } }, 'enum@/kind'],
+      ] as const) {
+        const error = errorOf(await command(client, 'ctr.say', payload));
+        expect(error.code, JSON.stringify(payload)).to.equal('invalid_argument');
+        expect((error.details as { errors: Array<{ keyword: string; path: string }> }).errors.map((e) => `${e.keyword}@${e.path}`)).to.deep.equal([expected]);
+      }
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', tags: [{ a: 1 }, { valueOf: 1 }], meta: { a: 1 }, kind: 'plain' }))).to.deep.equal({ hello: 'ada' });
+      expect(seen).to.have.length(1);
+      client.close();
+    });
+
+    describe('the contract validator itself', () => {
+      // socket.io's JSON wire turns Infinity into null; a non-JSON parser could deliver it, so this calls the validator.
+      class DirectEnforcer extends SocketContractEnforcer {
+        public validatorFor(manifest: Manifest, fullName: string) {
+          const contract = manifest.socketContracts.find((c) => c.id === CONTRACT_ID)!;
+          const compiled = this.compile(manifest, contract, [{ fullName } as IRegisteredHandler], []);
+          return { validate: compiled.validators[0]?.[1], problem: compiled.problem };
+        }
+      }
+      const greet = SCHEMAS['spinajs/app/Greet'];
+      const thrown = (fn: () => void): { code?: string; details?: { errors: Array<{ keyword: string; path: string; message: string }> } } => {
+        try {
+          fn();
+        } catch (err) {
+          return err as { code?: string; details?: { errors: Array<{ keyword: string; path: string; message: string }> } };
+        }
+        throw new Error('the payload passed');
+      };
+
+      it('refuses a payload holding a non-finite number where no rule constrains it', () => {
+        const manifest = manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': { ...greet, properties: { ...greet.properties, n: {} } } } });
+        const { validate } = new DirectEnforcer().validatorFor(manifest, 'ctr.say');
+        const error = thrown(() => validate!({ name: 'ada', n: Infinity }));
+        expect(error.code).to.equal('invalid_argument');
+        expect(error.details!.errors.map((e) => `${e.keyword}@${e.path}`)).to.deep.equal(['type@/n']);
+        expect(() => validate!({ name: 'ada', n: 1 })).to.not.throw();
+      });
+
+      it('cannot compile a contract whose schema declares a __proto__ property, and says why', () => {
+        const proto = JSON.parse(JSON.stringify(greet).replace('"name":', '"__proto__":{"type":"string"},"name":')) as object;
+        const { validate, problem } = new DirectEnforcer().validatorFor(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': proto } }), 'ctr.say');
+        expect(validate).to.equal(undefined);
+        expect(problem).to.include('declares a property named __proto__');
+      });
+    });
+
     it('does not coerce types', async () => {
       const client = await open(await start('require'));
       expect(errorOf(await command(client, 'ctr.say', { name: 'ada', age: '36' })).code).to.equal('invalid_argument');
@@ -277,6 +333,16 @@ describe('socket contract enforcement', function () {
         expect(resultOf(await command(client, 'ctr.say', { name: 'ada', 'x-token': 'ok' }))).to.deep.equal({ hello: 'ada' });
         client.close();
       });
+    });
+
+    it('enforces the decimal format of a Decimal member the compiler marked with x-spinajs-type', async () => {
+      const amount = { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' };
+      const greet = SCHEMAS['spinajs/app/Greet'];
+      writeManifest(manifestOf({ schemas: { ...SCHEMAS, 'spinajs/app/Greet': { ...greet, properties: { ...greet.properties, amount } } } }));
+      const client = await open(await start('require'));
+      expect(resultOf(await command(client, 'ctr.say', { name: 'ada', amount: '12.50' }))).to.deep.equal({ hello: 'ada' });
+      expect(errorOf(await command(client, 'ctr.say', { name: 'ada', amount: '1e3' })).code).to.equal('invalid_argument');
+      client.close();
     });
 
     it('accepts an intersection of closed objects, and only what its members declare', async () => {

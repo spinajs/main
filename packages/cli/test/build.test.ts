@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultMigrationDirs, type Configuration } from '@spinajs/configuration';
-import type { Manifest } from '@spinajs/manifest';
+import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { Build } from '../src/cli/Build.js';
 import { stripFrameworkOptions } from '../src/argv.js';
 
@@ -94,6 +94,7 @@ describe('build', function () {
     expect(cmd.output).to.match(/controllers\s+\d+/);
     expect(cmd.output).to.match(/routes\s+\d+/);
     expect(cmd.output).to.match(/diagnostics\s+\d+ error\(s\), \d+ warning\(s\), \d+ info/);
+    expect(cmd.output).to.match(new RegExp(`^hash\\s+${hashManifest(manifest)}$`, 'm'));
     expect(process.exitCode).to.equal(undefined);
   });
 

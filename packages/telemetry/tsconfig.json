@@ -52,6 +52,9 @@
     },
     {
       "path": "../authz-testing/tsconfig.json"
+    },
+    {
+      "path": "../manifest/tsconfig.json"
     }
   ]
 }

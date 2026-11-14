@@ -2,6 +2,8 @@
 
 `manifestToOpenApi(manifest, options)` turns an `app.manifest.json` produced by `spinajs build` into an OpenAPI 3.1 document. It is a pure function: no DI, no filesystem, deterministic output. Response schemas come from the manifest's derived schemas, so every route with a declared return type has an exact `200` schema. Error responses use `application/problem+json`.
 
+It documents what the build recorded. For the live document of a running server, with the Swagger UI, see [`@spinajs/http-swagger`](../http-swagger/README.md).
+
 Routes a controller inherits are documented on the controller, under its path, with the types it binds (`ArticlesController extends BaseCrud<ArticleDto>` documents `GET /articles/{id}` returning `ArticleDto`, as `Articles_get`). A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass. A registration inside `bootstrap()`, a function, a loop or a `try` is conditional: both controllers stay, so on a path both serve generation fails with `duplicate operation` and `spinajs doctor` reports HTTP001. Register an override at module top level.
 
 Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
@@ -36,7 +38,7 @@ A route served only by a registration (a manifest entry with `mountedBy`) is lef
 
 ### Sample output
 
-The `app-basic` fixture of the compiler tests has a `HealthController` and a `UsersController`. Its document, with title `app-basic`, version `1.0.0` and server `http://localhost:4557`, is committed as `packages/openapi/test/__snapshots__/app-basic.openapi.json`; the test fails when the output differs. An excerpt, with the snapshot's indented JSON folded to fewer lines:
+The `app-basic` fixture of the compiler tests has a `HealthController`, a `UsersController` and an `ArticlesController` whose routes come from its base class. Its document, with title `app-basic`, version `1.0.0` and server `http://localhost:4557`, is committed as `packages/openapi/test/__snapshots__/app-basic.openapi.json`; the test fails when the output differs. An excerpt, with the snapshot's indented JSON folded to fewer lines:
 
 ```json
 {
@@ -44,10 +46,10 @@ The `app-basic` fixture of the compiler tests has a `HealthController` and a `Us
   "info": {
     "title": "app-basic",
     "version": "1.0.0",
-    "x-spinajs-manifest-hash": "e8c022b23448e14475f69d3729820cfbaea3f5b1db9cb43d4a0d1c760eae2f21"
+    "x-spinajs-manifest-hash": "47f7521612321fc90ebb904d6c0db1aaf014b826ecb98bfdf0121c9bc87f8d29"
   },
   "servers": [{ "url": "http://localhost:4557" }],
-  "tags": [{ "name": "Health" }, { "name": "Users" }],
+  "tags": [{ "name": "Articles" }, { "name": "Health" }, { "name": "Users" }],
   "paths": {
     "/health/get": {
       "get": {
@@ -171,7 +173,6 @@ The CLI passes no security schemes: call the function to add them.
 
 ## Known limits
 
-- A route inherited from an abstract base controller is served but not in the document, because the manifest lists such a base under `controllerBases` ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
 - The document has no middleware answers: the manifest holds no runtime middleware, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
 

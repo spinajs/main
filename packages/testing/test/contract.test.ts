@@ -79,6 +79,21 @@ describe('manifestContractValidator', () => {
     expect(v.checkResponse({ controller: 'A', handler: 'get' }, {})).to.have.length(1);
   });
 
+  it('checks the decimal format as the server does, without warning about an unknown format', () => {
+    const warnings: unknown[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    try {
+      const price = { $id: 'spinajs/test/Price', type: 'object', properties: { amount: { type: 'string', format: 'decimal', 'x-spinajs-type': 'Decimal' } }, required: ['amount'] };
+      const v = manifestContractValidator(testManifest({ controllers: [controller([route('price', 'spinajs/test/Price')])], schemas: { 'spinajs/test/Price': price } }));
+      expect(v.checkResponse({ controller: 'A', handler: 'price' }, { amount: '12.50' })).to.equal(null);
+      expect(v.checkResponse({ controller: 'A', handler: 'price' }, { amount: '1e3' })).to.have.length(1);
+    } finally {
+      console.warn = warn;
+    }
+    expect(warnings).to.deep.equal([]);
+  });
+
   it('checks a body against a given schema', () => {
     const v = validator();
     const problem = { $id: 'spinajs/test/Problem', type: 'object', required: ['title'], properties: { title: { type: 'string' } } };

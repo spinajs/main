@@ -30,7 +30,7 @@ A report starts with a verdict, then the short hashes of the two manifests, then
 
 Result: **BREAKING** (5 breaking of 6 changes)
 
-`e8c022b23448` -> `ffffffffffff`
+`47f752161232` -> `ffffffffffff`
 
 ### routes
 
@@ -64,6 +64,8 @@ This is the snapshot `packages/manifest/test/__snapshots__/breaking.md`, rendere
 The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`, `workflows`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
+
+The hashes are each manifest's `hash` field, the value `hashManifest` computes and `spinajs build` prints. Once the pull request is deployed, `GET /telemetry/health` reports the hash of the manifest the app booted from in `manifest.hash`: it starts with the 12 characters after `->`, or equals `head` in JSON, when production runs what was reviewed. See [Check what runs](deploying.md#check-what-runs).
 
 ## What is breaking
 
@@ -148,7 +150,6 @@ A CI step that has to tell "breaking" from "failed" checks both the code and the
 
 ## Known limits
 
-- A route that a controller inherits from an abstract base is served at runtime, but the manifest lists it under `controllerBases`, which the diff does not read. Such routes are missing from the diff until a later 4.x release ([Known limits in 4.0](../whats-new-4.0.md#known-limits-in-40)).
 - The diff compares manifests, so it is only as exact as the derived types. A type the build emits as `{}` (`any`, a function) hides every change to it; the `SCH001` and `SCH002` warnings of `spinajs build` report those.
 - `buildEnv` is part of the manifest hash. Build both sides under the same `APP_ENV`, or the hashes differ for that reason alone.
 

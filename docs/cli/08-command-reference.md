@@ -44,7 +44,7 @@ spinajs build [--tsconfig <path>] [-o, --out <path>] [--no-schemas] [--fail-on-w
 | `--fail-on-warning` | off | Exit 1 on an analyzer warning |
 | `--allow-no-dirs` | off | Build an app whose `system.dirs` name none of its folders |
 
-Exit code 1 on an analyzer error, on `CMP007`, and with `--fail-on-warning` on a warning. Full behaviour: [`build`](README.md#build).
+Exit code 1 on an analyzer error, on `CMP007`, on `CLI002` (the written manifest fails its JSON Schema and is removed), and with `--fail-on-warning` on a warning. Full behaviour: [`build`](README.md#build).
 
 ### `doctor`
 
@@ -177,7 +177,7 @@ The `@spinajs/orm-cli` commands are described in [`@spinajs/orm-cli`](../orm-cli
 
 | Command | Exit code 1 when |
 | --- | --- |
-| `build` | An analyzer error, `CMP007`, or a warning with `--fail-on-warning` |
+| `build` | An analyzer error, `CMP007`, `CLI002`, or a warning with `--fail-on-warning` |
 | `doctor` | A diagnostic reaches `--fail-on` (default `error`) |
 | `upgrade` | A transform failed on a file |
 | `manifest:diff` | `--fail-on breaking` and the diff holds a breaking change |
