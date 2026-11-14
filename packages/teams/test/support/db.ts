@@ -4,6 +4,7 @@ import '@spinajs/orm-sqlite';
 import { AuthzAbac_2026_10_01_00_00_00 } from '@spinajs/authz-abac';
 import { AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00 } from '@spinajs/authz-orm';
 import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
+import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00 } from '@spinajs/authz-rbac';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
@@ -30,6 +31,7 @@ export const MIGRATIONS: (new () => OrmMigration)[] = [
   AuthzScopeAttribute_2026_10_02_00_00_00,
   AuthzAudit_2026_10_01_00_00_00,
   AuthzResourceAncestor_2026_10_14_00_00_00,
+  AuthzChangeLog_2026_11_04_00_00_00,
   Teams_2026_10_14_00_00_00,
   TeamsInvitations_2026_10_14_00_01_00,
 ];

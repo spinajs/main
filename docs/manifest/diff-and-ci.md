@@ -30,7 +30,7 @@ A report starts with a verdict, then the short hashes of the two manifests, then
 
 Result: **BREAKING** (5 breaking of 6 changes)
 
-`47f752161232` -> `ffffffffffff`
+`a5a3089daee9` -> `ffffffffffff`
 
 ### routes
 
@@ -61,7 +61,7 @@ Result: **BREAKING** (5 breaking of 6 changes)
 
 This is the snapshot `packages/manifest/test/__snapshots__/breaking.md`, rendered from the `app-basic` fixture and an edited copy of it.
 
-The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
+The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`, `workflows`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
 
@@ -84,11 +84,12 @@ A route is identified by its method and full path (`GET /users/:id`). Renaming a
 | Required parameter added | yes |
 | Optional parameter added | no |
 | Handler or controller class renamed under the same method and path | no |
+| Argument renamed while its wire name stays the same | no |
 | Parameter or response type changed | see the schema rules below |
 
 A rename under the same `METHOD fullPath` is a `changed` entry with the detail `client method users.get renamed to users.read: generated hooks and query keys change`. HTTP callers are unaffected, but a client generated with `generate:client` names its methods, hooks and query keys after the controller (class name without `Controller`, first letter lowered) and the handler, so the finding tells a reviewer the frontend must follow. A handler without a path of its own is not covered: its URL moves with the name, so it stays a removal plus an addition.
 
-A parameter is identified by where it travels (query key, header, whole body), so renaming the argument in code while the wire name stays the same is not a change. Arguments the framework injects (the request, the response, DI values, models loaded with `@FromModel`) are not request parameters and are ignored.
+A parameter is identified by where it travels (query key, header, whole body), so renaming the argument in code while the wire name stays the same does not touch the wire. A generated client keys its hook variables and query keys by argument name, so the diff still reports it, as a non-breaking `changed` entry with the detail `argument body renamed to payload on users.create: generated hook variables and query keys change`. A value argument sent under its own name (a plain `@Query` or `@Header` argument without an explicit name) moves the wire when renamed, so it stays a breaking removal plus addition. Reordering arguments is not a change. Arguments the framework injects (the request, the response, DI values, models loaded with `@FromModel`) are not request parameters and are ignored.
 
 ### Pagination
 
@@ -151,6 +152,7 @@ A route that is served only by a registration (an entry with `mountedBy`) is com
 | `services` | never | Registration, lifetime or `async` changed |
 | `commands` | never | CLI command options or arguments changed |
 | `socket` | never | A command or event added, removed, or with a changed payload or result schema |
+| `workflows` | A workflow version removed: its unfinished instances are left without code to run on. Within one version, `signals changed` when a signal is removed or newly needs a permission (added or changed): its senders are rejected | Each `name@version` is a row of its own, so a new version is `added`. `class changed` and a signal that is only added or loses its permission are non-breaking. Signal order does not count |
 
 Socket changes are reported, not classified. Review them by hand.
 

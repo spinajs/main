@@ -1,7 +1,9 @@
 import { OrmException } from './exceptions.js';
-import { IDehydrateOptions, RelationType } from './interfaces.js';
-import { ModelBase } from './model.js';
-import { Relation, SingleRelation } from './relation-objects.js';
+import { RelationType } from './interfaces.js';
+import type { IDehydrateOptions } from './interfaces.js';
+import type { ModelBase } from './model.js';
+import { SingleRelation } from './relation-objects.js';
+import type { Relation } from './relation-objects.js';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, options?: IDehydrateOptions): any;
@@ -13,6 +15,10 @@ export class StandardModelDehydrator extends ModelDehydrator {
     const relByForeignKey = new Map([...model.ModelDescriptor!.Relations.values()].filter((r) => r.Type === RelationType.One).map((r) => [r.ForeignKey, r]));
 
     model.ModelDescriptor!.Columns?.forEach((c) => {
+      if (c.Ignore) {
+        return;
+      }
+
       // Only the omit list decides, and `@Hidden()` rides in on it ( model.ts appends
       // `descriptor.Hidden` to `omit` for both dehydrate entry points ), so a foreign key a model
       // does not want to hand out is hidden the same way any other column is.

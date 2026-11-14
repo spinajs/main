@@ -1,9 +1,9 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../interfaces.js';
 import { SocketArgumentResolver } from '../args.js';
 
-@Injectable(SocketCommandStage)
-export class ArgumentsStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class ArgumentsStage extends SocketMiddleware {
   @Autoinject()
   protected Arguments: SocketArgumentResolver;
 
@@ -11,8 +11,7 @@ export class ArgumentsStage extends SocketCommandStage {
     return STAGE_ORDER.Arguments;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onBefore(ctx: ISocketCommandContext): Promise<void> {
     ctx.args = await this.Arguments.resolve(ctx);
-    return next();
   }
 }

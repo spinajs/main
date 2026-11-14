@@ -1,11 +1,11 @@
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, subtractFieldGlobs } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, redact, subtractFieldGlobs } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
 import { isPlainObject } from '@spinajs/util';
 import { ArgInputFilter, DataTransformer, RouteMiddleware, withProblemFields } from '@spinajs/http';
-import type { IController, IRoute, IRouteParameter, Request, Response } from '@spinajs/http';
+import type { IController, IMiddlewareContext, IReplyContext, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import type * as express from 'express';
 
 import { routeAccess, routeDomain } from './access/descriptor.js';
@@ -21,6 +21,7 @@ export interface DecisionFields {
   readonly read: readonly string[];
   readonly write: readonly string[];
   readonly writeMode: 'strip' | 'reject';
+  readonly neverRead: readonly string[];
 }
 
 /**
@@ -33,7 +34,7 @@ export function decisionFields(authz: unknown, domains: AuthzDomains, decision: 
   if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('field filtering needs the host AuthzDomains to read the domain fields config');
   const { neverRead, writeMode } = domainConfig(authz, domains, domain).fields;
   const without = (globs: readonly string[]) => (neverRead.length === 0 ? globs : subtractFieldGlobs(globs, neverRead));
-  return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode };
+  return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode, neverRead };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
@@ -98,7 +99,9 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
 
 function readable(authz: unknown, domains: AuthzDomains, data: unknown, decision: Decision | undefined, domain: string | undefined): unknown {
   if ((!decision && domain === undefined) || !isObject(data)) return data;
-  return filterObject(decisionFields(authz, domains, decision, decision?.domain ?? domain).read, data);
+  // read is already without neverRead; a row's own set is not, so redact() subtracts it once more.
+  const { read, neverRead } = decisionFields(authz, domains, decision, decision?.domain ?? domain);
+  return redact(data, { read, neverRead });
 }
 
 /** `x-data-transform: authz-fields`: the response data limited to what the route's decision lets the caller read. */
@@ -131,21 +134,25 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
 
   public isEnabled(route: IRoute, controller: IController): boolean {
     const access = routeAccess(controller, route.Method);
-    return (access.route ?? access.controller)?.options.fields === 'filter';
+    const fields = (access.route ?? access.controller)?.options.fields;
+    return fields === 'filter' || fields === 'filter-rows';
   }
 
-  public async onBefore(): Promise<void> {}
+  // The action runs in an AsyncLocalStorage over req.storage, where authz-orm reads the flag.
+  public async onBefore({ storage, route, controller }: IMiddlewareContext): Promise<void> {
+    const access = routeAccess(controller!, route!.Method);
+    if (storage && (access.route ?? access.controller)?.options.fields === 'filter-rows') storage.AuthzRowFields = true;
+  }
 
-  // http calls this without awaiting it, so the data is replaced before the first await.
-  public async onResponse(response: Response, route: IRoute, controller: IController): Promise<void> {
+  // Success replies only: an error reply carries no resource data. http runs onAfter in the action's AsyncLocalStorage
+  // context, where the route's decision is.
+  public async onAfter({ response, error, route, controller }: IReplyContext): Promise<void> {
+    if (error !== undefined) return;
     const decision = authzStorage().getStore()?.AuthzDecision;
-    const domain = (authzStorage().getStore()?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain ?? routeDomain(routeAccess(controller, route.Method));
+    const domain = (authzStorage().getStore()?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain ?? routeDomain(routeAccess(controller!, route!.Method));
     const authz = this.Authz;
     const domains = this.Domains;
-    const holder = response as unknown as { responseData?: unknown };
-    const data = holder.responseData;
-    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
+    const data = response.data;
+    response.data = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
   }
-
-  public async onAfter(): Promise<void> {}
 }

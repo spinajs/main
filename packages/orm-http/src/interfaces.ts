@@ -126,3 +126,22 @@ export interface FromModelOptions<T extends typeof ModelBase> {
 }
 
 export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set';
+
+/** `IRouteParameter.Options` of `@Sort()`; http-swagger reads it to document the parameter. */
+export interface SortRouteArgOptions {
+  model: Class<ModelBase>;
+  /** `@Sortable()` columns of `model`, read when the decorator ran. */
+  sortable: readonly string[];
+  /** Columns a request may sort by now: those of the resolved model when `@Sort` was given `resolve`, else `sortable`. */
+  columns(): readonly string[];
+  default: string;
+  order: SortOrder;
+  field: string;
+}
+
+/** `IRouteParameter.Options` of `@Include()`; http-swagger reads it to document the parameter. */
+export interface IncludeRouteArgOptions {
+  model: Class<ModelBase>;
+  relations: readonly string[];
+  field: string;
+}

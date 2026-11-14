@@ -31,6 +31,8 @@ Handling, inside the consumer that `QueueService.consume()` builds:
 5. It calls `AuthzService.runAs(principal, 'job:<Name>', next)`, where `<Name>` is `message.Name`. `UNATTENDED` is set explicitly too, so a consumer that runs inside the emitter's async context does not inherit the emitter's principal.
 6. `runAs` records a `runAs` audit entry when `authz.audit.runAs` is on for the domain ([Config](../authz/04-host-boot-and-configuration.md#configuration)), and preloads the principal unless it is `SYSTEM` or `UNATTENDED`.
 7. Inside `next`, `authz().current()` is the chosen principal. Checks, `assert()` and the ORM's `.accessible()` use it.
+   - With `@Job({ access })`, the hook first checks each permission, as that principal, on `resource(message)` or else the type-level resource of the permission (`invoice:send` checks `{ type: 'invoice' }`). The first definite allow, or an allow on a type-level resource, runs the job. Otherwise it throws `JobAccessDenied` (`access_denied`), a `PermanentJobFailure`: the job is marked `dead` at once and the amqp and stomp transports dead-letter it without a retry. An allow with a residual on one row is denied, since the hook loads no row.
+   - `runAs: 'system'` with no `access` and no `@SystemTask(reason)` on the class logs one warning per job class.
 8. The handler's result and its error pass through the hook unchanged.
 
 ```mermaid
@@ -85,7 +87,8 @@ What the stamp holds, and what a `runAs: 'initiator'` handler runs as with the d
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'` (`JobOptions`) | `'initiator'`: the handler runs as the principal that emitted the message. `'system'`: it runs as `SYSTEM`. Absent: it runs as `UNATTENDED`. The options belong to the decorated class only: a subclass does not inherit its parent's `runAs`. |
+| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'`, `access?: Permission \| Permission[]`, `resource?: (message) => ResourceRef` (`JobOptions`) | `'initiator'`: the handler runs as the principal that emitted the message. `'system'`: it runs as `SYSTEM`. Absent: it runs as `UNATTENDED`. `access`: one of these permissions is checked before `execute`; an empty list throws at decoration. The options belong to the decorated class only: a subclass does not inherit its parent's `runAs`. |
+| `@SystemTask(reason)` | a schedule, CLI command or job class | a non-empty reason | Says why the class runs as `SYSTEM`; the manifest records it on the entry point. From `@spinajs/util`, re-exported by `@spinajs/queue`, `@spinajs/cli` and `@spinajs/scheduler`. |
 
 `@Event()` has no `runAs`, so every event handler runs as `UNATTENDED`.
 

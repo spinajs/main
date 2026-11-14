@@ -15,6 +15,10 @@ export interface IEventOption {
  * @param opts - `runAs` selects whose authority the handler runs with; a `QueueMessageHook` interprets it
  */
 export function Job(opts?: JobOptions) {
+  if (opts?.access !== undefined && accessOf(opts.access).length === 0) {
+    throw new TypeError('@Job access needs a permission or a non-empty list of permissions');
+  }
+
   return (target: any) => {
     // Own metadata only: a subclass must not inherit its parent's runAs.
     if (!Reflect.hasOwnMetadata('queue:options', target)) {
@@ -38,8 +42,18 @@ export function Job(opts?: JobOptions) {
  * the job then runs with no authority.
  */
 export function jobOptions(message: object): JobOptions {
-  const options: { runAs?: unknown } | undefined = Reflect.getOwnMetadata('queue:options', message.constructor);
-  return options?.runAs === 'initiator' || options?.runAs === 'system' ? { runAs: options.runAs } : {};
+  const options: { runAs?: unknown; access?: unknown; resource?: unknown } | undefined = Reflect.getOwnMetadata('queue:options', message.constructor);
+  return {
+    ...(options?.runAs === 'initiator' || options?.runAs === 'system' ? { runAs: options.runAs } : {}),
+    // a malformed list stays declared and empty, so the job is denied rather than left unchecked
+    ...(options?.access !== undefined ? { access: accessOf(options.access) } : {}),
+    ...(typeof options?.resource === 'function' ? { resource: options.resource as JobOptions['resource'] } : {}),
+  };
+}
+
+function accessOf(access: unknown): string[] {
+  const list = typeof access === 'string' ? [access] : Array.isArray(access) ? access : [];
+  return list.every((p) => typeof p === 'string' && p !== '') ? (list as string[]) : [];
 }
 
 /**
