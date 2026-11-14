@@ -59,6 +59,28 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
   }
 }
 
+// A build without foreign-key support ignores the pragma without an error, so it is read back.
+function enableForeignKeys(db: sqlite3.Database): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    db.exec('PRAGMA foreign_keys = ON', (err: Error | null) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      db.get('PRAGMA foreign_keys', (readErr: Error | null, row: { foreign_keys?: number } | undefined) => {
+        if (readErr) {
+          reject(readErr);
+        } else if (row?.foreign_keys !== 1) {
+          reject(new OrmException('ForeignKeys is set, but this sqlite build does not enforce foreign keys'));
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+}
+
 @Injectable('orm-driver-sqlite')
 @NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
@@ -316,8 +338,8 @@ export class SqliteOrmDriver extends SqlDriver {
       await new Promise<void>((resolve) => stale.close(() => resolve()));
     }
 
-    await new Promise<void>((resolve, reject) => {
-      this.Db = new sqlite3.Database(filename, (err: unknown) => {
+    const writer = await new Promise<sqlite3.Database>((resolve, reject) => {
+      const db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
           // Drop the handle, do NOT close it. sqlite3 never invokes the close callback for a
           // database that failed to open, so closing here left this promise unsettled and
@@ -325,15 +347,25 @@ export class SqliteOrmDriver extends SqlDriver {
           // missing directory waited indefinitely instead of being told SQLITE_CANTOPEN.
           // sqlite3 has already released whatever it allocated for a failed open; there is
           // nothing here for us to clean up.
-          this.Db = null as any;
           reject(err);
           return;
         }
 
-        resolve();
+        resolve(db);
       });
     });
 
+    // Published only once set up: a statement must never reach a writer without its pragmas.
+    if (this.Options.ForeignKeys) {
+      try {
+        await enableForeignKeys(writer);
+      } catch (err) {
+        await new Promise<void>((resolve) => writer.close(() => resolve()));
+        throw err;
+      }
+    }
+
+    this.Db = writer;
     await this.openReadPool(filename);
     this.setState(ConnectionState.Connected);
 
