@@ -1,3 +1,41 @@
+# Release notes — orm, orm-sql, orm-mysql, orm-postgres: @DateTime({ unit: 'milliseconds' })
+
+## New
+
+- `@spinajs/orm`, `@spinajs/orm-sql`: `@DateTime({ unit: 'milliseconds' })` stores epoch milliseconds in a numeric
+  column. The unit applies to writes, reads and to `where()`, `whereIn()` and BETWEEN bindings, where a `DateTime` and a
+  plain number are both written as whole milliseconds: a fraction of a millisecond is floored. The default stays
+  `'seconds'`; any other value throws `InvalidArgument`. `toJSON()` still emits ISO 8601.
+  `toInstant()` and `instantFromDb()` take an optional `unit` argument; `DateTimeUnit` and `IDateTimeConverterOptions`
+  are exported. Numeric text from the driver (pg `int8`, MSSQL `bigint`, mysql2 `DECIMAL`), which read as `null`, is
+  now read in the column's unit when it is neither ISO 8601 nor SQL datetime text. `DateTimeHydrator` of `@spinajs/http`
+  still reads a numeric route argument as Unix seconds.
+
+  On SQLite, convert the text rows of a column you switch to milliseconds once, here column `At` of table `t`, after
+  fixing the rows that `SELECT Id, At FROM t WHERE typeof(At) = 'text' AND strftime('%s', At) IS NULL;` lists:
+
+  ```sql
+  -- a column you switch to @DateTime({ unit: 'milliseconds' })
+  UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+  ```
+
+  `'2026-11-13T23:26:44.654Z'` becomes `1794612404654`, `'2026-11-13 23:26:46.001'` becomes `1794612406001`; integer rows
+  are left alone.
+- `@spinajs/orm`: `@DateTime({ nullable: true })` accepts a property typed `DateTime | null`. Before, it threw at class
+  definition, because TypeScript emits `Object` as the design type of that union.
+- `@spinajs/orm-sql`: `SqlDatetimeValueConverter` decides whether a column is numeric in the protected
+  `isNumericColumn(column)`. A dialect whose driver reports other type names overrides it, as the PostgreSQL and SQLite
+  converters do, and so shares the unit handling instead of its own write branch.
+
+## Fixes
+
+- `@spinajs/orm-sql`: a single `where()` value now reaches the column's declared converter with the options its
+  decorator stored, as `whereIn()` values and BETWEEN bounds do; before, it passed `null`. This matters for a custom
+  converter that reads its options.
+
+> Docs: `docs/http/06-argument-hydrators.md`, `docs/orm/04-converters-and-hydration.md`,
+> `docs/orm-sql/05-value-converters-and-defaults.md`, `docs/orm-sqlite/04-schema-and-ddl.md`.
+
 # Release notes — orm-sqlite: @DateTime writes Unix seconds into a numeric column
 
 ## Breaking changes
