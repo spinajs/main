@@ -1,3 +1,11 @@
+# Release notes — orm: OrmException prints its message
+
+## Fixes
+
+- `@spinajs/orm`: `String(error)`, template literals and loggers printed `OrmException` and its subclasses
+  (`OrmNotFoundException`, `NoRowsAffected`, `MigrationLockLostException`, ...) as `undefined`. They now print
+  `<Name>: <message>`, since the empty `toString()` override is gone.
+
 # Release notes — orm-mssql: the repository builds from source again
 
 ## Fixes
