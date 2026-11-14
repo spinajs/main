@@ -1,4 +1,5 @@
 import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
+import type { IDateTimeConverterOptions } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
@@ -216,8 +217,9 @@ const SQL_DATETIME = 'yyyy-MM-dd HH:mm:ss.SSS';
  * {@link SqlBooleanValueConverter}.
  */
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: unknown, _model?: ModelBase<unknown>, column?: IColumnDescriptor, _options?: unknown, ...dehydrating: [IDehydrateOptions?]): string | number | null {
-    const dt = toInstant(value, column?.Name);
+  public toDB(value: unknown, _model?: ModelBase<unknown>, column?: IColumnDescriptor, options?: IDateTimeConverterOptions | null, ...dehydrating: [IDehydrateOptions?]): string | number | null {
+    const unit = options?.unit ?? 'seconds';
+    const dt = toInstant(value, column?.Name, unit);
     if (dt === null) {
       return null;
     }
@@ -233,14 +235,15 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     }
 
     if (column && isNumericType(column.Type)) {
-      return dt.toUnixInteger();
+      // luxon keeps a fraction of a millisecond, which int8 refuses and SQLite stores as REAL
+      return unit === 'milliseconds' ? Math.floor(dt.toMillis()) : dt.toUnixInteger();
     }
 
     return this.write(dt);
   }
 
-  public fromDB(value: unknown): DateTime | null {
-    return instantFromDb(value);
+  public fromDB(value: unknown, _raw?: unknown, options?: IDateTimeConverterOptions | null): DateTime | null {
+    return instantFromDb(value, options?.unit ?? 'seconds');
   }
 
   /** The column text of `dt`, a valid DateTime in UTC. */

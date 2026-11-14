@@ -305,7 +305,7 @@ export class SqlWhereStatement extends WhereStatement {
           }
         }
 
-        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : value;
+        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, dsc?.Converters.get(this._column as string)?.Options ?? null) : value;
       }
     }
 
@@ -575,7 +575,7 @@ export class SqlInStatement extends InStatement {
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
       const converter = container.resolve<ValueConverter>(declared.Class);
-      return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, null);
+      return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, declared.Options ?? null);
     }
 
     const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
