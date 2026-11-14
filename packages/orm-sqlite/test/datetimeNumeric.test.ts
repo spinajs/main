@@ -1,6 +1,6 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, CreatedAt, DateTime as DateTimeColumn, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, CreatedAt, DateTime as DateTimeColumn, ICompilerOutput, Model, ModelBase, Orm, Primary, QueryContext, SqlOperator } from '@spinajs/orm';
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
 import 'mocha';
@@ -82,7 +82,7 @@ describe('sqlite @DateTime on an INTEGER column', function () {
     expect(await storedTypes('dt_seconds')).to.deep.eq(['integer', 'integer']);
     const rows = (await driver().executeOnDb('SELECT At FROM dt_seconds ORDER BY Id', [], QueryContext.Select)) as { At: number }[];
     expect(rows.map((r) => r.At)).to.deep.eq([Math.floor(AT / 1000), Math.floor(AT / 1000) + 5]);
-    expect((await SecondsDoc.where('Id', 1).first())!.At.toMillis()).to.eq(Math.floor(AT / 1000) * 1000);
+    expect((await SecondsDoc.where('Id', 1).first()).At.toMillis()).to.eq(Math.floor(AT / 1000) * 1000);
   });
 
   it('stamps @CreatedAt as unix seconds into a column declared INTEGER', async () => {
@@ -117,7 +117,7 @@ describe('sqlite @DateTime on an INTEGER column', function () {
     });
 
     it('reads the instant back to the millisecond', async () => {
-      const doc = (await MillisDoc.where('Id', 2).first())!;
+      const doc = await MillisDoc.where('Id', 2).first();
       expect(doc.At.toMillis()).to.eq(AT);
       expect(doc.At.zoneName).to.eq('UTC');
     });
@@ -128,6 +128,14 @@ describe('sqlite @DateTime on an INTEGER column', function () {
 
       const byNumber = await MillisDoc.where('At', '>=', AT + 1000).orderBy('Id');
       expect(byNumber.map((d) => d.Id)).to.deep.eq([1, 3]);
+    });
+
+    it('filters BETWEEN by DateTime bounds and by bounds in milliseconds', async () => {
+      for (const bounds of [[DateTime.fromMillis(AT + 500), DateTime.fromMillis(AT + 2000)], [AT + 500, AT + 2000]]) {
+        const query = () => MillisDoc.query().where('At', SqlOperator.BETWEEN, bounds).orderBy('Id');
+        expect((query().toDB() as ICompilerOutput).bindings).to.deep.eq([AT + 500, AT + 2000]);
+        expect((await query()).map((d) => d.Id)).to.deep.eq([1, 3]);
+      }
     });
 
     it('filters whereIn by DateTimes and numbers', async () => {
@@ -141,7 +149,7 @@ describe('sqlite @DateTime on an INTEGER column', function () {
     });
 
     it('still serializes as ISO 8601', async () => {
-      const doc = (await MillisDoc.where('Id', 2).first())!;
+      const doc = await MillisDoc.where('Id', 2).first();
       expect((doc.toJSON() as { At: unknown }).At).to.eq(DateTime.fromMillis(AT, { zone: 'utc' }).toISO());
     });
 
@@ -150,8 +158,8 @@ describe('sqlite @DateTime on an INTEGER column', function () {
 
       const rows = (await driver().executeOnDb('SELECT Id, Until FROM dt_millis ORDER BY Id', [], QueryContext.Select)) as { Id: number; Until: number | null }[];
       expect(rows.map((r) => r.Until)).to.deep.eq([null, null, null, AT + 60_000]);
-      expect((await MillisDoc.where('Id', 1).first())!.Until).to.eq(null);
-      expect((await MillisDoc.where('Id', 4).first())!.Until!.toMillis()).to.eq(AT + 60_000);
+      expect((await MillisDoc.where('Id', 1).first()).Until).to.eq(null);
+      expect((await MillisDoc.where('Id', 4).first()).Until!.toMillis()).to.eq(AT + 60_000);
     });
   });
 
@@ -167,6 +175,7 @@ describe('sqlite @DateTime on an INTEGER column', function () {
 
   it('refuses a unit other than seconds or milliseconds', () => {
     // Reflect.apply stands in for an untyped JavaScript caller
-    expect(() => Reflect.apply(DateTimeColumn, undefined, [{ unit: 'minutes' }])(MillisDoc.prototype, 'At')).to.throw(InvalidArgument, "unit must be 'seconds' or 'milliseconds'");
+    const decorate = (): PropertyDecorator => Reflect.apply(DateTimeColumn, undefined, [{ unit: 'minutes' }]) as PropertyDecorator;
+    expect(() => decorate()(MillisDoc.prototype, 'At')).to.throw(InvalidArgument, "unit must be 'seconds' or 'milliseconds'");
   });
 });

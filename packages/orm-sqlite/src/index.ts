@@ -355,7 +355,7 @@ export class SqliteOrmDriver extends SqlDriver {
       });
     });
 
-    // Published only once set up: a statement must never reach a writer without its pragmas.
+    // Published only once set up: a statement must never reach a writer without its pragma.
     if (this.Options.ForeignKeys) {
       try {
         await enableForeignKeys(writer);

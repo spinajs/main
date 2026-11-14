@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { BelongsTo, Connection, HasMany, Json, Model, ModelBase, Orm, Primary, Relation, SingleRelation } from '@spinajs/orm';

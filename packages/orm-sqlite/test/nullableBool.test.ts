@@ -1,7 +1,7 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Bool, Connection, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
+import { Bool, Connection, ICompilerOutput, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
@@ -100,6 +100,21 @@ describe('sqlite @Bool({ nullable: true })', function () {
     expect((await NullableFlag.where('Flag', false)).map((m) => m.Id)).to.deep.eq([2]);
   });
 
+  it('whereIn() binds null as NULL, which matches no row, so whereNull() is the way to find the NULL rows', async () => {
+    await NullableFlag.insert({ Id: 1, Flag: null });
+    await NullableFlag.insert({ Id: 2, Flag: false });
+    await NullableFlag.insert({ Id: 3, Flag: true });
+
+    expect((NullableFlag.query().whereIn('Flag', [null, true]).toDB() as ICompilerOutput).bindings).to.deep.eq([null, 1]);
+    expect((await NullableFlag.query().whereIn('Flag', [null, true])).map((m) => m.Id)).to.deep.eq([3]);
+    expect((await NullableFlag.query().whereNull('Flag')).map((m) => m.Id)).to.deep.eq([1]);
+
+    const both = await NullableFlag.query().where(function () {
+      this.whereIn('Flag', [true]).orWhere('Flag', null);
+    });
+    expect(both.map((m) => m.Id).sort()).to.deep.eq([1, 3]);
+  });
+
   it('toJSON() emits null for a NULL flag and booleans for the others', async () => {
     await NullableFlag.insert({ Id: 1, Flag: null });
     await NullableFlag.insert({ Id: 2, Flag: false });
@@ -128,7 +143,7 @@ describe('sqlite @Bool({ nullable: true })', function () {
 
   it('publishes the column as a nullable boolean in the model schema', () => {
     const descriptor = NullableFlag.getModelDescriptor();
-    expect(descriptor.Schema.properties.Flag).to.deep.eq({ type: 'boolean', nullable: true });
-    expect(descriptor.ResponseSchema.properties.Flag).to.deep.eq({ type: 'boolean', nullable: true });
+    expect(descriptor.Schema).to.have.deep.nested.property('properties.Flag', { type: 'boolean', nullable: true });
+    expect(descriptor.ResponseSchema).to.have.deep.nested.property('properties.Flag', { type: 'boolean', nullable: true });
   });
 });

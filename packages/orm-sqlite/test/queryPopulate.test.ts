@@ -76,11 +76,10 @@ function expression(compiled: ICompilerOutput | ICompilerOutput[]): string {
 async function capture<T>(run: () => Promise<T>): Promise<{ result: T; sql: string[] }> {
   const sql: string[] = [];
   const d = driver();
-  const original = d.execute.bind(d);
+  const original: (builder: Builder<unknown>) => Promise<unknown> = d.execute.bind(d);
   const stub = sinon.stub(d, 'execute').callsFake((builder: Builder<unknown>) => {
     sql.push(expression(builder.toDB()));
-    const result: Promise<unknown> = original(builder);
-    return result;
+    return original(builder);
   });
 
   try {
@@ -138,36 +137,38 @@ describe('sqlite query().populate() of a belongsTo', function () {
   });
 
   it('query().populate() keeps the owner columns', async () => {
-    const [row] = (await QpOwner.query().populate('Target'));
+    const [row] = await QpOwner.query().populate('Target');
 
     expect(row.Name).to.equal('owner-1');
     expect(row.Target.Value?.Label).to.equal('target-1');
   });
 
   it('query().populate().orderBy() sorts by the owner column', async () => {
-    const rows = (await QpOwner.query().populate('Target').orderByDescending('Id'));
+    const rows = await QpOwner.query().populate('Target').orderByDescending('Id');
 
     expect(rows.map((r) => r.Id)).to.deep.equal([2, 1]);
   });
 
   it('an explicit column list is left alone', async () => {
-    const { result, sql } = await capture(async () => (await QpOwner.query().select('Id').populate('Target')));
+    const { result, sql } = await capture(async () => await QpOwner.query().select('Id').populate('Target'));
 
     expect(result[0].Id).to.equal(1);
     expect(result[0].Name).to.equal(null);
+    expect(sql[0]).to.match(/^SELECT .* FROM `qp_owner`/);
     expect(ownerWildcards(sql[0])).to.equal(0);
   });
 
   it('a column list added after populate() is left alone too', async () => {
-    const { result, sql } = await capture(async () => (await QpOwner.query().populate('Target').select('Id')));
+    const { result, sql } = await capture(async () => await QpOwner.query().populate('Target').select('Id'));
 
     expect(result[0].Id).to.equal(1);
     expect(result[0].Name).to.equal(null);
+    expect(sql[0]).to.match(/^SELECT .* FROM `qp_owner`/);
     expect(ownerWildcards(sql[0])).to.equal(0);
   });
 
   it('a dotted where() on query() keeps the owner columns', async () => {
-    const rows = (await QpOwner.query().where('Target.Label', 'target-2'));
+    const rows = await QpOwner.query().where('Target.Label', 'target-2');
 
     expect(rows).to.have.length(1);
     expect(rows[0].Name).to.equal('owner-2');
@@ -175,7 +176,7 @@ describe('sqlite query().populate() of a belongsTo', function () {
   });
 
   it('two belongsTo populates select the owner columns once', async () => {
-    const { result, sql } = await capture(async () => (await QpOwner.query().populate('Target').populate('Group')));
+    const { result, sql } = await capture(async () => await QpOwner.query().populate('Target').populate('Group'));
 
     expect(result[0].Name).to.equal('owner-1');
     expect(result[0].Target.Value?.Label).to.equal('target-1');
@@ -184,7 +185,7 @@ describe('sqlite query().populate() of a belongsTo', function () {
   });
 
   it('a nested belongsTo populate selects the owner columns once', async () => {
-    const { result, sql } = await capture(async () => (await QpOwner.query().populate('Group.Target')));
+    const { result, sql } = await capture(async () => await QpOwner.query().populate('Group.Target'));
 
     expect(result[0].Name).to.equal('owner-1');
     expect(result[0].Group.Value?.Name).to.equal('group-1');
@@ -193,14 +194,14 @@ describe('sqlite query().populate() of a belongsTo', function () {
   });
 
   it('select().populate() is unchanged', async () => {
-    const { result, sql } = await capture(async () => (await QpOwner.select().populate('Target')));
+    const { result, sql } = await capture(async () => await QpOwner.select().populate('Target'));
 
     expect(result[0].Name).to.equal('owner-1');
     expect(ownerWildcards(sql[0])).to.equal(1);
   });
 
   it('first() on query().populate() returns a full owner', async () => {
-    const row = (await QpOwner.query().populate('Target').first());
+    const row = await QpOwner.query().populate('Target').first();
 
     expect(row.Name).to.equal('owner-1');
     expect(row.Target.Value?.Label).to.equal('target-1');

@@ -1,7 +1,7 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
-import { ConstraintViolation, OrmDriver, QueryContext } from '@spinajs/orm';
+import { ConstraintViolation, OrmDriver, OrmException, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
@@ -122,6 +122,12 @@ describe('Sqlite - ForeignKeys connection option', function () {
     return d;
   }
 
+  async function unconnected(): Promise<SqliteOrmDriver> {
+    const d = await DI.resolve<SqliteOrmDriver>('orm-driver-sqlite', [{ Driver: 'orm-driver-sqlite', Name: 'fk', Filename: DB_FILE, ForeignKeys: true }]);
+    opened.push(d);
+    return d;
+  }
+
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -165,7 +171,9 @@ describe('Sqlite - ForeignKeys connection option', function () {
     expect(d.Outcomes).to.have.length(2);
     d.Outcomes.forEach((o) => {
       expect(o.ok, 'the orphan row was stored before the pragma ran').to.eq(false);
-      expectForeignKeyError((o as { error: unknown }).error);
+      if (!o.ok) {
+        expectForeignKeyError(o.error);
+      }
     });
     expect(await foreignKeys(d)).to.eq(1);
   });
@@ -185,10 +193,25 @@ describe('Sqlite - ForeignKeys connection option', function () {
       return this;
     });
 
-    const d = await DI.resolve<SqliteOrmDriver>('orm-driver-sqlite', [{ Driver: 'orm-driver-sqlite', Name: 'fk', Filename: DB_FILE, ForeignKeys: true }]);
-    opened.push(d);
+    const close = sinon.spy(sqlite3.Database.prototype, 'close');
+    const d = await unconnected();
 
-    await expect(d.connect()).to.be.rejectedWith(/foreign keys/);
+    await expect(d.connect()).to.be.rejectedWith(OrmException, /does not enforce foreign keys/);
+    expect(close.callCount, 'the writer is closed').to.eq(1);
+    expect(await d.ping()).to.eq(false);
+  });
+
+  it('rejects connect and keeps no handle when the pragma itself fails', async () => {
+    const exec = sinon.stub(sqlite3.Database.prototype, 'exec').callThrough();
+    exec.withArgs('PRAGMA foreign_keys = ON').callsFake(function (this: sqlite3.Database, _sql: string, callback?: (err: Error | null) => void) {
+      callback?.(new Error('SQLITE_IOERR: disk I/O error'));
+      return this;
+    });
+    const close = sinon.spy(sqlite3.Database.prototype, 'close');
+    const d = await unconnected();
+
+    await expect(d.connect()).to.be.rejectedWith(Error, /disk I\/O error/);
+    expect(close.callCount, 'the writer is closed').to.eq(1);
     expect(await d.ping()).to.eq(false);
   });
 
