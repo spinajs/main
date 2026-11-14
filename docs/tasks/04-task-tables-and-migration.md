@@ -1,6 +1,6 @@
 # Task tables and migration
 
-`@spinajs/tasks` keeps one row per task in `__tasks` and one row per finished run in `__task_history`, both on the `default` connection. The `__task` and `__task_history` models are exported, so you can query them for a status page, add columns with your own migration, or purge old history.
+`@spinajs/tasks` keeps one row per task in `__tasks` and one row per finished run in `__task_history`, both on the `default` connection. Both are legacy: every run is recorded in `__scheduler_run` by `@spinajs/scheduler`, and these two tables are written only while `tasks.legacyHistory` is `true` (the 4.x default). 5.0 drops them. The `__task` and `__task_history` models are exported, so you can query them for a status page, add columns with your own migration, or purge old history.
 
 ## How it works
 
@@ -8,7 +8,7 @@
 2. `Orm.resolve()` (`DI.resolve(Orm)`) runs the migration on the connection named by `db.DefaultConnection` when that connection has `Migration.OnStartup: true`. Otherwise run it with the ORM CLI.
 3. The migration creates `__tasks` and `__task_history`.
 4. When the driver reports `supportedFeatures().events` (MySQL only), it also creates the database event `__task_delete_old_entries`, which deletes history rows older than 7 days once a day.
-5. At run time the `@Task()` wrapper reads and writes the rows; see [Task decorator](01-task-decorator.md#how-it-works).
+5. At run time the `@Task()` wrapper reads and writes the rows while `tasks.legacyHistory` is on; see [Task decorator](01-task-decorator.md#how-it-works).
 
 ## Schema
 

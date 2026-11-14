@@ -11,7 +11,7 @@ Every finished run of a `@Task()` method emits a queue event: `TaskSuccess` when
 5. The connection's `QueueClient` picks the channel: `queue.routing.<Name>.channel`, or the connection's `defaultTopicChannel`.
 6. A consumer that calls `QueueService.consume(TaskFailed, callback)` receives it.
 
-A run skipped because the mutex is held emits **no** event.
+A call skipped because another run holds the task's schedule lease emits **no** event. The scheduler emits its own run events (`ScheduleRunStarted`, `ScheduleRunSucceeded`, `ScheduleRunFailed`) for every task run as well.
 
 ```mermaid
 sequenceDiagram

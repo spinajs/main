@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/tasks",
   "version": "3.0.23",
-  "description": "SpinaJS tasks module",
+  "description": "SpinaJS tasks module (deprecated: @Task runs through @spinajs/scheduler; removed in 5.0)",
   "main": "./lib/index.js",
   "exports": {
     ".": {
@@ -40,18 +40,19 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
+    "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/log-common": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/queue": "3.0.23",
-    "@spinajs/threading": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@spinajs/util": "3.0.23",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@types/node": "^18.11.18",
-    "@spinajs/orm-threading": "3.0.23"
+    "@spinajs/orm-sqlite": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {
