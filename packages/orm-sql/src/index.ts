@@ -13,6 +13,7 @@ export * from './statements.js';
 export * from './literals.js';
 export * from './views.js';
 export * from './converters.js';
+export * from './row-queue.js';
 
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
@@ -128,7 +129,10 @@ export abstract class SqlDriver extends OrmDriver {
     }
   }
 
-  /** The cursor over one statement. A driver that sets `supportedFeatures().streaming` overrides it. */
+  /**
+   * The cursor over one statement. A driver that sets `supportedFeatures().streaming` overrides it. Only `executeStream` calls it,
+   * after `canStreamNatively()`: never inside a transaction or under session settings, so it reads on a pooled connection of its own.
+   */
   public executeStreamOnDb(_stmt: string, _params: unknown[], _options: { batchSize: number }): AsyncIterable<unknown> {
     throw new StreamNotSupported(`driver ${this.Options.Driver} cannot stream rows`);
   }
