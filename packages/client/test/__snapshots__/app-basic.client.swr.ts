@@ -26,9 +26,12 @@ const underAny = (prefixes: readonly (readonly unknown[])[]) => {
   return (key: unknown) => matchers.some((matches) => matches(key));
 };
 
+// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.
+const nullIfEmpty = <T>(data: T): T => data ?? (null as T);
+
 export function useArticlesRead(vars: { id: number } | null, config?: SWRConfiguration<ArticleDto, AppClientError>): SWRResponse<ArticleDto, AppClientError> {
   const client = useAppClient();
-  return useSWR<ArticleDto, AppClientError>(vars && appKeys.articles.read(vars), vars && (() => client.articles.read(vars.id)), config);
+  return useSWR<ArticleDto, AppClientError>(vars && appKeys.articles.read(vars), vars && (() => client.articles.read(vars.id).then(nullIfEmpty)), config);
 }
 
 export function useArticlesAdd(config?: MutationConfig<ArticleDto, { body: CreateArticleDto }>): MutationResult<ArticleDto, { body: CreateArticleDto }> {
@@ -48,17 +51,17 @@ export function useArticlesAdd(config?: MutationConfig<ArticleDto, { body: Creat
 
 export function useHealthGet(vars: Record<string, never> | null = {}, config?: SWRConfiguration<{ ok: boolean }, AppClientError>): SWRResponse<{ ok: boolean }, AppClientError> {
   const client = useAppClient();
-  return useSWR<{ ok: boolean }, AppClientError>(vars && appKeys.health.get(vars), vars && (() => client.health.get()), config);
+  return useSWR<{ ok: boolean }, AppClientError>(vars && appKeys.health.get(vars), vars && (() => client.health.get().then(nullIfEmpty)), config);
 }
 
 export function useUsersList(vars: { query: ListQuery } | null, config?: SWRConfiguration<UserDto[], AppClientError>): SWRResponse<UserDto[], AppClientError> {
   const client = useAppClient();
-  return useSWR<UserDto[], AppClientError>(vars && appKeys.users.list(vars), vars && (() => client.users.list(vars.query)), config);
+  return useSWR<UserDto[], AppClientError>(vars && appKeys.users.list(vars), vars && (() => client.users.list(vars.query).then(nullIfEmpty)), config);
 }
 
 export function useUsersGet(vars: { id: number } | null, config?: SWRConfiguration<UserDto, AppClientError>): SWRResponse<UserDto, AppClientError> {
   const client = useAppClient();
-  return useSWR<UserDto, AppClientError>(vars && appKeys.users.get(vars), vars && (() => client.users.get(vars.id)), config);
+  return useSWR<UserDto, AppClientError>(vars && appKeys.users.get(vars), vars && (() => client.users.get(vars.id).then(nullIfEmpty)), config);
 }
 
 export function useUsersCreate(config?: MutationConfig<UserDto | ValidationProblem, { body: CreateUserDto }>): MutationResult<UserDto | ValidationProblem, { body: CreateUserDto }> {

@@ -1,13 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { JSDOM } from 'jsdom';
 import { SocketClient } from '@spinajs/http-socket-client';
 import { act, createElement, Fragment, StrictMode, useLayoutEffect, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig, type Cache } from 'swr';
 import { generateClientFiles } from '../src/index.js';
 import { appBasicManifest } from './support/fixture.js';
-import { writeModules, type ModuleDir } from './support/modules.js';
+import { installDom, writeModules, type Dom, type ModuleDir } from './support/modules.js';
 
 interface ChatMessage {
   id: string;
@@ -146,12 +145,9 @@ async function render(element: ReactElement): Promise<Root> {
   return root;
 }
 
-const GLOBALS = ['window', 'document', 'navigator'] as const;
-
 describe('socket hooks at runtime', () => {
   let modules: ModuleDir | undefined;
-  let dom: JSDOM;
-  let saved: Partial<Record<(typeof GLOBALS)[number], PropertyDescriptor>>;
+  let dom: Dom;
   let socketHooks: SocketModule;
   let swrHooks: SwrSocketModule;
   const message: ChatMessage = { id: 'm1', text: 'hello' };
@@ -161,9 +157,7 @@ describe('socket hooks at runtime', () => {
   before(async () => {
     const files = await generateClientFiles({ manifest: await appBasicManifest(), hooks: ['swr'], socketHooks: true });
     // `window` must exist before the generated files load: it picks useLayoutEffect for the listener ref.
-    dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
-    saved = Object.fromEntries(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-    for (const name of GLOBALS) Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true, writable: true });
+    dom = installDom();
     flags.IS_REACT_ACT_ENVIRONMENT = true;
     const generated = Object.fromEntries(files.filter((f) => f.path.startsWith('client.socket')).map((f) => [f.path, f.contents]));
     modules = writeModules(generated, { react: import.meta.resolve('react'), 'swr/subscription': import.meta.resolve('swr/subscription') });
@@ -173,12 +167,7 @@ describe('socket hooks at runtime', () => {
   after(() => {
     modules?.remove();
     delete flags.IS_REACT_ACT_ENVIRONMENT;
-    for (const name of GLOBALS) {
-      const descriptor = saved[name];
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
-    dom.window.close();
+    dom.restore();
   });
 
   describe('event hook', () => {
