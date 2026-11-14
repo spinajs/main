@@ -38,6 +38,8 @@ describe('generateClientFiles', () => {
     [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts']],
     [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts']],
     [{ hooks: ['react-query', 'swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']],
+    [{ hooks: ['react-query'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.socket.ts']],
+    [{ hooks: ['swr'], socketHooks: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.socket.ts', 'client.socket-swr.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
@@ -66,7 +68,7 @@ describe('generateClientFiles', () => {
       swr: { available: true },
       zod: { available: false },
       models: { available: false },
-      'socket-hooks': { available: false },
+      'socket-hooks': { available: true },
     });
   });
 
@@ -85,7 +87,7 @@ describe('generateClientFiles', () => {
   const rejections: [string, Partial<GenerateClientFilesOptions>, string][] = [
     ['an unknown hooks target, naming the allowed ones', { hooks: ['react-query', 'vue' as 'swr'] }, "generateClientFiles: unknown hooks target 'vue'; use react-query or swr"],
     ['a hooks target listed twice', { hooks: ['swr', 'react-query', 'swr'] }, "generateClientFiles: hooks target 'swr' is listed twice"],
-    ['socketHooks without hooks', { socketHooks: true }, 'generateClientFiles: socketHooks needs hooks, because socket hooks are added to the hooks files'],
+    ['socketHooks without hooks', { socketHooks: true }, 'generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks'],
   ];
   for (const [what, options, message] of rejections) {
     it(`rejects ${what}`, async () => {

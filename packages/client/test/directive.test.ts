@@ -19,6 +19,8 @@ const ENVIRONMENTS: Record<string, GeneratedFile['environment']> = {
   'client.react.ts': 'client',
   'client.react-query.ts': 'client',
   'client.swr.ts': 'client',
+  'client.socket.ts': 'client',
+  'client.socket-swr.ts': 'client',
 };
 
 function parse(file: GeneratedFile): ts.SourceFile {
@@ -42,7 +44,7 @@ describe("'use client' placement", () => {
   });
 
   it('marks every generated file with the environment section 3.1 gives it', () => {
-    expect(files.map((f) => f.path)).to.include.members(['client.ts', 'client.keys.ts', 'client.react.ts']);
+    expect(files.map((f) => f.path)).to.include.members(['client.ts', 'client.keys.ts', 'client.react.ts', 'client.socket.ts', 'client.socket-swr.ts']);
     for (const file of files) expect([file.path, file.environment]).to.deep.equal([file.path, ENVIRONMENTS[file.path]]);
   });
 
