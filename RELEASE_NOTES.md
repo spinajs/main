@@ -1,3 +1,24 @@
+# Release notes — orm: the model JSON schema reads SQL column types in any case
+
+## Behaviour change
+
+- `@spinajs/orm`: the model JSON schema looked a column's type up verbatim, and SQLite reports types as declared, so
+  every SQLite column fell back to `{ type: 'string' }`. Types are now read in any case, without a `(...)` size and without
+  `unsigned`, `signed` and `zerofill`, and `integer`, `big int`, `real` and `numeric` are known. On SQLite, `INTEGER` and
+  `INTEGER UNSIGNED` columns now publish `integer`, `REAL`, `DECIMAL(...)` and `NUMERIC` columns `number`, and `BOOLEAN`
+  columns `boolean`, in `descriptor.Schema`, `descriptor.ResponseSchema`, the validation of a model taken as a request
+  body and the OpenAPI document. On MSSQL, `real` and `numeric` columns, and on PostgreSQL `numeric` columns in the
+  request schema, become `number` instead of `string`. Driver response overrides still apply. `columnToSchema()` is now
+  exported; it returns the exported `IColumnJsonSchema` and reads the keys of `overrides` in any case.
+
+## Known
+
+- On PostgreSQL the driver reports the type names `int2`, `int4`, `int8`, `float4`, `float8` and `bool`, which the model
+  JSON schema does not map: integer, float and boolean columns there still publish `{ type: 'string' }`. `@DateTime()`
+  on the integer and float columns is not affected; it writes Unix seconds.
+
+> Docs: `docs/orm/11-json-schema.md`.
+
 # Release notes — orm, orm-sql, orm-http: where() with BETWEEN binds the pair
 
 ## Behaviour change

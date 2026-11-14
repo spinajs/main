@@ -4,10 +4,11 @@ import { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 /**
  * SQL column type → JSON-schema shape; unlisted types fall back to `string`.
  *
- * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`. Every driver
- * stores the column's own `DATA_TYPE` verbatim ( see orm-mysql / orm-mssql `tableInfo` ),
- * so a `ColumnType` member whose value does not spell the SQL type exactly the way the
- * database reports it will never match, and the column silently falls back to `string`.
+ * The keys must be the strings a DRIVER puts in `IColumnDescriptor.Type`, compared in lower
+ * case without a `(...)` suffix. Every driver stores the column's own type verbatim ( see
+ * orm-mysql / orm-mssql / orm-sqlite `tableInfo` ), so a `ColumnType` member whose value does
+ * not name the SQL type the way the database reports it will never match, and the column
+ * silently falls back to `string`.
  * That is why 'datetime' sits here next to `ColumnType.DATE_TIME` ( = 'dateTime' ), which
  * neither MySQL nor MSSQL ever emits.
  *
@@ -27,6 +28,11 @@ const SQL_TYPE_TO_SCHEMA: Record<string, any> = {
   [ColumnType.MEDIUM_INTEGER]: { type: 'integer' },
   [ColumnType.INTEGER]: { type: 'integer' },
   [ColumnType.BIG_INTEGER]: { type: 'integer' },
+  // SQLite's spellings of int() and float() columns, and its numeric affinity
+  integer: { type: 'integer' },
+  'big int': { type: 'integer' },
+  real: { type: 'number' },
+  numeric: { type: 'number' },
   [ColumnType.DECIMAL]: { type: 'number' },
   [ColumnType.FLOAT]: { type: 'number' },
   [ColumnType.DOUBLE]: { type: 'number' },
@@ -129,17 +135,55 @@ function isConverterNamed(ctor: unknown, name: string): boolean {
   return false;
 }
 
-interface IColumnJsonSchema {
+/** The JSON-schema property {@link columnToSchema} builds for one column. */
+export interface IColumnJsonSchema {
   type?: string;
   format?: string;
   maxLength?: number;
   description?: string;
   nullable?: boolean;
+  items?: IColumnJsonSchema;
+  enum?: unknown[];
   [keyword: string]: unknown;
 }
 
+const SQL_TYPE_LOOKUP: Record<string, any> = lowerCaseKeys(SQL_TYPE_TO_SCHEMA);
+
+function lowerCaseKeys(map: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(map).map(([key, value]) => [key.toLowerCase(), value]));
+}
+
+const SIGN_ATTRIBUTES = new Set(['unsigned', 'signed', 'zerofill']);
+
+// Each `(...)` group becomes a space. A scan, not a regular expression: the type text comes from the database and
+// `/\([^)]*\)/` backtracks quadratically on a run of unclosed `(`.
+function withoutParenthesised(text: string): string {
+  let out = '';
+  let from = 0;
+
+  for (;;) {
+    const open = text.indexOf('(', from);
+    const close = open < 0 ? -1 : text.indexOf(')', open);
+    if (close < 0) {
+      return out + text.slice(from);
+    }
+
+    out += text.slice(from, open) + ' ';
+    from = close + 1;
+  }
+}
+
+// SQLite reports the type as declared (`INTEGER UNSIGNED`, `DECIMAL(10,2)`), the other drivers a lower-case DATA_TYPE.
+function sqlTypeKey(type: string | undefined): string {
+  return withoutParenthesised((type ?? '').toLowerCase())
+    .split(/\s+/)
+    .filter((token) => token && !SIGN_ATTRIBUTES.has(token))
+    .join(' ');
+}
+
 function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>): IColumnJsonSchema {
-  const schema: IColumnJsonSchema = { ...(overrides[col.Type] ?? SQL_TYPE_TO_SCHEMA[col.Type] ?? { type: 'string' }) };
+  const key = sqlTypeKey(col.Type);
+  const schema: IColumnJsonSchema = { ...(overrides[key] ?? SQL_TYPE_LOOKUP[key] ?? { type: 'string' }) };
   return schema;
 }
 
@@ -148,18 +192,18 @@ function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>
  * Adds `maxLength`, `description` and `nullable` when the column has them.
  *
  * @param col - column to describe
- * @param overrides - per-type shapes that win over the shared map ( response flavour only )
+ * @param overrides - per-type shapes that win over the shared map ( response flavour only ), keyed by type in any case
  * @param declaredConverter - converter class the model's decorators asked for, from
  *                            `descriptor.Converters` ( `@DateTime()`, `@CreatedAt()`, ... )
  * @param declaredOptions - the `Options` the decorator stored next to that converter
  */
-function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): any {
+export function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): IColumnJsonSchema {
   // The declared class wins over the resolved instance: a decorator is an explicit statement
   // about the property, while the instance is only there when the container had the converter
   // registered on that connection.
   const converter = declaredConverter ?? (col.Converter as { constructor?: unknown } | null | undefined)?.constructor;
 
-  const schema = baseColumnSchema(col, overrides);
+  const schema = baseColumnSchema(col, lowerCaseKeys(overrides));
 
   if (isConverterNamed(converter, 'BooleanValueConverter')) {
     schema.type = 'boolean';
