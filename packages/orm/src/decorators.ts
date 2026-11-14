@@ -755,11 +755,18 @@ export function DateTime() {
  * It also fixes the PUBLISHED type: `columnToSchema` maps `tinyint` to `{ type: 'integer' }` on the
  * SQL type alone, and overrides that to `{ type: 'boolean' }` when the column's declared converter
  * is a `BooleanValueConverter`.
+ *
+ * Without options NULL reads as `false` and `null` writes as `0`. `{ nullable: true }` keeps NULL
+ * in both directions, for a `boolean | null` property over a nullable column.
+ *
+ * @param options - `nullable`: keep NULL instead of coercing it to `false`
  */
-export function Bool() {
+export function Bool(options?: { nullable?: boolean }) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type?.name !== 'Boolean') {
+    // TypeScript emits `Object` as the design type of `boolean | null`
+    const accepted = options?.nullable ? ['Boolean', 'Object'] : ['Boolean'];
+    if (!accepted.includes(type?.name)) {
       throw new InvalidArgument(`property ${propertyKey} must be boolean type, but is ${type?.name}`);
     }
 
@@ -769,6 +776,7 @@ export function Bool() {
 
     model.Converters.set(propertyKey, {
       Class: BooleanValueConverter,
+      Options: options,
     });
   });
 }
