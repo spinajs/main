@@ -1,7 +1,7 @@
 import { Injectable } from '@spinajs/di';
-import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
+import { ServerMiddleware } from '@spinajs/http';
+import type { IMiddlewareContext, IRouteOutcome } from '@spinajs/http';
 import { readYourWrites } from '@spinajs/orm';
-import * as express from 'express';
 
 /**
  * Opens a read-your-writes scope per request, so a request that wrote reads its writes back from the primary where the
@@ -15,11 +15,7 @@ export class ReadYourWritesScope extends ServerMiddleware {
     this.Order = -1;
   }
 
-  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (_req, _res, next) => readYourWrites(() => next());
-  }
-
-  public after(): null {
-    return null;
+  public async onAround(_ctx: IMiddlewareContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    await readYourWrites(() => proceed());
   }
 }
