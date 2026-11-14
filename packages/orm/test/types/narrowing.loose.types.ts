@@ -56,3 +56,19 @@ export async function populateLoose(dynamic: string): Promise<void> {
   assertType<Equal<typeof unsure.Nul.Populated, true>>();
   void [withMeta, returned, owned, unsure];
 }
+
+export async function streamLoose(): Promise<void> {
+  for await (const _user of User.query().where('Id', 1).order('Id').stream({ batchSize: 10 })) {
+    assertType<Equal<typeof _user, User>>();
+  }
+  // loose mode keeps the model type through a projection
+  for await (const _user of User.query().select('Id').stream()) {
+    assertType<Equal<typeof _user, User>>();
+  }
+  for await (const _user of User.query().populate('Team').stream()) {
+    assertType<Equal<typeof _user.Team.Value, Team>>();
+  }
+  for await (const _user of User.all().stream()) {
+    assertType<Equal<typeof _user, User>>();
+  }
+}

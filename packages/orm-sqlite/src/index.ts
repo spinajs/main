@@ -22,7 +22,7 @@ export * from './expressions.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery, StreamNotSupported } from '@spinajs/orm';
 import { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 export { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 import sqlite3 from 'sqlite3';
@@ -93,6 +93,9 @@ export class SqliteOrmDriver extends SqlDriver {
   protected ReadPool: sqlite3.Database[] = [];
 
   private _readCursor = -1;
+
+  /** Outside WAL a read in progress keeps the writer from committing, so a stream would lock out every write. */
+  private _walJournal = false;
 
   /** Resolves when the open transaction ends; `null` while none is open. */
   private _writerGate: Promise<void> | null = null;
@@ -313,11 +316,52 @@ export class SqliteOrmDriver extends SqlDriver {
     });
   }
 
+  /**
+   * Steps one prepared statement on a read handle. The writer handle cannot hold one: `BEGIN` waits for a statement in
+   * progress there, and the stream's next relation batch would wait for that transaction.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], _options: { batchSize: number }): AsyncGenerator<unknown> {
+    if (!this.Db) {
+      throw new Error('cannot execute sqlite statement, no db connection avaible');
+    }
+    if (this.usesWriter(QueryContext.Select)) {
+      throw new StreamNotSupported(`connection ${this.Options.Name} has no read handle to stream from`);
+    }
+
+    const handle = this.handleFor(QueryContext.Select);
+    const fail = (err: unknown) => mapSqliteError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params ? params.join(',') : 'none');
+    const statement = await new Promise<sqlite3.Statement>((resolve, reject) => {
+      const prepared: sqlite3.Statement = handle.prepare(stmt, this.toDriverParams(params), (err: Error | null) => {
+        if (err) {
+          prepared.finalize();
+          reject(fail(err));
+          return;
+        }
+        resolve(prepared);
+      });
+    });
+
+    try {
+      for (;;) {
+        const row = await new Promise<unknown>((resolve, reject) => {
+          statement.get((err: Error | null, r: unknown) => (err ? reject(fail(err)) : resolve(r)));
+        });
+        if (row === undefined) {
+          return;
+        }
+
+        yield row;
+      }
+    } finally {
+      await new Promise<void>((resolve) => statement.finalize(() => resolve()));
+    }
+  }
+
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
   }
 
   public async ping(): Promise<boolean> {
@@ -358,6 +402,8 @@ export class SqliteOrmDriver extends SqlDriver {
       });
     });
 
+    // read, never set: the journal mode is a persistent property of the file
+    this._walJournal = await new Promise<boolean>((resolve) => this.Db.get('PRAGMA journal_mode', (err: unknown, row?: { journal_mode?: string }) => resolve(!err && row?.journal_mode === 'wal')));
     await this.openReadPool(filename);
     this.setState(ConnectionState.Connected);
 

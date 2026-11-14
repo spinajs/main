@@ -105,6 +105,20 @@ export async function populateNamesStrict(dynamic: string, anyQuery: ISelectQuer
   User.query().populate('Email');
 }
 
+export async function streamStrict(): Promise<void> {
+  for await (const row of User.query().select('Id').stream()) {
+    assertType<Equal<typeof row.Id, number>>();
+    // @ts-expect-error an unselected column is not on the row
+    void row.Name;
+  }
+  for await (const _user of User.query().select('Id').populate('Team').stream()) {
+    assertType<Equal<typeof _user.Team.Value, Team>>();
+  }
+  for await (const _row of User.all().count('Id', 'total').stream({ batchSize: 100 })) {
+    assertType<Equal<typeof _row.total, AggregateValue>>();
+  }
+}
+
 export function untypedStrict(raw: SelectQueryBuilder<unknown>, anyRows: SelectQueryBuilder<any>): void {
   // a builder without a model has no row to narrow, so it stays the class (`toDB()` returns one output)
   const one: ICompilerOutput = raw.select('id').columns(['id']).count('id', 'c').max('id', 'top').toDB();
