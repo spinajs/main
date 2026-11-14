@@ -9,6 +9,9 @@ import _ from 'lodash';
 import { DI, IContainer } from '@spinajs/di';
 import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
+import { context, trace } from '@opentelemetry/api';
+import type { Span } from '@opentelemetry/api';
+import { SpinaAttr, markSpanError, tracer, withSpan } from '@spinajs/tracing';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
@@ -16,7 +19,7 @@ import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescrip
 import { RouteRegistrationException } from './exceptions.js';
 import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './errors/on-error.js';
 import { __handle_response__ } from './response.js';
-import { errorReplyFactory } from './error.js';
+import { answeredAsServerError, errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
 import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import { routeChainName } from './route-index.js';
@@ -114,6 +117,19 @@ export async function resolveRoutePolicies(
   return { Controller: controllerPolicies, Route: routePolicies };
 }
 
+function executePolicy(policy: BasePolicy, req: Express.Request, route: IRoute, controller: IController): Promise<void> {
+  const name = policy.constructor.name;
+  return withSpan(`policy ${name}`, { attributes: { [SpinaAttr.Policy]: name } }, async (span) => {
+    try {
+      await policy.execute(req, route, controller);
+      span.setAttribute(SpinaAttr.PolicyResult, 'allow');
+    } catch (err) {
+      span.setAttribute(SpinaAttr.PolicyResult, 'deny');
+      throw err;
+    }
+  });
+}
+
 /**
  * Express handler gating a route behind its policies.
  *
@@ -169,8 +185,7 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
           scope.map((group) =>
             Promise.allSettled(
               group.map((p) => {
-                return p
-                  .execute(req, route, controller)
+                return executePolicy(p, req, route, controller)
                   .then(() => {
                     log.trace({ route: routeName, policy: p.constructor.name }, 'Policy succeded for route ${route}, policy: ${policy}');
                   })
@@ -292,10 +307,14 @@ export function createEntryHandler(middleware: RouteMiddleware, route: IRoute, c
 
 /**
  * Express handler invoking the controller action: extracts route arguments, runs the action inside the request-scoped
- * AsyncLocalStorage context and stores its result in `res.locals.response` for the route's sender. All sync and async
- * errors are forwarded to `next`. Skipped when an `onBefore` answered.
+ * AsyncLocalStorage context and a `route <Controller>.<action>` span, and stores its result in `res.locals.response`
+ * for the route's sender. All sync and async errors are forwarded to `next`. Skipped when an `onBefore` answered.
  */
 export function createActionHandler(controller: ControllerActionHost, route: IRoute, storage: AsyncLocalStorage<IActionLocalStoregeContext>, derived?: DerivedArgValidators): Express.RequestHandler {
+  const action = String(route.Method);
+  const spanName = `route ${controller.constructor.name}.${action}`;
+  const attributes = { [SpinaAttr.Controller]: controller.constructor.name, [SpinaAttr.Action]: action };
+
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
     if (answeredEarly(res)) {
       next();
@@ -303,23 +322,21 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
     }
     try {
       await storage.run(req.storage, async () => {
-        markStage(res, 'arguments');
-        const args = (await extractRouteArgs(route, req, res, controller.constructor.name, derived)).concat([req, res, next]);
-
+        const parent = context.active();
+        const span = tracer().startSpan(spanName, { attributes }, parent);
         let result: unknown;
 
         try {
-          markStage(res, 'action');
-          result = controller[route.Method as string].call(controller, ...args);
-
-          if (isPromise(result)) {
-            result = await result;
-          }
+          result = await context.with(trace.setSpan(parent, span), () => invokeAction(controller, route, req, res, next, derived));
         } catch (err) {
+          endFailedRouteSpan(span, err);
           next(err);
           return;
         }
 
+        // next() runs outside context.with: the OTel context still carries the server span here, so the reply pipeline
+        // and the __handle_response__ log lines correlate to the server span, not to the ended route span.
+        span.end();
         res.locals.response = result;
         next();
       });
@@ -329,6 +346,27 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
   };
 
   return named(actionHandler as Express.RequestHandler, controller.constructor.name);
+}
+
+// semconv, as for the server span: an error answered with a 4xx (a refusal, a validation failure) is not a span error
+function endFailedRouteSpan(span: Span, err: unknown): void {
+  const status = (err as { status?: unknown } | null)?.status;
+  const serverError = typeof status === 'number' && Number.isInteger(status) ? status >= 500 : answeredAsServerError(err);
+  if (serverError) {
+    markSpanError(span, err);
+  } else {
+    span.recordException(err instanceof Error ? err : new Error(String(err)));
+  }
+  span.end();
+}
+
+async function invokeAction(controller: ControllerActionHost, route: IRoute, req: sRequest, res: Express.Response, next: Express.NextFunction, derived: DerivedArgValidators | undefined): Promise<unknown> {
+  markStage(res, 'arguments');
+  const args = (await extractRouteArgs(route, req, res, controller.constructor.name, derived)).concat([req, res, next]);
+
+  markStage(res, 'action');
+  const result: unknown = controller[route.Method as string].call(controller, ...args);
+  return isPromise(result) ? await result : result;
 }
 
 export interface IRouteChainOptions {

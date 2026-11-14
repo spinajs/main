@@ -1,13 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Injectable } from '@spinajs/di';
-import { newTraceContext, formatTraceparent, ITraceContext } from '@spinajs/log';
+import { ROOT_CONTEXT } from '@opentelemetry/api';
+import { activeTraceIds, childTraceIds, extractTraceContext, traceparentOf } from '@spinajs/tracing';
 
 import { ServerMiddleware } from '../interfaces.js';
 import type { IMiddlewareContext } from '../interfaces.js';
 
 /**
- * `req.storage.requestId` and the `x-request-id` header; continues an inbound W3C `traceparent` (or starts a trace),
- * seeds `traceId`/`spanId` on `req.storage` and sends the outbound `traceparent`.
+ * `req.storage.requestId` and the `x-request-id` header; seeds `traceId`/`spanId` on `req.storage` from the active
+ * server span and sends the outbound `traceparent`.
  */
 @Injectable(ServerMiddleware)
 export class RequestId extends ServerMiddleware {
@@ -21,11 +22,11 @@ export class RequestId extends ServerMiddleware {
     storage.requestId = uuidv4();
     res.header('x-request-id', storage.requestId);
 
-    const tc: ITraceContext = newTraceContext(req.headers['traceparent'] as string | undefined);
-    storage.traceId = tc.traceId;
-    storage.spanId = tc.spanId;
-
-    // The `sampled` flag lives on this context only: req.storage deliberately does not carry it.
-    res.header('traceparent', formatTraceparent(tc));
+    // The server span of TracingMiddleware; without one ( tracing.enabled false, a bare unit test ) the ids are
+    // minted here, continuing an inbound traceparent, unsampled like id-only mode since nothing records them.
+    const ids = activeTraceIds() ?? childTraceIds(extractTraceContext(req.headers, ROOT_CONTEXT));
+    storage.traceId = ids.traceId;
+    storage.spanId = ids.spanId;
+    res.header('traceparent', traceparentOf(ids));
   }
 }

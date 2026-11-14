@@ -59,6 +59,9 @@
       "path": "../manifest/tsconfig.build.json"
     },
     {
+      "path": "../tracing/tsconfig.build.json"
+    },
+    {
       "path": "../principal/tsconfig.build.json"
     },
     {

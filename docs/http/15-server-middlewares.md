@@ -43,10 +43,11 @@ Only a middleware the chain entered gets `onAfter` and `onFinish`: its `onBefore
 
 | Class | `Order` | Exported | Hooks | Configuration | Effect |
 | --- | --- | --- | --- | --- | --- |
+ `TracingMiddleware` | -3 | yes | onAround, onFinish | `tracing.*` (`@spinajs/tracing`) | OpenTelemetry SERVER span, active for every later middleware, the route and the reply; named `<METHOD> <route path>` when the request finishes, if a route matched. See [Request storage and tracing](19-request-storage-and-tracing.md). |
 | `CorsMiddleware` | -1 | yes | onBefore, onAfter | `http.cors`, `@Cors` | CORS headers; answers an allowed preflight 204; `onAfter` applies a `@Cors` route policy to framework replies. See [CORS](16-cors.md). |
 | `RequestDeadline` | -0.3 | yes | onBefore, onFinish | `http.deadline.*` | `req.storage.signal` and `deadline`; 504 when nothing was sent by the deadline; see [Request deadlines](29-request-deadlines.md). |
 | `Compression` | 0 | yes | handler | `http.compression.*` | gzip/brotli via `compression`; `@NoCompression()` keeps it off a route ([route middlewares](14-route-middlewares.md#nocompression)). |
-| `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
+ `RequestId` | 1 | as `RequestIdMiddleware` | onBefore | | `req.storage.requestId`, `x-request-id` and `traceparent` headers. |
 | `RealIp` | 1 | yes | onBefore | `http.trustProxy` | `req.storage.realIp`; see [Client IP](17-client-ip-and-trust-proxy.md). `@spinajs/authn-http` replaces it with `AuthnRealIp`. |
 | `ResponseTime` | 2 | yes | onBefore, onAfter | | `x-response-time` header, `req.storage.responseTime`. |
 | `AccessLog` | 2 | yes | onBefore, onFinish | `http.accessLog.enabled` | One log line per request on `http.access`, aborted ones included: a streamed reply the client closed is logged with its status and `aborted: true`. |
@@ -106,7 +107,7 @@ Members of `ServerMiddleware`:
 | `onBefore`, `onAfter`, `onFinish`, `onAround` | The hooks above. |
 | `before()`, `after()` | Removed; see [Migrating from before() and after()](#migrating-from-before-and-after). |
 
-Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp`, below -1 to answer before CORS. `req.storage` exists for every `Order`.
+Choose `Order` by what you need: above 1 for `req.storage.requestId` and `realIp`, below -1 to answer before CORS. `req.storage` exists for every `Order`. Below -3 a middleware runs before `TracingMiddleware`, outside the server span: its log lines carry no trace ids, and a request it answers has no span.
 
 ### `ServerMiddleware`: custom implementation
 

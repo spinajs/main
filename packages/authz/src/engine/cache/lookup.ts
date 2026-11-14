@@ -14,6 +14,10 @@ import { CachedDecision } from '../types.js';
 import type { Checked, Engine, Run } from '../types.js';
 import { ttlOf } from './ttl.js';
 
+const markHit = (run: Run): void => {
+  if (run.depth === 0 && run.hit) run.hit.cached = true;
+};
+
 /** L1, then L2. An L1 hit is not audited again, unless no audit recorded its denial yet; an L2 hit is audited like a fresh decision. */
 export function cached(engine: Engine, key: string, run: Run, def: PermissionDef, ref: ResourceRef, requester: PrincipalRef, runAs: PrincipalRef): Checked | undefined {
   const now = run.instant.getTime();
@@ -21,6 +25,7 @@ export function cached(engine: Engine, key: string, run: Run, def: PermissionDef
   const entry = run.scope.get(l1);
   if (entry instanceof CachedDecision && entry.generation === engine.generation && now < entry.expiresAt) {
     Perf.count('authz.cache.l1.hit');
+    markHit(run);
     if (run.depth > 0) nest(run, entry.tags);
     if (entry.unaudited && audits(run)) {
       entry.unaudited = false;
@@ -31,6 +36,7 @@ export function cached(engine: Engine, key: string, run: Run, def: PermissionDef
   const decision = fromL2(engine, key, def, ref, runAs, now);
   if (!decision) return undefined;
   Perf.count('authz.cache.l2.hit');
+  markHit(run);
   // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
   if (run.depth > 0) nest(run, undefined);
   const ttl = ttlOf(engine, decision);

@@ -50,6 +50,9 @@
       "path": "../testing/tsconfig.json"
     },
     {
+      "path": "../tracing/tsconfig.json"
+    },
+    {
       "path": "../principal/tsconfig.json"
     },
     {

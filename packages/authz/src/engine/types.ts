@@ -112,6 +112,8 @@ export interface Run {
   readonly fresh?: boolean;
   /** The top-level decision's reads, shared by its whole call tree; only while a DecisionTap is registered. */
   readonly reads?: ReadRecorder;
+  /** check(): set on a cache hit of the top-level call, for its span. */
+  readonly hit?: { cached: boolean };
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
