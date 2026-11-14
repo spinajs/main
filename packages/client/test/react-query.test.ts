@@ -163,6 +163,15 @@ describe('React Query emitter', () => {
     });
   }
 
+  it('types the query data of a field-filtered route as Redacted<T>, imported through client.ts', async () => {
+    const m = structuredClone(manifest);
+    m.controllers.find((c) => c.className === 'UsersController')!.routes.find((r) => r.fullPath === '/users/:id')!.middlewares.push({ type: 'AuthzFieldsMiddleware', options: [] });
+    const generated = await hookFiles(m);
+
+    expect(generated['client.queries.ts']).to.include('queryOptions<Redacted<UserDto>, AppClientError>');
+    expect(typecheckFiles(generated, { noUnusedLocals: true })).to.deep.equal([]);
+  });
+
   it('fails to compile against a client.ts generated from another manifest', () => {
     const stale = files['client.ts'].replace(`manifestHash = '${manifest.hash}'`, "manifestHash = 'other'");
     const errors = typecheckFiles({ ...files, 'client.ts': stale });

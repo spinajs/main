@@ -95,7 +95,7 @@ All options are passed to `formidable` as well.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.upload.middlewares` | `UploadFileMiddlewareDescriptor[]` | `['FileInfoMiddleware']` | names, classes or `{ service, options }` | Middlewares run for every `@File()`/`@Files()`, before the per-route ones. |
+| `http.upload.middlewares` | `UploadFileMiddlewareDescriptor[]` | `['FileInfoMiddleware']` | names, classes or `{ service, options }` | Middlewares run for every `@File()`/`@Files()`, before the per-route ones. Checked at startup by each controller with an upload route: a bad entry fails it with `InvalidOption`. |
 | `fs.providers` `__file_upload_default_provider__` | provider config | `fsNative` at `os.tmpdir()` | must be `fsNative` with `basePath` | Where formidable writes incoming files. |
 
 ```ts

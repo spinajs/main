@@ -46,6 +46,9 @@
     },
     {
       "path": "../validation/tsconfig.json"
+    },
+    {
+      "path": "../tracing/tsconfig.json"
     }
   ]
 }

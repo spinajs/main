@@ -55,6 +55,7 @@ export class DefaultGroupService extends GroupService {
       actor,
       readPage(page),
       () => Group.query().accessible('group:read').within(teamRef(team.id)),
+      'name',
       (g: Group) => toGroupView(g),
     );
   }

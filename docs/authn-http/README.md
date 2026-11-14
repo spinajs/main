@@ -16,7 +16,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 
 | Feature | What it does |
 | --- | --- |
-| [Request authentication](01-request-authentication.md) | `ClientIp` and `AuthnMiddleware`: restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
+| [Request authentication](01-request-authentication.md) | `AuthnRealIp`, `ClientIp` and `AuthnMiddleware`: one client address for authn and every limiter; restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
 | [Credential extractors](02-credential-extractors.md) | Turn `Authorization`, `x-api-key` and signature headers into credentials; add your own. |
 | [Principal resolvers](03-principal-resolvers.md) | Turn credentials or a session into a principal, in order; add your own. |
 | [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: the `@spinajs/http` CSRF guard plus the session cookie: refuses cross-origin unsafe requests from browsers on every route, and boots only with a CSRF defence for a `SameSite=None` session cookie. |
@@ -41,7 +41,9 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Answers and response extensions](17-answers-and-response-extensions.md) | The principal summary, `AuthnResponseExtension`, the shared 401 body and the session cookie helpers. |
 | [Socket sessions](18-socket-sessions.md) | `@spinajs/authn-http/socket`: the session cookie as an `http-socket` principal source. |
 | [`authn:check-config` command](19-check-config-command.md) | Reports what the `authn.*` configuration gets wrong. |
-| [Recommended `http.throttle` rules](../http/18-throttling.md#recommended-rules-for-the-authn-routes) | Request-volume rules for the anonymous authn routes, and why they match the resolved path. |
+| [Rate limits](25-rate-limits.md) | The `@RateLimit` every anonymous route ships with, on by default: the numbers, the `authn.http.rateLimit.*` keys and the throttled answers. |
+| [The two throttling layers](../http/18-throttling.md#rate-limits-for-the-authn-routes) | The coarse `http.throttle` rule before authentication next to the shipped per-route limits. |
+| [Rate limits of the routes with a session](26-session-route-rate-limits.md) | The shipped `@RateLimit` of every MFA, re-authentication, credential and credential admin route, its `authn.http.rateLimit.*` key and its throttled answer. |
 | [Webhooks](20-webhooks.md) | `WebhookAuthnEventSink`: signed POSTs of audit events to your endpoints; `WebhookChangeSink` for authz changes. |
 | [Action hooks](23-action-hooks.md) | The route actions (`authn.logout`, `authn.sessions.revoke`, `authn.role.switch`, `authn.admin.credentials`, `authn.registration`, `authn.code.request`, opt-in `authn.request`) and how a refusal of a service answers. |
 

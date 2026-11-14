@@ -62,35 +62,37 @@ http: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Stream sources | Not in DI: any async iterable a `@Command` handler returns | `async *` handler methods | Any object with `[Symbol.asyncIterator]` (a database cursor, a `Readable` stream) | Return it from the handler |
-| Stream wrappers | A `SocketCommandStage` (see [Command pipeline](04-command-pipeline.md)) that replaces the iterable `next()` returns | `AccessFieldsStage` filters each chunk | Your stage | Wrap the iterable in an object that forwards `next`, `return` and `throw`; a generator wrapper cannot forward `return()` to a source it has not started |
+| Stream wrappers | A `SocketMiddleware` (see [Command pipeline](04-command-pipeline.md)) whose `onAfter` replaces the iterable in `ctx.result` | `AccessFieldsStage` filters each chunk | Your middleware | Wrap the iterable in an object that forwards `next`, `return` and `throw`; a generator wrapper cannot forward `return()` to a source it has not started |
 
-### Wrap every chunk of a stream in a stage
+### Wrap every chunk of a stream
 
-A stage after `Lookup` receives the handler's iterable from `await next()` when the stream starts. Return a wrapper to change or count the chunks. Write it as a plain iterator, not a generator: the dispatcher closes a refused or failed stream through `return()`, and a generator never forwards `return()` to a source it has not started.
+A middleware's `onAfter` receives the handler's iterable in `ctx.result` when the stream starts. Replace it with a wrapper to change or count the chunks. Write it as a plain iterator, not a generator: the dispatcher closes a refused or failed stream through `return()`, and a generator never forwards `return()` to a source it has not started.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '@spinajs/http-socket';
+import { IRegisteredHandler, ISocketReplyContext, STAGE_ORDER, SocketMiddleware } from '@spinajs/http-socket';
 
 function isIterable(value: unknown): value is AsyncIterable<unknown> {
   return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
 }
 
 /** Stamps every chunk of a 'feed.*' stream with the time it left the source. */
-@Injectable(SocketCommandStage)
-export class StampChunksStage extends SocketCommandStage {
-  public get Order(): number {
-    // outside AccessFieldsStage ( Policies + 50 ): it stamps chunks that are already field-filtered
-    return STAGE_ORDER.Policies + 40;
+@Injectable(SocketMiddleware)
+export class StampChunks extends SocketMiddleware {
+  // outside AccessFieldsStage ( Policies + 50 ): it stamps chunks that are already field-filtered
+  public readonly Order = STAGE_ORDER.Policies + 40;
+
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    return handler.fullName.startsWith('feed.');
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
-    const result = await next();
-    if (!ctx.request.name.startsWith('feed.') || !isIterable(result)) {
-      return result;
+  public onAfter(ctx: ISocketReplyContext): void {
+    const result = ctx.result;
+    if (!isIterable(result)) {
+      return;
     }
 
-    return {
+    ctx.result = {
       [Symbol.asyncIterator](): AsyncIterator<unknown> {
         const source = result[Symbol.asyncIterator]();
         const stamp = (step: IteratorResult<unknown>): IteratorResult<unknown> => (step.done ? { done: true, value: undefined } : { done: false, value: { at: Date.now(), item: step.value } });

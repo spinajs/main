@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, parseCondition, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL, changeLog, parseCondition, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
+// Registers DbChangeLog and its migration: put and delete append to it.
+import '@spinajs/authz-orm/changelog';
 import type { Policy } from '../../contracts.js';
 import { UniqueViolation } from '@spinajs/orm';
 import { DateTime } from 'luxon';
@@ -21,6 +23,11 @@ export const policyTags = (id: string): readonly string[] => Object.freeze(['pol
  */
 export class DbPolicyStore extends PolicyStore {
   readonly name: string = 'db';
+
+  constructor() {
+    super();
+    changeLog().track('policy');
+  }
 
   async load(): Promise<readonly Policy[]> {
     return (await this.records()).map(recordToPolicy);
@@ -43,13 +50,14 @@ export class DbPolicyStore extends PolicyStore {
     fits(checked);
     if (actor && principalKey(actor).length > POLICY_ACTOR_MAX_LENGTH) throw new AuthzConfigError(`DbPolicyStore: the actor key is longer than the created_by column (${POLICY_ACTOR_MAX_LENGTH})`);
     requirePolicyTransaction(tx, where);
-    await PolicyRecord.destroy().where('id', checked.id);
+    const { RowsAffected: replaced } = await PolicyRecord.destroy().where('id', checked.id);
     try {
       await PolicyRecord.insert(policyToRecord(checked, actor, now) as Partial<PolicyRecord>);
     } catch (err) {
       if (!(err instanceof UniqueViolation)) throw err;
       throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote policy ${JSON.stringify(checked.id)} meanwhile; retry`, undefined, { cause: err });
     }
+    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload: checked, ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
     return { affected: 1, tags: policyTags(checked.id) };
   }
 
@@ -59,6 +67,7 @@ export class DbPolicyStore extends PolicyStore {
     const [before] = await PolicyRecord.query().select('id').where('id', id);
     if (!before) return { affected: 0, tags: [] };
     await PolicyRecord.destroy().where('id', id);
+    await changeLog().append([{ kind: 'policy', op: 'remove', key: id }]);
     return { affected: 1, tags: policyTags(id) };
   }
 

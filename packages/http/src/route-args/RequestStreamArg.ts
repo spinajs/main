@@ -37,7 +37,7 @@ export class RequestStreamArg extends RouteArgs {
 }
 
 /**
- * The raw request body as a `Readable`. Requests whose body a parser of `http.middlewares` already took (JSON,
+ * The raw request body as a `Readable`. Requests whose body a body parser already took (JSON,
  * urlencoded, XML text) are answered 415. Without `maxBytes` the action gets the request itself.
  */
 export function RequestStream(options: IRequestStreamOptions = {}): ParameterDecorator {

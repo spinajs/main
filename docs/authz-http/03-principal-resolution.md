@@ -12,7 +12,7 @@ At startup:
 2. It waits for the `http.server.listening` event, then resolves the root `AuthzService`, which boots the root domain. The boot runs after the controllers registered, so the `@Access` permission check sees all of them.
 3. When the root domain cannot boot, the middleware logs the error and stops the HTTP server: a bad authz configuration never serves requests.
 
-Per request, `PrincipalMiddleware.before()`:
+Per request, `PrincipalMiddleware.onBefore()`:
 
 1. Awaits the root `AuthzService` (booted once and shared).
 2. Asks every source except `LinkPrincipalSource` in ascending `order`; the first non-null answer wins ([Principal sources](04-principal-sources.md)).
@@ -20,9 +20,9 @@ Per request, `PrincipalMiddleware.before()`:
 4. No answer: the frozen `ANONYMOUS` principal (`{ type: 'anonymous', id: 'anonymous', authenticated: false, source: 'anonymous' }`) while `authz.principals.anonymous.enabled` is on, else no principal.
 5. A source that returns a `system` or `unattended` principal throws `AuthzConfigError` (500). Those principals come only from `runAs`, `@Job` and `@Unscoped` code paths.
 6. Sets `req.storage.Principal` and runs `authz.preload(principal)` inside the request's async store, so what models keep per request reaches the later checks.
-7. Calls `next()`. An error from a source or from the root boot goes to `next(err)` and http's error handler.
+7. Resolves, and the request goes on. An error from a source or from the root boot rejects it: http's global error answer replies.
 
-`AccessEpochMiddleware` (`Order` 11) then stamps `X-Access-Epoch` on the response ([Client access API](07-client-access-api.md#x-access-epoch)).
+`AccessEpochMiddleware` (`Order` 11) stamps `X-Access-Epoch` on the reply in its `onAfter` ([Client access API](07-client-access-api.md#x-access-epoch)).
 
 In the action, `authz().current()` returns `req.storage.Principal`, or `UNATTENDED` when the request has none. `UNATTENDED` is denied every check.
 

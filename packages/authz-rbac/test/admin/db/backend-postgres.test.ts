@@ -29,8 +29,9 @@ describe('DbAuthzAdminBackend on Postgres', function () {
       await gate;
       await backend.bumpVersion('pg_d1', tx);
     });
+    let bumped: number | void = undefined;
     const fast = backend.transaction('pg_d2', async (tx) => {
-      await backend.bumpVersion('pg_d2', tx);
+      bumped = await backend.bumpVersion('pg_d2', tx);
       return 'done';
     });
 
@@ -41,6 +42,8 @@ describe('DbAuthzAdminBackend on Postgres', function () {
     expect(winner).to.eq('done');
     expect(await readVersion('pg_d1')).to.eq('1');
     expect(await readVersion('pg_d2')).to.eq('1');
+    // Read inside the uncommitted transaction; a read on another connection would still see 0.
+    expect(bumped).to.eq(1);
   });
 
   it('orders two concurrent batches of one domain on the version row, without a deadlock', async () => {

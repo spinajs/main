@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { Controllers, HttpServer, RealIp, ServerMiddleware } from '@spinajs/http';
 import { Log } from '@spinajs/log';
 // The authn root registers its services (AuthnService, the MFA policy, the throttle, ...) in the root container.
 import '@spinajs/authn';
@@ -8,6 +8,7 @@ import { CredentialExtractor } from '@spinajs/authn/contracts';
 
 import { AuthnPrincipalResolver } from '../api.js';
 import { AuthnMiddleware } from '../middleware/authn.js';
+import { AuthnRealIp } from '../middleware/client-ip.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../extractors/bearer.js';
 import { HttpSignatureExtractor } from '../extractors/signature.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../resolvers/credential.js';
@@ -18,8 +19,12 @@ import './schemas.js';
 
 const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolved: AuthnMiddleware is not in its middleware pipeline, so no request is authenticated. Fix: import @spinajs/authn-http before resolving Controllers or HttpServer (the controller scan loads it too late).';
 
+const REAL_IP_TOO_LATE = '@spinajs/authn-http loaded after RealIp was resolved (the socket server resolves it when it starts): that instance ignores authn.http.trustProxy, so sockets and requests can see different client addresses. Fix: import @spinajs/authn-http before the socket server starts.';
+
 // Idempotent: a container's registry skips a class already registered under the same base.
 function register(container: IContainer): void {
+  // In RealIp's slot of the ServerMiddleware list, not a second entry: one middleware writes the client address.
+  container.register(AuthnRealIp).as(RealIp);
   container.register(AuthnMiddleware).as(ServerMiddleware);
   for (const extractor of [HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]) container.register(extractor).as(CredentialExtractor);
   for (const resolver of [KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]) container.register(resolver).as(AuthnPrincipalResolver);
@@ -30,23 +35,26 @@ function register(container: IContainer): void {
 
 /**
  * HttpServer fixes its ServerMiddleware list when it is constructed, and Controllers constructs it before scanning the
- * controller dirs. Logged, not thrown: a throw here would fail the whole scan from inside an import and leave the ESM
- * module errored for every later import, far from the cause.
+ * controller dirs. A socket server keeps the RealIp it resolved at start, while registering AuthnRealIp below makes later
+ * resolves build another. Logged, not thrown: a throw here would fail the whole scan from inside an import and leave the
+ * ESM module errored for every later import, far from the cause.
  */
 function warnIfLoadedTooLate(root: IContainer): void {
-  const serverUp = root.isResolved(HttpServer) || root.isResolved(Controllers);
   const alreadyRegistered = (root.getRegisteredTypes(ServerMiddleware) ?? []).some((t) => t.name === AuthnMiddleware.name);
-  if (!serverUp || alreadyRegistered) return;
+  if (alreadyRegistered) return;
+  const message = root.isResolved(HttpServer) || root.isResolved(Controllers) ? LOADED_TOO_LATE : root.isResolved(RealIp) ? REAL_IP_TOO_LATE : undefined;
+  if (!message) return;
   try {
-    (DI.resolve(Log, ['authn-http']) as Log).error(LOADED_TOO_LATE);
+    (DI.resolve(Log, ['authn-http']) as Log).error(message);
   } catch {
-    console.error(LOADED_TOO_LATE);
+    console.error(message);
   }
 }
 
 /**
- * Registers the 3.0 authentication layer: AuthnMiddleware, the credential extractors and the principal resolvers in
- * `container`, and the 3.0 route args in the root container, where @spinajs/http looks them up by name.
+ * Registers the 3.0 authentication layer: AuthnRealIp over RealIp, AuthnMiddleware, the credential extractors and the
+ * principal resolvers in `container`, and the 3.0 route args in the root container, where @spinajs/http looks them up by
+ * name.
  *
  * Loading the package does this for the root container, which HttpServer and http-socket resolve their middlewares and
  * extractors from, so an app need not call it, but it must import the package before it resolves Controllers or

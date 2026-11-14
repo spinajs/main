@@ -1,0 +1,69 @@
+{
+  "name": "@spinajs/eslint-plugin-orm",
+  "version": "3.0.23",
+  "description": "ESLint rules for the SpinaJS ORM: check sql templates against the app manifest and write their row type",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/eslint-plugin-orm",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "orm",
+    "sql",
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/compiler": "3.0.23",
+    "@spinajs/manifest": "3.0.23",
+    "@typescript-eslint/utils": "^8.71.2"
+  },
+  "peerDependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0 || ^10.0.0",
+    "typescript": ">=4.8.4 <6.1.0"
+  },
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

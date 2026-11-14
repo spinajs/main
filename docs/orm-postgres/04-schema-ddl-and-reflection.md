@@ -92,7 +92,7 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 ### Reflection: `tableInfo(name, schema?)`
 
 1. **Schema.** `schema` is used only when it differs from `Options.Database`; otherwise the schema is `Options.Options.Schema`, else `public`. Callers written for MySQL pass the database name as the schema; this rule maps it to the connection's default schema.
-2. **Columns.** `SELECT column_name, data_type, udt_name, is_nullable, column_default, is_identity FROM information_schema.columns WHERE table_name = ? AND table_schema = ? ORDER BY ordinal_position`.
+2. **Columns.** `SELECT column_name, data_type, udt_name, is_nullable, column_default, is_identity, character_maximum_length FROM information_schema.columns WHERE table_name = ? AND table_schema = ? ORDER BY ordinal_position`.
 3. **Missing table.** No rows: returns `null`, which lets migrations create the table.
 4. **Constraints.** A second query joins `information_schema.table_constraints` and `key_column_usage` for the same table and schema.
 5. **Descriptors.** One `IColumnDescriptor` per column, in table order:
@@ -107,10 +107,12 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 | `Unique` | the column is in a `UNIQUE` constraint, or is a primary key column |
 | `AutoIncrement` | `is_identity = 'YES'`, or the default starts with `nextval(` (`SERIAL`) |
 | `Schema` | the schema read |
-| `MaxLength` | `-1` |
+| `MaxLength` | `character_maximum_length` for `varchar(n)` and `char(n)`, else `-1` |
 | `Comment` | `''` |
 | `Unsigned`, `Uuid`, `IsForeignKey`, `Virtual`, `Aggregate`, `Ignore` | `false` |
 | `ForeignKeyDescription`, `Converter` | `null` |
+
+`tableIndexes()` reads `pg_index` and `tableForeignKeys()` reads `pg_constraint`, both in the schema `tableInfo()` uses (`Options.Schema`, else `public`; the connection's own database name means that default). Expression parts of an index are left out. `tableInfo()` now reports `MaxLength` from `character_maximum_length` for `varchar(n)` and `char(n)` columns (`-1` for every other type, as before). Model JSON schemas built from such a column carry `maxLength`, so orm-http validation and OpenAPI output reject over-long strings on postgres as they already did on mssql.
 
 ## Services and extension points
 

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, Sortable, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
@@ -25,9 +25,9 @@ export class UserQueryScopes implements QueryScope {
   }
 
   public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
-    const u = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
+    const u: User | string = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
 
-    return this.where('Email', u instanceof User ? u.Email : userOrEmail);
+    return this.where('Email', u instanceof User ? u.Email : u);
   }
 
   public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
@@ -114,7 +114,8 @@ export class UserQueryScopes implements QueryScope {
         this.where('Id', id);
       },
       function () {
-        this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);
+        const key = String(identifier);
+        this.where('Uuid', key).orWhere('Email', key).orWhere('Login', key);
       },
     );
   }
@@ -251,8 +252,10 @@ export class UserBase extends ModelBase<UserBase> {
   @Hidden()
   public Id!: number;
 
+  @Sortable()
   public Uuid!: string;
 
+  @Sortable()
   public Email!: string;
 
   /**
@@ -264,12 +267,14 @@ export class UserBase extends ModelBase<UserBase> {
   /**
    * Displayed name ( for others to see )
    */
+  @Sortable()
   public Login!: string;
 
   /**
    * User creation date
    */
   @CreatedAt()
+  @Sortable()
   public CreatedAt!: DateTime<true>;
 
   /**
@@ -294,15 +299,18 @@ export class UserBase extends ModelBase<UserBase> {
    * User deletion date
    */
   @SoftDelete()
+  @Sortable()
   public DeletedAt!: DateTime;
 
   @DT()
+  @Sortable()
   public LastLoginAt!: DateTime;
 
   /**
    * Account is fully active (eg. passed registration)
    * Do not use it to ban users, active user still can have banned status
    */
+  @Sortable()
   public IsActive!: boolean;
 
   /**

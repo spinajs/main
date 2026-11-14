@@ -1,10 +1,10 @@
 # Model statics and builder extension
 
-The package extends `@spinajs/orm` in three ways: statics bound onto every model (`MODEL_STATIC_MIXINS`), a `filter()` method on `SelectQueryBuilder.prototype`, and `declare module '@spinajs/orm'` typings for both. You can add your own statics through the same object and wrap the prototype method.
+The package extends `@spinajs/orm` in three ways: statics bound onto every model (`MODEL_STATIC_MIXINS`), a `filter()` method that `FilterQueryExtension` adds to select builders, and `declare module '@spinajs/orm'` typings for both. You can add your own statics through the same object and replace the extension with a subclass.
 
 ## How it works
 
-1. Importing the package runs `builders.ts`, which assigns `SelectQueryBuilder.prototype.filter`. Every select builder of every model has it from then on.
+1. Importing the package registers `FilterQueryExtension` under `SelectQueryExtension`. `Orm.resolve()` installs its `filter()` on `SelectQueryBuilder`; every select builder of every model has it from then on.
 2. `extension.ts` augments `@spinajs/orm` types:
    - `IModelDescriptor.FilterableColumns?: Map<string, IColumnFilter<unknown>>`
    - `ISelectQueryBuilder.filter(filter?, logicalOperator?, filters?): this`
@@ -22,7 +22,7 @@ The package extends `@spinajs/orm` in three ways: statics bound onto every model
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Model statics | `MODEL_STATIC_MIXINS`, exported object, copied onto each model once per ORM resolve | `filter`, `filterColumns`, `filterSchema` | your keys | Add a function under a new key before the ORM resolves; declare its type in `declare module '@spinajs/orm' { namespace ModelBase { ... } }`. Replacing an existing key changes it for every model. |
-| `SelectQueryBuilder.filter()` | prototype method, set at import | `builders.ts` | none | Keep the original and assign a wrapper after importing `@spinajs/orm-http`. |
+| `SelectQueryBuilder.filter()` | `FilterQueryExtension` under `SelectQueryExtension`, installed by `Orm.resolve()` | `filterQuery` in `builders.ts` | none | Register a subclass of `FilterQueryExtension` with `@Injectable(SelectQueryExtension)`; it replaces the package's extension. |
 | Type augmentation | `declare module '@spinajs/orm'` in `extension.ts` | as listed above | none | Add your own `declare module '@spinajs/orm'` block for statics you add. |
 
 ### MODEL_STATIC_MIXINS: add a `filterPage()` static to every model
@@ -56,24 +56,24 @@ const rows = await Article.filterPage<Article>(filter, 0, 25);
 
 ### SelectQueryBuilder.filter(): log every client filter
 
-Wrap the method instead of replacing it, so validation and SQL stay in `builders.ts`. Import `@spinajs/orm-http` first; the wrapper must see its method.
+Subclass the extension and delegate to `filterQuery`, so validation and SQL stay in `builders.ts`. A subclass of a registered extension replaces it. An unrelated extension that also adds `filter` fails `Orm.resolve()` with `ExtensionMethodCollision`. `filter()` exists only once the Orm has resolved; wrapping `SelectQueryBuilder.prototype.filter` at import no longer works.
 
 ```ts sample
-import { SelectQueryBuilder } from '@spinajs/orm';
-import { FilterableLogicalOperators, IColumnFilter, IFilterEntry } from '@spinajs/orm-http';
+import { Injectable } from '@spinajs/di';
+import { QueryBuilder, SelectQueryExtension } from '@spinajs/orm';
+import { FilterableLogicalOperators, FilterQueryExtension, IColumnFilter, IFilterEntry, filterQuery } from '@spinajs/orm-http';
 
-const proto = SelectQueryBuilder.prototype as unknown as {
-  filter(filters?: IFilterEntry[] | null, op?: FilterableLogicalOperators, columns?: IColumnFilter<unknown>[]): SelectQueryBuilder;
-};
-
-const applyFilter = proto.filter;
-
-proto.filter = function (this: SelectQueryBuilder, filters?: IFilterEntry[] | null, op?: FilterableLogicalOperators, columns?: IColumnFilter<unknown>[]) {
+function loggedFilter(this: QueryBuilder, filters?: IFilterEntry[] | null, op?: FilterableLogicalOperators, columns?: IColumnFilter<unknown>[]): QueryBuilder {
   if (filters && filters.length > 0) {
     console.info('client filter', { model: this.Model?.name, op: op ?? 'and', filters });
   }
-  return applyFilter.call(this, filters, op, columns);
-};
+  return filterQuery.call(this, filters, op, columns);
+}
+
+@Injectable(SelectQueryExtension)
+export class LoggedFilterExtension extends FilterQueryExtension {
+  public readonly methods: SelectQueryExtension['methods'] = { filter: loggedFilter };
+}
 ```
 
 ## Important behaviour
