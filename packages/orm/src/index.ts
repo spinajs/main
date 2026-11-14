@@ -6,6 +6,7 @@ export * from './source-file.js';
 export * from './migration-environment.js';
 export * from './migration-sources.js';
 export * from './manifest-migration-source.js';
+export * from './manifest-model-source.js';
 export * from './descriptor.js';
 export * from './primary-keys.js';
 export * from './resilience.js';

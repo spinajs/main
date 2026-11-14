@@ -39,6 +39,7 @@ Pick the driver package for your database.
 | [Discrimination maps](14-discrimination-maps.md) | Hydrates rows of one table into different model subclasses by a discriminator column |
 | [Metadata models](15-metadata-models.md) | Key-value metadata attached to a model through a relation |
 | [Schema diff](19-schema-diff.md) | Compares the schema the models declare with a live database: partial models, unmanaged columns, what is compared, `MIG0xx` codes |
+| [Model columns from the manifest](23-manifest-model-source.md) | `db.Models.Source = 'manifest'`: no `tableInfo()` merge at boot, drift checks for declared columns, converters by family |
 
 ## Quick start
 

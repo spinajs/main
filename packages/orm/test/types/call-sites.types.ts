@@ -66,6 +66,7 @@ export async function schedulerCallSites(since: number, maxJitter: number, tick:
   await ScheduleModel.where('Paused', false).where('Orphaned', false).whereNotNull('NextRunAt').where('NextRunAt', '>', since - maxJitter).where('NextRunAt', '<=', since + tick);
   await RunModel.where('Status', 'retrying').where('NextAttemptAt', '>', since).orderBy('NextAttemptAt').first();
   const run = await RunModel.where('Id', runId).first();
+  await RunModel.count((b) => b.where('Schedule', schedule).where('Status', 'queued'));
   await RunModel.where('Schedule', schedule).where('Status', 'running').orderByDescending('StartedAt').first();
   const due = RunModel.query()
     .whereIn('Status', ['queued', 'retrying'])

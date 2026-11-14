@@ -1,5 +1,5 @@
-import { col, RawQuery, SortOrder, SqlOperator } from '@spinajs/orm';
-import type { ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
+import { RawQuery, SortOrder, SqlOperator } from '@spinajs/orm';
+import type { ColumnName, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import { Upload, User } from '../models.js';
 
 declare const dynamic: string;
@@ -17,7 +17,7 @@ export async function whereStrict(): Promise<void> {
     })
     .whereIn('Id', [1])
     .whereNull('Name');
-  await User.query().whereColumn('Id', '=', 'Owner.Id').where(col('legacy_column'), 'anything');
+  await User.query().whereColumn('Id', '=', 'Owner.Id').where('users.legacy_column', 'anything');
   await anyQuery.where('whatever', 1);
   await untyped.where('whatever', 1);
   await baseModel.where('whatever', 1);
@@ -31,7 +31,7 @@ export async function whereStrict(): Promise<void> {
   User.query().where('Id', 'x');
   // @ts-expect-error the value does not match the column type behind an operator
   User.query().where('Id', '>', 'x');
-  // @ts-expect-error a non-literal column needs col()
+  // @ts-expect-error a non-literal column is rejected
   User.query().where(dynamic, 1);
   // @ts-expect-error not an operator
   User.query().where('Id', dynamic, 1);
@@ -64,6 +64,17 @@ export async function columnsStrict(): Promise<void> {
   User.query().orderBy('Nmae');
   // @ts-expect-error unknown column in order
   User.query().order('Nmae', SortOrder.ASC);
+  // @ts-expect-error a plain string is rejected by orderBy
+  User.query().orderBy(dynamic);
+  // @ts-expect-error a plain string is rejected by orderByDescending
+  User.query().orderByDescending(dynamic);
+  // @ts-expect-error a plain string is rejected by order
+  User.query().order(dynamic, SortOrder.ASC);
+  await User.query().order({ column: 'Email', order: SortOrder.ASC }).order([{ column: 'users.Id' }, null]);
+  // @ts-expect-error unknown column in the object form of order
+  User.query().order({ column: 'Nmae', order: SortOrder.ASC });
+  // @ts-expect-error a plain string is rejected by the object form of order
+  User.query().order([{ column: dynamic }]);
   // @ts-expect-error unknown column in groupBy
   User.query().groupBy('Nmae');
   // @ts-expect-error unknown column in an aggregate
@@ -72,4 +83,37 @@ export async function columnsStrict(): Promise<void> {
   User.update({ Email: 'x' }).increment('Idd');
   // @ts-expect-error a relation is no column
   User.query().select('Team');
+}
+
+// A literal qualified name stays unchecked; a non-literal one could name anything, so it is rejected.
+export async function literalColumnsStrict(legacy: 'users.legacy_column' | 'teams.Name', declared: ColumnName<User>): Promise<void> {
+  await User.query().orderBy('users.legacy_column').orderBy(legacy).orderBy(declared).order(legacy, SortOrder.DESC);
+  await User.query().where('users.legacy_column', 1).where(legacy, '>', 1).whereColumn('Id', '=', 'o.Id').columns(['t.Id', legacy, declared]);
+  await User.query().order({ column: legacy }).order([{ column: 'x.Id' }, { column: declared, order: SortOrder.ASC }]).count(legacy, 'c');
+  await User.where('users.legacy_column', 1).whereIn(legacy, [1]).groupBy(legacy).max(legacy);
+
+  // @ts-expect-error a template pattern in orderBy
+  User.query().orderBy(`users.${dynamic}`);
+  // @ts-expect-error a template pattern in where
+  User.query().where(`${dynamic}.Id`, 1);
+  // @ts-expect-error a template pattern in the static where
+  User.where(`${dynamic}.Id`, 1);
+  // @ts-expect-error a template pattern in the object form of order
+  User.query().order({ column: `x.${dynamic}` });
+  // @ts-expect-error a template pattern in columns
+  User.query().columns([`t.${dynamic}`]);
+  // @ts-expect-error a template pattern on the right of whereColumn
+  User.query().whereColumn('Id', '=', `o.${dynamic}`);
+  // @ts-expect-error a template pattern on the left of whereColumn
+  User.query().whereColumn(`o.${dynamic}`, '=', 'Id');
+  // @ts-expect-error a template pattern in an aggregate
+  User.query().sum(`a${dynamic}.b`, 's');
+  // @ts-expect-error a template pattern in increment
+  User.update({ Email: 'x' }).increment(`users.${dynamic}`);
+}
+
+export async function genericColumns<M>(query: () => ISelectQueryBuilder<M[]>, sort: ColumnName<M>, order: { column: ColumnName<M>; order: SortOrder }): Promise<void> {
+  await query().orderBy(sort).orderByDescending(sort).order(sort, SortOrder.ASC).order(order).order([order, { column: sort }]);
+  await query().whereNull(sort).whereIn(sort, [1]).groupBy(sort).count(sort, 'c');
+  await query().columns([sort]);
 }

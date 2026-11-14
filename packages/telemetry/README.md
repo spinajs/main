@@ -10,8 +10,8 @@ SpinaJS's DI + middleware conventions. It provides:
 - **`TelemetryMiddleware`** — an `@Injectable(ServerMiddleware)` that times every
   HTTP request and records a duration **histogram**, a request **counter**, and
   an in-flight **gauge** (keyed by `method` / `route` / `status`), and feeds the
-  shared `TelemetryStore`. All of it runs from a `res.on('finish')` handler, and
-  telemetry errors never break the request.
+  shared `TelemetryStore`. `onBefore` starts the clock, `onFinish` records the
+  finished request, and telemetry errors never break the request.
 - **`TelemetryStore`** — the `@Singleton()` that owns the collected aggregates
   (`RequestStats`, `Timeline`, `RouteStats`). The middleware is its only writer;
   the JSON endpoints are readers. It exists because a `ServerMiddleware` is not a
@@ -504,15 +504,15 @@ to a constant:
 
 ```ts
 import { DI, Injectable } from '@spinajs/di';
-import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
+import { ServerMiddleware } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
 
 @Injectable(ServerMiddleware)
 export class BoundedTelemetry extends TelemetryMiddleware {
-  protected routeLabel(req: sRequest): string {
-    const matched = (req as any).route?.path ?? (req.storage as any)?.route;
-    // anything the router never matched collapses to one series
-    return typeof matched === 'string' && matched.length > 0 ? matched : '__unmatched__';
+  protected routeLabel(ctx: IMiddlewareContext): string {
+    // ctx.path is set only when a route matched: anything else collapses to one series
+    return ctx.path ? super.routeLabel(ctx) : '__unmatched__';
   }
 }
 

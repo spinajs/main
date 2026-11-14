@@ -91,12 +91,12 @@ The credential admin paths above mount under `authn.http.admin.basePath` (defaul
 
 | Status | Body | When |
 | --- | --- | --- |
-| 401 | `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }` | Every failed authentication: login, MFA code, re-authentication password, reset secret, old password. `Retry-After` only for a throttled login (password, code, key or passkey), MFA code or reset redemption, never for a re-authentication. See [the shared 401 body](17-answers-and-response-extensions.md#the-shared-401-body). |
+| 401 | `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }` | Every failed authentication: login, MFA code, re-authentication password, reset secret, old password. `Retry-After` only for a throttled or [rate-limited](25-rate-limits.md) login (password, code, key or passkey), MFA code or reset redemption, never for a re-authentication. See [the shared 401 body](17-answers-and-response-extensions.md#the-shared-401-body). |
 | 401 | `{ "error": "unauthenticated", "message": "..." }` | No authenticated principal, or the session ended during the request. |
 | 403 | `{ "error": "<code>", "message": "..." }` | A policy or route refused an authenticated caller. Codes: `session_required`, `impersonating`, `fresh_auth_required`, `mfa_required`, `already_authenticated`, `session_exists`, `role_not_held`, `impersonation_refused`, `mfa_not_pending`, `forbidden`, `protected_role`, `escalation`. |
 | 403 | `{ "error": { "code": "E_CSRF_ORIGIN", ... } }` | [CSRF origin guard](04-csrf-origin-guard.md). |
 | 404 | `{ "error": "not_found", "message": "..." }` | A switched-off group or route. |
-| 429 | `{ "error": "throttled", "message": "..." }` | A throttled password reset request, code request, verification, registration, token revocation, key challenge or anonymous passkey challenge; with `Retry-After`. |
+| 429 | `{ "error": "throttled", "message": "..." }` | A throttled or [rate-limited](25-rate-limits.md) password reset request, code request, verification, registration, key challenge or passkey challenge, or a throttled token revocation (no rate limit ships there); with `Retry-After`. |
 
 Bodies of thrown errors (`unauthenticated`, policy 403s, gate 404s) also carry `stack` outside production; see [Error handling](../http/11-error-handling.md). The login failure body is built as a response and never carries `stack`.
 

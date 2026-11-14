@@ -16,6 +16,8 @@ const RELATIONS: Record<string, { kind: Relation['kind']; targetArg: number }> =
   HasManyToMany: { kind: 'hasManyToMany', targetArg: 1 },
 };
 const NULLISH = ts.TypeFlags.Null | ts.TypeFlags.Undefined;
+// the ORM leaves these empty until an update, a soft delete or an archive, so an insert writes NULL whatever the TS type says
+const FILLED_LATER = new Set(['UpdatedAt', 'SoftDelete', 'Archived']);
 
 function relationTarget(expr: ts.Expression | undefined, ctx: ExtractorContext): string {
   if (expr && ts.isObjectLiteralExpression(expr)) {
@@ -55,7 +57,7 @@ function readMembers(node: ts.ClassDeclaration, ctx: ExtractorContext): Pick<Mod
       name: member.name,
       type: ctx.typeRef(stripNullable(member.type), member.declaration, `${className}_${member.name}`),
       primary: member.decorators.some((d) => d.name === 'Primary'),
-      nullable: isNullable(member.type, member.optional),
+      nullable: isNullable(member.type, member.optional) || member.decorators.some((d) => FILLED_LATER.has(d.name)),
       sql: columnSqlSpec(member, ctx),
     });
   }

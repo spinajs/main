@@ -8,7 +8,7 @@ import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, 
 import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
-import type { AggregateValue, ColumnName, ColumnRef, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
+import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
 import type { OrmDriver } from '../driver.js';
 import type { ModelBase } from '../model.js';
 import type { IOrmRelation } from '../relations.js';
@@ -37,7 +37,7 @@ import { WhereBuilder } from './where.js';
 /** A select builder whose row type changed; the model's query scopes stay on it. */
 export type SelectNarrowed<B, T, R> = SelectQueryBuilder<Rebox<T, R>> & ScopesOf<B>;
 /** Class counterpart of StrictAliasNarrowed, so a class-typed chain keeps the class (mergeRelations, mergeStatements, ...). */
-export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : SelectNarrowed<B, T, R>) : B;
+export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict extends true ? (string extends A ? B : unknown extends Unbox<T> ? B : SelectNarrowed<B, T, R>) : B;
 
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
 
@@ -500,20 +500,22 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public min<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
-  public min(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public min(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public min<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public min(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
   }
 
   public max<C extends ColumnName<Unbox<T>>, A extends string>(column: C, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, MinMaxValue<Unbox<T>, C> | null>>>;
-  public max(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public max(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public max<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public max(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MAX, as, this._tableAlias]));
     return this;
   }
 
-  public count<A extends string = 'count'>(column?: ColumnRef<Unbox<T>>, as?: A): StrictSelectAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
+  public count<A extends string = 'count', C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: A): StrictSelectAliasNarrowed<this, T, A, Reproject<Unbox<T>, Record<A, AggregateValue>>>;
   public count(column?: string, as?: string) {
     const c = column ?? '*';
     const a = as ?? 'count';
@@ -525,7 +527,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public selectCount(column?: ColumnRef<Unbox<T>>, as?: string): Promise<number>;
+  public selectCount(column?: DeclaredColumn<Unbox<T>>, as?: string): Promise<number>;
+  public selectCount<C extends ColumnRef<Unbox<T>>>(column?: LiteralColumn<Unbox<T>, C>, as?: string): Promise<number>;
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
@@ -535,15 +538,17 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       .then((x) => Number(x?.[a] ?? 0));
   }
 
-  public sum<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
-  public sum(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public sum<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  public sum(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public sum<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public sum(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.SUM, as, this._tableAlias]));
     return this;
   }
 
-  public avg<A extends string>(column: ColumnRef<Unbox<T>>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
-  public avg(column: ColumnRef<Unbox<T>>, as?: string): this;
+  public avg<A extends string, C extends ColumnRef<Unbox<T>> = ColumnName<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as: A): StrictSelectAliasNarrowed<this, T, A, Project<Unbox<T>, Record<A, AggregateValue | null>>>;
+  public avg(column: DeclaredColumn<Unbox<T>>, as?: string): this;
+  public avg<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, as?: string): this;
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
     return this;
