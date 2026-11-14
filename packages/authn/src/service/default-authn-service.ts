@@ -39,6 +39,7 @@ import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { isValidField, mfaResponseField, mfaStepField } from '../schemas/fields.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
+import { clientAddressFindings } from './boot/client-address.js';
 import { AUTHENTICATE_SPAN, authenticationAttributes } from './tracing.js';
 import { hookCopy, hookRefusalOf, hookView } from '../hooks.js';
 import { ACTIVE_ROLE_KEY } from '../impersonation/active-role.js';

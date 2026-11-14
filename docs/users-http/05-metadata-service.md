@@ -144,6 +144,7 @@ import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 import { Access } from '@spinajs/authz-http';
+import { SortOrder } from '@spinajs/orm';
 import { FilterableLogicalOperators, PaginationDTO } from '@spinajs/orm-http';
 import type { User } from '@spinajs/users';
 import { CurrentUser, UserMetadataService, ownMetadata } from '@spinajs/users-http';
@@ -158,7 +159,7 @@ export class PreferencesController extends BaseController {
   @Access('user.metadata:read')
   public async preferences(@Req() req: Request, @CurrentUser() user: User) {
     // e-like is "starts with": Key LIKE 'ui:%'.
-    const rows = await this.Metadata.list(ownMetadata(req, user), new PaginationDTO({ limit: 100 }), undefined, {
+    const rows = await this.Metadata.list(ownMetadata(req, user), { column: 'Key', order: SortOrder.ASC }, new PaginationDTO({ limit: 100 }), {
       op: FilterableLogicalOperators.And,
       filters: [{ Column: 'Key', Operator: 'e-like', Value: 'ui:' }],
     });
