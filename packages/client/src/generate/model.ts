@@ -5,7 +5,7 @@ import { controllerBase, routeModel, type RouteModel } from './routes.js';
 import { emitContract } from './socket.js';
 import { TypeContext } from './ts-type.js';
 
-export type { ArgumentModel, RouteKind, RouteModel } from './routes.js';
+export type { ArgumentModel, PaginationModel, RouteKind, RouteModel } from './routes.js';
 
 export interface ControllerModel {
   key: string;

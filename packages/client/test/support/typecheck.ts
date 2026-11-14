@@ -30,11 +30,17 @@ const swrTypes = (version: SwrVersion): Record<string, string[]> => {
   const root = (name: string) => dirname(require.resolve(`${name}/package.json`));
   if (version === 'latest') {
     const dist = join(root('swr'), 'dist');
-    return { swr: [join(dist, 'index/index.d.mts')], 'swr/mutation': [join(dist, 'mutation/index.d.mts')], 'swr/subscription': [join(dist, 'subscription/index.d.mts')] };
+    return {
+      swr: [join(dist, 'index/index.d.mts')],
+      'swr/infinite': [join(dist, 'infinite/index.d.mts')],
+      'swr/mutation': [join(dist, 'mutation/index.d.mts')],
+      'swr/subscription': [join(dist, 'subscription/index.d.mts')],
+    };
   }
   const floor = root('swr-floor');
   return {
     swr: [join(floor, 'core/dist/index.d.ts')],
+    'swr/infinite': [join(floor, 'infinite/dist/index.d.ts')],
     'swr/mutation': [join(floor, 'mutation/dist/index.d.ts')],
     'swr/subscription': [join(floor, 'subscription/dist/index.d.ts')],
     'swr/_internal': [join(floor, '_internal/dist/index.d.ts')],

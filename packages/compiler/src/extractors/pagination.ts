@@ -28,6 +28,12 @@ interface FoundPage {
 
 const inDefaultLib = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().hasNoDefaultLib === true;
 
+function itemOf(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): ts.Type | undefined {
+  const items = checker.getPropertyOfType(type, 'items');
+  const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
+  return itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
+}
+
 /**
  * Nominal on purpose: the type literal the type was instantiated from must be the body of `Page` or `CursorPage` in
  * `@spinajs/http`, so a structurally equal type declared elsewhere is not a page. An app alias (`type UserPage =
@@ -37,19 +43,45 @@ function declaredPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node): Fo
   const declaration = type.getSymbol()?.declarations?.[0];
   if (!declaration || !ts.isTypeLiteralNode(declaration) || !ts.isTypeAliasDeclaration(declaration.parent) || !isDeclaredIn(declaration, HTTP)) return undefined;
   const kind = PAGE_KINDS.get(declaration.parent.name.text);
-  const items = checker.getPropertyOfType(type, 'items');
-  const itemsType = items && checker.getTypeOfSymbolAtLocation(items, node);
-  const item = itemsType && checker.isArrayType(itemsType) ? checker.getTypeArguments(itemsType as ts.TypeReference)[0] : undefined;
+  const item = itemOf(checker, type, node);
   return kind && item ? { kind, item } : undefined;
 }
 
-/** A page, also under `Readonly<…>` or intersected with more fields. */
+const isReference = (type: ts.Type): type is ts.TypeReference => (type.flags & ts.TypeFlags.Object) !== 0 && ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0;
+
+/**
+ * An interface that extends a page (`interface UserPage extends Page<UserDto> {}`). The bases of a generic
+ * interface are not instantiated, so the item is read from the type itself.
+ */
+function inheritedPage(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth: number): FoundPage | undefined {
+  const declared = isReference(type) ? type.target : type;
+  if (!declared.isClassOrInterface()) return undefined;
+  for (const base of checker.getBaseTypes(declared)) {
+    const found = pageIn(checker, base, node, depth + 1);
+    const item = found && itemOf(checker, type, node);
+    if (found && item) return { kind: found.kind, item };
+  }
+  return undefined;
+}
+
+/** A page, also under `Readonly<…>`, intersected with more fields, or as the base of an interface. */
 function pageIn(checker: ts.TypeChecker, type: ts.Type, node: ts.Node, depth = 0): FoundPage | undefined {
   if (depth > 4) return undefined;
   const readonlyOf = type.aliasSymbol?.name === 'Readonly' && inDefaultLib(type.aliasSymbol) ? type.aliasTypeArguments?.[0] : undefined;
   if (readonlyOf) return pageIn(checker, readonlyOf, node, depth + 1);
   if (type.isIntersection()) return type.types.reduce<FoundPage | undefined>((found, member) => found ?? pageIn(checker, member, node, depth + 1), undefined);
-  return declaredPage(checker, type, node);
+  return declaredPage(checker, type, node) ?? inheritedPage(checker, type, node, depth);
+}
+
+/**
+ * `Page<T> | undefined` is one answer that may be empty, not a union of answers; `null` is a JSON reply of its own
+ * and stays. `Ok<Page<T>> | undefined` stays a union: the reply schema is not derived through a wrapper in a union.
+ */
+function definedPayload(checker: ts.TypeChecker, returnType: ts.Type): ts.Type {
+  const payload = unwrapTransparent(checker, returnType);
+  if (!payload.isUnion()) return payload;
+  const defined = payload.types.filter((member) => (member.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) === 0);
+  return defined.length === 1 && unwrapTransparent(checker, defined[0]) === defined[0] ? defined[0] : payload;
 }
 
 // One reply schema cannot describe several answers, so a union is not unwrapped (`wrapperName`) and not marked either.
@@ -110,14 +142,16 @@ const located = (found: FoundParam): PaginationParam => ({ arg: found.arg, path:
 export interface PagedRoute {
   owner: string;
   handler: string;
+  /** An abstract base is never mounted: each subclass that serves the route reports it instead. */
+  abstract?: boolean;
 }
 
 /** `RouteEntry.pagination` for a route returning the `@spinajs/http` `Page<T>` or `CursorPage<T>`. */
 export function paginationOf(returnType: ts.Type, params: readonly TypedParam[], node: ts.Node, route: PagedRoute, ctx: ExtractorContext): RoutePagination | undefined {
-  const payload = unwrapTransparent(ctx.checker, returnType);
+  const payload = definedPayload(ctx.checker, returnType);
   const page = pageIn(ctx.checker, payload, node);
   if (!page) {
-    if (isUnionWithPage(ctx.checker, payload, node)) {
+    if (!route.abstract && isUnionWithPage(ctx.checker, payload, node)) {
       const message = `${route.owner}.${route.handler} returns a page inside a union, which is not marked as paginated: the generated client gets no infinite query for it. Return the page type itself, and the other answers by throwing.`;
       ctx.warn('HTTP007', message, node);
     }

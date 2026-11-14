@@ -5,6 +5,9 @@ import type { UserDto } from './users.js';
 /** An app's own name for a page: TypeScript re-aliases the type, so `aliasSymbol` is `UserPage`, not `Page`. */
 export type UserPage = Page<UserDto>;
 
+/** An interface that extends the http `Page<T>`: its symbol is the interface, so the page is found among its bases. */
+export interface FacetedPage<T> extends Page<T> { facets: string[] }
+
 @BasePath('shapes')
 export class ShapesController {
   @Get()
@@ -23,6 +26,11 @@ export class ShapesController {
   }
 
   @Get()
+  public extended(@Query() page?: number): Promise<Ok<FacetedPage<UserDto>>> {
+    return Promise.resolve(new Ok({ items: [], total: page ?? 0, facets: [] }));
+  }
+
+  @Get()
   public exclusive(@Query({ type: 'integer', exclusiveMinimum: -1 }) page: number): Promise<Page<UserDto>> {
     return Promise.resolve({ items: [], total: page });
   }
@@ -30,6 +38,11 @@ export class ShapesController {
   @Get()
   public referenced(@Query({ type: 'object', properties: { page: { $ref: 'spinajs/paged-app/ShapesController.exclusive.page' } } }) query: PageQuery): Promise<Page<UserDto>> {
     return Promise.resolve({ items: [], total: query.page ?? 0 });
+  }
+
+  @Get()
+  public optional(@Query() page?: number): Promise<Page<UserDto> | undefined> {
+    return Promise.resolve(page === 0 ? undefined : { items: [], total: 0 });
   }
 
   @Get()
