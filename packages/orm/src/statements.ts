@@ -27,7 +27,7 @@ export interface IQueryStatement {
   Boolean: WhereBoolean;
 
   // set by whereOnJoin() - statement is emitted in the relation JOIN ON clause
-  // instead of parent query WHERE ( does not survive clone() )
+  // instead of parent query WHERE ( a statement's own clone() drops it, SelectQueryBuilder.clone() copies it )
   OnJoin?: boolean;
 
   build(): IQueryStatementResult;
