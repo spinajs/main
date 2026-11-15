@@ -58,7 +58,7 @@ const yes = <_T extends true>(): void => {};
 describe('authz-queue pinned shapes', () => {
   it('match the design exactly', () => {
     yes<Equal<Shape<QueueMessageHook>, { beforeEmit(message: IQueueMessage): void | Promise<void>; aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T> }>>();
-    yes<Equal<JobOptions, { runAs?: 'initiator' | 'system' }>>();
+    yes<Equal<JobOptions, { runAs?: 'initiator' | 'system'; access?: string | readonly string[]; resource?: (message: any) => { type: string; id?: string } }>>();
     yes<Equal<Initiator, { readonly type: PrincipalType; readonly id: string; readonly ceiling?: Ceiling }>>();
     expect(true).to.equal(true);
   });

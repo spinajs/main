@@ -42,6 +42,12 @@ describe('generateClient', () => {
     expect(output).to.equal(readFileSync(snapshotPath, 'utf8'));
   });
 
+  it('ignores route pagination', async () => {
+    const paged: Manifest = JSON.parse(JSON.stringify(manifest)) as Manifest;
+    for (const route of paged.controllers.flatMap((c) => c.routes)) route.pagination = { kind: 'cursor', item: { text: 'UserDto' }, param: { arg: 'query', path: ['cursor'] } };
+    expect(await generateClient({ manifest: paged })).to.equal(readFileSync(snapshotPath, 'utf8'));
+  });
+
   it('type-checks with zero errors', () => {
     expect(typecheck(output)).to.deep.equal([]);
   });
@@ -92,6 +98,32 @@ describe('generateClient', () => {
     expect(output).to.include('send: [{ text: string }, { id: string }]');
     expect(output).to.include('history: [{ since: string }, AsyncIterable<ChatMessage>]');
     expect(output).to.include('events: { message: ChatMessage };');
+  });
+
+  it('types a field-filtered route and command result as Redacted<T> (G16)', async () => {
+    const m = structuredClone(manifest);
+    m.controllers.find((c) => c.className === 'UsersController')!.routes.find((r) => r.fullPath === '/users/:id')!.middlewares.push({ type: 'AuthzFieldsMiddleware', options: [] });
+    Object.assign(m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!, { access: ['chat:read'], fields: 'filter' });
+    const redacted = await generateClient({ manifest: m });
+    expect(redacted).to.include('get(id: number): Promise<Redacted<UserDto>>;');
+    expect(redacted).to.include('history: [{ since: string }, AsyncIterable<Redacted<ChatMessage>>]');
+    expect(redacted).to.include("import { createClient, type ClientDefinition, type ClientOptions, type Redacted } from '@spinajs/client/runtime';");
+    expect(typecheck(redacted)).to.deep.equal([]);
+    expect(output).to.not.include('Redacted');
+  });
+
+  it('Redacted<T> makes every property optional and possibly undefined, element-wise for lists', () => {
+    const source = [
+      "import type { Redacted } from '@spinajs/client/runtime';",
+      'type User = { id: number; email: string };',
+      'const a: Redacted<User> = {};',
+      'const b: Redacted<User[]> = [{ id: undefined }];',
+      'const c: Redacted<string> = "x";',
+      '// @ts-expect-error a redacted property is still typed',
+      "const d: Redacted<User> = { id: 'x' };",
+      'export { a, b, c, d };',
+    ].join('\n');
+    expect(typecheck(source)).to.deep.equal([]);
   });
 
   it('honours moduleName and includeSocket', async () => {
@@ -255,6 +287,16 @@ describe('generateClient', () => {
         {},
       );
       await expectRejection(generateClient({ manifest: mixed }), /ItemsController\.upload \(POST \/items\/upload\) sends body argument\(s\) 'meta' next to multipart argument\(s\) 'doc'.*@FormField/);
+    });
+
+    it('declares and references the same type name for ids json-schema-to-typescript renames', async () => {
+      const ids = ['authn.Login', 'authn.oidc.callbackQuery', 'app/models/User', 'lib/models/User', 'spinajs/x/snake_case_dto', 'spinajs/x/lowerCamel'];
+      const schemas = Object.fromEntries(ids.map((id) => [id, { $id: id, type: 'object', properties: { n: { type: 'number' } }, required: ['n'], additionalProperties: false }]));
+      const routes = ids.map((id, i) => route(`r${i}`, 'get', `/items/r${i}`, [], { text: id.split('/').pop() ?? id, schema: id }));
+      const out = await generateClient({ manifest: extend(manifest, routes, schemas) });
+      expect(typecheck(out)).to.deep.equal([]);
+      const names = [...out.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1]);
+      expect(new Set(names).size).to.equal(names.length);
     });
 
     it('escapes line breaks and line separators in emitted string literals', async () => {

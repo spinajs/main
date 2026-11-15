@@ -117,6 +117,26 @@ const audit = (root: boolean) => ({
   },
 });
 
+const decisionLog = {
+  type: 'object',
+  default: {},
+  properties: {
+    mode: { type: 'string', enum: ['off', 'deny', 'sampled', 'all'], default: D.decisionLog.mode },
+    allowSampleRate: { type: 'number', minimum: 0, maximum: 1, default: D.decisionLog.allowSampleRate },
+    // No default: unset captures inputs outside production only.
+    captureInputs: { type: 'boolean' },
+    service: { type: 'string', minLength: 1 },
+    batch: {
+      type: 'object',
+      default: {},
+      properties: {
+        size: { type: 'integer', minimum: 1, default: D.decisionLog.batch.size },
+        flushMs: { type: 'integer', minimum: 0, default: D.decisionLog.batch.flushMs },
+      },
+    },
+  },
+};
+
 /** A permission name as contracts/permission.ts accepts it. */
 const permissionName = { type: 'string', pattern: PERMISSION_PATTERN.source };
 
@@ -163,6 +183,7 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     permissions,
     models: stringList,
     combine: combine(true),
+    decisionLog,
     domains: {
       type: 'object',
       propertyNames: { pattern: DOMAIN_NAME_PATTERN, not: { const: ROOT_DOMAIN } },

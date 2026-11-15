@@ -2,6 +2,8 @@
 
 Socket commands and events are guarded the way http routes are. `@SocketPolicy` runs the same `BasePolicy` classes through http's own policy gate. `@SocketAccess` checks authz-v3 permissions, as authz-http's `@Access` does, and can filter the payload's writable fields and the result's readable fields.
 
+**A command or event without a policy is denied.** When neither the handler nor its class has an enabled group, `SocketPolicyGate.assertGuarded()` refuses it under `http.socket.access.default: 'deny'` (the default) with `AccessDenied`, reason `no_policy`, answered `forbidden`: a command in `LookupStage`, before idempotency, ordering and the arguments; an event before its policies, so it is dropped. `'allow'` runs such handlers as before 4.0, for an app still adding policies; it is removed in 5.0. `SocketHandlerRegistry.build()` warns about every command and event with no `@SocketPolicy` or `@SocketAccess` on it or its class, and `unguarded()` lists them.
+
 ## How it works
 
 1. `@SocketPolicy`, `@SocketPolicyGroup` and `@SocketAccess` add policy groups to the controller or to one handler.
@@ -26,7 +28,7 @@ Socket commands and events are guarded the way http routes are. `@SocketPolicy` 
 | --- | --- |
 | `method` | `'SOCKET'` |
 | `originalUrl`, `url` | the full command or event name |
-| `headers`, `cookies`, `ip` | from the handshake; `ip` is the [client address](08-principal-sources.md#client-address) |
+| `headers`, `cookies`, `ip` | from the handshake; `ip` is the [client address](08-principal-sources.md#client-address), what the registered `RealIp` answers, as http's `req.storage.realIp` |
 | `body` | the payload |
 | `params` | the payload's own fields when it is a non-array object, else `{}` |
 | `query` | `{}` |
@@ -65,7 +67,7 @@ The `route` a policy gets has `Type: 'socket'`, `Path` set to the full name and 
 | `SocketAccessPolicy` | `@NewInstance()`, resolved per handler with its `ISocketAccess` | `SocketAccessPolicy` | Your subclass | Override the protected `decide()`, `load()` (row loading for a conditional allow) or `service()`; keep `@NewInstance()`; `DI.register(Mine).as(SocketAccessPolicy)` before `SocketServer` resolves |
 | `SocketPolicyGate` | `SocketPolicyGate` (self), singleton | `SocketPolicyGate` (http's gate, cached per handler) | Your subclass | Override `check(ctx)`; `DI.register(Mine).as(SocketPolicyGate)` |
 | `SocketAccessContributor` | `AuthzContributor`, singleton | `SocketAccessContributor` | none | See [Boot checks](#boot-checks); `DI.unregister(SocketAccessContributor)` drops socket permissions from the boot checks |
-| `AccessFieldsStage` | `SocketCommandStage`, order 650 | `AccessFieldsStage` | Your stage | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) |
+| `AccessFieldsStage` | `SocketMiddleware`, order 650 | `AccessFieldsStage` | Your middleware | Replace as any built-in stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) |
 
 ### `BasePolicy`: a socket-aware policy
 

@@ -27,6 +27,7 @@ Installing is enough. The package's config fragment adds its controller director
 | [Admin profile route](09-admin-profile.md) | `Profile`: `GET /users/profile/:login` through the config-selected `UserProfileProvider` |
 | [Controller overrides](10-controller-overrides.md) | Replace or extend any shipped controller by subclassing it and registering the subclass in DI |
 | [Host services](11-host-services.md) | The services of other packages this one resolves (credential admin rule, account status source, session issuer, token services, ...), and what happens when one is missing |
+| [Rate limits](12-rate-limits.md) | The shipped `@RateLimit` of account creation, lifecycle, list and metadata writes, and their `users.http.rateLimit.*` keys |
 
 ## Quick start
 
@@ -98,5 +99,5 @@ The full mapping of 2.x grants and decorators is in the [authz migration guide](
 - `@spinajs/authz-http`: `@Access`, `@CurrentPrincipal` and the principal middleware.
 - `@spinajs/authz-rbac`: `AccountStatusSource`, `AssignmentStore`, `RoleStore`, `guardSwitches` and the token role rules.
 - [`@spinajs/http`](../http/README.md): controllers, route arguments and the controller scan that mounts this package.
-- [`@spinajs/orm-http`](../orm-http/README.md): `@Filter`, `PaginationDTO` and `OrderDTO` on the list routes.
+- [`@spinajs/orm-http`](../orm-http/README.md): `@Filter`, `PaginationDTO`, `@Sort` on the admin user and metadata lists, `@Include` on the admin user routes.
 - [`@spinajs/di`](../di/README.md): every service here is replaced with `DI.register(Mine).as(Base)`.

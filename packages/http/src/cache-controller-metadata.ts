@@ -3,6 +3,7 @@ import type { BaseController } from './base-controller.js';
 import { ControllerMetadataProvider } from './controller-metadata.js';
 import type { IControllerDocumentation, IPolicyDoc } from './controller-documentation.js';
 import { isOnDiskSource } from './cache-helpers.js';
+import { withDeprecatedRoutes } from './middlewares/Deprecation.js';
 import type { DefaultControllerCache } from './cache.js';
 
 /**
@@ -55,9 +56,9 @@ export class CacheControllerMetadata extends ControllerMetadataProvider {
 
   public async documentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation> {
     if (!isOnDiskSource(controller.file)) {
-      return { className: controller.name, methods: {} };
+      return withDeprecatedRoutes(controller, { className: controller.name, methods: {} });
     }
-    return (await this.getCacheService()).getDocumentation(controller);
+    return withDeprecatedRoutes(controller, await (await this.getCacheService()).getDocumentation(controller));
   }
 
   /** Policy docs come from the policy classes' sources; only this provider reads sources. */

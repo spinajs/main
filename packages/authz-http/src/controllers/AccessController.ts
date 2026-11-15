@@ -12,6 +12,7 @@ import { AccessChecks } from '../dto/access-checks.js';
 import type { AccessChecksBody } from '../dto/access-checks.js';
 import { CurrentPrincipal } from '../principals/current-principal.js';
 import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
+import { AuthzHttpRateLimit } from '../rate-limit/index.js';
 import '../storage.js';
 
 /** The caller's own access (design §10, §11.4), in the domain `authz.http.access.domain` (default root). */
@@ -38,6 +39,7 @@ export class AccessController extends BaseController {
 
   /** ckit's `createHttpChecker` wire format: `{ checks }` → `{ results, reasons }` (design §10.2). */
   @Post('checks')
+  @AuthzHttpRateLimit('checks')
   @Policy(HasPrincipal)
   public async checks(@AccessChecks() checks: AccessChecksBody, @CurrentPrincipal() principal: Principal, @AccessDomain() domain: string) {
     const authz = await this.Domains.service(domain);
@@ -46,6 +48,7 @@ export class AccessController extends BaseController {
 
   /** `authz.changed` server-sent events for the caller (design §10.4); authenticated only, as the socket transport. */
   @Get('events')
+  @AuthzHttpRateLimit('events')
   @Policy(IsAuthenticated)
   public async events(@CurrentPrincipal() principal: Principal) {
     return new AccessEventStream(this.Transport, principal);

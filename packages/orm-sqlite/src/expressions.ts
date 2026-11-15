@@ -1,5 +1,5 @@
 import { SqlExpressions } from '@spinajs/orm';
-import type { SqlFragment } from '@spinajs/orm';
+import type { IntervalUnit, SqlFragment } from '@spinajs/orm';
 
 export class SqliteSqlExpressions extends SqlExpressions {
   public castText(expression: string): string {
@@ -18,5 +18,24 @@ export class SqliteSqlExpressions extends SqlExpressions {
   // BINARY is the default collation.
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
     return { sql: `${left} = ${right.sql}`, bindings: [...right.bindings] };
+  }
+
+  public epochMillis(): string {
+    return "CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER)";
+  }
+
+  public concat(...parts: string[]): string {
+    return parts.join(' || ');
+  }
+
+  // the text SqliteNowExpression and the ISO datetime converter write, so the columns compare as text
+  public ago(amount: number, unit: IntervalUnit): string {
+    const checked = this.checkedInterval(amount, unit);
+
+    return `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${checked.amount} ${checked.unit}s'))`;
+  }
+
+  public rowLock(): string {
+    return '';
   }
 }

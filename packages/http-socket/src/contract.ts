@@ -6,7 +6,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import type { LineageClass } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
-import { addSpinajsFormats, manifestSchemaKey, manifestValidatorOf, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
+import { addSafeKeywords, addSpinajsFormats, dropNonFiniteDuplicates, manifestSchemaKey, manifestValidatorOf, nonFiniteErrors, prepareManifestSchemas, sanitizeError, schemaOfClass, type IValidationError } from '@spinajs/validation';
 import { authoritativeSchema, checkSocketContract, inheritSocketHandlers, loadRuntimeManifest, ownEntries, resolveTypeRef, type Manifest, type ManifestMode, type SocketContractEntry, type SocketControllerEntry, type TypeRef } from '@spinajs/manifest';
 import { FromDiArg, PayloadArg } from './args.js';
 import type { IRegisteredHandler, ISocketControllerDescriptor, ISocketHandlerDescriptor, ISocketParameter } from './interfaces.js';
@@ -19,6 +19,8 @@ interface IContractAjv {
   ajv: Ajv;
   /** Keys of the schemas Ajv refused */
   refused: Set<string>;
+  /** Ids of the schemas left out as unenforceable ( a `__proto__` property ), with the reason */
+  unenforceable: Map<string, string>;
 }
 
 const INSTANCES = new WeakMap<Manifest, IContractAjv>();
@@ -46,18 +48,20 @@ function contractAjvOf(manifest: Manifest): IContractAjv {
     const ajv = new Ajv({ strict: false, strictSchema: true, allErrors: true, $data: true, verbose: true });
     (addFormats as unknown as (instance: Ajv) => void)(ajv);
     addSpinajsFormats(ajv);
+    addSafeKeywords(ajv);
     ajv.addKeyword('$configurationModule');
     const refused = new Set<string>();
-    for (const schema of prepareManifestSchemas(manifest)) {
+    const unenforceable = new Map<string, string>();
+    for (const schema of prepareManifestSchemas(manifest, unenforceable)) {
       if (!addIfValid(ajv, schema)) refused.add(schema.$id);
     }
-    instance = { ajv, refused };
+    instance = { ajv, refused, unenforceable };
     INSTANCES.set(manifest, instance);
   }
   return instance;
 }
 
-function describeError(e: ErrorObject) {
+function describeError(e: ErrorObject | IValidationError) {
   const { instancePath, keyword, message } = sanitizeError(e as IValidationError);
   return { path: instancePath, keyword, message: message ?? 'invalid' };
 }
@@ -71,6 +75,8 @@ function compileFailure(manifest: Manifest, error: unknown): string {
   const { missingRef, missingSchema, message } = (error ?? {}) as { missingRef?: unknown; missingSchema?: unknown; message?: unknown };
   if (typeof missingRef === 'string') {
     const target = typeof missingSchema === 'string' ? missingSchema : missingRef;
+    const unenforceable = contractAjvOf(manifest).unenforceable.get(relativeId(target));
+    if (unenforceable !== undefined) return unenforceable;
     return contractAjvOf(manifest).refused.has(target) ? `${relativeId(target)} is not a valid JSON Schema` : `unresolved $ref ${relativeId(missingRef)}`;
   }
   return typeof message === 'string' && /^(strict mode: |unknown format )/.test(message) ? message : 'the schema is not valid';
@@ -106,6 +112,8 @@ function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
 
   const id = authoritativeSchema(manifest, ref);
   if (id === undefined) return undefined;
+  const unenforceable = contractAjvOf(manifest).unenforceable.get(id);
+  if (unenforceable !== undefined) throw new UnusableSchema(unenforceable);
 
   const validate: ValidateFunction | undefined = contractAjvOf(manifest).ajv.getSchema(manifestSchemaKey(id));
   if (!validate) {
@@ -113,8 +121,8 @@ function validatorOf(manifest: Manifest, ref: TypeRef): Validator | undefined {
   }
 
   return (payload) => {
-    if (!validate(payload)) {
-      const errors = validate.errors ?? [];
+    const errors = validate(payload) ? nonFiniteErrors(payload, true) : dropNonFiniteDuplicates((validate.errors ?? []) as IValidationError[]);
+    if (errors.length > 0) {
       throw new SocketException('invalid_argument', 'payload does not match the socket contract', { details: { errors: errors.slice(0, MAX_REPORTED_ERRORS).map(describeError), total: errors.length } });
     }
   };

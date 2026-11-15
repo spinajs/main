@@ -210,7 +210,8 @@ the one the configuration source decided (`SPINAJS_MANIFEST_MODE` or the app's c
 At `SocketServer.resolve()` the controller is matched to its manifest entry by class name and prefix. Its handlers
 are then compared with the contract (doctor rules SOCK001-SOCK003), and each incoming payload of a command or client event is
 validated with Ajv against the contract schema before the handler runs. Validation does not coerce types, applies
-no defaults, and enforces `format`. A failure answers `invalid_argument` with `details: { errors, total }`: the first 10
+no defaults, and enforces `format`. As in `DataValidator`, `const`, `enum` and `uniqueItems` compare a plain object by its own keys
+(a payload such as `{ "valueOf": 1 }` fails the rule instead of throwing), and a non-finite number anywhere in a payload that passed is refused. A failure answers `invalid_argument` with `details: { errors, total }`: the first 10
 errors (`path`, `keyword`, `message`) and the total count. A schema marked `x-explicit: 'partial'` is documentation only and is not enforced.
 The manifest also holds the configuration schemas of your packages: one Ajv refuses matters only to a contract that references it.
 

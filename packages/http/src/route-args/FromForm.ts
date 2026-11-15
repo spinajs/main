@@ -4,7 +4,7 @@ import * as express from 'express';
 import type formidable from 'formidable';
 import type { Fields, Files } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { Autoinject, DI, Injectable, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
+import { Autoinject, DI, Injectable, NewInstance, isTypedArray, type IContainer, type TypedArray } from '@spinajs/di';
 import { fs, fsNative, getFs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
@@ -18,6 +18,24 @@ import { FileSystem } from "@spinajs/fs";
 import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
 import qs from 'qs';
 import { loadCsv, loadFormidable } from '../lazy-modules.js';
+import { resolveConfiguredTypes } from '../configured-types.js';
+import type { IConfiguredType } from '../configured-types.js';
+
+export const UPLOAD_MIDDLEWARES_KEY = 'http.upload.middlewares';
+
+const DEFAULT_UPLOAD_MIDDLEWARES = [{ service: 'FileInfoMiddleware' }];
+
+/** Checks the `http.upload.middlewares` entries; a controller with upload routes calls it before building them. */
+export function uploadMiddlewareTypes(cfg: Configuration, container: IContainer): IConfiguredType<FileUploadMiddleware>[] {
+  return resolveConfiguredTypes(UPLOAD_MIDDLEWARES_KEY, FileUploadMiddleware, cfg.get<unknown[]>(UPLOAD_MIDDLEWARES_KEY, DEFAULT_UPLOAD_MIDDLEWARES) ?? [], container);
+}
+
+/** The `http.upload.middlewares` instances: a `{ service, options }` entry gets its options as the one constructor argument. */
+export function uploadMiddlewares(entries: readonly unknown[], container: IContainer): FileUploadMiddleware[] {
+  return resolveConfiguredTypes(UPLOAD_MIDDLEWARES_KEY, FileUploadMiddleware, entries, container).map(({ type, entry, options }) =>
+    typeof entry === 'object' ? container.resolve(type, [options]) : container.resolve(type),
+  );
+}
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -161,8 +179,8 @@ export class FromFile extends FromFormBase {
   @Logger('http')
   protected Log: Log;
 
-  @Config('http.upload.middlewares', {
-    defaultValue: [{ service: 'FileInfoMiddleware' }]
+  @Config(UPLOAD_MIDDLEWARES_KEY, {
+    defaultValue: DEFAULT_UPLOAD_MIDDLEWARES
   })
   protected DefaultFileMiddlewares: UploadFileMiddlewareDescriptor[];
 
@@ -235,19 +253,17 @@ export class FromFile extends FromFormBase {
 
     let uFiles: IUploadedFile<any>[] = uplFiles;
 
-    const middlewareDescriptors = [
-      ...(this.DefaultFileMiddlewares ?? []),
-      ...(uploadOptions.middlewares ?? []),
+    const middlewares = [
+      ...uploadMiddlewares(this.DefaultFileMiddlewares ?? [], DI.RootContainer),
+      ...(uploadOptions.middlewares ?? []).map((m) => {
+        if (typeof m === 'string' || typeof m === 'function') {
+          return DI.resolve<FileUploadMiddleware>(m as any);
+        }
+
+        const { service, options } = m as UploadFileMiddlewareDescriptor & { service: any; options?: any };
+        return DI.resolve<FileUploadMiddleware>(service, [options]);
+      }),
     ];
-
-    const middlewares = middlewareDescriptors.map((m) => {
-      if (typeof m === 'string' || typeof m === 'function') {
-        return DI.resolve<FileUploadMiddleware>(m as any);
-      }
-
-      const { service, options } = m as UploadFileMiddlewareDescriptor & { service: any; options?: any };
-      return DI.resolve<FileUploadMiddleware>(service, [options]);
-    });
 
     try {
       for (const m of middlewares) {

@@ -6,6 +6,7 @@ export interface ITableColumnInfo {
   is_nullable: 'YES' | 'NO';
   column_default: string | null;
   is_identity: 'YES' | 'NO';
+  character_maximum_length: number | null;
 }
 
 /** One row of the constraint probe joining table_constraints and key_column_usage. */

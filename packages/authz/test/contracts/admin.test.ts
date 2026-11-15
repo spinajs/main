@@ -175,11 +175,11 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
 
   type DCommand = { readonly kind: 'scope.setAttributes'; readonly scope: ResourceRef; readonly patch: Readonly<Record<string, unknown>> } | { readonly kind: 'scope.replaceAttributes'; readonly scope: ResourceRef; readonly attributes: Readonly<Record<string, unknown>> } | { readonly kind: 'scope.forget'; readonly scope: ResourceRef };
 
-  type DResult = { readonly ok: true; readonly kind: DCommand['kind']; readonly id?: string; readonly token?: string; readonly affected: number } | { readonly ok: false; readonly kind: DCommand['kind']; readonly error: { readonly code: string; readonly message: string; readonly field?: string } };
+  type DResult = { readonly ok: true; readonly kind: DCommand['kind']; readonly id?: string; readonly token?: string; readonly affected: number; readonly consistency?: string } | { readonly ok: false; readonly kind: DCommand['kind']; readonly error: { readonly code: string; readonly message: string; readonly field?: string } };
 
   type DQuery = { readonly kind: 'attributes'; readonly scope: ResourceRef };
 
-  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean };
+  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean; readonly consistency?: boolean };
   type Extra = Readonly<Record<string, unknown>>;
 
   it('pins the maps a model augments', () => {

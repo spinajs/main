@@ -5,6 +5,7 @@ import { DbMfaStore, identityKey, parseIdentityKey, readInstant } from '@spinajs
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 import { Orm, UniqueViolation, everyNthCall } from '@spinajs/orm';
+import type { ColumnName } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { WebAuthnCredentialExists, WebAuthnCredentialStore } from '../contracts.js';
@@ -38,7 +39,7 @@ function transportsOf(value: string | null | undefined): readonly string[] | und
   return Array.isArray(list) ? Object.freeze(list.filter((t): t is string => typeof t === 'string')) : undefined;
 }
 
-function credentialOf(r: AuthnWebauthnCredential): WebAuthnCredential {
+function credentialOf(r: CredentialRow): WebAuthnCredential {
   const transports = transportsOf(r.transports);
   const lastUsedAt = readInstant(r.last_used_at);
   return Object.freeze({
@@ -54,7 +55,8 @@ function credentialOf(r: AuthnWebauthnCredential): WebAuthnCredential {
   });
 }
 
-const COLUMNS = ['id_hash', 'credential_id', 'identity', 'public_key', 'counter', 'transports', 'aaguid', 'name', 'created_at', 'last_used_at'];
+const COLUMNS = ['id_hash', 'credential_id', 'identity', 'public_key', 'counter', 'transports', 'aaguid', 'name', 'created_at', 'last_used_at'] satisfies ColumnName<AuthnWebauthnCredential>[];
+type CredentialRow = Pick<AuthnWebauthnCredential, (typeof COLUMNS)[number]>;
 
 /**
  * `WebAuthnCredentialStore` on `authn_webauthn_credential`. Rows are keyed by the SHA-256 of the credential id, so an id
