@@ -4,6 +4,7 @@ import { controllerMountPath, ownEntries, type ControllerEntry, type RouteEntry 
 import type { BaseController } from './base-controller.js';
 import { ControllerMetadataProvider } from './controller-metadata.js';
 import { parseFnParamNames } from './cache-helpers.js';
+import { withDeprecatedRoutes } from './middlewares/Deprecation.js';
 import type { IControllerDocumentation, IMethodDoc, IResponseDoc } from './controller-documentation.js';
 
 /** The compiler records the whole comment as the description; the cache splits off its first line as the summary. */
@@ -69,14 +70,14 @@ export class ManifestControllerMetadata extends ControllerMetadataProvider {
   public documentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation> {
     const entry = this.entry(controller);
     if (!entry) {
-      return Promise.resolve({ className: controller.name, methods: {} });
+      return Promise.resolve(withDeprecatedRoutes(controller, { className: controller.name, methods: {} }));
     }
 
     const methods: Record<string, IMethodDoc> = {};
     for (const route of entry.routes) {
       methods[route.handler] = this.methodDoc(route);
     }
-    return Promise.resolve({ className: entry.className, methods });
+    return Promise.resolve(withDeprecatedRoutes(controller, { className: entry.className, methods }));
   }
 
   /**

@@ -8,3 +8,4 @@ export * from './membership/index.js';
 export * from './host/index.js';
 export * from './cli/index.js';
 export * from './token/index.js';
+export * from './ir.js';

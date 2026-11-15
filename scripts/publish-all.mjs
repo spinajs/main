@@ -33,6 +33,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { spawnSync } from "child_process";
+import { isCkitWorkspace } from "./ckit-workspaces.mjs";
 
 const PACKAGES_DIR = resolve(process.cwd(), "packages");
 
@@ -130,6 +131,7 @@ function readPackages() {
         name: pkg.name,
         version: pkg.version,
         private: pkg.private === true,
+        ckit: isCkitWorkspace(pkg),
         deps: Object.keys({ ...pkg.dependencies, ...pkg.peerDependencies }),
       };
     })
@@ -223,6 +225,12 @@ const report = [];
 console.log(`Publishing ${packages.length} package(s) from ${PACKAGES_DIR}\n`);
 
 for (const pkg of packages) {
+  if (pkg.ckit) {
+    console.log(`- ${pkg.name} : SKIPPED (ckit app, published by the pipeline with ckit access)`);
+    report.push({ pkg, result: RESULT.SKIPPED, reason: "ckit app" });
+    continue;
+  }
+
   if (pkg.private) {
     console.log(`- ${pkg.name} : SKIPPED (private)`);
     report.push({ pkg, result: RESULT.SKIPPED, reason: "private package" });

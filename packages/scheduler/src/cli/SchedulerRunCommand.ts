@@ -13,7 +13,7 @@ import { collect, parseParams } from '../cli-support/params.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 import { RunModel } from '../models/RunModel.js';
 import { Scheduler } from '../Scheduler.js';
-import { Clock, DbClock } from '../time/clock.js';
+import { Clock, DbClock } from '@spinajs/durable';
 
 interface RunCommandOptions {
   params?: string;
@@ -137,6 +137,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
     const db = DI.resolve(DbClock);
     const timers = DI.resolve(Clock);
     const tick = this.config().tick;
+    // spinajs-orm-ignore ORM102: polling, re-reads the one run each tick until it ends or the signal aborts
     while (!signal.aborted) {
       await scheduler.idle();
       const run = await RunModel.where('Id', runId).first();

@@ -40,6 +40,7 @@ export class Profile extends BaseController {
     // Looked up column by column (never by internal Id), so an all-digit login stays reachable and
     // an account whose login equals another's email resolves the same way on every request.
     const user = await userRowFor(caller, 'users:read', async () => {
+      // spinajs-orm-ignore ORM102: at most three lookups, one per identifier column
       for (const column of ['Uuid', 'Login', 'Email'] as const) {
         const found = await userModel().query().where(column, login).populate('Metadata').first();
         if (found && !found.DeletedAt) {

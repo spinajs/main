@@ -83,9 +83,9 @@ const SCAN_ENTRY = (entry: string) => `
   console.log(JSON.stringify((di.DI.getRegisteredTypes(http.ServerMiddleware) ?? []).map((t) => t.name)));
 `;
 
-// The cached object stands in for the server Controllers constructs before its scan; a real HttpServer needs a whole
-// app configuration.
-const LATE_LOAD = (serverFirst: boolean) => `
+// The cached objects stand in for the server Controllers constructs before its scan and the RealIp a socket server
+// resolves when it starts; the real ones need a whole app configuration.
+const LATE_LOAD = (serverFirst: boolean, realIpFirst = false) => `
   const di = await import('@spinajs/di');
   const http = await import('@spinajs/http');
   const { Log } = await import('@spinajs/log');
@@ -97,6 +97,7 @@ const LATE_LOAD = (serverFirst: boolean) => `
   }
   di.DI.register(CapturingLog).as(Log);
   if (${serverFirst}) di.DI.RootContainer.Cache.add(http.HttpServer, { standIn: true });
+  if (${realIpFirst}) di.DI.RootContainer.Cache.add(http.RealIp, { standIn: true });
   await import('@spinajs/authn-http');
   console.log(JSON.stringify(errors));
 `;
@@ -174,6 +175,12 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     expect(errors).to.have.length(1);
     expect(errors[0]).to.include('import @spinajs/authn-http before resolving Controllers or HttpServer');
     expect(run<string[]>('module', LATE_LOAD(false)), 'loaded before the server').to.deep.eq([]);
+  });
+
+  it('loaded after RealIp was resolved (a socket server started first), it logs an error naming the fix', () => {
+    const errors = run<string[]>('module', LATE_LOAD(false, true));
+    expect(errors).to.have.length(1);
+    expect(errors[0]).to.include('RealIp was resolved').and.include('import @spinajs/authn-http before the socket server starts');
   });
 
   it('the barrel reaches no file of src/v3/controllers, so no import loads a 3.0 controller', () => {

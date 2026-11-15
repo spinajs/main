@@ -12,7 +12,7 @@ import { Command, Connection, OnConnect, Payload, SocketController } from '../sr
 import { SocketConnection } from '../src/connection.js';
 import { SocketHub } from '../src/hub.js';
 import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
-import { ISocketCommandContext, IdempotentReply, STAGE_ORDER, SocketCommandStage } from '../src/interfaces.js';
+import { ISocketCommandContext, IdempotentReply, STAGE_ORDER, SocketMiddleware } from '../src/interfaces.js';
 import { ITestServer, delay, startServer, waitFor } from './harness.js';
 import { ackFaults, killConnections } from './faults.js';
 
@@ -105,13 +105,13 @@ export class DurableE2eSocket extends BaseSocketController {
 }
 
 /** Just inside the fault kit: sees every request of the e2e clients and how it was answered. */
-@Injectable(SocketCommandStage)
-export class DurableE2eObserverStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class DurableE2eObserverStage extends SocketMiddleware {
   public get Order(): number {
     return 20;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     if (!ctx.connection.clientId.startsWith('e2e-') || ctx.request.idempotencyKey === undefined) {
       return next();
     }
@@ -137,13 +137,13 @@ export class DurableE2eObserverStage extends SocketCommandStage {
  * Idempotency latency between the claim and the ordering fence, seeded: a successor sent in the same
  * window can reach the fence before its predecessor does.
  */
-@Injectable(SocketCommandStage)
-export class DurableE2eJitterStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class DurableE2eJitterStage extends SocketMiddleware {
   public get Order(): number {
     return STAGE_ORDER.Idempotency + 20;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     if (e2eProbe.jitterClientId === '' || ctx.connection.clientId !== e2eProbe.jitterClientId) {
       return next();
     }

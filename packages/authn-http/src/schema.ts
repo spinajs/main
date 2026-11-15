@@ -1,3 +1,13 @@
+import { rateLimitsSchema } from '@spinajs/http';
+
+import { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema } from './rate-limit-config.js';
+
+export { AUTHN_HTTP_RATE_LIMITED_ROUTES, AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES, AUTHN_HTTP_SESSION_RATE_LIMITS, rateLimitSchema };
+export type { AuthnHttpRateLimitName, AuthnHttpSessionRateLimitName } from './rate-limit-config.js';
+
+const RATE_LIMITED_ROUTES = { ...AUTHN_HTTP_RATE_LIMITED_ROUTES, ...AUTHN_HTTP_SESSION_RATE_LIMITED_ROUTES };
+const RATE_LIMITS = { ...AUTHN_HTTP_RATE_LIMITS, ...AUTHN_HTTP_SESSION_RATE_LIMITS };
+
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
 // @spinajs/http's parseOrigin, which also refuses a port above 65535 and a broken IPv6 literal.
 const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
@@ -51,6 +61,7 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         basePath: { type: 'string', minLength: 1, description: 'Where the credential admin routes mount, without the global route prefix. Unset: authn/admin/users.' },
       },
     },
+    rateLimit: rateLimitsSchema(RATE_LIMITS, RATE_LIMITED_ROUTES, 'The per-route limits (@RateLimit) of the anonymous routes and of the routes with a session; read once when the routes mount.', { headers: false }),
     logout: {
       type: 'object',
       properties: {

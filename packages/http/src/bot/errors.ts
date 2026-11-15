@@ -3,7 +3,7 @@ import { Exception } from '@spinajs/exceptions';
 
 import { HandleException } from '../decorators.js';
 import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
-import type { IResponseHeader } from '../interfaces.js';
+import { NO_STORE } from '../middlewares/CacheControl.js';
 import { BOT_UNAVAILABLE_RETRY_AFTER_SECONDS } from './contracts.js';
 
 export type BotCheckFailureReason = 'missing' | 'failed' | 'unavailable';
@@ -21,8 +21,6 @@ export class BotCheckFailed extends Exception {
     super(`bot check ${check}: ${reason}`);
   }
 }
-
-const NO_STORE: IResponseHeader = { Name: 'Cache-Control', Value: 'no-store' };
 
 /**
  * 400 `{ error: 'bot_check_failed', reason, next? }`, or 503 `{ error: 'bot_check_unavailable' }` with Retry-After for

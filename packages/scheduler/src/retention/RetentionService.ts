@@ -8,7 +8,7 @@ import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunLogModel } from '../models/RunLogModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
-import { parseDuration } from '../time/duration.js';
+import { parseDuration } from '@spinajs/durable';
 
 export interface PurgeResult {
   runs: number;
@@ -47,6 +47,7 @@ export class RetentionService {
     const errorsBefore = now - parseDuration(retention.errors, 'scheduler.retention.errors');
 
     let runs = 0;
+    // spinajs-orm-ignore ORM102: deliberate batching, each pass deletes one batchSize page until none is left
     for (;;) {
       const batch = await RunModel.query()
         .whereIn('Status', [...TERMINAL_RUN_STATUSES])

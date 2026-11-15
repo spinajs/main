@@ -78,6 +78,12 @@ describe('buildAppManifest', () => {
   it('records nothing about derivation when it is on', async () => {
     const { manifest } = await buildAppManifest(APP);
     expect(manifest).to.not.have.property('schemaDerivation');
+    expect(manifest).to.not.have.property('globalRouteMiddlewares');
+  });
+
+  it('records the http.routes.middlewares of the configuration it was given', async () => {
+    const { manifest } = await buildAppManifest({ ...APP, schemaDerivation: false, globalRouteMiddlewares: ['RouteTiming', { service: 'Audit', options: [1] }] });
+    expect(manifest.globalRouteMiddlewares).to.deep.equal([{ type: 'RouteTiming' }, { type: 'Audit' }]);
   });
 
   it('merges the app and its dependency fragments without a schema $id collision', async () => {
@@ -85,6 +91,13 @@ describe('buildAppManifest', () => {
     expect(manifest.diagnostics.filter((d) => d.severity === 'error')).to.deep.equal([]);
     const owners = manifest.configModules.filter((c) => c.module === 'hooks');
     expect(owners.length).to.be.at.most(1);
+  });
+
+  it('merges the authz sections and says the policy IR is not in the manifest', async () => {
+    const { manifest } = await buildAppManifest(APP);
+    expect(manifest.authz?.entryPoints.map((e) => e.id)).to.include.members(['GET /health/get', 'GET /users/list']);
+    expect(manifest.authz).to.not.have.property('ir');
+    expect(manifest.diagnostics.filter((d) => d.code === 'AUTHZ010')).to.deep.equal([{ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest, run `spinajs authz verify` with config' }]);
   });
 
   it('records the compiler version that built it, outside the hash', async () => {

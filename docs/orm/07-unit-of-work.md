@@ -27,7 +27,7 @@
    - `Orphans`: children before parents.
 10. `SubjectExecutor.execute(plan)` runs four phases in order: inserts, updates, junctions, orphans. See [Execution phases](#execution-phases).
 11. `UnitOfWork.resnapshotRelations()` re-records the member keys of every populated relation, so a second `save()` sees no membership change.
-12. The transaction commits and `save()` resolves with an `ISaveResult`. Any throw rolls the whole graph back.
+12. The transaction commits and `save()` resolves with an `ISaveResult`. Any throw rolls the whole graph back, and the models get back what they held before the call: column values, change baselines and versions, and an inserted model its `auto` key, whether or not the model uses `@Version`. A retry writes the same edits again.
 
 ```mermaid
 sequenceDiagram
@@ -64,7 +64,7 @@ sequenceDiagram
 
 Before each insert, `generateClientSideKeys()` fills empty `uuid` keys and `assertAssignedKeys()` throws `OrmException` for an empty `assigned` key. When a key column is `auto`, the executor asks for `RETURNING` if the driver reports `insertReturning`, else it reads `LastInsertId`. An empty `auto` key with neither `RETURNING` rows nor a `LastInsertId` throws `OrmException` (`insert of <Model#key> returned no generated key ...`).
 
-Every inserted or updated model gets `takeSnapshot()` right after its statement, so it reads clean afterwards.
+Every inserted or updated model gets `takeSnapshot()` right after its statement, so it reads clean afterwards. When the save then fails, that snapshot is replaced by the one from before the call.
 
 ### What `save()` returns
 
