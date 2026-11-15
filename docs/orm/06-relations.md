@@ -148,6 +148,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - **A `where()` in a belongs-to populate callback filters the parent rows.** The relation query is merged into the parent query. Wrap conditions in `whereOnJoin()` to put them in the `LEFT JOIN ... ON` clause instead.
 - Joins added inside a belongs-to populate callback nest inside that relation's `LEFT JOIN`. They do not filter parent rows.
 - `Model.query()`, `Model.select()` and `Model.where()` all return full owners under a belongs-to populate, nested and multiple populates included; the owner's `*` is emitted once. An explicit owner column list, such as `query().select('Id')`, is kept as it is.
+- A populated belongs-to whose foreign key is `NULL` is empty: `Value` is `undefined` and `Populated` is `true`. The same holds when relations are populated under it (`populate('Plan.Forecast')` on an owner without a plan), at any depth.
 - Has-many and many-to-many run one extra query per relation, not per owner. When the parent query returns no rows, the extra query is skipped.
 - Belongs-to columns are aliased with the connection's `AliasSeparator` (default `$`, so `$Customer$.Name`). See [Connections](./01-connections.md).
 - `compile()` runs once per relation object. Calling `toDB()` twice produces the same SQL.

@@ -28,7 +28,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 
 | Token | `@spinajs/orm-sql` class | Created by | SQL | Clone |
 | --- | --- | --- | --- | --- |
-| `WhereStatement` | `SqlWhereStatement`; `MsSqlWhereStatement` in its driver | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? ``; a `LikeLiteral` value is `` `col` LIKE ? ESCAPE '~' ``, bound its pattern with `escapeLike(text)` applied | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?`; `clone()` keeps the subclass |
+| `WhereStatement` | `SqlWhereStatement`; `MsSqlWhereStatement` in its driver | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? ``; `` `alias`.`col` [NOT] BETWEEN ? AND ? `` for the `between` / `not between` operators; a `LikeLiteral` value is `` `col` LIKE ? ESCAPE '~' ``, bound its pattern with `escapeLike(text)` applied | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?`; `clone()` keeps the subclass |
 | `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | `( <nested where> )`, `NOT ( <nested where> )`; an empty negated group is `1 = 0` | clones the nested `WhereBuilder` onto the parent, keeps the negation |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)`, `where(true)`, `where(false)` | the query verbatim; `where(true)` is `1 = 1` and `where(false)` is `1 = 0` | no builder |
@@ -57,11 +57,12 @@ Constructor arguments of each token are listed in [Architecture](../orm/12-archi
 
 1. A column that names a relation of the model becomes the relation's `ForeignKey`.
 2. A `RawQuery` value (`driver.now()`, for one) is written in place of the `?` after the wrapped or quoted column, and its bindings become the statement's; no converter runs.
-3. A `Wrap` column is resolved as `container.resolve(wrap.Wrapper, [column, builder.TableAlias])` and its `wrap()` is the column expression. The value is bound unconverted.
-4. Otherwise the column is quoted and alias-prefixed with `_columnWrap()`. An aggregate column (`IsAggregate`) is not prefixed; it goes to `HAVING`.
-5. A `ModelBase` value becomes its primary key value. A composite key throws `InvalidArgument('cannot use model X as a where value: it has a composite primary key (A, B). Compare the key columns explicitly.')`.
-6. Any other value goes through the column's declared converter, or, failing that, the converter registered for the value's constructor name in `__orm_db_value_converters__` (a luxon `DateTime` is converted this way).
-7. `IS NULL` and `IS NOT NULL` emit no `?` and no binding.
+3. The `between` and `not between` operators, in any case, go to the protected `buildRange(column)`: it emits `<column> [NOT] BETWEEN ? AND ?` over the wrapped or quoted column and binds the two members of the value. Each member is converted as in steps 6 and 7, also for a `Wrap` column, where only the by-class converter applies. The core `where()` has already refused a value that is not a pair; see [Query builder](../orm/05-query-builder.md).
+4. A `Wrap` column is resolved as `container.resolve(wrap.Wrapper, [column, builder.TableAlias])` and its `wrap()` is the column expression. The value is bound unconverted.
+5. Otherwise the column is quoted and alias-prefixed with `_columnWrap()`. An aggregate column (`IsAggregate`) is not prefixed; it goes to `HAVING`.
+6. A `ModelBase` value becomes its primary key value. A composite key throws `InvalidArgument('cannot use model X as a where value: it has a composite primary key (A, B). Compare the key columns explicitly.')`.
+7. Any other value goes through the column's declared converter, called with the options its decorator stored, or, failing that, the converter registered for the value's constructor name in `__orm_db_value_converters__` (a luxon `DateTime` is converted this way). Both receive the model's column descriptor, so a datetime bound against a numeric column becomes Unix seconds.
+8. `IS NULL` and `IS NOT NULL` emit no `?` and no binding.
 
 The operator is uppercased. Column existence is checked earlier, in the core `WhereStatement` constructor: an unknown column on a model throws `column X not exists in model Y`.
 

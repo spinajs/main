@@ -75,7 +75,7 @@ Each method returns the column builder, so the chain continues.
 ## Important behaviour
 
 - `SqlDriver` registers the converters for every SQL connection; a dialect that stores datetimes differently (PostgreSQL, SQLite, MSSQL: `IsoDatetimeValueConverter`) registers its own after `super.resolve()`.
-- `where()` and `whereIn()` pass the column's declared converter options to `toDB()`, so a binding for a `@DateTime({ unit: 'milliseconds' })` column is written in milliseconds, and a number bound there is read as milliseconds.
+- `where()`, `whereIn()` and `where(column, 'between', [from, to])` pass the column's declared converter options to `toDB()`, so a binding for a `@DateTime({ unit: 'milliseconds' })` column is written in milliseconds, and a number bound there is read as milliseconds.
 - `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
 - Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.

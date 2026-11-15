@@ -341,6 +341,7 @@ The `ATTACH` must be on the handle that runs the check: inside a transaction, or
 ## Important behaviour
 
 - Foreign keys are compiled but **not enforced** by default: SQLite checks them only with `PRAGMA foreign_keys = ON`, per handle, and the driver sends it only with the connection option `ForeignKeys: true`. Until then `ON DELETE CASCADE` does nothing (see [Examples](#enforce-foreign-keys-on-every-connection)).
+- A numeric column (`INTEGER`, `REAL`, `DECIMAL(...)`, ...) that holds ISO datetime text written by an earlier version needs a one-time conversion to numbers; see [Migration](#migration).
 - `charset()` and `comment()` are dropped from the DDL.
 - `json` and `bit` columns get no declared type.
 - `truncate()` keeps the `AUTOINCREMENT` counter; new rows continue after the highest key ever used.
@@ -524,6 +525,41 @@ export class CustomersWidenName_2026_11_14_10_00_00 extends OrmMigration {
   public async down(): Promise<void> {}
 }
 ```
+
+## Migration
+
+### ISO text in a numeric datetime column
+
+Earlier versions registered the shared `IsoDatetimeValueConverter`, which compares the reported column type with a lower-case list. SQLite reports a type as declared (`INTEGER`, `REAL`, `DECIMAL(10,0)`), so a `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` or `@Archived()` property on such a column was written as ISO text. `SqliteDatetimeValueConverter` compares the declared type in any case and writes a number; see [Value conversion](#value-conversion).
+
+```ts
+// Before: the value stored in an INTEGER column on SQLite
+'2026-11-13T23:26:44.654Z'
+
+// After
+1794612404    // Unix seconds, the default and what the timestamp decorators write
+1794612404654 // @DateTime({ unit: 'milliseconds' })
+```
+
+`fromDB()` reads both forms, but comparisons and `ORDER BY` need one: SQLite sorts all text above all numbers. Convert the text rows once, before upgrading. For column `At` of table `t`, first list the text `strftime` cannot read, and fix or delete those rows by hand:
+
+```sql
+SELECT Id, At FROM t WHERE typeof(At) = 'text' AND strftime('%s', At) IS NULL;
+```
+
+Then convert:
+
+```sql
+-- Unix seconds
+UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+
+-- a column you switch to @DateTime({ unit: 'milliseconds' })
+UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+```
+
+Integer rows are left alone. Without the `IS NOT NULL` guard, unreadable text becomes `NULL` in a nullable column, and in a `NOT NULL` column the whole `UPDATE` fails.
+
+`DATETIME`, `TIMESTAMP` and `TEXT` columns keep ISO text and need no conversion.
 
 ## Related
 
