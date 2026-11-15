@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { JobModel } from '@spinajs/queue';
 import {
   Clock,
@@ -18,8 +18,7 @@ import { bootTestEnv, disposeTestEnv } from './support/env.js';
 
 chai.use(chaiAsPromised);
 
-type RawDriver = { executeOnDb(sql: string, params: unknown[], ctx: QueryContext): Promise<unknown> };
-const raw = (name: string) => DI.get(Orm)!.Connections.get(name) as unknown as RawDriver;
+const connection = (name: string) => DI.get(Orm)!.Connections.get(name)!;
 
 describe('scheduler config', () => {
   it('fills defaults and deep-merges nested blocks', () => {
@@ -51,10 +50,13 @@ describe('scheduler config', () => {
     await bootTestEnv();
     expect([...DI.get(Orm)!.Connections.keys()]).to.include.members(['sqlite', 'queue']);
     expect(await JobModel.all()).to.deep.eq([]);
-    await raw('sqlite').executeOnDb('CREATE TABLE leftover (id INTEGER)', [], QueryContext.Schema);
+    await connection('sqlite')
+      .schema()
+      .createTable('leftover', (t) => t.int('id'));
+    expect(await connection('sqlite').schema().tableExists('leftover')).to.eq(true);
 
     await bootTestEnv();
-    await expect(raw('sqlite').executeOnDb('SELECT * FROM leftover', [], QueryContext.Select)).to.be.rejected;
+    expect(await connection('sqlite').schema().tableExists('leftover')).to.eq(false);
   });
 
   it('resolves DbClock against the FakeClock of the latest boot', async () => {

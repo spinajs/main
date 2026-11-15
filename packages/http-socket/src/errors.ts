@@ -5,6 +5,7 @@ import { Log, Logger } from '@spinajs/log';
 import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOperation, JsonValidationFailed, MethodNotImplemented, NotSupported, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
 import { AccessDenied, isProduction } from '@spinajs/authz';
+import { IdempotencyClaimConflict } from '@spinajs/idempotency';
 import type { DenyReason } from '@spinajs/authz';
 import { DEFAULT_RETRYABLE, ErrorCode, SocketError, SocketException } from '@spinajs/http-socket-common';
 
@@ -118,6 +119,10 @@ export class FailedPreconditionMapping extends codeMapping('failed_precondition'
 
 @HandleSocketException([NotSupported, MethodNotImplemented])
 export class UnimplementedMapping extends codeMapping('unimplemented') {}
+
+/** The database rolled the claim's transaction back: a resend claims again. */
+@HandleSocketException(IdempotencyClaimConflict)
+export class IdempotencyClaimConflictMapping extends codeMapping('unavailable') {}
 
 @HandleSocketException(SocketException)
 export class SocketExceptionMapping extends SocketErrorMapping {

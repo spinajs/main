@@ -3,8 +3,7 @@ import type { KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, Publ
 
 import { KEY_NAME_CAP } from '../dto/keys.js';
 import type { AuthnKeyRegisterBody } from '../dto/keys.js';
-import { tooManyRequests } from '../password/fields.js';
-import type { TooManyRequestsResponse } from '../password/fields.js';
+import { throttled } from '../password/fields.js';
 import { refused } from '../policies/v3/errors.js';
 import { activeSessionOf, authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
 import { expiryOf } from '../token/fields.js';
@@ -72,7 +71,7 @@ export function keyRequestOf(body: AuthnKeyRegisterBody, now: Date): { key: NewK
 export const challengeAnswer = (c: KeyChallenge): Ok => new Ok({ id: c.id, nonce: c.nonce, expiresAt: c.expiresAt.toISOString() }, { Headers: [NO_STORE] });
 
 /** 429 for a throttled login challenge. Its key is the client ip alone, so a known and an unknown kid throttle alike. */
-export const challengeThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many key challenges, try again later', retryAfterSeconds);
+export const challengeThrottled = throttled('too many key challenges, try again later');
 
 /** The wire shape of one key: public material only, revoked and expired keys marked, absent values null. */
 export function keyEntry(r: KeyRecord, now: Date): Record<string, unknown> {

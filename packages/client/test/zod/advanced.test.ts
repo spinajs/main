@@ -17,6 +17,8 @@ interface Row {
   diagnostics?: string[];
   /** The keywords are DataValidator's (`$data`, ajv-keywords, ajv-merge-patch): the rows are checked against it. */
   plugins?: boolean;
+  /** The server refuses to compile the schema, so only the zod side is compared. */
+  serverRefuses?: true;
 }
 
 const object = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
@@ -105,7 +107,7 @@ const ROWS: Record<string, Row> = {
     rejects: [null, { b: 1 }, { c: 1 }],
     plugins: true,
   },
-  MergeMissing: { title: 'a $merge it cannot resolve is dropped with ZOD003', schema: { $merge: { source: { $ref: 'test/Nowhere' }, with: {} } }, accepts: [1], diagnostics: ['ZOD003 /$merge'] },
+  MergeMissing: { title: 'a $merge it cannot resolve is dropped with ZOD003', schema: { $merge: { source: { $ref: 'test/Nowhere' }, with: {} } }, accepts: [1], diagnostics: ['ZOD003 /$merge'], serverRefuses: true },
   Range: { title: 'range and exclusiveRange are the limits', schema: { type: 'number', range: [1, 3], exclusiveRange: [0, 3] }, emits: ['.gte(1).lte(3).gt(0).lt(3)'], accepts: [1, 2.5], rejects: [3, 0.5], plugins: true },
   Transform: {
     title: 'transform runs before the other keywords, and the parsed value is the transformed one',
@@ -196,9 +198,10 @@ describe('emitZod: advanced keywords', function () {
           for (const [values, verdict] of [[row.accepts, true], [row.rejects, false]] as const) {
             for (const value of values ?? []) {
               expect(schema.safeParse(value).success, `zod on ${JSON.stringify(value)}`).to.equal(verdict);
-              expect(serverAccepts(server, `test/${name}`, { coerce: false }, value), `server on ${JSON.stringify(value)}`).to.equal(verdict);
+              if (!row.serverRefuses) expect(serverAccepts(server, `test/${name}`, { coerce: false }, value), `server on ${JSON.stringify(value)}`).to.equal(verdict);
             }
           }
+          if (row.serverRefuses) expect(() => server.validator(`test/${name}`, { coerce: false })).to.throw(`schema test/${name} is not a valid JSON Schema`);
           const codes = result.diagnostics.filter((d) => d.schema === `test/${name}`).map((d) => `${d.code} ${d.pointer}`);
           expect(codes).to.deep.equal(row.diagnostics ?? []);
         });

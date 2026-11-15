@@ -176,6 +176,7 @@ export class DefaultInvitationService extends InvitationService {
   protected async recordUse(invitationId: string, who: string): Promise<void> {
     await TeamInvitation.transaction(async () => {
       await TeamInvitationUse.insert({ invitation_id: invitationId, principal: who, used_at: DateTime.utc() });
+      // spinajs-orm-ignore ORM102: compare-and-set retry, at most 5 attempts
       for (let attempt = 0; attempt < 5; attempt++) {
         const [row] = await TeamInvitation.query().columns(['uses', 'max_uses']).where('id', invitationId);
         const uses = Number(row.uses);

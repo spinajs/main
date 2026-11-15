@@ -65,7 +65,7 @@ describe('client.zod.ts', function () {
     const client = await generateClient({ manifest });
     const [withZod] = await generateClientFiles({ manifest, zod: true });
     expect(withZod.contents.replace(`export const manifestHash = '${manifest.hash}';\n\n`, '')).to.equal(client);
-    expect(await generateClientFiles({ manifest })).to.deep.equal([{ path: 'client.ts', contents: client }]);
+    expect(await generateClientFiles({ manifest })).to.deep.equal([{ path: 'client.ts', environment: 'server-safe', contents: client }]);
   });
 
   it('names the file after basename and imports the types from it', async () => {

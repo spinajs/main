@@ -1,0 +1,5 @@
+---
+"@spinajs/http": major
+---
+
+Static files (`http.Static`) are served by the new `StaticFiles` server middleware at the new `http.static.order`, 4.5 by default (after `CsrfGuard`, before authentication), instead of after all of them. A static request no longer runs authentication, `PrincipalMiddleware`, `AccessEpochMiddleware` or any server middleware above that order, so the `authn.http.hooks.request` refusal hook and the session `Cache-Control: no-store` no longer apply to static files; the server middlewares below that order still run for them and get `onFinish`. `http.static.order: Infinity` restores the 3.x placement. Each `http.Static` entry may set `Options` (the `express.static` options: `maxAge`, `immutable`, `dotfiles`, `index`, `fallthrough`, ...), `http.static.enabled: false` serves none, and the entries are now checked by the configuration schema (`Path` required, `Route` starting with `/`, no unknown key). Entries are deduplicated by `Route` and `Path`, so one directory can be served at two routes.

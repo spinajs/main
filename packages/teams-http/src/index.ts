@@ -12,3 +12,4 @@ export * from './controllers/GroupsController.js';
 export * from './controllers/TeamInvitationsController.js';
 export * from './controllers/InvitationsController.js';
 export * from './controllers/UserTeamsController.js';
+export * from './rate-limits.js';

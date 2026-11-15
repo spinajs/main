@@ -49,6 +49,17 @@ describe('postgres integration - time (process zone Europe/Warsaw)', function ()
     });
   });
 
+  it('reads epochMillis() when the statement runs, not when the transaction began', async () => {
+    await suite.driver.transaction(async (driver) => {
+      const a = await driver.epochMillis();
+      await sleep(50);
+      const b = await driver.epochMillis();
+
+      expect(Math.abs(a - Date.now())).to.be.lessThan(5000);
+      expect(b - a).to.be.at.least(40);
+    });
+  });
+
   it('round-trips a DateTime to the same instant', async () => {
     const at = DateTime.fromISO('2026-07-01T10:00:00.123Z');
     await new PgEvent({ Name: 'x', At: at }).insert();

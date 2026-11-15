@@ -16,9 +16,17 @@
       "types": "./lib/audit/index.d.ts",
       "import": "./lib/audit/index.js"
     },
+    "./changelog": {
+      "types": "./lib/changelog/index.d.ts",
+      "import": "./lib/changelog/index.js"
+    },
     "./plan": {
       "types": "./lib/plan/index.d.ts",
       "import": "./lib/plan/index.js"
+    },
+    "./scheduler": {
+      "types": "./lib/scheduler.d.ts",
+      "import": "./lib/scheduler.js"
     }
   },
   "typesVersions": {
@@ -29,8 +37,14 @@
       "audit": [
         "lib/audit/index.d.ts"
       ],
+      "changelog": [
+        "lib/changelog/index.d.ts"
+      ],
       "plan": [
         "lib/plan/index.d.ts"
+      ],
+      "scheduler": [
+        "lib/scheduler.d.ts"
       ]
     }
   },
@@ -75,6 +89,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.23",
+    "@spinajs/authz-ir": "3.0.23",
     "@spinajs/cli": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
@@ -87,10 +102,19 @@
     "@spinajs/log": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@types/luxon": "^3.6.1"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"
+  },
+  "peerDependencies": {
+    "@spinajs/scheduler": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/scheduler": {
+      "optional": true
+    }
   }
 }

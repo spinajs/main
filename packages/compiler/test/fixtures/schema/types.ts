@@ -1,4 +1,7 @@
 import { DateTime } from 'luxon';
+import { Decimal } from './vendor/decimal.js/decimal.js';
+import type { Big } from './vendor/@types/big.js/index.js';
+import { Decimal as LocalDecimal } from './local-decimal.js';
 import { Readable, Stream } from 'node:stream';
 import { Schema } from './decorators-shim.js';
 import * as zod4 from './vendor/zod4/index.js';
@@ -71,6 +74,14 @@ export type WU8 = Uint8Array;
 export type WF32 = Float32Array;
 export type WReadable = Readable;
 export type WStream = Stream;
+export type WDecimal = Decimal;
+export type WBig = Big;
+export type WLocalDecimal = LocalDecimal;
+export type WNullableDate = Date | null;
+export interface WJsdocDecimal {
+  /** @format decimal */
+  amount: string;
+}
 
 // --- generics and naming (Task 8)
 export interface Page<T> { items: T[]; total: number }

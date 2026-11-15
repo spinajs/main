@@ -9,7 +9,7 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { NotSupported } from '@spinajs/exceptions';
-import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput, Wrapper } from '@spinajs/orm';
+import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput, Wrapper, SessionSettingsQueryBuilder } from '@spinajs/orm';
 
 import { ConnectionConf, FakePostgresDriver } from './fixture.js';
 import { ExistsItem } from './models/exists.js';
@@ -58,6 +58,15 @@ describe('postgres SQL compilation', function () {
 
   afterEach(() => {
     DI.clearCache();
+  });
+
+  describe('session settings', () => {
+    it('sets each one transaction-locally, names and values bound', () => {
+      const result = connection().Container.resolve(SessionSettingsQueryBuilder, [connection(), { 'spina.a': '1', 'spina.b': "x'y" }]).toDB();
+
+      expect(result.expression).to.equal('SELECT set_config(?, ?, true), set_config(?, ?, true)');
+      expect(result.bindings).to.deep.equal(['spina.a', '1', 'spina.b', "x'y"]);
+    });
   });
 
   describe('select', () => {

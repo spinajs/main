@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { OrmException } from './exceptions.js';
-import { IModelDescriptor, IRelationDescriptor, OrphanPolicy } from './interfaces.js';
+import { OrphanPolicy } from './interfaces.js';
+import type { IModelDescriptor, IRelationDescriptor } from './interfaces.js';
 
 /**
  * Decides what to do with a row removed from `relation`.

@@ -14,6 +14,26 @@ export class ControllerRegistrationException extends Exception {}
  */
 export class RouteRegistrationException extends Exception {}
 
+/** The client closed the connection before the route answered; `beforeRoute` says the rest of the chain never ran. */
+export class RouteClientGone extends Exception {
+  public readonly beforeRoute: boolean;
+
+  constructor(options: { beforeRoute: boolean }, message?: string) {
+    super(message ?? (options.beforeRoute ? 'The client went away before the route ran' : 'The client went away before the route answered'));
+    this.beforeRoute = options.beforeRoute;
+  }
+}
+
+/**
+ * The request was answered in place of the route (a `RequestDeadline` 504) while the route still runs: its outcome is
+ * unknown, as when the client goes away mid-route.
+ */
+export class RouteAnsweredInPlace extends RouteClientGone {
+  constructor() {
+    super({ beforeRoute: false }, 'The request was answered in place of the route before the route answered');
+  }
+}
+
 /** The route does not take the request's content type, e.g. a raw-body route sent a body that a parser already read. */
 export class UnsupportedMediaTypeException extends Exception {}
 
