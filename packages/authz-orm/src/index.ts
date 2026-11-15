@@ -7,6 +7,8 @@ export * from './plan/index.js';
 export { AccessResource, Parent, Owner, Self, Relation, registerAccessResource } from './decorators.js';
 export { reparent } from './ancestors/reparent.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
+export { ormToIR } from './ir.js';
+export type { OrmIROptions } from './ir.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
 export * from './ancestors/index.js';
 export { OrmResourceAdapter } from './adapter.js';
@@ -20,3 +22,9 @@ export { guardMode } from './guard/env.js';
 // Registers AuthzOrmContributor: the domain boot checks the resource connection.
 export { AuthzOrmContributor, checkResourceConnections } from './contributor.js';
 export * from './lists/index.js';
+export * from './rls/index.js';
+// `@spinajs/authz-orm/changelog`: registers DbChangeLog as the ChangeLog and the changelog migration.
+export * from './changelog/index.js';
+// Registers ColumnChangeMiddleware as a QueryMiddleware: the relation columns of access resources reach the changelog.
+import './changelog/column-hook.js';
+export { ColumnChangeMiddleware } from './changelog/column-hook.js';

@@ -1,4 +1,6 @@
-import { SelectQueryBuilder, SqlOperator, extractModelDescriptor } from '@spinajs/orm';
+import { Injectable } from '@spinajs/di';
+import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, SelectQueryExtension } from '@spinajs/orm';
+import type { QueryBuilder } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 import { _is_array, _min_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -244,17 +246,16 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
 }
 
 function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boolean {
-  const model = (root as any)._model;
+  const model = root.state().model;
   return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
-/**
- * Extend where builder with filter func old style ( by prototype )
- */
-(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters?: IFilterEntry[], logicalOperator?: FilterableLogicalOperators, filterColumns?: IColumnFilter<unknown>[]) {
+/** `filter()` of select builders, installed by {@link FilterQueryExtension}; exported so a replacing extension can delegate to it. */
+export function filterQuery(this: QueryBuilder, filters?: IFilterEntry[] | null, logicalOperator?: FilterableLogicalOperators, filterColumns?: IColumnFilter<unknown>[]): QueryBuilder {
+  const query = this as SelectQueryBuilder<any>;
 
   if (!filters || filters.length === 0) {
-    return this;
+    return query;
   }
 
   // Performance optimization: limit the number of filters to prevent abuse
@@ -263,12 +264,18 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
     throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
   }
 
-  const columns: IColumnFilter<unknown>[] = filterColumns ?? (this._model as any).filterColumns();
+  const model = query.state().model as unknown as { filterColumns(): IColumnFilter<unknown>[] };
+  const columns: IColumnFilter<unknown>[] = filterColumns ?? model.filterColumns();
 
-  const root = this;
-  this.andWhere(function (this: any) {
-    applyFilterEntries(this, filters, logicalOperator, columns, root, true);
+  query.andWhere(function (this: any) {
+    applyFilterEntries(this, filters, logicalOperator, columns, query, true);
   });
 
-  return this;
-};
+  return query;
+}
+
+@Injectable(SelectQueryExtension)
+export class FilterQueryExtension extends SelectQueryExtension {
+  public readonly name = 'orm-http';
+  public readonly methods: SelectQueryExtension['methods'] = { filter: filterQuery };
+}

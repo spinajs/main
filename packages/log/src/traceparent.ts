@@ -17,6 +17,8 @@
 /**
  * Minimal trace context this service carries on the ambient store and emits on
  * the outbound `traceparent` header.
+ *
+ * @deprecated Use `TraceIds` from `@spinajs/tracing`. Removed in 5.0.
  */
 export interface ITraceContext {
   /** 32-hex-char trace id, shared by every span across services in one trace. */
@@ -37,6 +39,8 @@ const ZERO_SPAN_ID = "0000000000000000";
  * @returns the decomposed parts ( plus the derived `sampled` flag ), or `null`
  *          when the value is missing / malformed / forbidden by the spec
  *          ( all-zero trace-id, all-zero parent-id, or version `ff` ).
+ *
+ * @deprecated Use `extractTraceContext` from `@spinajs/tracing`. Removed in 5.0.
  */
 export function parseTraceparent(value: string | undefined | null): { version: string; traceId: string; parentId: string; flags: string; sampled: boolean } | null {
   if (!value) {
@@ -80,6 +84,8 @@ function randomHex(bytes: number): string {
 
 /**
  * A fresh random trace id ( 16 bytes -> 32 lowercase hex chars ).
+ *
+ * @deprecated Use `childTraceIds` from `@spinajs/tracing`. Removed in 5.0.
  */
 export function randomTraceId(): string {
   return randomHex(16);
@@ -87,6 +93,8 @@ export function randomTraceId(): string {
 
 /**
  * A fresh random span id ( 8 bytes -> 16 lowercase hex chars ).
+ *
+ * @deprecated Use `childTraceIds` from `@spinajs/tracing`. Removed in 5.0.
  */
 export function randomSpanId(): string {
   return randomHex(8);
@@ -94,6 +102,8 @@ export function randomSpanId(): string {
 
 /**
  * Render a {@link ITraceContext} as a W3C `traceparent` header value.
+ *
+ * @deprecated Use `traceparentOf` or `injectTraceContext` from `@spinajs/tracing`. Removed in 5.0.
  */
 export function formatTraceparent(ctx: ITraceContext): string {
   return `00-${ctx.traceId}-${ctx.spanId}-${ctx.sampled ? "01" : "00"}`;
@@ -106,6 +116,8 @@ export function formatTraceparent(ctx: ITraceContext): string {
  * id and sampled decision are inherited, and a fresh span id is minted for this
  * service's own span ( its parent being the inbound `parent-id` ). Otherwise a
  * brand-new, sampled trace is STARTED.
+ *
+ * @deprecated Use `activeTraceIds` / `childTraceIds` from `@spinajs/tracing`. Removed in 5.0.
  */
 export function newTraceContext(inboundTraceparent?: string | null): ITraceContext {
   const parsed = parseTraceparent(inboundTraceparent);

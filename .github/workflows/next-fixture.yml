@@ -1,0 +1,56 @@
+name: next-fixture
+
+# The Next.js App Router fixture (fixtures/next-app) against app-basic: cache tags, the credential guard and
+# revalidation of the generated client.next.ts. The fixture has its own lockfile outside the workspaces, so Next
+# (about 200 MB) is installed here only, never by the root `npm ci`.
+
+on:
+  push:
+    branches: [master, v4]
+  pull_request:
+    paths:
+      - 'packages/client/**'
+      - 'packages/manifest/**'
+      - 'packages/http/**'
+      - 'packages/compiler/test/fixtures/app-basic/**'
+      - 'fixtures/next-app/**'
+      - 'package-lock.json'
+      - '.github/workflows/next-fixture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    concurrency:
+      group: next-fixture-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            fixtures/next-app/package-lock.json
+
+      # The fixture generates its client from the built @spinajs/client and boots app-basic from the built packages.
+      - name: build monorepo
+        run: npm ci && npm run build
+
+      - name: install the fixture
+        working-directory: fixtures/next-app
+        run: npm ci
+
+      - name: e2e
+        working-directory: fixtures/next-app
+        run: npm run e2e

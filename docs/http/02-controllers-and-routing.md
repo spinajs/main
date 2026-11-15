@@ -15,7 +15,7 @@ A controller is a class that extends `BaseController`; each decorated method is 
    - throws `RouteRegistrationException` when no HTTP method decorator ran (`InternalType` is `unknown`);
    - computes the path with `buildRoutePath()`;
    - resolves the route's [middlewares](14-route-middlewares.md) and [policies](13-policies.md) from DI and keeps the middlewares whose `isEnabled()` returns `true`;
-   - mounts this handler chain: policy gate → each `onBefore` → the action → each `onAfter` → [route error handlers](11-error-handling.md#route-error-handlers) (`@OnError` and `http.errors.handlers`) → response handler → error handler.
+   - mounts this handler chain: policy gate → each `onAround` / `onBefore` → the action → [route error handlers](11-error-handling.md#route-error-handlers) (`@OnError` and `http.errors.handlers`) → response handler → error handler. The response and error handlers send their reply through the [reply pipeline](14-route-middlewares.md#how-it-works), which runs the middlewares' `onAfter` first.
 5. `Controllers.register()` reads the parameter names of each action from the [controller cache](21-controller-cache-and-cli.md) and writes them into the route parameters. It throws `ControllerRegistrationException` when the controller has no router, and `RouteRegistrationException` when a route names a method that does not exist.
 6. It mounts the shared controllers router on the server with `HttpServer.use()`.
 
@@ -23,8 +23,8 @@ A controller is a class that extends `BaseController`; each decorated method is 
 
 1. extracts the [route arguments](04-route-arguments.md) and appends `req`, `res` and `next` after them;
 2. calls the action inside `AsyncLocalStorage.run(req.storage, …)` (see [Request storage](19-request-storage-and-tracing.md));
-3. passes a returned `Response` to each middleware's `onResponse()` and stores it in `res.locals.response`;
-4. lets the response handler run `response.execute()`. Any error goes to the [error handler](11-error-handling.md).
+3. stores a returned `Response` in `res.locals.response`;
+4. lets the response handler send it through the reply pipeline: each middleware's `onAfter()`, then `response.execute()`. Any error goes to the [error handler](11-error-handling.md), whose reply takes the same pipeline.
 
 ## Decorators
 

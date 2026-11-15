@@ -39,7 +39,7 @@ function lastStepOf(value: unknown): number | null {
   return n;
 }
 
-const confirmed = (r: AuthnMfa): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
+const confirmed = (r: Pick<AuthnMfa, 'confirmed_at'>): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
 
 /** The columns `putPending` writes: unconfirmed, no accepted time step. */
 function pending(secretEnc: string, keyId: string, createdAt: DateTime): Partial<AuthnMfa> {

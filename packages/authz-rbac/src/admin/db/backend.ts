@@ -122,9 +122,9 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     }, options);
   }
 
-  async bumpVersion(domain: string, tx: AuthzTx): Promise<void> {
+  async bumpVersion(domain: string, tx: AuthzTx): Promise<number> {
     checkDomain(domain);
-    await bumpVersion(tx, domain, 'DbAuthzAdminBackend.bumpVersion');
+    return bumpVersion(tx, domain, 'DbAuthzAdminBackend.bumpVersion');
   }
 
   async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {

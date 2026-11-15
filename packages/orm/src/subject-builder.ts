@@ -1,12 +1,15 @@
 /* eslint-disable prettier/prettier */
 import { extractModelDescriptor } from './descriptor.js';
 import { identityKey } from './identity-map.js';
-import { IIdentityMap, OrphanPolicy, RelationType } from './interfaces.js';
+import { OrphanPolicy, RelationType } from './interfaces.js';
+import type { IIdentityMap } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { resolveOrphanPolicy } from './orphan.js';
-import { Relation, SingleRelation } from './relation-objects.js';
+import { SingleRelation } from './relation-objects.js';
+import type { Relation } from './relation-objects.js';
 import { OrmException } from './exceptions.js';
-import { IJunctionDelta, IOrphanDelta, IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { Subject, SubjectOperation, SubjectSet } from './subject.js';
+import type { IJunctionDelta, IOrphanDelta, IRelationDelta } from './subject.js';
 
 /**
  * Turns a mutated object graph into a `SubjectSet` — the complete, unordered description of

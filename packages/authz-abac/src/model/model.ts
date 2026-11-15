@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, AuthzContributor, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, DenyReason, EvaluationContext, FieldSet, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { IRFragment } from '@spinajs/authz-ir';
 import { Injectable, PerChildInstance } from '@spinajs/di';
 import type { Policy } from '../contracts.js';
 
@@ -11,6 +12,7 @@ import type { LoadedPolicy } from './policies.js';
 import { ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { AbacContributor } from './contributor.js';
 import { ConfigPolicyStore } from './stores/config.js';
+import { abacToIR } from '../ir.js';
 import { DbPolicyStore } from './stores/db.js';
 
 export interface AbacModelOptions {
@@ -98,6 +100,13 @@ export class AbacModel extends AuthorizationModel {
     this.stores ??= storesFromConfig(this.name, ctx);
     // The registry is complete only after every model's init, so the index waits for the first applies().
     await this.load(false);
+  }
+
+  /** This model's part of the policy IR, from the policies loaded last (config and stored alike). @throws AuthzConfigError before `init` */
+  toIR(ctx: IRCompileContext): IRFragment {
+    const registry = this.registry ?? ctx.permissions;
+    if (registry === undefined) throw new AuthzConfigError(`${this.name}: toIR needs the permission registry; call it after init`);
+    return abacToIR(this.loaded, registry, { model: this.name });
   }
 
   /**

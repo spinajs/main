@@ -6,3 +6,6 @@ export * from './model/index.js';
 export * from './plan/index.js';
 export * from './migrations/index.js';
 export * from './admin/index.js';
+export * from './expand.js';
+export * from './list-subjects.js';
+export * from './ir.js';

@@ -1,0 +1,66 @@
+name: docs
+model: |
+  model
+    schema 1.1
+
+  type user
+  type group
+    relations
+      define member: [user, group#member]
+  type folder
+    relations
+      define parent: [folder]
+      define viewer: [user, group#member]
+      define view: viewer or view from parent
+  type doc
+    relations
+      define parent: [folder]
+      define editor: [user]
+      define banned: [user]
+      define read: (editor or view from parent) but not banned
+tuples:
+  - user: group:eng#member
+    relation: viewer
+    object: folder:root
+  - user: user:anne
+    relation: member
+    object: group:eng
+  - user: folder:root
+    relation: parent
+    object: folder:sub
+  - user: folder:sub
+    relation: parent
+    object: doc:1
+  - user: user:bob
+    relation: editor
+    object: doc:2
+tests:
+  - name: views flow down the folders and through groups
+    check:
+      - user: user:anne
+        object: doc:1
+        assertions:
+          read: true
+      - user: user:bob
+        object: doc:1
+        assertions:
+          read: false
+      - user: user:bob
+        object: doc:2
+        assertions:
+          read: true
+    list_objects:
+      - user: user:anne
+        type: doc
+        assertions:
+          read: [doc:1]
+  - name: a ban wins
+    tuples:
+      - user: user:anne
+        relation: banned
+        object: doc:1
+    check:
+      - user: user:anne
+        object: doc:1
+        assertions:
+          read: false

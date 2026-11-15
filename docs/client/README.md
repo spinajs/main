@@ -29,6 +29,7 @@ try {
 | `headers` | `() => Record<string, string> \| Promise<Record<string, string>>` | none | Called before every request, so a token can be read fresh. Names are lower-cased; a header argument of the route replaces an option header of the same name. |
 | `credentials` | `RequestCredentials` | not set | Passed to `fetch`. In a browser, `include` sends the cookies the browser holds for the API origin. |
 | `onProblem` | `(problem: ProblemDetails) => void` | none | Called with the problem document of a non-2xx reply, just before `ProblemError` is thrown. For logging or a global 401 handler; it does not swallow the error. |
+| `init` | `(route: { controller: string; name: string; method: string }) => RequestInit` | none | Called before every request with the route's controller key, handler name and lower-case method. What it returns is merged into the fetch options after the client's own, so it can replace `credentials`; `method`, `headers` and `body` stay the client's. Members `fetch` does not know pass through, such as Next.js's `next`. |
 
 Every request sends `accept: application/json, application/problem+json`. A 2xx reply is parsed as JSON when its `content-type` contains `json`, else returned as text.
 
@@ -96,7 +97,7 @@ Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 | --- | --- |
 | none | `client.ts` |
 | `--hooks react-query,swr` | the hooks files |
-| `--socket-hooks` | socket hooks inside the hooks files; needs `--hooks` |
+| `--socket-hooks` | `client.socket.ts`, and `client.socket-swr.ts` with `swr`; needs `--hooks` |
 | `--zod` with `--zod-mini`, `--zod-replies`, `--zod-unsupported warn\|error` | `client.zod.ts` |
 | `--models` | model types and conversions inside `client.ts` |
 | `--server`, `--next` | `client.server.ts`, `client.next.ts` (`--next` implies `--server`) |
@@ -105,6 +106,12 @@ Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 | `--check` | nothing; exits 1 and names each file that is missing or differs |
 
 Every file comes from one read of the manifest. A flag whose generator has not been released in your `@spinajs/client` fails with `<flag> is not available in this version`, and nothing is written. [CLI command reference](../cli/08-command-reference.md#generateclient) has the full table.
+
+A server that renders pages (Next.js Server Components, loaders) calls the API with `createServerAppClient` from `client.server.ts`, which `generateClientFiles({ manifest, server: true })` writes. It forwards the browser's `cookie` and `authorization` headers. [Server rendering and prefetching](ssr.md) covers it, together with prefetching for React Query and SWR, and the Next.js cache tags that `next: true` writes into `client.next.ts`. Next 16 needs `next build --webpack` for the generated files until an import-extension option lands.
+
+## Hooks
+
+`generateClientFiles({ manifest, hooks: ['react-query', 'swr'] })` also writes typed React hooks, one per route: `useUsersGet` for a GET, `useUsersCreate` for a POST. The hooks share `AppClientProvider`, the key tree `appKeys` and the error type `AppClientError`. [Hooks](hooks.md) covers setup, keys, invalidation, errors, infinite queries and the cache buster. The flags of `spinajs generate:client` are in the [CLI command reference](../cli/08-command-reference.md#generateclient).
 
 ## Extending generated types
 
