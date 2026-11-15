@@ -12,6 +12,7 @@ import { Schema } from '@spinajs/validation';
 
 // Registers AccountDisableHook: the controller scan imports this file, and an app may never import the package entry.
 import '../../../services/account-disable-hook.js';
+import { UsersRateLimit } from '../../../rate-limits.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { userActor } from '../../../services/actor.js';
 import { withCredentialAdmin } from '../../../services/credential-admin.js';
@@ -113,6 +114,7 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('deactivate/:user')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async deactivateUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Req() req: Request) {
     const by = userActor(caller);
@@ -138,6 +140,7 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('activate/:user')
+  @UsersRateLimit('security')
   @Access('users:update')
   public async activateUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
     const target = await lifecycleTarget(caller, 'users:update', user);
@@ -158,6 +161,7 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('ban/:user')
+  @UsersRateLimit('security')
   @Access('users:delete')
   public async banUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() dto: BanUserDto, @Req() req: Request) {
     const by = userActor(caller);
@@ -184,6 +188,7 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('unban/:user')
+  @UsersRateLimit('security')
   @Access('users:update')
   public async unbanUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
     const target = await lifecycleTarget(caller, 'users:update', user);
@@ -233,6 +238,7 @@ export class Security extends BaseController {
    * @response 404 User not found, or no session of this user has that handle (`session_not_found`)
    */
   @Del('sessions/:user/:handle')
+  @UsersRateLimit('security')
   @Access('users:update', { also: SESSION_CALLER })
   public async revokeSession(@Req() req: Request, @CurrentPrincipal() caller: Principal, @Param() user: string, @Param() handle: string) {
     const by = userActor(caller);

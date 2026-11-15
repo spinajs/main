@@ -38,7 +38,7 @@ const consumerHeader = [
 
 /** The generated client followed by app code; returns the diagnostics. */
 function consume(generated: string, ...lines: string[]): string[] {
-  return typecheck(`${generated}\n${consumerHeader}\n${lines.join('\n')}\n`, { unused: true });
+  return typecheck(`${generated}\n${consumerHeader}\n${lines.join('\n')}\n`, { noUnusedLocals: true, noUnusedParameters: true });
 }
 
 interface Loaded {
@@ -123,8 +123,8 @@ describe('generateClientFiles with models', () => {
   });
 
   it('type-checks with zero errors, unused locals and parameters included', () => {
-    expect(typecheck(basicClient, { unused: true })).to.deep.equal([]);
-    expect(typecheck(richClient, { unused: true })).to.deep.equal([]);
+    expect(typecheck(basicClient, { noUnusedLocals: true, noUnusedParameters: true })).to.deep.equal([]);
+    expect(typecheck(richClient, { noUnusedLocals: true, noUnusedParameters: true })).to.deep.equal([]);
   });
 
   describe('plans', () => {
@@ -378,7 +378,7 @@ describe('generateClientFiles with models', () => {
         `export const used = use(api);`,
         `export const a: Eq<NonNullable<Reply<typeof api.many, 'get100'>['prev']>['at'], Date> = true;`,
       ].join('\n'),
-      { unused: true },
+      { noUnusedLocals: true, noUnusedParameters: true },
     );
     expect(diagnostics).to.deep.equal([]);
     expect(instantiations, `${instantiations} instantiations`).to.be.below(budget);
@@ -387,7 +387,7 @@ describe('generateClientFiles with models', () => {
   describe('names', () => {
     it('compile with DTOs named like the global types the model code uses', async () => {
       const generated = await client({ manifest: shadowingManifest(basic), includeSocket: false });
-      expect(typecheck(generated, { unused: true })).to.deep.equal([]);
+      expect(typecheck(generated, { noUnusedLocals: true, noUnusedParameters: true })).to.deep.equal([]);
       for (const name of SHADOWED) expect(generated).to.include(`export interface ${name}Model<`);
       expect(generated).to.include('satisfies ObjectPlanOf<$Defined<$ReplyOf<AppClient');
       expect(generated).to.include('satisfies ObjectPlanOf<$Defined<$ArgOf<AppClient');

@@ -1,8 +1,9 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import * as express from 'express';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { HTTP_STATUS_CODE, ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import type { IMiddlewareContext, Response } from '../interfaces.js';
+import { RawJsonResponse } from '../response-methods/rawJson.js';
 import { parseOrigin } from './Cors.js';
 import { requestOrigin, requestProxyTrust } from './RealIp.js';
 
@@ -75,6 +76,8 @@ const REFUSED_BODY = Object.freeze({ error: Object.freeze({ code: 'E_ORIGIN_REFU
 export abstract class SameOriginGuard extends ServerMiddleware {
   protected MissingOrigin: MissingOriginRule = 'same-origin-fetch';
 
+  private options?: SameOriginOptions;
+
   constructor() {
     super();
     // After RealIp (1), which resolves the proxy trust.
@@ -86,27 +89,31 @@ export abstract class SameOriginGuard extends ServerMiddleware {
     return !SAFE_METHODS.has(req.method);
   }
 
-  /** Read once, when the middleware is built; use {@link parseAllowedOrigins} so a bad entry fails the boot. */
+  /** Read once, when the middleware is mounted; use {@link parseAllowedOrigins} so a bad entry fails the boot. */
   protected allowedOrigins(): ReadonlySet<string> {
     return new Set();
   }
 
-  protected refuse(_reason: OriginRefusal, _req: sRequest, res: express.Response, _next: express.NextFunction): void {
-    res.status(HTTP_STATUS_CODE.FORBIDDEN).json(REFUSED_BODY);
+  /** The answer to a refused request: 403 with `{ error: { code: 'E_ORIGIN_REFUSED', ... } }` by default. */
+  protected refuse(_reason: OriginRefusal, _req: sRequest): Response {
+    return new RawJsonResponse(HTTP_STATUS_CODE.FORBIDDEN, REFUSED_BODY);
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    const options: SameOriginOptions = { allowedOrigins: this.allowedOrigins(), missingOrigin: this.MissingOrigin };
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      if (!this.appliesTo(req)) return next();
-      const own = req.headers.origin === undefined ? undefined : requestOrigin(req, requestProxyTrust(req));
-      const decision = checkSameOrigin(req.headers, own, options);
-      if (decision.allowed) return next();
-      this.refuse(decision.reason, req, res, next);
-    };
+  /** Builds the options at mount, so a bad allowed origin fails the boot. */
+  public isEnabled(): boolean {
+    this.sameOriginOptions();
+    return true;
   }
 
-  public after(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
-    return null;
+  public onBefore({ req }: IMiddlewareContext): Response | undefined {
+    const request = req as sRequest;
+    if (!this.appliesTo(request)) return undefined;
+    const own = request.headers.origin === undefined ? undefined : requestOrigin(request, requestProxyTrust(request));
+    const decision = checkSameOrigin(request.headers, own, this.sameOriginOptions());
+    return decision.allowed ? undefined : this.refuse(decision.reason, request);
+  }
+
+  private sameOriginOptions(): SameOriginOptions {
+    return (this.options ??= { allowedOrigins: this.allowedOrigins(), missingOrigin: this.MissingOrigin });
   }
 }

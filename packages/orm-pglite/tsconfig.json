@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "ts-node": {
+    "files": true
+  },
+  "references": [
+    { "path": "../di/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../orm-postgres/tsconfig.json" },
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../testing/tsconfig.json" }
+  ]
+}

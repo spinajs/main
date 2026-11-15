@@ -16,3 +16,4 @@ export * from './types.js';
 export * from './standard-schema.js';
 export * from './manifest-source.js';
 export * from './formats.js';
+export { addSafeKeywords, dropNonFiniteDuplicates, nonFiniteErrors } from './keywords.js';

@@ -2,7 +2,7 @@ import { Autoinject } from '@spinajs/di';
 import { registerBuiltinSchedule } from '../decorators.js';
 import type { RunContext } from '../run/RunContext.js';
 import { ScheduledTask } from '../ScheduledTask.js';
-import { DbClock } from '../time/clock.js';
+import { DbClock } from '@spinajs/durable';
 import { PurgeResult, RetentionService } from './RetentionService.js';
 
 export const SCHEDULER_RETENTION_SCHEDULE = 'scheduler-retention';

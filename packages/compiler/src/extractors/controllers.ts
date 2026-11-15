@@ -1,15 +1,16 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
 import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, routeFullPath, servedPath } from '@spinajs/manifest';
-import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, TypeRef } from '@spinajs/manifest';
+import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, RoutePagination, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { globalRef } from '../runtime-ref.js';
 import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
-import { accessOf, middlewaresOf, policyGroupsOf } from './policies.js';
+import { accessOf, MIDDLEWARE_DECORATORS, middlewaresOf, policyGroupsOf } from './policies.js';
 import { routeDocOf } from './jsdoc.js';
-import { publicOf } from './public.js';
+import { isDeprecated, publicOf } from './public.js';
 import { conditionOf } from './conditions.js';
 import { wireOf, type RouteWireContext } from './wire.js';
+import { paginationOf, type PagedRoute } from './pagination.js';
 
 /** Parameter decorator -> the `ParameterType` (http) or route-arg type (orm-http) it registers; `ParamEntry.kind` records it. */
 export const PARAM_KINDS: Record<string, string> = {
@@ -107,7 +108,18 @@ function paramsOf(m: ts.MethodDeclaration, fullPath: string, owner: string, ctx:
   return m.parameters.map((p, i) => paramOf(p, i, owner, wire, ctx)).filter((p): p is ParamEntry => !!p);
 }
 
-function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext): RouteEntry | undefined {
+function declaredPaginationOf(m: ts.MethodDeclaration, sig: ts.Signature, params: ParamEntry[], route: PagedRoute, ctx: ExtractorContext): RoutePagination | undefined {
+  const typed = params.map((entry) => ({ entry, type: ctx.checker.getNonNullableType(ctx.checker.getTypeAtLocation(m.parameters[entry.index])) }));
+  return paginationOf(ctx.checker.getReturnTypeOfSignature(sig), typed, m, route, ctx);
+}
+
+// `@Deprecated()` of @spinajs/http answers with the Deprecation header; the route's documentation says so too
+function routeDocWithDeprecation(m: ts.MethodDeclaration, ctx: ExtractorContext, classDeprecated = false): RouteEntry['doc'] | undefined {
+  const doc = routeDocOf(m, ctx);
+  return classDeprecated || isDeprecated(m, ctx) ? { ...doc, deprecated: true } : doc;
+}
+
+function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, ctx: ExtractorContext, classDeprecated = false): RouteEntry | undefined {
   const dec = decoratorsOf(m).find((d) => ROUTE_METHODS[d.name]);
   if (!dec || !ts.isIdentifier(m.name)) return undefined;
   const handler = m.name.text;
@@ -115,13 +127,15 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const sig = ctx.checker.getSignatureFromDeclaration(m);
   const returnType = sig ? ctx.typeRef(ctx.checker.getReturnTypeOfSignature(sig), m, `${className}_${handler}_Response`) : { text: 'unknown' };
   const { access, allowAnonymous } = accessOf(m, ctx);
-  const doc = routeDocOf(m, ctx);
+  const doc = routeDocWithDeprecation(m, ctx, classDeprecated);
   const reason = publicOf(m, ctx);
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
+  const params = paramsOf(m, fullPath, `${className}.${handler}`, ctx);
+  const abstract = ts.isClassDeclaration(m.parent) && isAbstractClass(m.parent);
+  const pagination = sig && declaredPaginationOf(m, sig, params, { owner: className, handler, abstract }, ctx);
   return {
-    method: ROUTE_METHODS[dec.name], path, handler, fullPath,
-    params: paramsOf(m, fullPath, `${className}.${handler}`, ctx),
-    returnType, policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
+    method: ROUTE_METHODS[dec.name], path, handler, fullPath, params,
+    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
   };
@@ -136,11 +150,12 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const { access, allowAnonymous } = accessOf(node, ctx);
   const condition = conditionOf(node, ctx);
   const reason = publicOf(node, ctx);
+  const deprecated = isDeprecated(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
     policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}),
-    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx)).filter((r): r is RouteEntry => !!r),
+    routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx, deprecated)).filter((r): r is RouteEntry => !!r),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
   };
 }
@@ -162,7 +177,7 @@ export function routeOverridesOf(node: NamedClass, ancestor: ControllerEntry, mo
     const fullPath = route?.fullPath ?? servedPath(routeFullPath(mountPath, base.path, base.handler));
     const { access, allowAnonymous } = accessOf(m, ctx);
     const reason = publicOf(m, ctx);
-    const doc = routeDocOf(m, ctx);
+    const doc = routeDocWithDeprecation(m, ctx);
     return [{
       handler: base.handler,
       ...(route ? { route } : {}),
@@ -192,7 +207,7 @@ function controllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node
 
 export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => !isAbstractClass(node) && (hasRoute(node) || ctx.isSubclassOf(node, 'BaseController')));
 
-const CLASS_GUARDS = ['BasePath', 'Policy', 'Access', 'AllowAnonymous', 'Public', 'Middleware'];
+const CLASS_GUARDS = ['BasePath', 'Policy', 'Access', 'AllowAnonymous', 'Public', ...MIDDLEWARE_DECORATORS];
 const hasClassGuard = (node: ts.ClassDeclaration): boolean => decoratorsOf(node).some((d) => CLASS_GUARDS.includes(d.name));
 
 /** Abstract controllers are never mounted, but a subclass serves their routes and inherits their path and guards. */

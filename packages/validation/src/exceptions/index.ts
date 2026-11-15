@@ -1,5 +1,6 @@
 import { Exception } from '@spinajs/exceptions';
 import { ErrorObject } from 'ajv';
+import { NON_FINITE_MARK } from '../keywords.js';
 
 /**
  * Detailed information about a validation error
@@ -225,6 +226,12 @@ const VALUE_BEARING_KEYWORDS = new Set([
 
 const sanitized = new WeakSet<IValidationError>();
 
+function withoutMarker(params: Record<string, any>): Record<string, any> {
+  if (!params || !(NON_FINITE_MARK in params)) return params;
+  const { [NON_FINITE_MARK]: _mark, ...rest } = params;
+  return rest;
+}
+
 /**
  * Reduces an AJV error to `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`), so
  * no request value can travel with it:
@@ -233,7 +240,8 @@ const sanitized = new WeakSet<IValidationError>();
  * - for a rule written as `{ $data: pointer }`, whose params and message AJV builds from another field of the
  *   request (a password confirmation `const`, a `maxLength` read from a field), replaces params with
  *   `{ $data: pointer }` and the message with one naming only the keyword and the pointer;
- * - drops the `discriminator` `tagValue`, which is the request's tag value.
+ * - drops the `discriminator` `tagValue`, which is the request's tag value;
+ * - drops the `nonFinite` marker of `DataValidator`'s finite-number `type` check.
  *
  * The rule is found through the verbose `parentSchema` when present. Otherwise `schema`, when given, is searched
  * along the error's local `schemaPath`; when that path leads elsewhere and the schema uses `$data` anywhere, the
@@ -248,7 +256,7 @@ export function sanitizeError(error: IValidationError, schema?: unknown): IValid
     instancePath: error.instancePath,
     schemaPath: error.schemaPath,
     keyword: error.keyword,
-    params: error.params,
+    params: withoutMarker(error.params),
   };
 
   if (error.message !== undefined) {

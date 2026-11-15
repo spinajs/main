@@ -11,6 +11,7 @@ import { ManifestControllerMetadata } from './manifest-controller-metadata.js';
 import { BaseController } from './base-controller.js';
 import { ControllerSource } from './controller-sources.js';
 import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
+import { RouteIndex } from './route-index.js';
 
 export class Controllers extends AsyncService {
   /**
@@ -34,13 +35,17 @@ export class Controllers extends AsyncService {
   @Autoinject()
   protected Server!: HttpServer;
 
+  // Optional: a Controllers built with `new` (a unit test) has no container to inject it.
+  @Autoinject(RouteIndex)
+  protected Routes?: RouteIndex;
+
   /**
    * Single Express router that all controllers' routers are mounted onto.
    * It occupies one fixed position in the parent Express stack, so
    * dynamically-added controllers (via {@link add}) land at the right place
    * automatically — Express evaluates sub-router stacks lazily on each
-   * request. NotFound / Error middleware live AFTER this router via the
-   * standard ServerMiddleware.after() lifecycle.
+   * request. The 404 and the global error answer, HttpServer's tail, live AFTER this
+   * router.
    */
   protected ControllersRouter!: Express.Router;
 
@@ -193,6 +198,7 @@ export class Controllers extends AsyncService {
       }
 
       this.ControllersRouter.use(controller.instance.Router);
+      this.Routes?.mounted();
       if (controller.type) {
         this.RegisteredTypes.add(controller.type);
       }
@@ -206,6 +212,7 @@ export class Controllers extends AsyncService {
     // one mounts onto Express exactly once. Dynamic adds land here too,
     // which is how `add()` avoids the old Express-stack juggling.
     this.ControllersRouter = Express.Router();
+    this.Routes?.mount(this.ControllersRouter);
 
     // Discovery is delegated to ControllerSource services (filesystem scan,
     // DI registry, custom app sources). All lists are merged and deduped in
@@ -288,10 +295,8 @@ export class Controllers extends AsyncService {
 
     // Mount the shared controllers router on the Express app ONCE. From here
     // on, anything added via `this.ControllersRouter.use(...)` (including
-    // future `add()` calls) is picked up by Express automatically.
-    // NotFound / Error handling is handled by NotFoundMiddleware and
-    // ErrorHandlerMiddleware (ServerMiddleware impls), attached to the
-    // Express stack tail during HttpServer.start().
+    // future `add()` calls) is picked up by Express automatically. The 404 and
+    // the global error answer are the fixed tail HttpServer.start() mounts.
     this.Server.use(this.ControllersRouter);
   }
 }

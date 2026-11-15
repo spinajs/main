@@ -27,9 +27,11 @@ It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-htt
 | [Claims mapping](04-claims-mapping.md) | Claim paths to subject, email, verified flag, name and groups; `requiredClaims` |
 | [Identity linking](05-identity-linking.md) | Map a `(provider, subject)` to a local identity: stored link, verified email, JIT, both switches |
 | [Account linking](06-account-linking.md) | `POST` and `DELETE /auth/oidc/:provider/link` for a signed-in user; the `OidcAccountLinks` extension point |
+| [Rate limits of the link and reauth routes](14-session-route-rate-limits.md) | The shipped `@RateLimit` of the link and reauth routes and their `authn.oidc.rateLimit.*` keys; back-channel logout is never limited |
 | [Login hooks](07-login-hooks.md) | `ActionHook` on `authn.login.identified`: run code with the mapped claims on every OIDC login, or refuse it; `authn.logout.backchannel` |
 | [Provider HTTP client, discovery and keys](08-http-client.md) | `OidcHttpClient` extension point; discovery and JWKS caching and validation |
 | [Security guarantees](09-security.md) | Every check of the flow, what is fixed, and the limits of 3.0 |
+| [Rate limits](13-rate-limits.md) | Begin and callback limited per address by default (`authn.oidc.rateLimit.*`); back-channel logout never |
 | [Back-channel logout](11-backchannel-logout.md) | `POST /auth/oidc/:provider/backchannel-logout`: a logout at the IdP ends the sessions of its `sid` or `sub` |
 | [RP-initiated logout](12-rp-initiated-logout.md) | `POST /auth/logout` ends the IdP session too: a redirect to the provider's `end_session_endpoint`, with an optional stored `id_token_hint` |
 | [Programmatic API](10-programmatic-api.md) | `OidcLogin`, `OidcProvider`, `OidcStrategy` and the pure step functions, for custom controllers and tests |

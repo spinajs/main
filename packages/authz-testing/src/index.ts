@@ -13,3 +13,4 @@ export * from './conformance/index.js';
 export * from './behaviour/index.js';
 export * from './host/index.js';
 export * from './model-shapes.js';
+export * from './scenarios/runner.js';

@@ -110,4 +110,18 @@ describe('manifestToAsyncApi', () => {
   it('stream frames match the socket wire protocol', () => {
     expect(doc.operations['chat.history.receive']['x-spinajs-stream-frames']).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.end, WIRE_EVENTS.fail]);
   });
+
+  it("marks the reply of a field-filtered command: optional properties with x-spina-fields (G16)", () => {
+    const m = structuredClone(manifest);
+    const history = m.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!;
+    Object.assign(history, { access: ['chat:read'], fields: 'filter-rows' });
+    const out = manifestToAsyncApi(m, options);
+    expect((out.components.messages['chat.history.reply'] as { payload: unknown }).payload).to.deep.equal({
+      type: 'object',
+      properties: { id: { type: 'string', 'x-spina-fields': 'chat:read' }, text: { type: 'string', 'x-spina-fields': 'chat:read' } },
+      additionalProperties: false,
+    });
+    expect((out.components.schemas.ChatMessage as { required?: unknown }).required).to.deep.equal(['id', 'text']);
+  });
 });
+

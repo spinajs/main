@@ -268,7 +268,7 @@ export async function importSkipsWhenLocked(runImport: () => Promise<'done' | 's
 
 ## Best practices
 
-- Keep the seven contract results exact: `@Task()` in `@spinajs/tasks` skips a run only when `acquire()` returns `Locked: false`, and logs a warning when `renew()` returns `false`.
+- Keep the seven contract results exact: callers treat only `Locked: false` from `acquire()` as "held by someone else", and only `false` from `renew()` as a lost lock.
 - Return copies of `MutexLock` from `acquire()` and `get()`, so callers cannot change your stored state.
 - Default a missing `Tenant` to something unique per process, such as `processIdentity()`, not to a shared app name.
 - Give an in-memory backend a lease when holders can crash or hang.
@@ -286,7 +286,7 @@ DI.register(LeaseMutex).as(Mutex);
 ```
 
 ```ts
-// Don't: wait inside acquire(); the helpers and @Task() expect an immediate answer
+// Don't: wait inside acquire(); the helpers expect an immediate answer
 public async acquire(options: MutexLockOptions) {
   await this.wait(options.Name);
   // ...
@@ -300,4 +300,3 @@ public async acquire(options: MutexLockOptions) {
 - [Named mutex](01-named-mutex.md): the helpers and types callers use.
 - [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md): `OrmMutex` subclasses and a plain in-memory backend.
 - [Lifetimes](../di/04-lifetimes.md): singleton, new-instance and per-child lifetimes a backend can choose.
-- [Task locking](../tasks/02-task-locking.md): how `@Task()` depends on the registered backend.
