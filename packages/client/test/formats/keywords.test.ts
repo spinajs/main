@@ -105,8 +105,8 @@ describe('@spinajs/client/formats: keyword helpers', function () {
     fc.assert(fc.property(json(), (value) => ajvEqual(value, structuredClone(value))));
   });
 
-  it('ajvEqual compares own valueOf and toString keys as data, where stock Ajv throws', () => {
-    expect(() => ajv.compile({ const: { a: 1 } })({ valueOf: 1 })).to.throw(TypeError);
+  it('ajvEqual compares own valueOf and toString keys as data, as the server does', () => {
+    expect(ajv.compile({ const: { a: 1 } })({ valueOf: 1 })).to.be.false;
     expect(ajvEqual({ valueOf: 1 }, { a: 1 })).to.be.false;
     expect(ajvEqual({ valueOf: 1 }, { valueOf: 1 })).to.be.true;
     expect(ajvEqual({ toString: false }, { toString: false })).to.be.true;
