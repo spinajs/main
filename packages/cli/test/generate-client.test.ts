@@ -92,13 +92,11 @@ describe('generate:client', function () {
 
   describe('flag refusal', () => {
     const cases: [string[], string][] = [
-      [['--hooks', 'react-query'], '--hooks react-query'],
-      [['--hooks', 'swr,react-query'], '--hooks swr'],
       [['--zod'], '--zod'],
       [['--models'], '--models'],
-      [['--hooks', 'swr', '--socket-hooks'], '--hooks swr'],
-      [['--server'], '--server'],
-      [['--next'], '--next'],
+      // an available target beside an unavailable one writes nothing either
+      [['--hooks', 'swr', '--socket-hooks', '--zod'], '--zod'],
+      [['--next', '--models'], '--models'],
       [['--mocks'], '--mocks'],
       [['--mocks', '--msw'], '--mocks'],
     ];
@@ -190,8 +188,8 @@ describe('generate:client', function () {
 
     it('writes the main file to --out and names companions from its basename', () => {
       const files = [
-        { path: 'x.ts', contents: 'a' },
-        { path: 'x.zod.ts', contents: 'b' },
+        { path: 'x.ts', environment: 'server-safe' as const, contents: 'a' },
+        { path: 'x.zod.ts', environment: 'server-safe' as const, contents: 'b' },
       ];
       expect(outputPaths(join('d', 'x.mts'), files).map((f) => f.path)).to.deep.equal([join('d', 'x.mts'), join('d', 'x.zod.ts')]);
       expect(outputPaths(join('d', 'x'), files).map((f) => f.path)).to.deep.equal([join('d', 'x'), join('d', 'x.zod.ts')]);
