@@ -58,6 +58,59 @@ describe('diffManifest', () => {
       expect(find(diffManifest(base, head).changes, 'routes', 'GET /health/get')).to.include({ kind: 'removed', breaking: true });
     });
 
+    describe('client names', () => {
+      const withController = (className: string, handler: string, path = ':id'): Manifest =>
+        manifestWith({ controllers: [controllerEntry({ className, basePath: 'users', mountPath: '/users', routes: [routeEntry('get', '/users/:id', { path, handler })] })] });
+
+      it('a handler rename under an unchanged path is a non-breaking routes change', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('UsersController', 'read'));
+        expect(diff.changes).to.have.length(1);
+        expect(find(diff.changes, 'routes', 'GET /users/:id')).to.deep.include({
+          kind: 'changed',
+          breaking: false,
+          detail: 'client method users.get renamed to users.read: generated hooks and query keys change',
+        });
+        expect(diff.breaking).to.equal(false);
+      });
+
+      it('a controller class rename under an unchanged base path is a non-breaking routes change', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('PeopleController', 'get'));
+        expect(find(diff.changes, 'routes', 'GET /users/:id')).to.deep.include({
+          kind: 'changed',
+          breaking: false,
+          detail: 'client method users.get renamed to people.get: generated hooks and query keys change',
+        });
+      });
+
+      it('a rename of both reports one finding', () => {
+        const diff = diffManifest(withController('UsersController', 'get'), withController('PeopleController', 'read'));
+        expect(diff.changes).to.have.length(1);
+        expect(diff.changes[0].detail).to.equal('client method users.get renamed to people.read: generated hooks and query keys change');
+      });
+
+      it('a class rename that keeps the client key reports nothing', () => {
+        expect(diffManifest(withController('UsersController', 'get'), withController('Users', 'get')).changes).to.deep.equal([]);
+      });
+
+      it('joins the finding with a breaking one, so the route stays breaking', () => {
+        const head = withController('UsersController', 'read');
+        head.controllers[0].routes[0].params.push({ ...param('tenant', true), index: 0 });
+        const change = find(diffManifest(withController('UsersController', 'get'), head).changes, 'routes', 'GET /users/:id');
+        expect(change?.breaking).to.equal(true);
+        expect(change?.detail).to.include('client method users.get renamed to users.read');
+        expect(change?.detail).to.include('tenant');
+      });
+
+      it('a handler rename under a bare path that follows the handler stays a removal plus an addition', () => {
+        const bare = (handler: string): Manifest =>
+          manifestWith({ controllers: [controllerEntry({ className: 'UsersController', basePath: 'users', routes: [routeEntry('get', `/users/${handler}`, { path: '', handler })] })] });
+        const diff = diffManifest(bare('list'), bare('all'));
+        expect(find(diff.changes, 'routes', 'GET /users/list')).to.include({ kind: 'removed', breaking: true });
+        expect(find(diff.changes, 'routes', 'GET /users/all')).to.include({ kind: 'added', breaking: false });
+        expect(diff.changes).to.have.length(2);
+      });
+    });
+
     it('new required parameter is breaking', () => {
       const head = clone();
       routeOf(head, 'get', '/users/list').params.push(param('tenant', true));
@@ -167,17 +220,46 @@ describe('diffManifest', () => {
       expect(thingsChanges(withThings(bare('list')), withThings(bare('list', [req('Req')])))).to.deep.equal([]);
     });
 
-    it('renaming a whole-body parameter keeps the wire, renaming a JSON query key breaks it', () => {
+    const renamed = (name: string, from: string, to: string, handler = 'list'): string => `argument ${from} renamed to ${to} on ${name}.${handler}: generated hook variables and query keys change`;
+
+    it('renaming a whole-body argument keeps the wire: non-breaking, the client variables change', () => {
       const body = (name: string): ParamEntry => ({ ...wired(name, { in: 'body', shape: 'whole' }, true, 'Dto'), kind: 'FromBody' });
-      expect(thingsChanges(withThings(bare('list', [body('body')])), withThings(bare('list', [body('payload')])))).to.deep.equal([]);
+      expect(thingsChanges(withThings(bare('list', [body('body')])), withThings(bare('list', [body('payload')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'body', 'payload') },
+      ]);
+    });
+
+    it('renaming a query-object argument keeps the wire: non-breaking', () => {
+      const q = (name: string): ParamEntry => ({ ...wired(name, { in: 'query', shape: 'whole' }, true, 'Filter'), kind: 'FromQuery' });
+      expect(thingsChanges(withThings(bare('list', [q('filter')])), withThings(bare('list', [q('criteria')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'filter', 'criteria') },
+      ]);
+    });
+
+    it('a header renamed in code but sent under the same key: non-breaking, the client variables change', () => {
+      const header = (name: string): ParamEntry => ({ ...wired(name, { in: 'header', name: 'x-tenant', shape: 'value' }), kind: 'FromHeader' });
+      expect(thingsChanges(withThings(bare('list', [header('tenant')])), withThings(bare('list', [header('tenantId')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'tenant', 'tenantId') },
+      ]);
+    });
+
+    it('a value argument whose query name follows the argument name changes the wire: breaking', () => {
       const [change] = thingsChanges(withThings(bare('list', [wired('query', { in: 'query', name: 'query', shape: 'json' })])), withThings(bare('list', [wired('q', { in: 'query', name: 'q', shape: 'json' })])));
       expect(change).to.include({ id: 'GET /things/list', kind: 'changed', breaking: true });
       expect(change.detail).to.include('parameter query (FromQuery) removed');
     });
 
-    it('a header renamed in code but sent under the same key is not a change', () => {
-      const header = (name: string): ParamEntry => ({ ...wired(name, { in: 'header', name: 'x-tenant', shape: 'value' }), kind: 'FromHeader' });
-      expect(thingsChanges(withThings(bare('list', [header('tenant')])), withThings(bare('list', [header('tenantId')])))).to.deep.equal([]);
+    it('a value argument renamed under an explicit query name keeps the wire: non-breaking', () => {
+      const v = (name: string): ParamEntry => wired(name, { in: 'query', name: 'search', shape: 'value' });
+      expect(thingsChanges(withThings(bare('list', [v('term')])), withThings(bare('list', [v('text')])))).to.deep.equal([
+        { section: 'routes', kind: 'changed', id: 'GET /things/list', breaking: false, detail: renamed('things', 'term', 'text') },
+      ]);
+    });
+
+    it('reordering arguments without renaming them is not a change', () => {
+      const a = wired('a', { in: 'query', name: 'a', shape: 'value' });
+      const h = { ...wired('h', { in: 'header', name: 'x-h', shape: 'value' }), index: 1 };
+      expect(thingsChanges(withThings(bare('list', [a, h])), withThings(bare('list', [{ ...h, index: 0 }, { ...a, index: 1 }])))).to.deep.equal([]);
     });
   });
 

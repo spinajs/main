@@ -15,6 +15,7 @@ import { q } from '../../support/format.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './env.js';
 import type { AuthnConfigSource } from './env.js';
 import { authnSecretFindings, safeMessage, secretStoringSteps } from './secrets.js';
+import { clientAddressFindings } from './client-address.js';
 import type { AuthnConfigFinding } from './secrets.js';
 
 const set = (v: unknown): boolean => v !== undefined && v !== null;
@@ -103,8 +104,8 @@ function authnSchemas(container: IContainer): IConfigurationSchema[] {
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, the throttle's checkConfiguration) and what boot accepts but an operator
- * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development, users enrolled in
- * an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources: with authn-orm loaded it
+ * should fix (no strategy, no proxy setting or two that differ, an empty CORS list, an env that fell back to development,
+ * users enrolled in an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources: with authn-orm loaded it
  * opens the authn store (the app database) to look for enrolled MFA steps.
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
@@ -151,8 +152,9 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
   if (!set(config.get('authn.http.trustProxy')) && !set(config.get('http.trustProxy'))) {
     out.push({ topic: 'proxy', level: 'warning', message: 'Neither authn.http.trustProxy nor http.trustProxy is set: behind a proxy every client has the proxy address, so per-IP throttling and audit see one client (0 says there is no proxy)' });
   }
+  out.push(...clientAddressFindings(config));
 
-  // Without http.cors (any falsy value), @spinajs/http installs no CORS middleware: browsers keep the same-origin rule.
+  // Without http.cors (any falsy value), @spinajs/http sends CORS headers on @Cors routes only: browsers keep the same-origin rule elsewhere.
   const cors = config.get<unknown>('http.cors');
   if (cors) {
     const origins = (cors as { origins?: unknown }).origins;

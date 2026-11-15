@@ -7,8 +7,8 @@ The mapping code lives in `@spinajs/http`; this page covers it from the exceptio
 ## How it works
 
 1. **Registration, at import time.** `@HandleException(ResourceNotFound)` on a `Response` subclass calls `DI.register(NotFound).asMapValue('__http_error_map__', 'ResourceNotFound')`. The DI root container keeps one `Map<string, Constructor<Response>>` under that string token; `Map.set` means the last registration for a name wins.
-2. **Handler setup.** `HttpServer.start()` calls `ErrorHandlerMiddleware.after()`, which runs `__handle_error__()`. It reads the map once with `DI.get('__http_error_map__')`, plus `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`.
-3. **A request fails.** A controller, route argument or middleware throws or calls `next(err)`. `NotFoundMiddleware` calls `next(new ResourceNotFound(...))` for an unmatched route.
+2. **Handler setup.** `HttpServer.start()` mounts `__handle_error__()` as the global error answer; `ErrorHandlerMiddleware.reply(error, req)` builds its reply. The first reply reads the map once with `DI.get('__http_error_map__')`, plus `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`.
+3. **A request fails.** A controller, route argument or middleware throws or calls `next(err)`. `NotFoundMiddleware.reply(req)` returns `new ResourceNotFound(...)` for an unmatched route, which goes to the global error answer.
 4. **Body-parser failures.** An invalid JSON body answers 400 with the fixed message `request body is not valid JSON`. A `verify` hook failure keeps its mapped answer when the thrown class is mapped; otherwise it answers 400 with `request body was refused`. These two fixed answers use the response mapped for `BadRequest`.
 5. **Error body.** Otherwise the handler builds `{ ...err, message: err.message }`: every own enumerable field of the exception plus its message. Outside production it adds `stack`. It logs the error at `error` level.
 6. **Lookup.** `__resolve_error_response__(map, err)` walks from `err.constructor` up the prototype chain and returns the response class of the first name found in the map.
@@ -66,7 +66,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 | `AuthenticationFailed` | `Unauthorized` | 401 |
 | `Forbidden` | `ForbiddenResponse` | 403 |
 | `ResourceNotFound` | `NotFound` | 404 |
-| `ResourceDuplicated` | `Conflict` | 409 |
+| `ResourceDuplicated`, `ConcurrencyConflict` | `Conflict` | 409 |
 | `EntityTooLargeException` (`@spinajs/http`), `LimitExceeded` | `EntityTooLarge` | 413 |
 | `UnsupportedMediaTypeException` (`@spinajs/http`) | `UnsupportedMediaType` | 415 |
 | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError` | `ServerError` | 500 |

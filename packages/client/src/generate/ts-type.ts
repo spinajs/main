@@ -9,9 +9,16 @@ export function lastSegment(id: string): string {
   return id.split('/').pop() ?? id;
 }
 
+// json-schema-to-typescript re-cases every declaration name (toSafeString), so a name is only usable as a
+// reference if that function leaves it unchanged: PascalCase letters and digits, a capital after each digit.
 function sanitize(value: string): string {
-  const name = value.replace(/[^A-Za-z0-9_]/g, '_');
-  return /^[0-9]/.test(name) ? `_${name}` : name;
+  const name = value
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+    .replace(/(\d)([a-z])/g, (_, digit: string, letter: string) => digit + letter.toUpperCase());
+  return /^[0-9]/.test(name) || name === '' ? `T${name}` : name;
 }
 
 export function literal(value: unknown): string {
@@ -46,9 +53,12 @@ function unique(values: string[]): string[] {
  */
 export class TypeContext {
   private readonly referenced = new Set<string>();
+  /** Some route or command returns `Redacted<…>`, which the generated file then imports from the runtime. */
+  public usesRedacted = false;
   private readonly names = new Map<string, string>();
   private sealed = false;
   private verbatim = false;
+  private mentioned: Set<string> | undefined;
 
   constructor(public readonly manifest: Manifest) {
     const bySegment = new Map<string, string[]>();
@@ -56,8 +66,15 @@ export class TypeContext {
       const segment = sanitize(lastSegment(id));
       bySegment.set(segment, [...(bySegment.get(segment) ?? []), id]);
     }
+    const taken = new Set<string>();
     for (const [segment, ids] of bySegment) {
-      for (const id of ids) this.names.set(id, ids.length === 1 ? segment : sanitize(id.replace(/^spinajs\//, '')));
+      for (const id of ids) {
+        const preferred = ids.length === 1 ? segment : sanitize(id.replace(/^spinajs\//, ''));
+        let name = preferred;
+        for (let n = 2; taken.has(name); n++) name = `${preferred}${n}`;
+        taken.add(name);
+        this.names.set(id, name);
+      }
     }
   }
 
@@ -90,7 +107,23 @@ export class TypeContext {
     if (!this.schemaOf(id)) return 'unknown';
     if (this.sealed && !this.referenced.has(id)) throw new Error(`generateClient: schema '${id}' is outside the client model; buildClientModel must resolve it`);
     this.referenced.add(id);
+    this.mentioned?.add(this.nameOf(id));
     return this.nameOf(id);
+  }
+
+  /** Prints a type expression and returns the named types it mentions, sorted. */
+  public withNames(print: () => string): { type: string; names: string[] } {
+    this.mentioned = new Set();
+    try {
+      return { type: print(), names: [...this.mentioned].sort() };
+    } finally {
+      this.mentioned = undefined;
+    }
+  }
+
+  public redacted(type: string): string {
+    this.usesRedacted = true;
+    return `Redacted<${type}>`;
   }
 
   public typeOf(ref: TypeRef): string {

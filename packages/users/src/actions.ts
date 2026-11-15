@@ -76,6 +76,7 @@ export async function getUsersByRole(role: string[]): Promise<User[]> {
   const users: User[] = [];
 
   // Bounded IN lists: SQLite allows 999 bound parameters per statement.
+  // spinajs-orm-ignore ORM102: deliberate batching, one query per 500 uuids
   for (let i = 0; i < uuids.length; i += 500) {
     users.push(...(await userModel().select().whereIn('Uuid', uuids.slice(i, i + 500))));
   }

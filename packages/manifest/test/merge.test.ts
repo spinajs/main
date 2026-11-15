@@ -26,6 +26,14 @@ describe('mergeFragments', () => {
     expect(build('production').hash).to.not.equal(build('development').hash);
   });
 
+  it('records the global route middlewares of the build configuration, which the hash covers', () => {
+    const build = (globalRouteMiddlewares?: Manifest['globalRouteMiddlewares']) => mergeFragments(fragment('app'), [], { ...meta(['app']), globalRouteMiddlewares });
+    expect(build(undefined)).to.not.have.property('globalRouteMiddlewares');
+    expect(build([])).to.not.have.property('globalRouteMiddlewares');
+    expect(build([{ type: 'RouteTiming' }]).globalRouteMiddlewares).to.deep.equal([{ type: 'RouteTiming' }]);
+    expect(build([{ type: 'RouteTiming' }]).hash).to.not.equal(build(undefined).hash);
+  });
+
   it('records the compiler version, which the hash leaves out like generatedAt', () => {
     const build = (compilerVersion: string | undefined) => mergeFragments(fragment('app'), [], { ...meta(['app']), compilerVersion });
     expect(build(undefined)).to.not.have.property('compilerVersion');

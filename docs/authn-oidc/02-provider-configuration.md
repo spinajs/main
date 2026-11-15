@@ -22,6 +22,7 @@ You configure each IdP under `authn.oidc.providers.<name>`. Each provider become
 | `authn.oidc.providers` | object | `{}` | names matching `^[a-z0-9_-]{1,59}$` | The providers, by name. The name gives the strategy `oidc:<name>` and the provider stored on every link. |
 | `authn.oidc.redirects.success` | string | `'/'` | app-relative path | See [Login flow](01-login-flow.md#configuration). |
 | `authn.oidc.redirects.failure` | string | `'/'` | app-relative path | See [Login flow](01-login-flow.md#configuration). |
+| `authn.oidc.rateLimit.begin`, `authn.oidc.rateLimit.callback` | object or `false` | `{ limit: 60, windowSeconds: 60, by: 'ip' }` | `{ limit?, windowSeconds?, by? }` or `false` | See [Rate limits](13-rate-limits.md). |
 
 An app-relative path has one leading `/`, never `//` or `/\`, and no space, backslash or control character. Any other key under `authn.oidc` fails validation.
 

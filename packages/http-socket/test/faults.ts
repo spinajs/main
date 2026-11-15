@@ -1,7 +1,7 @@
 import 'mocha';
 import { AddressInfo } from 'net';
 import { DI, Injectable } from '@spinajs/di';
-import { ISocketCommandContext, SocketCommandStage } from '../src/interfaces.js';
+import { ISocketCommandContext, SocketMiddleware } from '../src/interfaces.js';
 import { SocketServer } from '../src/server.js';
 import { ITestServer, delay, startServer } from './harness.js';
 
@@ -33,13 +33,13 @@ export const ackFaults = {
 };
 
 /** Outermost stage of every test server; does nothing while `ackFaults` is reset. */
-@Injectable(SocketCommandStage)
-export class FaultKitStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class FaultKitStage extends SocketMiddleware {
   public get Order(): number {
     return 10;
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     try {
       return await next();
     } finally {

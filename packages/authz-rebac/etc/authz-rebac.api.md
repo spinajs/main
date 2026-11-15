@@ -31,6 +31,19 @@ export interface TuplesAdminQuery {
         after?: string;
     };
 }
+/** The userset tree of `relation` (a relation or permission) on `scope`, from the first RebacModel of the domain that knows it. */
+export interface TupleExpandAdminQuery {
+    readonly kind: "tuples.expand";
+    readonly scope: ResourceRef;
+    readonly relation: string;
+}
+/** The subjects of `subjectType` holding `relation` on `scope`. */
+export interface TupleSubjectsAdminQuery {
+    readonly kind: "tuples.subjects";
+    readonly scope: ResourceRef;
+    readonly relation: string;
+    readonly subjectType: string;
+}
 declare module "@spinajs/authz" {
     interface AuthzCommandMap {
         "tuple.write": TupleWriteCommand;
@@ -38,6 +51,8 @@ declare module "@spinajs/authz" {
     }
     interface AuthzAdminQueryMap {
         tuples: TuplesAdminQuery;
+        "tuples.expand": TupleExpandAdminQuery;
+        "tuples.subjects": TupleSubjectsAdminQuery;
     }
 }
 ```

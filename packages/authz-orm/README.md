@@ -14,8 +14,9 @@ import '@spinajs/authz-orm';   // registers the adapter, the write middleware an
 ```
 
 Migrations: `AuthzResourceAncestor_2026_10_14_00_00_00` (`authz_resource_ancestor`),
-`AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzAudit_2026_10_01_00_00_00`
-(`authz_audit`). The ancestor and scope-attribute tables live on the connection of the authz stores, the
+`AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzChangeLog_2026_11_04_00_00_00`
+(`authz_change_log`, `authz_policy_version`), `AuthzAudit_2026_10_01_00_00_00`
+(`authz_audit`). The ancestor, scope-attribute and changelog tables live on the connection of the authz stores, the
 ORM alias `authz` (`db.Aliases.authz`, which this package's config maps to `default`), which must be the database
 of the resource tables: the list filter joins them with `authz_assignment` (and, for `@Parent`,
 `authz_resource_ancestor`), and a delete forgets the row's scopes through the same driver. The domain boot
@@ -265,12 +266,33 @@ first read. Register the one instance under both `ScopeAttributeStore` and `Writ
 Every write first updates the single row of `authz_scope_attribute_version`; its row lock queues
 concurrent writers of the same database.
 
+## Changelog
+
+Importing the package registers `DbChangeLog` as the `ChangeLog` of `@spinajs/authz`: an append-only history of
+authz state in `authz_change_log` (`seq`, `at`, `kind`, `op`, `key`, `payload`, `actor`, `trace_id`). The DB stores
+append to it in the transaction of their write, so a change and the row it records commit together; an append with
+no transaction in scope on the `authz` connection is an `AuthzConfigError`. `actor` is the writer's principal key,
+`trace_id` the W3C trace id of the request. `changeLog().covers(kind)` is true only for the kinds whose DB store
+exists in the process; `since(seq)` and `until(at)` read the history in `seq` order, a page at a time.
+
+Writes of `@AccessResource` models add kind `column`: `ColumnChangeMiddleware` logs every `@Parent`, `@Owner` and
+`@Relation` column an insert, update or delete changed, keyed `type:id#relation` (`parent` for a parent column), with
+the old and new `{ type, id }`, in the statement's transaction. Turn it off for one model with
+`@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
+that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`).
+
+`recordPolicyVersion(policyHash, irJson)` keeps the policy IR an app ran with in `authz_policy_version` (first
+instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Import `@spinajs/authz-orm/scheduler`
+(with `@spinajs/scheduler` installed) to prune the changelog daily: schedule `authz.changelog.retention` deletes the
+changes older than `authz.changelog.retentionDays` (default 400); `pruneChangeLog()` does it on demand.
+
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
 | `authz.orm.domain` | `'root'` | the domain whose service plans lists and whose stores a delete cleans up |
 | `authz.orm.accessField` | `'$access'` | the per-row access key of `.withAccess()` |
+| `authz.changelog.retentionDays` | `400` | how long the retention job keeps changelog rows |
 
 ## From 3.0.0-rc.1
 
