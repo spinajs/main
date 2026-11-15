@@ -89,6 +89,7 @@ describe('http.socket configuration schema', () => {
       ['an abort grace above the longest timer delay', { ordering: { abortGraceMs: 2 ** 31 } }, 'http.socket.ordering.abortGraceMs'],
       ['an auth switch given as a string', { auth: { required: 'true', revalidateMs: 0 } }, 'http.socket.auth.required'],
       ['an auth switch given as a number', { auth: { required: 1, revalidateMs: 0 } }, 'http.socket.auth.required'],
+      ['an access default other than allow or deny', { access: { default: 'open' } }, 'http.socket.access.default'],
     ];
 
     for (const [label, patch, path] of cases) {

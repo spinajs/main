@@ -10,7 +10,7 @@ At import time, before any bootstrapper runs:
 | --- | --- |
 | `index.ts` | `FromDbModel`, `AsDbModel` under their class names (`@Injectable()`), `OrmHttpBootstrapper` under `Bootstrapper` |
 | `route-arg.ts` | `FilterModelRouteArg` under its class name |
-| `builders.ts` | `SelectQueryBuilder.prototype.filter`, by direct prototype assignment |
+| `builders.ts` | `FilterQueryExtension` under `SelectQueryExtension`; `Orm.resolve()` installs its `filter()` on `SelectQueryBuilder` |
 | `response-methods/OrmNotFound.ts` | `OrmNotFound` under `Response` and in the http error map for `OrmNotFoundException` |
 
 Then, during application start:
@@ -131,6 +131,10 @@ export async function bootstrap() {
   return await DI.resolve(Orm);
 }
 ```
+
+## Read-your-writes per request
+
+Importing `@spinajs/orm-http` registers `ReadYourWritesScope`, a server middleware that runs each request in a read-your-writes scope. On a connection with `Replicas`, a request that wrote through a query builder reads its own writes back from the primary. Requests that only read go to replicas. The scope is the ORM's own `AsyncLocalStorage`, separate from the request store of `@spinajs/http` (`19-request-storage-and-tracing`): it opens with the server middlewares, before argument extraction, and the same scope serves queue consumers and scheduled jobs through `readYourWrites(fn)`. See [Read replicas](../orm/24-read-replicas.md).
 
 ## Related
 

@@ -1,16 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { analyzePackage } from '@spinajs/compiler';
-import { DI } from '@spinajs/di';
-import { fsService } from '@spinajs/fs';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import type { BaseController } from '@spinajs/http';
 import { mergeFragments, type Manifest } from '@spinajs/manifest';
-import { Intl } from '@spinajs/intl';
-import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { HealthController } from '../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
 import { UsersController } from '../../compiler/test/fixtures/app-basic/src/controllers/users.js';
@@ -21,7 +15,7 @@ import type { AppClient } from './__snapshots__/app-basic.client.js';
 import { MixedController, WireController, received as wireReceived } from './fixtures/wire-app/src/controllers.js';
 import type { CreateDto, Filter, Meta, Profile } from './fixtures/wire-app/src/controllers.js';
 import { appBasicManifest } from './support/fixture.js';
-import { AllowAccess, E2eConfiguration } from './support/harness.js';
+import { startApp } from './support/harness.js';
 
 interface WireClient {
   values(page: number, verbose: boolean, since: Date): Promise<void>;
@@ -85,20 +79,7 @@ describe('generated client against real controllers on a booted server', functio
     wireWithMixed = await wireManifest();
     const wireOnly = { ...wireWithMixed, controllers: wireWithMixed.controllers.filter((c) => c.className !== MixedController.name) };
     restores.push(recordArguments(HealthController, manifest), recordArguments(UsersController, manifest));
-    app = await createTestApp({
-      configuration: E2eConfiguration,
-      register: (c) => {
-        c.unregister(ServerMiddleware, PrincipalMiddleware);
-        for (const controller of [HealthController, UsersController, WireController, MixedController]) c.register(controller).as(BaseController);
-        c.register(AllowAccess).as(AccessPolicy);
-      },
-      resolve: [fsService, Intl, Controllers],
-      bootTimeout: 50000,
-    });
-    const server = await app.resolve(HttpServer);
-    await server.start();
-    const { port } = DI.get(HttpServer)!.Server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${port}`;
+    ({ app, baseUrl } = await startApp([HealthController, UsersController, WireController, MixedController]));
     client = createClient<AppClient>(extractDefinition(await generateClient({ manifest })), { baseUrl });
     wire = createClient<{ wire: WireClient }>(extractDefinition(await generateClient({ manifest: wireOnly })), { baseUrl }).wire;
   });

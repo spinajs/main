@@ -61,6 +61,7 @@ export class AuthnAuditRetention extends AsyncService {
     const cutoff = instant(checkedMs(now, 'AuthnAuditRetention.purge: now') - days * DAY_MS);
 
     let removed = 0;
+    // spinajs-orm-ignore ORM102: deliberate batching, each pass reads and deletes one PURGE_BATCH page until none is left
     for (;;) {
       // MSSQL pages with OFFSET ... FETCH, which needs an ORDER BY.
       const ids = (await AuthnAudit.query().columns(['id']).where('at', '<', cutoff).orderBy('at').take(PURGE_BATCH)).map((r) => r.id);

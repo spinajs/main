@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage, IJobFailureContext } from './../src/index.js';
+import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, IQueueJob, QueueMessage, IJobFailureContext, PermanentJobFailure } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -127,6 +127,15 @@ class ThrowingHookJob extends QueueJob {
 
   public async onFailed() {
     throw new Error('hook exploded');
+  }
+}
+
+@Job()
+class RefusedJob extends QueueJob {
+  public RetryCount = 3;
+
+  public async execute() {
+    throw new PermanentJobFailure('access_denied', 'job RefusedJob needs invoice:send on invoice');
   }
 }
 
@@ -318,6 +327,20 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     expect(row.Status).to.equal('dead');
     expect(row.Attempt).to.equal(1);
     expect(row.LastError).to.contain('boom');
+  });
+
+  it('marks a job dead on its first PermanentJobFailure, whatever retries are left', async () => {
+    const queue = await q();
+    await queue.consume(RefusedJob);
+    await RefusedJob.emit({});
+
+    const c = await client();
+    await expect(c.deliver(c.Emitted[0])).to.be.rejectedWith(PermanentJobFailure, 'access_denied: job RefusedJob needs invoice:send on invoice');
+
+    const row = await JobModel.where({ JobId: (c.Emitted[0] as IQueueJob).JobId }).firstOrFail();
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
+    expect(row.LastError).to.equal('access_denied: job RefusedJob needs invoice:send on invoice');
   });
 });
 

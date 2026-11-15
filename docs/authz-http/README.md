@@ -26,6 +26,7 @@ Importing the package registers its server middlewares, principal sources, field
 | [Access events](08-access-events.md) | `GET /user/access/events`: `authz.changed` over server-sent events, ended with the session |
 | [Explain](09-explain.md) | `GET /authz/explain` and the trace in a 403, outside production only |
 | [Access metadata and OpenAPI](10-access-metadata-and-openapi.md) | `ACCESS_DESCRIPTOR`, `accessDescriptorOf`, `swaggerAccess` and the `x-authz-*` extensions |
+| [Rate limits](11-rate-limits.md) | The shipped `@RateLimit` of `POST /user/access/checks`, `GET /user/access/events` and `GET /authz/explain`, and their `authz.http.rateLimit.*` keys |
 
 ## Quick start
 
@@ -75,6 +76,7 @@ Every `authz.http.*` key, with its page. AJV validates the section at boot.
 | `authz.http.events.maxStreamsPerPrincipal` | `5` | [Access events](08-access-events.md#configuration) |
 | `authz.http.explainRoute.enabled`, `.permission` | `false`, `'authz:explain'` | [Explain](09-explain.md#configuration) |
 | `authz.http.unguardedRoutes` | `'warn'` | [Unguarded routes](10-access-metadata-and-openapi.md#unguarded-routes) |
+| `authz.http.rateLimit.checks`, `.events`, `.explain` | 120, 10, 30 per 60 s by principal | [Rate limits](11-rate-limits.md) |
 | `authz.http.webhooks` | `[]` | [Webhooks](../authn-http/20-webhooks.md#authorization-changes) |
 | `authz.http.admin.domain` | `'root'` | The domain whose `AuthzAdmin` the `@spinajs/authz-http-admin` routes use. |
 | `authz.http.admin.basePath` | not set (`'authz'`) | Where the `@spinajs/authz-http-admin` routes mount. |

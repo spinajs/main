@@ -11,6 +11,8 @@ export interface IAuthzAsyncStorage {
   AuthzCache?: Map<string, unknown>;
   AuthzDecision?: Decision;
   Unscoped?: string;
+  /** Set by a `fields: 'filter-rows'` route or command: authz-orm gives the rows of its `.accessible()` lists their own field sets. */
+  AuthzRowFields?: boolean;
 }
 
 type AuthzStore = IAuthzAsyncStorage & Record<string, unknown>;
@@ -33,8 +35,8 @@ export function requestScope(): RequestScope {
 }
 
 export function runWithPrincipal<T>(principal: Principal, fn: () => Promise<T>): Promise<T> {
-  // The route's decision and @Unscoped belong to the outer principal, so they do not carry over.
-  const { AuthzDecision: _decision, Unscoped: _unscoped, ...rest } = authzStorage().getStore() ?? {};
+  // The route's decision, @Unscoped and row field sets belong to the outer principal, so they do not carry over.
+  const { AuthzDecision: _decision, Unscoped: _unscoped, AuthzRowFields: _rowFields, ...rest } = authzStorage().getStore() ?? {};
   const store: AuthzStore = { ...rest, Principal: principal, AuthzCache: new Map() };
   return authzStorage().run(store, async () => fn());
 }

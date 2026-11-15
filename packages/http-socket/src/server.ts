@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'events';
 import { Namespace, Server, ServerOptions, Socket } from 'socket.io';
-import { AsyncService, Autoinject, ClassInfo, DI, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, ClassInfo, Container, DI, Injectable } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
@@ -8,10 +9,9 @@ import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, ShutdownNotice, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
-import type { ProxyTrust } from '@spinajs/http';
+import { RealIp } from '@spinajs/http';
 import { SocketConnection, toHandshake } from './connection.js';
 import { missedByBoot } from './access.js';
-import { socketProxyTrust } from './client-address.js';
 import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
@@ -21,7 +21,8 @@ import { SocketHandlerRegistry } from './registry.js';
 import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
-import { assertIdempotencyConfig, outcomeUnknownAfter } from './idempotency.js';
+import { outcomeUnknownAfter } from './context.js';
+import { assertIdempotencyConfig } from './idempotency.js';
 import { SHUTDOWN_FLUSH_MS, SHUTDOWN_OVERRUN, assertShutdownConfig, shutdownOverrun } from './limits.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
@@ -97,14 +98,11 @@ export class SocketServer extends AsyncService {
   @Config('http.shutdownTimeout', { defaultValue: 10_000 })
   protected HttpShutdownTimeout: number;
 
-  @Config('authn.http.trustProxy')
-  protected AuthnTrustProxy: unknown;
+  @Autoinject(Container)
+  protected Container: IContainer;
 
-  @Config('http.trustProxy')
-  protected HttpTrustProxy: unknown;
-
-  /** the proxy hops that may name the client address */
-  protected trust: ProxyTrust = { hops: 0 };
+  /** the RealIp HttpServer runs, so a socket and a request from one client get one address */
+  protected ClientAddress: RealIp;
 
   @Autoinject()
   protected Host: SocketHttpHost;
@@ -160,7 +158,8 @@ export class SocketServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
-    this.trust = socketProxyTrust(this.AuthnTrustProxy, this.HttpTrustProxy);
+    // RealIp.resolve() parses the trust, so a bad entry still fails the start
+    this.ClientAddress = await this.Container.resolve(RealIp);
     assertIdempotencyConfig(this.Options.idempotency);
     assertShutdownConfig(this.Options);
     const overrun = shutdownOverrun(this.Options.drainMs, this.HttpShutdownTimeout);
@@ -254,7 +253,7 @@ export class SocketServer extends AsyncService {
 
     if (!(await this.Dispatcher.drained(this.Options.drainMs))) {
       this.Log.warn({ drainMs: this.Options.drainMs }, 'Socket commands still running after a ${drainMs} ms drain are answered unavailable');
-      // a keyed handler that already runs may commit any moment: it gets a grace to answer, and record, its real outcome
+      // a handler under drainGrace that already runs may commit any moment: it gets a grace to answer, and record, its real outcome
       this.Dispatcher.abortAll(unavailable, true);
 
       if (!(await this.Dispatcher.drained(SHUTDOWN_FLUSH_MS))) {
@@ -366,7 +365,7 @@ export class SocketServer extends AsyncService {
         throw new SocketException('forbidden', 'origin not allowed');
       }
 
-      const handshake = toHandshake(socket, this.trust);
+      const handshake = toHandshake(socket, this.ClientAddress);
       const auth = handshake.auth;
 
       if (auth.protocol !== PROTOCOL_VERSION) {
@@ -429,7 +428,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected onConnection(socket: Socket): void {
-    const handshake = this.handshakes.get(socket) ?? toHandshake(socket, this.trust);
+    const checked = this.handshakes.get(socket);
     this.handshakes.delete(socket);
 
     // a recovered socket skipped the handshake middleware, and a handshake may have passed it just before shutdown began
@@ -449,7 +448,8 @@ export class SocketServer extends AsyncService {
         throw new SocketException('forbidden', 'origin not allowed');
       }
 
-      connection = new SocketConnection(socket, handshake);
+      // inside the try: a recovered socket runs the app's RealIp.clientAddress() here, not in the handshake middleware
+      connection = new SocketConnection(socket, checked ?? toHandshake(socket, this.ClientAddress));
     } catch (err) {
       this.refuseConnected(socket, this.Errors.toWire(err, 'connection'));
       return;
@@ -468,7 +468,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected refuseConnected(socket: Socket, wire: SocketError): void {
-    this.Log.warn({ socketId: socket.id, code: wire.code, reason: wire.message }, 'Socket ${socketId} refused after connecting: ${code} ${reason}');
+    this.Log.warn({ socketId: socket.id, code: wire.code, reason: wire.message, errorId: wire.errorId }, 'Socket ${socketId} refused after connecting: ${code} ${reason}');
 
     const frame: EventFrame<DisconnectNotice> = { name: SYSTEM_EVENTS.disconnect, payload: { reason: wire.code } };
     socket.emit(WIRE_EVENTS.event, frame);

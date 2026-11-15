@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
-import { Metrics, MetricDef, MetricMap, Gauge, Histogram } from '@spinajs/telemetry-common';
+import { Metrics } from '@spinajs/telemetry-common';
+import type { MetricDef, MetricMap, Gauge, Histogram } from '@spinajs/telemetry-common';
 
 /**
  * Point-in-time view of a driver's connection pool.

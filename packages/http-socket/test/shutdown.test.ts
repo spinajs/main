@@ -12,7 +12,7 @@ import { Command, Connection, OnDisconnect, OnEvent, Payload, Signal, SocketCont
 import { SocketConnection } from '../src/connection.js';
 import { SocketHub } from '../src/hub.js';
 import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
-import type { IdempotentReply } from '../src/interfaces.js';
+import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware, type IdempotentReply } from '../src/interfaces.js';
 import { SHUTDOWN_FLUSH_MS, assertShutdownConfig, shutdownOverrun } from '../src/limits.js';
 import { ITestServer, command, connect, connected, delay, errorOf, nextEvent, open, refusalOf, resultOf, startServer, waitFor } from './harness.js';
 import { logText } from './log-text.js';
@@ -593,4 +593,41 @@ describe('socket graceful shutdown', function () {
       warn.restore();
     }
   });
+
+  it('gives the grace to a handler whose stage set drainGrace, without an idempotency key', async () => {
+    await restartWith(SHORT);
+    const s = await connectAs('shut-graced');
+    const graced = command(s, 'shut-grace.slow', { ms: 600 });
+    const plain = command(s, 'shut.work', { ms: 600 });
+    await delay(50);
+
+    await t.server.shutdown();
+
+    expect(resultOf(await graced)).to.equal('graced');
+    expect(errorOf(await plain)).to.include({ code: 'unavailable', retryAfterMs: 700 });
+  });
 });
+
+/** A custom stage, not idempotency, asks for the drain's grace. */
+@Injectable(SocketMiddleware)
+export class ShutGraceStage extends SocketMiddleware {
+  public get Order(): number {
+    return STAGE_ORDER.Lookup + 10;
+  }
+
+  public async onAround(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+    if (ctx.request.name === 'shut-grace.slow') {
+      ctx.drainGrace = true;
+    }
+    return next();
+  }
+}
+
+@SocketController('shut-grace')
+export class ShutGraceSocket extends BaseSocketController {
+  @Command('slow')
+  public async slow(@Payload() p: { ms: number }) {
+    await delay(p.ms);
+    return 'graced';
+  }
+}

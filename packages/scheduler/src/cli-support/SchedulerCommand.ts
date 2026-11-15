@@ -15,7 +15,7 @@ import { resolveSchedulerConfig, SchedulerConfig } from '../interfaces.js';
 // The CLI imports command files one by one, never the package index, so the runtime
 // registrations the service needs are pulled in here.
 import '../service/DefaultSchedulerService.js';
-import '../time/db-time.js';
+import '@spinajs/durable';
 
 /**
  * Base of the `scheduler:*` commands. Output is the command's product, so it goes to stdout with

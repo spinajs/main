@@ -10,12 +10,16 @@ on:
       - 'packages/orm/**'
       - 'packages/orm-sql/**'
       - 'packages/orm-postgres/**'
+      - 'packages/orm-pglite/**'
+      - 'packages/testing-orm/**'
       - '.github/workflows/orm-postgres.yml'
   pull_request:
     paths:
       - 'packages/orm/**'
       - 'packages/orm-sql/**'
       - 'packages/orm-postgres/**'
+      - 'packages/orm-pglite/**'
+      - 'packages/testing-orm/**'
       - '.github/workflows/orm-postgres.yml'
   workflow_dispatch:
 
@@ -65,3 +69,40 @@ jobs:
           # the restart test addresses the service container by id
           ORM_TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: npm run test:integration
+
+  # The same integration suite in process on PGlite (@spinajs/orm-pglite); no service container.
+  pglite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # orm-pglite's tests import @spinajs/testing ( a devDependency ), which the two package graphs do not build.
+      - name: build orm-pglite + orm-postgres + testing + deps
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-pglite/tsconfig.build.json packages/orm-postgres/tsconfig.build.json packages/testing/tsconfig.build.json
+
+      - name: orm-pglite suite
+        working-directory: packages/orm-pglite
+        run: npm test
+
+      - name: orm-postgres integration suite on PGlite
+        working-directory: packages/orm-postgres
+        env:
+          ORM_TEST_POSTGRES_DRIVER: pglite
+        run: npm run test:integration
+
+      - name: build testing-orm
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/testing-orm/tsconfig.build.json
+
+      # D12: both strategies' spin-up numbers on the CI runner, printed for the record; nothing fails on them.
+      - name: PGlite spin-up bench
+        run: node packages/testing-orm/bench/pglite-spinup.mjs
