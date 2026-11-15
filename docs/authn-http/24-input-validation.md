@@ -9,7 +9,7 @@ on the credential routes, the route's own 400 code elsewhere.
 
 1. The global middlewares run first: `ClientIp`, the CSRF guard and `AuthnMiddleware` (see [Request authentication](01-request-authentication.md)).
 2. The route's policies run: the group gates (`PasswordServiceRegistered`, `KeyRoutesOn`, ...), `Authenticated`, and the session state policies `PendingSessionOnly` (MFA completion) and `ActiveSessionOnly` (step-up, re-authentication).
-3. The route middlewares run: on the anonymous routes that read a body, the [IP throttle gate](#the-ip-throttle-gate) first, then [`@BotCheck`](23-bot-checks.md).
+3. The route middlewares run: on the anonymous routes, the shipped [rate limit](25-rate-limits.md) first, then on those that read a body the [IP throttle gate](#the-ip-throttle-gate) and [`@BotCheck`](23-bot-checks.md).
 4. The arguments are extracted and validated. The DTO schemas have `authn.` ids, so `@spinajs/validation` checks them without type coercion: `{ "login": 123 }` fails. Every DTO is closed: an unknown field fails.
 5. A validation failure goes to the route's `@OnError` handler at the `arguments` stage, which answers it (see the table below). The action never runs.
 6. The action runs with typed, capped values.
@@ -108,7 +108,9 @@ removes `reauthPassword` itself for routes that use it.
 
 `AuthnIpThrottleMiddleware`, put on a route with `@IpThrottle(flow, answer, mode)`, keys the client ip with
 `ipKey` (`authn.throttle.ipv6Prefix`) in a throttle flow. Both are internal to the package's own routes and not
-exported; cap your own routes with `http.throttle` ([Throttling](../http/18-throttling.md)).
+exported; cap your own routes with `@RateLimit` or `http.throttle` ([Throttling](../http/18-throttling.md)). A refused
+request gets the route's `answer`, returned from the middleware's `onBefore` through the reply pipeline: no error is
+raised, so no `@OnError` handler or error log sees it.
 
 - `gate` (default): it peeks the ip key of the flow and refuses while it is held, before the bot check and before the
   body is read. It counts nothing for a request it lets through, because the service behind counts the requests it

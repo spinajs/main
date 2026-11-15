@@ -47,32 +47,30 @@ http: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `SizeStage`, `RateStage`, `InFlightStage` | `SocketCommandStage`, orders 100, 200, 300 | as named | Your stages | Subclass and swap with `DI.unregister()`; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) for a per-command size limit |
-| `TokenBucket` | Not in DI: `new TokenBucket(perSecond, burst, now?)` | one per connection, built by `SocketDispatcher.attach()` | Your buckets in your own stages | `take()` spends a token, `retryAfterMs()` tells when the next one comes |
+| `SizeStage`, `RateStage`, `InFlightStage` | `SocketMiddleware`, orders 100, 200, 300 | as named | Your middlewares | Subclass and swap with `DI.unregister()`; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) for a per-command size limit |
+| `TokenBucket` | Not in DI: `new TokenBucket(perSecond, burst, now?)` | one per connection, built by `SocketDispatcher.attach()` | Your buckets in your own middlewares | `take()` spends a token, `retryAfterMs()` tells when the next one comes |
 | `payloadSize(value)` | Function | the size stage's measure | none | Use it in your own limit checks |
 
 ### `TokenBucket`: a stricter rate for one expensive command
 
-The connection bucket is shared by all frames. A stage can add a second bucket for one command, keyed by the connection object.
+The connection bucket is shared by all frames. A middleware can add a second bucket for one command, keyed by the connection object.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage, SocketConnection, SocketException, TokenBucket } from '@spinajs/http-socket';
+import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketConnection, SocketException, SocketMiddleware, TokenBucket } from '@spinajs/http-socket';
 
 /** 'reports.render' may run once per 10 s per connection, with no burst. */
-@Injectable(SocketCommandStage)
-export class RenderRateStage extends SocketCommandStage {
+@Injectable(SocketMiddleware)
+export class RenderRate extends SocketMiddleware {
+  public readonly Order = STAGE_ORDER.Lookup + 20;
+
   protected buckets = new WeakMap<SocketConnection, TokenBucket>();
 
-  public get Order(): number {
-    return STAGE_ORDER.Lookup + 20;
+  public isEnabled(handler: IRegisteredHandler): boolean {
+    return handler.fullName === 'reports.render';
   }
 
-  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
-    if (ctx.handler?.fullName !== 'reports.render') {
-      return next();
-    }
-
+  public onBefore(ctx: ISocketCommandContext): void {
     let bucket = this.buckets.get(ctx.connection);
     if (!bucket) {
       bucket = new TokenBucket(0.1, 1);
@@ -82,8 +80,6 @@ export class RenderRateStage extends SocketCommandStage {
     if (!bucket.take()) {
       throw new SocketException('resource_exhausted', 'reports.render is limited to one call per 10 s', { retryAfterMs: bucket.retryAfterMs() });
     }
-
-    return next();
   }
 }
 ```
@@ -134,7 +130,7 @@ console.log(fitsOneFrame({ id: 'img-1', data: new Uint8Array(512 * 1024) }));
 
 ## Related
 
-- [Command pipeline](04-command-pipeline.md): where stages 100 to 300 sit.
+- [Command pipeline](04-command-pipeline.md): where stages 100 to 300 sit among the socket middlewares.
 - [Stream replies](06-stream-replies.md): stream credit and stream slots.
 - [Configuration](15-configuration.md): the schema checks of these keys.
 - [Observability](16-observability.md): refusals in `socket_commands_total`.

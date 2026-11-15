@@ -1,7 +1,7 @@
 import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import { BadRequestResponse } from './badRequest.js';
 import { HandleException } from '../decorators.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { ConcurrencyConflict, ResourceDuplicated } from '@spinajs/exceptions';
 import { Injectable } from '@spinajs/di';
 
 /**
@@ -10,7 +10,7 @@ import { Injectable } from '@spinajs/di';
  * @param err - error to send
  */
 
-@HandleException(ResourceDuplicated)
+@HandleException([ResourceDuplicated, ConcurrencyConflict])
 @Injectable(Response)
 export class Conflict<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.CONFLICT;

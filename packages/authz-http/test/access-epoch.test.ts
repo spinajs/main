@@ -2,13 +2,15 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Principal } from '@spinajs/authz';
-import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
 
 import { ANONYMOUS, HasPrincipal, PrincipalSource, accessEpoch } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
+
+const epochOf = (res: { header: unknown }) => (res.header as Record<string, string | undefined>)['x-access-epoch'];
 
 const authn = (sessionHandle: string) => ({ method: 'password', strategy: 'local', assurance: 'aal1' as const, mfa: [], authenticatedAt: new Date(0), sessionHandle });
 
@@ -31,6 +33,19 @@ class EpochProbeController extends BaseController {
   @Get('/')
   @Policy(HasPrincipal)
   public probe() {
+    return new Ok({ ok: true });
+  }
+
+  @Get('fail')
+  @Policy(HasPrincipal)
+  public fail() {
+    throw new Error('the action failed');
+  }
+
+  @Get('switch')
+  @Policy(HasPrincipal)
+  public switch(@Req() req: Request) {
+    req.storage.Principal = userPrincipal('bob', { authn: authn('s9') });
     return new Ok({ ok: true });
   }
 }
@@ -73,6 +88,20 @@ describe('X-Access-Epoch', function () {
 
       expect(res.status).to.eq(200);
       expect(res.header['x-access-epoch']).to.eq(accessEpoch(userPrincipal('alice', { authn: authn('s1') })));
+    });
+
+    it('carries the epoch on an error reply', async () => {
+      const res = await app.request().get('/epoch/fail').set('x-user', 'alice').set('x-session', 's1');
+
+      expect(res.status).to.eq(500);
+      expect(epochOf(res)).to.eq(accessEpoch(userPrincipal('alice', { authn: authn('s1') })));
+    });
+
+    it('carries the epoch of the principal as it is when the reply leaves', async () => {
+      const res = await app.request().get('/epoch/switch').set('x-user', 'alice').set('x-session', 's1');
+
+      expect(res.status).to.eq(200);
+      expect(epochOf(res)).to.eq(accessEpoch(userPrincipal('bob', { authn: authn('s9') })));
     });
 
     it('changes when the session rotates or the ceiling changes, not otherwise', async () => {

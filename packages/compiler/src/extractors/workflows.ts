@@ -1,0 +1,112 @@
+import ts from 'typescript';
+import type { WorkflowEntry } from '@spinajs/manifest';
+import type { Extractor, ExtractorContext } from '../context.js';
+import { findDecorator, literalValue } from '../decorators.js';
+import { isAbstractClass } from './abstract.js';
+
+/** The signal name recorded for a `waitForEvent` whose name is not a literal. */
+export const DYNAMIC_SIGNAL = '*';
+
+/** Callbacks of these context calls run inside a journaled step, where wall-clock reads are fine. */
+const STEP_CALLS = new Set(['step', 'emit']);
+
+const REPLACEMENT: Record<string, string> = { 'Date.now': 'ctx.now()', 'new Date': 'ctx.now()', 'Math.random': 'ctx.random()' };
+
+type Signal = WorkflowEntry['signals'][number];
+
+const methodName = (node: ts.Node): string | undefined =>
+  ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined;
+
+function wallClock(node: ts.Node): string | undefined {
+  if (ts.isCallExpression(node)) {
+    const text = node.expression.getText();
+    if (text === 'Date.now' || text === 'Math.random') return text;
+  }
+  if (ts.isNewExpression(node) && node.expression.getText() === 'Date' && (node.arguments?.length ?? 0) === 0) return 'new Date';
+  return undefined;
+}
+
+/** Names and permissions held in constants count; anything that cannot be evaluated is dynamic, without a CMP001 note. */
+const evaluate = (expr: ts.Expression | undefined, ctx: ExtractorContext): unknown => literalValue(expr, { checker: ctx.checker, info: () => undefined });
+
+function permissionOf(arg: ts.Expression | undefined, ctx: ExtractorContext): string | undefined {
+  const options = evaluate(arg, ctx);
+  const permission = options && typeof options === 'object' ? (options as { permission?: unknown }).permission : undefined;
+  return typeof permission === 'string' ? permission : undefined;
+}
+
+/** The signal a `waitForEvent` call waits for; `undefined` (after WF005) for a literal name the runtime refuses. */
+function signalOf(call: ts.CallExpression, ctx: ExtractorContext, className: string): Signal | undefined {
+  const [nameArg, optsArg] = call.arguments;
+  const name = evaluate(nameArg, ctx);
+  if (typeof name !== 'string') return { name: DYNAMIC_SIGNAL };
+  // '*' marks a park on several names and '#' ends the name in a wait key (workflow's eventNameProblem).
+  if (/[#*]/.test(name)) {
+    ctx.warn('WF005', `${className}.run waits for event ${JSON.stringify(name)}, which waitForEvent refuses: event names cannot contain '#' or '*'`, call);
+    return undefined;
+  }
+  const permission = permissionOf(optsArg, ctx);
+  return permission ? { name, permission } : { name };
+}
+
+/** The signals `run()` waits for, and WF004 for values a replay would not see again. */
+function walkRun(body: ts.Block, ctx: ExtractorContext, className: string): Signal[] {
+  const signals: Signal[] = [];
+  const seen = new Set<string>();
+  const add = (signal: Signal | undefined): void => {
+    if (!signal) return;
+    const key = `${signal.name}\u0000${signal.permission ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    signals.push(signal);
+  };
+  // Inside the arguments of a step or emit call only the functions run journaled; a step key is evaluated on every replay.
+  const visit = (node: ts.Node, journaled = false): void => {
+    if (journaled && ts.isFunctionLike(node)) return;
+    const method = methodName(node);
+    if (method !== undefined && STEP_CALLS.has(method)) {
+      const call = node as ts.CallExpression;
+      visit(call.expression, journaled);
+      for (const arg of call.arguments) visit(arg, true);
+      return;
+    }
+    if (method === 'waitForEvent') add(signalOf(node as ts.CallExpression, ctx, className));
+    const clock = wallClock(node);
+    if (clock) ctx.warn('WF004', `${className}.run calls ${clock}() outside a step; use ${REPLACEMENT[clock]} so a replay sees the same value`, node);
+    ts.forEachChild(node, (child) => visit(child, journaled));
+  };
+  visit(body);
+  return signals;
+}
+
+/** Name and version of a `@Workflow` decorator, or `undefined` when either cannot be read at build time. */
+function declarationOf(args: readonly ts.Expression[], ctx: ExtractorContext): { name: string; version: number } | undefined {
+  const name = literalValue(args[0], ctx);
+  const options = args[1] === undefined ? {} : literalValue(args[1], ctx);
+  if (typeof name !== 'string' || !options || typeof options !== 'object') return undefined;
+  const version = 'version' in options ? (options as { version?: unknown }).version : 1;
+  return typeof version === 'number' ? { name, version } : undefined;
+}
+
+export const extractWorkflows: Extractor<WorkflowEntry> = (ctx, file) => {
+  const out: WorkflowEntry[] = [];
+  for (const st of file.statements) {
+    if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st)) continue;
+    const d = findDecorator(st, 'Workflow');
+    if (!d) continue;
+    const declared = declarationOf(d.args, ctx);
+    if (!declared) {
+      // A guessed name or version would show as a duplicate (WF001) or a wrong diff row.
+      ctx.warn('WF006', `${st.name.text}: the @Workflow name or version cannot be read at build time; the class is left out of the manifest`, d.node);
+      continue;
+    }
+    const run = st.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === 'run');
+    out.push({
+      ...declared,
+      className: st.name.text,
+      signals: run?.body ? walkRun(run.body, ctx, st.name.text) : [],
+      source: ctx.sourceRef(st),
+    });
+  }
+  return out;
+};

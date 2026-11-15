@@ -11,7 +11,8 @@ import { Ok } from '@spinajs/http';
 import { FreshAuth } from '@spinajs/authn-http';
 import { ScriptedActionHook } from '@spinajs/authn-testing';
 import { Forbidden } from '@spinajs/exceptions';
-import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
+import { PaginationDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
+import type { Sort } from '@spinajs/orm-http';
 
 import { NO_PASSWORD, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
 import type { UserDraft } from '@spinajs/users';
@@ -56,6 +57,9 @@ const REFUSED = 'not-today';
 
 const filterReq = (Column: string, Operator: string, Value: any): IFilterRequest => ({ filters: [{ Column, Operator, Value }], op: FilterableLogicalOperators.And }) as any;
 
+/** What `@Sort` hands `list` when the request names no sort. */
+const BY_CREATED: Sort<User> = { column: 'CreatedAt', order: SortOrder.DESC };
+
 describe('Admin user controllers', function () {
   this.timeout(25000);
 
@@ -95,7 +99,7 @@ describe('Admin user controllers', function () {
 
   describe('Users.list', () => {
     it('returns all users with the total count header', async () => {
-      const result = await usersController.list(await admin());
+      const result = await usersController.list(await admin(), BY_CREATED, []);
 
       expect(result).to.be.instanceOf(Ok);
 
@@ -108,7 +112,7 @@ describe('Admin user controllers', function () {
     });
 
     it('never exposes password hashes nor internal ids', async () => {
-      const data = await body<any[]>(await usersController.list(await admin()));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, []));
 
       for (const u of data) {
         expect(u.Password, 'password hash leaked').to.be.undefined;
@@ -118,8 +122,8 @@ describe('Admin user controllers', function () {
     });
 
     it('paginates', async () => {
-      const page0 = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 0, limit: 2 } as any)));
-      const page1 = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 1, limit: 2 } as any)));
+      const page0 = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], new PaginationDTO({ page: 0, limit: 2 } as any)));
+      const page1 = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], new PaginationDTO({ page: 1, limit: 2 } as any)));
 
       expect(page0).to.have.lengthOf(2);
       expect(page1).to.have.lengthOf(2);
@@ -131,25 +135,21 @@ describe('Admin user controllers', function () {
     // Regression: take defaulted the page size to 10 while skip defaulted it to
     // 0, so `page` without `limit` always returned the first page.
     it('honours the page number when no limit is sent', async () => {
-      const page0 = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 0 } as any)));
-      const page1 = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 1 } as any)));
+      const page0 = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], new PaginationDTO({ page: 0 } as any)));
+      const page1 = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], new PaginationDTO({ page: 1 } as any)));
 
       expect(page0).to.have.lengthOf(4);
       expect(page1, 'second page of a 4 row table with the default size of 10 is empty').to.have.lengthOf(0);
     });
 
     it('orders by the requested column', async () => {
-      const asc = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 0, limit: 10 } as any), new OrderDTO({ column: 'Login', order: SortOrder.ASC } as any)));
+      const asc = await body<any[]>(await usersController.list(await admin(), { column: 'Login', order: SortOrder.ASC }, [], new PaginationDTO({ page: 0, limit: 10 } as any)));
 
       expect(asc.map((u: any) => u.Login)).to.deep.eq(['admin', 'admin2', 'inactive', 'user']);
     });
 
-    it('rejects a sort column that is not whitelisted', async () => {
-      await expect(usersController.list(await admin(), undefined, new OrderDTO({ column: 'Password', order: SortOrder.ASC } as any))).to.be.rejectedWith(/Cannot sort by/);
-    });
-
     it('includes the Metadata relation when asked to', async () => {
-      const withMeta = await body<any[]>(await usersController.list(await admin(), undefined, undefined, ['Metadata']));
+      const withMeta = await body<any[]>(await usersController.list(await admin(), BY_CREATED, ['Metadata']));
       const user = withMeta.find((u: any) => u.Login === 'user');
 
       expect(user.Metadata).to.be.an('array');
@@ -157,21 +157,21 @@ describe('Admin user controllers', function () {
     });
 
     it('filters by login', async () => {
-      const data = await body<any[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('Login', 'eq', 'user')));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('Login', 'eq', 'user')));
 
       expect(data).to.have.lengthOf(1);
       expect(data[0].Login).to.eq('user');
     });
 
     it('filters by IsActive', async () => {
-      const data = await body<any[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('IsActive', 'eq', false)));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('IsActive', 'eq', false)));
 
       expect(data).to.have.lengthOf(1);
       expect(data[0].Login).to.eq('inactive');
     });
 
     it('filters by the user:niceName metadata column', async () => {
-      const data = await body<any[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('user:niceName', 'eq', 'The Admin')));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('user:niceName', 'eq', 'The Admin')));
 
       expect(data).to.have.lengthOf(1);
       expect(data[0].Login).to.eq('admin');
@@ -189,7 +189,7 @@ describe('Admin user controllers', function () {
         }).insert();
       }
 
-      const data = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 0, limit: 1000 } as any)));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], new PaginationDTO({ page: 0, limit: 1000 } as any)));
 
       expect(data).to.have.lengthOf(100);
     });
@@ -199,13 +199,13 @@ describe('Admin user controllers', function () {
       user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN] = 'a-token-worth-stealing';
       await user.Metadata.sync();
 
-      const data = await body<any[]>(await usersController.list(await admin(), undefined, undefined, ['Metadata']));
+      const data = await body<any[]>(await usersController.list(await admin(), BY_CREATED, ['Metadata']));
 
       expect(JSON.stringify(data)).to.not.include('a-token-worth-stealing');
     });
 
     it('reports the filtered count, not the table count, in X-Total-Count', async () => {
-      const result = await usersController.list(await admin(), undefined, undefined, undefined, filterReq('IsActive', 'eq', true));
+      const result = await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('IsActive', 'eq', true));
 
       const total = headers(result).find((h) => h.Name === 'X-Total-Count');
       expect(total!.Value).to.eq(3);
@@ -216,10 +216,10 @@ describe('Admin user controllers', function () {
       user.LastLoginAt = DateTime.now();
       await user.update();
 
-      const never = await body<any[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('LastLoginAt', 'isnull', null)));
+      const never = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('LastLoginAt', 'isnull', null)));
       expect(never.map((u: any) => u.Login).sort()).to.deep.eq(['admin', 'admin2', 'inactive']);
 
-      const ever = await body<any[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('LastLoginAt', 'notnull', null)));
+      const ever = await body<any[]>(await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('LastLoginAt', 'notnull', null)));
       expect(ever.map((u: any) => u.Login)).to.deep.eq(['user']);
     });
 
@@ -227,10 +227,10 @@ describe('Admin user controllers', function () {
       passLifecycleGates();
       await usersController.removeUser(await admin(), USER_UUID, NO_REQUEST);
 
-      const live = await usersController.list(await admin());
+      const live = await usersController.list(await admin(), BY_CREATED, []);
       expect((await body<any[]>(live)).map((u: any) => u.Login)).to.not.include('user');
 
-      const deleted = await usersController.list(await admin(), undefined, undefined, undefined, filterReq('DeletedAt', 'notnull', null));
+      const deleted = await usersController.list(await admin(), BY_CREATED, [], undefined, filterReq('DeletedAt', 'notnull', null));
       const data = await body<any[]>(deleted);
       expect(data.map((u: any) => u.Login)).to.deep.eq(['user']);
       expect(data[0].DeletedAt).to.be.a('string');
@@ -240,7 +240,7 @@ describe('Admin user controllers', function () {
 
   describe('Users.getSingleUser / getByLogin', () => {
     it('returns the user without password or internal id', async () => {
-      const data = await body<any>(await usersController.getSingleUser(await admin(), USER_UUID));
+      const data = await body<any>(await usersController.getSingleUser(await admin(), USER_UUID, []));
 
       expect(data.Uuid).to.eq(USER_UUID);
       expect(data.Login).to.eq('user');

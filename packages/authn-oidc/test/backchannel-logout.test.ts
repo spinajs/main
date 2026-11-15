@@ -251,7 +251,7 @@ describe('authn-oidc back-channel logout (FLOW-2)', function () {
 
   describe('POST /auth/oidc/:provider/backchannel-logout', () => {
     const answerOf = (r: unknown): OidcAnswer => (r as { answer: OidcAnswer }).answer;
-    const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7' };
+    const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7', proxyTrust: { hops: 0 } };
 
     it('reads logout_token from the form body and revokes the sid', async () => {
       const a1 = await w.login('kc-alice', 'idp-1');

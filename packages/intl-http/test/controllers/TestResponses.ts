@@ -1,5 +1,12 @@
-import { BasePath, BaseController, Get, TemplateResponse, Ok } from '@spinajs/http';
+import { BasePath, BaseController, Get, Middleware, TemplateResponse, Ok, RouteMiddleware } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
 import { Lang } from '../../src/index.js';
+
+class VaryOrigin extends RouteMiddleware {
+  public onBefore({ res }: IMiddlewareContext): void {
+    res.vary('Origin');
+  }
+}
 
 @BasePath('responses')
 export class TestResponses extends BaseController {
@@ -21,5 +28,21 @@ export class TestResponses extends BaseController {
   @Get()
   public testLangDefaultNotAllowed(@Lang(['en', 'de']) lang: string) {
     return new Ok({ lang });
+  }
+
+  @Get()
+  public testOwnContentLanguage() {
+    return new Ok({ ok: true }, { Headers: [{ Name: 'Content-Language', Value: 'de' }] });
+  }
+
+  @Get()
+  public testOwnVary() {
+    return new Ok({ ok: true }, { Headers: [{ Name: 'Vary', Value: 'Accept, cookie' }] });
+  }
+
+  @Get()
+  @Middleware(VaryOrigin)
+  public testVaryOrigin() {
+    return new Ok({ ok: true });
   }
 }

@@ -4,6 +4,7 @@ import { hashManifest, mergeFragments, readFragment, type Manifest } from '@spin
 import { analyzePackage } from './analyze-package.js';
 import type { AppDirs } from './extractors/effective-dirs.js';
 import { locateFragments } from './fragments.js';
+import { globalRouteMiddlewaresOf } from './extractors/policies.js';
 
 // `src/` under ts-node and `lib/` once built both sit one level below the package root.
 const COMPILER_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -17,6 +18,8 @@ export interface BuildAppOptions extends Partial<AppDirs> {
   schemaDerivation?: boolean;
   /** `APP_ENV` of the configuration `effectiveDirs` came from. */
   buildEnv?: string;
+  /** `http.routes.middlewares` of that configuration, as it holds it. */
+  globalRouteMiddlewares?: unknown;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
@@ -33,9 +36,12 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
     }),
     generatedAt: new Date().toISOString(),
     buildEnv: options.buildEnv,
+    globalRouteMiddlewares: globalRouteMiddlewaresOf(options.globalRouteMiddlewares),
     schemaDerivation: options.schemaDerivation === false ? false : undefined,
     compilerVersion: COMPILER_VERSION,
   });
+  // The compiler reads no `authz.*` configuration yet, so the section never carries `ir` / `policyHash`.
+  if (merged.authz) merged.diagnostics.push({ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest, run `spinajs authz verify` with config' });
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
 
   const written = resolve(options.out ?? join(root, 'app.manifest.json'));

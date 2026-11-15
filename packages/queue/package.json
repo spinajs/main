@@ -7,6 +7,17 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing/index.d.ts",
+      "import": "./lib/testing/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "lib/testing/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -59,7 +70,16 @@
     "@spinajs/log": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/util": "3.0.23",
-    "luxon": "^3.6.1"
+    "luxon": "^3.6.1",
+    "uuid": "^9.0.0"
+  },
+  "peerDependencies": {
+    "mocha": "^10.2.0"
+  },
+  "peerDependenciesMeta": {
+    "mocha": {
+      "optional": true
+    }
   },
   "types": "./lib/index.d.ts",
   "spinajs": {

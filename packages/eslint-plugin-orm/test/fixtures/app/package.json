@@ -1,0 +1,1 @@
+{ "name": "app", "private": true, "spinajs": { "orm": { "dialects": { "default": "postgresql" } } } }
