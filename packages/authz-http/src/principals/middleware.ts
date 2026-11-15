@@ -3,9 +3,8 @@ import { Config } from '@spinajs/configuration';
 import { AUTHZ_DEFAULTS, AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { ServerMiddleware } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import type { IMiddlewareContext, Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
-import type * as express from 'express';
 
 import { UnguardedRoutesReport } from '../access/unguarded.js';
 import { PrincipalSource } from '../api.js';
@@ -84,14 +83,8 @@ export class PrincipalMiddleware extends ServerMiddleware {
     if (typeof stop === 'function') stop.call(server).catch(() => undefined);
   }
 
-  public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
-    return (req, _res, next) => {
-      this.attach(req).then(() => next(), next);
-    };
-  }
-
-  public after(): null {
-    return null;
+  public async onBefore({ req }: IMiddlewareContext): Promise<void> {
+    await this.attach(req as Request);
   }
 
   /** The root AuthzService, booted once; `authz()` works in actions after it. */

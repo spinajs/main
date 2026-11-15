@@ -76,10 +76,8 @@ function db(target: RealDbTarget, migrate: boolean) {
 /** Drops the scheduler tables, then boots again so the migration recreates them. */
 export async function bootRealDb(target: RealDbTarget, scheduler: Record<string, unknown> = {}): Promise<void> {
   await bootTestEnv({ extra: { db: db(target, false) }, scheduler });
-  const driver = (await DI.resolve(Orm)).Connections.get('it') as unknown as {
-    executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown>;
-  };
-  for (const t of TABLES) await driver.executeOnDb(`DROP TABLE IF EXISTS ${t}`, [], QueryContext.Schema);
+  const driver = (await DI.resolve(Orm)).Connections.get('it')!;
+  for (const t of TABLES) await driver.schema().dropTable(t).ifExists();
   await bootTestEnv({ extra: { db: db(target, true) }, scheduler });
 }
 

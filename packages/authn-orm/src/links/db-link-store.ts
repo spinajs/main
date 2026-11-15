@@ -5,12 +5,14 @@ import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { Orm, UniqueViolation } from '@spinajs/orm';
+import type { ColumnName } from '@spinajs/orm';
 
 import { AuthnIdentity } from '../models/AuthnIdentity.js';
 import { checkedMs, checkedText, dateOf, instant } from '../support/sql.js';
 import { columnValues } from '../support/values.js';
 
-const LINK_COLUMNS = ['id', 'identity_type', 'identity_id', 'provider', 'subject', 'email', 'linked_at', 'last_used_at'];
+const LINK_COLUMNS = ['id', 'identity_type', 'identity_id', 'provider', 'subject', 'email', 'linked_at', 'last_used_at'] satisfies ColumnName<AuthnIdentity>[];
+type LinkRow = Pick<AuthnIdentity, (typeof LINK_COLUMNS)[number]>;
 
 function identityParts(ref: IdentityRef): { type: string; id: string } {
   const type = checkedText(ref?.type, 16, 'DbIdentityLinkStore: identity type');
@@ -70,7 +72,7 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
   }
 }
 
-function toLink(r: AuthnIdentity): IdentityLink {
+function toLink(r: LinkRow): IdentityLink {
   return {
     id: r.id,
     identity: { type: r.identity_type, id: r.identity_id },

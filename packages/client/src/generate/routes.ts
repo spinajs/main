@@ -1,4 +1,5 @@
-import type { ControllerEntry, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
+import { controllerKey, type ControllerEntry, type ParamEntry, type ParamWire, type RouteEntry } from '@spinajs/manifest';
+import type { RouteDefinition } from '../runtime/http.js';
 import { clientPath, UnsupportedPathError, type ClientPath, type Placeholder } from './path.js';
 import { literal, type TypeContext } from './ts-type.js';
 
@@ -6,18 +7,43 @@ const FILE_KINDS = new Set(['FromFile', 'FromCSV', 'FromJSONFile']);
 const FILE_TYPE = 'Blob | File';
 const SEGMENTS_TYPE = 'string[]';
 
-export interface RouteSignature {
-  name: string;
-  args: string[];
-  returns: string;
-  definition: string;
-}
-
-interface Argument {
+export interface ArgumentModel {
   name: string;
   type: string;
+  /** The named types `type` mentions, which a file using it must import. */
+  typeNames: string[];
   required: boolean;
   wire: ParamWire;
+  /** Manifest schema id of the parameter type, when the compiler recorded one. */
+  schema?: string;
+}
+
+export type RouteKind = 'query' | 'mutation' | 'none';
+
+/** `RouteEntry.pagination` of a route whose page parameter the client can send. */
+export interface PaginationModel {
+  kind: 'offset' | 'cursor';
+  /** The argument that carries the page parameter, and the property inside it (`[]` for the argument itself). */
+  param: { arg: string; path: string[] };
+  /** First page index of an `offset` route: 0 or 1. */
+  firstPage?: number;
+}
+
+export interface RouteModel {
+  controllerKey: string;
+  name: string;
+  method: RouteDefinition['method'];
+  kind: RouteKind;
+  args: ArgumentModel[];
+  /** TypeScript expression of the reply. */
+  returns: string;
+  /** The named types `returns` mentions. */
+  returnTypeNames: string[];
+  returnSchema?: string;
+  /** The route-table literal `client.ts` prints. */
+  definition: string;
+  /** Absent on a route that returns no page, and on a page without a page parameter (doctor HTTP007). */
+  pagination?: PaginationModel;
 }
 
 function routeLabel(controller: ControllerEntry, route: RouteEntry): string {
@@ -44,24 +70,29 @@ function argumentType(param: ParamEntry, wire: ParamWire, ctx: TypeContext): str
 }
 
 // The server still needs a segment for a placeholder no argument reads, so the caller passes it.
-function placeholderArguments(path: ClientPath, args: Argument[]): Argument[] {
+function placeholderArguments(path: ClientPath, args: ArgumentModel[]): ArgumentModel[] {
   if (args.some((a) => a.wire.in === 'path' && a.wire.shape === 'whole')) return [];
   const bound = new Set(args.filter((a) => a.wire.in === 'path').map((a) => a.wire.name));
   const taken = new Set(args.map((a) => a.name));
   return path.placeholders
     .filter((p) => !bound.has(p.name))
-    .map((p) => ({ name: taken.has(p.name) ? `${p.name}Path` : p.name, type: p.splat ? SEGMENTS_TYPE : 'string | number', required: !p.optional, wire: { in: 'path', name: p.name, shape: 'value' } }));
+    .map((p) => ({ name: taken.has(p.name) ? `${p.name}Path` : p.name, type: p.splat ? SEGMENTS_TYPE : 'string | number', typeNames: [], required: !p.optional, wire: { in: 'path', name: p.name, shape: 'value' } }));
 }
 
-function sentArgument(param: ParamEntry, wire: ParamWire, placeholders: Map<string, Placeholder>, ctx: TypeContext): Argument {
-  if (wire.in !== 'path') return { name: param.name, type: argumentType(param, wire, ctx), required: param.required, wire };
+function sentArgument(param: ParamEntry, wire: ParamWire, placeholders: Map<string, Placeholder>, ctx: TypeContext): ArgumentModel {
+  const schema = param.runtimeType.schema !== undefined ? { schema: param.runtimeType.schema } : {};
+  if (wire.in !== 'path') {
+    const { type, names } = ctx.withNames(() => argumentType(param, wire, ctx));
+    return { name: param.name, type, typeNames: names, required: param.required, wire, ...schema };
+  }
   // The runtime cannot build the URL without a path value, whatever the controller parameter says.
   const placeholder = wire.name !== undefined ? placeholders.get(wire.name) : undefined;
-  return { name: param.name, type: placeholder?.splat ? SEGMENTS_TYPE : argumentType(param, wire, ctx), required: !placeholder?.optional, wire };
+  const { type, names } = placeholder?.splat ? { type: SEGMENTS_TYPE, names: [] } : ctx.withNames(() => argumentType(param, wire, ctx));
+  return { name: param.name, type, typeNames: names, required: !placeholder?.optional, wire, ...schema };
 }
 
 // FromBody reads req.body, which no parser fills for a multipart request: the handler would get null.
-function refuseBodyWithMultipart(label: string, args: Argument[]): void {
+function refuseBodyWithMultipart(label: string, args: ArgumentModel[]): void {
   const names = (location: string) => args.filter((a) => a.wire.in === location).map((a) => `'${a.name}'`);
   const [body, multipart] = [names('body'), names('multipart')];
   if (body.length > 0 && multipart.length > 0) {
@@ -69,9 +100,9 @@ function refuseBodyWithMultipart(label: string, args: Argument[]): void {
   }
 }
 
-function routeArguments(label: string, route: RouteEntry, path: ClientPath, ctx: TypeContext): Argument[] {
+function routeArguments(label: string, route: RouteEntry, path: ClientPath, ctx: TypeContext): ArgumentModel[] {
   const placeholders = new Map(path.placeholders.map((p) => [p.name, p]));
-  const args: Argument[] = [];
+  const args: ArgumentModel[] = [];
   for (const param of [...route.params].sort((a, b) => a.index - b.index)) {
     const wire = sentWire(label, param);
     if (wire) args.push(sentArgument(param, wire, placeholders, ctx));
@@ -80,7 +111,7 @@ function routeArguments(label: string, route: RouteEntry, path: ClientPath, ctx:
   return [...args, ...placeholderArguments(path, args)];
 }
 
-function parameterList(args: Argument[]): string[] {
+export function parameterList(args: ArgumentModel[]): string[] {
   const lastRequired = args.map((a) => a.required).lastIndexOf(true);
   return args.map((a, i) => {
     if (a.required) return `${a.name}: ${a.type}`;
@@ -93,24 +124,48 @@ function wireLiteral(wire: ParamWire): string {
   return `{ ${parts.join(', ')} }`;
 }
 
-export function routeSignature(controller: ControllerEntry, route: RouteEntry, ctx: TypeContext): RouteSignature {
+// A file route is a download link, not cached data, and a HEAD reply has no body to cache.
+function routeKind(method: RouteEntry['method']): RouteKind {
+  if (method === 'get') return 'query';
+  return method === 'head' || method === 'file' ? 'none' : 'mutation';
+}
+
+// `param.arg` is the ParamEntry name, which an argument keeps; a path deeper than one property is not one the compiler records.
+function paginationModel(route: RouteEntry, args: ArgumentModel[]): PaginationModel | undefined {
+  const { pagination } = route;
+  const param = pagination?.param;
+  const arg = param && args.find((a) => a.name === param.arg && a.wire.in === 'query');
+  if (!pagination || !param || !arg || param.path.length > 1 || (param.path.length === 0) !== (arg.wire.shape === 'value')) return undefined;
+  const located = { kind: pagination.kind, param: { arg: param.arg, path: [...param.path] } };
+  return pagination.kind === 'offset' ? { ...located, firstPage: pagination.firstPage ?? 1 } : located;
+}
+
+export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: TypeContext): RouteModel {
   const label = routeLabel(controller, route);
   const path = pathOf(label, route);
   const args = routeArguments(label, route, path, ctx);
-  const returns = ctx.typeOf(route.returnType);
-  const parts = [
-    `method: ${literal(route.method === 'file' ? 'get' : route.method)}`,
-    `path: ${literal(path.template)}`,
-    `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`,
-    ...(returns === 'void' ? ['void: true'] : []),
-  ];
-  return { name: route.handler, args: parameterList(args), returns, definition: `{ ${parts.join(', ')} }` };
+  const { type, names } = ctx.withNames(() => ctx.typeOf(route.returnType));
+  const redacted = type !== 'void' && [...route.middlewares, ...controller.middlewares].some((m) => m.type === 'AuthzFieldsMiddleware');
+  const returns = redacted ? ctx.redacted(type) : type;
+  // client.ts re-exports Redacted, so a companion imports it with the route's other types
+  const returnTypeNames = redacted ? [...names, 'Redacted'].sort() : names;
+  const method = route.method === 'file' ? 'get' : route.method;
+  const parts = [`method: ${literal(method)}`, `path: ${literal(path.template)}`, `args: [${args.map((a) => wireLiteral(a.wire)).join(', ')}]`, ...(returns === 'void' ? ['void: true'] : [])];
+  return {
+    controllerKey: controllerKey(controller),
+    name: route.handler,
+    method,
+    kind: routeKind(route.method),
+    args,
+    returns,
+    returnTypeNames,
+    ...(route.returnType.schema !== undefined ? { returnSchema: route.returnType.schema } : {}),
+    definition: `{ ${parts.join(', ')} }`,
+    ...withPagination(paginationModel(route, args)),
+  };
 }
 
-export function controllerKey(controller: ControllerEntry): string {
-  const base = controllerBase(controller);
-  return base.charAt(0).toLowerCase() + base.slice(1);
-}
+const withPagination = (pagination: PaginationModel | undefined) => (pagination ? { pagination } : {});
 
 export function controllerBase(controller: ControllerEntry): string {
   return controller.className.replace(/Controller$/, '');

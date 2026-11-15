@@ -47,6 +47,12 @@ export interface IQueueMessage {
   ScheduleCron?: string;
 
   Initiator?: IQueueInitiator;
+
+  /** Set by `QueueService.emit()` when absent; transports carry it to the consumer. */
+  MessageId?: string;
+
+  /** Application and standard ({@link QueueHeaders}) headers, carried as broker headers. */
+  Headers?: Record<string, string>;
 }
 
 export interface IQueueJob extends IQueueMessage {
@@ -136,6 +142,10 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public Initiator?: IQueueInitiator;
 
+  public MessageId?: string;
+
+  public Headers?: Record<string, string>;
+
   constructor(data?: any) {
     if (data) {
       this.hydrate(data);
@@ -147,6 +157,10 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public hydrate(payload: any) {
     Object.assign(this, payload);
+
+    if (this.Headers) {
+      this.Headers = { ...this.Headers };
+    }
   }
 }
 

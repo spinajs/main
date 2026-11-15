@@ -77,3 +77,24 @@ describe('SingleRelation.populate', function () {
     expect((item.Order as any).Value.Id).to.equal(1);
   });
 });
+
+describe('populate() of a belongs-to relation on Model.query()', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  it('keeps the columns of the queried model next to the joined ones', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 2, order_id: 1 });
+
+    const [item] = await UowOrderItem.query().populate('Order');
+
+    expect(item.Id).to.equal(1);
+    expect(item.Sku).to.equal('A');
+    expect(item.Order.Value?.Total).to.equal(10);
+  });
+});

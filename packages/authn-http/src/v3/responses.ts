@@ -1,6 +1,6 @@
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
-import { BadRequestResponse, ForbiddenResponse, HTTP_STATUS_CODE, Ok, Unauthorized } from '@spinajs/http';
+import { BadRequestResponse, ForbiddenResponse, HTTP_STATUS_CODE, NO_STORE, Ok, Unauthorized } from '@spinajs/http';
 import type { ActionName } from '@spinajs/hooks';
 import { hookRefusalOf } from '@spinajs/authn/hooks';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
@@ -12,8 +12,7 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 // Also the body @spinajs/http makes of a thrown authnFailed() in production.
 export { AUTHN_FAILURE_BODY };
 
-/** Authenticated answers and session cookies must not be cached. */
-export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+export { NO_STORE };
 
 /** @spinajs/http has no 202 response. */
 export class AcceptedResponse<T = unknown> extends Ok<T> {

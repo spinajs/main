@@ -4,6 +4,7 @@ import sinon from 'sinon';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { RealIp, parseTrustProxy, parseTrustProxyOverride, requestProxyTrust, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
+import type { ClientAddressSource, ProxyTrust } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
@@ -17,9 +18,16 @@ async function realIp(trustProxy: unknown) {
   return readingFrom(new RealIp(), child);
 }
 
-function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, extra: Record<string, unknown> = {}) {
-  return { headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: socket }, storage: {} as Record<string, unknown>, ...extra } as any;
+interface IFakeReq extends ClientAddressSource {
+  storage: { realIp?: string; proxyTrust?: ProxyTrust };
 }
+
+function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, extra: Record<string, unknown> = {}): IFakeReq {
+  return { headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: socket }, storage: {}, ...extra };
+}
+
+/** Runs the onBefore hook the server would run for `req`. */
+const run = (mw: RealIp, req: { storage: unknown }) => mw.onBefore({ req: req as never, res: {} as never, storage: req.storage as never });
 
 describe('trusted client address (RealIp)', () => {
   afterEach(disposeTestApps);
@@ -158,15 +166,13 @@ describe('trusted client address (RealIp)', () => {
   describe('RealIp middleware', () => {
     it('SR-03 RealIp ignores a client-set X-Forwarded-For', async () => {
       const req = fakeReq(SPOOF);
-      const next = sinon.spy();
-      (await realIp(undefined)).before()(req, {} as any, next);
+      run(await realIp(undefined), req);
       expect(req.storage.realIp).to.eq(SOCKET);
-      expect(next.calledOnce).to.eq(true);
     });
 
     it('honours http.trustProxy', async () => {
       const req = fakeReq(`${SPOOF}, 192.0.2.1`);
-      (await realIp(1)).before()(req, {} as any, () => undefined);
+      run(await realIp(1), req);
       expect(req.storage.realIp).to.eq('192.0.2.1');
     });
 
@@ -182,25 +188,30 @@ describe('trusted client address (RealIp)', () => {
       ];
       for (const [trustProxy, client] of cases) {
         const req = fakeReq(`${SPOOF}, 192.0.2.1`);
-        (await realIp(trustProxy)).before()(req, {} as any, () => undefined);
+        run(await realIp(trustProxy), req);
         expect(req.storage.realIp, JSON.stringify(trustProxy)).to.eq(client);
       }
     });
 
     it('a link-local socket peer is the client address, without its zone id', async () => {
       const req = fakeReq(SPOOF, 'fe80::1%eth0');
-      (await realIp(undefined)).before()(req, {} as any, () => undefined);
-      expect((req as { storage: { realIp?: string } }).storage.realIp).to.eq('fe80::1');
+      run(await realIp(undefined), req);
+      expect(req.storage.realIp).to.eq('fe80::1');
     });
 
-    it('a bad http.trustProxy fails when the middleware is built', async () => {
+    it('a bad http.trustProxy fails when the middleware is resolved', async () => {
       const mw = await realIp('nope');
-      expect(() => mw.before()).to.throw(InvalidOption, 'http.trustProxy');
+      const failure = await mw.resolve().then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(failure).to.be.instanceOf(InvalidOption);
+      expect((failure as Error).message).to.contain('http.trustProxy');
     });
 
     it('stores the trust it used for requestProxyTrust; without RealIp no proxy is trusted', async () => {
       const req = fakeReq(`${SPOOF}, 192.0.2.1`);
-      (await realIp(['203.0.113.0/24'])).before()(req, {} as any, () => undefined);
+      run(await realIp(['203.0.113.0/24']), req);
       expect(isTrustedPeer(requestProxyTrust(req), SOCKET)).to.eq(true);
       expect(requestProxyTrust({ storage: {} })).to.deep.eq({ hops: 0 });
       expect(requestProxyTrust({})).to.deep.eq({ hops: 0 });
@@ -214,9 +225,36 @@ describe('trusted client address (RealIp)', () => {
       }
       const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { trustProxy: null } } });
       const req = fakeReq(`${SPOOF}, 192.0.2.1`);
-      readingFrom(new OverridingRealIp(), child).before()(req, {} as any, () => undefined);
+      run(readingFrom(new OverridingRealIp(), child), req);
       expect(req.storage.realIp).to.eq(SPOOF);
       expect(req.storage.proxyTrust).to.deep.eq({ hops: 2 });
+    });
+
+    it('clientAddress(req) is the address onBefore writes to realIp', async () => {
+      const mw = await realIp(['203.0.113.0/24']);
+      const req = fakeReq(`${SPOOF}, 192.0.2.1`);
+      run(mw, req);
+      expect(req.storage.realIp).to.eq('192.0.2.1');
+      expect(mw.clientAddress(req)).to.eq(req.storage.realIp);
+    });
+
+    it('a subclass overriding clientAddress() decides realIp', async () => {
+      class CdnRealIp extends RealIp {
+        override clientAddress(r: ClientAddressSource) {
+          return r.headers['cf-connecting-ip'] as string | undefined;
+        }
+      }
+      const { container: child } = await createTestApp({ scope: 'child', bootstrap: false, schemas: [HTTP_CONFIGURATION_SCHEMA], config: { http: { trustProxy: null } } });
+      const req = fakeReq(SPOOF, SOCKET, { headers: { 'x-forwarded-for': SPOOF, 'cf-connecting-ip': '192.0.2.77' } });
+      run(readingFrom(new CdnRealIp(), child), req);
+      expect(req.storage.realIp).to.eq('192.0.2.77');
+    });
+
+    it('effectiveTrust() is the trust onBefore stores', async () => {
+      const mw = await realIp(2);
+      const req = fakeReq();
+      run(mw, req);
+      expect(mw.effectiveTrust()).to.deep.eq(req.storage.proxyTrust).and.deep.eq({ hops: 2 });
     });
   });
 
@@ -241,26 +279,22 @@ describe('trusted client address (RealIp)', () => {
       const mw = readingFrom(new ThrottleMiddleware(), child);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
       Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
-      return mw.before()!;
+      return mw;
     }
 
-    function hit(handler: (req: any, res: any, next: any) => void, req: any): Promise<number> {
-      return new Promise((resolve) => {
-        const res = {
-          set: () => res,
-          status: (code: number) => ({ json: () => resolve(code) }),
-        };
-        handler(req, res, () => resolve(200));
-      });
+    /** The status the throttle answers `req` with; 200 when it lets the request through. */
+    async function hit(mw: ThrottleMiddleware, req: { storage: unknown }): Promise<number> {
+      const answer = await mw.onBefore({ req: req as never, res: { set: () => undefined } as never, storage: req.storage as never });
+      return answer ? answer.statusCode : 200;
     }
 
     it('SR-03 the throttle ignores a spoofed X-Forwarded-For', async () => {
-      const ip = (await realIp(null)).before();
+      const ip = await realIp(null);
       const limited = await throttle(3);
       const statuses: number[] = [];
       for (let i = 0; i < 5; i++) {
         const req = fakeReq(`198.51.100.${i + 1}`, SOCKET, { path: '/auth/login', method: 'POST', ip: `198.51.100.${i + 1}` });
-        ip(req, {} as any, () => undefined);
+        run(ip, req);
         statuses.push(await hit(limited, req));
       }
       expect(statuses).to.deep.eq([200, 200, 200, 429, 429]);

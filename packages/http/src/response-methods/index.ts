@@ -6,6 +6,7 @@ export * from './forbidden.js';
 export * from './noContent.js';
 export * from './notFound.js';
 export * from './json.js';
+export * from './rawJson.js';
 export * from './xml.js';
 export * from './ok.js';
 export * from './template.js';

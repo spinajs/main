@@ -1,6 +1,6 @@
+import { computeBackoff, isRetryable, type NormalizedRetry } from '@spinajs/durable';
 import type { AbortReason } from '../contract.js';
-import { NonRetryableError } from '../errors.js';
-import type { NormalizedRetry, ScheduleDefinition } from '../interfaces.js';
+import type { ScheduleDefinition } from '../interfaces.js';
 
 /**
  * The retry policy the scheduler applies itself. `runOn: 'all'` runs are local work: a retry would be a
@@ -11,23 +11,6 @@ export function automaticRetry(
   def: Pick<ScheduleDefinition, 'retry' | 'runOn' | 'emit'> | undefined,
 ): NormalizedRetry | undefined {
   return def?.runOn === 'all' || def?.emit ? undefined : def?.retry;
-}
-
-export function computeBackoff(retry: NormalizedRetry, attempt: number, random: () => number = Math.random): number {
-  if (retry.backoff === 'fixed') return retry.delayMs;
-  const base = Math.min(retry.delayMs * 2 ** (attempt - 1), retry.maxDelayMs);
-  const jittered = base * (1 + (random() * 2 - 1) * 0.1);
-  return Math.round(Math.min(jittered, retry.maxDelayMs));
-}
-
-export function isRetryable(retry: NormalizedRetry, error: unknown): boolean {
-  if (error instanceof NonRetryableError) return false;
-  if (!retry.retryOn) return true;
-  try {
-    return !!retry.retryOn(error);
-  } catch {
-    return false;
-  }
 }
 
 export interface FailureInput {

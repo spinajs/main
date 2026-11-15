@@ -12,6 +12,10 @@
     "./runtime": {
       "types": "./lib/runtime/index.d.ts",
       "import": "./lib/runtime/index.js"
+    },
+    "./formats": {
+      "types": "./lib/formats/index.d.ts",
+      "import": "./lib/formats/index.js"
     }
   },
   "type": "module",
@@ -50,6 +54,33 @@
     "@spinajs/manifest": "3.0.23",
     "json-schema-to-typescript": "^16.0.0"
   },
+  "peerDependencies": {
+    "@spinajs/http-socket-client": "3.0.23",
+    "@tanstack/react-query": "^5.0.0",
+    "next": ">=16.0.0",
+    "swr": "^2.2.0",
+    "zod": "^4.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/http-socket-client": {
+      "optional": true
+    },
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "swr": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/authz-http": "3.0.23",
     "@spinajs/compiler": "3.0.23",
@@ -58,10 +89,27 @@
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/fs": "3.0.23",
     "@spinajs/http": "3.0.23",
+    "@spinajs/http-socket-client": "3.0.23",
     "@spinajs/http-socket-common": "3.0.23",
     "@spinajs/intl": "3.0.23",
     "@spinajs/testing": "3.0.23",
+    "@spinajs/validation": "3.0.23",
+    "@tanstack/react-query": "5.104.5",
+    "@tanstack/react-query-5.0": "npm:@tanstack/react-query@5.0.0",
+    "@types/jsdom": "^30.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-18": "npm:@types/react@^18.3.31",
+    "@types/react-dom": "^19.3.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1",
     "chai-as-promised": "^7.1.1",
+    "esbuild": "^0.28.1",
+    "fast-check": "^4.10.2",
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "swr": "^2.5.1",
+    "swr-floor": "npm:swr@2.2.0",
     "typescript": "~5.9.0"
   },
   "spinajs": {

@@ -1,6 +1,7 @@
 // The config loader merges every .js under lib/config, so this folder holds this file only (no index barrel).
 // No MFA step, MFA login method or forced role is listed here (the schema defaults apply: methods ['password'],
-// forceForRoles []), and no package ships authn.throttle.service: a config file loads whether or not its package is imported. Unset, the only registered
+// forceForRoles []), no authn.throttle.ipv6Prefix (unset, http.throttle.ipv6Prefix applies), and no package ships
+// authn.throttle.service: a config file loads whether or not its package is imported. Unset, the only registered
 // throttle runs, or the only one besides MemoryAuthnThrottle (DbAuthnThrottle once authn-orm is imported). Values
 // equal the schema and code defaults (test/boot/config-defaults.test.ts).
 const authn = {
@@ -21,7 +22,6 @@ const authn = {
       resetAfterSeconds: 86400,
       global: null as null | { free: number; baseDelayMs: number; maxDelayMs: number },
       memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
-      ipv6Prefix: 64,
     },
     freshAuth: {
       maxAgeSeconds: 300,
