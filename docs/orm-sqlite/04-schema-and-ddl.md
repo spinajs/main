@@ -41,9 +41,11 @@ The driver container resolves these converters for model columns, `where()` valu
 
 | Token | SQLite implementation | Writes | Reads |
 | --- | --- | --- | --- |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z` <!-- TODO(docs-hook): verify whether a datetime property on an INTEGER column is written as Unix seconds; SqlDatetimeValueConverter matches lower-case type names and PRAGMA table_info reports upper case --> | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
+| `DatetimeValueConverter` | `SqliteDatetimeValueConverter`, an `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z`; Unix seconds into a numeric column, see below | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
 | `BooleanValueConverter` | `SqlBooleanValueConverter` (shared) | `1` / `0` | `true` for `1`, `1n`, `true` and `'1'` |
 | `SetValueConverter` | `SqlSetConverter` (shared) | comma-joined text | split on `,` |
+
+`SqliteDatetimeValueConverter` writes Unix seconds when the column is declared with a numeric type: `INT`, `INTEGER`, `TINYINT`, `SMALLINT`, `MEDIUMINT`, `BIGINT`, `UNSIGNED BIG INT`, `INT2`, `INT8`, `REAL`, `DOUBLE`, `DOUBLE PRECISION`, `FLOAT`, `NUMERIC` or `DECIMAL`. SQLite reports the type as declared, so the name is compared in any case, without a `(...)` size and without `unsigned`, `signed` and `zerofill`: `Integer`, `BIGINT(20)` and `INTEGER UNSIGNED` match. `DATETIME`, `TIMESTAMP`, `DATE` and `TEXT` columns receive ISO text. This holds for every decorator that attaches the converter: `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`.
 
 - The fixed width keeps text order equal to time order, so `orderBy('CreatedAt')` and `where('CreatedAt', '>', date)` compare instants correctly, whatever the process time zone.
 - `Date` and `DateTime` bindings of raw SQL (`executeOnDb()`, `RawQuery` bindings) are converted the same way by `SqlDriver.toDriverParams()`.

@@ -2,7 +2,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { ModelBase, ModelToSqlConverter, OrmException, RelationType } from '@spinajs/orm';
+import { IColumnDescriptor, IDehydrateOptions, ModelBase, ModelToSqlConverter, OrmException, RelationType, normalizeSqlType, toInstant } from '@spinajs/orm';
+import { IsoDatetimeValueConverter } from '@spinajs/orm-sql';
+
+// The type names SQLite documents for the INTEGER and REAL affinities, plus NUMERIC and DECIMAL. DATETIME, DATE and
+// BOOLEAN have the NUMERIC affinity too and stay out.
+const NUMERIC_TYPES = new Set(['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'big int', 'int2', 'int8', 'real', 'double', 'double precision', 'float', 'numeric', 'decimal']);
+
+/**
+ * {@link IsoDatetimeValueConverter} that writes Unix seconds into a numeric column. SQLite reports a column type as
+ * declared ( `INTEGER`, `DECIMAL(10,2)` ), which the lower-case type list of the shared converter does not match.
+ */
+export class SqliteDatetimeValueConverter extends IsoDatetimeValueConverter {
+  public toDB(value: unknown, model?: ModelBase<unknown>, column?: IColumnDescriptor, options?: unknown, ...dehydrating: [IDehydrateOptions?]): string | number | null {
+    if (dehydrating.length === 0 && column && NUMERIC_TYPES.has(normalizeSqlType(column.Type ?? ''))) {
+      return toInstant(value, column.Name)?.toUnixInteger() ?? null;
+    }
+
+    return super.toDB(value, model, column, options, ...dehydrating);
+  }
+}
 
 export class SqliteModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
