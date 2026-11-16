@@ -7,6 +7,8 @@ import { emitQueries, emitReactQuery } from './hooks/react-query.js';
 import { hookRoutes, type HookRoute } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
 import type { GeneratorDiagnostic } from './zod/diagnostics.js';
+import { emitMocks } from './mocks.js';
+import { emitMsw } from './msw.js';
 import { emitZod } from './zod/emit.js';
 import { emitNext } from './next.js';
 import { emitServer } from './server.js';
@@ -23,11 +25,9 @@ export interface GeneratedFile {
 
 export interface ZodOptions {
   mini?: boolean;
-  /** Lenient reply schemas next to the strict request schemas. */
-  replies?: boolean;
-  unsupported?: 'warn' | 'error';
   /** Adds lenient reply schemas, `replySchemas` and `zodReplies`. */
   replies?: boolean;
+  unsupported?: 'warn' | 'error';
 }
 
 export interface GenerateClientFilesOptions extends GenerateClientOptions {
@@ -43,8 +43,9 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   server?: boolean;
   /** Writes `client.next.ts`, with Next.js cache tags and revalidation helpers; implies `server` and writes `client.keys.ts`. */
   next?: boolean;
+  /** Writes `<basename>.mocks.ts`: schema-driven mock data and a typed fake client, imported by no other generated file. */
   mocks?: boolean;
-  /** Adds `client.msw.ts`; needs `mocks`. */
+  /** Writes `<basename>.msw.ts`: one MSW handler per route, answering with the data of `<basename>.mocks.ts`; needs `mocks`. */
   msw?: boolean;
 }
 
@@ -65,8 +66,8 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   'socket-hooks': { available: true },
   server: { available: true },
   next: { available: true },
-  mocks: { available: false },
-  msw: { available: false },
+  mocks: { available: true },
+  msw: { available: true },
 };
 
 // `hookRoutes` is built once, so every hooks file prints the same routes.
@@ -106,8 +107,18 @@ const serverFile: Emitter = (model, options) => Promise.resolve([{ path: `${opti
 
 const nextFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.next.ts`, environment: 'server-safe', contents: emitNext(model, options) }]);
 
+const mocksFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMocks(model, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.mocks.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
+
+const mswFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMsw(model, `./${options.basename}.js`, `./${options.basename}.mocks.js`);
+  return Promise.resolve([{ path: `${options.basename}.msw.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
+
 // The targets that write their own files; `models` adds to client.ts.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: zodFile, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: zodFile, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile, mocks: mocksFile, msw: mswFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {

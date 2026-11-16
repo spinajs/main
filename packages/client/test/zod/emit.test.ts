@@ -1,22 +1,15 @@
 import 'mocha';
 import { expect } from 'chai';
 import { fileURLToPath } from 'node:url';
-import { analyzePackage } from '@spinajs/compiler';
-import { mergeFragments, type Manifest } from '@spinajs/manifest';
+import type { Manifest } from '@spinajs/manifest';
 import { buildClientModel, emitZod, generateClient, generateClientFiles, type GeneratedFile } from '../../src/index.js';
-import { appBasicManifest } from '../support/fixture.js';
+import { appBasicManifest, corpusManifest } from '../support/fixture.js';
 import { matchesSnapshot as compareSnapshot } from '../support/snapshot.js';
 import { typecheckFiles } from '../support/typecheck.js';
 import { clearLoaded, loadZod, manifestWith, param, route, schemaIn } from '../support/zod.js';
 
 // Each fixture's pair of files sits in its own folder, so the snapshot's `./client.js` import resolves for tsc and ESLint.
 const snapshot = (name: string) => fileURLToPath(new URL(`../__snapshots__/zod/${name}`, import.meta.url));
-const corpusRoot = fileURLToPath(new URL('../fixtures/schema-corpus', import.meta.url));
-
-async function corpusManifest(): Promise<Manifest> {
-  const fragment = await analyzePackage({ tsconfig: `${corpusRoot}/tsconfig.json`, packageRoot: corpusRoot });
-  return mergeFragments(fragment, [], { app: { name: 'schema-corpus', version: '0.1.0', root: '.', outDir: 'lib' }, packages: [], generatedAt: '' });
-}
 
 const matchesSnapshot = (name: string, contents: string): void => compareSnapshot(snapshot(name), contents);
 

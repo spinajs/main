@@ -44,6 +44,8 @@ describe('generateClientFiles', () => {
     [{ hooks: ['react-query'], server: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.server.ts']],
     [{ next: true }, ['client.ts', 'client.keys.ts', 'client.server.ts', 'client.next.ts']],
     [{ hooks: ['swr'], next: true, server: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.server.ts', 'client.next.ts']],
+    [{ mocks: true }, ['client.ts', 'client.mocks.ts']],
+    [{ mocks: true, msw: true }, ['client.ts', 'client.mocks.ts', 'client.msw.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
@@ -75,8 +77,8 @@ describe('generateClientFiles', () => {
       'socket-hooks': { available: true },
       server: { available: true },
       next: { available: true },
-      mocks: { available: false },
-      msw: { available: false },
+      mocks: { available: true },
+      msw: { available: true },
     });
   });
 
