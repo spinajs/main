@@ -33,8 +33,8 @@ describe('generateClientFiles', () => {
   });
 
   const companions: [Partial<GenerateClientFilesOptions>, string[]][] = [
-    [{ zod: true }, ['client.ts']],
-    [{ zod: { mini: true } }, ['client.ts']],
+    [{ zod: true }, ['client.ts', 'client.zod.ts']],
+    [{ zod: { mini: true } }, ['client.ts', 'client.zod.ts']],
     [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts']],
     [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts']],
     [{ hooks: ['react-query', 'swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']],
@@ -70,7 +70,7 @@ describe('generateClientFiles', () => {
     expect(GENERATOR_TARGETS).to.deep.equal({
       'react-query': { available: true },
       swr: { available: true },
-      zod: { available: false },
+      zod: { available: true },
       models: { available: false },
       'socket-hooks': { available: true },
       server: { available: true },

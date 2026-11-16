@@ -6,6 +6,8 @@ import { emitSwr } from './hooks/swr.js';
 import { emitQueries, emitReactQuery } from './hooks/react-query.js';
 import { hookRoutes, type HookRoute } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
+import type { GeneratorDiagnostic } from './zod/diagnostics.js';
+import { emitZod } from './zod/emit.js';
 import { emitNext } from './next.js';
 import { emitServer } from './server.js';
 
@@ -15,6 +17,8 @@ export interface GeneratedFile {
   /** `client` files start with `'use client'`; `server-safe` files import neither React nor a `client` file. */
   environment: 'client' | 'server-safe';
   contents: string;
+  /** What the emitter could not reproduce of the server's validation. */
+  diagnostics?: GeneratorDiagnostic[];
 }
 
 export interface ZodOptions {
@@ -54,7 +58,7 @@ export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
   'react-query': { available: true },
   swr: { available: true },
-  zod: { available: false },
+  zod: { available: true },
   models: { available: false },
   'socket-hooks': { available: true },
   server: { available: true },
@@ -68,7 +72,10 @@ type EmitOptions = GenerateClientFilesOptions & { basename: string; hookRoutes: 
 
 type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFile[]>;
 
-const noFiles: Emitter = () => Promise.resolve([]);
+const zodFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitZod(model, typeof options.zod === 'object' ? options.zod : {}, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.zod.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
 
 const keysFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.keys.ts`, environment: 'server-safe', contents: emitKeys(model, options) }]);
 
@@ -98,7 +105,7 @@ const serverFile: Emitter = (model, options) => Promise.resolve([{ path: `${opti
 const nextFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.next.ts`, environment: 'server-safe', contents: emitNext(model, options) }]);
 
 // The targets that write their own files; `models` adds to client.ts.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: noFiles, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: zodFile, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {

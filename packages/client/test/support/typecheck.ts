@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// ZOD_ROOT points the checks at another zod install, such as the oldest version the peer range allows.
+export const zodRoot = process.env.ZOD_ROOT ?? dirname(fileURLToPath(import.meta.resolve('zod')));
+
 export type SwrVersion = 'floor' | 'latest';
 
 export interface TypecheckOptions {
@@ -52,7 +55,7 @@ export function typecheck(source: string): string[] {
   return typecheckFiles({ 'client.ts': source });
 }
 
-/** Type-checks a set of files written side by side, with the types of React, React Query, swr, the socket client and a next/cache stub available. */
+/** Type-checks a set of files written side by side, with the types of React, React Query, swr, zod, the socket client and a next/cache stub available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
@@ -79,12 +82,15 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
       baseUrl: packageRoot,
       paths: {
         '@spinajs/client/runtime': ['src/runtime/index.ts'],
+        '@spinajs/client/formats': ['src/formats/index.ts'],
         '@spinajs/http-socket-common': ['../http-socket-common/src/index.ts'],
         '@spinajs/http-socket-client': ['../http-socket-client/src/index.ts'],
         react: [reactTypes(options.react ?? 19)],
         ...swrTypes(options.swr ?? 'latest'),
         '@tanstack/react-query': [reactQueryTypes(options.reactQuery ?? 'latest')],
         'next/cache': [fileURLToPath(new URL('./next-cache.d.ts', import.meta.url))],
+        zod: [join(zodRoot, 'index.d.ts')],
+        'zod/mini': [join(zodRoot, 'mini/index.d.ts')],
       },
     });
     return ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
