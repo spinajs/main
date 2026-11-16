@@ -12,10 +12,11 @@ export type ConversionPlan =
   | { kind: 'record'; values: ConversionPlan }
   | { kind: 'object'; closed: boolean; props: Record<string, ConversionPlan | null> }
   /**
-   * `mapping` maps a discriminator value, as `String(value)`, to a name in `ConversionPlans`. A `null` member needs no
-   * conversion (`number` in `date-time | number`), so the members never agree and nothing converts.
+   * `mapping` maps a discriminator value, as `String(value)`, to a name in `ConversionPlans`; `absent` names the member
+   * of a value without the property, a closed object that does not declare it. A `null` member needs no conversion
+   * (`number` in `date-time | number`), so the members never agree and nothing converts.
    */
-  | { kind: 'union'; discriminator?: { property: string; mapping: Record<string, string> }; members: (ConversionPlan | null)[] };
+  | { kind: 'union'; discriminator?: { property: string; mapping: Record<string, string>; absent?: string }; members: (ConversionPlan | null)[] };
 
 export type ConversionPlans = Record<string, ConversionPlan>;
 
@@ -105,7 +106,8 @@ function agreedPlan(plan: PlanOf<'union'>, plans: ConversionPlans): ConversionPl
 function unionMember(plan: PlanOf<'union'>, value: unknown, plans: ConversionPlans): ConversionPlan | null {
   const tag = plan.discriminator && isBag(value) ? value[plan.discriminator.property] : undefined;
   // The compiler keys the mapping with String(value) for string and number literal tags.
-  const name = typeof tag === 'string' || typeof tag === 'number' ? own(plan.discriminator?.mapping, String(tag)) : undefined;
+  const tagged = typeof tag === 'string' || typeof tag === 'number' ? own(plan.discriminator?.mapping, String(tag)) : undefined;
+  const name = tagged ?? (tag === undefined && isBag(value) ? plan.discriminator?.absent : undefined);
   return name !== undefined ? { kind: 'ref', name } : agreedPlan(plan, plans);
 }
 

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { generateClient, GENERATOR_TARGETS } from '@spinajs/client';
+import { generateClient, GENERATOR_TARGETS, type GeneratorTarget } from '@spinajs/client';
 import { readManifest } from '@spinajs/manifest';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -90,20 +90,32 @@ describe('generate:client', function () {
     });
   }
 
+  // Every target has landed, so a refusal test marks its target unavailable in the table the command reads.
+  async function withUnavailable<T>(target: GeneratorTarget, body: () => Promise<T>): Promise<T> {
+    const entry = GENERATOR_TARGETS[target] as { available: boolean };
+    const available = entry.available;
+    entry.available = false;
+    try {
+      return await body();
+    } finally {
+      entry.available = available;
+    }
+  }
+
   describe('flag refusal', () => {
-    const cases: [string[], string][] = [
-      [['--zod'], '--zod'],
-      [['--models'], '--models'],
+    const cases: [string[], GeneratorTarget][] = [
+      [['--zod'], 'zod'],
+      [['--models'], 'models'],
       // an available target beside an unavailable one writes nothing either
-      [['--hooks', 'swr', '--socket-hooks', '--zod'], '--zod'],
-      [['--next', '--models'], '--models'],
-      [['--mocks'], '--mocks'],
-      [['--mocks', '--msw'], '--mocks'],
+      [['--hooks', 'swr', '--socket-hooks', '--zod'], 'zod'],
+      [['--next', '--models'], 'models'],
+      [['--mocks'], 'mocks'],
+      [['--mocks', '--msw'], 'mocks'],
     ];
-    for (const [args, flag] of cases) {
-      it(`refuses ${args.join(' ')} naming ${flag}`, async () => {
+    for (const [args, target] of cases) {
+      it(`refuses ${args.join(' ')} naming --${target}`, async () => {
         const out = join(dir, 'client.ts');
-        expect(await rejection('--out', out, ...args)).to.equal(`${flag} is not available in this version`);
+        expect(await withUnavailable(target, () => rejection('--out', out, ...args))).to.equal(`--${target} is not available in this version`);
         expect(await readFile(out, 'utf8').catch(() => 'absent')).to.equal('absent');
       });
     }
@@ -128,16 +140,10 @@ describe('generate:client', function () {
       expect(await rejection('--out', join(dir, 'client.ts'), '--socket-hooks')).to.equal('--socket-hooks needs --hooks');
     });
 
-    it('lets the GENERATOR_TARGETS table decide', async () => {
-      const entry = GENERATOR_TARGETS.zod as { available: boolean };
-      entry.available = true;
-      try {
-        const out = join(dir, 'client.ts');
-        await run('--out', out, '--zod');
-        expect(await readFile(out, 'utf8')).to.include('export const manifestHash');
-      } finally {
-        entry.available = false;
-      }
+    it('writes an available target', async () => {
+      const out = join(dir, 'client.ts');
+      await run('--out', out, '--zod');
+      expect(await readFile(out, 'utf8')).to.include('export const manifestHash');
     });
   });
 

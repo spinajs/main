@@ -50,13 +50,28 @@ const swrTypes = (version: SwrVersion): Record<string, string[]> => {
   };
 };
 
+export interface TypecheckResult {
+  diagnostics: string[];
+  /** The checker's type instantiation count: deterministic for one TypeScript version, unlike wall-clock time. */
+  instantiations: number;
+}
+
 /** Type-checks generated client source against the runtime sources; returns the diagnostics as strings. */
-export function typecheck(source: string): string[] {
-  return typecheckFiles({ 'client.ts': source });
+export function typecheck(source: string, options: TypecheckOptions = {}): string[] {
+  return typecheckFiles({ 'client.ts': source }, options);
+}
+
+/** `typecheck`, with the instantiation count of the program. */
+export function typecheckProgram(source: string, options: TypecheckOptions = {}): TypecheckResult {
+  return checkFiles({ 'client.ts': source }, options);
 }
 
 /** Type-checks a set of files written side by side, with the types of React, React Query, swr, zod, the socket client and a next/cache stub available. */
 export function typecheckFiles(files: Record<string, string>, options: TypecheckOptions = {}): string[] {
+  return checkFiles(files, options).diagnostics;
+}
+
+function checkFiles(files: Record<string, string>, options: TypecheckOptions): TypecheckResult {
   const dir = mkdtempSync(join(tmpdir(), 'client-gen-'));
   try {
     const roots = Object.entries(files).map(([name, contents]) => {
@@ -96,7 +111,8 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
         'zod/mini': [join(zodRoot, 'mini/index.d.ts')],
       },
     });
-    return ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
+    const diagnostics = ts.getPreEmitDiagnostics(program).map((d) => `${d.file ? `${d.file.fileName.slice(dir.length + 1)}: ` : ''}${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
+    return { diagnostics, instantiations: program.getInstantiationCount() };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -123,6 +123,27 @@ describe('conversion plans', () => {
       expect((decodePlan(union, { kind: 'dog', born: ISO }, ctx) as { born: unknown }).born).to.equal(ISO);
     });
 
+    it('picks the absent member when the value lacks the discriminator property', () => {
+      const plans: ConversionPlans = {
+        User: { kind: 'object', closed: true, props: { id: null, born: at } },
+        Problem: { kind: 'object', closed: true, props: { kind: null, born: null } },
+      };
+      const union: ConversionPlan = {
+        kind: 'union',
+        discriminator: { property: 'kind', mapping: { validation: 'Problem' }, absent: 'User' },
+        members: [
+          { kind: 'ref', name: 'User' },
+          { kind: 'ref', name: 'Problem' },
+        ],
+      };
+      const models = { User: { decode: (value: Record<string, unknown>) => ({ user: value }) } };
+      const ctx = context(plans, models);
+      expect((decodePlan(union, { id: 1, born: ISO }, ctx) as { user: { born: unknown } }).user.born).to.be.instanceOf(Date);
+      expect(decodePlan(union, { kind: 'validation', born: ISO }, ctx)).to.deep.equal({ kind: 'validation', born: ISO });
+      expect(decodePlan(union, { kind: 'unknown', born: ISO }, ctx)).to.deep.equal({ kind: 'unknown', born: ISO });
+      expect(encodePlan(union, { id: 1, born: new Date(ISO), cache: 1 }, ctx)).to.deep.equal({ id: 1, born: ISO });
+    });
+
     it('falls back to member agreement for an unmapped tag, never to a name on the prototype', () => {
       const union: ConversionPlan = { kind: 'union', discriminator: { property: 'kind', mapping: {} }, members: [{ kind: 'object', closed: true, props: { at } }] };
       const out = decodePlan(union, { kind: 'constructor', at: ISO }, context()) as Record<string, unknown>;

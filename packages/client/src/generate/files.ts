@@ -62,7 +62,7 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   'react-query': { available: true },
   swr: { available: true },
   zod: { available: true },
-  models: { available: false },
+  models: { available: true },
   'socket-hooks': { available: true },
   server: { available: true },
   next: { available: true },
@@ -160,7 +160,7 @@ export async function generateClientFiles(options: GenerateClientFilesOptions): 
   const targets = requestedTargets(options);
   const shared = options.hooks?.length ? [hooksShared] : options.next ? [keysFile] : [];
   const emitters = [...shared, ...targets.flatMap((t) => COMPANIONS[t] ?? [])];
-  const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0 });
+  const client = await emitClient(model, { moduleName: options.moduleName, manifestHash: emitters.length > 0, models: options.models });
   const files: GeneratedFile[] = [{ path: `${basename}.ts`, environment: 'server-safe', contents: client }];
   const routes = options.hooks?.length || options.next ? hookRoutes(model, options) : [];
   for (const emit of emitters) files.push(...(await emit(model, { ...options, basename, hookRoutes: routes })));

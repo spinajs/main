@@ -73,7 +73,7 @@ describe('generateClientFiles', () => {
       'react-query': { available: true },
       swr: { available: true },
       zod: { available: true },
-      models: { available: false },
+      models: { available: true },
       'socket-hooks': { available: true },
       server: { available: true },
       next: { available: true },

@@ -87,8 +87,8 @@ describe('client.mocks.ts', function () {
   it('is a leaf: no generated file imports client.mocks.ts or client.msw.ts, and runtime/ and formats/ never import mocks/', async () => {
     // Every target that writes a file of its own; the next emitter that lands joins this list.
     const writing = (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => GENERATOR_TARGETS[t].available);
-    expect(writing).to.deep.equal(['react-query', 'swr', 'zod', 'socket-hooks', 'server', 'next', 'mocks', 'msw']);
-    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), hooks: ['react-query', 'swr'], zod: true, socketHooks: true, next: true, mocks: true, msw: true };
+    expect(writing).to.deep.equal(['react-query', 'swr', 'zod', 'models', 'socket-hooks', 'server', 'next', 'mocks', 'msw']);
+    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), hooks: ['react-query', 'swr'], zod: true, models: true, socketHooks: true, next: true, mocks: true, msw: true };
     for (const basename of ['client', 'api']) {
       const files = await generateClientFiles({ ...options, basename });
       expect(files.map((f) => f.path)).to.include(`${basename}.mocks.ts`);

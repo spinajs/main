@@ -1,4 +1,4 @@
-import type { FormatCodecs } from './codecs.js';
+import type { FormatCodecs, Formats } from './codecs.js';
 import { createClient, type ClientDefinition, type ClientOptions } from './http.js';
 import { decodePlan, define, encodePlan, own, type ConversionPlan, type ConversionPlans, type PlanContext } from './plan.js';
 
@@ -15,6 +15,19 @@ export interface RoutePlan {
 }
 
 export type RoutePlans = Record<string, Record<string, RoutePlan>>;
+
+/** The model registered for `K` in `M`, else `Fallback`; a `null` that `Fallback` allows is kept. */
+export type ModelOf<M, K extends string, Fallback> = K extends keyof M ? (M[K] extends ModelEntry<infer T> ? T | Extract<Fallback, null> : Fallback) : Fallback;
+
+// The generated client imports the helpers below under `$` aliases, which no DTO name can take, so a DTO named like a
+// global type (`Record`, `Partial`, `NonNullable`) cannot shadow what the model types are built from.
+/** Every format slot: the model types take a complete map, such as `FormatTypes<…>`. */
+export type FormatSlots = Required<Formats>;
+export type NoEntries = Record<never, never>;
+export type ModelMap<Name extends string> = Partial<Record<Name, ModelEntry<unknown>>>;
+export type Defined<T> = NonNullable<T>;
+export type ReplyOf<T> = T extends (...args: never[]) => Promise<infer R> ? R : never;
+export type ArgOf<T, I extends number> = T extends (...args: infer A) => unknown ? A[I] : never;
 
 export interface ModelClientOptions extends ClientOptions {
   formats?: FormatCodecs;

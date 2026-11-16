@@ -7,6 +7,7 @@ export type { ArgLocation, ArgShape, ArgWire } from './wire.js';
 export * from './codecs.js';
 export type { ConversionPlan, ConversionPlans, ObjectPlanOf } from './plan.js';
 export { createModelClient, fromClass, type ModelClientOptions, type ModelEntry, type RoutePlan, type RoutePlans } from './models.js';
+export type { ArgOf, Defined, FormatSlots, ModelMap, ModelOf, NoEntries, ReplyOf } from './models.js';
 export * from './form-errors.js';
 
 /** What a field-filtered route or command returns (`fields: 'filter' | 'filter-rows'`): any property may be redacted away. */
