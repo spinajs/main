@@ -1,0 +1,5 @@
+---
+"@spinajs/client": minor
+---
+
+`@spinajs/client/runtime` gains the zero-dependency model runtime: `Codec`, `dateCodec`, `Formats`, `PlainFormats`, `FormatCodecs`, `FormatTypes`, `ModelEntry`, `fromClass`, `ConversionPlan`, `ConversionPlans`, `ObjectPlanOf`, `RoutePlan`, `RoutePlans`, `ModelClientOptions` and `createModelClient(definition, plans, routePlans, options)`. With `formats` or `models` set, replies are decoded by conversion plan into codec values and registered model instances, and arguments are encoded back (model `encode`, else `toJSON`, then codecs) and projected onto closed objects, so fields a model class adds never reach the server. A registered model receives only the declared properties of a closed object, and `fromClass` writes a property the class implements as an accessor pair through its setter, never copies over a method or a getter without a setter, and skips `__proto__`, `constructor` and `prototype`. Numeric discriminator tags select their member. Without `formats` and `models`, `createModelClient` is `createClient`.
