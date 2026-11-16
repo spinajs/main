@@ -9,6 +9,7 @@ export { reparent } from './ancestors/reparent.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export { ormToIR } from './ir.js';
 export type { OrmIROptions } from './ir.js';
+export { compileDomainPolicy } from './policy/compile.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
 export * from './ancestors/index.js';
 export { OrmResourceAdapter } from './adapter.js';
