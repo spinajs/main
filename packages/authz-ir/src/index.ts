@@ -12,6 +12,8 @@ export * from './eval/list.js';
 export * from './compile/merge.js';
 export * from './compile/combine.js';
 export * from './compile/principal.js';
+export * from './compile/stored.js';
+export * from './compile/policy.js';
 export * from './dsl/define.js';
 export * from './dsl/openfga-write.js';
 export * from './dsl/openfga-read.js';
