@@ -4,7 +4,7 @@ Two `spinajs` commands: `authn:password` sets the password of an identity, and `
 
 ## How it works
 
-The CLI resolves only the command it runs. Both commands inject the `Orm` (`@spinajs/orm`), so resolving one boots the ORM before a database-backed store such as `@spinajs/users`' `UserIdentityStore` queries its tables. The boot fails while a migration is pending or failed: run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first. Without a `db` configuration the ORM opens no connection.
+The CLI resolves only the command it runs, and the commands resolve their services only when they run, so `--help` builds nothing that can fail. A database-backed store such as `@spinajs/users`' `UserIdentityStore` injects the `Orm`, so running a command boots the ORM. The boot fails while a migration is pending or failed, and the command reports it: run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first. Without a `db` configuration the ORM opens no connection.
 
 ### `authn:password <login> [-g, --generate]`
 

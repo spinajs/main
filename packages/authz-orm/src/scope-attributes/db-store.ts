@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
+import { Autoinject } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { requireTransaction, selectFrom } from '../records.js';
@@ -39,11 +41,15 @@ function leafOf(row: StoredLeaf): ScopeAttributeLeaf {
 
 /**
  * Scope attributes in table authz_scope_attribute (migration AuthzScopeAttribute_2026_10_02_00_00_00), on the
- * connection db.Aliases.authz names. Not registered by default: register one instance under both
+ * connection db.Aliases.authz names. Not registered by default: register the class under both
  * ScopeAttributeStore and WritableScopeAttributeStore. Writes run only inside the ORM transaction of an
  * AuthzAdmin batch (AuthzTx.driver) on that connection.
  */
 export class DbScopeAttributeStore extends WritableScopeAttributeStore {
+  /** Never read: injecting it resolves the Orm, which binds the records, before the first query. A store built with `new` gets none. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
     return unflattenAttributes(await this.rows(ref));
   }

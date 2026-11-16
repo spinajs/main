@@ -93,7 +93,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
   it('write refuses a tuple the namespaces of the RebacModel over it cannot hold, until the model is disposed', async () => {
     const store = new DbTupleStore();
     const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS });
-    await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name }));
+    await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name, container: db.container }));
     const refusal = async (add: ReturnType<typeof tuple>): Promise<unknown> => {
       try {
         await store.write([add], [], user('admin'));

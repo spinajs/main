@@ -2,7 +2,6 @@ import { userInfo } from 'os';
 import { CliCommand } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
 import {
   errorCodeFor,
   exitCodeForError,
@@ -27,8 +26,6 @@ export abstract class SchedulerCommand extends CliCommand {
   protected RawConfig: Partial<SchedulerConfig>;
 
   protected async service(): Promise<SchedulerService> {
-    // the cli resolves only the command; the scheduler's models need the Orm booted
-    await DI.resolve(Orm);
     return DI.resolve(SchedulerService);
   }
 

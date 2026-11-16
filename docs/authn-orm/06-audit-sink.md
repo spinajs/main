@@ -44,7 +44,7 @@ A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 
 - `purge(now?)` runs one purge and answers how many rows went.
 - With `purgeInterval` set, the instance starts a timer when DI resolves it and stops it in `dispose()`. Resolve it once at start-up (`await DI.resolve(AuthnAuditRetention)`); nothing else resolves it.
-- `authn:audit-purge` runs `purge()` once from a scheduler (cron, worker). It logs a warning and deletes nothing while `retentionDays` is unset. The CLI resolves only the command, so the command injects the `Orm` and boots it; the boot fails while a migration is pending or failed, so run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
+- `authn:audit-purge` runs `purge()` once from a scheduler (cron, worker). It logs a warning and deletes nothing while `retentionDays` is unset. The CLI resolves only the command, and the command injects `AuthnAuditRetention`, which injects the `Orm` and boots it; the boot fails while a migration is pending or failed, so run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
 - `AuthnAuditRetention` injects the `Orm`, so resolving it binds `AuthnAudit`.
 
 ## Schema

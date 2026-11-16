@@ -260,8 +260,8 @@ the last one registered, so loading the module would silently replace the log au
 `DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
 (`scope.setAttributes`, `scope.replaceAttributes`). `new DbScopeAttributeStore()` takes no options:
 it reads and writes on the alias `authz`, and a write runs only inside the `AuthzAdmin` transaction on
-that connection (`AuthzConfigError` otherwise). It is not built by DI, so resolve the Orm before its
-first read. Register the one instance under both `ScopeAttributeStore` and `WritableScopeAttributeStore`.
+that connection (`AuthzConfigError` otherwise). Register the class under both `ScopeAttributeStore` and `WritableScopeAttributeStore`: DI builds one
+instance, which injects the Orm. A store built with `new` gets none, so resolve the Orm before its first read.
 Every write first updates the single row of `authz_scope_attribute_version`; its row lock queues
 concurrent writers of the same database.
 

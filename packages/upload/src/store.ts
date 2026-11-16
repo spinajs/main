@@ -1,7 +1,7 @@
-import { Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { rowsAffected } from '@spinajs/orm';
+import { Orm, rowsAffected } from '@spinajs/orm';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 
@@ -90,6 +90,10 @@ function isLockConflict(err: unknown): boolean {
 export class UploadStore {
   @Logger('upload')
   protected Log: Log;
+
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
 
   public get Driver(): OrmDriver {
     const driver = UploadSession.getModelDescriptor().Driver;
