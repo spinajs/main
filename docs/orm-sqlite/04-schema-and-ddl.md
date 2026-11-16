@@ -41,9 +41,11 @@ The driver container resolves these converters for model columns, `where()` valu
 
 | Token | SQLite implementation | Writes | Reads |
 | --- | --- | --- | --- |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z` <!-- TODO(docs-hook): verify whether a datetime property on an INTEGER column is written as Unix seconds; SqlDatetimeValueConverter matches lower-case type names and PRAGMA table_info reports upper case --> | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
+| `DatetimeValueConverter` | `SqliteDatetimeValueConverter`, an `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z`; Unix seconds into a numeric column, see below; milliseconds under `@DateTime({ unit: 'milliseconds' })` | any ISO or SQL text, `Date`, `DateTime` or a number in the declared unit, as a `DateTime` in UTC |
 | `BooleanValueConverter` | `SqlBooleanValueConverter` (shared) | `1` / `0` | `true` for `1`, `1n`, `true` and `'1'` |
 | `SetValueConverter` | `SqlSetConverter` (shared) | comma-joined text | split on `,` |
+
+`SqliteDatetimeValueConverter` writes Unix seconds when the column is declared with a numeric type: `INT`, `INTEGER`, `TINYINT`, `SMALLINT`, `MEDIUMINT`, `BIGINT`, `UNSIGNED BIG INT`, `INT2`, `INT8`, `REAL`, `DOUBLE`, `DOUBLE PRECISION`, `FLOAT`, `NUMERIC` or `DECIMAL`. SQLite reports the type as declared, so the name is compared in any case, without a `(...)` size and without `unsigned`, `signed` and `zerofill`: `Integer`, `BIGINT(20)` and `INTEGER UNSIGNED` match. `DATETIME`, `TIMESTAMP`, `DATE` and `TEXT` columns receive ISO text. This holds for every decorator that attaches the converter: `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`.
 
 - The fixed width keeps text order equal to time order, so `orderBy('CreatedAt')` and `where('CreatedAt', '>', date)` compare instants correctly, whatever the process time zone.
 - `Date` and `DateTime` bindings of raw SQL (`executeOnDb()`, `RawQuery` bindings) are converted the same way by `SqlDriver.toDriverParams()`.
@@ -97,7 +99,7 @@ SQLite has no `ALTER COLUMN`. `SqliteOrmDriver.execute()` runs an `alterTable()`
 
 1. `modifyByRebuild(builder)` refuses with `NotSupported` when the same `alterTable()` also adds, renames or drops a column, or renames the table. Put those in an `alterTable()` of their own.
 2. It opens `driver.transaction()` (a savepoint inside yours) and reads the table's `CREATE TABLE` from `sqlite_master`. A missing table throws `OrmException`.
-3. With `PRAGMA foreign_keys` on, it throws `NotSupported` when another table has a foreign key to this one: dropping the table would delete or reject the referencing rows.
+3. With `PRAGMA foreign_keys` on, it throws `NotSupported` when another table has a foreign key to this one: dropping the table would delete or reject the referencing rows. See [Change a referenced table](#change-a-referenced-table-with-foreign-keys-enforced).
 4. Each modified column's definition is replaced by the compiled `ColumnQueryCompiler` body plus the clauses of the old definition the builder does not restate: `PRIMARY KEY` unless `primaryKey()`, `UNIQUE` unless `unique()`, `COLLATE` unless `collation()`, `CHECK` unless the new body has one, and every `REFERENCES`. A column the table lacks throws `OrmException`; a generated column throws `NotSupported`.
 5. It creates `<table>__rebuild` with the new definitions and the old table constraints, copies every row with `INSERT INTO ... SELECT`, drops the old table, renames the new one, and re-creates the table's indexes and triggers from their stored SQL.
 
@@ -120,7 +122,7 @@ Type, nullability and default come from the builder alone, as with MySQL's `MODI
 
 ## Configuration
 
-No keys of its own. Migrations that run this DDL are configured under `db.Connections[].Migration`; see [Migrations](../orm/10-migrations.md).
+`db.Connections[].ForeignKeys: true` enforces the foreign keys this DDL declares; see [Connection and driver](01-connection.md#configuration). Migrations that run this DDL are configured under `db.Connections[].Migration`; see [Migrations](../orm/10-migrations.md).
 
 ## Schema
 
@@ -338,14 +340,16 @@ The `ATTACH` must be on the handle that runs the check: inside a transaction, or
 
 ## Important behaviour
 
-- Foreign keys are compiled but **not enforced**: SQLite checks them only with `PRAGMA foreign_keys = ON`, per connection, and the driver never sends it. `ON DELETE CASCADE` does nothing until you enable it (see [Examples](#enforce-foreign-keys-on-every-connection)).
+- Foreign keys are compiled but **not enforced** by default: SQLite checks them only with `PRAGMA foreign_keys = ON`, per handle, and the driver sends it only with the connection option `ForeignKeys: true`. Until then `ON DELETE CASCADE` does nothing (see [Examples](#enforce-foreign-keys-on-every-connection)).
+- A numeric column (`INTEGER`, `REAL`, `DECIMAL(...)`, ...) that holds ISO datetime text written by an earlier version needs a one-time conversion to numbers; see [Migration](#migration).
 - `charset()` and `comment()` are dropped from the DDL.
 - `json` and `bit` columns get no declared type.
 - `truncate()` keeps the `AUTOINCREMENT` counter; new rows continue after the highest key ever used.
 - `trackHistory()` throws `NotSupported`; `cloneTable()` has no SQLite implementation.
 - `.after()` is ignored.
 - `.modify()` rebuilds the whole table: it copies every row and holds the database's write lock until the copy commits. Several modified columns in one `alterTable()` share one rebuild.
-- With foreign keys enforced, a table that another table references cannot be modified. Turn `PRAGMA foreign_keys` off for the migration, or rebuild both tables yourself.
+- With foreign keys enforced, `.modify()` of a table that another table references throws `NotSupported`, and `dropTable()` of it deletes its rows first: referencing rows reject the drop with `ConstraintViolation` (`kind: 'foreign_key'`), or are deleted with it under `ON DELETE CASCADE`. To change such a table, switch the pragma off around the change, outside any transaction (see [Examples](#change-a-referenced-table-with-foreign-keys-enforced)).
+- `PRAGMA foreign_keys` cannot change inside a transaction: SQLite ignores it there. A migration runs outside one only under `Migration.Transaction.Mode` `None` (the default) or with `transaction = false` on the migration class; see [Migrations](../orm/10-migrations.md).
 - An `alterTable()` with several alterations compiles to several statements, which `SqlDriver.execute()` sends one after another: dropped columns, the table rename, then the column changes. A statement that fails stops the rest, and the ones before it stay applied.
 
 ## Best practices
@@ -466,23 +470,96 @@ The key becomes ``PRIMARY KEY (`OrderId`,`LineNo`)`` at table level.
 
 ### Enforce foreign keys on every connection
 
-`PRAGMA foreign_keys` is per handle. Read handles never write, so the writer is enough.
+`PRAGMA foreign_keys` is per handle. `ForeignKeys: true` sets it on the writer before `connect()` publishes the handle, on every connect and on a health-check reconnect, so no statement runs unchecked. Read handles never write and keep it off: a plain `select` of `PRAGMA foreign_keys` may run on one and read `0`; read it inside a transaction to see the writer's value.
 
 ```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { OrmDriver, QueryContext } from '@spinajs/orm';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { FrameworkConfiguration } from '@spinajs/configuration';
+import _ from 'lodash';
 
-@Injectable('orm-driver-sqlite-fk')
-@NewInstance()
-export class ForeignKeySqliteDriver extends SqliteOrmDriver {
-  public async connect(): Promise<OrmDriver> {
-    await super.connect();
-    await this.executeOnDb('PRAGMA foreign_keys = ON', [], QueryContext.Schema);
-    return this;
+export class AppConfiguration extends FrameworkConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    this.Config = _.merge(this.Config, {
+      db: {
+        Connections: [{ Name: 'main', Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite', ForeignKeys: true }],
+      },
+    });
   }
 }
 ```
+
+An orphan row then fails with `ConstraintViolation` (`kind: 'foreign_key'`). Rows stored before the option was on are not checked; list them with `PRAGMA foreign_key_check`.
+
+A subclass that sends the pragma after `super.connect()` keeps working, but leaves a window in which a statement reaches the writer without it. Replace it with the option.
+
+### Change a referenced table with foreign keys enforced
+
+`.modify()` refuses a table another table references while the pragma is on. Switch it off around the change, outside any transaction, and check the keys before switching it back on:
+
+```ts sample
+import { Migration, OrmMigration, QueryContext } from '@spinajs/orm';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+
+@Migration('main')
+export class CustomersWidenName_2026_11_14_10_00_00 extends OrmMigration {
+  // the pragma is ignored inside a transaction; needed under Mode PerMigration or PerRun
+  public transaction = false;
+
+  public async up(connection: SqliteOrmDriver): Promise<void> {
+    await connection.executeOnDb('PRAGMA foreign_keys = OFF', [], QueryContext.Schema);
+    try {
+      await connection.schema().alterTable('customers', (table) => {
+        table.string('Name', 200).notNull().modify();
+      });
+
+      const violations = (await connection.executeOnDb('PRAGMA foreign_key_check', [], QueryContext.Select)) as unknown[];
+      if (violations.length > 0) {
+        throw new Error('customers rebuild left rows with broken foreign keys');
+      }
+    } finally {
+      await connection.executeOnDb('PRAGMA foreign_keys = ON', [], QueryContext.Schema);
+    }
+  }
+
+  public async down(): Promise<void> {}
+}
+```
+
+## Migration
+
+### ISO text in a numeric datetime column
+
+Earlier versions registered the shared `IsoDatetimeValueConverter`, which compares the reported column type with a lower-case list. SQLite reports a type as declared (`INTEGER`, `REAL`, `DECIMAL(10,0)`), so a `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` or `@Archived()` property on such a column was written as ISO text. `SqliteDatetimeValueConverter` compares the declared type in any case and writes a number; see [Value conversion](#value-conversion).
+
+```ts
+// Before: the value stored in an INTEGER column on SQLite
+'2026-11-13T23:26:44.654Z'
+
+// After
+1794612404    // Unix seconds, the default and what the timestamp decorators write
+1794612404654 // @DateTime({ unit: 'milliseconds' })
+```
+
+`fromDB()` reads both forms, but comparisons and `ORDER BY` need one: SQLite sorts all text above all numbers. Convert the text rows once, before upgrading. For column `At` of table `t`, first list the text `strftime` cannot read, and fix or delete those rows by hand:
+
+```sql
+SELECT Id, At FROM t WHERE typeof(At) = 'text' AND strftime('%s', At) IS NULL;
+```
+
+Then convert:
+
+```sql
+-- Unix seconds
+UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+
+-- a column you switch to @DateTime({ unit: 'milliseconds' })
+UPDATE t SET At = CAST(strftime('%s', At) AS INTEGER) * 1000 + CAST(substr(strftime('%f', At), 4) AS INTEGER) WHERE typeof(At) = 'text' AND strftime('%s', At) IS NOT NULL;
+```
+
+Integer rows are left alone. Without the `IS NOT NULL` guard, unreadable text becomes `NULL` in a nullable column, and in a `NOT NULL` column the whole `UPDATE` fails.
+
+`DATETIME`, `TIMESTAMP` and `TEXT` columns keep ISO text and need no conversion.
 
 ## Related
 

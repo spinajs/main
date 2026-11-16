@@ -29,6 +29,20 @@ export interface IColumnFilter<T> {
   column?: string;
   operators: FilterableOperators[];
   query?: ((operator: FilterableOperators, value: any) => WhereFunction<T>) | null;
+
+  /**
+   * JSON schema of ONE filter value of this column. List and pair operators take an array of it, text operators a
+   * string. Without it the value schema follows the model column's type.
+   */
+  value?: object;
+}
+
+/** The options form of `@Filterable`. */
+export interface IFilterableOptions<T = unknown> {
+  operators: FilterableOperators[];
+  query?: IColumnFilter<T>['query'];
+  aggregate?: boolean;
+  value?: object;
 }
 
 export interface IFilter {

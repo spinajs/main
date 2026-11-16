@@ -1,4 +1,5 @@
 import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
+import type { IBoolConverterOptions, IDateTimeConverterOptions } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
@@ -43,13 +44,19 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
    * @param value - property value to write to the database, or to dehydrate
    * @param _model - owning model, unused
    * @param _column - column descriptor, unused
-   * @param _options - per-column converter options, unused
+   * @param options - `@Bool()` options; `nullable` keeps `null` / `undefined` as `null`
    * @param dehydrating - present only when the caller is `dehydrate()`
    */
-  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, _options?: any, ...dehydrating: [IDehydrateOptions?]) {
+  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, options?: IBoolConverterOptions | null, ...dehydrating: [IDehydrateOptions?]) {
+    if (options?.nullable && (value === null || value === undefined)) {
+      return null;
+    }
     return dehydrating.length > 0 ? !!value : value ? 1 : 0;
   }
-  fromDB(value: any) {
+  fromDB(value: any, _raw?: unknown, options?: IBoolConverterOptions | null) {
+    if (options?.nullable && (value === null || value === undefined)) {
+      return null;
+    }
     return value === 1 || value === true || value === '1' || value === 1n;
   }
 }
@@ -199,8 +206,9 @@ const SQL_DATETIME = 'yyyy-MM-dd HH:mm:ss.SSS';
  * {@link SqlBooleanValueConverter}.
  */
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: unknown, _model?: ModelBase<unknown>, column?: IColumnDescriptor, _options?: unknown, ...dehydrating: [IDehydrateOptions?]): string | number | null {
-    const dt = toInstant(value, column?.Name);
+  public toDB(value: unknown, _model?: ModelBase<unknown>, column?: IColumnDescriptor, options?: IDateTimeConverterOptions | null, ...dehydrating: [IDehydrateOptions?]): string | number | null {
+    const unit = options?.unit ?? 'seconds';
+    const dt = toInstant(value, column?.Name, unit);
     if (dt === null) {
       return null;
     }
@@ -215,20 +223,26 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
         return dt.toUnixInteger();
     }
 
-    if (column && DATE_NUMERICAL_TYPES.includes(column.Type)) {
-      return dt.toUnixInteger();
+    if (column && this.isNumericColumn(column)) {
+      // luxon keeps a fraction of a millisecond, which int8 refuses and SQLite stores as REAL
+      return unit === 'milliseconds' ? Math.floor(dt.toMillis()) : dt.toUnixInteger();
     }
 
     return this.write(dt);
   }
 
-  public fromDB(value: unknown): DateTime | null {
-    return instantFromDb(value);
+  public fromDB(value: unknown, _raw?: unknown, options?: IDateTimeConverterOptions | null): DateTime | null {
+    return instantFromDb(value, options?.unit ?? 'seconds');
   }
 
   /** The column text of `dt`, a valid DateTime in UTC. */
   protected write(dt: DateTime): string {
     return dt.toFormat(SQL_DATETIME);
+  }
+
+  /** Whether `column` holds the instant as a number. A dialect whose driver reports other type names overrides it. */
+  protected isNumericColumn(column: IColumnDescriptor): boolean {
+    return DATE_NUMERICAL_TYPES.includes(column.Type);
   }
 }
 

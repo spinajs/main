@@ -16,7 +16,7 @@
 | luxon `DateTime` in any zone | the same instant in UTC with `Z` |
 | ISO 8601 or SQL-format `string` | parsed (no offset = UTC) and written in UTC with `Z` |
 | a `string` that is not a datetime | throws `InvalidArgument` naming the column |
-| any of the above, for a column whose type is numeric (`int`, `bigint`, `decimal`, ...) | Unix seconds |
+| any of the above, for a column whose type is numeric (`int`, `bigint`, `decimal`, ...) | Unix seconds, or milliseconds under `@DateTime({ unit: 'milliseconds' })` |
 | `null`, `undefined`, `''` | `null` |
 
 `model.dehydrate()` and `toJSON()` call the same converter with dehydrate options: they write `dateTimeFormat` (`'iso'`, `'sql'` or `'unix'`), ISO 8601 in UTC when none is set.
@@ -26,7 +26,7 @@
 ### Reading a datetime
 
 1. `mssql` returns `DATE`, `DATETIME`, `DATETIME2` and `DATETIMEOFFSET` columns as JavaScript `Date`.
-2. `fromDB(value)` returns `null` for an empty value, otherwise the instant as a `DateTime` in UTC.
+2. `fromDB(value)` returns `null` for an empty value, otherwise the instant as a `DateTime` in UTC. A number from a numeric column, or numeric text such as a `bigint` value, is read in the column's unit: seconds, or milliseconds under `@DateTime({ unit: 'milliseconds' })`.
 3. The driver connects with `useUTC: true`, so `DATETIME`/`DATETIME2` values are read as UTC and `DATETIMEOFFSET` values exactly.
 
 ## Services and extension points

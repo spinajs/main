@@ -371,6 +371,12 @@ export interface IDriverOptions {
   Filename?: string;
 
   /**
+   * SQLite only. Enforces foreign keys ( `PRAGMA foreign_keys = ON` ) on the writer handle before any statement
+   * can use it, on every connect and reconnect. Default `false`.
+   */
+  ForeignKeys?: boolean;
+
+  /**
    * Driver name eg. mysql, sqlite, mssql etc.
    */
   Driver: string;

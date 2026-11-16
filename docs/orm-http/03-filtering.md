@@ -6,15 +6,15 @@ The model declares which columns a client may filter on and with which operators
 
 Declaring:
 
-1. `@Filterable(operators)` on a model property adds `{ operators, query }` to `IModelDescriptor.FilterableColumns` under the property name.
-2. When the property has no column descriptor, it adds a `Virtual`, nullable one, so the ORM accepts it in `where()`. The third argument sets the column's `Aggregate` flag.
+1. `@Filterable(operators)` or `@Filterable({ operators, query, aggregate, value })` on a model property adds `{ operators, query, value }` to `IModelDescriptor.FilterableColumns` under the property name.
+2. When the property has no column descriptor, it adds a `Virtual`, nullable one, so the ORM accepts it in `where()`. The third argument (or `aggregate`) sets the column's `Aggregate` flag.
 3. `@Filterable(OtherModel)` copies `OtherModel`'s filterable columns under `<property>.<column>`.
 
 Reading a request:
 
 1. `@Filter(ModelOrColumns)` records a route parameter of type `'FilterModelRouteArg'`, resolved with `DI.resolve('FilterModelRouteArg')`.
 2. `FilterModelRouteArg.extract()` reads `req.query[<argument name>]`, then `req.body[<argument name>]`.
-3. It builds the schema per request: `Model.filterSchema()` for a model, `filterSchemaFor(columns)` for an inline column list.
+3. It takes the schema from `Model.filterSchema()` for a model, `filterSchemaFor(columns)` for an inline column list. Both are built once and reused, so the validator compiles them once; a model's schema is built again after the ORM reads its columns again.
 4. A string value is parsed with `JSON.parse`; invalid JSON throws `InvalidArgument` (`400`).
 5. `RouteArgs.tryHydrateParam()` runs input filters and validates the value against the schema. An absent filter is `undefined` and is not validated.
 
@@ -51,6 +51,7 @@ sequenceDiagram
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Filterable(operators, queryFunc?, isAggregate?)` | Model property | `operators: FilterableOperators[]`; `queryFunc`: custom SQL, or `null`; `isAggregate`: sets the column's `Aggregate` flag | Makes the column filterable with these operators. |
+| `@Filterable({ operators, query?, aggregate?, value? })` | Model property | `IFilterableOptions`: the same three, and `value`, the JSON schema of one filter value | As above; `value` replaces the value type read from the column. |
 | `@Filterable(Model)` | Model property | a model class | Copies that model's filterable columns as `<property>.<column>`. |
 | `@Filter(ModelOrColumns)` | Route method parameter | a model class, or `IColumnFilter[]` | Reads, parses and validates an `IFilterRequest`. |
 
@@ -58,20 +59,20 @@ sequenceDiagram
 
 | Operator | SQL | Value check |
 | --- | --- | --- |
-| `eq` | `= ?` | defined |
-| `neq` | `!= ?` | defined |
-| `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` | defined |
+| `eq` | `= ?`; `IS NULL` for a `null` value | defined, not an array |
+| `neq` | `!= ?`; `IS NOT NULL` for a `null` value | defined, not an array |
+| `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` | defined, not an array; a `null` value throws `InvalidArgument` from the where builder |
 | `like` | `LIKE '%value%' ESCAPE '~'`: values containing it | non-empty string; `null` / `undefined` skip the check and are searched as the text `"null"` / `"undefined"` |
 | `b-like` | `LIKE '%value' ESCAPE '~'`: values **ending** with it | as `like` |
 | `e-like` | `LIKE 'value%' ESCAPE '~'`: values **beginning** with it | as `like` |
 | `regexp` | `REGEXP ?` | as `like` |
-| `between` / `notbetween` | `BETWEEN` / `NOT BETWEEN` | array, at least 2 values |
+| `between` / `notbetween` | `BETWEEN ? AND ?` / `NOT BETWEEN ? AND ?`, bounds converted like an `eq` value | array of exactly 2 values `[from, to]`, neither `null` |
 | `in` / `nin` | `IN (...)` / `NOT IN (...)` | array, at least 1 value |
 | `in-set` / `nin-set` | `whereInSet` / `whereNotInSet` | array, at least 1 value |
 | `isnull` / `notnull` | `IS NULL` / `IS NOT NULL` | none |
 | `exists` / `n-exists` | `whereExist(column)` / `whereNotExists(column)` on a relation | none |
 
-A failed value check throws `InvalidArgument` (`400`).
+A failed value check throws `InvalidArgument` (`400`). These checks run in `.filter()`; `@Filter()` checks the value earlier and closer, see [Value schema](#value-schema).
 
 The value of `like`, `b-like` and `e-like` is matched literally: `%` and `_` (and `[` on MSSQL) in it match only themselves, and on MySQL and PostgreSQL a backslash is no longer an escape. A client searching for `%` gets the rows containing a `%`, not every row. Case sensitivity stays the database's: SQLite, MySQL with a `_ci` collation and MSSQL with a `CI` collation ignore case, PostgreSQL does not.
 
@@ -96,9 +97,35 @@ The names `b-like` and `e-like` read backwards: `b-like` is "ends with", `e-like
 - `op` is `and` or `or` (`FilterableLogicalOperators`). Anything but `or` means `and`, at every level.
 - In a query string the whole object is JSON: `?filter=%7B%22op%22%3A%22and%22%2C...%7D`.
 
+### Value schema
+
+`@Filter()` checks each `Value` against its operator and its column. A value of the wrong shape answers `400` before the query runs.
+
+| Operators | `Value` |
+| --- | --- |
+| `eq`, `neq`, `gt`, `gte`, `lt`, `lte` | one value of the column's type, required |
+| `like`, `b-like`, `e-like`, `regexp` | a string, whatever the column's type, required |
+| `in`, `nin`, `in-set`, `nin-set` | an array of at least one value of the column's type, required |
+| `between`, `notbetween` | an array of exactly two values of the column's type, required |
+| `isnull`, `notnull`, `exists`, `n-exists` | none, not checked |
+
+The column's type comes from, in this order:
+
+1. The `value` schema on the filter definition (`@Filterable({ value })`, or `value` in an `IColumnFilter`).
+2. The model column, for a column with a table behind it: its `type`, `format` and `enum` from the model's JSON schema. An integer column takes integers, a float column numbers, a `@DateTime()` column ISO-8601 date-time strings. A `set` column takes the type of one set item. A column copied with `@Filterable(OtherModel)` (`Author.Name`) is typed by `OtherModel`'s column.
+3. Otherwise any string, number or boolean.
+
+On PostgreSQL the driver reflects the type names `int2`, `int4`, `int8`, `float4`, `float8` and `bool`, which the model's [column mapping](../orm/11-json-schema.md#column-mapping) does not list. A filter value for such a column is checked as a string: `"abc"` passes and a number is coerced to text. Declare `value` on those columns.
+
+Over `@Filter()` a typed value is never `null`, alone or in a list or pair, also when the declared `value` schema allows `null`: coercion would turn it into `0`, `false` or `""` and compare with that, so the request answers `400`. A `like` family value of `null` is coerced to `""`, which `.filter()` refuses as an empty pattern, also with a `400`. Filter on `isnull` / `notnull` instead. Called from code, `.filter()` runs no schema, and `eq null` / `neq null` still compile to `IS NULL` / `IS NOT NULL`.
+
+A column with a custom `query` and no `value`, and a virtual filter-only column without `value`, take any string, number, boolean, array or `null` for every operator, uncoerced: their code decides what the value means. A `null` reaches the query function as `null`.
+
+The validator coerces types: `"3"` for an integer column reaches the query as `3`. It coerces a value only against its own column and operator, so `"05"` for a string column stays `"05"` whatever other columns the model has.
+
 ### The generated schema
 
-`Model.filterSchema()` and `filterSchemaFor(columns)` return:
+`Model.filterSchema()` and `filterSchemaFor(columns, model?)` return, for `Title` (`eq`, `like`) and an integer `Views` (`gt`):
 
 ```json
 {
@@ -115,18 +142,25 @@ The names `b-like` and `e-like` read backwards: `b-like` is "ends with", `e-like
             "required": ["Column", "Operator"],
             "properties": {
               "Column": { "const": "Title" },
-              "Value": { "type": ["string", "integer", "array", "boolean"] },
               "Operator": { "type": "string", "enum": ["eq", "like"] }
             }
           },
+          "<one such item per column>",
           {
             "type": "object",
             "required": ["filters"],
             "properties": {
               "op": { "type": "string", "enum": ["and", "or"] },
-              "filters": { "type": "array", "items": { "type": "object", "anyOf": ["<the column items above>"] } }
+              "filters": { "type": "array", "items": { "type": "object", "anyOf": ["<the column items above>"], "allOf": ["<the value rules below>"] } }
             }
           }
+        ],
+        "allOf": [
+          {
+            "if": { "required": ["Column", "Operator"], "properties": { "Column": { "const": "Views" }, "Operator": { "enum": ["gt"] } } },
+            "then": { "required": ["Value"], "properties": { "Value": { "allOf": [{ "not": { "const": null } }, { "type": "integer" }] } } }
+          },
+          "<one rule per column and operator group>"
         ]
       }
     }
@@ -134,9 +168,10 @@ The names `b-like` and `e-like` read backwards: `b-like` is "ends with", `e-like
 }
 ```
 
-- `Value` is not required: `isnull`, `notnull`, `exists` and `n-exists` carry none.
+- The `anyOf` items admit a known column with one of its operators. The `allOf` rules check `Value`; `Value` appears only under a `then`, which is what keeps coercion to the matching column.
 - Groups nest one level in the schema. `.filter()` itself walks any depth.
 - A model with no `@Filterable` column returns `{}` from `filterSchema()` and `[]` from `filterColumns()`.
+- `FILTER_OPERATOR_GROUPS` maps every `FilterableOperators` member to its group.
 
 ## Services and extension points
 
@@ -152,8 +187,9 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 ## Important behaviour
 
 - All conditions sit in one `andWhere(...)` group, so they AND with conditions you add yourself.
-- Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries) are `InvalidArgument` and answer `400`. `@Filter()` rejects most of them earlier, also with a `400`.
-- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does.
+- Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries, an array for a single-value operator) are `InvalidArgument` and answer `400`. `@Filter()` rejects most of them earlier, also with a `400`.
+- `.filter()` called from code does not run the value schema: it checks presence, arrays for list and pair operators, a single value for `eq` to `lte`, and strings for the `like` family, not the column type.
+- The schema refuses more than 100 top-level entries (`MAX_FILTERS`), the limit `.filter()` applies: such a request answers `400` from validation, before `.filter()` runs. Neither limits the entries of a nested group.
 - Columns copied with `@Filterable(OtherModel)` (`Author.Name`) populate the relation and AND the condition onto the whole query. They cannot be ORed with other entries.
 - A column marked aggregate (`@Filterable(ops, null, true)`) lands in `HAVING`, ANDed with the rest of the query. It cannot be ORed with other entries either.
 - `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.
@@ -204,6 +240,10 @@ export class Article extends ModelBase<Article> {
 
   @Filterable(['isnull', 'notnull'])
   public PublishedAt: string;
+
+  /** A TEXT column holding a closed set: `value` narrows what a filter may send. */
+  @Filterable({ operators: ['eq', 'in'], value: { type: 'string', enum: ['draft', 'published', 'archived'] } })
+  public State: string;
 }
 ```
 
@@ -350,14 +390,14 @@ export class Article extends ModelBase<Article> {
 
 export function describeFilters() {
   return {
-    // [{ column: 'Title', operators: ['eq', 'like'], query: undefined }]
+    // [{ column: 'Title', operators: ['eq', 'like'], query: undefined, value: undefined }]
     columns: Article.filterColumns(),
     schema: Article.filterSchema(),
   };
 }
 ```
 
-Use both to build client-side filter UIs. `@spinajs/http-swagger` documents `@Filter` parameters with `filterSchema()`.
+Use both to build client-side filter UIs. `@spinajs/http-swagger` documents `@Filter` parameters with an envelope of its own, built from the same `@Filterable` declarations; it does not carry the value rules.
 
 ## Related
 

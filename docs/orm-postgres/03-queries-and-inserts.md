@@ -51,6 +51,8 @@ PostgreSQL's Bind message counts parameters in an Int16, so the driver's `MaxBin
 
 The driver registers `PostgresDatetimeValueConverter`, an `IsoDatetimeValueConverter`, as `DatetimeValueConverter`. A `Date` or luxon `DateTime` written to a `dateTime` / `timestamp` column, bound in a `where()`, or passed as a raw binding to `executeOnDb()` is sent as ISO 8601 in UTC with `Z` (`2026-10-19T12:00:00.123Z`). PostgreSQL reads that text as the exact instant, whatever the zone of the Node process. A model property declared `@DateTime()` reads back as a luxon `DateTime` in the `UTC` zone. Two exceptions: an unset (`undefined`) value stays unset, so the insert writes `DEFAULT`, and a value for a `date` column is written as its calendar day in its own zone (`2026-10-15`).
 
+A numeric column (`int2`, `int4`, `int8`, `numeric`, `float4`, `float8`) takes Unix seconds instead, or milliseconds under `@DateTime({ unit: 'milliseconds' })`. `pg` returns `int8` and `numeric` values as text; the converter reads that text as a number in the same unit. See [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md).
+
 ### Upsert
 
 `PostgresOnDuplicateQueryCompiler.compile()`:
