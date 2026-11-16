@@ -12,7 +12,13 @@ export interface ProblemDetails {
   /** Request URL, credentials in its query redacted. */
   instance?: string;
   code?: string;
-  /** Ajv errors, set for `ValidationFailed` only. */
+  /**
+   * Ajv errors, set for `ValidationFailed` only. An error of an argument checked against its manifest-derived schema also
+   * has `in` (`body`, `query`, `path`, `header` or `cookie`) and, unless the argument is the whole body, query, path or
+   * header set (a `@Body()` DTO, `@BodyField`, `@QueryField`), `name`, the key the argument has on the wire. Its
+   * `instancePath` is relative to the argument. An explicit `@Schema`, a route schema, a file or a multipart refusal sets
+   * neither.
+   */
   errors?: unknown;
   /** Only when `includeStack` is set and the app is not in production. */
   stack?: string;

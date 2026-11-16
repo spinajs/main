@@ -89,6 +89,7 @@ export function typecheckFiles(files: Record<string, string>, options: Typecheck
         ...swrTypes(options.swr ?? 'latest'),
         '@tanstack/react-query': [reactQueryTypes(options.reactQuery ?? 'latest')],
         'next/cache': [fileURLToPath(new URL('./next-cache.d.ts', import.meta.url))],
+        'react-hook-form': [join(dirname(fileURLToPath(import.meta.resolve('react-hook-form'))), 'index.d.ts')],
         zod: [join(zodRoot, 'index.d.ts')],
         'zod/mini': [join(zodRoot, 'mini/index.d.ts')],
       },

@@ -375,7 +375,7 @@ describe('generated hooks against a booted app', function () {
         const rejected = await run(create)({ body: { name: 'no email' } }).catch((e: unknown) => e);
         expect(rejected).to.be.instanceOf(ProblemError);
         expect((rejected as Problem).status).to.equal(400);
-        expect((rejected as Problem).problem.errors).to.deep.equal([{ instancePath: '', schemaPath: '#/required', keyword: 'required', params: { missingProperty: 'email' } }]);
+        expect((rejected as Problem).problem.errors).to.deep.equal([{ in: 'body', instancePath: '', schemaPath: '#/required', keyword: 'required', params: { missingProperty: 'email' } }]);
         await waitFor(() => create.error != null, 'the mutation error');
         expect(create.error).to.equal(rejected);
         expect(requests).to.deep.equal(['POST /users/create']);
