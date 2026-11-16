@@ -6,7 +6,7 @@ import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AccessDenied, AuthzConfigError } from '../contracts/errors.js';
 import { AuthorizationModel, Combinator, NativeFilter } from '../contracts/model.js';
-import type { ModelInitContext } from '../contracts/model.js';
+import type { IRCompileContext, ModelInitContext } from '../contracts/model.js';
 import { RelationResolver, ResourceAdapter, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { ScopeAttributeSchema } from '../contracts/adapter.js';
 import { AuthzAdmin } from '../contracts/admin.js';
@@ -18,7 +18,7 @@ import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit, DecisionCache } f
 import type { AccessSummary, AuthzChange, CheckInput } from '../contracts/service.js';
 import { SYSTEM, UNATTENDED } from '../contracts/principal.js';
 import type { Principal, ResourceRef, ResourceType } from '../contracts/principal.js';
-import type { Permission, PermissionDef } from '../contracts/permission.js';
+import type { Permission, PermissionDef, PermissionRegistry } from '../contracts/permission.js';
 import { FALSE } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { Decision } from '../contracts/decision.js';
@@ -67,6 +67,7 @@ interface Booted {
   /** The `disable` list of every level of the lineage, root first. */
   readonly disables: readonly (readonly string[])[];
   readonly registrations: readonly Registration[];
+  readonly registry: PermissionRegistry;
   readonly models: readonly AuthorizationModel[];
   /** The models each level of the lineage activated through its `models` list, root first; a child reuses them as they are. */
   readonly levelModels: readonly (readonly AuthorizationModel[])[];
@@ -144,6 +145,7 @@ export class DefaultAuthzService extends AuthzService {
       throw new AuthzConfigError(`AuthzService of domain ${q(this.name)} was disposed while it booted`);
     }
     if (pending !== undefined && pending.length > 0) this.invalidate([...new Set(pending.flat())]);
+    await this.preparePolicy(state);
     await super.resolve();
   }
 
@@ -235,6 +237,10 @@ export class DefaultAuthzService extends AuthzService {
     return this.state().models;
   }
 
+  irContext(model: AuthorizationModel): IRCompileContext {
+    return Object.freeze({ config: this.modelConfig(model), permissions: this.state().registry });
+  }
+
   admin(): AuthzAdmin {
     const s = this.state();
     if (!s.admin) throw new AuthzConfigError(`no AuthzAdmin is registered in domain ${q(s.name)}`);
@@ -281,6 +287,23 @@ export class DefaultAuthzService extends AuthzService {
       if (s.audit && s.cfg.audit.denials) this.record(s, { kind: 'deny', principal: decision.principal, permission: decision.permission, resource: decision.resource, reason: code });
       return deniedByHook(decision, code);
     }
+  }
+
+  private async preparePolicy(s: Booted): Promise<void> {
+    const policy = s.decisionLog?.policy;
+    if (policy?.prepare === undefined) return;
+    try {
+      await policy.prepare(s.name, this);
+    } catch (e) {
+      this.log.error({ error: thrownError(e), domain: s.name }, "Authz domain ${domain}: the policy hash source failed to prepare; decision records carry policyHash 'unknown'");
+    }
+  }
+
+  private modelConfig(model: AuthorizationModel): <T>(path: string, dflt?: T) => T {
+    return <T>(path: string, dflt?: T): T => {
+      const v = configAt(this.Config, [model.name, ...String(path).split('.')]);
+      return (v === undefined ? dflt : v) as T;
+    };
   }
 
   private state(): Booted {
@@ -547,6 +570,7 @@ export class DefaultAuthzService extends AuthzService {
       cfg,
       disables: Object.freeze(disables),
       registrations: Object.freeze(registrations),
+      registry,
       models: Object.freeze([...models]),
       levelModels: Object.freeze(levelModels.map((l) => Object.freeze([...l]))),
       used: Object.freeze([...claimed]),
@@ -601,10 +625,7 @@ export class DefaultAuthzService extends AuthzService {
       domain,
       container,
       permissions: registry,
-      config: <T>(path: string, dflt?: T): T => {
-        const v = configAt(this.Config, [model.name, ...String(path).split('.')]);
-        return (v === undefined ? dflt : v) as T;
-      },
+      config: this.modelConfig(model),
       registerPermissions(defs: readonly Omit<PermissionDef, 'source'>[]) {
         closed('registerPermissions');
         permissions.push(register(defs, source));

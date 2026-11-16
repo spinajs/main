@@ -5,7 +5,7 @@ import type { Permission } from './permission.js';
 import type { ResourceFilter } from './filter.js';
 import type { Decision, DecisionRequest, FieldSet, Trace } from './decision.js';
 import type { AuthzAdmin } from './admin.js';
-import type { AuthorizationModel, ModelSummary } from './model.js';
+import type { AuthorizationModel, IRCompileContext, ModelSummary } from './model.js';
 import type { AccessPlan } from './plan.js';
 
 // The @PerChildInstance() implementation is the host's.
@@ -32,6 +32,8 @@ export abstract class AuthzService extends AsyncService {
   abstract preload(principal: Principal): Promise<void>;
   abstract invalidate(tags: readonly string[]): void;
   abstract models(): readonly AuthorizationModel[];
+  /** The context `toIR` of a model of this domain compiles with: its `authz.<model>` config and the domain's permission registry. */
+  irContext?(model: AuthorizationModel): IRCompileContext;
   /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
   abstract admin(): AuthzAdmin;
 }

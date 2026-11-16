@@ -77,6 +77,8 @@ export interface IRCompileContext {
   /** Reads `authz.<model name>.<path>`, as `ModelInitContext.config` does. */
   readonly config: <T>(path: string, dflt?: T) => T;
   readonly permissions?: PermissionRegistry;
+  /** How policy held in database stores is compiled: 'include' (default) compiles what the model loaded, 'opaque' puts a `stored:<model>:<store>` term in its place, as the policy hash requires. */
+  readonly stored?: 'include' | 'opaque';
 }
 
 export interface ModelSummary {

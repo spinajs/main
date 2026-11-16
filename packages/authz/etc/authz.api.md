@@ -360,6 +360,7 @@ export interface ScopeAttributesQuery {
 import type { Permission } from "./permission.js";
 import type { ResourceRef } from "./principal.js";
 import type { DecisionReadSet } from "./tap.js";
+import type { AuthzService } from "./service.js";
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
     /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
@@ -395,6 +396,8 @@ export declare abstract class DecisionLog {
  */
 export declare abstract class PolicyHashSource {
     abstract policyHash(domain: string): string | undefined;
+    /** Awaited by the host once a domain with a decision log has booted, before its service resolves. */
+    prepare?(domain: string, service: AuthzService): Promise<void>;
 }
 /** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */
 export declare abstract class DecisionTraceContext {
@@ -765,6 +768,8 @@ export interface IRCompileContext {
     /** Reads `authz.<model name>.<path>`, as `ModelInitContext.config` does. */
     readonly config: <T>(path: string, dflt?: T) => T;
     readonly permissions?: PermissionRegistry;
+    /** How policy held in database stores is compiled: 'include' (default) compiles what the model loaded, 'opaque' puts a `stored:<model>:<store>` term in its place, as the policy hash requires. */
+    readonly stored?: "include" | "opaque";
 }
 export interface ModelSummary {
     readonly model: string;
@@ -930,7 +935,7 @@ import type { Permission } from "./permission.js";
 import type { ResourceFilter } from "./filter.js";
 import type { Decision, DecisionRequest, FieldSet, Trace } from "./decision.js";
 import type { AuthzAdmin } from "./admin.js";
-import type { AuthorizationModel, ModelSummary } from "./model.js";
+import type { AuthorizationModel, IRCompileContext, ModelSummary } from "./model.js";
 import type { AccessPlan } from "./plan.js";
 export declare abstract class AuthzService extends AsyncService {
     abstract readonly domain: string;
@@ -958,6 +963,8 @@ export declare abstract class AuthzService extends AsyncService {
     abstract preload(principal: Principal): Promise<void>;
     abstract invalidate(tags: readonly string[]): void;
     abstract models(): readonly AuthorizationModel[];
+    /** The context `toIR` of a model of this domain compiles with: its `authz.<model>` config and the domain's permission registry. */
+    irContext?(model: AuthorizationModel): IRCompileContext;
     /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
     abstract admin(): AuthzAdmin;
 }
