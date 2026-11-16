@@ -1,3 +1,21 @@
+# Release notes — orm-sqlite: ForeignKeys connection option
+
+## New
+
+- `@spinajs/orm-sqlite`: `ForeignKeys` connection option (`db.Connections[]`), default `false`. SQLite enforces foreign
+  keys only with `PRAGMA foreign_keys = ON` on each connection, and the driver never sent it, so the foreign keys that
+  migrations declare were not enforced. With `ForeignKeys: true` the driver runs the pragma on the writer and reads it
+  back before any statement can use the handle, on connect and on every health-check reconnect; the connect fails with
+  `OrmException` when the SQLite build ignores the pragma. The workaround the docs showed, a driver subclass that sends
+  the pragma after `super.connect()`, left a window in which a write could store an orphan row; it still works, and the
+  option replaces it. With the option on, altering a column (`.modify()`) of a table another table references throws
+  `NotSupported`, and `dropTable()` of a referenced table deletes the referencing rows under `ON DELETE CASCADE` or is
+  rejected with `ConstraintViolation` while they exist. To change such a table, switch the pragma off around the change,
+  outside any transaction: see `docs/orm-sqlite/04-schema-and-ddl.md`.
+
+> Docs: `docs/orm/01-connections.md`, `docs/orm-sqlite/01-connection.md`, `docs/orm-sqlite/04-schema-and-ddl.md`,
+> `docs/orm-sqlite/07-extending-the-driver.md`.
+
 # Release notes — orm: query() with a belongs-to populate keeps the owner's columns
 
 ## Fixes
