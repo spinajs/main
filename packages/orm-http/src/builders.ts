@@ -1,6 +1,6 @@
 import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, LikeLiteral } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
-import { _is_array, _min_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
+import { _is_array, _min_length, _max_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 /**
@@ -12,7 +12,8 @@ const ValidationHelpers = {
   },
 
   requireTwoValueArray: (filter: IFilter) => {
-    _check_arg(_is_array(), _min_length(2, new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires an array with exactly 2 values, got: ${filter.Value.length}`, filter.Column, 'LENGTH_TOO_SHORT')))(filter.Value, filter.Column);
+    const message = `Operator '${filter.Operator}' for column '${filter.Column}' requires an array with exactly 2 values, got: ${filter.Value?.length}`;
+    _check_arg(_is_array(), _min_length(2, new InvalidArgument(message, filter.Column, 'LENGTH_TOO_SHORT')), _max_length(2, new InvalidArgument(message, filter.Column, 'LENGTH_TOO_LONG')))(filter.Value, filter.Column);
   },
 
   requireString: (filter: IFilter) => {

@@ -65,7 +65,7 @@ sequenceDiagram
 | `b-like` | `LIKE '%value' ESCAPE '~'`: values **ending** with it | as `like` |
 | `e-like` | `LIKE 'value%' ESCAPE '~'`: values **beginning** with it | as `like` |
 | `regexp` | `REGEXP ?` | as `like` |
-| `between` / `notbetween` | `BETWEEN` / `NOT BETWEEN` | array, at least 2 values |
+| `between` / `notbetween` | `BETWEEN ? AND ?` / `NOT BETWEEN ? AND ?`, bounds converted like an `eq` value | array of exactly 2 values `[from, to]`, neither `null` |
 | `in` / `nin` | `IN (...)` / `NOT IN (...)` | array, at least 1 value |
 | `in-set` / `nin-set` | `whereInSet` / `whereNotInSet` | array, at least 1 value |
 | `isnull` / `notnull` | `IS NULL` / `IS NOT NULL` | none |
