@@ -33,12 +33,12 @@ sequenceDiagram
 
 ### Column mapping
 
-The lookup key is `IColumnDescriptor.Type`, the type string the driver reflects from the database.
+The lookup key is `IColumnDescriptor.Type`, the type string the driver reflects from the database, in lower case, without a `(...)` suffix and without the `unsigned`, `signed` and `zerofill` attributes: SQLite's declared `INTEGER UNSIGNED` or `DECIMAL(10,2)` match `integer` and `decimal`.
 
 | Column type | JSON schema |
 | --- | --- |
-| `tinyint`, `smallint`, `mediumint`, `int`, `bigint` | `{ type: 'integer' }` |
-| `decimal`, `float`, `double`, `bit` | `{ type: 'number' }` |
+| `tinyint`, `smallint`, `mediumint`, `int`, `integer`, `bigint`, `big int` | `{ type: 'integer' }` |
+| `decimal`, `numeric`, `float`, `real`, `double`, `bit` | `{ type: 'number' }` |
 | `boolean` | `{ type: 'boolean' }` |
 | `date` | `{ type: 'string', format: 'date' }` |
 | `dateTime`, `datetime`, `timestamp` | `{ type: 'string', format: 'date-time' }` |
@@ -48,7 +48,7 @@ The lookup key is `IColumnDescriptor.Type`, the type string the driver reflects 
 
 Then, in this order:
 
-1. Response flavour only: an entry in the driver's `OrmDriver.ResponseSchemaTypes` for the same type string replaces the shape above.
+1. Response flavour only: an entry in the driver's `OrmDriver.ResponseSchemaTypes` for the same type, compared the same way, replaces the shape above.
 2. A `BooleanValueConverter` (declared with `@Bool()`, or resolved for the column) makes it `{ type: 'boolean' }`.
 3. A `DatetimeValueConverter` (declared with `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` or `@Archived()`) makes it `{ type: 'string', format: 'date-time' }`. A `date` column keeps `format: 'date'`.
 4. A string property without a datetime converter gets `maxLength` from the column's `MaxLength` when it is above `0`.
