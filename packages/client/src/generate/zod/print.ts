@@ -36,6 +36,8 @@ interface Modifiers {
   inputChecks?: Check[];
   /** A function the value goes through first: Ajv's type coercion, or an ajv-keywords `transform`. Outermost first. */
   before?: string[];
+  /** A recursion that wraps a scalar in an array without end: the declaration refuses what overflows the stack. */
+  guarded?: boolean;
 }
 
 export type ZodNode = Modifiers &
@@ -64,7 +66,7 @@ export const use = (i: number): string => `${i}`;
 
 /** A declaration `z.looseObject(X.shape)` can open: a strict object and nothing around it. */
 export function isPlainObject(node: ZodNode): boolean {
-  return node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.inputChecks?.length && !node.before?.length && !node.nullable;
+  return node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.inputChecks?.length && !node.before?.length && !node.guarded && !node.nullable;
 }
 
 const opens = (checks: Check[] | undefined): Check[] | undefined => checks?.filter((c) => c.kind !== 'refine' || !c.closes);
@@ -130,6 +132,7 @@ export class Printer {
       code = this.mini ? `z.pipe(${input}, ${code})` : `${input}.pipe(${code})`;
     }
     for (const fn of [...(node.before ?? [])].reverse()) code = this.before(fn, code);
+    if (node.guarded) code = `guardDepth(${code})`;
     if (node.description !== undefined) {
       const text = literal(node.description);
       code = this.mini ? `${code}.register(z.globalRegistry, { description: ${text} })` : `${code}.describe(${text})`;

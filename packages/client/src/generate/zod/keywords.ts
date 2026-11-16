@@ -6,7 +6,7 @@ import { isJson, type Json } from './refs.js';
 /** What the keyword mappings need from the schema builder, bound to the node being built. */
 export interface KeywordHost {
   at: Location;
-  variant: 'request' | 'reply';
+  variant: 'request' | 'reply' | 'coerced';
   /** The schema a check reads: a reference, a hoisted const, or the schema inline inside a getter. */
   subject(schema: unknown, at: Location): ZodNode;
   /** A `@spinajs/client/formats` export, imported on use. */

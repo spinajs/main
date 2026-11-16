@@ -23,12 +23,16 @@ export interface Scope {
 
 /**
  * - `request`: `<Name>Schema`, as the server validates a JSON body.
+ * - `coerced`: `<Name>Coerced`, coerced as Ajv's `coerceTypes: 'array'` does for query, path, header and cookie values.
  * - `reply`: a lenient reply variant (FG-7), whose checks read the request schemas.
  */
-export type Variant = 'request' | 'reply';
+export type Variant = 'request' | 'reply' | 'coerced';
 
 // Each variant hoists its checks under its own prefix, so the variants of one schema can be told apart.
-const HOIST_PREFIX: Record<Variant, string> = { request: '_check', reply: '_replyCheck' };
+const HOIST_PREFIX: Record<Variant, string> = { request: '_check', coerced: '_coercedCheck', reply: '_replyCheck' };
+
+// The types Ajv's coercion can turn a value into; an object is never coerced.
+const COERCED = new Set(['string', 'number', 'integer', 'boolean', 'null', 'array']);
 
 // Keywords the emitter cannot map: dropping one makes the schema looser than the server.
 const UNMAPPED = new Set([
@@ -124,6 +128,9 @@ function withoutId(schema: unknown): unknown {
   return Object.fromEntries(Object.entries(schema).filter(([key]) => key !== '$id' && !key.startsWith('x-')));
 }
 
+// A function expression, ready to be called: an arrow needs parentheses.
+const call1 = (fn: string): string => (/^[A-Za-z_$][\w$]*$/.test(fn) ? fn : `(${fn})`);
+
 function withoutKey(schema: Json, key: string): Json {
   return Object.fromEntries(Object.entries(schema).filter(([k]) => k !== key));
 }
@@ -146,7 +153,7 @@ function valueType(value: unknown): string {
 export class ZodBuilder {
   /** Names imported from `@spinajs/client/formats`. */
   public readonly formats = new Set<string>();
-  public readonly helpers = new Set<'oneOf' | 'oneOfReply'>();
+  public readonly helpers = new Set<'oneOf' | 'oneOfReply' | 'guardDepth'>();
   /** Names of declarations that print as a plain strict object, so `z.looseObject(X.shape)` opens them. */
   public readonly plainObjects = new Set<string>();
   private readonly hoisted: { name: string; node: ZodNode }[] = [];
@@ -178,7 +185,7 @@ export class ZodBuilder {
     this.reportUnmapped(schema, scope);
     const node = this.conjunction(this.parts(schema, scope), scope);
     const input = inputChecks(schema, this.host(scope));
-    const before = [transform(schema, this.host(scope))].filter((fn): fn is string => fn !== undefined);
+    const before = [this.coercion(schema, scope), transform(schema, this.host(scope))].filter((fn): fn is string => fn !== undefined);
     return {
       ...node,
       ...(input.length ? { inputChecks: [...(node.inputChecks ?? []), ...input] } : {}),
@@ -210,6 +217,16 @@ export class ZodBuilder {
     return node.kind === 'ref' || scope.deferred ? node : { kind: 'ref', name: this.hoist(node, scope) };
   }
 
+  /** Ajv coerces a value at the node's `type` keyword, before any other keyword of the node sees it. */
+  private coercion(schema: Json, scope: Scope): string | undefined {
+    if (scope.variant !== 'coerced') return undefined;
+    const declared: unknown[] = typeof schema.type === 'string' ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
+    const types = [...declared, ...(schema.nullable === true && declared.length > 0 && !declared.includes('null') ? ['null'] : [])];
+    if (!types.some((t) => COERCED.has(t as string))) return undefined;
+    const single = types.length === 1 ? `coerce${String(types[0]).charAt(0).toUpperCase()}${String(types[0]).slice(1)}` : undefined;
+    return single ? this.format(single) : `(v) => ${this.format('ajvCoerce')}(v, ${JSON.stringify(types)})`;
+  }
+
   /**
    * The parts of one node, all of which must match. A closed object among them carries the others as checks: in a
    * `z.intersection`, zod 4.4 and later ignore a key one side rejects when the other side accepts it, and the server
@@ -218,7 +235,7 @@ export class ZodBuilder {
   private conjunction(parts: ZodNode[], scope: Scope): ZodNode {
     if (parts.length === 0) return UNKNOWN;
     const closed = parts.find((p) => p.kind === 'object' && p.mode === 'strict');
-    if (parts.length > 1 && !closed && this.rewrites(parts)) return this.sequential(parts, scope);
+    if (parts.length > 1 && !closed && this.rewrites(parts, scope)) return this.sequential(parts, scope);
     if (!closed || parts.length === 1 || scope.deferred) return parts.reduce((a, b) => call('intersection', { node: a }, { node: b }));
     const checks = parts
       .filter((p) => p !== closed)
@@ -229,9 +246,9 @@ export class ZodBuilder {
     return { ...closed, checks: [...(closed.checks ?? []), ...checks] };
   }
 
-  // A part that rewrites the value (`transform`) and another that passes it through give outputs zod cannot merge.
-  private rewrites(parts: ZodNode[]): boolean {
-    return parts.some((p) => nodesIn(p).some((n) => n.before?.length));
+  // A part that rewrites the value (coercion, `transform`) and another that passes it through give outputs zod cannot merge.
+  private rewrites(parts: ZodNode[], scope: Scope): boolean {
+    return scope.variant === 'coerced' || parts.some((p) => nodesIn(p).some((n) => n.before?.length));
   }
 
   /**
@@ -373,6 +390,7 @@ export class ZodBuilder {
   private anyOf(members: unknown[], scope: Scope): ZodNode {
     const isNull = (m: unknown): boolean => isJson(m) && m.type === 'null' && Object.keys(m).length === 1;
     const nodes = members.map((m, i) => ({ m, node: () => this.node(m, { ...scope, at: child(scope.at, 'anyOf', i) }) }));
+    if (scope.variant === 'coerced') return this.union(this.threaded(members, nodes.map((n) => n.node()), scope));
     const others = nodes.filter((n) => !isNull(n.m));
     if (others.length === 1 && others.length < nodes.length) return { ...others[0].node(), nullable: true };
     const lenient = nodes.map((n) => n.node());
@@ -389,15 +407,45 @@ export class ZodBuilder {
     return exact.every((node, i) => JSON.stringify(node) === JSON.stringify(lenient[i])) ? [] : exact;
   }
 
+  /**
+   * The branches of a coerced `anyOf` or `oneOf`. Ajv coerces the value in place at each branch's `type`, a failing
+   * branch included, so a branch sees what the ones before it coerced: `'0'` failing `{ type: 'integer', minimum: 1 }`
+   * reaches the next branch as `0`, which `{ type: 'null' }` turns into `null`. Coercion inside a branch's properties
+   * is not followed: an object has no coercion of its own, so such a branch sees the value as sent.
+   */
+  private threaded(members: unknown[], nodes: ZodNode[], scope: Scope): ZodNode[] {
+    const steps: string[] = [];
+    return nodes.map((node, i) => {
+      const chain = steps.length ? [`(v) => ${steps.reduceRight((arg, fn) => `${call1(fn)}(${arg})`, 'v')}`] : [];
+      const coerce = this.topCoercion(members[i], scope);
+      if (coerce) steps.unshift(coerce);
+      return chain.length ? { ...node, before: [...chain, ...(node.before ?? [])] } : node;
+    });
+  }
+
+  /** The coercion at a schema's own `type`, following `$ref`: the part of a branch's in-place change the emitter models. */
+  private topCoercion(member: unknown, scope: Scope, depth = 0): string | undefined {
+    if (!isJson(member) || depth > 8) return undefined;
+    if ('type' in member) return this.coercion(member, scope);
+    const key = typeof member.$ref === 'string' ? this.graph.resolve(member.$ref, scope.at.schema) : undefined;
+    const entry = key === undefined ? undefined : this.graph.get(key);
+    // Ajv inlines only a target without a $ref of its own; a compiled one coerces a copy the next branch never sees.
+    if (!entry || refsIn(entry.schema).length > 0) return undefined;
+    return this.topCoercion(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } }, depth + 1);
+  }
+
   private union(nodes: ZodNode[]): ZodNode {
     if (nodes.length === 0) return call('never');
     return nodes.length === 1 ? nodes[0] : { ...call('union', { list: nodes }), acceptsUndefined: nodes.some((n) => n.acceptsUndefined) };
   }
 
   private oneOf(schema: Json, members: unknown[], scope: Scope): ZodNode {
-    const nodes = members.map((m, i) => this.node(m, { ...scope, at: child(scope.at, 'oneOf', i) }));
+    const built = members.map((m, i) => this.node(m, { ...scope, at: child(scope.at, 'oneOf', i) }));
+    // Ajv counts every branch, each on the value the ones before it coerced.
+    const nodes = scope.variant === 'coerced' ? this.threaded(members, built, scope) : built;
     if (nodes.length <= 1) return nodes[0] ?? call('never');
-    const discriminator = this.discriminator(schema, members, nodes, scope.at.schema);
+    // A coerced tag is a pipe, whose tag values zod's discriminated union cannot read.
+    const discriminator = scope.variant === 'coerced' ? undefined : this.discriminator(schema, members, nodes, scope.at.schema);
     if (discriminator) return call('discriminatedUnion', { code: literal(discriminator) }, { list: nodes });
     const exact = this.exact(members, 'oneOf', nodes, scope);
     this.helpers.add(exact.length > 0 ? 'oneOfReply' : 'oneOf');
@@ -605,14 +653,18 @@ export class ZodBuilder {
   }
 
   /**
-   * A loose object item parses without an own `__proto__` key, which Ajv compares, so such items are compared as sent.
-   * Other items are compared parsed, which keeps the array's input type.
+   * A loose object item parses without an own `__proto__` key, which Ajv compares, so such items are compared as sent,
+   * each coerced by its own `type` (Ajv checks `uniqueItems` after `items`). Other items are compared parsed, which
+   * keeps the array's input type.
    */
   private uniqueItems(schema: Json, scope: Scope): { check: Check; asSent: boolean } {
     const slots = Array.isArray(schema.items) ? [...(schema.items as unknown[]), schema.additionalItems] : [schema.items];
     const asSent = slots.some((slot) => this.mayBeLooseObject(slot, scope.at.schema));
-    const fn = asSent ? `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(a)` : this.format('ajvUniqueItems');
-    return { check: { kind: 'refine', fn, message: 'must NOT have duplicate items' }, asSent };
+    const message = 'must NOT have duplicate items';
+    if (!asSent) return { check: { kind: 'refine', fn: this.format('ajvUniqueItems'), message }, asSent };
+    const coerce = Array.isArray(schema.items) ? undefined : this.topCoercion(schema.items, scope);
+    const items = coerce ? `a.map(${call1(coerce)})` : 'a';
+    return { check: { kind: 'refine', fn: `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(${items})`, message }, asSent };
   }
 
   // Unless the schema says otherwise: a typed non-object, a closed object, or a $ref to one.
