@@ -75,6 +75,8 @@ describe('generateClientFiles', () => {
       'socket-hooks': { available: true },
       server: { available: true },
       next: { available: true },
+      mocks: { available: false },
+      msw: { available: false },
     });
   });
 
@@ -91,9 +93,15 @@ describe('generateClientFiles', () => {
     expect(() => assertUniquePaths([file('client.ts'), file('client.keys.ts'), file('client.keys.ts')])).to.throw('generateClientFiles: two emitters write client.keys.ts');
   });
 
+  it('names the server, next, mocks and msw targets, with next implying server', () => {
+    expect(requestedTargets({ manifest, server: true, mocks: true, msw: true })).to.deep.equal(['server', 'mocks', 'msw']);
+    expect(requestedTargets({ manifest, next: true })).to.deep.equal(['server', 'next']);
+  });
+
   const rejections: [string, Partial<GenerateClientFilesOptions>, string][] = [
     ['an unknown hooks target, naming the allowed ones', { hooks: ['react-query', 'vue' as 'swr'] }, "generateClientFiles: unknown hooks target 'vue'; use react-query or swr"],
     ['a hooks target listed twice', { hooks: ['swr', 'react-query', 'swr'] }, "generateClientFiles: hooks target 'swr' is listed twice"],
+    ['msw without mocks', { msw: true }, 'generateClientFiles: msw needs mocks, because the handlers are generated from the mocks'],
     ['socketHooks without hooks', { socketHooks: true }, 'generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks'],
   ];
   for (const [what, options, message] of rejections) {

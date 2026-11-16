@@ -19,6 +19,8 @@ export interface GeneratedFile {
 
 export interface ZodOptions {
   mini?: boolean;
+  /** Lenient reply schemas next to the strict request schemas. */
+  replies?: boolean;
   unsupported?: 'warn' | 'error';
 }
 
@@ -35,6 +37,9 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   server?: boolean;
   /** Writes `client.next.ts`, with Next.js cache tags and revalidation helpers; implies `server` and writes `client.keys.ts`. */
   next?: boolean;
+  mocks?: boolean;
+  /** Adds `client.msw.ts`; needs `mocks`. */
+  msw?: boolean;
 }
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
@@ -43,7 +48,7 @@ const HOOKS_TARGET_SET: Record<HooksTarget, true> = { 'react-query': true, swr: 
 
 const HOOKS_TARGETS = Object.keys(HOOKS_TARGET_SET) as HooksTarget[];
 
-export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server' | 'next';
+export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server' | 'next' | 'mocks' | 'msw';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
@@ -54,6 +59,8 @@ export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly avai
   'socket-hooks': { available: true },
   server: { available: true },
   next: { available: true },
+  mocks: { available: false },
+  msw: { available: false },
 };
 
 // `hookRoutes` is built once, so every hooks file prints the same routes.
@@ -102,6 +109,8 @@ export function requestedTargets(options: GenerateClientFilesOptions): Generator
     'socket-hooks': !!options.socketHooks,
     server: !!options.server || !!options.next,
     next: !!options.next,
+    mocks: !!options.mocks,
+    msw: !!options.msw,
   };
   return (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => requested[t]);
 }
@@ -112,6 +121,7 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   if (unknown !== undefined) throw new Error(`generateClientFiles: unknown hooks target '${unknown}'; use ${HOOKS_TARGETS.join(' or ')}`);
   const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
   if (twice !== undefined) throw new Error(`generateClientFiles: hooks target '${twice}' is listed twice`);
+  if (options.msw && !options.mocks) throw new Error('generateClientFiles: msw needs mocks, because the handlers are generated from the mocks');
   if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks');
   if (options.socketHooks && options.includeSocket === false) throw new Error('generateClientFiles: socketHooks needs the socket contracts, which includeSocket: false leaves out of client.ts');
   if (options.keyPrefix === '') throw new Error('generateClientFiles: keyPrefix must not be empty');
