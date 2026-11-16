@@ -4,6 +4,7 @@ export * from './validator.js';
 export * from './read.js';
 export * from './hash.js';
 export * from './merge.js';
+export * from './tenancy.js';
 export * from './diff.js';
 export * from './client-names.js';
 export * from './mounted.js';

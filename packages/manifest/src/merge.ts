@@ -1,6 +1,7 @@
 import { canonicalize, hashManifest } from './hash.js';
+import { defaultEntryPoints, mountsTenantMiddleware, undeclaredTenancy } from './tenancy.js';
 import { MANIFEST_VERSION } from './types.js';
-import type { AuthzSection, Diagnostic, Manifest, ManifestFragment, ModelEntry } from './types.js';
+import type { AuthzSection, Diagnostic, Manifest, ManifestFragment, ModelEntry, TenancySection } from './types.js';
 
 export interface MergeMeta {
   app: Manifest['app'];
@@ -65,6 +66,29 @@ function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefin
   return models.map((m) => (m.accessResource === undefined && types.has(m.id) ? { ...m, accessResource: types.get(m.id) } : m));
 }
 
+/**
+ * Once a package declares tenancy, or `TenantMiddleware` is mounted on every route, the section covers every entry point:
+ * a fragment without one contributes its own as undeclared. Only the merge knows the global mount, so only here can an
+ * undeclared route become `required`.
+ */
+function mergeTenancy(fragments: ManifestFragment[], globals: Manifest['globalRouteMiddlewares']): TenancySection | undefined {
+  const globalMount = mountsTenantMiddleware(globals);
+  if (!globalMount && !fragments.some((f) => f.tenancy)) return undefined;
+  const entryPoints = fragments.flatMap((f) => f.tenancy?.entryPoints ?? defaultEntryPoints(f));
+  return {
+    models: fragments.flatMap((f) => f.tenancy?.models ?? []),
+    entryPoints: entryPoints.map((e) => (e.declared === undefined ? { ...e, tenancy: undeclaredTenancy(e.kind, globalMount) } : e)),
+    escapes: fragments.flatMap((f) => f.tenancy?.escapes ?? []),
+    ignores: fragments.flatMap((f) => f.tenancy?.ignores ?? []),
+  };
+}
+
+/** `registerTenantModel(JobModel)` in one package makes a model of another a tenant model. */
+function withRegisteredTenants(models: ModelEntry[], tenancy: TenancySection | undefined): ModelEntry[] {
+  const tenants = new Map(tenancy?.models.map((m) => [m.model, m.tenant]));
+  return models.map((m) => (m.tenant === undefined && tenants.has(m.id) ? { ...m, tenant: tenants.get(m.id) } : m));
+}
+
 function buildFields(meta: MergeMeta): Pick<Manifest, 'buildEnv' | 'schemaDerivation' | 'globalRouteMiddlewares' | 'compilerVersion'> {
   return {
     ...(meta.buildEnv ? { buildEnv: meta.buildEnv } : {}),
@@ -87,6 +111,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
   const socketControllerBases = collect((f) => f.socketControllerBases ?? []);
   const classProperties = collect((f) => f.classProperties ?? []);
   const authz = mergeAuthz(fragments);
+  const tenancy = mergeTenancy(fragments, meta.globalRouteMiddlewares);
   const workflows = plain((f) => f.workflows ?? []);
   const sqlQueries = collect((f) => f.sqlQueries ?? []);
   const sqlDialects = plain((f) => f.sqlDialects ?? []);
@@ -106,7 +131,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     ...(classProperties.length ? { classProperties } : {}),
     configModules: plain((f) => f.configModules),
     configUsages: plain((f) => f.configUsages),
-    models: withRegisteredTypes(collect((f) => f.models), authz),
+    models: withRegisteredTenants(withRegisteredTypes(collect((f) => f.models), authz), tenancy),
     migrations: collect((f) => f.migrations),
     schedules: plain((f) => f.schedules),
     commands: plain((f) => f.commands),
@@ -116,6 +141,7 @@ export function mergeFragments(app: ManifestFragment, deps: ManifestFragment[], 
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
+    ...(tenancy ? { tenancy } : {}),
     schemas,
     diagnostics,
     ...buildFields(meta),
