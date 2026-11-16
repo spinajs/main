@@ -76,6 +76,20 @@ Converters match by class name along the prototype chain, so a driver subclass s
 | `SchemaProvider` (from `@spinajs/validation`) | Resolves a type name to a JSON schema; `getResponseSchema()` for the read side | `ModelSchemaProvider`, registered with `@Injectable(SchemaProvider)` when `@spinajs/orm` loads | Register another provider with `@Injectable(SchemaProvider)`; consumers ask every provider and take the first answer |
 | `OrmDriver.ResponseSchemaTypes` | Per-type shapes the driver returns differently from what it accepts; response flavour only | `{}` in `OrmDriver`. `@spinajs/orm-mysql`: `decimal`, `newdecimal`, `numeric` → `string`. `@spinajs/orm-postgres`: `decimal`, `numeric`, `bigint` → `string`. | Redeclare the field in a driver subclass |
 | `buildModelJsonSchema(descriptor, kind?)` | Builds one flavour from a descriptor; `kind: ModelSchemaKind` is `'request'` (default) or `'response'` | — | Call it directly for tooling; the stored results come from `Orm` |
+| `columnToSchema(col, overrides?, declaredConverter?, declaredOptions?)` | Builds the property of one `IColumnDescriptor` by the [column mapping](#column-mapping) and returns it as `IColumnJsonSchema`. `overrides` are per-type shapes that win over the table, keyed by type in any case; `declaredConverter` and `declaredOptions` are the `Class` and `Options` of the column's `descriptor.Converters` entry | — | Call it for one column; `@spinajs/orm-http` types filter values with it |
+| `normalizeSqlType(type)` | Returns a reflected column type in the spelling the mapping compares: lower case, without a `(...)` size, without `unsigned`, `signed` and `zerofill` | — | Call it before you compare `IColumnDescriptor.Type` with a type list of your own |
+
+`IColumnJsonSchema` has the optional keys `type`, `format`, `maxLength`, `description`, `nullable`, `items` (an `IColumnJsonSchema`) and `enum`, and accepts any other keyword.
+
+| `normalizeSqlType()` input | Result |
+| --- | --- |
+| `INTEGER`, `INTEGER UNSIGNED` | `integer` |
+| `int(11) unsigned zerofill` | `int` |
+| `BIGINT(20)`, `BIGINT SIGNED` | `bigint` |
+| `UNSIGNED BIG INT` | `big int` |
+| `DECIMAL(10,2)`, `decimal(10, 2) unsigned` | `decimal` |
+| `DOUBLE PRECISION` | `double precision` |
+| `VARCHAR(64)` | `varchar` |
 
 ```ts
 // A driver whose client library returns DECIMAL as a string: tell the response schema so
@@ -104,6 +118,7 @@ export class LedgerDriver extends SqlDriver {
 - `required` lists every column that is not nullable and not auto-increment. A column with a database default is still required.
 - The request flavour keeps `@Hidden()` columns: hiding a value on the way out does not stop a client sending it. Use `@Ignore()` for a property outside the table.
 - Driver overrides apply to the response flavour only. On mysql a `DECIMAL` is `number` in a request and `string` in a response.
+- `@spinajs/orm-postgres` reflects PostgreSQL's `udt_name`. The names `int2`, `int4`, `int8`, `float4`, `float8` and `bool` are not in the column mapping, so those columns publish `{ type: 'string' }` unless `@Bool()`, `@Int64()` or `@DateTime()` sets the type.
 - `nullable: true` is the OpenAPI 3.0 keyword, not a JSON Schema type union.
 - `ModelSchemaProvider` maps models by class name. Two model classes with the same name share one entry: the one registered last wins.
 - Models registered after `ModelSchemaProvider.resolve()` ran are not in its map.
@@ -189,6 +204,29 @@ export async function invoiceSchemas() {
     response: descriptor.ResponseSchema,
     rebuilt: buildModelJsonSchema(descriptor, 'response'),
   };
+}
+```
+
+### List the JSON schema of a model's money columns
+
+SQLite reports `DECIMAL(10,2)` and MySQL `decimal`; `normalizeSqlType()` gives both the same name.
+
+```ts sample
+import { IColumnJsonSchema, ModelBase, columnToSchema, normalizeSqlType } from '@spinajs/orm';
+
+export function moneyColumns(model: typeof ModelBase): Record<string, IColumnJsonSchema> {
+  const descriptor = model.getModelDescriptor();
+  const money: Record<string, IColumnJsonSchema> = {};
+
+  for (const column of descriptor.Columns) {
+    if (['decimal', 'numeric'].includes(normalizeSqlType(column.Type ?? ''))) {
+      const converter = descriptor.Converters.get(column.Name);
+      // the request shape: no driver overrides
+      money[column.Name] = columnToSchema(column, {}, converter?.Class, converter?.Options);
+    }
+  }
+
+  return money;
 }
 ```
 

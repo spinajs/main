@@ -19,7 +19,7 @@ A value converter turns one column's database value into a JS value and back: a 
 3. `model.hydrate(row)` resolves every `ModelHydrator` from the connection's container and runs them in registration order:
    - `DbPropertyHydrator` sets each key that is a model column, through `column.Converter.fromDB(value, row, options)`.
    - `NonDbPropertyHydrator` copies every other key unchanged.
-   - `OneToManyRelationHydrator` and `OneToOneRelationHydrator` turn nested relation data into relation objects with hydrated target models.
+   - `OneToManyRelationHydrator` and `OneToOneRelationHydrator` turn nested relation data into relation objects with hydrated target models. A belongs-to row whose values are all `null` or `undefined` (a `NULL` foreign key) gives a `SingleRelation` with `Value` `undefined` and `Populated` `true`; the rows of belongs-to relations populated under it are checked the same way and do not count as data.
    - `JunctionModelPropertyHydrator` fills `@JunctionTable()` properties from the row's `JunctionModel` data.
 4. The builder calls `takeSnapshot()`, then the `afterHydration()` middlewares.
 
@@ -94,6 +94,8 @@ Two exported helpers hold the instant rules the datetime converters share; use t
 | --- | --- |
 | `toInstant(value, column?, unit = 'seconds')` | Write side. A `DateTime`, a `Date`, a number of `unit` since the epoch, or ISO 8601 / SQL text (no offset = UTC) to a valid `DateTime` in UTC. `null`, `undefined` and `''` give `null`, and so does an invalid `DateTime` or `Date`. Text that is neither ISO 8601 nor SQL, or any other type, throws `InvalidArgument` naming `column`. |
 | `instantFromDb(value, unit = 'seconds')` | Read side. The same inputs to a `DateTime` in UTC, and numeric text that is not ISO 8601 or SQL (pg `int8`, MSSQL `bigint` and mysql2 `DECIMAL` arrive as text) as a number of `unit`. Short numeric text stays ambiguous, because ISO 8601 and SQL parsing run first: `'2026'` reads as a year, `'123456'` as a time of day, `'20261019'` as a date; 10- and 13-digit epochs are not affected. Never throws: an empty value or one that does not parse gives `null`. |
+
+Three exported types describe the `options` argument these converters receive: `DateTimeUnit` (`'seconds' | 'milliseconds'`), `IDateTimeConverterOptions` (`{ unit?: DateTimeUnit }`) and `IBoolConverterOptions` (`{ nullable?: boolean }`).
 
 Default `__orm_db_value_converters__` map, registered by `Orm.registerDefaultConverters()`:
 
@@ -176,7 +178,7 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - A decorator's converter class that is not registered in DI is skipped without an error. Register it, for example with `@Injectable()`.
 - The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns.
 - `@DateTime()` reads the emitted design type. `DateTime | null` emits `Object` and throws at class definition unless the decorator is given `nullable: true`. `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` keep the strict check and always use seconds.
-- On SQLite a column declared with a numeric type in any case (`INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, ...) receives Unix seconds from `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`; they share `DatetimeValueConverter`. Earlier versions wrote ISO text into a column declared in upper case. Convert such rows once, see the `@spinajs/orm-sqlite` release notes and [SQLite value conversion](../orm-sqlite/04-schema-and-ddl.md#value-conversion).
+- On SQLite a column declared with a numeric type in any case (`INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, ...) receives Unix seconds from `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`; they share `DatetimeValueConverter`. A numeric column that holds ISO text written by an earlier version needs a one-time conversion; see [Migration](../orm-sqlite/04-schema-and-ddl.md#migration).
 - `@DateTime({ unit: 'milliseconds' })` changes only numeric columns. A fraction of a millisecond is dropped (floored). `toJSON()` and `dehydrate()` still emit ISO 8601, and `dateTimeFormat: 'unix'` still emits seconds.
 - `DateTimeHydrator` in `@spinajs/http` reads a numeric query or body value as Unix **seconds**, whatever the column's unit; send ISO 8601 or replace the hydrator. See [Argument hydrators](../http/06-argument-hydrators.md#datetimehydrator).
 - `@Bool()` reads the emitted design type too: `boolean | null` emits `Object` and throws unless the decorator is `@Bool({ nullable: true })`. `where(column, null)` compiles to `IS NULL` with or without the option. `whereIn(column, [null, true])` binds `NULL`, which matches no row in SQL, so it finds only the `true` rows; use `whereNull(column)` for the NULL rows, and for both `where(function () { this.whereIn(column, [true]).orWhere(column, null); })`.

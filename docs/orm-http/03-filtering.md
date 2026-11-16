@@ -115,9 +115,11 @@ The column's type comes from, in this order:
 2. The model column, for a column with a table behind it: its `type`, `format` and `enum` from the model's JSON schema. An integer column takes integers, a float column numbers, a `@DateTime()` column ISO-8601 date-time strings. A `set` column takes the type of one set item. A column copied with `@Filterable(OtherModel)` (`Author.Name`) is typed by `OtherModel`'s column.
 3. Otherwise any string, number or boolean.
 
+On PostgreSQL the driver reflects the type names `int2`, `int4`, `int8`, `float4`, `float8` and `bool`, which the model's [column mapping](../orm/11-json-schema.md#column-mapping) does not list. A filter value for such a column is checked as a string: `"abc"` passes and a number is coerced to text. Declare `value` on those columns.
+
 Over `@Filter()` a typed value is never `null`, alone or in a list or pair, also when the declared `value` schema allows `null`: coercion would turn it into `0`, `false` or `""` and compare with that, so the request answers `400`. A `like` family value of `null` is coerced to `""`, which `.filter()` refuses as an empty pattern, also with a `400`. Filter on `isnull` / `notnull` instead. Called from code, `.filter()` runs no schema, and `eq null` / `neq null` still compile to `IS NULL` / `IS NOT NULL`.
 
-A column with a custom `query` and no `value`, and a virtual filter-only column without `value`, take any string, number, boolean, array or `null` for every operator, uncoerced: their code decides what the value means. A `null` reaches the query function as `null`; before this schema, coercion handed it `""`.
+A column with a custom `query` and no `value`, and a virtual filter-only column without `value`, take any string, number, boolean, array or `null` for every operator, uncoerced: their code decides what the value means. A `null` reaches the query function as `null`.
 
 The validator coerces types: `"3"` for an integer column reaches the query as `3`. It coerces a value only against its own column and operator, so `"05"` for a string column stays `"05"` whatever other columns the model has.
 
