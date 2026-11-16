@@ -6680,13 +6680,13 @@
   },
   "packages/orm/src/hydrators.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
+      "count": 27
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
