@@ -28,6 +28,7 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
 | `whereInSet('Roles', [])` / negated | `MsSqlInSetStatement` | `(1 = 0)` / `(1 = 1)` |
 | `whereStartsWith('Path', 'docs[1]/')` | `MsSqlStartsWithStatement` | `[Path] LIKE ? ESCAPE '~'`, bound `'docs~[1]/%'`; `[` is escaped as well, since T-SQL `LIKE` reads it as a character class; whether case variants match follows the column's collation |
+| `where('Name', 'like', LikeLiteral.contains('docs[1]'))` | `MsSqlWhereStatement` | `[Name] LIKE ? ESCAPE '~'`, bound `'%docs~[1]%'`; `[` is escaped as for `whereStartsWith()` |
 | `whereIn('Id', [1, 2])` | `MsSqlInStatement` | `[Id] IN (?,?)` |
 | `whereIn('Id', list)` with more than 200 strings or numbers | `MsSqlInStatement` | `[Id] IN (SELECT [value] FROM OPENJSON(?))`, bound `JSON.stringify(list)`; `whereNotIn()` writes `NOT IN` |
 | `whereIn('Id', [])` / `whereNotIn('Id', [])` | shared `SqlInStatement` | `1 = 0` / `1 = 1` |
@@ -55,7 +56,8 @@ All registered in the driver's child container by `MsSqlOrmDriver.resolve()`; no
 | Deletes | `DeleteQueryCompiler`, new instance | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlDeleteQueryCompiler`, override `compile()` or `from()`. |
 | Set membership | `InSetStatement`, new instance | `MsSqlInSetStatement` | `SqlInSetStatement` (portable `=` and `LIKE` patterns) | Extend `InSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
 | `whereIn()` lists | `InStatement`, new instance | `MsSqlInStatement` (`listThreshold = 200`, `OPENJSON`) | `SqlInStatement` (always `IN (?, ...)`) | Extend `SqlInStatement`; set `listThreshold`, override `listExpression(column)` and `listBinding(values)`. |
-| Prefix match | `StartsWithStatement`, new instance | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` (does not escape `[`) | Extend `SqlStartsWithStatement`, override `pattern()`. |
+| Prefix match | `StartsWithStatement`, new instance | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` (does not escape `[`) | Extend `MsSqlStartsWithStatement` (exported from `@spinajs/orm-mssql`) and override `pattern()`, calling `super.pattern()` to keep the `[` escape; register `.as(StartsWithStatement)`. |
+| Where conditions, `LikeLiteral` | `WhereStatement`, new instance | `MsSqlWhereStatement` | `SqlWhereStatement` (does not escape `[`) | Extend `MsSqlWhereStatement` (exported from `@spinajs/orm-mssql`), override `escapeLike(text)` calling `super.escapeLike(text)`, or `build()`; register `.as(WhereStatement)`. Keep the `(column, operator, value, builder)` constructor, which `clone()` calls. |
 | Text cast | `TextWrapper`, new instance | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | `SqlTextWrapper` (`TEXT`) | Extend `SqlTextWrapper`, override `textType()`. |
 | `driver.now()` | `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | | Extend `NowExpression`, implement `sql()`. |
 | Recursive CTE | `RecursiveQueryCompiler` | **none** | `SqlRecursiveQueryCompiler` (`WITH RECURSIVE`, not T-SQL) | Implement `RecursiveQueryCompiler` with `WITH cte AS (...)` and register it. |

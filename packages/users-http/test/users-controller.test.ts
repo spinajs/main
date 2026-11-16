@@ -177,6 +177,24 @@ describe('Admin user controllers', function () {
       expect(data[0].Login).to.eq('admin');
     });
 
+    it('matches a user:niceName like filter value literally, LIKE wildcards included', async () => {
+      const logins = async (Operator: string, Value: string) => (await body<{ Login: string }[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('user:niceName', Operator, Value)))).map((u) => u.Login).sort();
+
+      for (const operator of ['like', 'b-like', 'e-like']) {
+        expect(await logins(operator, '%'), `${operator} %`).to.deep.eq([]);
+        expect(await logins(operator, '_'), `${operator} _`).to.deep.eq([]);
+      }
+      expect(await logins('like', 'Admin')).to.deep.eq(['admin']);
+    });
+
+    it('reads user:niceName b-like as "ends with" and e-like as "begins with", like the model filter', async () => {
+      const logins = async (Operator: string, Value: string) => (await body<{ Login: string }[]>(await usersController.list(await admin(), undefined, undefined, undefined, filterReq('user:niceName', Operator, Value)))).map((u) => u.Login).sort();
+
+      expect(await logins('b-like', 'User')).to.deep.eq(['user']);
+      expect(await logins('e-like', 'The')).to.deep.eq(['admin']);
+      expect(await logins('e-like', 'User')).to.deep.eq([]);
+    });
+
     it('caps the page size, so the endpoint cannot be turned into a table dump', async () => {
       const hash = await testHasher.hash('bulk1234');
 

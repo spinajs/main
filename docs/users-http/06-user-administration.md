@@ -38,7 +38,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 | `LastLoginAt`, `DeletedAt` | `eq`, `gte`, `lte`, `lt`, `gt`, `isnull`, `notnull` | A `DeletedAt` condition anywhere in the filter also lists soft-deleted accounts |
 | `IsActive` | `eq` | |
 | `Role` | `eq`, `in-set` (holds any), `neq`, `nin-set` (holds none) | Live GLOBAL assignments of the named roles in `authz_assignment` |
-| `user:niceName` | `eq`, `neq`, `like`, `b-like`, `e-like` | The `user:niceName` metadata value |
+| `user:niceName` | `eq`, `neq`, `like`, `b-like`, `e-like` | The `user:niceName` metadata value; `like` contains, `b-like` ends with, `e-like` begins with the value, matched literally as for a model column |
 
 ## How it works
 

@@ -61,7 +61,9 @@ sequenceDiagram
 | `db.Connections[].Password` | `string` | | | Database password. Never written to the `Orm` log. |
 | `db.Connections[].Database` | `string` | | | Database name. Also passed as schema to `tableInfo()`. |
 | `db.Connections[].Filename` | `string` | | | Database file, for SQLite. |
+| `db.Connections[].ForeignKeys` | `boolean` | `false` | | Enforces foreign keys. Read by `orm-driver-sqlite`; see [SQLite connection](../orm-sqlite/01-connection.md#configuration). |
 | `db.Connections[].Encoding` | `string` | | | Connection encoding, eg. `utf8mb4`. |
+| `db.Connections[].TimeZone` | `string` | `SYSTEM` | `SYSTEM`, `UTC`, an offset such as `+02:00` | Session time zone of the connection's datetimes. Read by `orm-driver-mysql`; see [MySQL driver](../orm-mysql/01-mysql-driver.md#dates-and-time-zone). |
 | `db.Connections[].Options` | `any` | | | Driver-specific options. See the driver's configuration page. |
 | `db.Connections[].SSH.Host` | `string` | | | SSH tunnel host. Read by `orm-driver-mysql-ssh`. |
 | `db.Connections[].SSH.Port` | `number` | | | SSH tunnel port. |

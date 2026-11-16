@@ -24,6 +24,11 @@ export class V3DbConfiguration extends FrameworkConfiguration {
     dropOwnCompiledDirs(this);
   }
 
+  /** The boot-migration suites register this class itself and need the connection to migrate on startup. */
+  protected startupMigration(): { OnStartup?: boolean } {
+    return { OnStartup: true };
+  }
+
   protected onLoad(): unknown {
     return {
       logger: {
@@ -59,6 +64,7 @@ export function uncacheOwn(): void {
   DI.uncache(Orm);
   DI.uncache(Configuration);
   DI.uncache(V3DbConfiguration);
+  DI.uncache(V3ExplicitDbConfiguration);
   DI.uncache('orm-driver-sqlite');
   DI.uncache(SqliteOrmDriver);
   DI.uncache(UsersTableTokenOwnerResolver);
@@ -97,7 +103,7 @@ export async function bootV3Db(): Promise<OrmDriver> {
   uncacheOwn();
   hideForeignRegistrations();
 
-  DI.register(V3DbConfiguration).as(Configuration);
+  DI.register(V3ExplicitDbConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   registerAuthnSchema();
 
@@ -111,6 +117,7 @@ export async function shutdownV3Db(): Promise<void> {
   await DI.get(Orm)?.dispose();
   uncacheOwn();
   DI.unregister(V3DbConfiguration);
+  DI.unregister(V3ExplicitDbConfiguration);
   restoreForeign?.();
 }
 

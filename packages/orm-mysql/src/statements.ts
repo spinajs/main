@@ -56,12 +56,19 @@ export class MySqlLiteralQuoter extends SqlLiteralQuoter {
 }
 
 /**
- * UTC whatever the session zone. A column default cannot call UTC_TIMESTAMP, so `default().dateTime()`
+ * Now in a `TimeZone: 'UTC'` connection. A column default cannot call UTC_TIMESTAMP, so `default().dateTime()`
  * stays CURRENT_TIMESTAMP(3), which is the same instant in the UTC session the driver opens.
  */
 export class MySqlNowExpression extends NowExpression {
   public sql(): string {
     return 'UTC_TIMESTAMP(3)';
+  }
+}
+
+/** Now as the session wall clock, the clock datetimes are written in when the connection is not pinned to UTC. */
+export class MySqlSessionNowExpression extends NowExpression {
+  public sql(): string {
+    return 'NOW(3)';
   }
 }
 

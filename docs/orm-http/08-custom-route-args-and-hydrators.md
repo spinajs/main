@@ -171,7 +171,7 @@ export class OptionalFieldAsDbModel extends AsDbModel {
 
 ### FilterModelRouteArg: cap the number of conditions
 
-The schema does not limit the filter size, and `.filter()` answers `400` only above 100 top-level entries. This replacement answers `400` above 10 conditions, counting nested groups.
+The schema and `.filter()` answer `400` only above 100 top-level entries (`MAX_FILTERS`), and neither counts the entries of a nested group. This replacement answers `400` above 10 conditions, counting nested groups.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';

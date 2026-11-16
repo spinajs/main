@@ -17,8 +17,6 @@ export class OrmException extends Exception {
       this.message = `Error during execution statement on connection ${this.driver.Name} at ${this.driver.User}@${this.driver.Host}, inner exception: ${this.inner ?? 'none'}, message: ${message}`;
     }
   }
-
-  public toString() {}
 }
 
 /**

@@ -29,6 +29,20 @@ export interface IColumnFilter<T> {
   column?: string;
   operators: FilterableOperators[];
   query?: ((operator: FilterableOperators, value: any) => WhereFunction<T>) | null;
+
+  /**
+   * JSON schema of ONE filter value of this column. List and pair operators take an array of it, text operators a
+   * string. Without it the value schema follows the model column's type.
+   */
+  value?: object;
+}
+
+/** The options form of `@Filterable`. */
+export interface IFilterableOptions<T = unknown> {
+  operators: FilterableOperators[];
+  query?: IColumnFilter<T>['query'];
+  aggregate?: boolean;
+  value?: object;
 }
 
 export interface IFilter {
@@ -125,4 +139,8 @@ export interface FromModelOptions<T extends typeof ModelBase> {
   query?: (this: SelectQueryBuilder<T> & T['_queryScopes'], routeParams: any, value: any) => SelectQueryBuilder;
 }
 
+/**
+ * `like` matches values containing the filter value, `b-like` values ENDING with it and `e-like` values BEGINNING with
+ * it; the value of all three is matched literally.
+ */
 export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set';

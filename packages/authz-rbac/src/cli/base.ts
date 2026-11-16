@@ -11,7 +11,7 @@ export abstract class AuthzCliCommand extends AuthzCliBase {
 
   protected async authz(): Promise<AuthzService> {
     if (!this.Authz) {
-      this.Authz = (await this.Container.resolve(AuthzService)) as AuthzService;
+      this.Authz = await this.Container.resolve<AuthzService>(AuthzService);
     }
     return this.Authz;
   }

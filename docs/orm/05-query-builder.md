@@ -53,7 +53,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `Model.select()` | `SelectQueryBuilder` with `select('*')` | yes | model instances |
 | `Model.where(...)` | `SelectQueryBuilder` with `select('*')` and the condition | yes | model instances |
-| `Model.query()` | `SelectQueryBuilder`, no column list | yes | model instances |
+| `Model.query()` | `SelectQueryBuilder`, no column list: it compiles to all owner columns, with or without a populated belongsTo | yes | model instances |
 | `Model.all(page?, perPage?)` | `select('*')`, plus `take(perPage).skip(page * perPage)` when `page >= 0` and `perPage > 0` | yes | model instances |
 | `Model.update(data)` | `UpdateQueryBuilder` with `update(data)`; a model instance as `data` throws `OrmException` | yes | driver result |
 | `Model.destroy(pks?)` | `DeleteQueryBuilder` filtered by `whereAnyPk()`; an `UpdateQueryBuilder` setting `DeletedAt` for a `@SoftDelete` model. Without `pks`, the same builder with `requireWhere()` and no condition | yes | driver result |
@@ -74,16 +74,17 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | Method | Emits | Notes |
 | --- | --- | --- |
 | `where(column, value)` | `column = ?` | `null` value emits `column IS NULL`. `undefined` or `NaN` throws `InvalidArgument`. |
-| `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
+| `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. The value is converted through the column's declared converter with its options, else by the value's class (`Date`, `DateTime`, `boolean`, `TimeSpan`); both see the model's column, so a `DateTime` bound against a numeric column without a converter binds Unix seconds. A model instance binds its primary key, a `RawQuery` is spliced in, and a wrapped column (`Wrapper.Date(...)`) binds the value unconverted. |
+| `where(column, 'between', [from, to])` / `where(column, 'not between', [from, to])` | `column BETWEEN ? AND ?` / `NOT BETWEEN ? AND ?` | `SqlOperator.BETWEEN` / `NOT_BETWEEN`, any case. The value is an array of exactly two members, none of them `null`, `undefined`, `NaN` or a `RawQuery`, or one `RawQuery` that stands for the whole range (`RawQuery.create('? AND ?', [from, to])`); anything else throws `InvalidArgument`. Each bound is converted like a `whereIn()` value: through the column's declared converter, else by the value's class, also for a wrapped column, where a single `where(Wrapper..., operator, value)` binds its value unconverted. A model instance binds its primary key; one with a composite key throws `InvalidArgument`. The column is qualified, mapped from a relation name and wrapped like any `where()` column. `orWhere()` takes the same form. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
 | `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. TypeScript types it as `IWhereBuilder<T>` without a `this:` annotation, also under `noImplicitThis`. |
 | `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
-| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
+| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `NOW(3)`, or `UTC_TIMESTAMP(3)` with `TimeZone: 'UTC'` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
 | `where(Wrapper.Date(column), operator?, value)` | dialect date wrap, eg. `DATE(column) >= ?` | `Wrapper.Date` / `Wrapper.DateTime` build a `Wrap`. Pass a value: a `Wrap` alone throws `InvalidArgument`. |
-| `where(Wrapper.Text(column), operator, value)`, `whereIn(Wrapper.Text(column), values)` | `CAST(column AS TEXT)`; `CHAR` on MySQL, `NVARCHAR(4000)` on MSSQL | Compares a column of any type with text. Values are bound unconverted. `whereIn()` / `whereNotIn()` with a wrapped column and a sub-query throw `InvalidArgument`. |
+| `where(Wrapper.Text(column), operator, value)`, `whereIn(Wrapper.Text(column), values)` | `CAST(column AS TEXT)`; `CHAR` on MySQL, `NVARCHAR(4000)` on MSSQL | Compares a column of any type with text. A wrapped `where()` binds its value unconverted; a wrapped `whereIn()` / `whereNotIn()` (and BETWEEN) converts each value by its class only, so a `Date` becomes datetime text and a boolean `1` / `0`. `whereIn()` / `whereNotIn()` with a wrapped column and a sub-query throw `InvalidArgument`. |
 | `where('Customer.Country', 'PL')` | condition inside the populated relation | A dotted column populates the relation and filters inside it. See [Relations](06-relations.md). |
 | `where('Customer', 7)` | `<ForeignKey> = ?` | A relation name resolves to the relation's foreign key. |
 | `where(null)` / `where(undefined)` (single argument) | nothing | No-op. |
@@ -93,12 +94,13 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | `column` is a name or a `Wrap`: `whereNull(Wrapper.Date('ClosedAt'))` tests the wrapped expression. |
 | `whereNot(column, value)` | `column != ?` | |
 | `whereNot(function () { ... })` | `NOT ( ... )` | `this` inside the callback is a new nested `WhereBuilder`, as for `where(function)`. A `NULL` inside the group makes the negation `NULL`, which keeps no row. An empty group compiles to `1 = 0`. |
-| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
-| `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
+| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. On a plain column, values are converted like `where()` values: the declared converter, else by the value's class, both with the model's column. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
+| `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | Binds the bounds unconverted and qualifies the column with the alias the query had when the call was made. `where(column, 'between', [from, to])` converts the bounds and reads the alias at compile time. |
 | `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). A ready sub-query is correlated with the builder the call is made on (its `CorrelationSource`) unless it has one; `whereIn()` / `whereNotIn()` with a sub-query do the same. A sub-query already correlated with another query throws `InvalidArgument`. `clone()` keeps the correlation, so clone the sub-query before its first attach and give each query its own copy. |
 | `whereColumn(left, operator, right)` | `left <OP> right` over two columns | Each side is a column name or a `Wrap`; `right` may be `outer(column, levels = 1)`. A side is qualified by its query's alias, or by the table when the query has none. |
 | `outer(column, levels = 1)` | a column of an enclosing query | The `right` of `whereColumn()` inside a sub-query given to `whereExist()`, `whereNotExists()`, `whereIn()` or `whereNotIn()`. `levels` 1 is the query the sub-query is attached to, 2 the query that one is attached to. Resolved when the query compiles, so it follows a later `setAlias()` and a `clone()`. Outside such a sub-query it throws `InvalidOperation`. |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |
+| `where(column, 'like', LikeLiteral.contains(text))`, `LikeLiteral.startsWith(text)`, `LikeLiteral.endsWith(text)` | `column LIKE ? ESCAPE '~'`, bound `%text%`, `text%` or `%text` | Every character of `text` is literal (`%`, `_`, `~`, and `[` on MSSQL). Case variants match as the dialect's `LIKE` decides: SQLite, and MySQL / MSSQL under a case-insensitive collation, match them; PostgreSQL does not. A relation (`'Customer.Name'`) or aggregate column works as for any `where()`. A `LikeLiteral` with another operator throws `InvalidArgument`; text that is not a string throws `InvalidArgument`. A plain string operand of `like` stays a raw pattern. |
 | `whereStartsWith(column, prefix)` | dialect prefix test | Every character of `prefix` is literal (`%`, `_`, `~`, and `[`, `*`, `?` where the dialect reads them). Case variants match only where the dialect's test follows a column collation that ignores case (MySQL, MSSQL); PostgreSQL and SQLite never match them. A prefix that is not a string throws `InvalidArgument` when the query compiles. |
 | `whereOnJoin(callback)` | conditions from `callback` | In a populated relation they go to the relation's `JOIN ... ON`; on a root query they act as `WHERE`. |
 | `clearWhere()` | | Drops every where statement. |
@@ -318,6 +320,7 @@ export class TenantMiddleware extends QueryMiddleware {
 
 - `driver.now()` is the database's clock, a bound `Date` is the application's. Compare one stored column with one of them consistently: on hosts whose clocks drift apart the two disagree near a boundary.
 - A builder executes at most once. Awaiting it again resolves with the memoized result and runs no hook. Call `clone()` on a select for a second round trip.
+- A belongsTo populate joins its target and adds the target's aliased columns to the owner's column list. When the list is still empty at that point, the owner's `*` is added first, so `query()`, `select()` and `where()` all return full owners under a populate, a dotted `where('Relation.Column', ...)` included. An explicit `select('Id')`, before or after `populate()`, is kept as it is.
 - `afterQueryCreation` runs inside the constructor, before `createQuery()` sets the table and before the caller's `where()` / `values()`. `beforeQueryExecution` and `afterQueryExecution` run for every builder that executes, schema builders included.
 - `clone()` does not run `afterQueryCreation` again. It copies the statements, which already carry the middleware constraints.
 - When a middleware asks for a transaction, a throwing before-hook skips the statement and rolls back; a throwing after-hook rolls the statement back. Without a transaction an after-hook error cannot undo the statement.
@@ -335,7 +338,8 @@ export class TenantMiddleware extends QueryMiddleware {
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
 - For a belongsTo relation without a callback, `whereExist(relation)` and `whereNotExists(relation)` both add `<ForeignKey> IS NOT NULL`.
 - `getSort()` returns only the first sort. `SqliteOrderByCompiler` in `@spinajs/orm-sqlite` reads `getSort()`, so on SQLite only the first `ORDER BY` column reaches the SQL. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
-- `escapeLikeValue()` escapes `%`, `_` and `~` with `LIKE_ESCAPE_CHARACTER` (`~`). A plain `where(column, 'like', value)` emits no `ESCAPE` clause.
+- `escapeLikeValue()` escapes `%`, `_` and `~` with `LIKE_ESCAPE_CHARACTER` (`~`). A plain `where(column, 'like', value)` emits no `ESCAPE` clause and binds `value` as a raw pattern; a `LikeLiteral` operand escapes it and emits `ESCAPE '~'`.
+- The escape character is `~`, not `\`: MySQL reads a backslash in a string literal as an escape of its own, so `ESCAPE '\'` does not mean the same everywhere. Without an `ESCAPE` clause a backslash in the value is an escape on MySQL and PostgreSQL and a plain character on SQLite and MSSQL.
 
 ## Best practices
 
@@ -372,8 +376,8 @@ Order.where('CustomerId', customerId).where(function () {
 // Don't: `_` and `%` typed by the user act as wildcards
 Customer.where('Name', 'like', `${term}%`);
 
-// Do: escape the value and declare the escape character
-Customer.where(RawQuery.create(`Name LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${escapeLikeValue(term)}%`]));
+// Do: match the value literally
+Customer.where('Name', 'like', LikeLiteral.startsWith(term));
 ```
 
 ```ts

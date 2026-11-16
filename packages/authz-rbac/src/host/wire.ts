@@ -7,7 +7,7 @@ import type { RbacExtension } from '../model/evaluate.js';
 import { RbacContributor } from '../model/contributor.js';
 import { RbacLinkResolver } from '../model/links/resolver.js';
 import type { RbacModel, RbacModelOptions } from '../model/model.js';
-import { ruleStoreParts } from '../model/rules/extension.js';
+import { isSyncRuleStore, ruleStoreParts } from '../model/rules/extension.js';
 import { RbacService } from '../model/service.js';
 import type { RbacServiceOptions } from '../model/service.js';
 import { rbacStoreNames } from '../stores/defaults.js';
@@ -38,6 +38,32 @@ const instance =
  *   ConfigRuleStore to read them
  */
 export async function rbacStoreOptions(container: IContainer, configuration: Pick<Configuration, 'get'>, opts: RegisterRbacOptions = {}): Promise<RbacModelOptions> {
+  checkRbacStores(container, configuration);
+  registerRbacStores(container, configuration);
+
+  // Only what registerRbacStores put here: a parent's store must not slip in for a kind the config turned off.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc cannot narrow ResolveResult<T> of a generic T
+  const store = async <T>(token: Class<T>): Promise<T | undefined> => (container.hasRegistered(token, false) ? ((await container.resolve(token)) as T) : undefined);
+  // The chain resolves this container's registrations here; a parent's other rule stores are left out.
+  const own = new Set<unknown>(container.Registry.getTypes(RuleStore, false) ?? []);
+  const rules = own.size > 0 ? (await container.resolve<RuleStore>(Array.chainOf(RuleStore))).filter((s) => own.has(s.constructor)) : [];
+  ruleStoreParts(rules);
+  const links = await store(LinkStore);
+  // Registered by registerRbacStores, possibly in a parent container.
+  const membership = container.hasRegistered(MembershipStore) ? await container.resolve<MembershipStore>(MembershipStore) : undefined;
+  const options: RbacModelOptions = {
+    roles: (await store(RoleStore))!,
+    assignments: (await store(AssignmentStore))!,
+    ...(rules.length > 0 ? { rules: rules.length === 1 ? rules[0] : rules } : {}),
+    ...(links ? { links } : {}),
+    ...(membership ? { membership } : {}),
+    ...(opts.log ? { log: opts.log } : {}),
+    ...(opts.clock ? { clock: opts.clock } : {}),
+  };
+  return { ...options, ...(opts.extensions ? { extensions: opts.extensions(options) } : {}) };
+}
+
+function checkRbacStores(container: IContainer, configuration: Pick<Configuration, 'get'>): void {
   const count = (kind: RbacStoreKind, min: number, max: number): void => {
     const n = rbacStoreNames(configuration, kind).length;
     if (n > max) throw new AuthzConfigError(`authz.rbac.stores.${kind}: the RBAC model reads ${max === 1 ? 'one store' : `${max} stores at most`}, not ${n}`);
@@ -52,33 +78,12 @@ export async function rbacStoreOptions(container: IContainer, configuration: Pic
   const configRules = configuration.get<unknown>(['authz', 'rbac', 'rules']);
   // Otherwise those rules (restrict, cap, threshold: they only narrow) would be dropped without a word.
   if (Array.isArray(configRules) && configRules.length > 0 && !ruleNames.includes('ConfigRuleStore')) throw new AuthzConfigError(`authz.rbac.rules holds ${configRules.length} rule(s), but authz.rbac.stores.rules (${JSON.stringify(ruleNames)}) does not name ConfigRuleStore, which reads them`);
-  // The sort shows on the class (as isSyncRuleStore reads an instance); unknown names are registerRbacStores' to refuse.
+  // The sort shows on the class prototype; unknown names are registerRbacStores' to refuse.
   const inMemory = ruleNames
     .map((n) => storeClass(container, n))
     .filter((c) => c !== undefined)
-    .map((c) => typeof c.prototype.rulesOn === 'function' && typeof c.prototype.all === 'function');
+    .map((c) => isSyncRuleStore(c.prototype as RuleStore));
   if (inMemory.filter((m) => m).length > 1 || inMemory.filter((m) => !m).length > 1) throw new AuthzConfigError(`authz.rbac.stores.rules: one in-memory store and one other at most (ConfigRuleStore, DbRuleStore), not ${JSON.stringify(ruleNames)}`);
-  registerRbacStores(container, configuration);
-
-  // Only what registerRbacStores put here: a parent's store must not slip in for a kind the config turned off.
-  const store = async <T>(token: Class<T>): Promise<T | undefined> => (container.hasRegistered(token, false) ? ((await container.resolve(token)) as T) : undefined);
-  // The chain resolves this container's registrations here; a parent's other rule stores are left out.
-  const own = new Set<unknown>(container.Registry.getTypes(RuleStore, false) ?? []);
-  const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
-  ruleStoreParts(rules);
-  const links = await store(LinkStore);
-  // Registered by registerRbacStores, possibly in a parent container.
-  const membership = container.hasRegistered(MembershipStore) ? ((await container.resolve(MembershipStore)) as MembershipStore) : undefined;
-  const options: RbacModelOptions = {
-    roles: (await store(RoleStore))!,
-    assignments: (await store(AssignmentStore))!,
-    ...(rules.length > 0 ? { rules: rules.length === 1 ? rules[0] : rules } : {}),
-    ...(links ? { links } : {}),
-    ...(membership ? { membership } : {}),
-    ...(opts.log ? { log: opts.log } : {}),
-    ...(opts.clock ? { clock: opts.clock } : {}),
-  };
-  return { ...options, ...(opts.extensions ? { extensions: opts.extensions(options) } : {}) };
 }
 
 /** Registers in `container` the RbacContributor, RbacService and RbacLinkResolver (as LinkResolver) of `model`. */

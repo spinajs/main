@@ -24,14 +24,14 @@ export * from './expressions.js';
 // `{ commit, rollback }` shape.
 import { DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
-import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteNowExpression, SqliteStartsWithStatement } from './statements.js';
 import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
-import { SqliteModelToSqlConverter } from './converters.js';
+import { SqliteDatetimeValueConverter, SqliteModelToSqlConverter } from './converters.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -57,6 +57,28 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
       Returning: Array.isArray(data?.Returning) ? data.Returning : ([] as any[]),
     };
   }
+}
+
+// A build without foreign-key support ignores the pragma without an error, so it is read back.
+function enableForeignKeys(db: sqlite3.Database): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    db.exec('PRAGMA foreign_keys = ON', (err: Error | null) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      db.get('PRAGMA foreign_keys', (readErr: Error | null, row: { foreign_keys?: number } | undefined) => {
+        if (readErr) {
+          reject(readErr);
+        } else if (row?.foreign_keys !== 1) {
+          reject(new OrmException('ForeignKeys is set, but this sqlite build does not enforce foreign keys'));
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
 }
 
 @Injectable('orm-driver-sqlite')
@@ -316,8 +338,8 @@ export class SqliteOrmDriver extends SqlDriver {
       await new Promise<void>((resolve) => stale.close(() => resolve()));
     }
 
-    await new Promise<void>((resolve, reject) => {
-      this.Db = new sqlite3.Database(filename, (err: unknown) => {
+    const writer = await new Promise<sqlite3.Database>((resolve, reject) => {
+      const db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
           // Drop the handle, do NOT close it. sqlite3 never invokes the close callback for a
           // database that failed to open, so closing here left this promise unsettled and
@@ -325,15 +347,25 @@ export class SqliteOrmDriver extends SqlDriver {
           // missing directory waited indefinitely instead of being told SQLITE_CANTOPEN.
           // sqlite3 has already released whatever it allocated for a failed open; there is
           // nothing here for us to clean up.
-          this.Db = null as any;
           reject(err);
           return;
         }
 
-        resolve();
+        resolve(db);
       });
     });
 
+    // Published only once set up: a statement must never reach a writer without its pragma.
+    if (this.Options.ForeignKeys) {
+      try {
+        await enableForeignKeys(writer);
+      } catch (err) {
+        await new Promise<void>((resolve) => writer.close(() => resolve()));
+        throw err;
+      }
+    }
+
+    this.Db = writer;
     await this.openReadPool(filename);
     this.setState(ConnectionState.Connected);
 
@@ -421,7 +453,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
-    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(SqliteDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(SqliteNowExpression).as(NowExpression);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);

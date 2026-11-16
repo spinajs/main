@@ -34,12 +34,12 @@ The converter classes are exported from `@spinajs/orm-sql`. To change one, exten
 | Call | Result |
 | --- | --- |
 | `toDB(null | undefined | '')`, an invalid `Date` or `DateTime` | `null` |
-| `toDB(Date | DateTime | string | number)` | `toInstant()` from `@spinajs/orm`: a `DateTime` in UTC; text without an offset is UTC, a number is unix seconds (`0` is the epoch); unparsable text throws `InvalidArgument` naming the column |
+| `toDB(Date | DateTime | string | number)` | `toInstant()` from `@spinajs/orm`: a `DateTime` in UTC; text without an offset is UTC, a number is unix seconds (`0` is the epoch), or milliseconds when the options (the fourth argument, `{ unit }` from `@DateTime()`) say `unit: 'milliseconds'`; unparsable text throws `InvalidArgument` naming the column |
 | with `dateTimeFormat` | `iso` `2026-10-17T09:30:00.000Z`, `sql` `2026-10-17 09:30:00.000`, `unix` seconds, all UTC |
 | from `dehydrate()` (a fifth argument) without `dateTimeFormat`, so `toJSON()` | `iso`, `2026-10-17T09:30:00.000Z` |
-| for a numeric column (`int`, `integer`, `float`, `double`, `decimal`, `bigint`, `smallint`, `tinyint`, `mediumint`) | Unix seconds |
+| for a numeric column (`int`, `integer`, `float`, `double`, `decimal`, `bigint`, `smallint`, `tinyint`, `mediumint`) | Unix seconds, or whole milliseconds (`Math.floor(dt.toMillis())`) under `unit: 'milliseconds'`. This holds for every decorator that attaches the converter: `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()`, `@Archived()`. A dialect whose driver reports other type names overrides the protected `isNumericColumn(column)`: PostgreSQL adds `int2`, `int4`, `int8`, `numeric`, `float4` and `float8`, SQLite compares the declared type in any case |
 | otherwise | `SqlDatetimeValueConverter`: `2026-10-17 09:30:00.000` (UTC); `IsoDatetimeValueConverter`: `2026-10-17T09:30:00.000Z` |
-| `fromDB(value)` | `instantFromDb()`: `null` for `null`, `undefined`, `''` and a value that is not a valid datetime (unparsable text, an invalid `Date`); `Date`, `DateTime`, ISO or SQL text, unix seconds (`0` is the epoch) to a `DateTime` in UTC |
+| `fromDB(value)` | `instantFromDb()`: `null` for `null`, `undefined`, `''` and a value that is not a valid datetime (unparsable text, an invalid `Date`); `Date`, `DateTime`, ISO or SQL text, a number or numeric text in the options' unit (seconds by default; `0` is the epoch) to a `DateTime` in UTC |
 
 The column text comes from one protected method, `write(dt)`, which receives a valid `DateTime` in UTC. `SqlDatetimeValueConverter.write()` returns `yyyy-MM-dd HH:mm:ss.SSS`; `IsoDatetimeValueConverter` overrides only `write()` to return `dt.toISO()`. Override `write()` to change the stored text and keep the null, numeric-column and dehydrate rules.
 
@@ -53,7 +53,8 @@ The column text comes from one protected method, `write(dt)`, which receives a v
 
 - `toDB(value, model, column, options)` (4 arguments: a write or a where binding) returns `1` / `0`.
 - `toDB(value, model, column, options, dehydrateOptions)` (5 arguments, even when the fifth is `undefined`: `dehydrate()`) returns `true` / `false`, matching the `{ type: 'boolean' }` the JSON schema publishes.
-- `fromDB()` is `true` for `1`, `1n`, `true` and `'1'`.
+- `fromDB()` is `true` for `1`, `1n`, `true` and `'1'`, and `false` for anything else, NULL included.
+- With `@Bool({ nullable: true })` (`options.nullable`), `null` and `undefined` stay `null` in both methods and on both `toDB()` paths.
 
 ### `SqlSetConverter`
 
@@ -74,6 +75,7 @@ Each method returns the column builder, so the chain continues.
 ## Important behaviour
 
 - `SqlDriver` registers the converters for every SQL connection; a dialect that stores datetimes differently (PostgreSQL, SQLite, MSSQL: `IsoDatetimeValueConverter`) registers its own after `super.resolve()`.
+- `where()`, `whereIn()` and `where(column, 'between', [from, to])` pass the column's declared converter options to `toDB()`, so a binding for a `@DateTime({ unit: 'milliseconds' })` column is written in milliseconds, and a number bound there is read as milliseconds.
 - `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
 - Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.

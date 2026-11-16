@@ -16,6 +16,7 @@ import './../src/route-arg.js';
 import { FilterableLogicalOperators } from './../src/index.js';
 // dto-relation e2e fixtures: tables + seed rows for the CampaignController routes
 import './migrations/DtoRelation_2026_07_23_00_00_00.js';
+import './migrations/LikeRow_2026_11_03_00_00_00.js';
 import { Campaign } from './models/Campaign.js';
 
 
@@ -140,6 +141,49 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].filters[0].Value).to.eq('bar');
     });
 
+    describe('like operators match the filter value literally', function () {
+      const likeRows = async (Operator: string, Value: string) => {
+        const res = await req()
+          .get('filter/likeRows')
+          .query({ filter: JSON.stringify({ op: 'and', filters: [{ Column: 'Name', Operator, Value }] }) })
+          .set('Accept', 'application/json');
+        expect(res.status).to.eq(200);
+        return res.body as string[];
+      };
+
+      const CASES: [string, string, string[]][] = [
+        ['like', '%', ['100%', '50% off']],
+        ['like', '_', ['a_b']],
+        ['like', 'a_b', ['a_b']],
+        ['like', '0%', ['100%', '50% off']],
+        ['like', '\\', ['back\\slash']],
+        ['like', '~', ['tilde~x']],
+        ['b-like', '%', ['100%']],
+        ['b-like', '_b', ['a_b']],
+        ['e-like', '%', []],
+        ['e-like', 'a_', ['a_b']],
+        ['e-like', 'back\\', ['back\\slash']],
+      ];
+
+      for (const [operator, value, expected] of CASES) {
+        it(`${operator} ${JSON.stringify(value)}`, async () => {
+          expect(await likeRows(operator, value)).to.deep.eq(expected);
+        });
+      }
+
+      it('like keeps the case-insensitive LIKE of the dialect', async () => {
+        expect(await likeRows('like', 'plain')).to.deep.eq(['Plain']);
+      });
+
+      // The names are inverted and clients rely on it; a rename waits for a major version.
+      it('b-like matches the end of the value and e-like its beginning', async () => {
+        expect(await likeRows('b-like', 'off')).to.deep.eq(['50% off']);
+        expect(await likeRows('b-like', 'back')).to.deep.eq([]);
+        expect(await likeRows('e-like', 'back')).to.deep.eq(['back\\slash', 'backxslash']);
+        expect(await likeRows('e-like', 'off')).to.deep.eq([]);
+      });
+    });
+
     it('Should validate filter schema', async () => {
       const result = await req().get('filter/testFilter?filter=[{"Column": "Number", "Operator": "between","Value": 1}]').set('Accept', 'application/json');
       expect(result.status).to.eq(400);
@@ -233,26 +277,45 @@ describe('Http orm tests', function () {
     it('Should return filterable columns for model', async () => {
       const columns = FilterableModel.filterColumns();
       expect(columns.length).to.eq(2);
-      // filterColumns() also carries the optional custom `query` callback
+      // filterColumns() also carries the optional custom `query` callback and `value` schema
       // (undefined for plain @Filterable columns)
       expect(columns).to.deep.eq([
         {
           column: 'Text',
           operators: ['eq', 'like'],
           query: undefined,
+          value: undefined,
         },
         {
           column: 'Number',
           operators: ['eq', 'gt', 'lt'],
           query: undefined,
+          value: undefined,
         },
       ]);
     });
 
     it('Should return filterable columns schema', async () => {
       const schema = FilterableModel.filterSchema();
-      // Current contract: the { op, filters } envelope. Value is not required
-      // (valueless operators like isnull carry none) and supports array/boolean.
+      // The { op, filters } envelope. The leaves name the column and its operators; Value is checked by one
+      // if/then per column and operator group, so it is coerced only for its own column.
+      const leaf = (column: string, operators: string[]) => ({
+        type: 'object',
+        required: ['Column', 'Operator'],
+        properties: {
+          Column: { const: column },
+          Operator: { type: 'string', enum: operators },
+        },
+      });
+      const rule = (column: string, operators: string[], value: object) => ({
+        if: { required: ['Column', 'Operator'], properties: { Column: { const: column }, Operator: { enum: operators } } },
+        then: { required: ['Value'], properties: { Value: value } },
+      });
+      const leaves = [leaf('Text', ['eq', 'like']), leaf('Number', ['eq', 'gt', 'lt'])];
+      // null is refused before the typed check, which would coerce it
+      const nonNull = (scalar: object) => ({ allOf: [{ not: { const: null } }, scalar] });
+      const rules = [rule('Text', ['eq'], nonNull({ type: 'string' })), rule('Text', ['like'], { type: 'string' }), rule('Number', ['eq', 'gt', 'lt'], nonNull({ type: 'integer' }))];
+
       expect(schema).to.deep.eq({
         type: 'object',
         properties: {
@@ -262,27 +325,11 @@ describe('Http orm tests', function () {
           },
           filters: {
             type: 'array',
+            maxItems: 100,
             items: {
               type: 'object',
               anyOf: [
-                {
-                  type: 'object',
-                  required: ['Column', 'Operator'],
-                  properties: {
-                    Column: { const: 'Text' },
-                    Value: { type: ['string', 'integer', 'array', 'boolean'] },
-                    Operator: { type: 'string', enum: ['eq', 'like'] },
-                  },
-                },
-                {
-                  type: 'object',
-                  required: ['Column', 'Operator'],
-                  properties: {
-                    Column: { const: 'Number' },
-                    Value: { type: ['string', 'integer', 'array', 'boolean'] },
-                    Operator: { type: 'string', enum: ['eq', 'gt', 'lt'] },
-                  },
-                },
+                ...leaves,
                 // A nested group, one level deep: what a multi-column search needs, where the
                 // searched columns OR each other while the filters beside them keep ANDing.
                 {
@@ -292,43 +339,12 @@ describe('Http orm tests', function () {
                     op: { type: 'string', enum: ['and', 'or'] },
                     filters: {
                       type: 'array',
-                      items: {
-                        type: 'object',
-                        anyOf: [
-                          {
-                            type: 'object',
-                            required: ['Column', 'Operator'],
-                            properties: {
-                              Column: { const: 'Text' },
-                              Value: {
-                                type: ['string', 'integer', 'array', 'boolean'],
-                              },
-                              Operator: {
-                                type: 'string',
-                                enum: ['eq', 'like'],
-                              },
-                            },
-                          },
-                          {
-                            type: 'object',
-                            required: ['Column', 'Operator'],
-                            properties: {
-                              Column: { const: 'Number' },
-                              Value: {
-                                type: ['string', 'integer', 'array', 'boolean'],
-                              },
-                              Operator: {
-                                type: 'string',
-                                enum: ['eq', 'gt', 'lt'],
-                              },
-                            },
-                          },
-                        ],
-                      },
+                      items: { type: 'object', anyOf: leaves, allOf: rules },
                     },
                   },
                 },
               ],
+              allOf: rules,
             },
           },
         },
