@@ -3,8 +3,8 @@ import { isTypedArray, type IContainer, type TypedArray } from '@spinajs/di';
 import { effectiveManifestOf } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log';
-import { DECORATED_PARAM_KIND, ownEntries, routeFullPath, servedPath, type ControllerEntry, type Manifest, type ParamEntry, type RouteEntry } from '@spinajs/manifest';
-import { manifestValidatorOf, schemaOfClass, type ManifestDataValidator, type ManifestValidationOptions, type ManifestValidator } from '@spinajs/validation';
+import { DECORATED_PARAM_KIND, ownEntries, routeFullPath, servedPath, type ControllerEntry, type Manifest, type ParamEntry, type ParamWire, type RouteEntry } from '@spinajs/manifest';
+import { manifestValidatorOf, schemaOfClass, ValidationFailed, type ManifestDataValidator, type ManifestValidationOptions, type ManifestValidator } from '@spinajs/validation';
 import { ParameterType, type IRoute, type IRouteParameter } from '../interfaces.js';
 
 const FROM_STRING: ManifestValidationOptions = { coerce: true };
@@ -120,12 +120,24 @@ interface DerivedCheck {
   id: string;
   name: string;
   options: ManifestValidationOptions;
+  wire?: ParamWire;
 }
 
 function declaredOnly(data: unknown, names: readonly string[]): unknown {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return data;
   const source = data as Record<string, unknown>;
   return Object.fromEntries(names.filter((name) => Object.hasOwn(source, name)).map((name) => [name, source[name]]));
+}
+
+/**
+ * Each argument is validated on its own, so an error path is relative to the argument. `in` and `name` (the key on the
+ * wire, absent for a whole body, query, ...) let a client put the error where the form has it. Additive: a client that does
+ * not know them ignores them.
+ */
+function locatedIn(err: ValidationFailed, wire: ParamWire | undefined): ValidationFailed {
+  if (!wire || wire.in === 'none') return err;
+  err.parameter = err.parameter.map((item) => ({ ...item, in: wire.in, ...(wire.name !== undefined ? { name: wire.name } : {}) }));
+  return err;
 }
 
 /**
@@ -137,7 +149,11 @@ function checkOf(validator: ManifestValidator, check: DerivedCheck): DerivedArgC
   const validate: ManifestDataValidator = validator.validator(check.id, check.options);
   const declared = check.options === WHOLE_BODY ? validator.closedRootProperties(check.id) : undefined;
   return (data) => {
-    validate(data);
+    try {
+      validate(data);
+    } catch (err) {
+      throw err instanceof ValidationFailed ? locatedIn(err, check.wire) : err;
+    }
     return declared ? declaredOnly(data, declared) : data;
   };
 }
@@ -146,7 +162,7 @@ function derivedCheckOf(declared: ParamEntry | undefined, param: IRouteParameter
   const kindOptions = DERIVED_KINDS[param.Type];
   const id = declared?.runtimeType.schema;
   if (!kindOptions || !declared || !id || !describes(declared, param) || derivedUnused(declared, param, route)) return undefined;
-  return { id, name: declared.name, options: declared.wire?.shape === 'field' ? BODY_FIELD : kindOptions };
+  return { id, name: declared.name, options: declared.wire?.shape === 'field' ? BODY_FIELD : kindOptions, ...(declared.wire ? { wire: declared.wire } : {}) };
 }
 
 export interface DerivedValidatorsOptions {

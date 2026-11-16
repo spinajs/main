@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import type { DeriveContext, JsonSchema } from './derive.js';
+import { docText } from '../extractors/jsdoc.js';
 
 export const NUMERIC_TAGS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength', 'minItems', 'maxItems'] as const;
 export const STRING_TAGS = ['pattern', 'format', 'title'] as const;
@@ -32,11 +33,11 @@ function applyTag(out: JsonSchema, name: string, text: string): void {
 
 export function jsdocConstraints(ctx: DeriveContext, symbol: ts.Symbol, declaration: ts.Node | undefined): JsonSchema {
   const out: JsonSchema = {};
-  const description = ts.displayPartsToString(symbol.getDocumentationComment(ctx.checker)).trim();
+  const description = docText(ts.displayPartsToString(symbol.getDocumentationComment(ctx.checker)));
   if (description) out.description = description;
   if (!declaration) return out;
   for (const tag of ts.getJSDocTags(declaration)) {
-    applyTag(out, tag.tagName.text, (ts.getTextOfJSDocComment(tag.comment) ?? '').trim());
+    applyTag(out, tag.tagName.text, docText(ts.getTextOfJSDocComment(tag.comment) ?? ''));
   }
   return out;
 }

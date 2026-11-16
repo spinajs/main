@@ -33,8 +33,8 @@ describe('generateClientFiles', () => {
   });
 
   const companions: [Partial<GenerateClientFilesOptions>, string[]][] = [
-    [{ zod: true }, ['client.ts']],
-    [{ zod: { mini: true } }, ['client.ts']],
+    [{ zod: true }, ['client.ts', 'client.zod.ts']],
+    [{ zod: { mini: true } }, ['client.ts', 'client.zod.ts']],
     [{ hooks: ['react-query'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts']],
     [{ hooks: ['swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts']],
     [{ hooks: ['react-query', 'swr'] }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.swr.ts']],
@@ -44,6 +44,8 @@ describe('generateClientFiles', () => {
     [{ hooks: ['react-query'], server: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.queries.ts', 'client.react-query.ts', 'client.server.ts']],
     [{ next: true }, ['client.ts', 'client.keys.ts', 'client.server.ts', 'client.next.ts']],
     [{ hooks: ['swr'], next: true, server: true }, ['client.ts', 'client.keys.ts', 'client.react.ts', 'client.swr.ts', 'client.server.ts', 'client.next.ts']],
+    [{ mocks: true }, ['client.ts', 'client.mocks.ts']],
+    [{ mocks: true, msw: true }, ['client.ts', 'client.mocks.ts', 'client.msw.ts']],
   ];
   for (const [companion, paths] of companions) {
     it(`exports manifestHash from client.ts when a companion is requested (${JSON.stringify(companion)})`, async () => {
@@ -70,11 +72,13 @@ describe('generateClientFiles', () => {
     expect(GENERATOR_TARGETS).to.deep.equal({
       'react-query': { available: true },
       swr: { available: true },
-      zod: { available: false },
+      zod: { available: true },
       models: { available: false },
       'socket-hooks': { available: true },
       server: { available: true },
       next: { available: true },
+      mocks: { available: true },
+      msw: { available: true },
     });
   });
 
@@ -91,9 +95,15 @@ describe('generateClientFiles', () => {
     expect(() => assertUniquePaths([file('client.ts'), file('client.keys.ts'), file('client.keys.ts')])).to.throw('generateClientFiles: two emitters write client.keys.ts');
   });
 
+  it('names the server, next, mocks and msw targets, with next implying server', () => {
+    expect(requestedTargets({ manifest, server: true, mocks: true, msw: true })).to.deep.equal(['server', 'mocks', 'msw']);
+    expect(requestedTargets({ manifest, next: true })).to.deep.equal(['server', 'next']);
+  });
+
   const rejections: [string, Partial<GenerateClientFilesOptions>, string][] = [
     ['an unknown hooks target, naming the allowed ones', { hooks: ['react-query', 'vue' as 'swr'] }, "generateClientFiles: unknown hooks target 'vue'; use react-query or swr"],
     ['a hooks target listed twice', { hooks: ['swr', 'react-query', 'swr'] }, "generateClientFiles: hooks target 'swr' is listed twice"],
+    ['msw without mocks', { msw: true }, 'generateClientFiles: msw needs mocks, because the handlers are generated from the mocks'],
     ['socketHooks without hooks', { socketHooks: true }, 'generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks'],
   ];
   for (const [what, options, message] of rejections) {
