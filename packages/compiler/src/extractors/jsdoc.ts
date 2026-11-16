@@ -2,7 +2,10 @@ import ts from 'typescript';
 import type { RouteEntry } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 
-const text = (c: string | ts.NodeArray<ts.JSDocComment> | undefined): string => (typeof c === 'string' ? c : c ? c.map((p) => p.text).join('') : '').trim();
+/** A comment as LF text: a CRLF checkout of the same source must give the same manifest, and so the same hash. */
+export const docText = (s: string): string => s.replace(/\r\n?/g, '\n').trim();
+
+const text = (c: string | ts.NodeArray<ts.JSDocComment> | undefined): string => docText(typeof c === 'string' ? c : c ? c.map((p) => p.text).join('') : '');
 
 export function classDocOf(cls: ts.ClassDeclaration): string | undefined {
   const doc = ts.getJSDocCommentsAndTags(cls).find(ts.isJSDoc);
