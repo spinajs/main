@@ -22,6 +22,8 @@ export interface RouteModel {
   controllerKey: string;
   name: string;
   method: RouteDefinition['method'];
+  /** The Express 5 route path from the manifest. */
+  fullPath: string;
   kind: RouteKind;
   args: ArgumentModel[];
   /** TypeScript expression of the reply. */
@@ -122,6 +124,7 @@ export function routeModel(controller: ControllerEntry, route: RouteEntry, ctx: 
     controllerKey: controllerKey(controller),
     name: route.handler,
     method,
+    fullPath: route.fullPath,
     kind: routeKind(route.method),
     args,
     returns,

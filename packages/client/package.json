@@ -60,12 +60,16 @@
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",
+    "msw": "^3.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "swr": "^2.1.0",
     "zod": "^4.1.0"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
+      "optional": true
+    },
+    "msw": {
       "optional": true
     },
     "react": {
@@ -95,6 +99,7 @@
     "chai-as-promised": "^7.1.1",
     "esbuild": "^0.28.1",
     "fast-check": "^4.10.2",
+    "msw": "^3.0.3",
     "typescript": "~5.9.0",
     "zod": "^4.1.0"
   },
