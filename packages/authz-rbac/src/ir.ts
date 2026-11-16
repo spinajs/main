@@ -1,5 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
 import type { Permission, PermissionRegistry, ResourceType } from '@spinajs/authz';
+import { storedPolicyName } from '@spinajs/authz-ir';
 import type { FragmentBinding, IRFragment, RelationDef, Rewrite, TypeDef } from '@spinajs/authz-ir';
 
 import type { RuleDef } from './contracts.js';
@@ -15,8 +16,11 @@ export interface RbacIROptions {
   readonly principalTypes?: readonly string[];
   /** Rules (config and stored) the IR cannot express: each one that can match a permission makes it `unknown` where it would allow. */
   readonly rules?: readonly RuleDef[];
-  /** A rule store outside config (DbRuleStore) is in use: its rules are unknown at compile time, so every permission gets an opaque deny term. */
-  readonly storedRules?: boolean;
+  /**
+   * The name of a rule store outside config (DbRuleStore); `true` means `'db'`. Its rules are unknown at compile time, so
+   * every permission gets the opaque deny term `stored:<model>:<store>`.
+   */
+  readonly storedRules?: boolean | string;
 }
 
 const GLOBAL_TYPE = GLOBAL.type;
@@ -156,7 +160,8 @@ class Compiler {
   private denyTerms(p: Permission): Rewrite[] {
     const terms: Rewrite[] = this.graph.names.filter((r) => this.graph.get(r)!.def.deny === true && this.grants.denies(r, p) && this.at(r).length > 0).map((r) => ({ computed: r }));
     for (const rule of this.options.rules ?? []) if (rule.kind !== 'threshold' || rule.permissions === undefined || rule.permissions.includes(p)) terms.push(this.opaqueTerm(`rbac rule ${rule.id}`));
-    if (this.options.storedRules === true) terms.push(this.opaqueTerm('rbac stored rules'));
+    const store = this.options.storedRules === true ? 'db' : this.options.storedRules;
+    if (typeof store === 'string') terms.push(this.opaqueTerm(storedPolicyName(this.options.model ?? 'rbac', store)));
     return terms;
   }
 

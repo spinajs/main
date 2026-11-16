@@ -3,7 +3,7 @@ import 'mocha';
 import { readFileSync } from 'node:fs';
 import { PermissionRegistryImpl } from '@spinajs/authz';
 import type { PermissionInput } from '@spinajs/authz';
-import { GLOBAL_OBJECT, IREvaluator, MemoryTupleSource, canonicalize, mergeFragments, validateIR } from '@spinajs/authz-ir';
+import { GLOBAL_OBJECT, IREvaluator, MemoryTupleSource, canonicalize, mergeFragments, storedPolicyName, validateIR } from '@spinajs/authz-ir';
 import type { IRFragment, PolicyIR, Truth } from '@spinajs/authz-ir';
 
 import { compileGrants, compileRoles, rbacToIR } from '../src/index.js';
@@ -93,5 +93,14 @@ describe('authz-rbac: rbacToIR', () => {
     expect(await truth(ir, 'dan', 'invoice:approve', source)).to.equal('unknown');
     expect(await truth(ir, 'ann', 'invoice:read', source)).to.equal('unknown');
     expect(await truth(ir, 'bob', 'invoice:read', source)).to.equal('deny');
+  });
+
+  it('names the stored rule store in its opaque deny term', () => {
+    const reg = registry(PERMISSIONS);
+    const graph = compileRoles(ROLES);
+    const grants = compileGrants(graph, reg);
+    const f = rbacToIR(graph, grants, reg, { storedRules: 'rules-db' });
+    expect(f.opaque).to.deep.include({ kind: 'rewrite', name: storedPolicyName('rbac', 'rules-db') });
+    expect(rbacToIR(graph, grants, reg, { storedRules: true }).opaque).to.deep.include({ kind: 'rewrite', name: storedPolicyName('rbac', 'db') });
   });
 });

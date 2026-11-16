@@ -171,7 +171,7 @@ export class RbacModel extends AuthorizationModel {
   /** This model's part of the policy IR, from the roles and grants of `init` and the config rules. @throws AuthzConfigError before `init` */
   toIR(_ctx: IRCompileContext): IRFragment {
     const { config, db } = ruleStoreParts(this.opts.rules);
-    return rbacToIR(this.roleGraph(), this.grantIndex(), this.permissions(), { model: this.name, rules: config?.all() ?? [], storedRules: db !== undefined });
+    return rbacToIR(this.roleGraph(), this.grantIndex(), this.permissions(), { model: this.name, rules: config?.all() ?? [], storedRules: db?.name });
   }
 
   applies(permission: PermissionDef, _type: ResourceType): boolean {

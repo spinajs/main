@@ -1,10 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DefaultConditionCompiler, PermissionRegistryImpl } from '@spinajs/authz';
-import { IREvaluator, MemoryTupleSource, mergeFragments, validateIR } from '@spinajs/authz-ir';
+import { IREvaluator, MemoryTupleSource, mergeFragments, storedPolicyName, validateIR } from '@spinajs/authz-ir';
 import type { CaveatContext, PolicyIR, Truth } from '@spinajs/authz-ir';
+import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { abacToIR, loadPolicy } from '../src/index.js';
+import { AbacModel, ConfigPolicyStore, MemoryPolicyStore, abacToIR, loadPolicy } from '../src/index.js';
+import type { Policy } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -56,5 +58,34 @@ describe('authz-abac: abacToIR', () => {
     expect(await truth(ir, 'invoice:update', { type: 'service', id: 's1', attributes: { dept: 'finance' } }, { resource: { status: 'open' } })).to.equal('deny');
     expect(await truth(ir, 'invoice:read', finance)).to.equal('allow');
     expect(await truth(ir, 'invoice:read', { type: 'user', id: 'u2', attributes: { dept: 'sales' } })).to.equal('unknown');
+  });
+
+  it('stored stores: every registered permission gets a stored placeholder in its permit and deny relations', () => {
+    const fragment = abacToIR(load(POLICIES), registry(), { storedStores: ['db'] });
+    const name = storedPolicyName('abac', 'db');
+    for (const def of registry().all()) {
+      const type = def.types[0];
+      const binding = fragment.permissions![def.name];
+      for (const rel of [binding.permit!, binding.deny!]) expect(JSON.stringify(fragment.types![type].permissions[rel])).to.contain(JSON.stringify({ opaque: name }));
+    }
+    expect(fragment.opaque).to.deep.include({ kind: 'rewrite', name });
+  });
+
+  it('without stored stores the fragment is unchanged', () => {
+    expect(abacToIR(load(POLICIES), registry(), { storedStores: [] })).to.deep.equal(abacToIR(load(POLICIES), registry()));
+  });
+
+  it("toIR with stored: 'opaque' leaves out the stored policies and names their store", async () => {
+    const P1: Policy = { id: 'p1', effect: 'permit', permissions: ['invoice:read'], when: { attr: 'principal.attributes.dept', eq: 'finance' }, source: 'config' };
+    const P2: Policy = { id: 'p2', effect: 'deny', permissions: ['invoice:update'], when: { attr: 'resource.status', eq: 'frozen' }, source: 'memory' };
+    const m = new AbacModel({ stores: [new ConfigPolicyStore([P1]), new MemoryPolicyStore([P2])] });
+    await m.init(fakeModelInitContext({ permissions: registry() }));
+    const opaque = JSON.stringify(m.toIR({ config: () => undefined as never, stored: 'opaque' }));
+    const include = JSON.stringify(m.toIR({ config: () => undefined as never }));
+    expect(opaque).to.not.contain(`abac_${P2.id}`);
+    expect(opaque).to.contain(`abac_${P1.id}`);
+    expect(opaque).to.contain(storedPolicyName('abac', 'memory'));
+    expect(include).to.contain(`abac_${P2.id}`);
+    expect(include).to.not.contain(storedPolicyName('abac', 'memory'));
   });
 });
