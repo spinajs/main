@@ -38,7 +38,7 @@ sequenceDiagram
 | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `TableExistsCompiler` | `SqliteTableExistsCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | yes | [Schema and DDL](04-schema-and-ddl.md#default-values) |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter`: ISO 8601 UTC text | no, from `@spinajs/orm-sql` | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
+| `DatetimeValueConverter` | `SqliteDatetimeValueConverter`: ISO 8601 UTC text, Unix seconds for a numeric column | yes | [Schema and DDL](04-schema-and-ddl.md#value-conversion) |
 | `NowExpression` | `SqliteNowExpression` | yes | [Query dialect](06-query-dialect.md) |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
