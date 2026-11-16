@@ -290,23 +290,7 @@ export class SqlWhereStatement extends WhereStatement {
     } else {
       column = _columnWrap(this.Quoter, column, this._builder.TableAlias, this.IsAggregate);
 
-      if (val instanceof ModelBase) {
-        val = primaryKeyOf(val);
-      } else {
-        const dsc = extractModelDescriptor(this._model);
-        let converter: ValueConverter | null = null;
-        if (dsc && dsc.Converters.has(this._column as string)) {
-          converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string)!.Class);
-        } else {
-          const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-          if (converters && value && converters.has(value.constructor.name)) {
-            converter = this._container.resolve<ValueConverter>(converters.get(value.constructor.name));
-            val = converter.toDB(val, null as any, null as any, null);
-          }
-        }
-
-        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, dsc?.Converters.get(this._column as string)?.Options ?? null) : value;
-      }
+      val = val instanceof ModelBase ? primaryKeyOf(val) : columnValueConverter(this._container, this._model, this._column)(value);
     }
 
     return {
@@ -335,14 +319,18 @@ function primaryKeyOf(model: ModelBase): unknown {
   return pk;
 }
 
-/** The conversion `where()` applies to each value compared with `column`: the model's declared converter with its options, else one chosen by the value's class. */
+/**
+ * The conversion `where()`, `whereIn()` and BETWEEN apply to each value compared with `column`: the model's declared
+ * converter with its options, else one chosen by the value's class. Both are given the column's descriptor.
+ */
 function columnValueConverter(container: IContainer, model: Constructor<ModelBase> | undefined, column: string | Wrap): (value: unknown) => unknown {
   const descriptor = model ? extractModelDescriptor(model) : undefined;
   // A wrapped column is compared as the wrapper's type, not the column's.
-  const declared = typeof column === 'string' ? descriptor?.Converters.get(column) : undefined;
+  const name = typeof column === 'string' ? column : undefined;
+  const columnDescriptor = name === undefined ? undefined : descriptor?.Columns.find((c) => c.Name === name);
+  const declared = name === undefined ? undefined : descriptor?.Converters.get(name);
 
-  if (descriptor && declared) {
-    const columnDescriptor = descriptor.Columns.find((c) => c.Name === column);
+  if (declared) {
     const converter = container.resolve<ValueConverter>(declared.Class);
     return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, declared.Options);
   }
@@ -362,7 +350,7 @@ function columnValueConverter(container: IContainer, model: Constructor<ModelBas
     if (!byClass.has(type)) {
       byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
     }
-    return byClass.get(type)!.toDB(value, null as any, null as any, null);
+    return byClass.get(type)!.toDB(value, null as any, columnDescriptor as any, null);
   };
 }
 

@@ -5883,9 +5883,6 @@
     "@typescript-eslint/no-misused-promises": {
       "count": 2
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     },
@@ -5893,10 +5890,10 @@
       "count": 1
     },
     "complexity": {
-      "count": 2
+      "count": 1
     },
     "no-useless-assignment": {
-      "count": 3
+      "count": 2
     },
     "prettier/prettier": {
       "count": 1
