@@ -12,7 +12,7 @@ import type { Kleene } from '../filter-eval.js';
 import type { FakeAdapter } from '../fakes/adapter.js';
 import { FakePermissionRegistry } from '../registry.js';
 import type { FakePermissionInput } from '../registry.js';
-import { CONFORMANCE_NOW, check, describeRequest, fail, identityOrder, isFilterOp, isThenable, opsOf, pick, property, show, shuffler } from './common.js';
+import { CONFORMANCE_NOW, check, conformanceRuns, describeRequest, fail, identityOrder, isFilterOp, isThenable, opsOf, pick, property, show, shuffler } from './common.js';
 import type { ConformanceCheck } from './common.js';
 
 /** A concrete resource of the world and the loaded row the residuals are evaluated against. */
@@ -383,8 +383,8 @@ function agree(a: Answer, b: Answer, what: string): void {
 
 const sameAnswer = (x: Answer, y: Answer): boolean => x.kind === y.kind && permitted(x) === permitted(y) && denied(x) === denied(y);
 
-const runs = <S>(opts: ModelConformanceOptions<S>) => ({ numRuns: opts.numRuns ?? 25, seed: opts.seed });
-const fewRuns = <S>(opts: ModelConformanceOptions<S>) => ({ numRuns: Math.min(opts.numRuns ?? 25, 10), seed: opts.seed });
+const runs = <S>(opts: ModelConformanceOptions<S>) => ({ numRuns: conformanceRuns(opts.numRuns), seed: opts.seed });
+const fewRuns = <S>(opts: ModelConformanceOptions<S>) => ({ numRuns: Math.min(conformanceRuns(opts.numRuns), 10), seed: opts.seed });
 
 function capabilitiesCheck<S>(factory: ModelFactory<S>, opts: ModelConformanceOptions<S>, seeds: fc.Arbitrary<S>): ConformanceCheck<ModelCheckId> {
   return {

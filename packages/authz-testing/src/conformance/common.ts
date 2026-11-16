@@ -17,6 +17,8 @@ export interface PropertyRunOptions {
   readonly seed?: number;
 }
 
+export const conformanceRuns = (numRuns: number | undefined, fallback = 25): number => numRuns ?? (Number(process.env.AUTHZ_CONFORMANCE_RUNS) || fallback);
+
 /** `now` of every context the suites build, unless the world sets one: answers must not depend on the wall clock. */
 export const CONFORMANCE_NOW: Date = new Date('2026-01-01T00:00:00.000Z');
 
