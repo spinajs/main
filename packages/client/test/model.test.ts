@@ -54,6 +54,7 @@ describe('buildClientModel', () => {
       controllerKey: 'users',
       name: 'get',
       method: 'get',
+      fullPath: '/users/:id',
       kind: 'query',
       args: [{ name: 'id', type: 'number', typeNames: [], required: true, wire: { in: 'path', name: 'id', shape: 'value' }, schema: 'spinajs/app-basic/UsersController_get_id' }],
       returns: 'UserDto',

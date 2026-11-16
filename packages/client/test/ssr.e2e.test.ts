@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import type express from 'express';
 import { JSDOM } from 'jsdom';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -10,7 +9,7 @@ import { renderToString } from 'react-dom/server';
 import { dehydrate, HydrationBoundary, QueryClient, QueryClientProvider, type DehydratedState } from '@tanstack/react-query';
 import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { fsService } from '@spinajs/fs';
-import { BaseController, Controllers, HttpServer, ServerMiddleware, type Request } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, ServerMiddleware, type IMiddlewareContext } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 import { HealthController } from '../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
@@ -30,15 +29,8 @@ class RecordHeaders extends ServerMiddleware {
     this.Order = 0;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      seenByServer.push({ path: req.path, headers: { ...req.headers } });
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+  public onBefore({ req }: IMiddlewareContext): void {
+    seenByServer.push({ path: req.path, headers: { ...req.headers } });
   }
 }
 

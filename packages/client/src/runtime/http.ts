@@ -10,6 +10,8 @@ export interface ClientOptions {
   /** Passed to fetch; in a browser, `include` sends the cookies the browser holds for the API origin. */
   credentials?: RequestCredentials;
   onProblem?: (p: ProblemDetails) => void;
+  /** Runs on a JSON reply after it is parsed; its result is the call's result, and a throw rejects the call. Not called for 204, `void` routes, text replies or errors. */
+  parseReply?: (route: { controller: string; name: string }, value: unknown) => unknown;
   /** Extra fetch options per call, merged after the client's own; the runtime keeps `method`, `headers` and `body`. */
   init?: (route: { controller: string; name: string; method: string }) => RequestInit;
 }
@@ -136,7 +138,9 @@ function call(route: RouteDefinition, options: ClientOptions, id: { controller: 
       throw new ProblemError(problem, response.status);
     }
     if (route.void || response.status === 204) return undefined;
-    return contentType.includes('json') ? response.json() : response.text();
+    if (!contentType.includes('json')) return response.text();
+    const value: unknown = await response.json();
+    return options.parseReply ? options.parseReply(id, value) : value;
   };
 }
 
