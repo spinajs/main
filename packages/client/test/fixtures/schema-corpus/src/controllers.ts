@@ -1,0 +1,207 @@
+import { BaseController, BasePath, Body, Get, NoContent, Param, Post, Query, QueryField } from '@spinajs/http';
+import { Schema } from '@spinajs/validation';
+
+export type Nullable<T> = T | null;
+
+export interface Circle {
+  kind: 'circle';
+  radius: number;
+}
+
+export interface Square {
+  kind: 'square';
+  side: number;
+}
+
+export type Figure = Circle | Square;
+
+export interface Category {
+  name: string;
+  children?: Category[];
+  parent?: Nullable<Category>;
+}
+
+export interface Geo {
+  at: [number, number];
+  path: [string, ...number[]];
+  label?: [string, number?];
+  area: Nullable<number>;
+  /** @minItems 1 @maxItems 3 */
+  stops: string[];
+}
+
+export interface Named {
+  name: string;
+}
+
+export interface Aged {
+  age: number;
+}
+
+export type Person = Named & Aged;
+
+export interface SignUpDto {
+  /** @format email */
+  email: string;
+  /**
+   * Shown to other users.
+   * @minLength 2
+   * @maxLength 64
+   */
+  name: string;
+  /** @pattern ^[a-z]+$ */
+  handle?: string;
+  /**
+   * @minimum 18
+   * @exclusiveMaximum 130
+   */
+  age: number;
+  /** @uniqueItems */
+  tags: string[];
+  /** @format date-time */
+  born?: string;
+  nickname: string | null;
+  role: 'admin' | 'user';
+  big: bigint;
+  /** @format zip-code */
+  zip?: string;
+  /** @multipleOf 0.5 */
+  score?: number;
+}
+
+export interface PageQuery {
+  page?: number;
+  q?: string;
+}
+
+@Schema({
+  type: 'object',
+  properties: { home: { $ref: '#/$defs/address' }, work: { $ref: '#/$defs/address' } },
+  required: ['home'],
+  additionalProperties: false,
+  $defs: { address: { type: 'object', properties: { city: { type: 'string', minLength: 1 } }, required: ['city'], additionalProperties: false } },
+})
+export class AddressBook {
+  public home: { city: string };
+  public work?: { city: string };
+}
+
+export interface Settings {
+  /** @default 20 */
+  pageSize?: number;
+  /** @default "light" */
+  theme?: 'light' | 'dark';
+}
+
+/** The keywords only an explicit schema carries: DataValidator validates it, with $data and ajv-keywords. */
+@Schema({
+  type: 'object',
+  properties: {
+    password: { type: 'string', minLength: 8 },
+    confirm: { type: 'string', const: { $data: '1/password' } },
+    kind: { type: 'string', enum: ['person', 'company'] },
+    vat: { type: 'string', transform: ['trim', 'toUpperCase'], pattern: '^[A-Z0-9]+$' },
+    tags: { type: 'array', items: { type: 'string' }, contains: { const: 'main' } },
+    age: { type: 'integer', range: [0, 150] },
+    meta: { type: 'object', patternProperties: { '^x-': { type: 'string' } }, additionalProperties: false },
+  },
+  required: ['password', 'confirm', 'kind'],
+  additionalProperties: false,
+  if: { properties: { kind: { const: 'company' } } },
+  then: { required: ['vat'] },
+  dependencies: { vat: ['kind'] },
+  propertyNames: { maxLength: 16 },
+})
+export class Registration {
+  public password: string;
+  public confirm: string;
+  public kind: 'person' | 'company';
+  public vat?: string;
+  public tags?: string[];
+  public age?: number;
+  public meta?: Record<string, string>;
+}
+
+interface LocalStandard {
+  readonly '~standard': { readonly version: 1; readonly vendor: 'my-lib'; readonly validate: (value: unknown) => { value: unknown } };
+}
+declare const localStandard: LocalStandard;
+
+/** A Standard Schema the compiler cannot read: the manifest carries the derived shape, marked partial. */
+@Schema(localStandard)
+export class Feedback {
+  public text: string;
+}
+
+function accepted(..._args: unknown[]): NoContent<void> {
+  return new NoContent<void>(null);
+}
+
+/** One route per schema shape the zod emitter maps. */
+@BasePath('corpus')
+export class CorpusController extends BaseController {
+  @Post('signup')
+  public async signUp(@Body() body: SignUpDto): Promise<NoContent<void>> {
+    return accepted(body);
+  }
+
+  @Post('figure')
+  public async figure(@Body() figure: Figure): Promise<NoContent<void>> {
+    return accepted(figure);
+  }
+
+  @Post('tree')
+  public async tree(@Body() root: Category): Promise<NoContent<void>> {
+    return accepted(root);
+  }
+
+  @Post('geo')
+  public async geo(@Body() geo: Geo): Promise<NoContent<void>> {
+    return accepted(geo);
+  }
+
+  @Post('people')
+  public async people(@Body() person: Person): Promise<NoContent<void>> {
+    return accepted(person);
+  }
+
+  @Get('search')
+  public async search(@QueryField() filter: PageQuery, @Query() limit: number): Promise<NoContent<void>> {
+    return accepted(filter, limit);
+  }
+
+  @Post('addresses')
+  public async addresses(@Body() book: AddressBook): Promise<NoContent<void>> {
+    return accepted(book);
+  }
+
+  @Post('feedback')
+  public async feedback(@Body() feedback: Feedback): Promise<NoContent<void>> {
+    return accepted(feedback);
+  }
+
+  @Post('note')
+  public async note(@Body() title: string, @Body() text: string): Promise<NoContent<void>> {
+    return accepted(title, text);
+  }
+
+  @Post('register')
+  public async register(@Body() registration: Registration): Promise<NoContent<void>> {
+    return accepted(registration);
+  }
+
+  @Post('settings')
+  public async settings(@Body() settings: Settings): Promise<NoContent<void>> {
+    return accepted(settings);
+  }
+
+  @Get('flags')
+  public async flags(@Query() verbose: boolean, @Query() page: PageQuery): Promise<NoContent<void>> {
+    return accepted(verbose, page);
+  }
+
+  @Get('item/:id')
+  public async item(@Param() id: number): Promise<Category> {
+    return { name: String(id) };
+  }
+}

@@ -16,6 +16,10 @@
     "./formats": {
       "types": "./lib/formats/index.d.ts",
       "import": "./lib/formats/index.js"
+    },
+    "./mocks": {
+      "types": "./lib/mocks/index.d.ts",
+      "import": "./lib/mocks/index.js"
     }
   },
   "type": "module",
@@ -57,6 +61,7 @@
   "peerDependencies": {
     "@spinajs/http-socket-client": "3.0.23",
     "@tanstack/react-query": "^5.0.0",
+    "msw": "^3.0.0",
     "next": ">=16.0.0",
     "swr": "^2.2.0",
     "zod": "^4.1.0"
@@ -66,6 +71,9 @@
       "optional": true
     },
     "@tanstack/react-query": {
+      "optional": true
+    },
+    "msw": {
       "optional": true
     },
     "next": {
@@ -108,11 +116,14 @@
     "fast-check": "^4.10.2",
     "jsdom": "^29.1.1",
     "luxon": "^3.6.1",
+    "msw": "^3.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-hook-form": "^7.89.0",
     "swr": "^2.5.1",
     "swr-floor": "npm:swr@2.2.0",
-    "typescript": "~5.9.0"
+    "typescript": "~5.9.0",
+    "zod": "^4.1.0"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

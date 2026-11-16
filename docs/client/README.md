@@ -91,7 +91,25 @@ The same generator is available as `generateClient({ manifest, moduleName?, incl
 
 Install `@spinajs/client` next to `@spinajs/cli` to use the command.
 
+### Flags
+
+| Flag | Writes next to `--out` |
+| --- | --- |
+| none | `client.ts` |
+| `--hooks react-query,swr` | the hooks files |
+| `--socket-hooks` | `client.socket.ts`, and `client.socket-swr.ts` with `swr`; needs `--hooks` |
+| `--zod` with `--zod-mini`, `--zod-replies`, `--zod-unsupported warn\|error` | `client.zod.ts` |
+| `--models` | model types and conversions inside `client.ts` |
+| `--server`, `--next` | `client.server.ts`, `client.next.ts` (`--next` implies `--server`) |
+| `--mocks`, `--msw` | `client.mocks.ts`, `client.msw.ts` |
+| `--key-prefix <name>` | changes the first element of every query key |
+| `--check` | nothing; exits 1 and names each file that is missing or differs |
+
+Every file comes from one read of the manifest. A flag whose generator has not been released in your `@spinajs/client` fails with `<flag> is not available in this version`, and nothing is written. [CLI command reference](../cli/08-command-reference.md#generateclient) has the full table.
+
 A server that renders pages (Next.js Server Components, loaders) calls the API with `createServerAppClient` from `client.server.ts`, which `generateClientFiles({ manifest, server: true })` writes. It forwards the browser's `cookie` and `authorization` headers. [Server rendering and prefetching](ssr.md) covers it, together with prefetching for React Query and SWR, and the Next.js cache tags that `next: true` writes into `client.next.ts`. Next 16 needs `next build --webpack` for the generated files until an import-extension option lands.
+
+`generateClientFiles({ manifest, mocks: true })` also writes `client.mocks.ts`: schema-driven mock data and a typed fake client for tests. See [Mocks](mocks.md).
 
 ## Hooks
 
@@ -145,7 +163,6 @@ Regenerate in CI and compile, so a server change that breaks a wrapper fails the
 
 ```sh
 spinajs build
-spinajs generate:client --out src/generated/client.ts
-git diff --exit-code src/generated/client.ts   # only when the file is committed
+spinajs generate:client --out src/generated/client.ts --check   # only when the files are committed
 tsc --noEmit
 ```

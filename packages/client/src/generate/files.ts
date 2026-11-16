@@ -6,6 +6,10 @@ import { emitSwr } from './hooks/swr.js';
 import { emitQueries, emitReactQuery } from './hooks/react-query.js';
 import { hookRoutes, type HookRoute } from './hooks/shared.js';
 import { buildClientModel, type ClientModel } from './model.js';
+import type { GeneratorDiagnostic } from './zod/diagnostics.js';
+import { emitMocks } from './mocks.js';
+import { emitMsw } from './msw.js';
+import { emitZod } from './zod/emit.js';
 import { emitNext } from './next.js';
 import { emitServer } from './server.js';
 
@@ -15,10 +19,14 @@ export interface GeneratedFile {
   /** `client` files start with `'use client'`; `server-safe` files import neither React nor a `client` file. */
   environment: 'client' | 'server-safe';
   contents: string;
+  /** What the emitter could not reproduce of the server's validation. */
+  diagnostics?: GeneratorDiagnostic[];
 }
 
 export interface ZodOptions {
   mini?: boolean;
+  /** Adds lenient reply schemas, `replySchemas` and `zodReplies`. */
+  replies?: boolean;
   unsupported?: 'warn' | 'error';
 }
 
@@ -35,6 +43,10 @@ export interface GenerateClientFilesOptions extends GenerateClientOptions {
   server?: boolean;
   /** Writes `client.next.ts`, with Next.js cache tags and revalidation helpers; implies `server` and writes `client.keys.ts`. */
   next?: boolean;
+  /** Writes `<basename>.mocks.ts`: schema-driven mock data and a typed fake client, imported by no other generated file. */
+  mocks?: boolean;
+  /** Writes `<basename>.msw.ts`: one MSW handler per route, answering with the data of `<basename>.mocks.ts`; needs `mocks`. */
+  msw?: boolean;
 }
 
 type HooksTarget = NonNullable<GenerateClientFilesOptions['hooks']>[number];
@@ -43,17 +55,19 @@ const HOOKS_TARGET_SET: Record<HooksTarget, true> = { 'react-query': true, swr: 
 
 const HOOKS_TARGETS = Object.keys(HOOKS_TARGET_SET) as HooksTarget[];
 
-export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server' | 'next';
+export type GeneratorTarget = HooksTarget | 'zod' | 'models' | 'socket-hooks' | 'server' | 'next' | 'mocks' | 'msw';
 
 /** Whether each target's emitter has landed; the CLI refuses a requested target that is not available. */
 export const GENERATOR_TARGETS: Readonly<Record<GeneratorTarget, { readonly available: boolean }>> = {
   'react-query': { available: true },
   swr: { available: true },
-  zod: { available: false },
+  zod: { available: true },
   models: { available: true },
   'socket-hooks': { available: true },
   server: { available: true },
   next: { available: true },
+  mocks: { available: true },
+  msw: { available: true },
 };
 
 // `hookRoutes` is built once, so every hooks file prints the same routes.
@@ -61,7 +75,10 @@ type EmitOptions = GenerateClientFilesOptions & { basename: string; hookRoutes: 
 
 type Emitter = (model: ClientModel, options: EmitOptions) => Promise<GeneratedFile[]>;
 
-const noFiles: Emitter = () => Promise.resolve([]);
+const zodFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitZod(model, typeof options.zod === 'object' ? options.zod : {}, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.zod.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
 
 const keysFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.keys.ts`, environment: 'server-safe', contents: emitKeys(model, options) }]);
 
@@ -90,8 +107,18 @@ const serverFile: Emitter = (model, options) => Promise.resolve([{ path: `${opti
 
 const nextFile: Emitter = (model, options) => Promise.resolve([{ path: `${options.basename}.next.ts`, environment: 'server-safe', contents: emitNext(model, options) }]);
 
+const mocksFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMocks(model, `./${options.basename}.js`);
+  return Promise.resolve([{ path: `${options.basename}.mocks.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
+
+const mswFile: Emitter = (model, options) => {
+  const { contents, diagnostics } = emitMsw(model, `./${options.basename}.js`, `./${options.basename}.mocks.js`);
+  return Promise.resolve([{ path: `${options.basename}.msw.ts`, environment: 'server-safe', contents, diagnostics }]);
+};
+
 // The targets that write their own files; `models` adds to client.ts.
-const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: noFiles, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile };
+const COMPANIONS: Partial<Record<GeneratorTarget, Emitter>> = { 'react-query': reactQuery, swr: swrFile, zod: zodFile, 'socket-hooks': socketHooksFiles, server: serverFile, next: nextFile, mocks: mocksFile, msw: mswFile };
 
 export function requestedTargets(options: GenerateClientFilesOptions): GeneratorTarget[] {
   const requested: Record<GeneratorTarget, boolean> = {
@@ -102,6 +129,8 @@ export function requestedTargets(options: GenerateClientFilesOptions): Generator
     'socket-hooks': !!options.socketHooks,
     server: !!options.server || !!options.next,
     next: !!options.next,
+    mocks: !!options.mocks,
+    msw: !!options.msw,
   };
   return (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => requested[t]);
 }
@@ -112,6 +141,7 @@ function checkOptions(options: GenerateClientFilesOptions): void {
   if (unknown !== undefined) throw new Error(`generateClientFiles: unknown hooks target '${unknown}'; use ${HOOKS_TARGETS.join(' or ')}`);
   const twice = hooks.find((h, i) => hooks.indexOf(h) !== i);
   if (twice !== undefined) throw new Error(`generateClientFiles: hooks target '${twice}' is listed twice`);
+  if (options.msw && !options.mocks) throw new Error('generateClientFiles: msw needs mocks, because the handlers are generated from the mocks');
   if (options.socketHooks && hooks.length === 0) throw new Error('generateClientFiles: socketHooks needs hooks, which pick the flavour of the socket hooks');
   if (options.socketHooks && options.includeSocket === false) throw new Error('generateClientFiles: socketHooks needs the socket contracts, which includeSocket: false leaves out of client.ts');
   if (options.keyPrefix === '') throw new Error('generateClientFiles: keyPrefix must not be empty');

@@ -61,6 +61,13 @@ module.exports = {
       to: { pathNot: ['^packages/client/src/runtime/', '^packages/client/src/formats/'] },
     },
     {
+      name: 'client-mocks-self-contained',
+      severity: 'error',
+      comment: '@spinajs/client/mocks runs in browser bundles and test runners: no npm packages, no Node built-ins; only @spinajs/client/formats from the rest of the package.',
+      from: { path: '^packages/client/src/mocks/' },
+      to: { pathNot: ['^packages/client/src/mocks/', '^packages/client/src/formats/'] },
+    },
+    {
       name: 'client-formats-leaf',
       severity: 'error',
       comment: '@spinajs/client/formats runs in browser bundles and imports nothing outside its own folder.',

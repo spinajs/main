@@ -141,9 +141,28 @@ An error that reaches the error handler answers `Content-Type: application/probl
 | `detail` | `err.message` |
 | `instance` | the request path, without the query |
 | `code` | `err.code` when it is a string and the error is a framework exception (`Exception` subclass) or its class lists `code` in `problemFields`. Never for a library error such as a Postgres SQLSTATE or `EACCES`, and never when `err.syscall` is set. |
-| `errors` | the Ajv errors of `ValidationFailed` |
+| `errors` | the Ajv errors of `ValidationFailed`; see [validation errors](#validation-errors) |
 
 Production and the generic server error: when `configuration.isProduction` is true and the answer is `ServerError` (an unmapped error, or a response derived from it), `detail` is `Internal server error` and `code` is left out. The full message stays in the `error` log line. Outside production the message is kept for debugging.
+
+### Validation errors
+
+Each item of `errors` is an Ajv error reduced to `instancePath`, `schemaPath`, `keyword`, `params` and sometimes `message`. The server compiles manifest-derived schemas without messages, so those items carry none; an explicit `@Schema` sends Ajv's `message`.
+
+Every argument is validated on its own, so `instancePath` is **relative to the argument**, not to the request. An item of an argument checked against its manifest-derived schema therefore also says which argument it belongs to:
+
+| Member | Holds |
+| --- | --- |
+| `in` | where the argument is read: `body`, `query`, `path`, `header` or `cookie` |
+| `name` | the key the argument has on the wire (the property of the body, the query parameter, ...) |
+
+`name` is absent when the argument is the whole set: a `@Body()` DTO, `@BodyField`, `@QueryField`, `@ParamField` or `@Headers`. Then `instancePath` is already relative to the request part. Only manifest-derived validation sets these members. An explicit `@Schema`, a route-level schema, a file or multipart refusal and the strict-header refusal carry neither, and a client treats their paths as relative to the whole body.
+
+```json
+{ "instancePath": "/count", "keyword": "type", "params": { "type": "number" }, "in": "body", "name": "second" }
+```
+
+The members are additive; clients that do not know them ignore them. The [client's `applyProblem`](../client/reply-parsing-and-forms.md#which-argument-an-error-belongs-to) uses them to name the form field.
 
 ### Extra members
 
