@@ -152,10 +152,10 @@ describe('DbAuthzAdminBackend on SQLite', function () {
       expect(await versionOf(dom)).to.equal(1);
     });
 
-    it('bumps authz_version by domain only for committed transactions', async () => {
-      await backend.transaction(dom, (tx) => backend.bumpVersion(dom, tx));
-      await backend.transaction(dom, (tx) => backend.bumpVersion(dom, tx));
-      await backend.transaction(other, (tx) => backend.bumpVersion(other, tx));
+    it('bumps authz_version by domain only for committed transactions, and returns the new version', async () => {
+      expect(await backend.transaction(dom, (tx) => backend.bumpVersion(dom, tx))).to.equal(1);
+      expect(await backend.transaction(dom, (tx) => backend.bumpVersion(dom, tx))).to.equal(2);
+      expect(await backend.transaction(other, (tx) => backend.bumpVersion(other, tx))).to.equal(1);
       expect(await versionOf(dom)).to.equal(2);
       expect(await versionOf(other)).to.equal(1);
     });

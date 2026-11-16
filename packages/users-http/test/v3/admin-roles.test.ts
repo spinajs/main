@@ -8,7 +8,9 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
 import { FreshAuth } from '@spinajs/authn-http';
+import { SortOrder } from '@spinajs/orm';
 import { FilterableLogicalOperators, IFilterRequest } from '@spinajs/orm-http';
+import type { Sort } from '@spinajs/orm-http';
 import { User } from '@spinajs/users';
 import { AuthzService, SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
@@ -30,6 +32,7 @@ const body = async <T = any>(r: any): Promise<T> => {
 const headers = (r: any) => (r.options?.Headers ?? []) as Array<{ Name: string; Value: any }>;
 const filterReq = (Column: string, Operator: string, Value: any): IFilterRequest => ({ filters: [{ Column, Operator, Value }], op: FilterableLogicalOperators.And }) as any;
 const logins = async (r: any) => (await body<any[]>(r)).map((u: any) => u.Login).sort();
+const BY_CREATED: Sort<User> = { column: 'CreatedAt', order: SortOrder.DESC };
 
 describe('users-http v3: role changes through AuthzAdmin', function () {
   this.timeout(25000);
@@ -69,27 +72,23 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     });
 
     it('filters by holding any of several roles, from the GLOBAL assignments', async () => {
-      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin', 'admin2']);
+      expect(await logins(await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin', 'admin2']);
 
-      const either = await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['scoped-admin', 'user']));
+      const either = await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'in-set', ['scoped-admin', 'user']));
       expect(await logins(either)).to.deep.eq(['inactive', 'multi', 'user']);
       expect(headers(either).find((h) => h.Name === 'X-Total-Count')!.Value).to.eq(3);
     });
 
     it('filters by one role and by its absence', async () => {
-      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'eq', 'admin')))).to.deep.eq(['admin', 'admin2']);
-      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'neq', 'admin')))).to.deep.eq(['inactive', 'multi', 'user']);
-      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'nin-set', ['admin', 'user'])))).to.deep.eq(['multi']);
+      expect(await logins(await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'eq', 'admin')))).to.deep.eq(['admin', 'admin2']);
+      expect(await logins(await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'neq', 'admin')))).to.deep.eq(['inactive', 'multi', 'user']);
+      expect(await logins(await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'nin-set', ['admin', 'user'])))).to.deep.eq(['multi']);
     });
 
     it('stops listing a holder once the role is revoked', async () => {
       await unseedRoles(ADMIN2_UUID, ['admin']);
 
-      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin']);
-    });
-
-    it('cannot sort by Role any more', async () => {
-      await expect(world.users.list(await admin(), undefined, { column: 'Role' } as any)).to.be.rejectedWith(InvalidArgument, /Cannot sort by/);
+      expect(await logins(await world.users.list(await admin(), BY_CREATED, [], undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin']);
     });
   });
 

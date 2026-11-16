@@ -10,10 +10,16 @@ const fixtures = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 describe('@spinajs/eslint-plugin-authz', () => {
   it('exports the rule and a recommended config that enables it', () => {
-    expect(Object.keys(rules)).to.deep.eq(['require-accessible', 'require-access', 'no-raw-request']);
-    expect(Object.keys(plugin.rules)).to.deep.eq(['require-accessible', 'require-access', 'no-raw-request']);
+    const names = ['require-accessible', 'require-access', 'no-raw-request', 'require-socket-access', 'require-handler-access'];
+    expect(Object.keys(rules)).to.deep.eq(names);
+    expect(Object.keys(plugin.rules)).to.deep.eq(names);
     expect(plugin.configs.recommended).to.eq(configs.recommended);
-    expect(configs.recommended.rules).to.deep.eq({ '@spinajs/authz/require-accessible': 'error', '@spinajs/authz/require-access': 'error' });
+    expect(configs.recommended.rules).to.deep.eq({
+      '@spinajs/authz/require-accessible': 'error',
+      '@spinajs/authz/require-access': 'error',
+      '@spinajs/authz/require-socket-access': 'error',
+      '@spinajs/authz/require-handler-access': 'warn',
+    });
   });
 
   it('reports through ESLint with the recommended flat config', async () => {

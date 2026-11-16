@@ -127,14 +127,33 @@ See [`@spinajs/asyncapi`](../asyncapi/README.md).
 
 ```sh
 spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <name>] [--no-socket]
+  [--hooks <list>] [--zod [--zod-mini] [--zod-replies] [--zod-unsupported <warn|error>]] [--models]
+  [--socket-hooks] [--key-prefix <name>] [--server] [--next] [--mocks [--msw]] [--check]
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-m, --manifest <path>` | `app.manifest.json` | Application manifest |
-| `-o, --out <path>` | `src/generated/client.ts` | Output file; missing folders are created |
+| `-o, --out <path>` | `src/generated/client.ts` | Output file; companion files are written next to it, named after it (`client.zod.ts`). Missing folders are created |
 | `--module <name>` | `@spinajs/client/runtime` | Import path of the client runtime in the generated file |
 | `--no-socket` | sockets included | Omit socket contracts |
+| `--hooks <list>` | none | Comma-separated hooks targets: `react-query`, `swr` |
+| `--zod` | off | Write zod schemas |
+| `--zod-mini` | off | Use `zod/mini`; needs `--zod` |
+| `--zod-replies` | off | Also write lenient reply schemas; needs `--zod` |
+| `--zod-unsupported <warn\|error>` | `warn` | What to do with a keyword zod cannot express; needs `--zod` |
+| `--models` | off | Decode replies and encode requests into app types |
+| `--socket-hooks` | off | Add socket hooks to the hooks files; needs `--hooks` |
+| `--key-prefix <name>` | `spinajs` | First element of every generated query key |
+| `--server` | off | Write the server-safe client |
+| `--next` | off | Write the Next.js adapter; implies `--server` |
+| `--mocks` | off | Write mock data and a fake client |
+| `--msw` | off | Also write MSW handlers; needs `--mocks` |
+| `--check` | off | Write nothing. Exit with code 1 and list each generated file that is missing or differs from disk |
+
+All generated files come from one read of the manifest, so they never disagree. A flag whose generator is not part of the installed `@spinajs/client` fails before anything is written, with `<flag> is not available in this version`. Each generator is released separately, in a 4.x minor, so a flag is accepted from the release that carries its generator; `--check` is available now.
+
+`--check` replaces `generate:client` followed by `git diff --exit-code` in CI. It checks only the files the given flags generate, so a companion file left over from a dropped flag is not reported. Pass the same flags the app uses locally. It compares text with line endings normalised, so a Windows checkout with `autocrlf` is not reported as stale.
 
 See [`@spinajs/client`](../client/README.md).
 

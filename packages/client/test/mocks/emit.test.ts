@@ -54,7 +54,7 @@ describe('client.mocks.ts', function () {
       it('matches the committed snapshots', () => {
         expect(files.map((f) => f.path)).to.deep.equal(['client.ts', 'client.mocks.ts']);
         for (const file of files) matchesSnapshot(`${fixture}/${file.path}`, file.contents);
-        expect(files[1].diagnostics).to.deep.equal([]);
+        expect(files[1].diagnostics?.map((d) => `${d.code} ${d.schema}${d.pointer}`)).to.deep.equal(fixture === 'schema-corpus' ? ['MOCK001 spinajs/schema-corpus/Registration/if'] : []);
       });
 
       it('type-checks with client.ts', () => {
@@ -74,7 +74,7 @@ describe('client.mocks.ts', function () {
     const client = await generateClient({ manifest });
     const [withMocks] = await generateClientFiles({ manifest, mocks: true });
     expect(withMocks.contents.replace(`export const manifestHash = '${manifest.hash}';\n\n`, '')).to.equal(client);
-    expect(await generateClientFiles({ manifest, mocks: false })).to.deep.equal([{ path: 'client.ts', contents: client }]);
+    expect(await generateClientFiles({ manifest, mocks: false })).to.deep.equal([{ path: 'client.ts', environment: 'server-safe', contents: client }]);
   });
 
   it('names the file after basename and imports the types from it', async () => {
@@ -87,8 +87,8 @@ describe('client.mocks.ts', function () {
   it('is a leaf: no generated file imports client.mocks.ts or client.msw.ts, and runtime/ and formats/ never import mocks/', async () => {
     // Every target that writes a file of its own; the next emitter that lands joins this list.
     const writing = (Object.keys(GENERATOR_TARGETS) as GeneratorTarget[]).filter((t) => GENERATOR_TARGETS[t].available);
-    expect(writing).to.deep.equal(['zod', 'mocks', 'msw']);
-    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), zod: true, mocks: true, msw: true };
+    expect(writing).to.deep.equal(['react-query', 'swr', 'zod', 'socket-hooks', 'server', 'next', 'mocks', 'msw']);
+    const options: GenerateClientFilesOptions = { manifest: await appBasicManifest(), hooks: ['react-query', 'swr'], zod: true, socketHooks: true, next: true, mocks: true, msw: true };
     for (const basename of ['client', 'api']) {
       const files = await generateClientFiles({ ...options, basename });
       expect(files.map((f) => f.path)).to.include(`${basename}.mocks.ts`);

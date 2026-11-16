@@ -72,9 +72,11 @@
     }
   },
   "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/authn": "3.0.23",
     "@spinajs/authz-testing": "3.0.23",
-    "@spinajs/fs": "3.0.23"
+    "@spinajs/fs": "3.0.23",
+    "@spinajs/tracing": "3.0.23"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {

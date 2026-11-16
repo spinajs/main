@@ -1,8 +1,10 @@
-import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 
-import { ServerMiddleware, Request as sRequest, IServerTimingEntry } from '../interfaces.js';
+import { ServerMiddleware, IServerTimingEntry } from '../interfaces.js';
+import type { IMiddlewareContext, IReplyContext } from '../interfaces.js';
+
+const STARTED = Symbol('serverTimingStarted');
 
 /**
  * Emits a `Server-Timing` response header so browsers / devtools can show
@@ -13,9 +15,8 @@ import { ServerMiddleware, Request as sRequest, IServerTimingEntry } from '../in
  *
  *   req.storage.serverTiming.push({ name: 'db', dur: 12, desc: 'main query' });
  *
- * Header is written by monkey-patching `res.end` so it lands on the response
- * regardless of how the controller flushed — Express ServerMiddleware.after()
- * does not run for normal route responses.
+ * The header is set in onAfter, after the route middlewares' onAfter (RouteTiming's `route` entry), so static files
+ * and replies an action writes to `res` itself get none.
  *
  * Config:
  *   http.serverTiming.enabled  (default true)
@@ -30,28 +31,23 @@ export class ServerTiming extends ServerMiddleware {
     this.Order = 2;
   }
 
-  public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    if (!this.Enabled) return null;
-    return (req, res, next) => {
-      const startedAt = Date.now();
-      req.storage.serverTiming = req.storage.serverTiming ?? [];
-
-      const originalEnd = res.end.bind(res) as typeof res.end;
-      (res.end as any) = function patchedEnd(this: express.Response, ...args: any[]) {
-        if (!res.headersSent) {
-          const entries: IServerTimingEntry[] = req.storage.serverTiming ?? [];
-          entries.push({ name: 'total', dur: Date.now() - startedAt });
-          res.setHeader('Server-Timing', entries.map(formatEntry).join(', '));
-        }
-        return originalEnd(...args);
-      };
-
-      next();
-    };
+  public isEnabled(): boolean {
+    return this.Enabled;
   }
 
-  public after(): null {
-    return null;
+  public onBefore({ res, storage }: IMiddlewareContext): void {
+    (res.locals as Record<symbol, number>)[STARTED] = Date.now();
+    storage.serverTiming = storage.serverTiming ?? [];
+  }
+
+  public onAfter({ res, storage }: IReplyContext): void {
+    const started = (res.locals as Record<symbol, number | undefined>)[STARTED];
+    if (started === undefined) {
+      return;
+    }
+    const entries: IServerTimingEntry[] = storage.serverTiming ?? [];
+    entries.push({ name: 'total', dur: Date.now() - started });
+    res.setHeader('Server-Timing', entries.map(formatEntry).join(', '));
   }
 }
 

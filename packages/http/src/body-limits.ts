@@ -1,7 +1,9 @@
-import express from 'express';
+import type express from 'express';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { EntityTooLargeException } from './exceptions.js';
+import { effectiveParserOptions, jsonParser, textParser, urlencodedParser } from './body-parser-options.js';
+import type { IBodyParsersConfiguration } from './body-parser-options.js';
 
 /**
  * A body size limit for every request under `path`. See `http.bodyLimits`.
@@ -52,17 +54,33 @@ function chain(handlers: express.RequestHandler[]): express.RequestHandler {
   };
 }
 
+export interface IBodyLimitOptions {
+  /** `http.bodyParsers`: each rule parses with these options, only `limit` replaced. A parser with `enabled: false` is skipped. */
+  parsers?: IBodyParsersConfiguration;
+
+  /** Called once, for the first request under a rule whose body something read before the limit could check it. */
+  onReadEarly?: (req: express.Request) => void;
+}
+
+// body-parser 1.x flags a read body with `_body`; a stream read to its end (body-parser 2.x, raw readers) has ended.
+const alreadyRead = (req: express.Request): boolean => (req as { _body?: boolean })._body === true || req.readableEnded;
+
 /**
- * Parses the body of requests under a `http.bodyLimits` path with that path's limit, before the `http.middlewares`
- * parsers run; they skip a body that is already read. The first matching rule wins. Returns null with no rules.
+ * Parses the body of requests under a `http.bodyLimits` path with that path's limit, before the body parsers run;
+ * they skip a body that is already read. The first matching rule wins. Returns null with no rules.
  *
- * A declared `Content-Length` over the limit answers 413 for any content type. JSON, urlencoded and XML text are
- * parsed here, so the JSON parser's `verify` of `http.middlewares` does not run for them; `req.rawBody` is still set.
+ * A declared `Content-Length` over the limit answers 413 for any content type. JSON, urlencoded and text bodies are
+ * parsed here with the `http.bodyParsers` options (types, `verify`, `req.rawBody`), only the limit replaced. A body
+ * something read before this gate answers 413: its size can no longer be bounded.
  */
-export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): express.RequestHandler | null {
+export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[], options: IBodyLimitOptions = {}): express.RequestHandler | null {
   if (rules.length === 0) {
     return null;
   }
+
+  const json = effectiveParserOptions(options.parsers, 'json');
+  const urlencoded = effectiveParserOptions(options.parsers, 'urlencoded');
+  const text = effectiveParserOptions(options.parsers, 'text');
 
   const parsers = rules.map((rule) => {
     const bytes = parseBodyLimit(rule.limit);
@@ -70,17 +88,14 @@ export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): exp
       rule,
       bytes,
       parse: chain([
-        express.json({
-          limit: bytes,
-          verify: (req, _res, buf) => {
-            (req as { rawBody?: Buffer }).rawBody = buf;
-          },
-        }),
-        express.urlencoded({ extended: true, limit: bytes }),
-        express.text({ type: ['application/xml', 'text/xml', 'application/*+xml'], limit: bytes }),
+        ...(json.enabled === false ? [] : [jsonParser({ ...json, limit: bytes })]),
+        ...(urlencoded.enabled === false ? [] : [urlencodedParser({ ...urlencoded, limit: bytes })]),
+        ...(text.enabled === false ? [] : [textParser({ ...text, limit: bytes })]),
       ]),
     };
   });
+
+  let reportedEarlyRead = false;
 
   return (req, res, next) => {
     const match = parsers.find((p) => underPath(req.path, p.rule.path));
@@ -92,6 +107,15 @@ export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): exp
     const declared = Number(req.headers['content-length']);
     if (Number.isFinite(declared) && declared > match.bytes) {
       next(new EntityTooLargeException('request body is too large'));
+      return;
+    }
+
+    if (alreadyRead(req)) {
+      if (!reportedEarlyRead) {
+        reportedEarlyRead = true;
+        options.onReadEarly?.(req);
+      }
+      next(new EntityTooLargeException('request body was read before http.bodyLimits could check it'));
       return;
     }
 

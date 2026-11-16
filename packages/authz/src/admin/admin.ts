@@ -5,6 +5,7 @@ import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
+import { consistencyToken } from '../contracts/consistency.js';
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandFields, AuthzCommandOf, AuthzCommandResult, AuthzCommandRow, AuthzEvent, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { isPermission } from '../contracts/permission.js';
@@ -315,8 +316,9 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
             throw e;
           }
         }
-        await env.backend.bumpVersion(env.domain, tx);
-        const results = applied.map((a, i) => okResult(list[i].kind, a));
+        const version = await env.backend.bumpVersion(env.domain, tx);
+        const consistency = options.consistency && typeof version === 'number' ? consistencyToken(version) : undefined;
+        const results = applied.map((a, i) => okResult(list[i].kind, a, consistency));
         const rows = applied.map((a) => (a.row === undefined ? null : redact(a.row)));
         if (key !== undefined && (await env.backend.remember(env.domain, actorKey, key, { results: results.map(withoutToken), rows }, new Date(now.getTime() + IDEMPOTENCY_TTL_MS), tx)) === 'exists') {
           state.raced = true;
@@ -469,17 +471,19 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   }
 }
 
-function readOptions(opts: unknown): { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun: boolean } {
-  if (opts === undefined || opts === null) return { dryRun: false };
+function readOptions(opts: unknown): { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun: boolean; readonly consistency: boolean } {
+  if (opts === undefined || opts === null) return { dryRun: false, consistency: false };
   if (!isObject(opts)) throw new AuthzAdminFailure('invalid_batch', `options must be an object, got ${q(opts)}`);
-  const { reason, idempotencyKey, dryRun } = opts;
+  const { reason, idempotencyKey, dryRun, consistency } = opts;
   if (reason !== undefined && !isValidField(reasonField, reason)) throw new AuthzAdminFailure('invalid_batch', `reason must be a string of at most ${reasonField.maxLength} characters`, 'reason');
   if (idempotencyKey !== undefined && !isValidField(idempotencyKeyField, idempotencyKey)) throw new AuthzAdminFailure('invalid_batch', `idempotencyKey must be a non-empty string of at most ${idempotencyKeyField.maxLength} characters`, 'idempotencyKey');
   if (dryRun !== undefined && typeof dryRun !== 'boolean') throw new AuthzAdminFailure('invalid_batch', 'dryRun must be a boolean', 'dryRun');
+  if (consistency !== undefined && typeof consistency !== 'boolean') throw new AuthzAdminFailure('invalid_batch', 'consistency must be a boolean', 'consistency');
   return {
     ...(reason === undefined ? {} : { reason }),
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
     dryRun: dryRun === true,
+    consistency: consistency === true,
   };
 }
 
@@ -606,8 +610,8 @@ function frozenBatch(commands: readonly AuthzCommand[]): readonly AuthzCommand[]
   );
 }
 
-function okResult(kind: AuthzCommand['kind'], a: Applied): OkResult {
-  return { ok: true, kind, ...(a.id === undefined ? {} : { id: a.id }), ...(a.token === undefined ? {} : { token: a.token }), affected: a.affected };
+function okResult(kind: AuthzCommand['kind'], a: Applied, consistency: string | undefined): OkResult {
+  return { ok: true, kind, ...(a.id === undefined ? {} : { id: a.id }), ...(a.token === undefined ? {} : { token: a.token }), affected: a.affected, ...(consistency === undefined ? {} : { consistency }) };
 }
 
 function withoutToken(r: OkResult): OkResult {

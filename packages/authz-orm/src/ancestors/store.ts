@@ -13,6 +13,7 @@ import type { AncestorRow } from './table.js';
 /** Every resource the table lists below one of `refs`, once. */
 export async function readDescendants(refs: readonly ResourceRef[]): Promise<ResourceRef[]> {
   const seen = new Map<string, ResourceRef>();
+  // spinajs-orm-ignore ORM102: one whereIn query per resource type in refs
   for (const [type, ids] of groupIds(refs)) {
     for (const row of await selectFrom(AncestorRecord).columns(['resource_type', 'resource_id']).where('ancestor_type', type).whereIn('ancestor_id', ids)) {
       const ref = { type: row.resource_type, id: row.resource_id };
@@ -30,6 +31,7 @@ export async function readParents(driver: OrmDriver, refs: readonly ResourceRef[
   const out = new Map<string, ResourceRef[]>();
   for (const [type, ids] of groupIds(refs)) {
     const tables = new Set<string>();
+    // spinajs-orm-ignore ORM102: one whereIn query per distinct class table of the type
     for (const cls of classesOf(type)) {
       const entry = entryOf(cls)!;
       const table = tableOf(cls);

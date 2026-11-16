@@ -38,7 +38,7 @@ export interface AuthzAdminQueryMap {
 /** Every query a model declared in AuthzAdminQueryMap. */
 export type AuthzAdminQuery = AuthzAdminQueryMap[keyof AuthzAdminQueryMap];
 
-export type AuthzCommandResult = { readonly ok: true; readonly kind: AuthzCommand['kind']; readonly id?: string; readonly token?: string /* link.create only, shown once */; readonly affected: number } | { readonly ok: false; readonly kind: AuthzCommand['kind']; readonly error: AuthzAdminError };
+export type AuthzCommandResult = { readonly ok: true; readonly kind: AuthzCommand['kind']; readonly id?: string; readonly token?: string /* link.create only, shown once */; readonly affected: number; /** With `AuthzAdminOptions.consistency`: the domain's generation after the batch, for `DecisionRequest.consistency`. */ readonly consistency?: string } | { readonly ok: false; readonly kind: AuthzCommand['kind']; readonly error: AuthzAdminError };
 
 export interface AuthzAdminError {
   readonly code: string;
@@ -68,6 +68,8 @@ export interface AuthzAdminOptions {
   readonly reason?: string; // goes to audit
   readonly idempotencyKey?: string; // a retried batch with the same key returns the first result
   readonly dryRun?: boolean; // validate and guard, then roll back (admin UIs)
+  /** Ok results carry `consistency`, the token a later check passes to read this batch's writes; needs a backend that reports its version. */
+  readonly consistency?: boolean;
 }
 
 /**

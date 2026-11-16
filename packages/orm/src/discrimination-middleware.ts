@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
-import { IModelDescriptor, IBuilderMiddleware } from './interfaces.js';
-import { ModelBase } from './model.js';
+import type { IModelDescriptor, IBuilderMiddleware } from './interfaces.js';
+import type { ModelBase } from './model.js';
 
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
   constructor(protected _description: IModelDescriptor) {}

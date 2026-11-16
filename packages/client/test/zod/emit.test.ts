@@ -1,25 +1,17 @@
 import 'mocha';
 import { expect } from 'chai';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Manifest } from '@spinajs/manifest';
 import { buildClientModel, emitZod, generateClient, generateClientFiles, type GeneratedFile } from '../../src/index.js';
 import { appBasicManifest, corpusManifest } from '../support/fixture.js';
+import { matchesSnapshot as compareSnapshot } from '../support/snapshot.js';
 import { typecheckFiles } from '../support/typecheck.js';
 import { clearLoaded, loadZod, manifestWith, param, route, schemaIn } from '../support/zod.js';
 
 // Each fixture's pair of files sits in its own folder, so the snapshot's `./client.js` import resolves for tsc and ESLint.
 const snapshot = (name: string) => fileURLToPath(new URL(`../__snapshots__/zod/${name}`, import.meta.url));
 
-function matchesSnapshot(name: string, contents: string): void {
-  const path = snapshot(name);
-  if (!existsSync(path)) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, contents);
-  }
-  expect(contents).to.equal(readFileSync(path, 'utf8'));
-}
+const matchesSnapshot = (name: string, contents: string): void => compareSnapshot(snapshot(name), contents);
 
 const byPath = (files: GeneratedFile[]): Record<string, string> => Object.fromEntries(files.map((f) => [f.path, f.contents]));
 
@@ -66,7 +58,7 @@ describe('client.zod.ts', function () {
     const client = await generateClient({ manifest });
     const [withZod] = await generateClientFiles({ manifest, zod: true });
     expect(withZod.contents.replace(`export const manifestHash = '${manifest.hash}';\n\n`, '')).to.equal(client);
-    expect(await generateClientFiles({ manifest })).to.deep.equal([{ path: 'client.ts', contents: client }]);
+    expect(await generateClientFiles({ manifest })).to.deep.equal([{ path: 'client.ts', environment: 'server-safe', contents: client }]);
   });
 
   it('names the file after basename and imports the types from it', async () => {
@@ -128,7 +120,8 @@ describe('client.zod.ts', function () {
     });
 
     it('opens a whole query root and keeps the other keys, which other arguments read', () => {
-      expect(contents).to.include('filter: /*#__PURE__*/ z.looseObject(DtoSchema.shape),');
+      expect(contents).to.include('filter: /*#__PURE__*/ z.looseObject(DtoCoerced.shape),');
+      expect(contents).to.include('q: DtoCoerced,');
       expect(at('wholeQuery', 'filter').safeParse({ a: 'x', q: '{}' })).to.deep.equal({ success: true, data: { a: 'x', q: '{}' } });
     });
 

@@ -66,8 +66,9 @@ describe('client.mocks.ts: parity with the server validation', function () {
         }
         const flagged = new Set((file.diagnostics ?? []).filter((d) => d.code === 'MOCK001' && dtos.some((dto) => dto.id === d.schema)).map((d) => d.schema));
         expect([...skipped].sort()).to.deep.equal([...flagged].sort());
-        if (fixture === 'mock-corpus') expect([...skipped].sort()).to.deep.equal([...UNSUPPORTED_IDS].sort());
-        else expect([...skipped]).to.deep.equal([]);
+        // Registration uses if/then, which the sampler does not support.
+        const unsupported: Record<string, string[]> = { 'mock-corpus': [...UNSUPPORTED_IDS], 'schema-corpus': ['spinajs/schema-corpus/Registration'] };
+        expect([...skipped].sort()).to.deep.equal((unsupported[fixture] ?? []).sort());
       });
 
       it("answers every route of createMockAppClient with fallback: 'mock' as the reply schema says", async () => {
