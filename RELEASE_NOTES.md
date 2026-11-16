@@ -1,3 +1,54 @@
+# Release notes — orm-http: filter values are checked against the operator and the column
+
+## Behaviour change
+
+- `@spinajs/orm-http`: `@Filter()` checks each filter value against its operator and its column. Before, every column
+  accepted a string, an integer, a boolean or an array for any operator: `eq [1]` and `gte "abc"` on an integer column
+  were accepted and reached the query, `between [1]` failed in the database with a 500, and a `null` value was coerced to
+  `""` and compared with that. Now each operator takes its own shape:
+  - `eq`, `neq`, `gt`, `gte`, `lt`, `lte`: one value of the column's type;
+  - `like`, `b-like`, `e-like`, `regexp`: a string;
+  - `in`, `nin`, `in-set`, `nin-set`: a non-empty array of values of the column's type;
+  - `between`, `notbetween`: an array of exactly two;
+  - `isnull`, `notnull`, `exists`, `n-exists`: no value.
+
+  The column's type comes from the new `value` schema (`@Filterable({ operators, query, aggregate, value })`, or `value`
+  in an `IColumnFilter`), else from the model column's JSON schema (a `Relation.Column` filter reads the related model's
+  column), else any scalar. A value is coerced only to the type of its own column: `"20"` for an integer column becomes
+  `20`, `"05"` for a text column stays `"05"`. A malformed filter that answered 200 or 500 now answers 400.
+- Over `@Filter()`, a typed value is never `null`, alone or as a member of a list or pair, also when the declared
+  `value` schema allows `null`: the request answers 400. Filter with `isnull` / `notnull` instead. A `like` value of
+  `null` is coerced to `""`, which `filter()` refuses as an empty pattern, also with 400.
+- The `@Filter()` schema refuses more than 100 top-level filters (`maxItems`, the `MAX_FILTERS` that `filter()`
+  applies): the request answers 400 from validation, before `filter()` runs. The answer was already 400. The filters
+  of a nested group are not limited by either.
+- Called from code, `filter()` keeps the 3.0.29 handling of `null`: `eq null` and `neq null` compile to `IS NULL` /
+  `IS NOT NULL`, and `null` for `gt` .. `lte` throws `InvalidArgument`. It now refuses an array for `eq` .. `lte` with
+  `InvalidArgument` (`SINGLE_VALUE_REQUIRED`).
+- A column with a custom `query` function, and a virtual filter-only column, stay loose unless they declare `value`: they
+  take any value except an object, for every operator, uncoerced. Such a column now receives `null` as `null` and a
+  fraction as a number, where coercion used to hand it `""` and a string. A query function that tested for `""` tests for
+  `null` now.
+- The filter value of a column with `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` or `@Archived()` must
+  be a full RFC 3339 date-time such as `2024-01-01T00:00:00Z`, also when the column stores numbers. A date alone
+  (`2024-01-01`) or a number answers 400.
+
+## New
+
+- `@spinajs/orm-http`: the options form `@Filterable({ operators, query?, aggregate?, value? })` (`IFilterableOptions`),
+  `IColumnFilter.value`, `FILTER_OPERATOR_GROUPS`, `filterSchemaFor(columns, model?)` and `MAX_FILTERS`.
+
+## Known
+
+- The OpenAPI document of `@spinajs/http-swagger` describes the filter `Value` as before; it does not publish the
+  per-operator value shapes `@Filter()` now enforces.
+- On PostgreSQL the model JSON schema does not map the type names the driver reports for integer, float and boolean
+  columns (`int2` .. `int8`, `float4`, `float8`, `bool`), so an `@Filter()` value on such a column is checked as a string
+  instead of the column's type (`"abc"` passes, a number is coerced to text).
+
+> Docs: `docs/orm-http/03-filtering.md`, `docs/orm-http/07-custom-filter-columns.md`,
+> `docs/orm-http/08-custom-route-args-and-hydrators.md`.
+
 # Release notes — orm: the model JSON schema reads SQL column types in any case
 
 ## Behaviour change

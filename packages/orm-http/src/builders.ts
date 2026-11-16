@@ -28,6 +28,10 @@ const ValidationHelpers = {
     _check_arg(_non_undefined(
       new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a value, got: ${filter.Value}`, filter.Column, 'VALUE_REQUIRED')
     ))(filter.Value, filter.Column);
+
+    if (Array.isArray(filter.Value)) {
+      throw new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a single value, got an array`, filter.Column, 'SINGLE_VALUE_REQUIRED');
+    }
   },
 
   noValidation: () => {
@@ -251,6 +255,9 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
   return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
+/** The most conditions `filter()` takes at the top level of a request; a nested group is not counted. */
+export const MAX_FILTERS = 100;
+
 /**
  * Extend where builder with filter func old style ( by prototype )
  */
@@ -260,8 +267,6 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
     return this;
   }
 
-  // Performance optimization: limit the number of filters to prevent abuse
-  const MAX_FILTERS = 100;
   if (filters.length > MAX_FILTERS) {
     throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
   }

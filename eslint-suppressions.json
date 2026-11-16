@@ -5420,9 +5420,6 @@
     }
   },
   "packages/orm-http/src/decorators.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     }
