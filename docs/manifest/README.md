@@ -152,6 +152,32 @@ The `authz` section lists what the build can read about authorization. `resource
 
 `ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet; an app manifest with an `authz` section says so with the info diagnostic `AUTHZ010`.
 
+### Tenancy facts
+
+The `tenancy` section holds what a build can read about tenants. A fragment has it only when the package declares something: a tenant model, the tenancy of an entry point, an escape or an ignore comment. An application in which no package does has no section, and its manifest is what it was before.
+
+| Member | Content |
+| --- | --- |
+| `models` | Each tenant model by `ModelEntry.id`, with what `@Tenant(options)` or `registerTenantModel(Model, options)` states: `isolation` (`row` or `schema`), `column` (the name of the model's tenant column, or `false` for none) and `rls`. An absent member is the `tenancy.orm.*` default of the application. The same object is `ModelEntry.tenant`. The column itself is a property of the model and is listed with its other columns |
+| `entryPoints` | Every route, socket command and event, queue handler, schedule and CLI command, under the `id` it has in `authz.entryPoints`, with its `tenancy`, what it `declared` and, for `@AllTenants(reason)`, the `reason` |
+| `escapes` | Every `.acrossTenants(reason)` on a query builder and every `runAcrossTenants(reason, fn)` call, with the `reason` and, for a builder, the class name of its `model` |
+| `ignores` | Every `// spinajs-tenancy-ignore TENxxx: <reason>` comment |
+
+`tenancy` is the tenant scope the handler starts in:
+
+| Value | Scope | Declared by |
+| --- | --- | --- |
+| `required` | one tenant | `@TenantRoute()`, `@Job({ tenancy: 'required' })` |
+| `each` | one run per active tenant, each in its own | `@Schedule(name, { tenancy: 'each' })` |
+| `all` | every tenant, with a reason | `@AllTenants(reason)` |
+| `none` | no scope is guaranteed | `@NoTenant()`, `tenancy: 'none'`, `@Job({ tenancy: 'carry' })`, or nothing at all |
+
+`carry` is `none` because the handler gets a scope only when the emitter had one (`DECLARED_ENTRY_TENANCY` is the table). An entry point that declares nothing has no `declared` member and is `none`: nothing gives it a scope. The one exception is a route of an application whose `http.routes.middlewares` holds `TenantMiddleware`: that mount requires a tenant on every route that does not say otherwise, so such a route is `required`. The build sees the mount in the configuration it runs with (`Manifest.globalRouteMiddlewares`); a build without configuration, and the fragment of a single package, cannot see it and record `none`. A socket handler runs in the tenant of its connection when the handshake named one, which a build cannot see either, so it is `none` too. A `reason` that is absent means the argument was not a string literal written in place.
+
+The decorators decide; the `TenantMiddleware` reference they leave in a route's `middlewares` is a record of the mount and is not read back. A hand-written `@Middleware(TenantMiddleware, { tenancy: 'none' })` is therefore not a declaration.
+
+`mergeFragments` concatenates the sections, dependencies first. Once one package has a section, or the global mount is there, the merged one lists the entry points of every package: a fragment without a section contributes those of its `authz.entryPoints`, as entry points that declare nothing. A model another package registers (`registerTenantModel(JobModel)`) gets `ModelEntry.tenant` in the merged manifest unless it states its own.
+
 ### Route pagination
 
 A route whose reply is the `@spinajs/http` `Page<T>` or `CursorPage<T>` (see [Paginated replies](../http/10-responses.md#paginated-replies)) carries `pagination`. Every other route has no such key, so a manifest of an app without paginated routes is byte for byte what it was before the field existed, hash included. `manifestVersion` stays 2.

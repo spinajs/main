@@ -3,11 +3,12 @@ import { controllerKey } from './client-names.js';
 import { canonicalize } from './hash.js';
 import { compareSchemaRefs } from './schema-compare.js';
 import { comparePagination } from './pagination-diff.js';
+import { tenancyChanges } from './tenancy-diff.js';
 import type { Finding } from './schema-compare.js';
 import type { ColumnSqlSpec, ControllerEntry, Manifest, ModelColumn, ParamEntry, PolicyRef, RouteEntry, TypeRef, WorkflowEntry } from './types.js';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
-export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket' | 'workflows'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
+export interface Change { section: 'routes' | 'schemas' | 'permissions' | 'config' | 'migrations' | 'models' | 'services' | 'commands' | 'socket' | 'workflows' | 'tenancy'; kind: ChangeKind; id: string; breaking: boolean; detail?: string }
 export interface ManifestDiff {
   base: string;
   head: string;
@@ -18,7 +19,7 @@ export interface ManifestDiff {
 }
 
 type Section = Change['section'];
-const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket', 'workflows'];
+const SECTIONS: Section[] = ['routes', 'permissions', 'schemas', 'config', 'migrations', 'models', 'services', 'commands', 'socket', 'workflows', 'tenancy'];
 
 interface Keyed<T> { key: string; item: T }
 
@@ -276,7 +277,8 @@ function diffModels(base: Manifest, head: Manifest): Change[] {
 export function diffManifest(baseManifest: Manifest, headManifest: Manifest): ManifestDiff {
   const base = publishedManifest(baseManifest);
   const head = publishedManifest(headManifest);
-  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head), ...diffModels(base, head)];
+  const tenancy = tenancyChanges(base, head).map((c): Change => ({ section: 'tenancy', ...c }));
+  const all = [...diffRoutes(base, head), ...diffPermissions(base, head), ...diffFlaggedPermissions(baseManifest, headManifest), ...diffMisc(base, head), ...diffModels(base, head), ...tenancy];
   const changes = all.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || compareCodeUnits(a.id, b.id) || compareCodeUnits(a.kind, b.kind));
   const warnings = compilerWarnings(baseManifest, headManifest);
   return { base: base.hash, head: head.hash, changes, breaking: changes.some((c) => c.breaking), ...(warnings.length > 0 ? { warnings } : {}) };
