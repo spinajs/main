@@ -1,3 +1,10 @@
+# Release notes — orm-mssql: the repository builds from source again
+
+## Fixes
+
+- `@spinajs/orm-mssql`: imports `MigrationLock`, which the driver used without importing, so the repository builds from
+  source again.
+
 # Release notes — validation: coerced infinities and comparisons that throw
 
 ## Security fix
