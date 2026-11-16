@@ -83,7 +83,7 @@ sequenceDiagram
 | `Int64ValueConverter` | `OrmDriver.resolve()` | A `bigint` to decimal text, a safe integer as is, a decimal string trimmed of surrounding whitespace; anything else throws `InvalidArgument` | Any driver form (string, number, bigint) to the decorator's `as`: `'string'` (default), `'number'` (throws `OrmException` beyond `Number.MAX_SAFE_INTEGER`) or `'bigint'`. A number that is not a safe integer throws `OrmException`: the driver already lost precision. |
 | `DatetimeValueConverter` | the driver (`SqlDatetimeValueConverter` on MySQL, `IsoDatetimeValueConverter` on PostgreSQL, SQLite and MSSQL) | luxon `DateTime` in any zone, `Date`, ISO 8601 or SQL text (no offset = UTC) to the dialect's UTC text; unix seconds for a numeric column; ISO 8601 in UTC when dehydrating without `dateTimeFormat` | Any driver form (`Date`, `DateTime`, ISO 8601 or SQL text, unix seconds) to a `DateTime` in UTC; `null` for an empty value and for one that is not a valid datetime |
 | `TimeValueConverter` | the driver (`SqlTimeValueConverter`) | `TimeSpan` to `HH:MM:SS` | `TIME` text to `TimeSpan` |
-| `BooleanValueConverter` | the driver (`SqlBooleanValueConverter`) | `1`/`0` in statements, a boolean when dehydrating | `true` for `1`, `true` or `'1'` |
+| `BooleanValueConverter` | the driver (`SqlBooleanValueConverter`) | `1`/`0` in statements, a boolean when dehydrating; `null` and `undefined` give `0` (`false` when dehydrating), or `null` with `@Bool({ nullable: true })` | `true` for `1`, `true` or `'1'`, otherwise `false`; NULL gives `false`, or `null` with `@Bool({ nullable: true })` |
 | `SetValueConverter` | the driver (`SqlSetConverter`) | Array joined with `,` | String split on `,` |
 
 The last four are tokens: `ValueConverter`'s own methods throw `MethodNotImplemented`, and each driver binds its implementation in its container. See [`@spinajs/orm-sql` value converters](../orm-sql/05-value-converters-and-defaults.md).
@@ -119,7 +119,7 @@ Column lookup lowercases the native type, so only the lowercase keys match a col
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@DateTime()` | property typed `DateTime` (luxon) | none | Attaches `DatetimeValueConverter`. Throws `Error` when the design type is not `DateTime`, `InvalidArgument` when a converter is already attached. |
-| `@Bool()` | property typed `boolean` | none | Attaches `BooleanValueConverter`; also publishes the column as `boolean` in the JSON schema. Throws `InvalidArgument` for another type or a second converter. |
+| `@Bool(options?)` | property typed `boolean`; `boolean \| null` with `nullable: true` | `nullable`, default `false` | Attaches `BooleanValueConverter` with the options; also publishes the column as `boolean` in the JSON schema (with `nullable: true` when the column is nullable). Without `nullable` a NULL cell reads as `false` and `null` writes as `0`; with it NULL stays `null` both ways. Throws `InvalidArgument` for another type or a second converter. |
 | `@Json()` | property | none | Attaches `JsonValueConverter`, replacing any earlier converter. |
 | `@Int64(as = 'string')` | property typed `string`, `number` or `bigint` | `as`: `'string'`, `'number'` or `'bigint'` | Attaches `Int64ValueConverter` with `{ as }`, so a 64-bit integer column hydrates to the same JS type on every driver (pg returns `int8` as text, sqlite3 and mysql2 as a number). Throws `InvalidArgument` for another mode or a second converter. Named `Int64`, not `BigInt`, so it does not shadow the global. |
 | `@UniversalConverter(typeColumn?)` | property | `typeColumn`, default `'Type'` | Attaches `UniversalValueConverter` with `{ TypeColumn }`. |
@@ -176,6 +176,7 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - A decorator's converter class that is not registered in DI is skipped without an error. Register it, for example with `@Injectable()`.
 - The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns.
 - `@DateTime()` reads the emitted design type. `DateTime | null` emits `Object` and throws at class definition.
+- `@Bool()` reads the emitted design type too: `boolean | null` emits `Object` and throws unless the decorator is `@Bool({ nullable: true })`. `where(column, null)` compiles to `IS NULL` with or without the option.
 - Decorators run bottom-up. `@DateTime()`, `@Bool()` and `@Set()` throw when a converter is already attached; `@Json()`, `@UniversalConverter()`, `@Uuid()` and the timestamp decorators replace it.
 - `toDB()` produces both statement values and API payloads. Whatever it returns for a column is what `dehydrate()` and `toJSON()` emit, unless the converter checks for the fifth argument.
 - `@spinajs/orm-sql` applies a column's converter to `where(column, value)` and `whereIn(column, values)` bindings. Static `Model.update(data)` runs each value through its column's converter too, as `insert()` does; see [Model API](03-model-api.md). A value whose key has no column converter is converted by its runtime type only, through `__orm_db_value_converters__`.

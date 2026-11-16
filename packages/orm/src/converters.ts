@@ -5,6 +5,12 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
+/** Options of the boolean converters, set by `@Bool({ nullable })`. */
+export interface IBoolConverterOptions {
+  /** Keep NULL as `null` in both directions instead of coercing it to `false` / `0`. */
+  nullable?: boolean;
+}
+
 /**
  * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value or
  * an invalid date. Text without an offset is read as UTC, a number as unix seconds.

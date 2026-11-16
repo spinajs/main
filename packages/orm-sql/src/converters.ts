@@ -1,4 +1,5 @@
 import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
+import type { IBoolConverterOptions } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
@@ -43,13 +44,19 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
    * @param value - property value to write to the database, or to dehydrate
    * @param _model - owning model, unused
    * @param _column - column descriptor, unused
-   * @param _options - per-column converter options, unused
+   * @param options - `@Bool()` options; `nullable` keeps `null` / `undefined` as `null`
    * @param dehydrating - present only when the caller is `dehydrate()`
    */
-  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, _options?: any, ...dehydrating: [IDehydrateOptions?]) {
+  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, options?: IBoolConverterOptions | null, ...dehydrating: [IDehydrateOptions?]) {
+    if (options?.nullable && (value === null || value === undefined)) {
+      return null;
+    }
     return dehydrating.length > 0 ? !!value : value ? 1 : 0;
   }
-  fromDB(value: any) {
+  fromDB(value: any, _raw?: unknown, options?: IBoolConverterOptions | null) {
+    if (options?.nullable && (value === null || value === undefined)) {
+      return null;
+    }
     return value === 1 || value === true || value === '1' || value === 1n;
   }
 }
