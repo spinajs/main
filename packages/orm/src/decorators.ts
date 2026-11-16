@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import type { IBoolConverterOptions } from './converters.js';
+import type { IBoolConverterOptions, IDateTimeConverterOptions } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
@@ -718,12 +718,19 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
 /**
  * Mark field as datetime type. It will ensure that conversion to & from DB is valid, eg. sqlite DB
  * saves datetime as TEXT and ISO8601 strings
+ *
+ * @param options - `unit`: what a numeric column counts since the epoch, `'seconds'` by default; `nullable`: allows a
+ *                  property typed `DateTime | null`, whose design type is `Object`
  */
-export function DateTime() {
+export function DateTime(options?: IDateTimeConverterOptions & { nullable?: boolean }) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type.name !== 'DateTime') {
-      throw Error(`Proprety  ${propertyKey} must be DateTime type, but is ${type.name}`);
+    if (type?.name !== 'DateTime' && !(options?.nullable && type === Object)) {
+      throw Error(`Proprety  ${propertyKey} must be DateTime type, but is ${type?.name}`);
+    }
+
+    if (options?.unit !== undefined && options.unit !== 'seconds' && options.unit !== 'milliseconds') {
+      throw new InvalidArgument(`property ${propertyKey}: unit must be 'seconds' or 'milliseconds', got ${String(options.unit)}`);
     }
 
     if (model.Converters.has(propertyKey)) {
@@ -732,6 +739,7 @@ export function DateTime() {
 
     model.Converters.set(propertyKey, {
       Class: DatetimeValueConverter,
+      Options: { unit: options?.unit ?? 'seconds' },
     });
   });
 }
