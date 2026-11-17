@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
+import { SpanStatusCode } from '@opentelemetry/api';
 import { Config } from '@spinajs/configuration';
 import { AsyncService, Autoinject, DI, Injectable, PerInstanceCheck, type IInstanceCheck } from '@spinajs/di';
 import { Clock, DbClock, FaultInjector, Heartbeat, RowLease } from '@spinajs/durable';
@@ -19,6 +20,7 @@ import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type RegisteredWorkflow } from './registry.js';
 import { workflowDriver } from './sql.js';
 import { InstanceStore } from './store.js';
+import { withActivationSpan } from './tracing.js';
 import { resolveWorkflowConfig, type WorkflowConfig } from './workflow-config.js';
 
 export interface WorkflowEngineOptions {
@@ -293,52 +295,57 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
       await this.store.release(instanceId, epoch);
       return;
     }
-    const journal = await Journal.load(instanceId);
-    const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
-    // a compensation pass, and a compensated cancel or a timeout found at claim of a run with compensable steps,
-    // replay run() only to collect the compensations of the steps already taken (D6)
-    const expired = deadline !== null && this.Clock.now() >= deadline;
-    const collect = row.Status === 'compensating' || (journal.compensable().length > 0 && (row.CancelRequested ? this.config.compensateOnCancel : expired));
-    const ctx = new ActivationContext({
-      instance: row,
-      definition,
-      journal,
-      store: this.store,
-      epoch,
-      clock: this.Clock,
-      faults: this.Faults,
-      config: this.config,
-      signal: collect ? signals.compensation : signals.run,
-      log: this.Log,
-      deadline: collect ? null : deadline,
-      mode: collect ? 'collect' : 'run',
-      onLeaseLost: () => abort('lease-lost'),
-      onCrash: () => this.crashAll(),
-      onJournalFailed: (err, what) => {
-        this.Log.error(err as Error, `workflow instance ${instanceId}: ${what ?? 'a journal row could not be written'}; the activation is abandoned and replays later`);
-        abort('journal-failed');
-      },
-      timers: this.Timers,
+    return withActivationSpan(row, async (span) => {
+      const journal = await Journal.load(instanceId);
+      const deadline = definition.timeoutMs === null ? null : row.CreatedAt + definition.timeoutMs;
+      // a compensation pass, and a compensated cancel or a timeout found at claim of a run with compensable steps,
+      // replay run() only to collect the compensations of the steps already taken (D6)
+      const expired = deadline !== null && this.Clock.now() >= deadline;
+      const collect = row.Status === 'compensating' || (journal.compensable().length > 0 && (row.CancelRequested ? this.config.compensateOnCancel : expired));
+      const ctx = new ActivationContext({
+        instance: row,
+        definition,
+        journal,
+        store: this.store,
+        epoch,
+        clock: this.Clock,
+        faults: this.Faults,
+        config: this.config,
+        signal: collect ? signals.compensation : signals.run,
+        log: this.Log,
+        deadline: collect ? null : deadline,
+        mode: collect ? 'collect' : 'run',
+        onLeaseLost: () => abort('lease-lost'),
+        onCrash: () => this.crashAll(),
+        onJournalFailed: (err, what) => {
+          this.Log.error(err as Error, `workflow instance ${instanceId}: ${what ?? 'a journal row could not be written'}; the activation is abandoned and replays later`);
+          abort('journal-failed');
+        },
+        timers: this.Timers,
+      });
+      const heartbeat = this.heartbeat(ctx, claimedAt, abort);
+      signals.compensation.addEventListener(
+        'abort',
+        () => {
+          if (signals.compensation.reason === 'crashed') void heartbeat.stop(0);
+        },
+        { once: true },
+      );
+      heartbeat.start();
+      let decision: Decision;
+      try {
+        decision = this.alive(ctx, signals, await this.runPass(row, ctx, definition, journal, signals, abort));
+        // under the heartbeat: a compensation longer than leaseTtl keeps the lease, so no other replica runs it again (D6)
+        if (decision.kind === 'write' && this.compensates(row, ctx, decision.patch)) decision = this.alive(ctx, signals, await this.compensation(row, ctx, decision.patch, signals));
+      } finally {
+        await heartbeat.stop(this.config.shutdownGrace);
+      }
+      await this.finish(row, ctx, decision);
+      if (decision.kind === 'write' && decision.patch.Status === 'failed') {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: 'failed' });
+      }
+      if (ctx.crashError !== undefined) throw ctx.crashError as Error;
     });
-    const heartbeat = this.heartbeat(ctx, claimedAt, abort);
-    signals.compensation.addEventListener(
-      'abort',
-      () => {
-        if (signals.compensation.reason === 'crashed') void heartbeat.stop(0);
-      },
-      { once: true },
-    );
-    heartbeat.start();
-    let decision: Decision;
-    try {
-      decision = this.alive(ctx, signals, await this.runPass(row, ctx, definition, journal, signals, abort));
-      // under the heartbeat: a compensation longer than leaseTtl keeps the lease, so no other replica runs it again (D6)
-      if (decision.kind === 'write' && this.compensates(row, ctx, decision.patch)) decision = this.alive(ctx, signals, await this.compensation(row, ctx, decision.patch, signals));
-    } finally {
-      await heartbeat.stop(this.config.shutdownGrace);
-    }
-    await this.finish(row, ctx, decision);
-    if (ctx.crashError !== undefined) throw ctx.crashError as Error;
   }
 
   /** A crash elsewhere on this replica may come after a cancel, which the run signal keeps as its reason. */

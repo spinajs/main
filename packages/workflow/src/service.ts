@@ -13,6 +13,7 @@ import { WorkflowInstanceModel } from './models/WorkflowInstanceModel.js';
 import { WorkflowStepModel } from './models/WorkflowStepModel.js';
 import { WorkflowRegistry, type WorkflowDefinition } from './registry.js';
 import { workflowDriver } from './sql.js';
+import { currentTraceParent } from './tracing.js';
 
 export interface SignalOptions {
   principal?: string;
@@ -138,6 +139,7 @@ export class DefaultWorkflowService extends WorkflowService {
           CreatedAt: now,
           UpdatedAt: now,
           FinishedAt: null,
+          TraceParent: currentTraceParent(),
         }),
       );
       return { id, created: true };
