@@ -176,6 +176,7 @@ export class Walker {
   private async caveated(caveat: string | undefined, tupleContext: Readonly<Record<string, unknown>> | undefined, inner: () => Promise<Step>, label?: string): Promise<Step> {
     if (caveat === undefined) {
       const r = await inner();
+      // Stryker disable next-line ConditionalExpression: a call without a caveat always has a label (only `{ caveat, of }` omits one, and it has a caveat), so this is never true
       return label === undefined ? r : { ...r, node: explainNode(label, r.truth, 'tuple', [r.node]) };
     }
     const c = await this.o.caveats.evaluate(caveat, this.o.input, tupleContext);
@@ -189,6 +190,7 @@ export class Walker {
   /** First-applicable: entry i decides when its `when` holds and no earlier `when` does, the Kleene form of `FirstApplicable.combine`. */
   private async priority(object: ObjectRef, self: RelationName, entries: ReadonlyArray<{ when: Rewrite; then: 'permit' | 'deny' }>, depth: number): Promise<Step> {
     let result: Truth = 'deny';
+    // Stryker disable next-line StringLiteral: earlierMiss is read only through and3, which treats every value but 'deny' and 'unknown' as 'allow'
     let earlierMiss: Truth = 'allow';
     let cut = false;
     const children: ExplainNode[] = [];
