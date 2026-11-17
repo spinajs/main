@@ -479,6 +479,26 @@ describe('DefaultAuthzService', function () {
       const thr = await d.service('thr');
       expect(() => thr.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
     });
+
+    it('audit() never throws: a sink that rejects is logged, a disposed service records nothing', async () => {
+      let calls = 0;
+      class Rejecting extends DecisionAudit {
+        record(): Promise<void> {
+          calls++;
+          return Promise.reject(new Error('audit down'));
+        }
+      }
+      const d = await domains();
+      d.create('rej').register(instance(new Rejecting())).as(DecisionAudit);
+      const rej = await d.service('rej');
+      expect(() => rej.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(calls).to.equal(1);
+
+      await rej.dispose();
+      expect(() => rej.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
+      expect(calls).to.equal(1);
+    });
   });
 
   describe('change bus', () => {

@@ -226,7 +226,11 @@ export class DefaultAuthzService extends AuthzService {
   }
 
   audit(entry: Parameters<DecisionAudit['record']>[0]): void {
-    const s = this.state();
+    const s = this.booted;
+    if (!s) {
+      this.log.warn({ domain: this.name, entryKind: entry.kind }, 'Authz domain ${domain}: a ${entryKind} audit entry is dropped, the service is not resolved or is disposed');
+      return;
+    }
     if (s.audit) this.record(s, entry);
   }
 

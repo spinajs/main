@@ -1128,7 +1128,7 @@ export declare abstract class AuthzService extends AsyncService {
     abstract admin(): AuthzAdmin;
     /**
      * Writes an entry to the DecisionAudit this domain picked at boot (`authz.audit.service`, `authz.domains.<name>.audit.service`,
-     * else the last registered), for a host that audits an access of its own. Never throws: a failure is logged. Optional: test doubles may leave it out.
+     * else the last registered), for a host that audits an access of its own. Never throws: a failing audit, or a service not resolved or disposed, is logged. Optional: test doubles may leave it out.
      */
     audit?(entry: Parameters<DecisionAudit["record"]>[0]): void;
 }
