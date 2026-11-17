@@ -366,6 +366,9 @@
     },
     {
       "path": "packages/tenancy/tsconfig.build.json"
+    },
+    {
+      "path": "packages/tenancy-http/tsconfig.build.json"
     }
   ]
 }
