@@ -311,8 +311,12 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
   return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
-/** The most conditions `filter()` takes at the top level of a request; a nested group is not counted. */
+/** The most entries `filter()` takes in one request: its conditions and groups at every depth. */
 export const MAX_FILTERS = 100;
+
+function countFilterEntries(entries: IFilterEntry[]): number {
+  return entries.reduce((counted, entry) => counted + 1 + (entry && typeof entry === 'object' && isFilterGroup(entry) && Array.isArray(entry.filters) ? countFilterEntries(entry.filters) : 0), 0);
+}
 
 /**
  * Extend where builder with filter func old style ( by prototype )
@@ -323,8 +327,9 @@ export const MAX_FILTERS = 100;
     return this;
   }
 
-  if (filters.length > MAX_FILTERS) {
-    throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
+  const entries = countFilterEntries(filters);
+  if (entries > MAX_FILTERS) {
+    throw new InvalidArgument(`Too many filters provided: ${entries}, conditions and groups at every depth. Maximum allowed: ${MAX_FILTERS}`);
   }
 
   const columns: IColumnFilter<unknown>[] = filterColumns ?? (this._model as any).filterColumns();
