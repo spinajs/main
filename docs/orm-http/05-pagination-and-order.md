@@ -231,6 +231,13 @@ export class InvoiceController extends BaseController {
 - `OrderDTO.column` is not constrained. Without a whitelist a client can sort by any column of the table.
 - Pages are zero-based in every example here; nothing in the DTO enforces either base.
 
+## Limits
+
+- `readPage` clamps `limit` to `maxLimit`, which defaults to `MAX_PAGE_LIMIT` (500); `defaultLimit` is clamped the same way. A larger `limit` is clamped, not refused.
+- `PaginationDTO`'s schema does not cap `limit` (`type: number`, `minimum: 0`). The clamp is `readPage`'s, so a handler that pages without `readPage` has no ceiling.
+- `readList` hands its options to `readPage`: a caller that wants pages of 1 000 rows passes `readList(Order, request, { maxLimit: 1000 })`.
+- `readPage` refuses `limit: 0`; `readList` reads it as "no rows" and answers only the total and the aggregates.
+
 ## Best practices
 
 - Default `limit` and cap it, with `readPage` or in a subclass schema.

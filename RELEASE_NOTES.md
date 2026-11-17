@@ -1,3 +1,25 @@
+# Release notes — orm-http: list scope, column projection, deeper filter groups
+
+## Packages
+
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No breaking changes.
+
+## New
+
+- `readList(model, request, options)` takes `scope` (restricts the count, the page and the aggregates alike, e.g. with
+  `.accessible()`), `columns` (a projection that also refuses filters, sorts, groups and measures on hidden columns) and
+  `signal` (checked before each statement). See
+  [Lists and includes](docs/orm-http/12-lists-and-includes.md#scope-projection-and-cancellation).
+- `@FilterGroupDepth(n)` lets a model's filter schema nest groups up to `MAX_FILTER_GROUP_DEPTH` (4) levels; without it
+  the schema is unchanged. `filterSchemaFor(columns, model?, maxDepth?)` takes the depth as its third argument. See
+  [Filtering](docs/orm-http/03-filtering.md#nested-groups).
+- The OpenAPI document describes a filter value as any number, not only an integer: a float or decimal column already
+  took a decimal value.
+- Documented semantics: literal LIKE values, null columns and negated operators, `empty`, `count` with a column, null and
+  empty groups, page size limits. See [Filtering](docs/orm-http/03-filtering.md#semantics),
+  [Pagination and ordering](docs/orm-http/05-pagination-and-order.md#limits) and
+  [Aggregates](docs/orm-http/11-aggregates.md#semantics).
+
 # Release notes — orm-http, http-swagger: list queries (negated operators, multi-column sorting, aggregates, includes, readList)
 
 ## Packages
