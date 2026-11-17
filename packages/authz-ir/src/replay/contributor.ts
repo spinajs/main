@@ -26,8 +26,8 @@ export interface HistoryContributor {
   /** Rows of `object#relation` now, expired and soft-deleted ones included (liveness at T is `subjectAt`'s). */
   current(object: ObjectRef, relation: RelationName, source: RelationDef['source']): Promise<CurrentItem<TupleSubjectRef>[]>;
   currentReverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName, source: RelationDef['source']): Promise<CurrentItem<ObjectRef>[]>;
-  /** Decodes a change of this kind into the edge it touches; undefined when it is not one. */
-  edge(change: ChangeRecord): HistoryEdge | undefined;
+  /** Decodes a change of this kind into the edges it touches: a column `put` touches the old target and the new one. */
+  edges(change: ChangeRecord): readonly HistoryEdge[];
   /** Projects an image to the subject at T, or undefined when not live at T (expiry). */
   subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined;
   /**
@@ -62,7 +62,7 @@ export abstract class HistoryContributors implements HistoryContributor {
   abstract coverageType(object: ObjectRef): ResourceType | undefined;
   abstract current(object: ObjectRef, relation: RelationName, source: RelationDef['source']): Promise<CurrentItem<TupleSubjectRef>[]>;
   abstract currentReverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName, source: RelationDef['source']): Promise<CurrentItem<ObjectRef>[]>;
-  abstract edge(change: ChangeRecord): HistoryEdge | undefined;
+  abstract edges(change: ChangeRecord): readonly HistoryEdge[];
   abstract subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined;
 }
 

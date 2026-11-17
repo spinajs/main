@@ -74,13 +74,10 @@ export class ReplayHistory {
     return this.byKey.get(slot(kind, key)) ?? [];
   }
 
-  *edges(kind: ChangeKind, decode: HistoryContributor['edge']): Iterable<HistoryEdge> {
+  *edges(kind: ChangeKind, decode: HistoryContributor['edges']): Iterable<HistoryEdge> {
     for (const changes of this.byKey.values()) {
       if (changes[0].kind !== kind) continue;
-      for (const c of changes) {
-        const e = decode(c);
-        if (e !== undefined) yield e;
-      }
+      for (const c of changes) yield* decode(c);
     }
   }
 

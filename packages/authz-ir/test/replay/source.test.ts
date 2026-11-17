@@ -51,9 +51,9 @@ class Tuples implements HistoryContributor {
     return Promise.resolve(rows.map(([key, t]) => ({ key, image: t, subject: t.object })));
   }
 
-  edge(c: ChangeRecord): HistoryEdge | undefined {
+  edges(c: ChangeRecord): HistoryEdge[] {
     const t = c.payload as Tuple | null;
-    return t === null ? undefined : { key: c.key, ...t };
+    return t === null ? [] : [{ key: c.key, ...t }];
   }
 
   subjectAt(image: unknown): TupleSubjectRef {
@@ -103,10 +103,9 @@ class Columns implements HistoryContributor {
     return Promise.resolve([]);
   }
 
-  edge(c: ChangeRecord): HistoryEdge | undefined {
+  edges(c: ChangeRecord): HistoryEdge[] {
     const p = c.payload as ColumnChange;
-    const subject = p.new ?? p.old;
-    return subject === null ? undefined : { key: c.key, object: p.object, relation: 'parent', subject };
+    return [p.old, p.new].filter((s): s is ObjectRef => s !== null).map((subject) => ({ key: c.key, object: p.object, relation: 'parent', subject }));
   }
 
   project(c: ChangeRecord): ChangeRecord | undefined {
@@ -241,6 +240,16 @@ describe('HistoricalTupleSource', () => {
     const { log, tuples } = await setup();
     const history = await ReplayHistory.load(log, T, ['column'], limits);
     expect(() => new HistoricalTupleSource(docsIR(), T, [tuples], history)).to.throw(AuthzConfigError, /tuple/);
+  });
+
+  it('lists in reverse an object whose column pointed at the subject at T and moved since', async () => {
+    const { log, columns } = await setup();
+    await columns.set(doc('d1'), folder('f1'), ms(-30 * MIN));
+    await columns.set(doc('d1'), folder('f2'), ms(30 * MIN));
+    const s = await source(log, [columns]);
+    const out: string[] = [];
+    for await (const o of s.reverse(folder('f1'), 'parent', 'doc')) out.push(o.id);
+    expect(out).to.deep.equal(['d1']);
   });
 
   it('lists the objects a subject held at T in reverse', async () => {

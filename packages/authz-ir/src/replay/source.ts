@@ -108,7 +108,7 @@ export class HistoricalTupleSource implements TupleSource {
       const now = await current();
       await this.history.catchUp();
       const candidates = new Map<string, Candidate<T>>();
-      for (const e of this.history.edges(c.kind, (ch) => c.edge(ch))) {
+      for (const e of this.history.edges(c.kind, (ch) => c.edges(ch))) {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
