@@ -36,18 +36,15 @@ const hashed =
 
 const united = (trail: readonly string[], call: readonly string[]): readonly string[] => [...new Set([...trail, ...call])];
 
-function isPlain(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object') return false;
-  const proto: unknown = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
-}
+// A path never enters these; any other object, a class instance included, is entered so masking cannot fail open.
+const isLeafObject = (v: object): boolean => v instanceof Date || v instanceof ArrayBuffer || ArrayBuffer.isView(v);
 
-// Copies along the path only; anything that is not a plain object or a list (a Date, a Buffer) is a leaf.
+// Copies along the path only, as plain objects.
 function rewrite(node: unknown, path: readonly string[], leaf: Leaf): unknown {
   const [head, ...rest] = path;
   const visit = (value: unknown): unknown => (rest.length === 0 ? leaf(value) : rewrite(value, rest, leaf));
   if (Array.isArray(node)) return node.map((value: unknown, i) => (head === '*' || head === String(i) ? visit(value) : value)).filter((value) => value !== OMIT);
-  if (!isPlain(node)) return node;
+  if (node === null || typeof node !== 'object' || isLeafObject(node)) return node;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
     const next = head === '*' || head === key ? visit(value) : value;

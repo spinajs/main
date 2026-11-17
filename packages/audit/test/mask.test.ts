@@ -64,6 +64,24 @@ describe('audit masking', () => {
     expect(out.actor).to.eq(auditHash('user:u1'));
   });
 
+  it('masks, omits and hashes through class instances and keeps binary leaves', () => {
+    class Login {
+      [field: string]: unknown;
+      constructor(
+        readonly user: string,
+        readonly password: string,
+        readonly pin: string,
+        readonly email: string,
+      ) {}
+    }
+    const blob = Buffer.from('x');
+    const out = maskOf(trail, { mask: ['data.args.password', 'data.blob.x'], omit: ['data.args.pin'], hash: ['data.args.email'] })(event({ args: new Login('a', 'p', '1', 'a@b.c'), blob }));
+    expect(out.data).to.deep.eq({ args: { user: 'a', password: MASKED, email: auditHash('a@b.c') }, blob });
+
+    const own = maskOf(trail, { mask: ['data.password'] })({ ...event({}), data: new Login('a', 'p', '1', 'a@b.c') });
+    expect(own.data).to.deep.eq({ user: 'a', password: MASKED, pin: '1', email: 'a@b.c' });
+  });
+
   it('refuses a path that would break the event', () => {
     expect(() => maskOf(trail, { omit: ['actor'] })).to.throw(AuditConfigError, 'audit: a write to trail "default": omit path "actor" is not maskable');
     expect(() => maskOf(trail, { mask: ['data'] })).to.throw(AuditConfigError, 'mask path "data" is not maskable');

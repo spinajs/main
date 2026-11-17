@@ -66,7 +66,7 @@ export class AmbientAuditContext extends AuditContext {
 
   origin(): string | undefined {
     const s = store();
-    const address = typeof s?.ClientIp === 'string' ? s.ClientIp : s?.realIp;
+    const address = typeof s?.ClientIp === 'string' && s.ClientIp !== '' ? s.ClientIp : s?.realIp;
     return typeof address === 'string' && address !== '' ? address.slice(0, AUDIT_WIDTHS.origin) : undefined;
   }
 }

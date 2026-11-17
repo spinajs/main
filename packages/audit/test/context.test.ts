@@ -55,6 +55,10 @@ describe('AmbientAuditContext', () => {
     expect(ctx.origin()).to.eq(undefined);
   });
 
+  it('falls back to the address http resolved when the one under authn\'s name is empty', () => {
+    expect(run({ ClientIp: '', realIp: '10.0.0.2' }, () => ctx.origin())).to.eq('10.0.0.2');
+  });
+
   it('leaves the links nothing publishes yet empty', () => {
     expect([ctx.tenant(), ctx.decisionId(), ctx.idempotencyKey()]).to.deep.eq([undefined, undefined, undefined]);
   });
