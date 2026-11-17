@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote, DenyReason } from '@spinajs/authz';
 import type { IRFragment } from '@spinajs/authz-ir';
 
@@ -201,9 +201,35 @@ export class RebacModel extends AuthorizationModel {
     return expand(this.walker(object, name), object, name);
   }
 
-  /** The subjects of `subjectType` holding `name` (a relation or permission) on `object`. @throws RebacLimitExceeded past maxCalls */
-  listSubjects(object: ResourceRef, name: string, subjectType: ResourceType): Promise<SubjectList> {
-    return listSubjects(this.walker(object, name), object, name, subjectType);
+  /**
+   * The subjects of `subjectType` holding `name` (a relation or permission) on `object`. Caveats are evaluated against
+   * `request` (through `request.ctx`, else the default condition compiler at the current instant); without one, or
+   * when a caveat cannot be decided, its holders are `conditional`. @throws RebacLimitExceeded past maxCalls
+   */
+  listSubjects(object: ResourceRef, name: string, subjectType: ResourceType, request?: { readonly env?: Readonly<Record<string, unknown>>; readonly principal?: Principal; readonly ctx?: EvaluationContext }): Promise<SubjectList> {
+    const walk = this.walker(object, name);
+    if (request === undefined) return listSubjects(walk, object, name, subjectType, () => Promise.resolve('unknown'));
+    const caveats = new RebacCaveats(this.schema().caveats);
+    // The listed subjects are not the request's principal: without one given, principal.* caveats stay unknown.
+    const caveatRequest: CaveatRequest = { principal: request.principal ?? syntheticPrincipal({ type: subjectType, id: '' }), permission: '', resource: object, env: request.env ?? {} };
+    const ctx = request.ctx ?? this.caveatContext();
+    return listSubjects(walk, object, name, subjectType, async (c) => (await caveats.evaluate(c, caveatRequest, ctx)).truth);
+  }
+
+  /** What a caveat evaluation outside a decision reads: the clock and the default condition compiler, no scope. */
+  private caveatContext(): EvaluationContext {
+    return {
+      domain: this.name,
+      now: new Date(),
+      permissions: this.registry ?? this.uninitialised(),
+      ancestors: () => Promise.resolve(null),
+      attributes: () => Promise.resolve(null),
+      conditions: new DefaultConditionCompiler(),
+      relation: () => undefined,
+      check: () => Promise.reject(new Error(`${this.name}: caveats run no nested checks`)),
+      cache: new Map(),
+      trace: () => undefined,
+    };
   }
 
   private walker(object: ResourceRef, name: string): RebacWalk {

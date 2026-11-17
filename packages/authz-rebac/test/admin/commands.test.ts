@@ -6,6 +6,7 @@ import type { AuthzAdminQuery, AuthzCommand, AuthzCommandOf } from '@spinajs/aut
 
 import { RebacExpandReader, RebacScopeForgetter, RebacTupleHandler, RebacTupleReader } from '../../src/index.js';
 import type { TupleDeleteCommand, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
+import { CAVEATS, CAVEAT_TUPLES, NS } from '../support/caveat-world.js';
 import { TUPLES, d1, d2, ref, set, tuple, user } from '../support/world.js';
 import { AuthzAdminFailure, failure, installHost, ok, rebacDomain, remove, resetHost, uninstallHost, write } from './support.js';
 import type { RebacDomain } from './support.js';
@@ -189,6 +190,14 @@ describe('authz-rebac: tuple commands through AuthzAdmin', function () {
       let error: unknown;
       await shallow.admin.list(alice, { kind: 'tuples.subjects', scope: d2, relation: 'read', subjectType: 'user' }).catch((e: unknown) => (error = e));
       expect((error as AuthzAdminFailure).code).to.equal('limit_exceeded');
+    });
+
+    it('tuples.subjects decides caveats against env and marks the holders it cannot decide conditional', async () => {
+      const c = await rebacDomain('caveats', { tuples: CAVEAT_TUPLES, schema: { namespaces: NS, permissions: { 'doc:read': 'doc#read' }, caveats: CAVEATS } });
+      const subjects = (env?: unknown) => c.admin.list(alice, { kind: 'tuples.subjects', scope: d1, relation: 'read', subjectType: 'user', ...(env === undefined ? {} : { env }) } as AuthzAdminQuery);
+      expect(await subjects({ ip: '10.0.0.1' })).to.deep.equal({ items: [user('bob'), user('carl')], total: 2 });
+      expect(await subjects()).to.deep.equal({ items: [{ ...user('bob'), conditional: true }, { ...user('carl'), conditional: true }], total: 2 });
+      expect(await subjects('x').catch((e: unknown) => (e as AuthzAdminFailure).code)).to.equal('invalid_query');
     });
   });
 
