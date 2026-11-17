@@ -1,8 +1,11 @@
 # Scheduler configuration reference
 
 All keys live under `scheduler`. Durations accept milliseconds (a number) or a
-string with a unit: `500ms`, `10s`, `5m`, `2h`, `30d`, `1w`. Keys typed as
-milliseconds below take a number only. The shipped defaults equal
+string with a unit: `500ms`, `10s`, `5m`, `2h`, `30d`, `1w`. A string of digits
+only (`'300000'`, as an environment variable gives it) counts as milliseconds.
+Anything else, such as a string without a known unit, `null`, a boolean or a
+negative number, fails the configuration at boot, with the path of the key. Keys
+typed as milliseconds below take a number only. The shipped defaults equal
 `SCHEDULER_DEFAULTS`; the schema `SCHEDULER_CONFIGURATION_SCHEMA` validates the block
 at boot.
 

@@ -1,4 +1,7 @@
-const duration = { anyOf: [{ type: 'string' }, { type: 'number', minimum: 0 }] };
+// The string branch has parseDuration's grammar (durable/src/duration.ts) and comes first. Ajv coerces in place and anyOf
+// stops at the first valid branch: a bare { type: 'string' } stored a number as a unit-less string, which parseDuration
+// refuses. A number now fails the pattern and the number branch coerces it back. Number first would take null as 0.
+const duration = { anyOf: [{ type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([mM][sS]|[sSmMhHdDwW])\\s*$' }, { type: 'number', minimum: 0 }] };
 
 export const SCHEDULER_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/scheduler.configuration.schema.json',
