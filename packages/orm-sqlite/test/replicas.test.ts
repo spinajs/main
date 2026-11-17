@@ -15,9 +15,10 @@ import { mergeArrays } from './util.js';
 
 const PRIMARY_FILE = join(process.cwd(), 'test', 'routed-primary.sqlite');
 const REPLICA_FILE = join(process.cwd(), 'test', 'routed-replica.sqlite');
+const OTHER_REPLICA_FILE = join(process.cwd(), 'test', 'routed-other-replica.sqlite');
 
 function removeFiles(): void {
-  for (const file of [PRIMARY_FILE, REPLICA_FILE].flatMap((f) => [f, `${f}-wal`, `${f}-shm`])) {
+  for (const file of [PRIMARY_FILE, REPLICA_FILE, OTHER_REPLICA_FILE].flatMap((f) => [f, `${f}-wal`, `${f}-shm`])) {
     if (existsSync(file)) {
       unlinkSync(file);
     }
@@ -88,8 +89,19 @@ class RoutedItem extends ModelBase {
   public Notes: Relation<RoutedNote, RoutedItem>;
 }
 
-// setState is protected; a test stands in for the health check and for withReconnect giving up
-const setStateOf = (driver: OrmDriver, state: ConnectionState): void => (driver as unknown as { setState(state: ConnectionState): void }).setState(state);
+/** A test stands in for the health check and for withReconnect giving up. */
+class StatefulSqliteDriver extends SqliteOrmDriver {
+  public forceState(state: ConnectionState): void {
+    this.setState(state);
+  }
+}
+
+function setStateOf(driver: OrmDriver, state: ConnectionState): void {
+  if (!(driver instanceof StatefulSqliteDriver)) {
+    throw new Error('booted without StatefulSqliteDriver');
+  }
+  driver.forceState(state);
+}
 
 /** What withReconnect leaves behind when its retries ran out: the driver Disconnected, the transport error rethrown. */
 function connectionLost(driver: OrmDriver): Promise<never> {
@@ -155,7 +167,7 @@ describe('read replicas on sqlite', function () {
     DI.clearCache();
     container = DI.child({ isolateSingletons: true });
     container.register(RoutedConf).as(Configuration);
-    container.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    container.register(StatefulSqliteDriver).as('orm-driver-sqlite');
     container.register(RecordingSettings).as(ConnectionSessionSettings);
 
     orm = await container.resolve(Orm);
@@ -446,6 +458,48 @@ describe('read replicas on sqlite', function () {
     }
   });
 
+  it('reads another healthy replica, not the primary, when the driver gave one replica up', async () => {
+    const other = await container.resolve<OrmDriver>('orm-driver-sqlite', [{ ...primary.Options, Name: 'routed:other', Filename: OTHER_REPLICA_FILE, Replicas: undefined, Migration: undefined, DefaultConnection: false }]);
+    await other.connect();
+    await other.schema().createTable('routed_item', (t) => {
+      t.int('Id').primaryKey();
+      t.string('Name');
+    });
+    await other.insert().into('routed_item').values({ Id: 1, Name: 'other' });
+
+    const router = container.get(ReplicaRouter)!;
+    // the round robin turn carries over from earlier tests, so the first pick is set to the replica that gets lost
+    const pick = sinon.stub(router, 'pick').callThrough();
+    pick.onFirstCall().returns(replica);
+    const lost = loseReplica();
+    router.register(primary, [replica, other]);
+    try {
+      expect(await readName()).to.eq('other');
+      expect(lost.callCount).to.eq(1);
+    } finally {
+      pick.restore();
+      lost.restore();
+      router.register(primary, [replica]);
+      setReplicaState(ConnectionState.Connected);
+      await other.disconnect();
+    }
+  });
+
+  it('does not move a select off the primary its driver gave up on', async () => {
+    const lostPrimary = sinon.stub(primary, 'execute').callsFake(() => connectionLost(primary));
+    const onReplica = sinon.spy(replica, 'execute');
+    try {
+      let error: unknown;
+      await RoutedItem.where({ Id: 1 }).onPrimary().firstOrFail().catch((err: unknown) => (error = err));
+      expect(error).to.have.property('message', 'connection lost');
+      expect(onReplica.callCount).to.eq(0);
+    } finally {
+      lostPrimary.restore();
+      onReplica.restore();
+      setStateOf(primary, ConnectionState.Connected);
+    }
+  });
+
   it('moves a relation load whose replica was lost after it read the owner', async () => {
     // not onFirstCall().callThrough(): sinon ignores callThrough on a call behaviour once the stub has a default fake
     const execute = replica.execute.bind(replica);
@@ -548,7 +602,7 @@ describe('read replicas on sqlite with a native stream cursor', function () {
     DI.clearCache();
     container = DI.child({ isolateSingletons: true });
     container.register(RoutedCursorConf).as(Configuration);
-    container.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    container.register(StatefulSqliteDriver).as('orm-driver-sqlite');
 
     orm = await container.resolve(Orm);
     primary = orm.Connections.get('routed')!;
