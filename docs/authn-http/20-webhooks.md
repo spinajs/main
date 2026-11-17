@@ -1,6 +1,6 @@
 # Webhooks
 
-`WebhookAuthnEventSink` sends each authn audit event to an HTTP endpoint you configure, signed so the receiver can check where it came from. It is one more `AuthnEventSink` (see [Audit events](../authn/06-audit-events.md)): it sees every event the log sink and the database sink see.
+`WebhookAuthnEventSink` sends each authn audit event to an HTTP endpoint you configure, signed so the receiver can check where it came from. It is one more `AuthnEventSink` (see [Audit events](../authn/06-audit-events.md)): it sees every event every other listener sees, the recorder of `@spinajs/audit-authn` included.
 
 `@spinajs/authz-http` has the same thing for authorization changes: `WebhookChangeSink`, described [below](#authorization-changes).
 

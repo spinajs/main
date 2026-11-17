@@ -63,7 +63,7 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `SessionIssuer` | Issue, restore, rotate and revoke sessions | `DefaultSessionIssuer` (authn-session) | [Session contract](08-session-contract.md) |
 | `MfaPolicy`, `MfaStep`, `MfaEnrolments` | Which factors a login needs; one factor; stored enrolments | `DefaultMfaPolicy` (core); `TotpMfaStep` (authn-totp); `DbMfaEnrolments` (authn-orm) | [MFA](04-mfa-policy-and-steps.md) |
 | `AuthnThrottle` | Backoff per key | `MemoryAuthnThrottle` (core); `DbAuthnThrottle` (authn-orm) | [Throttling](05-throttling.md) |
-| `AuthnEventSink` | Receives every authentication event | None in the core; `AuthnAuditRecorder` (audit-authn), which records events in the `security` trail; `DbAuthnAuditSink` (authn-orm); `QueueAuthnEventSink` (users); `SseSessionEndSink` (authz-http) | [Audit events](06-audit-events.md) |
+| `AuthnEventListener` (the deprecated `AuthnEventSink` extends it) | Receives every authentication event | None in the core; `AuthnAuditRecorder` (audit-authn), which records events in the `security` trail; the sinks `DbAuthnAuditSink` (authn-orm), `QueueAuthnEventSink` (users), `SseSessionEndSink` (authz-http) | [Audit events](06-audit-events.md) |
 | `IdentityLinkStore` | External subjects of an identity | `DbIdentityLinkStore` (authn-orm) | [Account linking](10-account-linking.md) |
 | `SecretStore` | Single-use secrets: reset, invite, key challenge | `DbSecretStore` (authn-orm) | [`@spinajs/authn-orm`](../authn-orm/README.md) |
 | `NonceStore` | Single-use values until they expire: an OIDC `state` | `MemoryNonceStore` (core, `@spinajs/authn/nonces`, not registered); `DbNonceStore` (authn-orm) | [Nonce store](../authn-orm/04-nonce-store.md) |
@@ -84,9 +84,9 @@ An action hook's refusal is part of some results: `PasswordRefusal` and `Passwor
 
 | App type | Packages |
 | --- | --- |
-| Session web app | `users`, `users-http`, `authn`, `authn-orm`, `authn-session`, `authn-local`, `authn-http`, one `session-provider-*`, and the authz packages. Add `authn-totp` for a second factor and `authn-token` for API tokens |
+| Session web app | `users`, `users-http`, `authn`, `authn-orm`, `authn-session`, `authn-local`, `authn-http`, one `session-provider-*`, `audit-authn` to record authentication events, and the authz packages. Add `authn-totp` for a second factor and `authn-token` for API tokens |
 | SSO app | The session web app set plus `authn-oidc` |
-| Machine-only service | `authn`, `authn-orm`, `authn-http`, `authn-keys` or `authn-token`, and the authz packages |
+| Machine-only service | `authn`, `authn-orm`, `authn-http`, `authn-keys` or `authn-token`, `audit-authn`, and the authz packages |
 
 A machine-only service still needs an `IdentityStore`, a `PrincipalFactory` and a `SessionIssuer` registered: `DefaultAuthnService` fails its boot without them, also when only per-request strategies are listed. Import `@spinajs/users` and `@spinajs/authn-session`, or register your own implementations.
 

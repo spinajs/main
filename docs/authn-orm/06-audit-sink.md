@@ -71,7 +71,7 @@ Index `authn_audit_at` covers `at`; index `authn_audit_identity` covers `(identi
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, resolved as a list; per child container; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `AuthnAuditRecorder` (`@spinajs/audit-authn`, the `security` trail), `QueueAuthnEventSink` (`@spinajs/users`) | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
+| Event sink | `AuthnEventSink`, resolved as a list; per child container; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `QueueAuthnEventSink` (`@spinajs/users`); the `AuthnEventListener` `AuthnAuditRecorder` (`@spinajs/audit-authn`) gets the same events | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
 
 ### Event sink: custom implementation
 

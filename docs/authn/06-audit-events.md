@@ -56,7 +56,7 @@ Where `DefaultAuthnService` announces a session it has just issued or elevated, 
 
 An announcement of two events is published one event after the other, so the second can be stopped after every listener took the first as a success. Then each event up to the stopped one is published again with `outcome: 'failure'` and `reason: 'listener_failed'`: a listener that took `login` as a success learns that it did not stand, and the refusal is recorded.
 
-`AuthnImpersonationService` revokes the session it issued when its `impersonation.start` or `impersonation.end` event is stopped, publishes that event again as a failure with `reason: 'listener_failed'`, and rejects with `AuthnListenerFailed` (503). The session it swapped out was revoked before the event, so a stopped start leaves the administrator logged out, and a stopped end leaves the impersonator with no session.
+`AuthnImpersonationService` revokes the session it issued when its `impersonation.start` or `impersonation.end` event is stopped, publishes that event again as a failure with `reason: 'listener_failed'`, and rejects with `AuthnListenerFailed` (503). The session it swapped out was revoked before the event, so a stopped start leaves the administrator logged out, and a stopped end leaves the impersonator with no session. When the revocation of the issued session fails, it is logged on `authn-audit` and the 503 stands.
 
 What can be stopped: every success event an emitter awaits through `publishIn` or `publish`. What cannot: the success `token.use` and `key.use` of a request authenticated by a token or a key, which `DefaultAuthnService` publishes detached, so such a request is never refused or delayed for its record. An emitter that must be stoppable uses `publishIn`.
 
@@ -143,16 +143,17 @@ Listeners shipped with SpinaJS:
 | `type` | `action` | `login`, `mfa.verify`, ... as they are |
 | `outcome` `success`, `failure` | `outcome` `ok`, `failed` | |
 | `at` | `at` | The context's `now` for `publishIn` |
-| `identity` | `data.identity`, and `subject` | `{ type, id }`; the subject only on a trail that does not hash `data.identity` |
+| `identity` | `data.identity`, and `subject` | `{ type, id }`. No subject when an `omit`, `mask` or `hash` path of the trail or of the call reaches `data.identity` (`data.identity`, `data.identity.id`, `data.*`), or when the identity is too wide for the subject column |
 | `actor` | `data.actor` | The impersonator or the acting admin of the event |
 | `strategy`, `reason` | `data.strategy`, `data.reason` | A value holding `@` is written `?` |
 | `session` | `data.session` | The hashed handle authn already passes |
 | `ip`, `userAgent` | `data.ip`, `data.userAgent` | The user agent is cut to 255 characters |
 | `data` | `data.detail` | Never passwords, tokens or raw session ids |
+| | `data.subjectOmitted` | `true` on an event with an identity and no subject |
 
 The audit event's own `actor`, `onBehalfOf`, `origin` and `traceId` are stamped from the request, as for every audit producer: the audit event's `actor` is the request's principal, and the authentication event's `actor` is in `data.actor`.
 
-**The default.** With `audit.authn.trail` unset, events go to the built-in `security` trail: one line per event on the logger `audit.security`, with `actor`, `onBehalfOf`, `origin`, `data.identity`, `data.actor`, `data.ip` and `data.session` as keyed hashes made with `audit.hashKey.secret`. The line never carries `data.userAgent` or `data.detail`, and an identity or actor id holding `@` stays hashed even when the trail's hash list is emptied. Since that trail hashes `data.identity`, its events have no subject: a subject cannot be hashed.
+**The default.** With `audit.authn.trail` unset, events go to the built-in `security` trail: one line per event on the logger `audit.security`, with `actor`, `onBehalfOf`, `origin`, `data.identity`, `data.actor`, `data.ip` and `data.session` as keyed hashes made with `audit.hashKey.secret`. The line never carries `data.userAgent` or `data.detail`, and an identity or actor id holding `@` stays hashed even when the trail's hash list is emptied. Since that trail hashes `data.identity`, its events have no subject and carry `data.subjectOmitted: true`: a subject cannot be hashed.
 
 **A login history.** Point the recorder at a table trail:
 
