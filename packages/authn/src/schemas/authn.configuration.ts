@@ -203,7 +203,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['hashKey', 'listenerTimeoutMs', 'retentionDays', 'purgeInterval'] },
+      propertyNames: { enum: ['hashKey', 'listenerTimeoutMs'] },
       properties: {
         hashKey: {
           ...secretRefSchema('HMAC key of DbAuthnThrottle for its row keys; null: a random key per process, which DbAuthnThrottle refuses outside development and test.'),
@@ -211,9 +211,6 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },
         listenerTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000, description: 'How long one listener may take with an event, or with a flush.' },
-        // No default: the shipped config is compared whole to the schema defaults, and unset means off.
-        retentionDays: { type: ['integer', 'null'], minimum: 1, description: 'Days of audit rows to keep in authn_audit; unset or null keeps them forever.' },
-        purgeInterval: { type: ['integer', 'null'], minimum: 1, description: 'Milliseconds between purges of expired audit rows; unset or null runs none.' },
       },
     },
     webhooks: {

@@ -342,6 +342,10 @@ describe('authn.* configuration schema', () => {
     it('refuses the removed authn.audit.hashIdentifiers: hashing belongs to the audit trail', () => {
       refused({ audit: { hashIdentifiers: false } }, '/audit');
     });
+
+    it('refuses the removed authn.audit.retentionDays: a trail keeps its own retention', () => {
+      refused({ audit: { retentionDays: 30 } }, '/audit');
+    });
   });
 });
 
