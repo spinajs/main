@@ -61,6 +61,13 @@ describe('trailConfig', function () {
     expect(await bad(every)).to.deep.eq([]);
   });
 
+  it('fails the boot on a misspelt hashKey or deferred key', async () => {
+    const bad = (audit: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit } });
+    expect(await bad({ hashKey: { secrte: 'x'.repeat(32) } })).to.include('audit.hashKey.secrte');
+    expect(await bad({ deferred: { timeoutMS: 100 } })).to.include('audit.deferred.timeoutMS');
+    expect(await bad({ hashKey: { secret: 'x'.repeat(32) }, deferred: { flushMs: 1, maxBatch: 1, maxBuffered: 1, timeoutMs: 1, blockCeilingMs: 1 } })).to.deep.eq([]);
+  });
+
   it('leaves the sections other packages keep under audit alone', async () => {
     const others = { http: { rules: [{ match: 'DELETE /admin/**', action: 'admin.delete' }] }, data: { rules: [{ models: '*', trail: 'history' }] }, authn: { trail: 'security' }, queue: { maxMessageBytes: 200000 }, seal: { settleSeconds: 30 } };
     // What a package that owns a section registers: its own schema, under the audit root.
