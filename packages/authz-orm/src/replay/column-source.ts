@@ -72,8 +72,8 @@ export class ColumnHistoryContributor extends HistoryContributors {
       const parents = entryOf(m)?.parents ?? [];
       return parents.length > 1 ? parents.map((p) => `parent_${p.column}`) : [];
     });
-    // Without a model that declares them, the read stays whole and its coverage check decides.
-    return parts.length === 0 ? undefined : [...new Set(parts)];
+    // None when the IR was compiled while a model of the type had several: the read is then a gap.
+    return [...new Set(parts)];
   }
 
   async coverageGap(type: ResourceType | undefined): Promise<string | undefined> {

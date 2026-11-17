@@ -1,7 +1,5 @@
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import '@spinajs/orm-pglite';
-import { MySqlOrmDriver } from '@spinajs/orm-mysql';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 
 import { randomBytes } from 'node:crypto';
@@ -23,6 +21,8 @@ export const MYSQL = { Host: '127.0.0.1', Port: 13306, User: 'root', Password: '
 
 /** Runs `sql` on the MySQL test server without a database, to make or drop the one a TestDb uses. */
 async function mysqlAdmin(sql: string): Promise<void> {
+  // Loaded only where a MySQL dialect runs, as the PGlite driver is: most suites never open either.
+  const { MySqlOrmDriver } = await import('@spinajs/orm-mysql');
   const admin = await DI.child().resolve<OrmDriver>(MySqlOrmDriver, [{ Name: 'authz-orm-mysql-admin', Driver: 'orm-driver-mysql', ...MYSQL, Pool: { Max: 1 } }]);
   await admin.connect();
   try {
@@ -124,7 +124,10 @@ export class TestDb {
     // that name on the search path makes the joined and the unqualified spelling one table.
     const database = opts.postgres ? await createPostgresDatabase() : undefined;
     if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
-    if (opts.pglite) connections.push({ Driver: 'orm-driver-pglite', Name: 'pglite', Filename: ':memory:' });
+    if (opts.pglite) {
+      await import('@spinajs/orm-pglite');
+      connections.push({ Driver: 'orm-driver-pglite', Name: 'pglite', Filename: ':memory:' });
+    }
     const mysqlDatabase = opts.mysql ? `authz_orm_${randomBytes(4).toString('hex')}` : undefined;
     if (mysqlDatabase !== undefined) {
       await mysqlAdmin(`CREATE DATABASE ${mysqlDatabase}`);

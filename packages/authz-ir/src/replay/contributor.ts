@@ -40,7 +40,10 @@ export interface HistoryContributor {
    * a `remove` of the old target. `source` is the read's: one changelog key can hold several columns' changes.
    */
   project?(change: ChangeRecord, source: RelationDef['source']): ChangeRecord | undefined;
-  /** The relations of `type` whose union a read of `relation` is, read in its place (the ORM's `parent` over several `@Parent` columns). */
+  /**
+   * The relations of `type` whose union a read of `relation` is, read in its place (the ORM's `parent` over several
+   * `@Parent` columns); undefined reads the relation whole. None (`[]`) makes the read a gap, not an empty set.
+   */
   parts?(type: TypeName, relation: RelationName, source: RelationDef['source']): readonly RelationName[] | undefined;
   /** Why the coverage of `type` cannot be trusted although the port claims it (a stored column fingerprint that is not this process's). Read before `coveredSince`. */
   coverageGap?(type: ResourceType | undefined): Promise<string | undefined>;

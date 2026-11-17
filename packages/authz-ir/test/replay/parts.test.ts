@@ -34,6 +34,7 @@ class TwoParents implements HistoryContributor {
   readonly kind = 'column' as const;
   readonly rows = new Map<string, Record<string, ObjectRef | null>>();
   distrust: string | undefined;
+  ancestorParts = ['parent_a_id', 'parent_b_id'];
   readonly calls: string[] = [];
 
   constructor(private readonly log: MemoryChangeLog) {}
@@ -47,7 +48,7 @@ class TwoParents implements HistoryContributor {
   }
 
   parts(_type: string, _relation: string, source: RelationDef['source']): string[] | undefined {
-    return source.kind === 'ancestor' ? ['parent_a_id', 'parent_b_id'] : undefined;
+    return source.kind === 'ancestor' ? this.ancestorParts : undefined;
   }
 
   coverageGap(): Promise<string | undefined> {
@@ -128,6 +129,26 @@ describe('HistoricalTupleSource, contributor seams', () => {
     expect(err).to.be.instanceOf(TupleSourceGap);
     expect((err as TupleSourceGap).known).to.deep.equal([{ type: 'folder', id: 'f1' }]);
     expect((err as TupleSourceGap).gaps.map((g) => g.key)).to.deep.equal(['doc:d1#parent']);
+  });
+
+  it('a relation whose parts are none is a gap, never a definite empty set', async () => {
+    const w = await world();
+    w.docs.ancestorParts = [];
+    const source = await w.source();
+    const forward = await read(source, 'parent').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect((forward as TupleSourceGap).gaps).to.deep.equal([{ kind: 'column', key: 'doc:d1#parent', origin: 'gap', reason: 'doc:d1#parent has no parts to be rebuilt from' }]);
+    const objects: ObjectRef[] = [];
+    const backward = await (async () => {
+      for await (const o of source.reverse({ type: 'folder', id: 'f1' }, 'parent', 'doc')) objects.push(o);
+    })().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(backward).to.be.instanceOf(TupleSourceGap);
+    expect(source.reads.filter((r) => r.origin === 'gap').map((r) => r.key)).to.deep.equal(['doc:d1#parent', 'doc#parent@folder:f1']);
   });
 
   it('a coverage the contributor distrusts makes the read a gap named after the kind and type', async () => {

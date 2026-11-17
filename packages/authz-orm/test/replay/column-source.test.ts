@@ -164,6 +164,9 @@ describe('ColumnHistoryContributor', function () {
         expect(await contributor.coverageGap('doc')).to.match(/other relation columns/);
         expect(contributor.serves({ kind: 'column', model: Doc.name, column: 'folder_id' })).to.equal(true);
         expect(contributor.serves({ kind: 'column', model: Doc.name, column: 'user_id' })).to.equal(false);
+        // One @Parent column: an `ancestor via 'orm'` read of doc (an IR compiled when doc had several) has no parts now.
+        expect(contributor.parts('doc', 'parent', { kind: 'ancestor', via: 'orm' })).to.deep.equal([]);
+        expect(contributor.parts('doc', 'parent', { kind: 'column', model: Doc.name, column: 'folder_id' })).to.equal(undefined);
         await db.define({ name: 'Quiet', columns: { folder_id: 'VARCHAR(64)' }, decorate: (c, p) => (AccessResource('doc', { changelog: false })(c), Parent('folder')(p, 'folder_id')) }, dialect);
         expect(await contributor.coverageGap('doc')).to.match(/changelog: false/);
       });

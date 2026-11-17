@@ -48,6 +48,7 @@ export class HistoricalTupleSource implements TupleSource {
     const label = `${objectType}#${relation}@${subjectLabel(subject)}`;
     const { c, source } = this.served(this.relationDef(objectType, relation), label);
     const parts = c.parts?.(objectType, relation, source);
+    if (parts?.length === 0) this.partless(c, label);
     if (parts !== undefined) {
       const u = await this.union(
         parts.map((p) => async () => {
@@ -97,6 +98,7 @@ export class HistoricalTupleSource implements TupleSource {
     const label = `${objectLabel(object)}#${relation}`;
     const { c, source } = this.served(def, label);
     const parts = c.parts?.(object.type, relation, source);
+    if (parts?.length === 0) this.partless(c, label);
     if (parts !== undefined) {
       const u = await this.union(
         parts.map((p) => () => this.subjects(object, p, this.relationDef(object.type, p))),
@@ -147,6 +149,12 @@ export class HistoricalTupleSource implements TupleSource {
     const reason = `no history contributor serves ${label}`;
     this.reads.push({ key: label, origin: 'gap', reason });
     throw new TupleSourceGap([], [{ key: label, origin: 'gap', reason }]);
+  }
+
+  private partless(c: HistoryContributor, label: string): never {
+    const read: ReplayRead = { kind: c.kind, key: label, origin: 'gap', reason: `${label} has no parts to be rebuilt from` };
+    this.reads.push(read);
+    throw new TupleSourceGap([], [read]);
   }
 
   private liveSubject(c: HistoryContributor, image: unknown, subject: TupleSubjectRef): boolean {
