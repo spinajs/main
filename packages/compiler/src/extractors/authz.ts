@@ -20,7 +20,7 @@ export interface AuthzInputs {
 }
 
 const RESOURCE_ACTIONS = ['read', 'create', 'update', 'delete'];
-const IGNORE = /\/\/\s*spinajs-authz-ignore\s+(AUTHZ\d{3})\s*:\s*(.*\S)/g;
+const IGNORE = /\/\/[^\S\r\n]*spinajs-authz-ignore[^\S\r\n]+(AUTHZ\d{3})[^\S\r\n]*:[^\S\r\n]*(.*\S)/g;
 
 /** Class and handler scopes are ANDed at runtime (`createPolicyGate`); as OR-of-AND groups that is their cross product. */
 export function combineScopes(outer: PolicyRef[][], inner: PolicyRef[][]): PolicyRef[][] {

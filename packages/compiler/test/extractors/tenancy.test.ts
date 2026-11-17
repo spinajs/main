@@ -248,7 +248,7 @@ describe('tenancy escapes and ignores', () => {
     expect(tenancy.escapes[0].source).to.deep.equal({ file: 'src/escapes.ts', line: 8, col: 25, package: 'tenancy-pkg' });
   });
 
-  it('records spinajs-tenancy-ignore comments', () => {
+  it('records spinajs-tenancy-ignore comments; one without a reason takes none from the next line', () => {
     expect(tenancy.ignores).to.deep.equal([{ code: 'TEN002', reason: 'the usage export reads every tenant on purpose', source: { file: 'src/ignored.ts', line: 1, col: 1, package: 'tenancy-pkg' } }]);
   });
 });

@@ -15,7 +15,7 @@ import { escapesIn } from './tenancy-escapes.js';
 export const TENANCY_HTTP = '@spinajs/tenancy-http';
 
 const ROUTE_DECORATORS = ['TenantRoute', 'NoTenant', 'AllTenants'] as const;
-const IGNORE = /\/\/\s*spinajs-tenancy-ignore\s+(TEN\d{3})\s*:\s*(.*\S)/g;
+const IGNORE = /\/\/[^\S\r\n]*spinajs-tenancy-ignore[^\S\r\n]+(TEN\d{3})[^\S\r\n]*:[^\S\r\n]*(.*\S)/g;
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 
