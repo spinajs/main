@@ -437,6 +437,17 @@ describe('read auditing', function () {
         expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([['1', { columns: ['Ssn'] }]]);
       });
 
+      it('names no row when another column takes the output name of the key', async () => {
+        await Patient.query().select('Id').select('Ssn').select('Name', 'Id').asRaw();
+        await Patient.query().select('Id').select('Ssn', 'Id').asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.subject, e.data])).to.deep.eq([
+          [undefined, keyless],
+          [undefined, keyless],
+        ]);
+      });
+
       it('matches column names without regard to case', async () => {
         // This package types columns strictly; a package that does not can write the other spelling.
         const query = Patient.query();

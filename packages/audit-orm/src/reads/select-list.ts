@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { ColumnMethodStatement, ColumnStatement, JoinStatement, Orm, extractModelDescriptor } from '@spinajs/orm';
+import { ColumnConditionStatement, ColumnMethodStatement, ColumnStatement, JoinStatement, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor, ModelBase, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 /** sqlite and MySQL resolve identifiers case-insensitively, so every comparison of a column name is. */
@@ -33,7 +33,7 @@ function descriptorsOn(driver: OrmDriver): { type: Constructor<ModelBase>; descr
   return found;
 }
 
-class SelectList {
+class Sources {
   public readonly sources = new Map<string, ReadSource>();
   private readonly models: { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[];
   /** The table each join of the query is read under, by its alias; a raw join names none. */
@@ -121,9 +121,18 @@ class SelectList {
   }
 }
 
-function addColumn(list: SelectList, statement: ColumnStatement, column: string): void {
+export interface SelectList {
+  readonly sources: readonly ReadSource[];
+  /** How many entries of the select list return each lower-cased output name; undefined when a raw entry hides its name. */
+  readonly outputs: ReadonlyMap<string, number> | undefined;
+}
+
+function addColumn(list: Sources, statement: ColumnStatement, column: string, output: (name: string) => void): void {
   // `count(*)` reads no column.
-  if (statement instanceof ColumnMethodStatement && column.trim() === '*') return;
+  if (statement instanceof ColumnMethodStatement && column.trim() === '*') {
+    output(statement.Alias);
+    return;
+  }
 
   const sources = statement instanceof ColumnMethodStatement ? list.aggregated(statement.TableAlias, column) : list.of(statement.TableAlias, column);
   for (const source of sources) {
@@ -131,10 +140,12 @@ function addColumn(list: SelectList, statement: ColumnStatement, column: string)
       source.computed.add(lc(column));
     } else if (statement.IsWildcard) {
       source.all = true;
+      source.descriptor.Columns.forEach((c) => output(c.Name));
     } else {
       source.keys.set(lc(column), statement.Alias === '' ? column : statement.Alias);
     }
   }
+  if (!statement.IsWildcard) output(statement.Alias === '' ? column : statement.Alias);
 }
 
 /**
@@ -142,24 +153,38 @@ function addColumn(list: SelectList, statement: ColumnStatement, column: string)
  * table alias names: the queried table or a join of the query (a populated relation is one). An expression the builder
  * cannot read counts for every table of the query.
  */
-export function selectListOf(query: SelectQueryBuilder<unknown>, root: IModelDescriptor): ReadSource[] {
-  const list = new SelectList(query, root);
+export function selectListOf(query: SelectQueryBuilder<unknown>, root: IModelDescriptor): SelectList {
+  const list = new Sources(query, root);
   const statements = query.getColumns();
+  const outputs = new Map<string, number>();
+  const output = (name: string): void => {
+    if (name !== '') outputs.set(lc(name), (outputs.get(lc(name)) ?? 0) + 1);
+  };
   let opaque = false;
+  let hidden = false;
 
   for (const statement of statements) {
     const column = statement instanceof ColumnStatement ? statement.Column : undefined;
     if (statement instanceof ColumnStatement && typeof column === 'string') {
-      addColumn(list, statement, column);
+      addColumn(list, statement, column, output);
     } else {
       opaque = true;
+      if (statement instanceof ColumnConditionStatement) {
+        output(statement.Alias);
+      } else {
+        hidden = true;
+      }
     }
   }
 
-  if (statements.length === 0) list.own().all = true;
+  if (statements.length === 0) {
+    const own = list.own();
+    own.all = true;
+    own.descriptor.Columns.forEach((c) => output(c.Name));
+  }
   if (opaque) {
     for (const source of list.queryTables()) source.opaque = true;
   }
 
-  return [...list.sources.values()];
+  return { sources: [...list.sources.values()], outputs: hidden ? undefined : outputs };
 }

@@ -8,7 +8,7 @@ import { auditSubjectId } from '../model-audit.js';
 import { auditReadsOf, hasAuditReads } from './rules.js';
 import type { ReadRule } from './rules.js';
 import { lc, selectListOf } from './select-list.js';
-import type { ReadSource } from './select-list.js';
+import type { ReadSource, SelectList } from './select-list.js';
 
 type Row = Record<string, unknown>;
 
@@ -44,13 +44,13 @@ function disclosed(source: ReadSource, rule: ReadRule): Disclosure | undefined {
   return { columns, computed: source.opaque || columns.some((c) => source.computed.has(lc(c))) };
 }
 
-/** Row keys of the source's primary key; undefined when the select does not return all of it under a known key. */
-function keyColumns(source: ReadSource): string[] | undefined {
+/** Row keys of the source's primary key; undefined when the select does not return all of it under a key nothing else returns. */
+function keyColumns(source: ReadSource, outputs: SelectList['outputs']): string[] | undefined {
   const keys: string[] = [];
   for (const pk of pkColumns(source.descriptor)) {
     // `*` of a joined table returns its columns under names the queried table's may overwrite.
     const key = source.all && source.own ? pk : source.keys.get(lc(pk));
-    if (key === undefined) return undefined;
+    if (key === undefined || outputs?.get(lc(key)) !== 1) return undefined;
     keys.push(key);
   }
 
@@ -62,8 +62,8 @@ function rowId(row: Row, keys: readonly string[]): string | undefined {
 }
 
 /** Ids of the source's rows in the result, each once; undefined when a row of the queried table cannot be named. */
-function subjectIds(source: ReadSource, rows: readonly unknown[]): string[] | undefined {
-  const keys = keyColumns(source);
+function subjectIds(source: ReadSource, rows: readonly unknown[], outputs: SelectList['outputs']): string[] | undefined {
+  const keys = keyColumns(source, outputs);
   if (!keys) return undefined;
 
   const ids = new Set<string>();
@@ -102,13 +102,13 @@ function statementEvent(entity: string, columns: readonly string[], rows: number
   return { kind: 'read', action: `${entity}.read`, data: { columns, rows, filter: filterOf(query), ...(keyless ? { keyless: true } : {}) } };
 }
 
-function eventsOf(rule: ReadRule, source: ReadSource, disclosure: Disclosure, rows: readonly unknown[], query: SelectQueryBuilder<unknown>): AuditInput[] {
+function eventsOf(rule: ReadRule, source: ReadSource, disclosure: Disclosure, rows: readonly unknown[], query: SelectQueryBuilder<unknown>, outputs: SelectList['outputs']): AuditInput[] {
   const entity = source.descriptor.TableName;
   const { columns } = disclosure;
   if (rule.mode === 'query') return [statementEvent(entity, columns, rows.length, query, false)];
   if (rows.length === 0) return [];
 
-  const ids = disclosure.computed || grouped(query) ? undefined : subjectIds(source, rows);
+  const ids = disclosure.computed || grouped(query) ? undefined : subjectIds(source, rows, outputs);
   if (!ids) return [statementEvent(entity, columns, rows.length, query, true)];
 
   return ids.map((id) => ({ kind: 'read', action: `${entity}.read`, subject: { type: entity, id }, data: { columns } }));
@@ -146,12 +146,13 @@ export class ReadAuditMiddleware extends QueryMiddleware {
     if (!root) return;
 
     const rows: readonly unknown[] = result;
-    for (const source of selectListOf(query, root)) {
+    const { sources, outputs } = selectListOf(query, root);
+    for (const source of sources) {
       for (const rule of rulesOf(source)) {
         this.verify(rule, source.descriptor);
         const disclosure = disclosed(source, rule);
         if (disclosure) {
-          await this.write(rule, eventsOf(rule, source, disclosure, rows, query));
+          await this.write(rule, eventsOf(rule, source, disclosure, rows, query, outputs));
         }
       }
     }

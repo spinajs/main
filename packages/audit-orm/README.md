@@ -38,7 +38,8 @@ audited table. A raw or `CASE` select expression counts for every audited column
 `max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join for every table of the query that has a
 column of that name, since its SQL names no table; `count(*)` and aggregates over other columns do not. Where no row
 can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement
-in the query-mode shape with `keyless: true`. A binary key is written as hex.
+in the query-mode shape with `keyless: true`. So does a select where another column returns under the key's name, or a
+raw select column, whose name the builder cannot read. A binary key is written as hex.
 
 What it does not see:
 
