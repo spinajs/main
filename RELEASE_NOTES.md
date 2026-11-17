@@ -46,10 +46,12 @@
 - `@Aggregate(Model)` over a model with no `@Groupable` and no `@Aggregatable` column answered `500` to every request,
   because its schema did not compile; it now counts rows and answers `400` to a request that names a column.
   `Model.aggregateSchema()` of such a model compiles.
-- The OpenAPI description of the `aggregate` query parameter carries the limits the server validates:
-  `additionalProperties: false`, `maxItems`, `uniqueItems` and lower-case `order`. `registerOpenApiParamType` takes an
-  optional `contentType` on a header, query, path or cookie description, which documents the value under `content`
-  instead of `schema`.
+- The OpenAPI description of the `aggregate` query parameter moves from `schema` to `content['application/json']`, as
+  the server reads one JSON string, and carries the limits the server validates: `additionalProperties: false`,
+  `maxItems`, `uniqueItems` and lower-case `order`. Regenerate clients built from the document: they sent the object
+  exploded into `?groupBy=…&measures=…`. `registerOpenApiParamType` takes an optional `contentType` on a header, query,
+  path or cookie description, which documents the value under `content` instead of `schema`; registrations without it
+  are unchanged.
 
 ## New
 

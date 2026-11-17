@@ -91,6 +91,8 @@ registerOpenApiParamType('AggregateModelRouteArg', (param) => {
   return {
     in: 'query',
     required: false,
+    // The argument parses one JSON string, not the exploded form-style object `schema` alone would describe.
+    contentType: 'application/json',
     schema: {
       type: 'object',
       additionalProperties: false,
