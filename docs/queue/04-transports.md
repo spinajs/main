@@ -28,6 +28,7 @@ A transport is a `QueueClient`: the class that moves messages to and from one br
 | `unsubscribe(messageClass \| channel, removeDurable?)` | abstract, two overloads | Stop listening; `removeDurable` also drops the durable subscription |
 | `getChannelForMessage(message)` | public | Channels from `Routing` (of an array route, only this connection's items), or the connection's default channel |
 | `getDeadLetterChannelForMessage(message)` | public | Dead-letter channel from `Routing`, or `Options.defaultQueueDeadLetterChannel` |
+| `RedeliversFailedEvents` | public getter, `false` | `true` when a rejected event callback leads to a later redelivery instead of an ack. `queue.deduplicateEvents` refuses a connection that answers `false` ([Event deduplication](12-event-deduplication.md)); override it only when the broker redelivers |
 | `__checkInstance__(options)` | public | `true` when `options[0].name` equals `Options.name`; used by `@PerInstanceCheck()` |
 
 ## Services and extension points

@@ -24,6 +24,9 @@
       "path": "../exceptions/tsconfig.json"
     },
     {
+      "path": "../idempotency/tsconfig.json"
+    },
+    {
       "path": "../log/tsconfig.json"
     },
     {

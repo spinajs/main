@@ -158,7 +158,7 @@ UPDATE queue_outbox SET Status = 'pending', AvailableAt = 0, CreatedAt = <now in
 - **The row commits or rolls back with the business change.** A message emitted inside a transaction on an outbox connection is written in that transaction; a rollback, of the transaction or of the savepoint the emit ran in, leaves no row.
 - **At least once.** A committed row is published at least once, and can be published more than once ([The relay](#the-relay)).
 - **No ordering.** One relay with no failures publishes in `Id` order, but two relays, a failed publish that is retried later, a row the stop rule released, or a second queue connection reorder messages.
-- **Consumers must tolerate duplicates.** A job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default). Events will be deduplicated per subscription by `queue.deduplicateEvents` (`12-event-deduplication.md`, arriving with the next release); until then an event handler must tolerate receiving the same event twice.
+- **Consumers must tolerate duplicates.** A job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default). Events are deduplicated per named subscription by `queue.deduplicateEvents` ([Event deduplication](12-event-deduplication.md), off by default); without it an event handler must tolerate receiving the same event twice.
 - **The nudge only shortens the wait.** A nudge that never comes (the process died right after the commit, or the row was written by hand) leaves the row to the next tick of any relay.
 
 ## What happens at boot

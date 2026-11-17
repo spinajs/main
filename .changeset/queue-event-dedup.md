@@ -1,0 +1,5 @@
+---
+'@spinajs/queue': minor
+---
+
+`queue.deduplicateEvents` (default false in 4.x) suppresses duplicate deliveries of an event per named subscription, keyed by `MessageId`, through `@spinajs/idempotency` (an optional peer; import it in the app entry). Handling stays at-least-once: a handler runs again only if its consumer died between the handler's commit and the stored reply, if storing the reply failed, or after `queue.deduplicateTtl` (default 7 days). A duplicate that arrives while the first copy is still being handled throws `RedeliverLater` and is redelivered, never acked; a connection that cannot redeliver a failed event (`QueueClient.RedeliversFailedEvents`) refuses the setting. Each handled event leaves a row in `__idempotency` until it expires; the sweep that deletes expired rows is `@spinajs/idempotency-scheduler`. `consume` calls the `queue.before-ack` fault point when a delivery is done with. `@spinajs/queue/testing` exports `wireCopy`.

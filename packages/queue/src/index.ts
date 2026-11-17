@@ -1,24 +1,29 @@
-import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound, InvalidOperation, toError } from '@spinajs/exceptions';
 import { Autoinject, Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob, PublishDirectOptions } from './interfaces.js';
 import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
-import { AutoinjectService } from '@spinajs/configuration';
+import { AutoinjectService, registerConfigurationSchema } from '@spinajs/configuration';
+import { FaultInjector } from '@spinajs/durable';
+import type * as Idempotency from '@spinajs/idempotency';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 import { isPermanentJobFailure } from './hooks.js';
 import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
+import { RedeliverLater } from './redeliver.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './crash.js';
+export * from './redeliver.js';
 export { SystemTask, systemTaskOf } from '@spinajs/util';
 export * from './interfaces.js';
 export * from './headers.js';
 export * from './outbox/index.js';
 export * from './bootstrap.js';
 export { QUEUE_OUTBOX_CONFIGURATION_SCHEMA } from './schemas/queue.outbox.configuration.js';
+export { QUEUE_CONFIGURATION_SCHEMA } from './schemas/queue.configuration.js';
 export * from './decorators.js';
 export * from './hooks.js';
 export * from './tracking-hook.js';
@@ -47,6 +52,14 @@ function truncate(value: string, max: number): string {
   return value.length > max ? value.substring(0, max) : value;
 }
 
+const ACK_REPLY = { kind: 'ack', body: null };
+
+interface EventDedup {
+  service: Idempotency.IdempotencyService;
+  inFlight: typeof Idempotency.IdempotencyInFlight;
+  ttlMs: number;
+}
+
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
   @Logger('queue')
@@ -67,6 +80,11 @@ export class DefaultQueueService extends QueueService {
   protected Outbox: OutboxWriter;
 
   protected Relay?: OutboxRelay;
+
+  @Autoinject(FaultInjector)
+  protected Faults: FaultInjector;
+
+  protected dedup?: Promise<EventDedup>;
 
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -179,6 +197,8 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
+    const dedupSubscription = await this.dedupSubscriptionOf(event, connections, subscriptionId);
+
     for (let c of connections) {
       const conn = this.Connections.get(c);
 
@@ -245,6 +265,7 @@ export class DefaultQueueService extends QueueService {
               // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
               if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
                 this.Log.warn({ jobName: ev.Name, jobId: ev.JobId }, 'Job ${jobName}:${jobId} dropped: its initiator differs from the one that owns the tracking row');
+                await this.beforeAck(ev, subscriptionId);
                 return;
               }
 
@@ -253,6 +274,7 @@ export class DefaultQueueService extends QueueService {
               // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.
               if ((this.Configuration?.deduplicate ?? true) && JOB_TERMINAL_STATUSES.includes(jModel.Status)) {
                 this.Log.info({ jobName: ev.Name, jobId: ev.JobId, status: jModel.Status }, 'Job ${jobName}:${jobId} already in terminal state ${status}, skipping duplicate delivery');
+                await this.beforeAck(ev, subscriptionId);
                 return;
               }
 
@@ -348,14 +370,80 @@ export class DefaultQueueService extends QueueService {
             this.Log.trace({ messageName: event.name }, 'Queue message ${messageName} processed');
 
             if (callback) {
-              return runAroundHandle(ev, () => callback(ev as T));
+              const handle = () => runAroundHandle(ev, () => callback(ev as T));
+              await (dedupSubscription === undefined ? handle() : this.handleEventOnce(dedupSubscription, ev, handle));
             }
+
+            await this.beforeAck(ev, subscriptionId);
           }
         },
         subscriptionId,
         durable ?? eDurable ?? false,
       );
     }
+  }
+
+  /** The delivery is done with and what follows is the transport's ack; a crash here leaves it unsettled, so it comes again. */
+  protected async beforeAck(message: IQueueMessage, subscriptionId: string | undefined): Promise<void> {
+    await this.Faults.point('queue.before-ack', { messageId: message.MessageId, subscriptionId });
+  }
+
+  /** The subscription a consumed event is deduplicated under, or undefined when deduplication does not apply to it. */
+  protected async dedupSubscriptionOf(event: Constructor<QueueMessage>, connections: string[], subscriptionId: string | undefined): Promise<string | undefined> {
+    const options: unknown = Reflect.getMetadata('queue:options', event);
+    const isEvent = typeof options === 'object' && options !== null && 'type' in options && options.type === 'event';
+    if (!isEvent || !subscriptionId || this.Configuration.deduplicateEvents !== true || this.Configuration.deduplicate === false) {
+      return undefined;
+    }
+    for (const c of connections) {
+      if (this.Connections.get(c)?.RedeliversFailedEvents === false) {
+        throw new InvalidOperation(`queue.deduplicateEvents: connection ${c} acks a failed event instead of redelivering it (RedeliversFailedEvents is false), so an in-flight duplicate would be lost`);
+      }
+    }
+    await this.eventDedup();
+    return subscriptionId;
+  }
+
+  /** An event without a MessageId has nothing to be deduplicated by, so it is handled as it comes. */
+  protected async handleEventOnce(subscriptionId: string, message: QueueMessage, handle: () => Promise<void>): Promise<void> {
+    if (!(message instanceof QueueEvent) || !message.MessageId) {
+      return handle();
+    }
+    const { service, inFlight, ttlMs } = await this.eventDedup();
+    try {
+      await service.run({ namespace: `queue:${subscriptionId}` }, message.MessageId, handle, { ttl: ttlMs, toReply: () => ACK_REPLY, fromReply: () => undefined });
+    } catch (error) {
+      if (error instanceof inFlight) throw new RedeliverLater(error.retryAfterMs, error);
+      throw error;
+    }
+  }
+
+  /** Imported on first use, as `@spinajs/http` does: apps that never deduplicate events need no __idempotency table. */
+  protected eventDedup(): Promise<EventDedup> {
+    if (this.dedup) return this.dedup;
+    const loading = this.loadEventDedup();
+    this.dedup = loading;
+    // a failed load is not kept: the next subscription or delivery tries again
+    loading.catch(() => {
+      if (this.dedup === loading) this.dedup = undefined;
+    });
+    return loading;
+  }
+
+  protected async loadEventDedup(): Promise<EventDedup> {
+    let idempotency: typeof Idempotency;
+    try {
+      idempotency = await import('@spinajs/idempotency');
+    } catch (err) {
+      throw new InvalidOperation('queue.deduplicateEvents needs the @spinajs/idempotency package installed', err);
+    }
+    // a wrong idempotency.* value fails the subscription, not the first delivery
+    registerConfigurationSchema(idempotency.IDEMPOTENCY_CONFIGURATION_SCHEMA, DI.RootContainer);
+    const service = await DI.resolve(idempotency.IdempotencyService);
+    if (service.Store instanceof idempotency.OrmIdempotencyStore && idempotency.ormModelRegistered(DI.RootContainer) === false) {
+      throw new InvalidOperation("queue.deduplicateEvents on OrmIdempotencyStore: the Orm resolved before @spinajs/idempotency was imported, so __idempotency has neither a model nor a migration. Add import '@spinajs/idempotency' to the app entry, before the boot");
+    }
+    return { service, inFlight: idempotency.IdempotencyInFlight, ttlMs: service.ttlOf(this.Configuration.deduplicateTtl ?? '7d', 'queue.deduplicateTtl') };
   }
 
   /**

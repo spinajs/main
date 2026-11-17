@@ -1,6 +1,6 @@
 # Message ids and headers
 
-Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one message across retries, redeliveries and transports, so logs and broker tools can follow it. Only jobs are deduplicated today, by `JobId` (`queue.deduplicate`, see [Job tracking](03-job-tracking.md)); an event delivered twice is handled twice. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
+Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one message across retries, redeliveries and transports, so logs and broker tools can follow it. Jobs are deduplicated by `JobId` (`queue.deduplicate`, see [Job tracking](03-job-tracking.md)); events by `MessageId` per named subscription only with `queue.deduplicateEvents` ([Event deduplication](12-event-deduplication.md)), and otherwise an event delivered twice is handled twice. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
 
 ## How it works
 
@@ -64,6 +64,7 @@ With `deferred: true` the client behaves like a broker that you drive by hand, w
 
 - `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP.
 - `deliverAll()` delivers the queued messages in publish order, by channel. An event goes to every subscription on its channel, a job to the first one. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
+- `wireCopy(message)` returns the copy a broker round trip makes: emit it, or `deliver()` it, to hand the client the same message again.
 - A message is settled only after its callback resolved. One whose callback rejected stays queued for the next `deliverAll()`: an event goes again to the subscriptions that rejected it, a job to whoever consumes its channel by then. Messages published during a `deliverAll()` wait for the next call.
 
 A transport package proves its semantics by running the conformance cases against its own harness:

@@ -6,6 +6,7 @@ import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 import { Event, hydrateOutboxMessage, IQueueMessage, Job, OUTBOX_TABLE, OutboxRow, QueueClient, QueueEvent, QueueJob, QueueMessage, QueueService, toOutboxRow, type IQueueOutboxConfig } from '../../src/index.js';
+import { MemoryQueueClient } from '../../src/testing/index.js';
 
 export const T0 = Date.parse('2026-11-16T10:00:00.000Z');
 
@@ -211,4 +212,10 @@ export async function disposeOutbox(): Promise<void> {
     await DI.dispose();
   }
   DI.clearCache();
+}
+
+export function memoryClientOf(queue: QueueService, name: string): MemoryQueueClient {
+  const client = queue.get(name);
+  if (!(client instanceof MemoryQueueClient)) throw new Error(`queue connection ${name} is not a MemoryQueueClient`);
+  return client;
 }
