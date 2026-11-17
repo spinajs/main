@@ -105,6 +105,30 @@ class AuditedController extends BaseController {
 @BasePath('audited-options')
 class AuditedOptionsController extends BaseController {
   @Post()
+  @Middleware(Audit, { redact: ['pin'] })
+  public extra(@Body() _data: object) {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @Middleware(Audit, { includeBody: false })
+  public bodiless(@Body() _data: object) {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @Middleware(Audit, { maxBodyBytes: 32 })
+  public small(@Body() _data: object) {
+    return new Ok({ ok: true });
+  }
+
+  @Get()
+  @Middleware(Audit, { methods: ['POST'] })
+  public reads() {
+    return new Ok({ ok: true });
+  }
+
+  @Post()
   @Middleware(Audit, { trail: 'admin', action: 'user.create' })
   public named(@Body() _data: object) {
     return new Ok({ ok: true });
@@ -316,6 +340,39 @@ describe('Audit route middleware', function () {
     expect(event.outcome).to.eq('failed');
     expect(dataOf(event).aborted).to.eq(true);
     expect(dataOf(event)).to.not.have.property('status');
+  });
+
+  it('adds the redact keys of a route to the configured ones', async () => {
+    await req().post('audited-options/extra').send({ pin: '1234', password: 'p', name: 'x' });
+    const event = await nextEvent();
+    expect(dataOf(event).body).to.deep.eq({ pin: REDACTED, password: REDACTED, name: 'x' });
+  });
+
+  it('leaves the body out with includeBody: false', async () => {
+    await req().post('audited-options/bodiless').send({ name: 'x' });
+    const event = await nextEvent();
+    expect(dataOf(event)).to.not.have.property('body');
+  });
+
+  it('leaves a body over maxBodyBytes out and records its size', async () => {
+    await req().post('audited-options/small').send({ name: 'a much longer value than thirty two bytes' });
+    const event = await nextEvent();
+    expect(dataOf(event)).to.not.have.property('body');
+    expect(dataOf(event).bodyTruncated).to.be.greaterThan(32);
+  });
+
+  it('records a text body as redacted: it has no keys to redact by', async () => {
+    await req().post('audited/create').set('content-type', 'application/xml').send('<login><password>p</password></login>');
+    const event = await nextEvent();
+    expect(dataOf(event).body).to.eq(REDACTED);
+  });
+
+  it('skips the methods not listed in methods', async () => {
+    const res = await req().get('audited-options/reads');
+    expect(res.status).to.eq(200);
+    await settle();
+    await audit().flush();
+    expect(MemoryAuditStore.events()).to.have.length(0);
   });
 
   it('writes to the trail and under the action its options name; an action for a whole controller is a prefix', async () => {
