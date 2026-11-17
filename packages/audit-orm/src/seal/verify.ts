@@ -1,4 +1,4 @@
-import { payloadHash, sealHash } from '@spinajs/audit';
+import { eventsHash, payloadHash, sealHash } from '@spinajs/audit';
 import type { AuditPinnedHead, AuditSubject, AuditTamper, AuditUncoveredRow, AuditVerifyReport, StoredAuditEvent } from '@spinajs/audit';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
@@ -58,7 +58,7 @@ function lateRows(rows: readonly Checked[], seal: AuditSeal): Set<number> | unde
     if ((budget -= 1) < 0) return undefined;
     const late = new Set(rows.filter((_, i) => left.includes(i)).map((r) => r.seq));
     const digests = rows.filter((r) => !late.has(r.seq)).map((r) => r.digest);
-    if (sealHash(seal.previousHash, seal.sealedAt, digests) === seal.hash) return late;
+    if (eventsHash(digests) === seal.eventsHash) return late;
   }
   return undefined;
 }
@@ -83,6 +83,8 @@ async function checkPruned(driver: OrmDriver, table: string, seal: AuditSeal, af
 /** Recomputes one seal over its range `(after, to_seq]`; undefined when it still matches. */
 async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk): Promise<AuditTamper | undefined> {
   if (seal.fromSeq !== after + 1) return tamper(seal, 'chain', seal.fromSeq);
+  // From the seal's own row: its time and events hash are checked even after retention removed its events.
+  if (sealHash(seal.previousHash, seal.sealedAt, seal.eventsHash) !== seal.hash) return tamper(seal, 'seal', seal.fromSeq);
   if (seal.pruned) return checkPruned(driver, table, seal, after, walk);
   const rows: Checked[] = [];
   for (const row of rowsOf(await rangeOf(driver, table, after, seal))) {
@@ -94,15 +96,7 @@ async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, afte
   const late = rows.length > seal.count ? lateRows(rows, seal) : new Set<number>();
   if (late === undefined) return tamper(seal, 'count', seal.fromSeq);
   const sealed = rows.filter((r) => !late.has(r.seq));
-  if (
-    late.size === 0 &&
-    sealHash(
-      seal.previousHash,
-      seal.sealedAt,
-      sealed.map((r) => r.digest),
-    ) !== seal.hash
-  )
-    return tamper(seal, 'seal', seal.fromSeq);
+  if (late.size === 0 && eventsHash(sealed.map((r) => r.digest)) !== seal.eventsHash) return tamper(seal, 'seal', seal.fromSeq);
   walk.uncovered.push(...uncoveredRows(late, 'late', seal));
   const redacted = sealed.filter((r) => r.redacted);
   walk.redactions.push(...redacted);

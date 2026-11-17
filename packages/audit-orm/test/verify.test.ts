@@ -171,6 +171,17 @@ describe('audit verification', function () {
         expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
       });
 
+      it('names the seal whose time or events hash was changed', async () => {
+        await append(event(1), event(2));
+        await sealNow();
+        await driver()
+          .update()
+          .in('audit_seal')
+          .update({ sealed_at: new Date('2020-01-01T00:00:00Z') })
+          .where('from_seq', 1);
+        expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
+      });
+
       it('names the seal whose predecessor is gone, and stops there', async () => {
         await append(event(1));
         await sealNow();
@@ -193,7 +204,7 @@ describe('audit verification', function () {
         await driver()
           .insert()
           .into('audit_seal')
-          .values({ trail_table: TABLE, from_seq: 3, to_seq: 3, event_count: 1, hash: '1'.repeat(64), previous_hash: first.hash, sealed_at: new Date() });
+          .values({ trail_table: TABLE, from_seq: 3, to_seq: 3, event_count: 1, events_hash: '1'.repeat(64), hash: '1'.repeat(64), previous_hash: first.hash, sealed_at: new Date() });
 
         expect((await verify()).tampered).to.deep.eq({ seq: 3, reason: 'chain', fromSeq: 3, toSeq: 3 });
       });
