@@ -228,6 +228,15 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf(s.column('Doc', 'folder_id', doc('d1')))).message).to.match(/ambiguity window/);
   });
 
+  it('sees a removal inside the backward window of a key absent now', async () => {
+    const { log, tuples } = await setup();
+    await tuples.remove(editor('u2'), ms(-50));
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
+    expect(gap.message).to.match(/ambiguity window/);
+    expect(gap.known.map((x) => x.id)).to.deep.equal(['u1']);
+  });
+
   it('lists the objects a subject held at T in reverse', async () => {
     const { log, tuples } = await setup();
     await tuples.add(editor('u1', 'd2'), ms(30 * MIN));

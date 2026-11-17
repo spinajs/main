@@ -25,8 +25,10 @@ const PAGE = 10_000;
 const KEY_BATCH = 500;
 
 /**
- * The changelog after a decision's instant T: one paged scan at load, then per-key lookups. Callers read in the order
- * of section 3.2: scan, current rows, `catchUp`, `headOf`, `beforeOf`, and `since` last.
+ * The changelog from the backward edge of a decision's window on: one paged scan at load, then per-key lookups. The
+ * scan starts at `T - window.beforeMs`, so a key removed inside the window, absent now, is still a candidate whose
+ * change the window check sees. Callers read in the order of section 3.2: scan, current rows, `catchUp`, `headOf`,
+ * `beforeOf`, and `since` last.
  */
 export class ReplayHistory {
   private readonly byKey = new Map<string, ChangeRecord[]>();
@@ -67,6 +69,7 @@ export class ReplayHistory {
     return this.resolved.size;
   }
 
+  /** The key's scanned changes; those at or before T lie inside the window, which makes the key a gap. */
   afterFor(kind: ChangeKind, key: string): readonly ChangeRecord[] {
     return this.byKey.get(slot(kind, key)) ?? [];
   }
@@ -81,11 +84,11 @@ export class ReplayHistory {
     }
   }
 
-  /** Scans the changes after T committed since the last page, so a write that landed during the replay is seen. */
+  /** Scans the changes committed since the last page, so a write that landed during the replay is seen. */
   async catchUp(): Promise<void> {
     for (;;) {
       this.signal?.throwIfAborted();
-      const page = await this.log.afterInstant(this.at, { kinds: this.kinds, limit: PAGE, ...(this.cursor === undefined ? {} : { after: this.cursor }) });
+      const page = await this.log.afterInstant(new Date(this.at.getTime() - this.limits.window.beforeMs), { kinds: this.kinds, limit: PAGE, ...(this.cursor === undefined ? {} : { after: this.cursor }) });
       for (const c of page) this.add(c);
       if (page.length < PAGE) return;
     }
