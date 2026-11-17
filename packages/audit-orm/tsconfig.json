@@ -11,6 +11,7 @@
     { "path": "../audit/tsconfig.json" },
     { "path": "../configuration/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
     { "path": "../log-common/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
