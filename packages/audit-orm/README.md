@@ -58,6 +58,15 @@ What it does not see:
   condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
 - data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
 
+Limits a reader of the trail must know:
+
+- a raw select column (`select(RawQuery.create(...))`) makes the row-mode events of its statement keyless: its output
+  name cannot be read, so it could shadow the key, and the statement is recorded without naming rows;
+- `mode: 'query'` with `columns` records only the selects that return one of them; every select of the model is
+  recorded only by a query-mode rule without `columns`;
+- a column under an alias no join of the query names is treated as widely as it could reach: it counts for every
+  audited table of the connection with a column of that name, and `*` there for every audited table.
+
 `paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
 
 Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one

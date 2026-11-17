@@ -90,6 +90,8 @@ class Sources {
     const joined = this.joins.get(tableAlias);
     if (joined) return [this.joinedSource(tableAlias, joined)];
 
+    // Fail-safe. Only a join nested inside a populate callback leaves such an alias, and the ORM cannot compile that query
+    // on sqlite today (`no such column: $Patient.Ward$.Code`), so this branch has no test; it stays for when it can.
     const wildcard = column.trim() === '*';
     return this.models.filter((m) => wildcard || m.descriptor.Columns.some((c) => lc(c.Name) === lc(column))).map((m) => this.table(m.descriptor));
   }
