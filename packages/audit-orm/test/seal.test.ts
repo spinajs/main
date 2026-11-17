@@ -261,6 +261,9 @@ describe('audit sealing', function () {
           await shipAudit({ trail: 'shipped' });
           expect((await sealAudit({ settleMs: 0 })).sealed).to.eq(2);
           expect(await ranges()).to.deep.eq([[ARCHIVE, 1, 2, 2]]);
+          // The source an archive files the events under is sealed too.
+          const filed = [event(1), event(2)].map((e) => eventDigest({ ...e, source: connection() }, payloadHash(e.data)));
+          expect((await seals())[0].hash).to.eq(sealHash(null, filed));
         } finally {
           await new AuditOutboxTableMigration().down(driver());
           await new ShippedArchiveMigration().down(driver());

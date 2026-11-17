@@ -29,7 +29,7 @@ export function storedHash(row: AuditRow): string | undefined {
 
 /** What a seal takes of one row. A row written by something other than storedColumns carries no data_hash: it is sealed with the hash of the payload it holds. */
 export function rowDigest(row: AuditRow, stored: StoredAuditEvent = toStored(row)): string {
-  return eventDigest(stored, storedHash(row) ?? payloadHash(stored.data));
+  return eventDigest({ ...stored, source: text(row.source) }, storedHash(row) ?? payloadHash(stored.data));
 }
 
 function toSeal(row: AuditRow): AuditSeal {
