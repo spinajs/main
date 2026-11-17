@@ -1,5 +1,6 @@
 import { BaseController, BasePath, Get } from '@spinajs/http';
 import { Model, ModelBase, Primary } from '@spinajs/orm';
+import { Country } from './models.js';
 
 declare function Tenant(): ClassDecorator;
 declare function NoTenant(): MethodDecorator;
@@ -26,4 +27,18 @@ export class LookalikeController extends BaseController {
     new Report().acrossTenants('a method of the same name');
     await runAcrossTenants('a local function of the same name', async () => undefined);
   }
+
+  @Get('scoped')
+  @TenantRoute()
+  public async scoped(): Promise<void> {}
+
+  @Get('all')
+  @AllTenants('a local decorator of the same name')
+  public async all(): Promise<void> {}
 }
+
+declare function TenantRoute(): MethodDecorator;
+declare function AllTenants(reason: string): MethodDecorator;
+declare function registerTenantModel(model: unknown, options?: unknown): void;
+
+registerTenantModel(Country, { isolation: 'row' });
