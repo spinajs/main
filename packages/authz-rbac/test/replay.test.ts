@@ -260,6 +260,19 @@ describe('RuleSplicer', function () {
     expect(new RuleSplicer().locate('rbac rule r1', 'project', rbacDenyRelation('project:edit'), ir)).to.equal(undefined);
   });
 
+  it('drops a rule only where the engine would not select it: another resource type, or threshold globs that miss', () => {
+    const rule = (id: string, def: Record<string, unknown>) => ({ key: id, state: { known: true, value: { id, scope: GLOBAL, source: 'db', ...def }, origin: 'current' } as const });
+    const items = [
+      rule('other-type', { kind: 'restrict', resourceTypes: ['folder'] }),
+      rule('on-type', { kind: 'cap', resourceTypes: ['project'] }),
+      rule('glob', { kind: 'threshold', permissions: ['project:*'], minRole: 'editor' }),
+      rule('glob-miss', { kind: 'threshold', permissions: ['folder:*'], minRole: 'editor' }),
+      rule('bad-glob', { kind: 'threshold', permissions: ['**'], minRole: 'editor' }),
+    ];
+    const spliced = new RuleSplicer().splice({ model: 'rbac', store: 'DbRuleStore', permission: 'project:edit', side: 'deny' }, items, rulesIR());
+    expect(spliced.term).to.deep.equal({ union: [{ opaque: 'rbac rule on-type' }, { opaque: 'rbac rule glob' }, { opaque: 'rbac rule bad-glob' }] });
+  });
+
   for (const kind of DB_KINDS) {
     describe(kind, () => {
       let db: TestDb<Dialect>;

@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
-import { MemoryChangeLog, canonicalize, policyHash, replayDecision } from '../../src/index.js';
+import { MemoryChangeLog, StoreUnreadable, canonicalize, policyHash, replayDecision } from '../../src/index.js';
 import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
 import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
@@ -221,6 +221,24 @@ describe('replayDecision', function () {
     expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('rule:r1');
     const unspliced = await replayDecision(w.record(), { ...w.deps, splicers: [] });
     expect(unspliced.missing).to.deep.include({ input: 'opaque', key: 'stored:rbac:db', reason: 'the IR cannot see it' });
+  });
+
+  it('an unreadable store is a gap that keeps its placeholder; any other failure of its read fails the replay', async () => {
+    const w = await world(irOf({ exclusion: { base: { computed: 'editor' }, subtract: { opaque: 'stored:rbac:db' } } }));
+    const unreadable = new StoreUnreadable('authz_rule: a row does not parse');
+    expect(unreadable.name).to.equal('StoreUnreadable');
+    w.rules.current = () => Promise.reject(unreadable);
+    const report = await replayDecision(w.record(), w.deps);
+    expect(report.replay).to.equal('unreplayable');
+    expect(report.reads).to.deep.include({ kind: 'rule', key: 'rule:db', origin: 'gap', reason: 'authz_rule: a row does not parse' });
+    expect(report.missing).to.deep.include({ input: 'opaque', key: 'stored:rbac:db', reason: 'the IR cannot see it' });
+
+    w.rules.current = () => Promise.reject(new Error('connection lost'));
+    const failed = await replayDecision(w.record(), w.deps).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(failed).to.have.property('message', 'connection lost');
   });
 
   it('maps the history budget and the timeout to unreplayable, and rethrows a cancel', async () => {

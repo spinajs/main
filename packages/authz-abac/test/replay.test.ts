@@ -194,6 +194,20 @@ describe('PolicySplicer', function () {
         ]);
       });
 
+      it('logs a set expiry and a scope as a read of the row gives them, so the policy reads from current state', async () => {
+        await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:read'] }, user('root'), tx));
+        await write((tx) => store.put({ id: 'scoped', effect: 'permit', permissions: ['doc:write'], scope: { type: 'org', id: 'o1' }, expiresAt: new Date('2031-01-01T00:00:00.123Z') }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'd7', true);
+        await pause(4 * WINDOW);
+        const report = await replayDecision(record, depsOf(ir, changeLog()));
+        expect(report).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+        expect(report.reads.filter((r) => r.kind === 'policy').map((r) => [r.key, r.origin])).to.have.deep.members([
+          ['everyone', 'current'],
+          ['scoped', 'current'],
+        ]);
+      });
+
       it('makes the store a gap when a policy row no longer parses, instead of failing the replay', async () => {
         await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:*'] }, user('root'), tx));
         await pause(4 * WINDOW);
