@@ -1,16 +1,18 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote, DenyReason } from '@spinajs/authz';
 import type { IRFragment } from '@spinajs/authz-ir';
 
-import type { CaveatConfig, NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
+import type { CaveatConfig, NamespaceConfig, PermissionMap, RebacLimits, Tuple, TupleCaveat } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
-import { isSubjectSet, objectKey } from '../keys.js';
-import { NamespaceSchema } from '../namespace/compile.js';
+import { caveatKey, isSubjectSet, objectKey } from '../keys.js';
+import { NamespaceSchema, admitsTuple } from '../namespace/compile.js';
 import type { CompiledRewrite } from '../namespace/compile.js';
 import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '../namespace/schema.js';
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
 import { rebacListPlan, rebacListSupport } from './filter.js';
+import { RebacCaveats, overlayContext, pickCaveatInput } from './caveats.js';
+import type { CaveatRequest, CaveatTruth } from './caveats.js';
 import { rebacToIR } from '../ir.js';
 import { RebacWalk, expand } from '../expand.js';
 import type { UsersetTree } from '../expand.js';
@@ -49,16 +51,21 @@ interface Result {
 }
 
 const NOT: Result = Object.freeze({ m: 'not', cut: false });
+const MEMBER: Result = Object.freeze({ m: 'member', cut: false });
 
 interface Walk {
   readonly principal: PrincipalRef;
   readonly maxDepth: number;
   readonly maxCalls: number;
   readonly read: (object: ResourceRef, relation: string) => Promise<readonly Tuple[]>;
+  readonly caveat: (c: TupleCaveat) => Promise<CaveatTruth>;
   readonly memo: Map<string, Membership>;
   readonly path: Set<string>;
   calls: number;
   tooDeep?: string;
+  cacheable: boolean;
+  /** Caveats a branch could not decide. */
+  readonly undecided: Set<string>;
 }
 
 /**
@@ -120,11 +127,18 @@ export class RebacModel extends AuthorizationModel {
     const target = this.schema().targets.get(req.permission);
     if (!target || target.type !== req.resource.type) return this.vote(FALSE);
     const principal: PrincipalRef = { type: req.principal.type, id: req.principal.id };
-    if (req.resource.id == null) return this.vote({ op: REBAC_CHECK_OP, args: { relation: target.name, principal } });
+    const request: CaveatRequest = { principal: req.principal, permission: req.permission, resource: req.resource, env: req.env ?? {} };
+    if (req.resource.id == null) {
+      const paths = new RebacCaveats(this.schema().caveats).paramsOf(this.schema().caveatsReachable(target.type, target.name));
+      const args = paths.length === 0 ? { relation: target.name, principal } : { relation: target.name, principal, caveatInput: pickCaveatInput(paths, request) };
+      return this.vote({ op: REBAC_CHECK_OP, args }, paths.length === 0);
+    }
     try {
-      const { membership, tooDeep } = await this.walk(req.resource, target.name, principal, ctx);
-      if (membership === 'member') return this.vote(TRUE);
-      if (membership === 'not') return this.vote(FALSE);
+      const { membership, tooDeep, cacheable, undecided } = await this.walk(req.resource, target.name, principal, ctx, request);
+      if (membership === 'member') return this.vote(TRUE, cacheable);
+      if (membership === 'not') return this.vote(FALSE, cacheable);
+      // A no-permit, not an error vote: an error would veto other models' permits over a missing env value.
+      if (tooDeep === undefined && undecided.length > 0) return this.vote(FALSE, cacheable, { code: 'caveat_unknown', model: this.name, caveats: undecided });
       return this.error(`${this.name}: maxDepth ${this.limits.maxDepth} exceeded at ${tooDeep ?? objectKey(req.resource)}`);
     } catch (e) {
       if (e instanceof RebacLimitExceeded) return this.error(e.message);
@@ -200,12 +214,17 @@ export class RebacModel extends AuthorizationModel {
     return new RebacWalk(schema, this.store(), this.limits, (message) => new RebacLimitExceeded(`${this.name}: ${message}`));
   }
 
-  /** Does `principal` hold `name` (a relation or permission) on `object`? @throws RebacLimitExceeded past maxCalls */
-  async check(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext): Promise<Membership> {
-    return (await this.walk(object, name, principal, ctx)).membership;
+  /**
+   * Does `principal` hold `name` (a relation or permission) on `object`? Caveats read `request`, through `ctx`; without
+   * both they are unknown. @throws RebacLimitExceeded past maxCalls
+   */
+  async check(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext, request?: { readonly env?: Readonly<Record<string, unknown>>; readonly principal?: Principal }): Promise<Membership> {
+    // A caveat reads neither the permission nor the resource (env.* and principal.* only), so neither field matters here.
+    const caveatRequest: CaveatRequest | undefined = request && { principal: request.principal ?? syntheticPrincipal(principal), permission: '', resource: object, env: request.env ?? {} };
+    return (await this.walk(object, name, principal, ctx, caveatRequest)).membership;
   }
 
-  private async walk(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext): Promise<{ membership: Membership; tooDeep?: string }> {
+  private async walk(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext, request?: CaveatRequest): Promise<{ membership: Membership; tooDeep?: string; cacheable: boolean; undecided: string[] }> {
     const store = this.store();
     const local = new Map<string, Promise<readonly Tuple[]>>();
     const cache: Map<string, unknown> = ctx?.cache ?? local;
@@ -215,9 +234,28 @@ export class RebacModel extends AuthorizationModel {
       if (!tuples) cache.set(key, (tuples = store.read(o, relation)));
       return tuples;
     };
-    const w: Walk = { principal: { type: principal.type, id: principal.id }, maxDepth: this.limits.maxDepth, maxCalls: this.limits.maxCalls, read, memo: new Map(), path: new Set(), calls: 0 };
+    const caveats = new RebacCaveats(this.schema().caveats);
+    const truths = new Map<string, Promise<CaveatTruth>>();
+    const caveat = (c: TupleCaveat): Promise<CaveatTruth> => {
+      if (!ctx || !request) {
+        w.undecided.add(c.name);
+        return Promise.resolve('unknown');
+      }
+      const key = caveatKey(c);
+      let t = truths.get(key);
+      if (!t) {
+        t = caveats.evaluate(c, request, ctx).then((r) => {
+          if (!r.cacheable) w.cacheable = false;
+          if (r.truth === 'unknown') w.undecided.add(c.name);
+          return r.truth;
+        });
+        truths.set(key, t);
+      }
+      return t;
+    };
+    const w: Walk = { principal: { type: principal.type, id: principal.id }, maxDepth: this.limits.maxDepth, maxCalls: this.limits.maxCalls, read, caveat, memo: new Map(), path: new Set(), calls: 0, cacheable: true, undecided: new Set() };
     const { m } = await this.node(object, name, 0, w);
-    return { membership: m, ...(w.tooDeep ? { tooDeep: w.tooDeep } : {}) };
+    return { membership: m, ...(w.tooDeep ? { tooDeep: w.tooDeep } : {}), cacheable: w.cacheable, undecided: [...w.undecided].sort() };
   }
 
   private async node(object: ResourceRef, name: string, depth: number, w: Walk): Promise<Result> {
@@ -245,20 +283,26 @@ export class RebacModel extends AuthorizationModel {
     let unknown = false;
     let cut = false;
     for (const t of await w.read(object, name)) {
-      // Fails closed until caveats are evaluated: a conditional tuple is not held.
-      if (t.caveat) continue;
+      if (!admitsTuple(rel, t)) continue;
       const s = t.subject;
-      if (!isSubjectSet(s)) {
-        if (rel.direct.includes(s.type) && s.type === w.principal.type && s.id === w.principal.id) return { m: 'member', cut: false };
-        continue;
-      }
-      if (!rel.sets.some((x) => x.type === s.object.type && x.relation === s.relation)) continue;
-      const r = await this.hop(s.object, s.relation, depth, w);
+      let r: Result;
+      if (isSubjectSet(s)) r = await this.guarded(t, w, () => this.hop(s.object, s.relation, depth, w));
+      else if (s.type === w.principal.type && s.id === w.principal.id) r = await this.guarded(t, w, () => Promise.resolve(MEMBER));
+      else continue;
       if (r.m === 'member') return r;
       unknown ||= r.m === 'unknown';
       cut ||= r.cut;
     }
     return { m: unknown ? 'unknown' : 'not', cut };
+  }
+
+  /** Kleene AND of the tuple's caveat and `inner`, which runs only when the caveat is not false: the IR's `caveated`. */
+  private async guarded(t: Tuple, w: Walk, inner: () => Promise<Result>): Promise<Result> {
+    if (t.caveat === undefined) return inner();
+    const c = await w.caveat(t.caveat);
+    if (c === 'deny') return NOT;
+    const r = await inner();
+    return c === 'allow' || r.m === 'not' ? r : { m: 'unknown', cut: r.cut };
   }
 
   /** A node one tuple hop below `depth`, or `unknown` when that is past maxDepth. */
@@ -295,8 +339,13 @@ export class RebacModel extends AuthorizationModel {
   private async arrow(object: ResourceRef, tupleset: string, computed: string, depth: number, w: Walk): Promise<Result> {
     const rel = this.schema().relation(object.type, tupleset);
     if (!rel) return NOT;
-    const objects = (await w.read(object, tupleset)).flatMap((t) => (!t.caveat && !isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema().namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
-    return this.any(objects.map((o) => () => this.hop(o, computed, depth, w)));
+    const branches: (() => Promise<Result>)[] = [];
+    for (const t of await w.read(object, tupleset)) {
+      const s = t.subject;
+      if (isSubjectSet(s) || !admitsTuple(rel, t) || !this.schema().namespaces.has(s.type)) continue;
+      branches.push(() => this.guarded(t, w, () => this.hop({ type: s.type, id: s.id }, computed, depth, w)));
+    }
+    return this.any(branches);
   }
 
   private async any(branches: readonly (() => Promise<Result>)[]): Promise<Result> {
@@ -323,8 +372,9 @@ export class RebacModel extends AuthorizationModel {
     return { m: unknown ? 'unknown' : 'member', cut };
   }
 
-  private vote(permitWhen: ResourceFilter): Vote {
-    return { model: this.name, permitWhen, denyWhen: FALSE, ...(permitWhen === FALSE ? { reason: { code: 'no_access', model: this.name } } : {}), cacheable: true };
+  private vote(permitWhen: ResourceFilter, cacheable = true, reason?: DenyReason): Vote {
+    const why = reason ?? (permitWhen === FALSE ? { code: 'no_access', model: this.name } : undefined);
+    return { model: this.name, permitWhen, denyWhen: FALSE, ...(why ? { reason: why } : {}), cacheable };
   }
 
   private error(message: string): Vote {
@@ -343,6 +393,9 @@ function readLimits(l: RebacLimits): Required<RebacLimits> {
   }
   return { maxDepth: l.maxDepth!, maxCalls: l.maxCalls! };
 }
+
+/** The principal a check by reference stands for; its caveats read no attribute it would not have. */
+const syntheticPrincipal = (p: PrincipalRef): Principal => ({ type: p.type, id: p.id, authenticated: true, source: 'rebac', attributes: {} });
 
 /** The store `authz.<model>.store` names. */
 function storeFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): TupleStore {
@@ -363,9 +416,10 @@ class RebacCheckFilter extends NativeFilter {
   }
 
   async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
-    const { relation, principal } = args as { relation: string; principal: PrincipalRef };
+    const { relation, principal, caveatInput } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>> };
+    const request = caveatInput === undefined ? undefined : overlayContext({ principal: syntheticPrincipal(principal), env: {} }, caveatInput);
     try {
-      return (await this.model.check(ref, relation, principal, ctx)) === 'member';
+      return (await this.model.check(ref, relation, principal, ctx, request)) === 'member';
     } catch (e) {
       if (e instanceof RebacLimitExceeded) return false;
       throw e;
