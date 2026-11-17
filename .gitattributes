@@ -2,3 +2,5 @@
 **/__snapshots__/** text eol=lf
 packages/compiler/test/fixtures/**/*.json text eol=lf
 packages/codemods/test/fixtures/** text eol=lf
+packages/authz-ir/test/fixtures/** text eol=lf
+packages/authz-rbac/test/fixtures/** text eol=lf
