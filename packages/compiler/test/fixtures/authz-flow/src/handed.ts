@@ -140,3 +140,17 @@ export class CastShapes {
     return (x as Selected) ?? Invoice.query().accessible('invoice:read');
   }
 }
+
+export class LogicalAssignShapes {
+  public nullishAssigned(c: boolean) {
+    let q: Selected | undefined = c ? Invoice.query().accessible('invoice:read') : undefined;
+    q ??= Invoice.query();
+    return q;
+  }
+
+  public orAssigned(c: boolean) {
+    let q: Selected | undefined = c ? Invoice.query().accessible('invoice:read') : undefined;
+    q ||= Invoice.query();
+    return q;
+  }
+}

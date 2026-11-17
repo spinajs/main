@@ -6,6 +6,8 @@ import { QueryTracer, chainOf, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
 
 const CHOICES: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken]);
+/** `q ??= x` may keep the old value or take the new one, as `q = x` does in code the tracer reads without its control flow. */
+const ASSIGNMENTS: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken]);
 
 /** The operands one of which a conditional or a `??`, `||`, `&&` expression evaluates to. */
 export function alternatives(e: ts.Expression): readonly ts.Expression[] | undefined {
@@ -66,7 +68,7 @@ export class FlowTracer extends QueryTracer {
   observe(node: ts.Node): void {
     if (ts.isVariableDeclaration(node) && node.initializer) this.bind(node.name, this.traced(node.initializer));
     if (ts.isExpressionStatement(node)) this.extendBuilder(node.expression);
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left)) this.reassign(node.left, node.right);
+    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind) && ts.isIdentifier(node.left)) this.reassign(node.left, node.right);
   }
 
   /** Calls after a `clone()` change the copy, not the builder the statement starts from. */

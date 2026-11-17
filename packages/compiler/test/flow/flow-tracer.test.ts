@@ -161,4 +161,9 @@ describe('flow: effects and the tracer across calls', () => {
     expect(returnedScope('CastShapes.castFromUnknown')).to.deep.equal([true, UNSCOPED]);
     expect(returnedScope('CastShapes.castChoiceFromAny')).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a logical assignment to a builder variable joins the old and the new value', () => {
+    expect(returnedScope('LogicalAssignShapes.nullishAssigned')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('LogicalAssignShapes.orAssigned')).to.deep.equal([true, UNSCOPED]);
+  });
 });
