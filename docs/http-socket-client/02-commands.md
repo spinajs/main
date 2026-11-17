@@ -50,7 +50,7 @@ sequenceDiagram
 | `timeoutMs` | `number` | `defaultTimeoutMs` (`15_000`) | `1` to `2_147_483_647` | Budget for the whole call: the wait for a connection and for the reply. |
 | `signal` | `AbortSignal` | none | | Aborting cancels the command, on the server too once it was sent. |
 | `whenOffline` | `WhenOffline` | `'fail'` | `'fail'`, `'wait'` | `'fail'` rejects at once while offline; `'wait'` holds the command until online or the timeout. |
-| `traceparent` | `string` | none | W3C trace context | Carried into the server handler. |
+| `traceparent` | `string` | the active OpenTelemetry context | W3C trace context | Carried into the server handler, whose command span continues it. Without it the client sends the active span through `@opentelemetry/api`, and nothing when no SDK registered a propagator. |
 
 ```ts
 const doc = await client.command<OpenResult>('docs.open', { id }, { timeoutMs: 5_000, signal, whenOffline: 'wait' });
@@ -100,6 +100,7 @@ export const client = new TracedSocketClient({ url: 'https://app.example.com', c
 - A plain command is never sent twice. After a drop it rejects with a retryable `unavailable`; whether it ran on the server is unknown. Retry only commands that are safe to repeat, or use `durable()`.
 - `deadline` is relative (the remaining milliseconds), so clock skew between client and server cannot expire it.
 - Held commands (`whenOffline: 'wait'`) go out in the order they were called.
+- Trace context: an explicit `traceparent` wins. Without one, a command sends the OpenTelemetry context active when it was called, and a stream the context of the call that started it (its first `next()`), also when it was held offline and goes out later from a connection event. With no SDK that registered a propagator (a browser without OpenTelemetry), nothing is sent and the server starts a new trace. A `durable()` command carries no `traceparent`: it is replayed from the outbox, possibly after a restart, when the span that queued it is gone.
 - The `R` type parameter is not checked at runtime. Use [typed contracts](07-typed-contracts.md) to tie it to the server.
 - `command()` on a server command that answers with a stream rejects with `failed_precondition`.
 - Every rejection is a `SocketException` from `@spinajs/http-socket-common`, except an invalid `timeoutMs` (`RangeError`). See [Errors and retries](08-errors-and-retries.md).

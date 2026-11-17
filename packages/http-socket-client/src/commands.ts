@@ -1,6 +1,7 @@
 import { SocketException, WIRE_EVENTS, isSocketError, type CancelFrame, type CommandReply, type CommandRequest, type SocketError } from '@spinajs/http-socket-common';
 import type { Connection, ConnectionState } from './connection.js';
 import { assertTimeoutMs } from './timeout.js';
+import { activeTraceparent } from './trace-context.js';
 
 export type WhenOffline = 'fail' | 'wait';
 
@@ -9,7 +10,7 @@ export interface CommandOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   whenOffline?: WhenOffline;
-  /** W3C trace context, carried into the server handler. */
+  /** W3C trace context, carried into the server handler; defaults to the active OpenTelemetry span. */
   traceparent?: string;
 }
 
@@ -65,7 +66,8 @@ export class CommandDispatcher {
     if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
 
     const request: CommandRequest = { id: this.nextId(), name, payload };
-    if (options.traceparent !== undefined) request.traceparent = options.traceparent;
+    const traceparent = options.traceparent ?? activeTraceparent();
+    if (traceparent !== undefined) request.traceparent = traceparent;
     const signal = options.signal;
 
     return new Promise<unknown>((resolve, reject) => {
