@@ -103,15 +103,21 @@ export function uiSegments(raw: string): string[] | undefined {
 /**
  * Links followed, and on Windows 8.3 short names expanded, letter case corrected and an `::$DATA` stream suffix
  * dropped: the JS `realpathSync` does none of the last three, so `SECRET~1.JS` would pass as a name without a dot.
+ * `expanded` is false when Node's documented failure of the native call on some virtual and RAM drives left the JS one.
  */
-function realPath(path: string): string {
+function resolveReal(path: string): { real: string; expanded: boolean } {
   try {
-    return realpathSync.native(path);
+    return { real: realpathSync.native(path), expanded: true };
   } catch {
-    // Node documents that the native call fails on some virtual and RAM drives; short names stay unexpanded there.
-    return realpathSync(path);
+    return { real: realpathSync(path), expanded: false };
   }
 }
+
+const realPath = (path: string): string => resolveReal(path).real;
+
+// The 8.3 short-name shape (`SECRET~1.JS`). Hashed asset names must not contain `~<digit>`: without the native call
+// such a name is answered like a missing file.
+const SHORT_NAME = /~\d/;
 
 /**
  * The file of dist/ that `path` (decoded, `/`-separated) names, as {@link realPath} gives it.
@@ -119,14 +125,15 @@ function realPath(path: string): string {
  * Null when the path itself must not be served (a segment `uiSegments` refuses, an absolute path): decided before
  * the disk is read. Undefined when no file may be served, so the caller falls back to `index.html`: no such file, or
  * one whose real path is outside `root` (a link), names a hidden file or directory, or has a type outside
- * {@link UI_CONTENT_TYPES}. Those are answered like a missing file, so the answer never tells that a file exists.
+ * {@link UI_CONTENT_TYPES}, or a name of 8.3 short-name shape that the native real path could not expand. Those are answered like a missing file, so the answer never tells that a file exists.
  */
 export function assetFile(root: string, path: string): string | null | undefined {
   if (isAbsolute(path) || path.split('/').some(unsafeSegment)) return null;
   const file = join(root, path);
   if (!inside(root, file)) return null;
   if (!statSync(file, { throwIfNoEntry: false })?.isFile()) return undefined;
-  const real = realPath(file);
+  const { real, expanded } = resolveReal(file);
+  if (!expanded && path.split('/').some((segment) => SHORT_NAME.test(segment))) return undefined;
   const servable = inside(root, real) && !relative(root, real).split(sep).some((segment) => segment.startsWith('.')) && UI_CONTENT_TYPES.has(extname(real).toLowerCase());
   return servable ? real : undefined;
 }

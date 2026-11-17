@@ -120,9 +120,11 @@ describe('uiSegments and assetFile', () => {
 
 describe('locateUi and assetFile where the native real path fails', () => {
   let fixture: Fixture;
+  let short: string[] | undefined;
   const native = realpathSync.native;
   before(() => {
     fixture = fixtureDist();
+    short = shortNames(fixture.dist);
     // Node documents that the native call fails on some virtual and RAM drives where the JS one works.
     realpathSync.native = () => {
       throw Object.assign(new Error('EISDIR: native realpath unsupported'), { code: 'EISDIR' });
@@ -138,6 +140,13 @@ describe('locateUi and assetFile where the native real path fails', () => {
     expect(root).to.eq(realpathSync(fixture.dist));
     expect(assetFile(root ?? '', 'assets/app-3f9a1c.js')).to.eq(realpathSync(join(fixture.dist, 'assets', 'app-3f9a1c.js')));
     expect(assetFile(root ?? '', 'linked/secret.txt')).to.eq(undefined);
+  });
+
+  it('answers a name of 8.3 short-name shape like a missing file, since nothing expands it', () => {
+    const root = locateUi(fixture.dist) ?? '';
+    // Where the volume makes short names these are dist's dot files; elsewhere they do not exist, with the same answer.
+    for (const name of short ?? ['SECRET~1.JS', 'GIT~1/config.json']) expect(assetFile(root, name), name).to.eq(undefined);
+    expect(assetFile(root, 'assets/app-3f9a1c.js')).to.be.a('string');
   });
 });
 
