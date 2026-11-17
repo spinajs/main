@@ -1,32 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
-import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { OtelTracing } from '../src/tracing.js';
+import { DEFAULT_TRACING_OPTIONS, ensureTracing } from '@spinajs/tracing';
+import { resetTracing } from '@spinajs/tracing/testing';
 
-/**
- * Shadow a @Config/@Logger prototype getter with an own value property — the
- * decorators define getter-only accessors, so a plain assignment throws.
- */
-export function setField(obj: object, key: string, value: unknown): void {
-  Object.defineProperty(obj, key, { value, writable: true, configurable: true });
-}
-
-/** Build an OtelTracing with DI-injected fields set manually (no container). */
-function makeTracing(enabled: boolean): { tracing: OtelTracing; exporter: InMemorySpanExporter } {
-  const tracing = new OtelTracing();
-  setField(tracing, 'enabled', enabled);
-  setField(tracing, 'endpoint', 'http://localhost:4318/v1/traces');
-  setField(tracing, 'serviceName', 'test-service');
-  setField(tracing, 'resourceAttributes', { 'highlight.project_id': 'test-project' });
-  setField(tracing, 'log', { info: () => undefined, warn: () => undefined, error: () => undefined });
-  const exporter = new InMemorySpanExporter();
-  tracing.start(new SimpleSpanProcessor(exporter));
-  return { tracing, exporter };
-}
+import { makeTracing } from './support.js';
 
 describe('OtelTracing', () => {
+  beforeEach(() => {
+    ensureTracing({ ...DEFAULT_TRACING_OPTIONS, serviceName: 'test-service', resourceAttributes: { 'highlight.project_id': 'test-project' } });
+  });
+
+  afterEach(() => resetTracing());
+
   it('records spans through withSpan when enabled', async () => {
     const { tracing, exporter } = makeTracing(true);
     const result = await tracing.withSpan('unit.op', { foo: 'bar' }, async () => 42);
@@ -66,8 +53,9 @@ describe('OtelTracing', () => {
   });
 
   it('stays a no-op when disabled even if another library registered a global provider', async () => {
+    await resetTracing();
     const globalExporter = new InMemorySpanExporter();
-    const globalProvider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(globalExporter)] });
+    const globalProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(globalExporter)] });
     trace.setGlobalTracerProvider(globalProvider);
     try {
       const { tracing } = makeTracing(false);
