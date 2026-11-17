@@ -5,10 +5,11 @@ import sinon from 'sinon';
 import { AuthzConfigError } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
-import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
+import { MIGRATION_DESCRIPTION_SYMBOL, ModelBase } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../../src/contributor.js';
+import { unregisterResource } from '../../src/registry.js';
 import { DateTime } from 'luxon';
 
 import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, LOST_TABLE, LostRecord, Owner, Parent, pruneChangeLog, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
@@ -60,6 +61,7 @@ describe('changelog horizon', function () {
     expect(relationFingerprint([{ ...doc, columns: doc.columns.slice(1) }, note])).to.not.equal(base);
     expect(relationFingerprint([doc])).to.not.equal(base);
     expect(relationFingerprint([{ ...doc, columns: [{ ...doc.columns[0], type: 'org' }, doc.columns[1]] }, note])).to.not.equal(base);
+    expect(relationFingerprint([{ ...doc, idColumn: 'uuid' }, note])).to.not.equal(base);
   });
 
   for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {
@@ -265,6 +267,25 @@ describe('changelog horizon', function () {
         await recordCoverage([], [{ type: 'doc', fingerprint: 'c' }], [], T1);
         expect(await log.coveredSince('column', 'doc')).to.deep.equal(T2);
         expect((await HorizonRecord.where('resource_type', 'doc')).map((r) => r.fingerprint)).to.deep.equal(['c']);
+      });
+
+      it('two boots with different fingerprints only move coverage forward', async () => {
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'x' }], [], T1);
+        await Promise.all([recordCoverage([], [{ type: 'doc', fingerprint: 'a' }], [], T2), recordCoverage([], [{ type: 'doc', fingerprint: 'b' }], [], T3)]);
+        expect(await log.coveredSince('column', 'doc')).to.deep.equal(T3);
+        expect(['a', 'b']).to.include((await HorizonRecord.where('resource_type', 'doc'))[0].fingerprint);
+      });
+
+      it('a registered model without a table does not fail the domain boot', async () => {
+        class Orphan extends ModelBase<Orphan> {}
+        AccessResource('orphan')(Orphan);
+        Parent('folder')(Orphan.prototype, 'folder_id');
+        sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
+        try {
+          await new AuthzOrmContributor().contribute('root');
+        } finally {
+          unregisterResource(Orphan);
+        }
       });
 
       it('the domain boot restarts the coverage of a type that gains a relation column', async () => {

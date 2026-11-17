@@ -49,12 +49,12 @@ interface Mark {
 
 /**
  * How far apart two instants of `authz_change_log.at` (and of `authz_decision_log.at` and `logged_at`) may be and
- * still read back alike on the driver's dialect. MySQL's DATETIME keeps whole seconds; an unknown driver gets the
- * conservative second.
+ * still read back alike on the driver's dialect. The ORM creates MySQL datetimes as DATETIME(3); an unknown driver
+ * gets a conservative second.
  */
 export function changeLogPrecisionMs(driver: OrmDriver): number {
   const name = driver.Options.Driver;
-  return name === 'orm-driver-sqlite' || name === 'orm-driver-postgres' ? 1 : 1000;
+  return name === 'orm-driver-sqlite' || name === 'orm-driver-postgres' || name === 'orm-driver-mysql' ? 1 : 1000;
 }
 
 function checkEntry(e: ChangeEntry, i: number): void {
@@ -215,10 +215,10 @@ export class DbChangeLog extends ChangeLog {
    * boot that finds the table.
    */
   async recordBootCoverage(now: Date = new Date()): Promise<void> {
-    const types = registeredTypes();
-    const columns = columnHook ? types.filter(columnsCovered).map((type) => ({ type, fingerprint: columnFingerprint(type) })) : [];
-    const optedOut = types.filter((t) => classesOf(t).some((m) => entryOf(m)?.changelog === false));
     try {
+      const types = registeredTypes();
+      const columns = columnHook ? types.filter(columnsCovered).map((type) => ({ type, fingerprint: columnFingerprint(type) })) : [];
+      const optedOut = types.filter((t) => classesOf(t).some((m) => entryOf(m)?.changelog === false));
       await recordCoverage([...this.tracked], columns, optedOut, now);
     } catch (e) {
       if (this.coverageWarned) return;

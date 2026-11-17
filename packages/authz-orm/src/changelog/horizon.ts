@@ -52,11 +52,12 @@ export interface ColumnCoverage {
 }
 
 /**
- * sha256 (hex) over the sorted (table, relation, column, type, type column) of every relation column of a type's
- * models: a column declared later was not logged before, so a changed fingerprint restarts the type's coverage.
+ * sha256 (hex) over the sorted (table, id column, relation, column, type, type column) of every relation column of a
+ * type's models: a column declared later was not logged before, and the id column shapes every change key, so a
+ * changed fingerprint restarts the type's coverage.
  */
-export function relationFingerprint(models: ReadonlyArray<{ readonly table: string; readonly columns: readonly RelationColumn[] }>): string {
-  const lines = models.flatMap((m) => m.columns.map((c) => JSON.stringify([m.table, c.relation, c.column, c.type ?? null, c.typeColumn ?? null]))).sort();
+export function relationFingerprint(models: ReadonlyArray<{ readonly table: string; readonly idColumn?: string; readonly columns: readonly RelationColumn[] }>): string {
+  const lines = models.flatMap((m) => m.columns.map((c) => JSON.stringify([m.table, m.idColumn ?? null, c.relation, c.column, c.type ?? null, c.typeColumn ?? null]))).sort();
   return createHash('sha256').update(lines.join('\n')).digest('hex');
 }
 
@@ -65,7 +66,7 @@ export function columnFingerprint(type: ResourceType): string {
   return relationFingerprint(
     classesOf(type).flatMap((m) => {
       const entry = entryOf(m);
-      return entry ? [{ table: tableOf(m), columns: changelogColumns(entry) }] : [];
+      return entry ? [{ table: tableOf(m), idColumn: entry.idColumn, columns: changelogColumns(entry) }] : [];
     }),
   );
 }
@@ -112,8 +113,10 @@ export async function recordCoverage(kinds: readonly ChangeKind[], columnTypes: 
 
 /**
  * Restarts a type's column coverage under its new fingerprint; `since` only moves forward. Conditional on the stored
- * fingerprint, so nodes booting with the same one restart it once. Nodes of a rolling deploy with different ones each
- * restart it, which only under-claims.
+ * fingerprint, so nodes booting with the same one restart it once. This over-claims during a rolling deploy: nodes of
+ * the old version keep writing a newly declared relation column unlogged after the first new node restarted `since`
+ * (likewise when a type opts into the changelog, and on the first deploy of the column hook), so decisions made before
+ * the last old node stopped are not provably replayable for that type.
  */
 async function refingerprint(type: ResourceType, fingerprint: string, now: DateTime): Promise<void> {
   const differs = function (this: IWhereBuilder<unknown>) {
