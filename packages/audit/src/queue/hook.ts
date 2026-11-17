@@ -1,16 +1,25 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
 import { QueueMessageHook, isPermanentJobFailure } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 
-import { AuditWriteFailed, audit, trailConfig } from '../index.js';
+import { AUDIT_WIDTHS, audit, auditStore, trailConfig } from '../index.js';
 import type { AuditInput, AuditOutcome, AuditWriteOptions } from '../index.js';
 import { messageRuleOf } from './rules.js';
 import type { MessageRule } from './rules.js';
 
-// A failed job goes through aroundHandle again for onFailed; that pass is not another execution.
-const failed = new WeakSet<IQueueMessage>();
+// One execution per delivery: the onFailed pass of a failed job and the consume callback of a job reach aroundHandle again
+// with the same message, which is a new object on every delivery (@Job and @Event are NewInstance).
+const entered = new WeakSet<IQueueMessage>();
+
+type Settled<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
+
+interface Writes {
+  readonly options: AuditWriteOptions;
+  readonly rejecting: boolean;
+}
 
 const optionsOf = (rule: MessageRule): AuditWriteOptions => ({
   trail: rule.trail,
@@ -25,16 +34,33 @@ const errorName = (error: unknown): string => {
   return error.name !== 'Error' ? error.name : error.constructor.name;
 };
 
+const outcomeOf = <T>(settled: Settled<T>): AuditOutcome => {
+  if (settled.ok) return 'ok';
+  return isPermanentJobFailure(settled.error) && settled.error.reason === 'access_denied' ? 'denied' : 'failed';
+};
+
+// The core refuses a subject id wider than its column, and the sender picks the MessageId: a long one is recorded by its digest.
+const isLongId = (id: string | undefined): id is string => id !== undefined && id.length > AUDIT_WIDTHS.subject_id;
+
 function details(message: IQueueMessage, rule: MessageRule): Record<string, unknown> {
   const fields = Object.fromEntries((rule.fields ?? []).map((field): [string, unknown] => [field, Reflect.get(message, field)]));
   const initiator = message.Initiator ? `${message.Initiator.type}:${message.Initiator.id}` : undefined;
+  const jobId = 'JobId' in message && typeof message.JobId === 'string' ? message.JobId : undefined;
 
-  return { message: message.Name, type: message.Type, ...(initiator ? { initiator } : {}), ...(rule.fields?.length ? { fields } : {}) };
+  return {
+    message: message.Name,
+    type: message.Type,
+    ...(isLongId(message.MessageId) ? { messageId: message.MessageId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(initiator ? { initiator } : {}),
+    ...(rule.fields?.length ? { fields } : {}),
+  };
 }
 
 function eventOf(message: IQueueMessage, action: string, outcome: AuditOutcome, data: Record<string, unknown>): AuditInput {
-  const id = message.MessageId;
-  return { kind: 'action', action, outcome, ...(id ? { subject: { type: message.Name, id } } : {}), data };
+  const id = isLongId(message.MessageId) ? createHash('sha256').update(message.MessageId).digest('hex') : message.MessageId;
+  const type = (message.Name || message.constructor.name).slice(0, AUDIT_WIDTHS.subject_type);
+  return { kind: 'action', action, outcome, ...(id ? { subject: { type, id } } : {}), data };
 }
 
 /**
@@ -43,43 +69,64 @@ function eventOf(message: IQueueMessage, action: string, outcome: AuditOutcome, 
  */
 @Injectable(QueueMessageHook)
 export class QueueAuditHook extends QueueMessageHook {
+  private logger: Log | undefined;
+
   public async beforeEmit(message: IQueueMessage): Promise<void> {
     const rule = messageRuleOf(message);
     if (!rule) return;
 
+    const { options, rejecting } = await this.writes(rule);
     // emit() keeps an id that is already set, so the recorded id is the one the message is sent with.
     message.MessageId ??= randomUUID();
     // 'attempt': the transport is called after this hook, the send itself is not seen.
-    await audit().record(eventOf(message, 'queue.publish', 'attempt', details(message, rule)), optionsOf(rule));
+    await audit().record(eventOf(message, 'queue.publish', 'attempt', details(message, rule)), rejecting ? { ...options, mode: 'confirmed', onFailure: 'reject' } : options);
   }
 
   public async aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T> {
     const rule = messageRuleOf(message);
-    if (!rule || failed.has(message)) return next();
+    if (!rule || entered.has(message)) return next();
+    entered.add(message);
 
-    const options = optionsOf(rule);
-    const rejecting = (rule.onFailure ?? trailConfig(rule.trail).onFailure) === 'reject';
+    // Everything that can refuse an event is known before the handler runs, so it fails the delivery here, not after the job ran.
+    const { options, rejecting } = await this.writes(rule);
     const base = details(message, rule);
-    // The outcome of a handler that already ran cannot be refused any more, so it is never written with 'reject'.
-    const afterwards: AuditWriteOptions = rejecting ? { ...options, mode: 'confirmed', onFailure: 'continue' } : options;
-    const started = performance.now();
-    const elapsed = (): number => Math.round((performance.now() - started) * 100) / 100;
+    if (rejecting) {
+      await audit().record(eventOf(message, rule.action, 'attempt', base), { ...options, mode: 'confirmed', onFailure: 'reject' });
+    }
 
+    const started = performance.now();
+    let settled: Settled<T>;
     try {
-      if (rejecting) {
-        await audit().record(eventOf(message, rule.action, 'attempt', base), { ...options, mode: 'confirmed', onFailure: 'reject' });
-      }
-      const result = await next();
-      await audit().record(eventOf(message, rule.action, 'ok', { ...base, ms: elapsed() }), afterwards);
-      return result;
+      settled = { ok: true, value: await next() };
     } catch (error) {
-      failed.add(message);
-      // a failed attempt write is not a failure of the handler, which never ran
-      if (!(error instanceof AuditWriteFailed)) {
-        const outcome: AuditOutcome = isPermanentJobFailure(error) && error.reason === 'access_denied' ? 'denied' : 'failed';
-        await audit().record(eventOf(message, rule.action, outcome, { ...base, ms: elapsed(), error: errorName(error) }), afterwards);
-      }
-      throw error;
+      settled = { ok: false, error };
+    }
+
+    const ms = Math.round((performance.now() - started) * 100) / 100;
+    const outcome = outcomeOf(settled);
+    const data = { ...base, ms, ...(settled.ok ? {} : { error: errorName(settled.error) }) };
+    // The handler already ran: a refused outcome cannot undo it, and throwing would make the queue run it again.
+    await this.outcome(message, eventOf(message, rule.action, outcome, data), rejecting ? { ...options, mode: 'confirmed', onFailure: 'continue' } : options);
+
+    if (!settled.ok) throw settled.error;
+    return settled.value;
+  }
+
+  protected log(): Pick<Log, 'error'> {
+    return (this.logger ??= DI.resolve(Log, ['audit-queue']));
+  }
+
+  private async writes(rule: MessageRule): Promise<Writes> {
+    const trail = trailConfig(rule.trail);
+    await auditStore(trail);
+    return { options: optionsOf(rule), rejecting: (rule.onFailure ?? trail.onFailure) === 'reject' };
+  }
+
+  private async outcome(message: IQueueMessage, event: AuditInput, options: AuditWriteOptions): Promise<void> {
+    try {
+      await audit().record(event, options);
+    } catch (error) {
+      this.log().error({ error, messageName: message.Name, messageId: message.MessageId, outcome: event.outcome }, 'audit: the ${outcome} event of message ${messageName} ${messageId} was not recorded');
     }
   }
 }
