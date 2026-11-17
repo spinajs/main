@@ -65,16 +65,6 @@ function readParam(req: Pick<CaveatRequest, 'principal' | 'env'>, path: string):
   return at;
 }
 
-/** The request values of `paths` (`env.*` but `env.now`, `principal.*`), for a residual that is evaluated later. */
-export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): Record<string, unknown> {
-  const out = new Map<string, unknown>();
-  for (const path of paths) {
-    const v = path === 'env.now' ? ABSENT : readParam(req, path);
-    if (v !== ABSENT && v !== THREW && v !== undefined) out.set(path, v);
-  }
-  return Object.fromEntries(out);
-}
-
 // What a residual's caveatInput may hold, so the vote stays under the engine's 10 000 values (`MAX_DATA_VALUES`).
 const RESIDUAL_VALUES = 8_000;
 
@@ -83,26 +73,38 @@ const isPlain = (v: object): boolean => {
   return proto === Object.prototype || proto === null;
 };
 
+// The engine refuses vote data nested deeper than 32 (`MAX_DATA_DEPTH`, counted from the args); a parameter value
+// sits two levels down (args, caveatInput).
+const MAX_VALUE_DEPTH = 30;
+
 /**
- * How many values the engine's strict vote copy counts for `v`, or undefined when it would not keep `v` as it is (a
- * class instance, function, bigint, invalid Date, cycle or undefined) or `v` holds more than `limit`.
+ * How many values the engine's strict vote copy (`copyValue`) counts for `v`, visiting every array index as it does,
+ * or undefined when it would not keep `v` as it is (a class instance, function, bigint, invalid Date, cycle, undefined,
+ * data nested too deep) or `v` holds more than `limit`.
  */
 function plainSize(v: unknown, limit: number): number | undefined {
   let n = 0;
-  const walk = (x: unknown, seen: Set<object>): boolean => {
+  const walk = (x: unknown, depth: number, seen: Set<object>): boolean => {
     if (++n > limit) return false;
     if (x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') return true;
-    if (typeof x !== 'object' || seen.has(x)) return false;
+    if (typeof x !== 'object' || depth > MAX_VALUE_DEPTH || seen.has(x)) return false;
     if (x instanceof Date) return !Number.isNaN(x.getTime());
     if (!Array.isArray(x) && !isPlain(x)) return false;
     seen.add(x);
     try {
-      return (Array.isArray(x) ? (x as unknown[]) : Object.values(x)).every((i) => walk(i, seen));
+      return childrenOf(x).every((item) => walk(item, depth + 1, seen));
     } finally {
       seen.delete(x);
     }
   };
-  return walk(v, new Set()) ? n : undefined;
+  return walk(v, 0, new Set()) ? n : undefined;
+}
+
+/** What the copy visits below an array or object: every index of an array, holes included. */
+function childrenOf(x: object): unknown[] {
+  if (!Array.isArray(x)) return Object.values(x);
+  const items: unknown[] = x;
+  return Array.from({ length: items.length }, (_, i) => (i in items ? items.at(i) : undefined));
 }
 
 function callsFunction(c: unknown): boolean {
@@ -140,13 +142,15 @@ export class RebacCaveats {
     const input = new Map<string, unknown>();
     const decided: string[] = [];
     let left = RESIDUAL_VALUES;
+    // What the check's compiler reads: the overlay's copies, which keep only enumerable own properties.
+    const seen = overlayContext(req, {});
     for (const name of names) {
       const def = this.defs.get(name);
       if (def === undefined || callsFunction(def.expr)) continue;
       const picked = new Map<string, unknown>();
       let cost = 0;
       const fits = Object.keys(def.params).every((path) => {
-        const v = path === 'env.now' || input.has(path) ? ABSENT : readParam(req, path);
+        const v = path === 'env.now' || input.has(path) ? ABSENT : readParam(seen, path);
         if (v === ABSENT) return true;
         const size = v === THREW || v === undefined ? undefined : plainSize(v, left - cost);
         if (size === undefined) return false;

@@ -107,6 +107,9 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
     unbanned: { params: { 'principal.attributes.bannedAt': 'timestamp' }, expr: { attr: 'principal.attributes.bannedAt', null: true } },
     unflagged: { params: { 'principal.attributes.flag': 'string' }, expr: { attr: 'principal.attributes.flag', null: true } },
     first_empty: { params: { 'principal.attributes.list.0': 'string' }, expr: { attr: 'principal.attributes.list.0', null: true } },
+    acme: { params: { 'principal.tenant': 'string' }, expr: { attr: 'principal.tenant', eq: 'acme' } },
+    in_sparse: { params: { 'env.tag': 'string', 'principal.attributes.sparse': 'list<string>' }, expr: { attr: 'env.tag', in: { ref: 'principal.attributes.sparse' } } },
+    shallow: { params: { 'principal.attributes.deep': 'string' }, expr: { attr: 'principal.attributes.deep', null: true } },
   };
   let model: RebacModel;
   let authz: Authorizer;
@@ -116,13 +119,16 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
       { ...tuple(doc('d1'), 'viewer', user('bob')), caveat: { name: 'unbanned' } },
       { ...tuple(doc('d2'), 'viewer', user('bob')), caveat: { name: 'unflagged' } },
       { ...tuple(doc('d3'), 'viewer', user('bob')), caveat: { name: 'first_empty' } },
+      { ...tuple(doc('d4'), 'viewer', user('bob')), caveat: { name: 'acme' } },
+      { ...tuple(doc('d5'), 'viewer', user('bob')), caveat: { name: 'in_sparse' } },
+      { ...tuple(doc('d6'), 'viewer', user('bob')), caveat: { name: 'shallow' } },
     ]);
     authz = new Authorizer({ domain: 'root', registry: new FakePermissionRegistry(INPUTS), models: [model], nativeFilters: [model.nativeFilter], conditions, clock: () => NOW });
   });
 
-  async function paths(who: Principal, row: ResourceRef): Promise<{ check: boolean; residual: boolean }> {
-    const check = (await authz.check({ principal: who, permission: 'doc:read', resource: row, env: {} }, { cache: new Map() })).allowed;
-    const typeLevel = await authz.check({ principal: who, permission: 'doc:read', resource: { type: 'doc' }, env: {} }, { cache: new Map() });
+  async function paths(who: Principal, row: ResourceRef, env: Record<string, unknown> = {}): Promise<{ check: boolean; residual: boolean }> {
+    const check = (await authz.check({ principal: who, permission: 'doc:read', resource: row, env }, { cache: new Map() })).allowed;
+    const typeLevel = await authz.check({ principal: who, permission: 'doc:read', resource: { type: 'doc' }, env }, { cache: new Map() });
     expect(typeLevel.reason?.code).to.not.equal('model_error');
     return { check, residual: (await listed(model, typeLevel.residual, who, row)) === true };
   }
@@ -151,6 +157,21 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
       },
     });
     expect(await paths({ ...userPrincipal('bob'), attributes }, doc('d1'))).to.deep.include({ residual: false });
+  });
+
+  it('reads the principal the check reads: a non-enumerable field is not there', async () => {
+    const tenant: Principal = Object.defineProperty({ ...userPrincipal('bob') }, 'tenant', { value: 'acme', enumerable: false });
+    expect(await paths(tenant, doc('d4'))).to.deep.equal({ check: false, residual: false });
+    const visible: Principal = Object.defineProperty({ ...userPrincipal('bob') }, 'tenant', { value: 'acme', enumerable: true });
+    expect(await paths(visible, doc('d4'))).to.deep.equal({ check: true, residual: true });
+  });
+
+  it('counts a value as the engine copies it: a sparse list and a deep value leave the caveat undecided', async () => {
+    const sparse: string[] = [];
+    sparse[20_000] = 'x';
+    expect(await paths({ ...userPrincipal('bob'), attributes: { sparse } }, doc('d5'), { tag: 'x' })).to.deep.include({ residual: false });
+    const deep = Array.from({ length: 40 }).reduce<Record<string, unknown>>((inner) => ({ inner }), {});
+    expect(await paths({ ...userPrincipal('bob'), attributes: { deep } }, doc('d6'))).to.deep.include({ residual: false });
   });
 });
 
