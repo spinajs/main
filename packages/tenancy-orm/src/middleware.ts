@@ -8,9 +8,16 @@ import type { TenantScope } from '@spinajs/tenancy';
 import { confine } from './confine.js';
 import { stamp } from './insert.js';
 import { hasTenantModels, nameOf } from './registry.js';
+import { acrossTenantsReason } from './marker.js';
 import { refusePartlyFiltered } from './shapes.js';
 import { isStatement, requireColumn, statementName, targetOf } from './target.js';
 import type { TenantTarget } from './target.js';
+
+/** `.acrossTenants(reason)` is the all-tenants scope of one statement. */
+function statementScope(query: QueryBuilder): TenantScope | undefined {
+  const reason = acrossTenantsReason(query);
+  return reason === undefined ? tenantScope() : { kind: 'all', reason };
+}
 
 /** Row mode (T9): confines every statement built from a tenant model to the tenant scope it runs in. */
 @Injectable(QueryMiddleware)
@@ -24,7 +31,7 @@ export class TenantScopeMiddleware extends QueryMiddleware {
     if (!hasTenantModels() || !isStatement(query)) return;
     const target = targetOf(query);
     if (target === undefined) return;
-    const scope = tenantScope();
+    const scope = statementScope(query);
     const name = statementName(query, target.entry);
     if (scope === undefined) throw new TenantRequired(`tenancy-orm: ${name} needs a tenant scope: run it inside runInTenant(), or leave the scope with a declared reason`);
     if (!target.owned) {
