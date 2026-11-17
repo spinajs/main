@@ -67,6 +67,14 @@ export function describeRowLease(boot: () => Promise<OrmDriver>): void {
     expect(await lease.claim(target('nope'), 'a', TTL, T0)).to.eq(null);
   });
 
+  it('claimObserved compares against the epoch the caller read and skips the read', async () => {
+    expect(await lease.claimObserved(target(), 'a', TTL, T0, 0)).to.deep.eq({ epoch: 1 });
+    // the lease has ended, so only the stale epoch refuses this caller
+    expect(await lease.claimObserved(target(), 'b', TTL, T0 + TTL + 1, 0)).to.eq(null);
+    expect(await lease.claimObserved(target(), 'b', TTL, T0 + TTL + 1, 1, { Status: 'due' })).to.deep.eq({ epoch: 2 });
+    expect(await row()).to.include({ ClaimedBy: 'b', ClaimEpoch: 2 });
+  });
+
   it('renews only with the current owner and epoch', async () => {
     await lease.claim(target(), 'a', TTL, T0);
     await lease.claim(target(), 'b', TTL, T0 + TTL + 1);
