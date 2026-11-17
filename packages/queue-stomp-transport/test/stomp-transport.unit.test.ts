@@ -1219,7 +1219,7 @@ describe('stomp queue transport - unit', function () {
     it('removes only the durable subscription of the channel it is asked for', async () => {
       const c = await connected();
       await c.subscribe('/topic/durable', sinon.stub().resolves(), 'sub-1', true);
-      await c.subscribe('/topic/other', sinon.stub().resolves(), 'sub-1', true);
+      await c.subscribe('/topic/other', sinon.stub().resolves(), 'sub-2', true);
 
       c.unsubscribe('/topic/durable', true);
 
