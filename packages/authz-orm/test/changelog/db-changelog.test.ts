@@ -209,6 +209,14 @@ describe('DbChangeLog', function () {
         expect((await log.since(0))[0].before).to.deep.equal({ v: 1 });
       });
 
+      it('writes the before-image an entry carries', async () => {
+        await append([
+          { kind: 'rule', op: 'put', key: 'r1', payload: { v: 2 }, before: { v: 1 } },
+          { kind: 'rule', op: 'remove', key: 'r1', payload: { v: 2 }, before: undefined },
+        ]);
+        expect((await log.since(0)).map((c) => c.before)).to.deep.equal([{ v: 1 }, null]);
+      });
+
       it('keeps instants to the precision changeLogPrecisionMs gives, on the changelog and the decision log', async () => {
         const precision = changeLogPrecisionMs(driver);
         expect(precision).to.equal(1);

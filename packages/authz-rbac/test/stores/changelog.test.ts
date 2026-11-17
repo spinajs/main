@@ -71,6 +71,35 @@ for (const kind of DB_KINDS) {
       expect(tagged.payload).to.deep.include({ tags: ['y'] });
     });
 
+    it('a re-grant logs the assignment as it was before', async () => {
+      const d1 = new Date('2030-01-01T00:00:00.000Z');
+      const d2 = new Date('2031-01-01T00:00:00.000Z');
+      const a = await inTx((tx) => assignments.assign({ subject: alice, role: 'editor', scope: P1, tags: [], expiresAt: d1 }, root, tx));
+      await inTx((tx) => assignments.setExpiry(a.id, d2, tx));
+      const [, put] = await changeLog().since(0, { kinds: ['assignment'] });
+      expect(put.op).to.equal('put');
+      expect((put.before as { expiresAt: string }).expiresAt).to.equal(d1.toISOString());
+      expect((put.payload as { expiresAt: string }).expiresAt).to.equal(d2.toISOString());
+    });
+
+    it('every put of an assignment carries what the previous change of its id logged', async () => {
+      const a = await inTx((tx) => assignments.assign({ subject: alice, role: 'editor', scope: P1, tags: [] }, root, tx));
+      await inTx((tx) => assignments.assign({ subject: alice, role: 'editor', scope: P1, tags: ['x'] }, root, tx));
+      await inTx((tx) => assignments.setTags(a.id, ['y'], tx));
+      await inTx((tx) => assignments.addTags(a.id, ['z'], tx));
+      await inTx((tx) => assignments.removeTags(a.id, ['y'], tx));
+      await inTx((tx) => assignments.update(a.id, { expiresAt: new Date('2030-01-01T00:00:00.000Z') }, alice, tx));
+      await inTx((tx) => assignments.setExpiry(a.id, null, tx));
+      await inTx((tx) => assignments.revoke(a.id, root, tx));
+
+      const logged = await changeLog().since(0);
+      expect(logged.map((c) => c.op)).to.deep.eq(['add', 'put', 'put', 'put', 'put', 'put', 'put', 'remove']);
+      expect(logged[0].before).to.eq(null);
+      expect(logged.at(-1)!.before).to.eq(null);
+      for (let i = 1; i < logged.length - 1; i++) expect(logged[i].before, `change ${i}`).to.deep.eq(logged[i - 1].payload);
+      expect(logged.at(-1)!.payload).to.deep.eq(logged.at(-2)!.payload);
+    });
+
     it('logs one removal per row a bulk revocation deleted', async () => {
       const a = await inTx((tx) => assignments.assign({ subject: alice, role: 'editor', scope: P1, tags: [] }, root, tx));
       const b = await inTx((tx) => assignments.assign({ subject: alice, role: 'viewer', scope: P2, tags: [] }, root, tx));
@@ -106,6 +135,21 @@ for (const kind of DB_KINDS) {
       expect((await changeLog().since(0))[1].payload).to.deep.include({ id: 'r1', kind: 'restrict', allow: [alice, g1Members] });
     });
 
+    it('a rewritten rule logs the rule as it read before, and its logged state is what the store reads', async () => {
+      await inTx((tx) => rules.put({ id: 'r1', kind: 'restrict', scope: P1, allow: [alice] }, root, tx));
+      await inTx((tx) => rules.put({ id: 'r1', kind: 'restrict', scope: P1, allow: [alice, g1Members], expiresAt: new Date('2030-01-01T00:00:00.000Z') }, root, tx));
+      await inTx((tx) => rules.put({ id: 'r1', kind: 'restrict', scope: P1, allow: [g1Members] }, root, tx));
+      await inTx((tx) => rules.remove('r1', tx));
+
+      const [added, first, second, removed] = await changeLog().since(0);
+      expect(added.before).to.eq(null);
+      expect(first.before).to.deep.eq(added.payload);
+      expect(second.before).to.deep.eq(first.payload);
+      expect(removed.before).to.eq(null);
+      expect(removed.payload).to.deep.eq(second.payload);
+      expect((first.before as { allow: unknown }).allow).to.deep.eq([alice]);
+    });
+
     it('forgetting a scope logs its rules as removed and the rules that lost a subject as changed', async () => {
       const g1 = { type: 'group', id: 'g1' };
       await inTx((tx) => rules.put({ id: 'at-g1', kind: 'restrict', scope: g1, allow: [alice] }, root, tx));
@@ -119,6 +163,9 @@ for (const kind of DB_KINDS) {
         ['put', 'names-g1'],
       ]);
       expect(after[1].payload).to.deep.include({ allow: [alice] });
+      expect(after[1].before).to.deep.include({ allow: [alice, g1Members] });
+      expect(after[1].before).to.deep.eq((await changeLog().since(0)).find((c) => c.key === 'names-g1')!.payload);
+      expect(after[0].before).to.eq(null);
     });
 
     it('logs the closure rows a membership refresh wrote for a member', async () => {

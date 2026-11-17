@@ -131,6 +131,7 @@ export class DbChangeLog extends ChangeLog {
       op: e.op,
       key: e.key,
       payload: e.payload === undefined ? null : JSON.stringify(e.payload),
+      before: e.before === undefined ? null : JSON.stringify(e.before),
       actor: (e.actor ?? actor).slice(0, CHANGE_LOG_WIDTHS.actor),
       trace_id: traceId,
     }));

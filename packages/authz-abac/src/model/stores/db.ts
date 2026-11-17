@@ -50,6 +50,7 @@ export class DbPolicyStore extends PolicyStore {
     fits(checked);
     if (actor && principalKey(actor).length > POLICY_ACTOR_MAX_LENGTH) throw new AuthzConfigError(`DbPolicyStore: the actor key is longer than the created_by column (${POLICY_ACTOR_MAX_LENGTH})`);
     requirePolicyTransaction(tx, where);
+    const before = await storedPolicy(checked.id);
     const { RowsAffected: replaced } = await PolicyRecord.destroy().where('id', checked.id);
     try {
       await PolicyRecord.insert(policyToRecord(checked, actor, now) as Partial<PolicyRecord>);
@@ -57,17 +58,16 @@ export class DbPolicyStore extends PolicyStore {
       if (!(err instanceof UniqueViolation)) throw err;
       throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote policy ${JSON.stringify(checked.id)} meanwhile; retry`, undefined, { cause: err });
     }
-    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload: checked, ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
+    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload: checked, ...(before ? { before } : {}), ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
     return { affected: 1, tags: policyTags(checked.id) };
   }
 
   async delete(id: string, tx: AuthzTx): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
     requirePolicyTransaction(tx, 'DbPolicyStore.delete');
-    // Only the id, so a row whose JSON no longer parses can still be deleted (load, version and policy reads refuse it).
-    const [before] = await PolicyRecord.query().select('id').where('id', id);
-    if (!before) return { affected: 0, tags: [] };
+    const removed = await storedPolicy(id);
+    if (removed === undefined) return { affected: 0, tags: [] };
     await PolicyRecord.destroy().where('id', id);
-    await changeLog().append([{ kind: 'policy', op: 'remove', key: id }]);
+    await changeLog().append([{ kind: 'policy', op: 'remove', key: id, ...(removed ? { payload: removed } : {}) }]);
     return { affected: 1, tags: policyTags(id) };
   }
 
@@ -75,6 +75,20 @@ export class DbPolicyStore extends PolicyStore {
   private async records(): Promise<PolicyRecord[]> {
     const rows = await hydrateRecords(PolicyRecord.query());
     return rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+}
+
+/**
+ * The policy row `id` holds: undefined without one, null when its JSON no longer parses. Such a row can still be
+ * replaced and deleted (load, version and policy reads refuse it); its change is logged without the image.
+ */
+async function storedPolicy(id: string): Promise<Policy | null | undefined> {
+  try {
+    const [row] = await hydrateRecords(PolicyRecord.query().where('id', id));
+    return row ? recordToPolicy(row) : undefined;
+  } catch (err) {
+    if (err instanceof AuthzConfigError) return null;
+    throw err;
   }
 }
 
