@@ -4,6 +4,7 @@ import type { AuditInput } from '@spinajs/audit';
 import { QueryMiddleware, SelectQueryBuilder, WhereStatement, extractModelDescriptor, pkColumns } from '@spinajs/orm';
 import type { IModelDescriptor, QueryBuilder } from '@spinajs/orm';
 
+import { auditSubjectId } from '../model-audit.js';
 import { auditReadsOf, hasAuditReads } from './rules.js';
 import type { ReadRule } from './rules.js';
 import { lc, selectListOf } from './select-list.js';
@@ -12,14 +13,6 @@ import type { ReadSource } from './select-list.js';
 type Row = Record<string, unknown>;
 
 const isRow = (value: unknown): value is Row => value !== null && typeof value === 'object';
-
-/** A key as text; a binary key (a uuid stored as bytes) as lower-case hex. */
-function keyText(value: unknown): string | undefined {
-  if (typeof value === 'string') return value === '' ? undefined : value;
-  if (typeof value === 'number' || typeof value === 'bigint') return String(value);
-  if (value instanceof Uint8Array) return value.length === 0 ? undefined : Buffer.from(value).toString('hex');
-  return undefined;
-}
 
 /** The row's value under `key`, matched without case where the driver returned another spelling. */
 function valueOf(row: Row, key: string): unknown {
@@ -65,14 +58,7 @@ function keyColumns(source: ReadSource): string[] | undefined {
 }
 
 function rowId(row: Row, keys: readonly string[]): string | undefined {
-  const parts: string[] = [];
-  for (const key of keys) {
-    const text = keyText(valueOf(row, key));
-    if (text === undefined) return undefined;
-    parts.push(text);
-  }
-
-  return parts.join(':');
+  return auditSubjectId(keys.length === 1 ? valueOf(row, keys[0]) : keys.map((key) => valueOf(row, key)));
 }
 
 /** Ids of the source's rows in the result, each once; undefined when a row of the queried table cannot be named. */

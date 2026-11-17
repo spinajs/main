@@ -8,7 +8,7 @@ import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
-import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, registerAuditReads } from '../../src/index.js';
+import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditSubjectType, registerAuditReads } from '../../src/index.js';
 import { DIALECTS, TestDb } from '../../src/testing.js';
 import type { Dialect } from '../../src/testing.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
@@ -37,7 +37,6 @@ class VisitColumns<M> extends ModelBase<M> {
 }
 
 const RESTRICTED = { trail: 'restricted', columns: ['Ssn'] } as const;
-const SEARCH_TABLE = 'audit_read';
 const searches = (dialect: Dialect): string => `searches_${dialect}`;
 const searchRule = (dialect: Dialect) => ({ trail: searches(dialect), mode: 'query', onFailure: 'continue' } as const);
 
@@ -157,7 +156,7 @@ class Badge extends ModelBase<Badge> {
   public Holder: string;
 }
 
-// On a connection of its own: the pinned save() leaves its transaction open there for good.
+// Its trail lives on its own single connection, where save() opens the transaction its reload runs in.
 @Connection('wedge')
 @Model('chart')
 @AuditReads({ trail: 'wedge', mode: 'query' })
@@ -168,15 +167,27 @@ class Chart extends ModelBase<Chart> {
   public Name: string;
 }
 
+class NamedTrail extends AuditTrailTableMigration {
+  constructor(private readonly name: string) {
+    super();
+  }
+
+  protected override table(): string {
+    return this.name;
+  }
+}
+
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const RETRY = { attempts: 2, delay: '1ms' };
 const AUDIT = {
   trails: {
     restricted: { store: 'TestAuditStore', onFailure: 'reject', retry: RETRY },
-    ...Object.fromEntries(DIALECTS.map((d) => [searches(d), { connection: d, table: SEARCH_TABLE, retry: RETRY }])),
-    wedge: { connection: 'wedge', onFailure: 'reject', retry: RETRY },
+    ...Object.fromEntries(DIALECTS.map((d) => [searches(d), { connection: d, table: searches(d), retry: RETRY }])),
+    wedge: { connection: 'wedge', table: 'audit_wedge', onFailure: 'reject', retry: RETRY },
+    held: { connection: 'wedge', table: 'audit_held', onFailure: 'reject', retry: RETRY },
   },
+  confirmTimeoutMs: 1500,
 };
 const WEDGE = { Driver: 'orm-driver-sqlite', Name: 'wedge', Filename: ':memory:' };
 
@@ -254,12 +265,12 @@ describe('read auditing', function () {
       });
 
       beforeEach(async () => {
-        await db.migrate(dialect, SEARCH_TABLE);
+        await db.migrate(dialect, searches(dialect));
       });
 
       after(async () => {
         if (!db.has(dialect)) return;
-        await db.drop(dialect, SEARCH_TABLE);
+        await db.drop(dialect, searches(dialect));
         await db.driver(dialect).schema().dropTable('visit').ifExists();
         await db.driver(dialect).schema().dropTable('patient').ifExists();
       });
@@ -279,7 +290,8 @@ describe('read auditing', function () {
         await Patient.query().where('Id', 1);
 
         const [event] = await recorded('restricted');
-        expect(event.subject).to.deep.eq({ type: extractModelDescriptor(Patient)?.TableName, id: '1' });
+        expect(event.subject).to.deep.eq({ type: auditSubjectType(Patient), id: '1' });
+        expect(auditSubjectType(Patient)).to.eq(extractModelDescriptor(Patient)?.TableName);
       });
 
       it('skips a select that returns none of the audited columns', async () => {
@@ -401,34 +413,26 @@ describe('read auditing', function () {
       });
 
       it('a continue rule lets the rows through when the write fails', async () => {
-        await db.drop(dialect, SEARCH_TABLE);
+        await db.drop(dialect, searches(dialect));
 
         expect(await Visit.query().where('Id', 1)).to.have.length(1);
       });
 
-      it("keeps the read record when the caller's transaction rolls back", async function () {
-        // On one physical connection the record waits for the transaction instead (pinned below).
-        if (dialect === 'sqlite' || dialect === 'pglite') this.skip();
+      it("keeps the read record when the caller's transaction rolls back, except on a single connection, where it joined that transaction", async () => {
         const failing = db.driver(dialect).transaction(async () => {
           await Visit.query().where('Id', 1);
           throw new Error('caller failed');
         });
 
         await expect(failing).to.be.rejectedWith('caller failed');
-        expect(await searched()).to.have.length(1);
+        expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 0 : 1);
       });
 
-      it('pins a known limitation: inside a transaction on a single-connection driver the read waits for the transaction to end', async function () {
-        if (dialect !== 'sqlite' && dialect !== 'pglite') this.skip();
-        let settled = false;
-        let pending: Promise<unknown> = Promise.resolve();
+      it('returns an audited read inside a transaction, and its record commits', async () => {
         await db.driver(dialect).transaction(async () => {
-          pending = Promise.resolve(Visit.query().where('Id', 1)).finally(() => (settled = true));
-          await pause(300);
-          expect(settled).to.eq(false);
+          expect(await Visit.query().where('Id', 1)).to.have.length(1);
         });
 
-        expect(await pending).to.have.length(1);
         expect(await searched()).to.have.length(1);
       });
     });
@@ -460,8 +464,9 @@ describe('read auditing', function () {
           t.string('Name');
         },
       });
-      await db.migrate('sqlite', SEARCH_TABLE);
-      await new AuditTrailTableMigration().up(db.driver('wedge'));
+      await db.migrate('sqlite', searches('sqlite'));
+      await new NamedTrail('audit_wedge').up(db.driver('wedge'));
+      await new NamedTrail('audit_held').up(db.driver('wedge'));
       await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart] });
 
       await Ward.insert({ Id: 4, Code: 'W4' });
@@ -503,14 +508,20 @@ describe('read auditing', function () {
       expect((await of('badge')).map((e) => e.subject?.id)).to.deep.eq(['ab01']);
     });
 
-    it('pins a known limitation: save({ reload: true }) waits for the transaction it opens itself on a single-connection driver', async () => {
+    it('records the reload of save({ reload: true }) in the transaction save() opens', async () => {
       const chart = await Chart.get(1);
       chart.Name = 'y';
-      let settled = false;
-      void Promise.allSettled([chart.save({ reload: true })]).then(() => (settled = true));
+      await chart.save({ reload: true });
 
-      await pause(300);
-      expect(settled).to.eq(false);
+      expect((await audit().trail('wedge').since(0)).map((e) => e.action)).to.deep.eq(['chart.read', 'chart.read']);
+    });
+
+    it('fails the select when its record cannot join a transaction and waits past audit.confirmTimeoutMs', async () => {
+      registerAuditReads(DoctorWard, { trail: 'held', mode: 'query' });
+      const held = db.driver('wedge').transaction(() => pause(3000));
+
+      await expect(DoctorWard.all()).to.be.rejectedWith(AuditWriteFailed);
+      await held;
     });
 
     it('fails the first audited select of a rule that names a column the table lacks', async () => {

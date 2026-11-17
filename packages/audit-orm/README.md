@@ -53,7 +53,7 @@ event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
 
 A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
 stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
-connection, an audited select inside a transaction does not complete until the transaction ends, as the record waits
-for the connection the transaction holds. That includes selects the ORM runs in a transaction it opened itself (the
-reload of `save({ reload: true })`, relations loaded there, authz-orm's update and delete checks), which never end.
-This is a known limitation pending a decision; until then keep such a trail on another connection.
+connection, the record joins the open transaction, also one the ORM opened itself (the reload of
+`save({ reload: true })`, relations loaded there, authz-orm's update and delete checks). It is tried once, commits with
+that transaction and rolls back with it: there a read inside a transaction that rolls back leaves no record. Every other
+confirmed record has a deadline, `audit.confirmTimeoutMs` (10 s by default); past it a `reject` rule fails the select.
