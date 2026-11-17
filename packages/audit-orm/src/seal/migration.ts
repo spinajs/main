@@ -17,7 +17,7 @@ export class AuditSealTableMigration extends OrmMigration {
       table.dateTime('sealed_at').notNull();
       table.dateTime('pruned_at');
     });
-    // Unique: two sealers that seal the same range at once cannot both insert.
+    // Unique: every seal chained from one seal starts at the same seq, so a second one is refused.
     await connection.index().table(AUDIT_SEAL_TABLE).name('audit_seal_range').columns(['trail_table', 'from_seq']).unique();
   }
 

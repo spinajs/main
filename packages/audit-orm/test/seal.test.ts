@@ -119,19 +119,20 @@ describe('audit sealing', function () {
       });
 
       if (dialect === 'postgres' || dialect === 'mysql') {
+        const held = async (e: AuditEvent, release: Promise<void>): Promise<() => Promise<void>> => {
+          let inserted!: () => void;
+          const ready = new Promise<void>((resolve) => (inserted = resolve));
+          const caller = driver().transaction(async () => {
+            await insertRows(driver(), TABLE, [storedColumns(e)]);
+            inserted();
+            await release;
+          });
+          await ready;
+          return () => caller;
+        };
+
         it('seals a lower seq that commits late within the settle time, and leaves out one that commits later', async () => {
           const sealer = new AuditSealer();
-          const held = async (e: AuditEvent, release: Promise<void>): Promise<() => Promise<void>> => {
-            let inserted!: () => void;
-            const ready = new Promise<void>((resolve) => (inserted = resolve));
-            const caller = driver().transaction(async () => {
-              await insertRows(driver(), TABLE, [storedColumns(e)]);
-              inserted();
-              await release;
-            });
-            await ready;
-            return () => caller;
-          };
           let commit!: () => void;
           const first = await held(event(1), new Promise((resolve) => (commit = resolve)));
           await append(event(2));
@@ -148,12 +149,52 @@ describe('audit sealing', function () {
           late();
           await third();
           expect((await sealer.run(at(120000))).sealed).to.eq(0);
-          // seq 3 committed after its range was sealed: verification reports the range, sealing never revisits it.
+          // seq 3 committed after its range was sealed: the range starts where the previous one ended, so its count no longer matches.
           expect(await ranges()).to.deep.eq([
             [TABLE, 1, 2, 2],
-            [TABLE, 4, 4, 1],
+            [TABLE, 3, 4, 1],
           ]);
           expect((await tableRows(driver(), TABLE)).map((r) => Number(r.seq))).to.deep.eq([1, 2, 3, 4]);
+        });
+
+        it('refuses a second seal chained from the same seal, whatever rows each sealer saw', async () => {
+          await append(event(1), event(2));
+          await sealAudit({ settleMs: 0 });
+          let commit!: () => void;
+          const third = await held(event(3), new Promise((resolve) => (commit = resolve)));
+          await append(event(4));
+
+          // The first sealer inserts its seal and waits before committing; seq 3 commits, then a second sealer runs.
+          let inserted!: () => void;
+          const insertedSeal = new Promise<void>((resolve) => (inserted = resolve));
+          let release!: () => void;
+          const released = new Promise<void>((resolve) => (release = resolve));
+          const transaction = Reflect.get(driver(), 'transaction');
+          Reflect.set(driver(), 'transaction', (work: () => Promise<unknown>): unknown => {
+            Reflect.deleteProperty(driver(), 'transaction');
+            return Reflect.apply(transaction, driver(), [
+              async () => {
+                const out = await work();
+                inserted();
+                await released;
+                return out;
+              },
+            ]);
+          });
+          const first = new AuditSealer().run({ settleMs: 0 });
+          await insertedSeal;
+          commit();
+          await third();
+          const second = new AuditSealer().run({ settleMs: 0 });
+          await pause(300);
+          release();
+
+          expect(await first).to.deep.eq({ sealed: 1, failed: [] });
+          expect((await second).failed.map((f) => f.trail)).to.deep.eq(['sealed']);
+          expect(await ranges()).to.deep.eq([
+            [TABLE, 1, 2, 2],
+            [TABLE, 3, 4, 1],
+          ]);
         });
       } else {
         it('never seals a row of a transaction that is still open, and one that rolls back not at all', async () => {

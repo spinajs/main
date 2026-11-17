@@ -47,7 +47,12 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
     events.map(({ stored, dataHash }) => eventDigest(stored, dataHash ?? payloadHash(stored.data))),
   );
   const toSeq = events[events.length - 1].stored.seq;
-  await driver.insert().into(AUDIT_SEAL_TABLE).values({ trail_table: table, from_seq: events[0].stored.seq, to_seq: toSeq, event_count: events.length, hash, previous_hash: previous, sealed_at: options.now });
+  // A range starts where the previous one ended, not at the first row seen: a row that commits later inside it changes its
+  // count, and a second seal chained from the same one starts at the same seq, which the unique index refuses.
+  await driver
+    .insert()
+    .into(AUDIT_SEAL_TABLE)
+    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: events.length, hash, previous_hash: previous, sealed_at: options.now });
   return { sealed: events.length, toSeq, hash };
 }
 
