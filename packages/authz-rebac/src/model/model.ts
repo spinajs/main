@@ -1,6 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote, DenyReason } from '@spinajs/authz';
-import type { IRFragment } from '@spinajs/authz-ir';
+import type { CaveatDef, IRFragment } from '@spinajs/authz-ir';
 
 import type { CaveatConfig, NamespaceConfig, PermissionMap, RebacLimits, Tuple, TupleCaveat } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
@@ -139,7 +139,7 @@ export class RebacModel extends AuthorizationModel {
       if (membership === 'not') return this.vote(FALSE, cacheable);
       // A no-permit, not an error vote: an error would veto other models' permits over a missing env value.
       if (tooDeep === undefined && undecided.length > 0) return this.vote(FALSE, cacheable, { code: 'caveat_unknown', model: this.name, caveats: undecided });
-      return this.error(`${this.name}: maxDepth ${this.limits.maxDepth} exceeded at ${tooDeep ?? objectKey(req.resource)}`);
+      return this.error(`${this.name}: maxDepth ${this.limits.maxDepth} exceeded at ${tooDeep ?? objectKey(req.resource)}`, cacheable);
     } catch (e) {
       if (e instanceof RebacLimitExceeded) return this.error(e.message);
       throw e;
@@ -213,7 +213,8 @@ export class RebacModel extends AuthorizationModel {
     // The listed subjects are not the request's principal: without one given, principal.* caveats stay unknown.
     const caveatRequest: CaveatRequest = { principal: request.principal ?? syntheticPrincipal({ type: subjectType, id: '' }), permission: '', resource: object, env: request.env ?? {} };
     const ctx = request.ctx ?? this.caveatContext();
-    return listSubjects(walk, object, name, subjectType, async (c) => (await caveats.evaluate(c, caveatRequest, ctx)).truth);
+    const undecidable = (c: TupleCaveat): boolean => request.principal === undefined && readsAbsentPrincipal(this.schema().caveats.get(c.name), c);
+    return listSubjects(walk, object, name, subjectType, async (c) => (undecidable(c) ? 'unknown' : (await caveats.evaluate(c, caveatRequest, ctx)).truth));
   }
 
   /** What a caveat evaluation outside a decision reads: the clock and the default condition compiler, no scope. */
@@ -403,8 +404,8 @@ export class RebacModel extends AuthorizationModel {
     return { model: this.name, permitWhen, denyWhen: FALSE, ...(why ? { reason: why } : {}), cacheable };
   }
 
-  private error(message: string): Vote {
-    return { model: this.name, permitWhen: FALSE, denyWhen: FALSE, error: message, reason: { code: 'model_error', model: this.name }, cacheable: true };
+  private error(message: string, cacheable = true): Vote {
+    return { model: this.name, permitWhen: FALSE, denyWhen: FALSE, error: message, reason: { code: 'model_error', model: this.name }, cacheable };
   }
 
   private uninitialised(): never {
@@ -422,6 +423,17 @@ function readLimits(l: RebacLimits): Required<RebacLimits> {
 
 /** The principal a check by reference stands for; its caveats read no attribute it would not have. */
 const syntheticPrincipal = (p: PrincipalRef): Principal => ({ type: p.type, id: p.id, authenticated: true, source: 'rebac', attributes: {} });
+
+const IDENTITY = new Set(['principal.type', 'principal.id', 'principal.authenticated', 'principal.source']);
+
+/** Whether the caveat reads the principal's identity, or a principal value its tuple context does not fix. */
+const readsAbsentPrincipal = (def: CaveatDef | undefined, c: TupleCaveat): boolean => Object.keys(def?.params ?? {}).some((p) => p.startsWith('principal.') && (IDENTITY.has(p) || !Object.hasOwn(c.context ?? {}, p)));
+
+/** The residual's principal: identity from args, `authenticated` and `source` as the request had them. */
+function residualPrincipal(p: PrincipalRef, input: Readonly<Record<string, unknown>>): Principal {
+  const { authenticated, source } = { authenticated: input['principal.authenticated'], source: input['principal.source'] };
+  return { ...syntheticPrincipal(p), ...(typeof authenticated === 'boolean' ? { authenticated } : {}), ...(typeof source === 'string' ? { source } : {}) };
+}
 
 /** The store `authz.<model>.store` names. */
 function storeFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): TupleStore {
@@ -443,7 +455,7 @@ class RebacCheckFilter extends NativeFilter {
 
   async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
     const { relation, principal, caveatInput } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>> };
-    const request = caveatInput === undefined ? undefined : overlayContext({ principal: syntheticPrincipal(principal), env: {} }, caveatInput);
+    const request = caveatInput === undefined ? undefined : overlayContext({ principal: residualPrincipal(principal, caveatInput), env: {} }, caveatInput);
     try {
       return (await this.model.check(ref, relation, principal, ctx, request)) === 'member';
     } catch (e) {

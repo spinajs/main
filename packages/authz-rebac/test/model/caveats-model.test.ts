@@ -2,11 +2,11 @@ import * as chai from 'chai';
 import 'mocha';
 import { DefaultConditionCompiler, FALSE, TRUE } from '@spinajs/authz';
 import type { ResourceFilter, Vote } from '@spinajs/authz';
-import { fakeEvaluationContext, userPrincipal } from '@spinajs/authz-testing';
+import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
-import type { RebacModel } from '../../src/index.js';
+import { MemoryTupleStore, RebacModel } from '../../src/index.js';
 import { INPUTS, caveatModel } from '../support/caveat-world.js';
-import { d1, d2, d3, setup } from '../support/world.js';
+import { d1, d2, d3, ref, set, setup, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
 
@@ -48,6 +48,27 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
     expect(v.cacheable).to.equal(false);
     expect(await model.nativeFilter.matches(permit.args, {}, d1, ctx())).to.equal(true);
     expect(await model.nativeFilter.matches({ ...(permit.args as object), caveatInput: { 'env.ip': '10.0.0.2' } }, {}, d1, ctx())).to.equal(false);
+  });
+
+  describe('a caveat over the principal identity', () => {
+    const who = { params: { 'principal.id': 'string' }, expr: { attr: 'principal.id', eq: 'bob' } } as const;
+    let only: RebacModel;
+
+    before(async () => {
+      const tuples = [tuple(ref('group', 'eng'), 'member', user('bob')), tuple(ref('group', 'eng'), 'member', user('carl')), { ...tuple(d1, 'viewer', set('group', 'eng', 'member')), caveat: { name: 'who', context: { 'principal.id': 'bob' } } }];
+      only = new RebacModel({ store: new MemoryTupleStore(tuples), namespaces: { user: {}, group: { relations: { member: ['user'] } }, doc: { relations: { viewer: ['group#member with who'] } } }, permissions: { 'doc:read': 'doc#viewer' }, caveats: { who } });
+      await only.init(fakeModelInitContext({ permissions: INPUTS, model: only.name }));
+    });
+
+    it('a tuple context cannot replace who is asking', async () => {
+      const permits = async (id: string) => (await only.evaluate({ principal: userPrincipal(id), permission: 'doc:read', resource: d1, env: {} }, ctx())).permitWhen;
+      expect(await permits('bob')).to.equal(TRUE);
+      expect(await permits('carl')).to.equal(FALSE);
+    });
+
+    it('listSubjects without a principal leaves an identity caveat undecided', async () => {
+      expect(await only.listSubjects(d1, 'viewer', 'user', { env: {} })).to.deep.equal({ subjects: [], conditional: [user('bob'), user('carl')], complete: true });
+    });
   });
 
   it('maxDepth on a path without caveats is still an error vote', async () => {

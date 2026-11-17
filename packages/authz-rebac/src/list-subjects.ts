@@ -59,8 +59,8 @@ interface State {
   readonly caveat: Caveat;
 }
 
-/** Every subject of `subjectType` holding `name` on `object`, through subject sets, arrows and the set operations of the rewrites. */
-export async function listSubjects(walk: RebacWalk, object: ResourceRef, name: string, subjectType: ResourceType, caveat: Caveat): Promise<SubjectList> {
+/** Every subject of `subjectType` holding `name` on `object`, through subject sets, arrows and the set operations of the rewrites; without `caveat` every caveat is unknown. */
+export async function listSubjects(walk: RebacWalk, object: ResourceRef, name: string, subjectType: ResourceType, caveat: Caveat = () => Promise.resolve('unknown')): Promise<SubjectList> {
   const state: State = { complete: true, subjectType, caveat };
   const held = await holders(walk, object, name, 0, state);
   const refs = (ids: Set<string>): PrincipalRef[] => [...ids].sort().map((id) => ({ type: subjectType, id }));

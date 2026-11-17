@@ -24,7 +24,10 @@ function setPath(target: Readonly<Record<string, unknown>>, segments: readonly s
   return { ...target, [head]: rest.length === 0 ? value : setPath(isRecord(below) ? below : {}, rest, value) };
 }
 
-/** `principal` and `env` with `values` laid over them by parameter path (copies; the request stays untouched). */
+/**
+ * `principal` and `env` with `values` laid over them by parameter path (copies; the request stays untouched). The
+ * principal's identity (`type`, `id`, `authenticated`, `source`) always stays the request's, as in the IR's `asPrincipal`.
+ */
 export function overlayContext(req: Pick<CaveatRequest, 'principal' | 'env'>, values: Readonly<Record<string, unknown>> | undefined): { principal: Principal; env: Record<string, unknown> } {
   let principal: Readonly<Record<string, unknown>> = {};
   let env: Record<string, unknown> = { ...req.env };
@@ -34,7 +37,8 @@ export function overlayContext(req: Pick<CaveatRequest, 'principal' | 'env'>, va
     if (root === 'env') env = setPath(env, rest, value);
     else if (root === 'principal') principal = setPath({ ...req.principal, ...principal }, rest, value);
   }
-  return { principal: { ...req.principal, ...principal }, env };
+  const { type, id, authenticated, source } = req.principal;
+  return { principal: { ...req.principal, ...principal, type, id, authenticated, source }, env };
 }
 
 /** The request values of `paths` (`env.*` but `env.now`, `principal.*`), for a residual that is evaluated later. */
@@ -67,7 +71,7 @@ export class RebacCaveats {
   async evaluate(caveat: TupleCaveat, req: CaveatRequest, ctx: EvaluationContext): Promise<{ truth: CaveatTruth; cacheable: boolean }> {
     const def = this.defs.get(caveat.name);
     if (def === undefined) return { truth: 'unknown', cacheable: true };
-    // D4: a stored context cannot move the clock, whatever store it came from.
+    // A stored context cannot move the clock, whatever store it came from.
     const context = Object.fromEntries(Object.entries(caveat.context ?? {}).filter(([path]) => path !== 'env.now'));
     const { principal, env } = overlayContext(req, context);
     const request: DecisionRequest = { principal, actor: principal, permission: req.permission, resource: req.resource, env };

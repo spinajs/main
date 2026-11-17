@@ -1,3 +1,4 @@
+import * as chai from 'chai';
 import 'mocha';
 import * as fc from 'fast-check';
 import { DefaultConditionCompiler } from '@spinajs/authz';
@@ -8,16 +9,19 @@ import { fakeEvaluationContext, fakeModelInitContext, irAgreement, userPrincipal
 import { MemoryTupleStore, NamespaceSchema, RebacModel, rebacTupleSource, rebacToIR } from '../src/index.js';
 import type { CaveatConfig, NamespaceConfig, Rewrite, Tuple, TupleCaveat } from '../src/index.js';
 
+const expect = chai.expect;
 const TYPES = ['a', 'b'] as const;
 const IDS = ['1', '2'];
 const USERS = ['u1', 'u2', 'u3'];
 const RELATIONS: Readonly<Record<(typeof TYPES)[number], Readonly<Record<string, readonly string[]>>>> = {
-  a: { r0: ['user', 'a#r0', 'b#p0', 'user with c_ip', 'a#r0 with c_lvl'], r1: ['user', 'user with c_lvl'], parent: ['a', 'b', 'b with c_ip'] },
-  b: { r0: ['user', 'a#p1', 'a#p1 with c_ip'], r1: ['user'], parent: ['a', 'a with c_lvl'] },
+  a: { r0: ['user', 'a#r0', 'b#p0', 'user with c_ip', 'a#r0 with c_lvl'], r1: ['user', 'user with c_lvl', 'user with c_who'], parent: ['a', 'b', 'b with c_ip'] },
+  b: { r0: ['user', 'a#p1', 'a#p1 with c_ip', 'a#p1 with c_who'], r1: ['user'], parent: ['a', 'a with c_lvl'] },
 };
 const CAVEATS: CaveatConfig = {
   c_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: 'a' } },
   c_lvl: { params: { 'env.lvl': 'int', 'env.min': 'int' }, expr: { attr: 'env.lvl', gte: { ref: 'env.min' } } },
+  // A tuple context naming principal.id must not change who is asking.
+  c_who: { params: { 'principal.id': 'string' }, expr: { attr: 'principal.id', eq: 'u1' } },
 };
 /** Each env decides some caveats and leaves others unknown. */
 const ENVS = [{}, { ip: 'a' }, { ip: 'b' }, { lvl: 1 }, { lvl: 3, ip: 'a' }];
@@ -47,7 +51,14 @@ const namespaces: fc.Arbitrary<NamespaceConfig> = fc.tuple(rewrite(0), rewrite(1
 }));
 
 const ref = (type: string, id: string) => ({ type, id });
-const caveat: fc.Arbitrary<TupleCaveat | undefined> = fc.option(fc.oneof(fc.constant({ name: 'c_ip' }), fc.integer({ min: 0, max: 3 }).map((min) => ({ name: 'c_lvl', context: { 'env.min': min } }))), { nil: undefined });
+const caveat: fc.Arbitrary<TupleCaveat | undefined> = fc.option(
+  fc.oneof(
+    fc.constant({ name: 'c_ip' }),
+    fc.integer({ min: 0, max: 3 }).map((min) => ({ name: 'c_lvl', context: { 'env.min': min } })),
+    fc.constantFrom({ name: 'c_who' }, { name: 'c_who', context: { 'principal.id': 'u2' } }),
+  ),
+  { nil: undefined, freq: 2 },
+);
 // The store keeps only what schema.problem() admits, so most caveats land only where a relation takes them.
 const tuple: fc.Arbitrary<Tuple> = fc
   .tuple(fc.constantFrom(...TYPES), fc.constantFrom(...IDS), fc.constantFrom('r0', 'r1', 'parent'), fc.constantFrom(...USERS), fc.constantFrom(...TYPES), fc.constantFrom(...IDS), fc.constantFrom('r0', 'p0', 'p1', ''), caveat)
@@ -64,6 +75,8 @@ describe('authz-rebac: IR agreement (Z6)', function () {
   this.timeout(600000);
 
   it('RebacModel and IREvaluator agree on random namespaces, tuples and requests', async () => {
+    // Votes that read a caveat (not cacheable, or caveat_unknown), by outcome: the property must not hold vacuously.
+    const throughCaveat = { permit: 0, deny: 0, unknown: 0 };
     await irAgreement(fc.record({ namespaces, tuples: fc.array(tuple, { maxLength: 12 }) }), async ({ namespaces: ns, tuples }) => {
       const schema = NamespaceSchema.compile(ns, PERMISSIONS, CAVEATS);
       const store = new MemoryTupleStore(tuples.filter((t) => schema.problem(t) === undefined));
@@ -74,8 +87,17 @@ describe('authz-rebac: IR agreement (Z6)', function () {
         ir: mergeFragments([rebacToIR(schema)]).ir,
         tuples: rebacTupleSource(store),
         requests,
-        engine: async (r) => voteTruth(await model.evaluate({ principal: userPrincipal(r.principal.id), permission: r.permission, resource: r.resource, env: r.context?.env ?? {} }, fakeEvaluationContext({ permissions: INPUTS, conditions: new DefaultConditionCompiler() }))),
+        engine: async (r) => {
+          const vote = await model.evaluate({ principal: userPrincipal(r.principal.id), permission: r.permission, resource: r.resource, env: r.context?.env ?? {} }, fakeEvaluationContext({ permissions: INPUTS, conditions: new DefaultConditionCompiler() }));
+          const truth = voteTruth(vote);
+          if (truth === 'unknown') throughCaveat.unknown++;
+          else if (!vote.cacheable && vote.error === undefined) throughCaveat[truth === 'allow' ? 'permit' : 'deny']++;
+          return truth;
+        },
       };
     }, LIMIT);
+    expect(throughCaveat.permit, JSON.stringify(throughCaveat)).to.be.greaterThan(0);
+    expect(throughCaveat.deny, JSON.stringify(throughCaveat)).to.be.greaterThan(0);
+    expect(throughCaveat.unknown, JSON.stringify(throughCaveat)).to.be.greaterThan(0);
   });
 });
