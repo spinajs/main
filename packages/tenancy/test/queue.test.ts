@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Event, Job, QueueEvent, QueueHeaders, QueueJob, QueueService, isPermanentJobFailure } from '@spinajs/queue';
+import { DI } from '@spinajs/di';
+import { SYSTEM, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
+import { Event, Job, QueueEvent, QueueHeaders, QueueJob, QueueMessageHook, QueueService, isPermanentJobFailure } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import { MemoryBroker, MemoryQueueClient } from '@spinajs/queue/testing';
 import { createTestApp } from '@spinajs/testing';
@@ -64,7 +66,7 @@ describe('the tenant header value', () => {
 describe('TenantQueueHook', () => {
   it('runs ahead of hooks of the default order', () => {
     expect(hook.order).to.eq(TENANT_QUEUE_HOOK_ORDER);
-    expect(TENANT_QUEUE_HOOK_ORDER).to.be.lessThan(0);
+    expect(TENANT_QUEUE_HOOK_ORDER).to.eq(-100);
   });
 
   it('stamps the ambient tenant, and the cross-tenant scope with its reason', async () => {
@@ -83,14 +85,18 @@ describe('TenantQueueHook', () => {
     const mixed: IQueueMessage = new CarryJob();
     mixed.Headers = { [TENANT]: 'globex', 'x-app': '1' };
     const replaced = carrying(new CarryJob(), 'globex');
+    const cased: IQueueMessage = new CarryJob();
+    cased.Headers = { 'X-SpinaJS-Tenant': 'globex', 'x-app': '1' };
 
     hook.beforeEmit(forged);
     hook.beforeEmit(mixed);
     await runInTenant('acme', async () => hook.beforeEmit(replaced));
+    await runInTenant('acme', async () => hook.beforeEmit(cased));
 
     expect(forged.Headers).to.eq(undefined);
     expect(mixed.Headers).to.deep.eq({ 'x-app': '1' });
     expect(replaced.Headers).to.deep.eq({ [TENANT]: 'acme' });
+    expect(cased.Headers).to.deep.eq({ 'x-app': '1', [TENANT]: 'acme' });
   });
 
   it('carry: runs the handler in the scope the message names', async () => {
@@ -102,6 +108,19 @@ describe('TenantQueueHook', () => {
     expect(await scopeInside(new CarryJob())).to.eq(undefined);
     expect(await runInTenant('globex', () => scopeInside(new CarryJob()))).to.eq(undefined);
     expect(await runInTenant('globex', () => scopeInside(carrying(new CarryJob(), 'acme')))).to.deep.eq(ACME);
+  });
+
+  it('carry: warns about a malformed header, with its start only, and runs the handler with no scope', async () => {
+    const warnings: unknown[][] = [];
+    const watched = new TenantQueueHook();
+    Object.defineProperty(watched, 'Log', { value: { warn: (...args: unknown[]) => void warnings.push(args) } });
+    const malformed = `Not An Id ${'x'.repeat(200)}`;
+
+    expect(await watched.aroundHandle(carrying(new CarryJob(), malformed), async () => tenantScope())).to.eq(undefined);
+    expect(await watched.aroundHandle(new CarryJob(), async () => tenantScope())).to.eq(undefined);
+
+    expect(warnings).to.have.length(1);
+    expect(warnings[0][0]).to.deep.eq({ messageName: 'CarryJob', header: malformed.slice(0, 64), length: malformed.length });
   });
 
   it('required: refuses for good a message that names no single tenant', async () => {
@@ -176,6 +195,51 @@ describe('TenantQueueHook', () => {
       await client.deliverAll();
 
       expect(seen).to.deep.eq([{ kind: 'all', reason: 'nightly billing' }, undefined]);
+    });
+
+    it('runs a message delivered synchronously inside another tenant in the tenant the message names', async () => {
+      const seen: (string | undefined)[] = [];
+      await queue.consume(TenantPing, async () => void seen.push(currentTenant()?.id));
+
+      await runInTenant('globex', async () => {
+        await client.deliver(carrying(new TenantPing(), 'acme'));
+        await client.deliver(new TenantPing());
+      });
+
+      expect(seen).to.deep.eq(['acme', undefined]);
+    });
+
+    it('wraps a hook of the default order registered before it, so a principal switch inside keeps the tenant', async () => {
+      const seen: { tenant?: string; principal: unknown }[] = [];
+      class PrincipalHook extends QueueMessageHook {
+        public beforeEmit(): void {}
+
+        // What AuthzQueueHook does: its access check runs inside runWithPrincipal, before next().
+        public async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+          return runWithPrincipal(SYSTEM, async () => {
+            seen.push({ tenant: currentTenant()?.id, principal: currentPrincipal() });
+            return next();
+          });
+        }
+      }
+      DI.unregister(TenantQueueHook);
+      DI.register(PrincipalHook).as(QueueMessageHook);
+      DI.register(TenantQueueHook).as(QueueMessageHook);
+      DI.uncache(Array.ofType(QueueMessageHook));
+
+      try {
+        await queue.consume(TenantPing, async () => void seen.push({ tenant: currentTenant()?.id, principal: currentPrincipal() }));
+        await runInTenant('acme', () => TenantPing.emit({}));
+        await client.deliverAll();
+      } finally {
+        DI.unregister(PrincipalHook);
+        DI.uncache(Array.ofType(QueueMessageHook));
+      }
+
+      expect(seen).to.deep.eq([
+        { tenant: 'acme', principal: SYSTEM },
+        { tenant: 'acme', principal: SYSTEM },
+      ]);
     });
   });
 });

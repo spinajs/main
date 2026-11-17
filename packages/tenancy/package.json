@@ -52,6 +52,7 @@
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
+    "@spinajs/log-common": "3.0.23",
     "@spinajs/principal": "3.0.23"
   },
   "peerDependencies": {

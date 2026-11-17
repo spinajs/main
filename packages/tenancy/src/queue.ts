@@ -1,4 +1,5 @@
 import { Injectable } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log-common';
 import { PermanentJobFailure, QueueHeaders, QueueMessageHook, jobOptions } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { TenantScope } from './contracts.js';
@@ -29,9 +30,12 @@ export function decodeTenantHeader(value: string | undefined): TenantScope | und
 export class TenantQueueHook extends QueueMessageHook {
   public override readonly order: number = TENANT_QUEUE_HOOK_ORDER;
 
+  @Logger('tenancy')
+  protected Log: Log;
+
   public beforeEmit(message: IQueueMessage): void {
-    // Whatever the caller put there is dropped: only the ambient scope may be named.
-    const { [QueueHeaders.Tenant]: _claimed, ...headers } = message.Headers ?? {};
+    // Whatever the caller put there is dropped, in any letter case: only the ambient scope may be named.
+    const headers = Object.fromEntries(Object.entries(message.Headers ?? {}).filter(([name]) => name.toLowerCase() !== QueueHeaders.Tenant));
     const scope = tenantScope();
     if (scope) headers[QueueHeaders.Tenant] = encodeTenantHeader(scope);
 
@@ -44,7 +48,12 @@ export class TenantQueueHook extends QueueMessageHook {
     const tenancy = jobOptions(message).tenancy ?? 'carry';
     if (tenancy === 'none') return establishTenantScope(undefined, next);
 
-    const scope = decodeTenantHeader(message.Headers?.[QueueHeaders.Tenant]);
+    const header = message.Headers?.[QueueHeaders.Tenant];
+    const scope = decodeTenantHeader(header);
+    if (tenancy === 'carry' && header !== undefined && scope === undefined) {
+      // Only version skew or tampering writes such a value; a cross-tenant reason can be long.
+      this.Log.warn({ messageName: message.Name, header: header.slice(0, 64), length: header.length }, 'Message ${messageName} carries a malformed tenant header; its handler runs with no tenant scope');
+    }
     if (tenancy === 'required' && scope?.kind !== 'tenant') {
       throw new PermanentJobFailure('tenant_required', `${message.Name} needs a tenant and the message carries ${scope ? 'the cross-tenant scope' : 'none'}`);
     }

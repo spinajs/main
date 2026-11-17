@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### Message hook: custom implementation
 
-Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Hooks of one order run in registration order. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
+Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Hooks of one order run in registration order. A hook must not write the `x-spinajs-tenant` header or `Initiator`: in `beforeEmit()` a hook of a higher order runs after the hooks that stamp them, and its value would win. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
 
 This hook carries a correlation id from the request that emitted a message to the worker that handles it, through `AsyncLocalStorage`.
 
@@ -85,6 +85,7 @@ export function currentCorrelationId(): string | undefined {
 - **The queue never sets `Initiator`.** Without a hook that stamps it, jobs have no initiator and their rows have `InitiatorType` and `InitiatorId` null.
 - **`runAs` does nothing without a hook.** `@Job({ runAs })` is metadata for a hook such as `AuthzQueueHook`.
 - **`beforeEmit()` sees the object passed to `emit()`.** For the static `emit()` this is a plain object, so `jobOptions(message)` returns `{}` there; read `runAs` in `aroundHandle()`.
+- **`@Job()` options are not inherited.** `jobOptions(message)` reads the message's own class, so a subclass without a `@Job({ tenancy })` of its own is `carry`, even when its parent is `required`. Repeat the options on every job class that needs them.
 - **A job with a `consume()` callback goes through the chain twice**: once around `execute()`, once around the callback. A failed job goes through it a third time around `onFailed()`.
 - **`@NewInstance()` hooks are ignored.** `Array.ofType` leaves out `@NewInstance()` and factory registrations, so such a hook never runs.
 - **Hook errors are not swallowed**, except around `onFailed()`, where they are logged.
