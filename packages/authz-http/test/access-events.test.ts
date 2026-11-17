@@ -4,12 +4,12 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import { AccessPushTransport } from '@spinajs/authz';
-import { AuthnEventSink, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnEventListener, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { testHost } from '@spinajs/authz-testing';
 
 import { AccessController, SSE_RETRY_MS, SseAccessPushTransport } from '../src/index.js';
-import { SseSessionEndSink } from '../src/authn/index.js';
+import { SseSessionEndListener } from '../src/authn/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -215,8 +215,8 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
   });
 
   it('closes the streams of a session when authn reports its end, and only those', async () => {
-    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
-    expect(sink, 'SseSessionEndSink is a registered AuthnEventSink').to.not.eq(undefined);
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventListener))) as AuthnEventListener[]).find((s) => s instanceof SseSessionEndListener)!;
+    expect(sink, 'SseSessionEndListener is a registered AuthnEventListener').to.not.eq(undefined);
     const event = (type: AuthnEvent['type'], id: string, session?: string): AuthnEvent => ({ type, at: new Date(), outcome: 'success', identity: { type: 'user', id }, ...(session ? { session } : {}) });
 
     const h1 = await openStream(app, { 'x-user': 'gina', 'x-session': 'h1' });
@@ -226,16 +226,16 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
     try {
       for (const s of [h1, h2, other, token]) await s.frame();
 
-      await sink.publish({ ...event('logout', 'gina', 'h1'), outcome: 'failure' });
-      await sink.publish(event('login', 'gina', 'h1'));
+      await sink.on({ ...event('logout', 'gina', 'h1'), outcome: 'failure' });
+      await sink.on(event('login', 'gina', 'h1'));
       expect(transport.count('user:gina'), 'a failed logout or a login ends nothing').to.eq(3);
 
-      await sink.publish(event('logout', 'gina', 'h1'));
+      await sink.on(event('logout', 'gina', 'h1'));
       await ended(h1);
       expect(transport.count('user:gina')).to.eq(2);
       expect(transport.count('user:hank'), 'the same handle of another principal stays').to.eq(1);
 
-      await sink.publish(event('session.revoke', 'gina', 'h2'));
+      await sink.on(event('session.revoke', 'gina', 'h2'));
       await ended(h2);
       expect(transport.count('user:gina'), 'a stream without a session stays').to.eq(1);
     } finally {
@@ -244,7 +244,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
   });
 
   it('re-checks the sessions of a principal against the SessionIssuer when a revoke names no session', async () => {
-    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventListener))) as AuthnEventListener[]).find((s) => s instanceof SseSessionEndListener)!;
     DI.register(ListOnlySessions).as(SessionIssuer);
     ListOnlySessions.live = { ivy: ['h2'] };
     ListOnlySessions.asked = [];
@@ -254,7 +254,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
     try {
       for (const s of [h1, h2, h3]) await s.frame();
 
-      await sink.publish({ type: 'session.revoke', at: new Date(), outcome: 'success', identity: { type: 'user', id: 'ivy' }, data: { count: 2 } });
+      await sink.on({ type: 'session.revoke', at: new Date(), outcome: 'success', identity: { type: 'user', id: 'ivy' }, data: { count: 2 } });
       await Promise.all([ended(h1), ended(h3)]);
       expect(transport.count('user:ivy')).to.eq(1);
       expect(h2.res.readableEnded).to.eq(false);
@@ -268,7 +268,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
   });
 
   it('ends a stream whose session was rotated before the logout: the stale handle is re-checked against the SessionIssuer', async () => {
-    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventListener))) as AuthnEventListener[]).find((s) => s instanceof SseSessionEndListener)!;
     DI.register(ListOnlySessions).as(SessionIssuer);
     // h0 became h0r on a role switch (no event), then h0r logged out; h9 is another live session.
     ListOnlySessions.live = { jill: ['h9'] };
@@ -278,7 +278,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
     try {
       for (const s of [stale, other]) await s.frame();
 
-      await sink.publish({ type: 'logout', at: new Date(), outcome: 'success', identity: { type: 'user', id: 'jill' }, session: 'h0r' });
+      await sink.on({ type: 'logout', at: new Date(), outcome: 'success', identity: { type: 'user', id: 'jill' }, session: 'h0r' });
       await ended(stale);
       expect(transport.count('user:jill')).to.eq(1);
       expect(other.res.readableEnded).to.eq(false);
@@ -291,7 +291,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
   });
 
   it("ends the impersonation's streams on impersonation.end whose session is the impersonator's new one, and the actor's revoked ones on start", async () => {
-    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventListener))) as AuthnEventListener[]).find((s) => s instanceof SseSessionEndListener)!;
     DI.register(ListOnlySessions).as(SessionIssuer);
     const target = { type: 'user', id: 'kate' } as const;
     const actor = { type: 'user', id: 'liam' } as const;
@@ -303,7 +303,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
 
       // ImpersonationService.start revokes a0 and publishes the impersonation session's handle.
       ListOnlySessions.live = { kate: ['k1', 'imp'], liam: [] };
-      await sink.publish({ type: 'impersonation.start', at: new Date(), outcome: 'success', identity: target, actor, session: 'imp' });
+      await sink.on({ type: 'impersonation.start', at: new Date(), outcome: 'success', identity: target, actor, session: 'imp' });
       await ended(before);
       expect(own.res.readableEnded, "the target's own session stays").to.eq(false);
 
@@ -316,7 +316,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
       const after = await openStream(app, { 'x-user': 'liam', 'x-session': 'a1' });
       opened.push(after);
       await after.frame();
-      await sink.publish({ type: 'impersonation.end', at: new Date(), outcome: 'success', identity: target, actor, session: 'a1' });
+      await sink.on({ type: 'impersonation.end', at: new Date(), outcome: 'success', identity: target, actor, session: 'a1' });
       await ended(imp);
       expect(transport.count('user:kate')).to.eq(1);
       expect(after.res.readableEnded, "the impersonator's new session, named by the event, stays").to.eq(false);

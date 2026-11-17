@@ -10,7 +10,7 @@ import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySession
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
 
 import { Hooks } from '@spinajs/hooks';
-import { QueueAuthnEventSink, RbacBootstrapper, UserIdentityStore, UserPasswordStore } from '../src/index.js';
+import { QueueAuthnEventListener, RbacBootstrapper, UserIdentityStore, UserPasswordStore } from '../src/index.js';
 import { create, expirePassword } from '../src/actions.js';
 import './migration/rbac.migration.js';
 import { TestPasswordService } from './support/password-service.js';
@@ -95,7 +95,7 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
       tokens: null,
       secrets: new MemorySecretStore(),
       mailer: (await DI.resolve(PasswordMailer)) as PasswordMailer,
-      listeners: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventListener)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

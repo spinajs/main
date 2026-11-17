@@ -10,7 +10,7 @@ import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalP
 import type { PasswordMail } from '@spinajs/authn-local';
 
 import { Hooks } from '@spinajs/hooks';
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
+import { QueueAuthnEventListener, USER_COMMON_METADATA, User, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
 import { ban, deactivate, deleteUser } from '../../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
 
@@ -65,7 +65,7 @@ describe('reset and invite over the users stores', function () {
       tokens: null,
       secrets,
       mailer,
-      listeners: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventListener)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

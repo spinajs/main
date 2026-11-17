@@ -13,7 +13,7 @@ import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventListener, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 import type { Ceiling, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import type {} from '@spinajs/authn/hooks';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -180,8 +180,8 @@ async function wire(): Promise<void> {
   bind(PasswordCredentialStore, 'V3AppPasswordStore', () => current.passwords);
   bind(PrincipalFactory, 'V3AppPrincipalFactory', () => current.principals);
   bind(AuthnThrottle, 'V3AppThrottle', () => current.throttle);
-  // Before anything resolves AuthnAudit, which reads its sinks once.
-  bind(AuthnEventSink, 'V3AppEventSink', () => current.events);
+  // Before anything resolves AuthnAudit, which reads its listeners once.
+  bind(AuthnEventListener, 'V3AppEventSink', () => current.events);
   bind(AuthenticationStrategy, 'V3AppPasswordStrategy', () => current.passwordStrategy);
   bind(AuthenticationStrategy, 'V3AppTokenStrategy', () => current.tokenStrategy);
   bind(AuthenticationStrategy, 'V3AppCodeStrategy', () => codeStrategy);

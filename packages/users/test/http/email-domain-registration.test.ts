@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn';
-import { AuthnEventSink, PasswordService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { EmailVerification } from '@spinajs/email-verification';
 import type { EmailCheckResult } from '@spinajs/email-verification';
@@ -36,8 +36,8 @@ class RecordingPasswords extends TestPasswordService {
 
 const events: AuthnEvent[] = [];
 
-class CollectingSink extends AuthnEventSink {
-  public async publish(e: AuthnEvent): Promise<void> {
+class CollectingSink extends AuthnEventListener {
+  public async on(e: AuthnEvent): Promise<void> {
     events.push(e);
   }
 }
@@ -52,7 +52,7 @@ describe('users.emailDomains over POST /auth/register', function () {
   before(async () => {
     DI.register(StubVerification).as(EmailVerification);
     DI.register(RecordingPasswords).as(PasswordService);
-    DI.register(CollectingSink).as(AuthnEventSink);
+    DI.register(CollectingSink).as(AuthnEventListener);
     await startUsersHttpApp({ register: registerRootRbac });
     scope.set(['users', 'registration'], { enabled: true, activate: true });
     scope.set(['emailVerification', 'enabled'], true);
@@ -64,7 +64,7 @@ describe('users.emailDomains over POST /auth/register', function () {
     for (const [base, type] of [
       [EmailVerification, StubVerification],
       [PasswordService, RecordingPasswords],
-      [AuthnEventSink, CollectingSink],
+      [AuthnEventListener, CollectingSink],
     ] as [unknown, unknown][]) {
       DI.unregister(type as Class<unknown>);
       DI.uncache(base as Class<unknown>);

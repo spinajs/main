@@ -11,7 +11,7 @@ import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySession
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
 
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserActivated, UserAddressVerifier, UserChanged, UserIdentityStore, UserPasswordStateHook, UserPasswordStore } from '../../src/index.js';
+import { QueueAuthnEventListener, USER_COMMON_METADATA, User, UserActivated, UserAddressVerifier, UserChanged, UserIdentityStore, UserPasswordStateHook, UserPasswordStore } from '../../src/index.js';
 import { deactivate } from '../../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
 
@@ -77,7 +77,7 @@ describe('UserPasswordStateHook (HOOK-4, R2)', function () {
       secrets: new MemorySecretStore(),
       mailer,
       verifier: new UserAddressVerifier(),
-      listeners: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventListener)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

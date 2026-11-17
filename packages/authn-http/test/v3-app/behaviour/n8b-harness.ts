@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, AuthnService, KeyRegistry, MfaPolicy, MfaStep, NonceStore, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnService, KeyRegistry, MfaPolicy, MfaStep, NonceStore, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { CredentialAdminRule } from '@spinajs/authn/hooks';
 import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
@@ -84,11 +84,11 @@ class LaneMailer {
 
 /**
  * Activates an invited identity on `invite.redeem`, as users does (C1, N3 hand-off). A class registration:
- * authn-local resolves its sinks with Array.ofType, which skips factories such as N8a's V3AppEventSink, so the
+ * authn-local resolves its listeners with Array.ofType, which skips factories such as N8a's V3AppEventSink, so the
  * password flows' events never reach the kit's events port.
  */
-class N8bInviteActivation extends AuthnEventSink {
-  public async publish(e: AuthnEvent): Promise<void> {
+class N8bInviteActivation extends AuthnEventListener {
+  public async on(e: AuthnEvent): Promise<void> {
     if (e.type === 'invite.redeem' && e.outcome === 'success' && e.identity) passwordState?.identities.setStatus(e.identity, { active: true, invitePending: false });
   }
 }
@@ -138,7 +138,7 @@ export const passwordPart: LanePart = {
       bind(local.PasswordMailer, 'N8bPasswordMailer', () => passwordNow().mailer);
       // Over the DbSecretStore class the module registers: one store per case, on the current database.
       bind(SecretStore, 'N8bSecretStore', () => passwordNow().secrets);
-      DI.register(N8bInviteActivation).as(AuthnEventSink);
+      DI.register(N8bInviteActivation).as(AuthnEventListener);
     }
   },
   strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
@@ -195,11 +195,11 @@ export const passwordPart: LanePart = {
   },
 };
 
-/** Every event of the strategy packages' class-resolved sinks (see N8bInviteActivation), per case. */
+/** Every event of the strategy packages' class-resolved listeners (see N8bInviteActivation), per case. */
 export const laneEvents: AuthnEvent[] = [];
 
-class N8bEventRecorder extends AuthnEventSink {
-  public async publish(e: AuthnEvent): Promise<void> {
+class N8bEventRecorder extends AuthnEventListener {
+  public async on(e: AuthnEvent): Promise<void> {
     laneEvents.push(e);
   }
 }
@@ -207,7 +207,7 @@ class N8bEventRecorder extends AuthnEventSink {
 let recorderBound = false;
 
 // TotpService comes through the subpath export; the step, the store base and authn-orm's DbMfaStore by file,
-// since authn-orm's root registers its throttle and audit sink.
+// since authn-orm's root registers its throttle.
 const TOTP_LIB = new URL('../../../../authn-totp/lib/', import.meta.url);
 const totpModule = async <T>(file: string): Promise<T> => (await import(new URL(file, TOTP_LIB).href)) as T;
 
@@ -331,7 +331,7 @@ export const totpPart: LanePart = {
     }
     if (!recorderBound) {
       recorderBound = true;
-      DI.register(N8bEventRecorder).as(AuthnEventSink);
+      DI.register(N8bEventRecorder).as(AuthnEventListener);
     }
   },
   supportedConfig: ['authn.mfa.totp'],
@@ -571,7 +571,7 @@ export const adminPart: LanePart = {
   async addPorts(c, base) {
     const state = adminNow();
     const seed = base.seed!;
-    // TotpService (adminReset's mfa.disable) resolves its sinks with Array.ofType, which skips N8a's factory sink behind
+    // TotpService (adminReset's mfa.disable) resolves its listeners with Array.ofType, which skips N8a's factory listener behind
     // the events port; the class recorder gets every event. Only for A25, so the other rules' event counts stay as claimed.
     const events = c.ctx.rule === 'A25' ? { events: { all: () => [...laneEvents], clear: () => void (laneEvents.length = 0) } } : {};
     return {

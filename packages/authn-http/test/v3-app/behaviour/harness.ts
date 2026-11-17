@@ -9,7 +9,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { ServerMiddleware } from '@spinajs/http';
 import {
   AuthenticationStrategy,
-  AuthnEventSink,
+  AuthnEventListener,
   AuthnResponseExtension,
   AuthnService,
   AuthnThrottle,
@@ -232,7 +232,7 @@ async function uncacheCaseServices(): Promise<void> {
     AuthenticationStrategy,
     MfaStep,
     MfaPolicy,
-    AuthnEventSink,
+    AuthnEventListener,
     AuthnThrottle,
     IdentityStore,
     PasswordCredentialStore,

@@ -19,7 +19,7 @@ import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalP
 import type { PasswordMail } from '@spinajs/authn-local';
 
 import usersConfig from '../src/config/users.js';
-import { QueueAuthnEventSink, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
+import { QueueAuthnEventListener, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
 import { Hooks } from '@spinajs/hooks';
 import { ban, create, deactivate, setUserMeta } from '../src/actions.js';
 import { rootAdmin } from './support/authz-host.js';
@@ -214,7 +214,7 @@ describe('plan C1 acceptance', function () {
       await hasher.resolve();
       const throttle = new FakeBackoffThrottle(throttleParams(ctx.config));
       const events = new RecordingEventSink();
-      const listeners = [await DI.resolve(QueueAuthnEventSink), events];
+      const listeners = [await DI.resolve(QueueAuthnEventListener), events];
       const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
       await strategy.resolve();
       const password = new LocalPasswordService({ identities, passwords, sessions: issuer, throttle, tokens: null, secrets: new MemorySecretStore(), mailer: new RecordingMailer(), listeners, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });

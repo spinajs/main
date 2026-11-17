@@ -27,7 +27,7 @@
 | `PasswordSetAt` | `DateTime` | `@DateTime()`, `@Hidden()`. When the current password was set; written by [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state). |
 | `EmailVerifiedAt` | `DateTime` | `@DateTime()`. When the address was verified (a verify link or an invite redeem); written by `UserAddressVerifier` and [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state). |
 | `DeletedAt` | `DateTime` | `@SoftDelete()`. Normal reads skip soft-deleted rows; add `.withDeleted()` to see them. |
-| `LastLoginAt` | `DateTime` | `@DateTime()`. No package in this monorepo writes it; see [Authn event sinks](08-authn-event-sinks.md#custom-sink-stamp-the-last-login-time). |
+| `LastLoginAt` | `DateTime` | `@DateTime()`. No package in this monorepo writes it; see [Authentication event listeners](08-authn-event-sinks.md#custom-listener-stamp-the-last-login-time). |
 | `IsActive` | `boolean` | Account passed registration. Independent of a ban. |
 | `Metadata` | `MetadataRelation<UserMetadataBase, User>` | Key-value extras. |
 | `IsBanned` | `boolean` (getter) | Ban state from metadata, duration aware. |

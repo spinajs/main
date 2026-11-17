@@ -1,4 +1,4 @@
-import { AuthnEventSink, PasswordService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation, PrincipalRef } from '@spinajs/authn/contracts';
 import { DI } from '@spinajs/di';
 
@@ -73,8 +73,8 @@ export class TestPasswordService extends PasswordService {
     await User.query().Driver.update().in(User.getModelDescriptor().TableName).update({ Password: '!expired' }).where('Uuid', id.id);
 
     const actor = expiry.cause === 'admin' ? { actor: expiry.actor } : {};
-    for (const sink of await DI.resolve(Array.ofType(AuthnEventSink))) {
-      await sink.publish({ type: 'password.change', outcome: 'success', at: ctx.now, identity: id, ...actor, data: { cause: expiry.cause, expired: true } });
+    for (const sink of await DI.resolve(Array.ofType(AuthnEventListener))) {
+      await sink.on({ type: 'password.change', outcome: 'success', at: ctx.now, identity: id, ...actor, data: { cause: expiry.cause, expired: true } });
     }
   }
 }

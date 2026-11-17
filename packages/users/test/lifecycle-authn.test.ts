@@ -203,7 +203,7 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
       const stored = await storedUser(user.Uuid);
       expect(Boolean(stored.IsActive)).to.eq(true);
       expect(stored.Password).to.eq('!expired');
-      expect(queued().filter((e) => e instanceof UserPasswordExpired), 'once, from authn event through QueueAuthnEventSink').to.have.lengthOf(1);
+      expect(queued().filter((e) => e instanceof UserPasswordExpired), 'once, from authn event through QueueAuthnEventListener').to.have.lengthOf(1);
       expect(JSON.stringify(queued())).to.contain('rbac-user-passwordExpired');
     });
 

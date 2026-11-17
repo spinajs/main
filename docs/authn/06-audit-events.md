@@ -129,9 +129,9 @@ Listeners shipped with SpinaJS:
 | Listener | Package | What it does |
 | --- | --- | --- |
 | `AuthnAuditRecorder` | `@spinajs/audit-authn` | Records every event in the audit trail; blocking when its trail rejects |
-| `WebhookAuthnEventSink` | `@spinajs/authn-http` | POSTs each event, signed, to `authn.webhooks` |
-| `SseSessionEndSink` | `@spinajs/authz-http` | Ends a session's event streams on logout, revoke and impersonation |
-| `QueueAuthnEventSink` | `@spinajs/users` | Re-emits user queue events such as `UserLogged` and `UserLoginFailed` |
+| `WebhookAuthnEventListener` | `@spinajs/authn-http` | POSTs each event, signed, to `authn.webhooks` |
+| `SseSessionEndListener` | `@spinajs/authz-http` | Ends a session's event streams on logout, revoke and impersonation |
+| `QueueAuthnEventListener` | `@spinajs/users` | Re-emits user queue events such as `UserLogged` and `UserLoginFailed` |
 
 ## Recording
 

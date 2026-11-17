@@ -24,6 +24,6 @@ export * from './schema.js';
 export { AuthnRateLimit, AuthnSessionRateLimit, pendingSessionKey, pendingSessionKeyOf } from './rate-limits.js';
 export type * from './hooks.js';
 export * from './bootstrap.js';
-export { WebhookAuthnEventSink } from './webhook/sink.js';
+export { WebhookAuthnEventListener } from './webhook/sink.js';
 export type { AuthnWebhookTarget } from './webhook/sink.js';
 export { WEBHOOK_SIGNATURE_HEADER, signWebhook } from './webhook/sign.js';
