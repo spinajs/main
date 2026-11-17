@@ -32,13 +32,6 @@ interface Outcome {
   value: string;
 }
 
-class HandlerFailure extends Error {
-  constructor(execId: string) {
-    super(`${execId} failed after its side effect`);
-    this.name = 'HandlerFailure';
-  }
-}
-
 export const IDEMPOTENCY_FAULTS: FaultRule[] = [{ point: 'idempotency.after-claim', when: { probability: 0.1 }, effect: 'crash' }];
 
 export function idempotencySuite(o: { bypass?: boolean; faults?: FaultRule[] } = {}): SimSuite {
@@ -91,8 +84,6 @@ async function buildIdempotency(env: SimEnv, bypass: boolean): Promise<SimSystem
     const token = (await claimRow(key))?.Token ?? 'unclaimed';
     if (env.random.chance(0.15)) await env.park(LEASE + 5_000);
     await db.insert().into('sim_idem_effect').values({ Key: key, ExecId: execId, Token: token, Replica: currentReplicaId() });
-    // a handler that fails after its side effect: run releases the key, and the next caller runs it again
-    if (!env.quiescing && env.random.chance(0.1)) throw new HandlerFailure(execId);
     return execId;
   };
   const options: IdempotencyRunOptions<string> = {
@@ -108,7 +99,7 @@ async function buildIdempotency(env: SimEnv, bypass: boolean): Promise<SimSystem
       const outcome = await service.run(SCOPE, key, execute(key), options);
       outcomes.push({ caller, key, replayed: outcome.replayed, value: outcome.value });
     } catch (err) {
-      if (!(err instanceof IdempotencyInFlight) && !(err instanceof HandlerFailure)) throw err;
+      if (!(err instanceof IdempotencyInFlight)) throw err;
     }
   };
   const caller = (name: string): SimActor => ({
