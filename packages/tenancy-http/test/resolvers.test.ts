@@ -8,7 +8,8 @@ import { parseTrustProxy } from '@spinajs/http';
 import { TenantResolver, TenantUnavailable } from '@spinajs/tenancy';
 import type { TenantProposal } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
-import { hostOf, hostPlace, principalOf, requestHost, resolveTenant, tenantResolvers } from '../src/index.js';
+import { hostOf, hostPlace, principalOf, resolveTenant, tenantResolvers } from '../src/index.js';
+import { requestHost } from '../src/host.js';
 import type { TenantRequestSource } from '../src/index.js';
 import { anonymous, seedTenants, source, tenancyHttpApp, user } from './support/source.js';
 

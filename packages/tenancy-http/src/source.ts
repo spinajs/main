@@ -1,7 +1,9 @@
-import type { IncomingHttpHeaders } from 'node:http';
-import { isTrustedPeer, requestProxyTrust } from '@spinajs/http';
-import type { IMiddlewareContext, ProxyTrust } from '@spinajs/http';
+import { requestProxyTrust } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
 import type { Principal } from '@spinajs/principal';
+import { requestHost } from './host.js';
+
+export { hostOf } from './host.js';
 
 /** What the tenant resolvers read: one shape for an HTTP request and for a socket handshake. */
 export interface TenantRequestSource {
@@ -41,23 +43,6 @@ function sessionOf(store: object): TenantRequestSource['session'] {
   const session = read(store, 'AuthnSession');
   const data = isObject(session) ? session.data : undefined;
   return data instanceof Map ? data : undefined;
-}
-
-/** `host[:port]` or `[v6]:port` without the port and a trailing dot, lower-cased; of a list, the first value. */
-export function hostOf(header: unknown): string | undefined {
-  const value: unknown = Array.isArray(header) ? (header as unknown[])[0] : header;
-  if (typeof value !== 'string') return undefined;
-  // X-Forwarded-Host lists one value per proxy; the first is the one the client asked for.
-  const first = value.split(',')[0].trim();
-  const host = first.startsWith('[') ? first.slice(0, first.indexOf(']') + 1) : first.split(':')[0];
-  const name = (host.endsWith('.') ? host.slice(0, -1) : host).toLowerCase();
-  return name === '' ? undefined : name;
-}
-
-/** The host the client asked for: X-Forwarded-Host only from a peer `trust` (`http.trustProxy`) trusts, else Host. */
-export function requestHost(req: { readonly headers: IncomingHttpHeaders; readonly socket?: { readonly remoteAddress?: string } }, trust: ProxyTrust): string | undefined {
-  const forwarded = isTrustedPeer(trust, req.socket?.remoteAddress) ? hostOf(req.headers['x-forwarded-host']) : undefined;
-  return forwarded ?? hostOf(req.headers.host);
 }
 
 export function httpSource({ req, storage }: IMiddlewareContext): TenantRequestSource {
