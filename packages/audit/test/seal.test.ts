@@ -3,6 +3,7 @@ import 'mocha';
 import { eventDigest, payloadHash, sealHash } from '../src/index.js';
 
 describe('seal hashing', () => {
+  const sealedAt = new Date('2026-11-16T10:00:00.000Z');
   const sealed = { id: '00000000-0000-4000-8000-000000000001', at: new Date('2026-11-16T10:00:01.000Z'), kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id: 'c1' }, outcome: 'ok', actor: 'user:u1' };
 
   it('covers every sealed field of an event, and its payload through the hash', () => {
@@ -21,14 +22,15 @@ describe('seal hashing', () => {
   it('keeps its encoding', () => {
     const digest = eventDigest(sealed, payloadHash({ v: 1 }));
     expect(digest).to.eq('5f1fcfd1aa34aa1b1a8a980501ab8535e8ef512af170ccb595329f1595c1003f');
-    expect(sealHash(null, [digest])).to.eq('cf6c1b6f0f710e05d6cc912243164acb0587ae67333d37689bb7dbc6ffc107b0');
-    expect(sealHash(digest, [digest])).to.eq('00f1261522d300b43bc4fe6005ad04139c98122afed5fa42e73f8108edb91d15');
+    expect(sealHash(null, sealedAt, [digest])).to.eq('044ed81deb40e8770cc1186ccecbaf4b468a3052d538c6808f6ee6253d7248f4');
+    expect(sealHash(digest, sealedAt, [digest])).to.eq('d9c4e3780a595c001a09511f038cf08ef5cdfe42d8b95a73e62939b1e516ce28');
   });
 
-  it('chains a seal to the one before it', () => {
-    const first = sealHash(null, ['a', 'b']);
-    expect(sealHash(null, ['a', 'b'])).to.eq(first);
-    expect(sealHash(null, ['b', 'a'])).to.not.eq(first);
-    expect(sealHash(first, ['c'])).to.not.eq(sealHash(null, ['c']));
+  it('chains a seal to the one before it, and covers its own time', () => {
+    const first = sealHash(null, sealedAt, ['a', 'b']);
+    expect(sealHash(null, sealedAt, ['a', 'b'])).to.eq(first);
+    expect(sealHash(null, sealedAt, ['b', 'a'])).to.not.eq(first);
+    expect(sealHash(null, new Date(sealedAt.getTime() - 1000), ['a', 'b'])).to.not.eq(first);
+    expect(sealHash(first, sealedAt, ['c'])).to.not.eq(sealHash(null, sealedAt, ['c']));
   });
 });

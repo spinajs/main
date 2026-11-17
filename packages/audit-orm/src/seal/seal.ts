@@ -49,8 +49,11 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
   if (options.upTo !== undefined) select.where('seq', '<=', options.upTo);
   const rows = rowsOf(await select.orderBy('seq').take(options.batchSize));
   if (rows.length === 0) return { sealed: 0, toSeq: after, hash: previous };
+  // Whole seconds: what every dialect's dateTime stores and reads back unchanged.
+  const sealedAt = new Date(Math.floor(options.now.getTime() / 1000) * 1000);
   const hash = sealHash(
     previous,
+    sealedAt,
     rows.map((row) => rowDigest(row)),
   );
   const toSeq = Number(rows[rows.length - 1].seq);
@@ -59,7 +62,7 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
   await driver
     .insert()
     .into(AUDIT_SEAL_TABLE)
-    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: rows.length, hash, previous_hash: previous, sealed_at: options.now });
+    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: rows.length, hash, previous_hash: previous, sealed_at: sealedAt });
   return { sealed: rows.length, toSeq, hash };
 }
 

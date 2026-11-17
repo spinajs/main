@@ -4,6 +4,7 @@ import 'mocha';
 import { AuditConfigError, eventDigest, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { instantFromDb } from '@spinajs/orm';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, AuditSealer, OutboxAuditStore, TableAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import { AuditSealError, AuditSealTask } from '../src/scheduler.js';
 import { bufferRows } from '../src/ship/outbox.js';
@@ -83,12 +84,16 @@ describe('audit sealing', function () {
 
       it('stores the hash every dialect computes alike', async () => {
         await append(event(1), event(2));
-        await sealAudit({ settleMs: 0 });
+        await sealAudit({ settleMs: 0, now: new Date('2026-11-16T12:00:00.250Z') });
+        // Sealed at the whole second, which every dialect stores and reads back alike.
+        const sealedAt = new Date('2026-11-16T12:00:00.000Z');
         const expected = sealHash(
           null,
+          sealedAt,
           [event(1), event(2)].map((e) => eventDigest(e, payloadHash(e.data))),
         );
-        expect((await seals())[0].hash).to.eq(expected);
+        const [seal] = await seals();
+        expect([seal.hash, instantFromDb(seal.sealed_at)?.toMillis()]).to.deep.eq([expected, sealedAt.getTime()]);
         expect((await tableRows(driver(), TABLE)).map((r) => r.data_hash)).to.deep.eq([payloadHash(event(1).data), payloadHash(event(2).data)]);
       });
 
@@ -265,7 +270,8 @@ describe('audit sealing', function () {
           expect(await ranges()).to.deep.eq([[ARCHIVE, 1, 2, 2]]);
           // The source an archive files the events under is sealed too.
           const filed = [event(1), event(2)].map((e) => eventDigest({ ...e, source: connection() }, payloadHash(e.data)));
-          expect((await seals())[0].hash).to.eq(sealHash(null, filed));
+          const [seal] = await seals();
+          expect(seal.hash).to.eq(sealHash(null, instantFromDb(seal.sealed_at)?.toJSDate() ?? new Date(Number.NaN), filed));
         } finally {
           await new AuditOutboxTableMigration().down(driver());
           await new ShippedArchiveMigration().down(driver());

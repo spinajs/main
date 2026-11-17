@@ -30,7 +30,7 @@ export function eventDigest(e: SealedEvent, dataHash: string): string {
   return sha256(JSON.stringify([e.id, e.at.getTime(), e.kind, e.action, e.subject?.type ?? null, e.subject?.id ?? null, e.outcome, e.actor, e.onBehalfOf ?? null, e.traceId ?? null, e.origin ?? null, e.tenant ?? null, e.decisionId ?? null, e.idempotencyKey ?? null, e.dataSubject ?? null, e.source ?? null, dataHash]));
 }
 
-/** The hash of a seal: the previous seal's hash and the digests of its events, in `seq` order. */
-export function sealHash(previous: string | null, digests: readonly string[]): string {
-  return sha256([previous ?? '', ...digests].join('\n'));
+/** The hash of a seal: the previous seal's hash, its own time as epoch milliseconds, and the digests of its events in `seq` order. */
+export function sealHash(previous: string | null, sealedAt: Date, digests: readonly string[]): string {
+  return sha256([previous ?? '', String(sealedAt.getTime()), ...digests].join('\n'));
 }
