@@ -2,8 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { AuthzConfigError } from '@spinajs/authz';
 
-import { NamespaceSchema } from '../../src/index.js';
-import type { NamespaceConfig, PermissionMap } from '../../src/index.js';
+import { NamespaceSchema, admitsTuple, objectTypesOf } from '../../src/index.js';
+import type { NamespaceConfig, PermissionMap, Tuple } from '../../src/index.js';
 import { NAMESPACES, PERMISSIONS, d1, ref, set, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
@@ -23,8 +23,8 @@ describe('authz-rebac: namespace compiler', () => {
     const schema = NamespaceSchema.compile(NAMESPACES, PERMISSIONS);
 
     it('compiles relations into direct types and subject sets', () => {
-      expect(schema.relation('doc', 'viewer')).to.deep.equal({ name: 'viewer', direct: ['user'], sets: [{ type: 'group', relation: 'member' }] });
-      expect(schema.relation('folder', 'parent')).to.deep.equal({ name: 'parent', direct: ['folder'], sets: [] });
+      expect(schema.relation('doc', 'viewer')).to.deep.equal({ name: 'viewer', direct: ['user'], sets: [{ type: 'group', relation: 'member' }], conditional: [] });
+      expect(schema.relation('folder', 'parent')).to.deep.equal({ name: 'parent', direct: ['folder'], sets: [], conditional: [] });
       expect(schema.relation('doc', 'read')).to.equal(undefined);
       expect(schema.relation('nope', 'viewer')).to.equal(undefined);
     });
@@ -112,6 +112,61 @@ describe('authz-rebac: namespace compiler', () => {
     it('a permission map entry that names no target', () => {
       expect(compileError(NAMESPACES, { 'doc:x': 'doc#nope' })).to.include('doc:x maps to unknown doc#nope');
       expect(compileError(NAMESPACES, { 'doc:x': 'doc' })).to.include('doc:x must map to "<namespace>#<relation or permission>"');
+    });
+  });
+
+  describe('caveats', () => {
+    const CAVEATS = {
+      office_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: '10.0.0.1' } },
+      not_expired: { params: { 'env.day': 'int', 'env.until': 'int' }, expr: { attr: 'env.day', lt: { ref: 'env.until' } } },
+    } as const;
+    const NS = {
+      user: {},
+      group: { relations: { member: ['user'] } },
+      folder: { relations: { viewer: ['user'] }, permissions: { view: 'viewer' } },
+      doc: { relations: { viewer: ['user', 'user with office_ip', 'group#member with office_ip'], parent: ['folder with not_expired'] }, permissions: { read: { union: ['viewer', 'parent->view'] } } },
+    };
+
+    it('compiles `with` subject types into conditional entries; an arrow follows conditional object types', () => {
+      const s = NamespaceSchema.compile(NS, { 'doc:read': 'doc#read' }, CAVEATS);
+      expect(s.relation('doc', 'viewer')!.conditional).to.deep.equal([
+        { type: 'user', caveat: 'office_ip' },
+        { type: 'group', relation: 'member', caveat: 'office_ip' },
+      ]);
+      expect(objectTypesOf(s.relation('doc', 'parent')!)).to.deep.equal(['folder']);
+    });
+
+    it('admits a tuple by its shape and caveat name', () => {
+      const viewer = NamespaceSchema.compile(NS, {}, CAVEATS).relation('doc', 'viewer')!;
+      expect(admitsTuple(viewer, { subject: user('a') })).to.equal(true);
+      expect(admitsTuple(viewer, { subject: user('a'), caveat: { name: 'office_ip' } })).to.equal(true);
+      expect(admitsTuple(viewer, { subject: user('a'), caveat: { name: 'not_expired' } })).to.equal(false);
+      expect(admitsTuple(viewer, { subject: set('group', 'g', 'member') })).to.equal(false);
+      expect(admitsTuple(viewer, { subject: set('group', 'g', 'member'), caveat: { name: 'office_ip' } })).to.equal(true);
+    });
+
+    it('refuses an undeclared caveat, a row parameter and an ill-typed definition', () => {
+      expect(() => NamespaceSchema.compile(NS, {}, {})).to.throw(AuthzConfigError, 'office_ip');
+      expect(() => NamespaceSchema.compile(NS, {}, { ...CAVEATS, office_ip: { params: { 'resource.ip': 'string' }, expr: { attr: 'resource.ip', eq: 'x' } } })).to.throw(AuthzConfigError, 'env.* and principal.*');
+      expect(() => NamespaceSchema.compile(NS, {}, { ...CAVEATS, office_ip: { params: {}, expr: { attr: 'env.ip', eq: 'x' } } })).to.throw(AuthzConfigError, 'IR004');
+    });
+
+    it('problem() checks the context: declared parameters, matching types, never env.now', () => {
+      const s = NamespaceSchema.compile(NS, {}, CAVEATS);
+      const t = (context: Record<string, unknown>) => ({ object: ref('doc', 'd1'), relation: 'parent', subject: { type: 'folder', id: 'f' }, caveat: { name: 'not_expired', context } }) as Tuple;
+      expect(s.problem(t({ 'env.until': 20 }))).to.equal(undefined);
+      expect(s.problem(t({ 'env.other': 1 }))?.code).to.equal('invalid_caveat_context');
+      expect(s.problem(t({ 'env.until': 'soon' }))?.code).to.equal('invalid_caveat_context');
+      expect(s.problem({ ...t({}), caveat: { name: 'office_ip' } })?.code).to.equal('subject_not_allowed');
+      const now = NamespaceSchema.compile(NS, {}, { ...CAVEATS, not_expired: { params: { 'env.now': 'timestamp', 'env.until': 'timestamp' }, expr: { attr: 'env.now', lt: { ref: 'env.until' } } } });
+      expect(now.problem(t({ 'env.now': '2020-01-01T00:00:00Z' }))).to.deep.include({ code: 'invalid_caveat_context' });
+      expect(now.problem(t({ 'env.now': '2020-01-01T00:00:00Z' }))?.message).to.include('env.now');
+    });
+
+    it('the hash changes with a caveat definition', () => {
+      const a = NamespaceSchema.compile(NS, {}, CAVEATS).hash();
+      const b = NamespaceSchema.compile(NS, {}, { ...CAVEATS, office_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: '10.0.0.2' } } }).hash();
+      expect(a).to.not.equal(b);
     });
   });
 });

@@ -33,7 +33,11 @@ describe('authz-rebac: rebacToIR', () => {
     const after = s.model.toIR({ config: <T>(_p: string, d?: T) => d as T });
     expect(after.model).to.equal('shares');
     expect(after.permissions!['doc:view']).to.include({ permit: 'view' });
-    const before = new RebacModel().toIR({ config: <T>(path: string) => (path === 'namespaces' ? NAMESPACES : PERMISSIONS) as T });
+    const config = new Map<string, unknown>([
+      ['namespaces', NAMESPACES],
+      ['permissions', PERMISSIONS],
+    ]);
+    const before = new RebacModel().toIR({ config: <T>(path: string, d?: T) => (config.get(path) ?? d) as T });
     expect(before.types).to.deep.equal(after.types);
   });
 

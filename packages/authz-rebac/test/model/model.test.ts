@@ -4,7 +4,8 @@ import { AuthzConfigError, CORE_FILTER_OPS, FALSE, TRUE } from '@spinajs/authz';
 import type { PermissionDef, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { FakePermissionRegistry, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
-import { MemoryTupleStore, REBAC_CHECK_OP, RebacModel } from '../../src/index.js';
+import { MemoryTupleStore, REBAC_CHECK_OP, RebacModel, TupleStore } from '../../src/index.js';
+import type { Tuple } from '../../src/index.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, d3, f1, setup, tuple, user } from '../support/world.js';
 import type { Setup } from '../support/world.js';
 
@@ -163,6 +164,30 @@ describe('authz-rebac: RebacModel', () => {
       await limit.init(fakeModelInitContext()).catch((e: unknown) => (error = e));
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.include('maxDepth');
+    });
+
+    it('refuses conditional subject types over a store that keeps no caveats', async () => {
+      class Bare extends TupleStore {
+        readonly name = 'bare';
+        read(): Promise<readonly Tuple[]> {
+          return Promise.resolve([]);
+        }
+        reverse(): Promise<readonly ResourceRef[]> {
+          return Promise.resolve([]);
+        }
+        write(): Promise<string> {
+          return Promise.resolve('0');
+        }
+        find(): Promise<{ items: readonly Tuple[]; total: number }> {
+          return Promise.resolve({ items: [], total: 0 });
+        }
+      }
+      const caveats = { c: { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } } as const;
+      const model = new RebacModel({ store: new Bare(), namespaces: { user: {}, doc: { relations: { viewer: ['user with c'] } } }, caveats });
+      let error: unknown;
+      await model.init(fakeModelInitContext()).catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.include('keeps no caveats');
     });
   });
 
