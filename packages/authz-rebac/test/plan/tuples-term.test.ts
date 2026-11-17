@@ -4,7 +4,7 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { DbTupleStore, REBAC_TUPLES_PLAN_OP, RebacTuplesTerm } from '../../src/index.js';
+import { DbTupleStore, REBAC_TUPLES_PLAN_OP, RebacTuplesTerm, caveatKey } from '../../src/index.js';
 import type { RebacPlanExpr } from '../../src/index.js';
 import { bootDb } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -61,6 +61,8 @@ describe('authz-rebac: rebac.tuples on the query builders (sqlite)', function ()
         // Same object id in another namespace: must not leak into docs.
         tuple(ref('folder', 'd4'), 'owner', user('alice')),
         { ...tuple(d('d1'), 'owner', user('carol')), caveat: { name: 'c' } },
+        { ...tuple(d('d2'), 'owner', user('dan')), caveat: { name: 'c', context: { 'env.x': 1 } } },
+        { ...tuple(d('d3'), 'owner', user('dan')), caveat: { name: 'c' } },
       ],
       [],
       user('admin'),
@@ -89,6 +91,17 @@ describe('authz-rebac: rebac.tuples on the query builders (sqlite)', function ()
 
   it('a leaf without subjects keeps no row', async () => {
     expect(await ids(leaf('owner', []))).to.deep.equal([]);
+  });
+
+  it('a conditional group keeps the rows whose tuple carries its caveat key, the plain branch only unconditional ones', async () => {
+    const group = (caveat: string, subjects: string[]): RebacPlanExpr => ({ tuples: { relation: 'owner', subjects: [], conditional: [{ caveat, subjects }] } });
+    expect(await ids(group(caveatKey({ name: 'c' }), ['user:carol']))).to.deep.equal(['d1']);
+    expect(await ids(group(caveatKey({ name: 'c' }), ['user:dan']))).to.deep.equal(['d3']);
+    expect(await ids(group(caveatKey({ name: 'c', context: { 'env.x': 1 } }), ['user:dan']))).to.deep.equal(['d2']);
+    expect(await ids(group(caveatKey({ name: 'other' }), ['user:carol']))).to.deep.equal([]);
+    expect(await ids(group(caveatKey({ name: 'c' }), ['user:alice']))).to.deep.equal([]);
+    const both: RebacPlanExpr = { tuples: { relation: 'owner', subjects: ['user:bob', 'user:dan'], conditional: [{ caveat: caveatKey({ name: 'c' }), subjects: ['user:carol', 'user:dan'] }] } };
+    expect(await ids(both)).to.deep.equal(['d1', 'd3', 'd4']);
   });
 
   it('any is OR, all is AND', async () => {

@@ -151,8 +151,11 @@ export class RebacModel extends AuthorizationModel {
     return rebacListSupport(this.schema(), permission.name, type);
   }
 
-  async listPlan(req: ListPlanRequest, _ctx: EvaluationContext): Promise<ModelListPlan> {
-    return rebacListPlan({ schema: this.schema(), store: this.store(), principal: { type: req.principal.type, id: req.principal.id }, permission: req.permission.name, type: req.type, maxDepth: this.limits.maxDepth });
+  async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    const caveats = new RebacCaveats(this.schema().caveats);
+    const request: CaveatRequest = { principal: req.principal, permission: req.permission.name, resource: { type: req.type }, env: req.env ?? {} };
+    const caveat = async (c: TupleCaveat): Promise<CaveatTruth> => (await caveats.evaluate(c, request, ctx)).truth;
+    return rebacListPlan({ schema: this.schema(), store: this.store(), principal: { type: req.principal.type, id: req.principal.id }, permission: req.permission.name, type: req.type, maxDepth: this.limits.maxDepth, caveat, now: ctx.now });
   }
 
   /** Tuple changes (`rebac`, `rebac:<namespace>`, `model:<name>`, the host's `*`) move the version. */
