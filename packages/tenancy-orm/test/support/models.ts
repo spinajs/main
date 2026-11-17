@@ -74,6 +74,29 @@ export class Orphan extends ModelBase<Orphan> {
   public label: string;
 }
 
+// Shared, with to-one relations to a tenant model, directly and through itself.
+@Connection('default')
+@Model('depot')
+export class Depot extends ModelBase<Depot> {
+  @Primary()
+  public Id: number;
+
+  public name: string;
+
+  public invoice_id: number | null;
+
+  public parent_id: number | null;
+
+  @BelongsTo(Invoice, 'invoice_id')
+  public Invoice: SingleRelation<Invoice>;
+
+  @BelongsTo(Depot, 'parent_id')
+  public Parent: SingleRelation<Depot>;
+
+  @HasMany(Depot, { foreignKey: 'parent_id', primaryKey: 'Id' })
+  public Children: Relation<Depot, Depot>;
+}
+
 // Not a tenant model, on a tenant table.
 @Connection('default')
 @Model('invoice')
@@ -124,7 +147,7 @@ export class Ledger extends TenantOwned<Ledger> {
   public entry: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder'];
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -169,6 +192,12 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.string('tenant_id', 64).notNull();
       table.string('name', 32).notNull();
+      table.int('parent_id');
+    });
+    await connection.schema().createTable('depot', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('name', 32).notNull();
+      table.int('invoice_id');
       table.int('parent_id');
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);

@@ -9,7 +9,7 @@ import { confine } from './confine.js';
 import { stamp } from './insert.js';
 import { hasTenantModels, nameOf } from './registry.js';
 import { acrossTenantsReason } from './marker.js';
-import { refusePartlyFiltered } from './shapes.js';
+import { keepTenantColumn, refuseJoinedTenantTables, refusePartlyFiltered, requireCondition } from './shapes.js';
 import { isStatement, requireColumn, statementName, targetOf } from './target.js';
 import type { TenantTarget } from './target.js';
 
@@ -29,9 +29,12 @@ export class TenantScopeMiddleware extends QueryMiddleware {
 
   beforeQueryExecution(query: QueryBuilder): void {
     if (!hasTenantModels() || !isStatement(query)) return;
-    const target = targetOf(query);
-    if (target === undefined) return;
     const scope = statementScope(query);
+    const target = targetOf(query);
+    if (target === undefined) {
+      if (query instanceof SelectQueryBuilder) refuseJoinedTenantTables(query, scope);
+      return;
+    }
     const name = statementName(query, target.entry);
     if (scope === undefined) throw new TenantRequired(`tenancy-orm: ${name} needs a tenant scope: run it inside runInTenant(), or leave the scope with a declared reason`);
     if (!target.owned) {
@@ -48,8 +51,10 @@ export class TenantScopeMiddleware extends QueryMiddleware {
       stamp(query, target.entry, scope);
       return;
     }
+    if (query instanceof UpdateQueryBuilder) keepTenantColumn(query, target.entry, scope);
     if (scope.kind === 'all') return;
     if (query instanceof SelectQueryBuilder) refusePartlyFiltered(query, statementName(query, target.entry));
+    if (query instanceof UpdateQueryBuilder) requireCondition(query, target.entry);
     if (query instanceof SelectQueryBuilder || query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder) confine(query, target.entry.column, scope.tenant.id);
   }
 }

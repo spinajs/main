@@ -1,3 +1,4 @@
+import { NotSupported } from '@spinajs/exceptions';
 import type { InsertQueryBuilder } from '@spinajs/orm';
 import { TenantMismatch, TenantRequired } from '@spinajs/tenancy';
 import type { TenantScope } from '@spinajs/tenancy';
@@ -11,6 +12,10 @@ export function stamp(query: InsertQueryBuilder, entry: TenantModelEntry, scope:
     const named = values.length > 0 && values.every((value) => typeof value === 'string' && value !== '');
     if (!named) throw new TenantRequired(`tenancy-orm: insert into ${entry.table} in the all-tenants scope must set ${entry.column} on every row`);
     return;
+  }
+  // The update half of an upsert changes the row its conflict target finds, in whatever tenant that row is.
+  if (query.Update || query.Replace) {
+    throw new NotSupported(`tenancy-orm: insert into ${entry.table} with onDuplicate() or orReplace() could change a row of another tenant; upserts on tenant models land with v4-td-03-row-mode-conformance`);
   }
   const tenant = scope.tenant.id;
   const other = values.find((value) => value !== undefined && value !== null && value !== tenant);
