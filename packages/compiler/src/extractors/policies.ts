@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { GlobalMiddlewareRef, MiddlewareRef, PolicyRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
-import { decoratorOrigin } from './decorator-origin.js';
+import { decoratorOrigin, originOf } from './decorator-origin.js';
 
 const refOf = (expr: ts.Expression | undefined, ctx: ExtractorContext): string => {
   const value = identifierName(expr) ?? literalValue(expr, ctx);
@@ -107,11 +107,19 @@ function factoryMiddleware(d: DecoratorInfo, ctx: ExtractorContext): MiddlewareR
   return decoratorArgs ? { type: factory.type, decoratorArgs } : { type: factory.type };
 }
 
+const DEFAULT_EXPORT: string = ts.InternalSymbolName.Default;
+
+/** The declared name of the mounted class, as the factory decorators record it, so a name match also sees an import alias. */
+function mountedTypeOf(expr: ts.Expression | undefined, ctx: ExtractorContext): string {
+  const declared = originOf(expr, ctx)?.name;
+  return declared && declared !== DEFAULT_EXPORT ? declared : refOf(expr, ctx);
+}
+
 /** In source order; see `MiddlewareRef`. */
 export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): MiddlewareRef[] {
   const out = decoratorsOf(node).flatMap((d): MiddlewareRef[] => {
     if (d.name === 'Middleware') {
-      const type = refOf(d.args[0], ctx);
+      const type = mountedTypeOf(d.args[0], ctx);
       const options = literalArgs(d.args.slice(1), ctx);
       return [options ? { type, options } : { type }];
     }
