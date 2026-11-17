@@ -12,6 +12,7 @@ export interface AuditSeal {
   readonly fromSeq: number;
   readonly toSeq: number;
   readonly count: number;
+  readonly eventsHash: string;
   readonly hash: string;
   readonly previousHash: string | null;
   readonly sealedAt: Date;
@@ -38,6 +39,7 @@ function toSeal(row: AuditRow): AuditSeal {
     fromSeq: Number(row.from_seq),
     toSeq: Number(row.to_seq),
     count: Number(row.event_count),
+    eventsHash: text(row.events_hash) ?? '',
     hash: text(row.hash) ?? '',
     previousHash: text(row.previous_hash) ?? null,
     // Compared in JavaScript, never in SQL; an unreadable time is an invalid date, which retention treats as too young.

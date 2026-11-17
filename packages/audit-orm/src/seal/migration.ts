@@ -12,6 +12,7 @@ export class AuditSealTableMigration extends OrmMigration {
       table.bigint('from_seq').notNull();
       table.bigint('to_seq').notNull();
       table.int('event_count').notNull();
+      table.string('events_hash', 64).notNull();
       table.string('hash', 64).notNull();
       table.string('previous_hash', 64);
       table.dateTime('sealed_at').notNull();

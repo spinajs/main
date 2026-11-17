@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import 'mocha';
-import { eventDigest, payloadHash, sealHash } from '../src/index.js';
+import { eventDigest, eventsHash, payloadHash, sealHash } from '../src/index.js';
 
 describe('seal hashing', () => {
   const sealedAt = new Date('2026-11-16T10:00:00.000Z');
@@ -22,15 +22,18 @@ describe('seal hashing', () => {
   it('keeps its encoding', () => {
     const digest = eventDigest(sealed, payloadHash({ v: 1 }));
     expect(digest).to.eq('5f1fcfd1aa34aa1b1a8a980501ab8535e8ef512af170ccb595329f1595c1003f');
-    expect(sealHash(null, sealedAt, [digest])).to.eq('044ed81deb40e8770cc1186ccecbaf4b468a3052d538c6808f6ee6253d7248f4');
-    expect(sealHash(digest, sealedAt, [digest])).to.eq('d9c4e3780a595c001a09511f038cf08ef5cdfe42d8b95a73e62939b1e516ce28');
+    const events = eventsHash([digest]);
+    expect(events).to.eq('46a78834d691314ec9a4795090428467db7a1a98f135eaea4e481e5692552f50');
+    expect(sealHash(null, sealedAt, events)).to.eq('778e385dad9d7aec629128894758c6d5cb65dc5da1c6fe5d0506283d86cced8a');
+    expect(sealHash(digest, sealedAt, events)).to.eq('52f7ed8ef72b9845f3b1154fcd351edda0d2045a768a7dff7fc26a92a4b1f236');
   });
 
-  it('chains a seal to the one before it, and covers its own time', () => {
-    const first = sealHash(null, sealedAt, ['a', 'b']);
-    expect(sealHash(null, sealedAt, ['a', 'b'])).to.eq(first);
-    expect(sealHash(null, sealedAt, ['b', 'a'])).to.not.eq(first);
-    expect(sealHash(null, new Date(sealedAt.getTime() - 1000), ['a', 'b'])).to.not.eq(first);
-    expect(sealHash(first, sealedAt, ['c'])).to.not.eq(sealHash(null, sealedAt, ['c']));
+  it('chains a seal to the one before it, and covers its own time and its events in order', () => {
+    const events = eventsHash(['a', 'b']);
+    expect(eventsHash(['b', 'a'])).to.not.eq(events);
+    const first = sealHash(null, sealedAt, events);
+    expect(sealHash(null, sealedAt, events)).to.eq(first);
+    expect(sealHash(null, new Date(sealedAt.getTime() - 1000), events)).to.not.eq(first);
+    expect(sealHash(first, sealedAt, eventsHash(['c']))).to.not.eq(sealHash(null, sealedAt, eventsHash(['c'])));
   });
 });

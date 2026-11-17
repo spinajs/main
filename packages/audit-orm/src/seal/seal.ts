@@ -1,4 +1,4 @@
-import { AuditConfigError, sealHash, trailConfig, trailNames } from '@spinajs/audit';
+import { AuditConfigError, eventsHash, sealHash, trailConfig, trailNames } from '@spinajs/audit';
 import type { TrailConfig } from '@spinajs/audit';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -51,18 +51,15 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
   if (rows.length === 0) return { sealed: 0, toSeq: after, hash: previous };
   // Whole seconds: what every dialect's dateTime stores and reads back unchanged.
   const sealedAt = new Date(Math.floor(options.now.getTime() / 1000) * 1000);
-  const hash = sealHash(
-    previous,
-    sealedAt,
-    rows.map((row) => rowDigest(row)),
-  );
+  const events = eventsHash(rows.map((row) => rowDigest(row)));
+  const hash = sealHash(previous, sealedAt, events);
   const toSeq = Number(rows[rows.length - 1].seq);
   // A range starts where the previous one ended, not at the first row seen: a row that commits later inside it changes its
   // count, and a second seal chained from the same one starts at the same seq, which the unique index refuses.
   await driver
     .insert()
     .into(AUDIT_SEAL_TABLE)
-    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: rows.length, hash, previous_hash: previous, sealed_at: sealedAt });
+    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: rows.length, events_hash: events, hash, previous_hash: previous, sealed_at: sealedAt });
   return { sealed: rows.length, toSeq, hash };
 }
 

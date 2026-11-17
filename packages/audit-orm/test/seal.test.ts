@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AuditConfigError, eventDigest, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
+import { AuditConfigError, eventDigest, eventsHash, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
@@ -87,13 +87,9 @@ describe('audit sealing', function () {
         await sealAudit({ settleMs: 0, now: new Date('2026-11-16T12:00:00.250Z') });
         // Sealed at the whole second, which every dialect stores and reads back alike.
         const sealedAt = new Date('2026-11-16T12:00:00.000Z');
-        const expected = sealHash(
-          null,
-          sealedAt,
-          [event(1), event(2)].map((e) => eventDigest(e, payloadHash(e.data))),
-        );
+        const events = eventsHash([event(1), event(2)].map((e) => eventDigest(e, payloadHash(e.data))));
         const [seal] = await seals();
-        expect([seal.hash, instantFromDb(seal.sealed_at)?.toMillis()]).to.deep.eq([expected, sealedAt.getTime()]);
+        expect([seal.events_hash, seal.hash, instantFromDb(seal.sealed_at)?.toMillis()]).to.deep.eq([events, sealHash(null, sealedAt, events), sealedAt.getTime()]);
         expect((await tableRows(driver(), TABLE)).map((r) => r.data_hash)).to.deep.eq([payloadHash(event(1).data), payloadHash(event(2).data)]);
       });
 
@@ -271,7 +267,7 @@ describe('audit sealing', function () {
           // The source an archive files the events under is sealed too.
           const filed = [event(1), event(2)].map((e) => eventDigest({ ...e, source: connection() }, payloadHash(e.data)));
           const [seal] = await seals();
-          expect(seal.hash).to.eq(sealHash(null, instantFromDb(seal.sealed_at)?.toJSDate() ?? new Date(Number.NaN), filed));
+          expect(seal.hash).to.eq(sealHash(null, instantFromDb(seal.sealed_at)?.toJSDate() ?? new Date(Number.NaN), eventsHash(filed)));
         } finally {
           await new AuditOutboxTableMigration().down(driver());
           await new ShippedArchiveMigration().down(driver());
