@@ -47,7 +47,7 @@ own. The order is: the options of the declaration, then the first matching rule,
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `methods` | unset: every method | HTTP methods audited, eg. `['POST', 'DELETE']`, in any case. A route whose method is not listed does not mount the middleware; a `HEAD` request to a `GET` route is judged by `HEAD`. |
+| `methods` | unset: every method | HTTP methods audited, eg. `['POST', 'DELETE']`, in any case. A route whose method is not listed does not mount the middleware; a `HEAD` request to a `GET` route runs its action, so it is judged by `GET`. |
 | `redact` | `['password', 'token', 'secret', 'authorization', 'cookie', 'card']` | Keys whose values are recorded as `[redacted]`. In `audit.http` the list replaces the default; in route options it adds to the configured list. Apps often add `apikey`, `privatekey`, `otp`, `cvv`, `cvc`, `credential`, `passwd` and `pwd`. |
 | `includeBody` | `true` | Whether the request body is recorded. |
 | `maxBodyBytes` | `16384` | A body larger than this, by its `Content-Length` or as JSON after redaction, is left out; `bodyTruncated` holds its size. |
@@ -55,8 +55,9 @@ own. The order is: the options of the declaration, then the first matching rule,
 | `action` | the route name, `http:<METHOD> <mounted path>` | The event's `action`. Set on a route it is used as it is. Set for several routes at once (on a controller, in a global entry, in `audit.http`) it is a prefix: each route records `<action>.<method name>`, so their events stay apart. |
 | `rules` | none | `audit.http` only. Per-route `action` and `trail`, see [Rules](#rules). |
 
-A trail that does not exist, a trail whose store is not registered, or an `action` that is empty or longer than 128
-characters fails the registration of the route, so the application does not boot. A default route name longer than
+A key `audit.http` does not know (a misspelt `trial`) fails the boot. A trail that does not exist, a trail whose
+store is not registered, or an `action` that is empty or longer than 128 characters fails the registration of the
+route, so the application does not boot. A default route name longer than
 that is cut in `action`; `data.route` holds it whole.
 
 ```ts sample
@@ -86,14 +87,18 @@ export class PaymentsController extends BaseController {
 `audit.http.rules` gives routes another action or trail without touching their controllers. A rule is
 `{ match, action?, trail? }`. `match` is `<METHOD or *> <path pattern>`, matched against the mounted path with the
 route parameters as written (`/admin/users/:id`): `*` is one path segment, `**` any number of them. The first rule
-that matches wins. A rule's `action` is used as it is for every route it matches.
+that matches wins, and it wins whole: a field it leaves unset is not taken from a later rule that also matches. A
+rule's `action` is used as it is for every route it matches.
 
 ```ts sample
 // the app's config file
 export default {
   http: { routes: { middlewares: ['Audit'] } },
   audit: {
-    trails: { restricted: { store: 'TableAuditStore', onFailure: 'reject' } },
+    trails: {
+      restricted: { store: 'TableAuditStore', onFailure: 'reject' },
+      reports: { store: 'TableAuditStore' },
+    },
     http: {
       rules: [
         { match: 'DELETE /admin/**', action: 'admin.delete', trail: 'restricted' },
@@ -104,9 +109,11 @@ export default {
 };
 ```
 
-A rule refines a route where `Audit` is mounted; it does not mount it. An entry without a method and a pattern fails
-the boot with `audit.http.rules[<i>]: match must be '<METHOD or *> <path pattern>', and action and trail, when given,
-a name`. `matchesRoute(pattern, method, path)` is exported for tests of your own rules.
+A rule refines a route where `Audit` is mounted; it does not mount it. A rule fails the boot when it holds a key
+other than `match`, `action` and `trail`, when it has no method and pattern (`audit.http.rules[<i>]: match must be
+'<METHOD or *> <path pattern>', and action and trail, when given, a name`), and when it sets neither `action` nor
+`trail` (`audit.http.rules[<i>]: a rule sets action, trail or both`). A rule naming a trail that does not exist fails
+the registration of the routes it matches. `matchesRoute(pattern, method, path)` is exported for tests of your own rules.
 
 ## Redaction
 
@@ -191,6 +198,12 @@ On a `reject` trail (`onFailure: 'reject'`), `Audit` writes two events:
 3. When the write succeeded, the route runs. Once the response finished, the outcome event (`ok`, `denied`, `failed`)
    is confirmed with the same `data.invocation` and `onFailure: 'continue'`: the response is out, so a failed write
    is logged and leaves an attempt without an outcome, which is what a crash in between leaves too.
+
+An attempt without an outcome reads: the route ran, or may have; its result is unknown.
+
+A trail the audit service refuses as misconfigured raises `AuditConfigError`, which no `onFailure` swallows. On the
+outcome write it is thrown out of `onFinish` after the response was sent, and logged on the `http` logger, not on
+`audit-pipeline`.
 
 A rejecting trail is an availability dependency: when its store is down, every audited request answers 503. With
 `@spinajs/audit-http` installed, an `AuditWriteFailed` from anywhere in a request answers 503, a rejected read of
