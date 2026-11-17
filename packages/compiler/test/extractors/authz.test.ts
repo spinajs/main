@@ -1,7 +1,8 @@
 import { expect } from 'chai';
+import ts from 'typescript';
 import type { AuthzSection, ManifestFragment } from '@spinajs/manifest';
 import { analyzePackage } from '../../src/index.js';
-import { combineScopes } from '../../src/extractors/authz.js';
+import { combineScopes, ignoreCommentsOf } from '../../src/extractors/authz.js';
 
 const access = (...permissions: string[]) => ({ type: 'AccessPolicy', options: permissions });
 const admin = { type: 'AdminPolicy', options: [] };
@@ -115,5 +116,49 @@ describe('authz section', () => {
     expect(combineScopes([[admin]], [])).to.deep.equal([[admin]]);
     expect(combineScopes([], [[admin]])).to.deep.equal([[admin]]);
     expect(combineScopes([[admin], [access('a:b')]], [[access('c:d')]])).to.deep.equal([[admin, access('c:d')], [access('a:b'), access('c:d')]]);
+  });
+});
+
+describe('spinajs-authz-ignore comments', () => {
+  const ignores = (...lines: string[]) => ({
+    lf: ignoreCommentsOf(ts.createSourceFile('lf.ts', lines.join('\n'), ts.ScriptTarget.Latest)),
+    crlf: ignoreCommentsOf(ts.createSourceFile('crlf.ts', lines.join('\r\n'), ts.ScriptTarget.Latest)),
+  });
+  const QUERY = 'const rows = await Invoice.all();';
+
+  it('records a comment on its own line or after the code, with its reason', () => {
+    const found = ignores('async function f() {', '  // spinajs-authz-ignore AUTHZ001: admin report', `  ${QUERY}`, '  await Invoice.destroy(); // spinajs-authz-ignore AUTHZ002: purge', '  // spinajs-authz-ignore AUTHZ006: last line of the block', '}');
+    const expected = [
+      { code: 'AUTHZ001', reason: 'admin report', line: 2, col: 3 },
+      { code: 'AUTHZ002', reason: 'purge', line: 4, col: 28 },
+      { code: 'AUTHZ006', reason: 'last line of the block', line: 5, col: 3 },
+    ];
+    expect(found.lf).to.deep.equal(expected);
+    expect(found.crlf).to.deep.equal(expected);
+  });
+
+  it('is no ignore with an empty reason, and the next line never becomes the reason', () => {
+    expect(ignores('// spinajs-authz-ignore AUTHZ001:', QUERY)).to.deep.equal({ lf: [], crlf: [] });
+  });
+
+  it('is no ignore with a reason of whitespace only', () => {
+    expect(ignores('// spinajs-authz-ignore AUTHZ001: \t ', QUERY)).to.deep.equal({ lf: [], crlf: [] });
+  });
+
+  it('reads no marker inside a string literal', () => {
+    expect(ignores("const s = '// spinajs-authz-ignore AUTHZ001: not a comment';", QUERY)).to.deep.equal({ lf: [], crlf: [] });
+  });
+
+  it('reads no marker inside a template literal', () => {
+    expect(ignores('const t = `', '// spinajs-authz-ignore AUTHZ001: not a comment', '`;', QUERY)).to.deep.equal({ lf: [], crlf: [] });
+  });
+
+  it('reads no marker inside JSX text', () => {
+    const text = ['const view = (', '  <p>', '    // spinajs-authz-ignore AUTHZ001: not a comment', '  </p>', ');'].join('\n');
+    expect(ignoreCommentsOf(ts.createSourceFile('view.tsx', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX))).to.deep.equal([]);
+  });
+
+  it('takes no code from the next line after a bare marker', () => {
+    expect(ignores('const codes = {', '  // spinajs-authz-ignore', "  AUTHZ001: 'read',", '};')).to.deep.equal({ lf: [], crlf: [] });
   });
 });

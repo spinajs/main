@@ -19,7 +19,7 @@ export interface AuthzInputs {
 }
 
 const RESOURCE_ACTIONS = ['read', 'create', 'update', 'delete'];
-const IGNORE = /\/\/\s*spinajs-authz-ignore\s+(AUTHZ\d{3})\s*:\s*(.*\S)/g;
+const IGNORE = /^\/\/[^\S\r\n]*spinajs-authz-ignore[^\S\r\n]+(AUTHZ\d{3})[^\S\r\n]*:[^\S\r\n]*(\S.*?)\s*$/;
 
 /** Class and handler scopes are ANDed at runtime (`createPolicyGate`); as OR-of-AND groups that is their cross product. */
 export function combineScopes(outer: PolicyRef[][], inner: PolicyRef[][]): PolicyRef[][] {
@@ -136,13 +136,46 @@ function queueEntryPoints(files: readonly ts.SourceFile[], ctx: ExtractorContext
   return out;
 }
 
+export interface IgnoreComment {
+  code: string;
+  reason: string;
+  line: number;
+  col: number;
+}
+
+/**
+ * The `//` comments of a file, read as comment ranges so that a marker inside a string or template is none.
+ * The comments after a node's end are taken too: those before a closing `}` are no leading trivia of any node.
+ * The comment scanner reads JSX text as code, so a range inside it is dropped.
+ */
+function lineComments(file: ts.SourceFile): ts.CommentRange[] {
+  const out = new Map<number, ts.CommentRange>();
+  const jsxText: ts.Node[] = [];
+  const add = (ranges: ts.CommentRange[] | undefined): void => {
+    for (const r of ranges ?? []) if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) out.set(r.pos, r);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxText(node)) jsxText.push(node);
+    add(ts.getLeadingCommentRanges(file.text, node.getFullStart()));
+    add(ts.getTrailingCommentRanges(file.text, node.getEnd()));
+    add(ts.getLeadingCommentRanges(file.text, node.getEnd()));
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(file, visit);
+  return [...out.values()].filter((r) => !jsxText.some((t) => r.pos >= t.pos && r.pos < t.end)).sort((a, b) => a.pos - b.pos);
+}
+
+export function ignoreCommentsOf(file: ts.SourceFile): IgnoreComment[] {
+  return lineComments(file).flatMap((range) => {
+    const match = IGNORE.exec(file.text.slice(range.pos, range.end));
+    if (match === null) return [];
+    const { line, character } = file.getLineAndCharacterOfPosition(range.pos);
+    return [{ code: match[1], reason: match[2], line: line + 1, col: character + 1 }];
+  });
+}
+
 function ignoresIn(files: readonly ts.SourceFile[], ctx: ExtractorContext): AuthzSection['ignores'] {
-  return files.flatMap((file) =>
-    [...file.text.matchAll(IGNORE)].map((m) => {
-      const { line, character } = file.getLineAndCharacterOfPosition(m.index);
-      return { code: m[1], reason: m[2], source: { ...ctx.sourceRef(file), line: line + 1, col: character + 1 } };
-    }),
-  );
+  return files.flatMap((file) => ignoreCommentsOf(file).map(({ code, reason, line, col }) => ({ code, reason, source: { ...ctx.sourceRef(file), line, col } })));
 }
 
 /** What authz-orm's adapter registers for every resource type at runtime. */

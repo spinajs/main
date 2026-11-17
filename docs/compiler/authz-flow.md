@@ -127,7 +127,7 @@ Put a comment on the line of the query (or of the `runAs` call), or on the line 
 const rows = await Invoice.where('Status', 'paid');
 ```
 
-The reason after the colon is required. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
+The reason after the colon is required and must be on the same line; the marker, its code and its reason are one `//` comment that starts with the marker. The same text in a string, a template literal or JSX text is no ignore. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
 
 ## In `spinajs doctor`
 
