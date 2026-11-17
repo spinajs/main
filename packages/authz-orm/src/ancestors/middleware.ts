@@ -86,6 +86,6 @@ export class AncestorObserver extends WriteObserver {
   private insertWithoutIds(work: Work): void {
     if (this.warned.has(work.model)) return;
     this.warned.add(work.model);
-    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the rows it wrote, so authz_resource_ancestor may miss them, or keep the old parent of a row an upsert moved without naming its key; insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${resourceType}');
+    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the rows it wrote, so authz_resource_ancestor may miss them, or keep the old parent of a row an upsert moved without naming its key; insert one row at a time or supply the keys; authz:ancestors-verify ${resourceType} finds such rows and authz:ancestors-rebuild ${resourceType} repairs them');
   }
 }

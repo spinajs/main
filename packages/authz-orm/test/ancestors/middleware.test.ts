@@ -1,5 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
+import sinon from 'sinon';
 
 import { AuthzConfigError, ChangeBus, DecisionAudit, SYSTEM, ScopeForgetter } from '@spinajs/authz';
 import type { AdminContext, AuthzChange, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
@@ -10,6 +11,7 @@ import { DI } from '@spinajs/di';
 
 import { AncestorObserver } from '../../src/ancestors/middleware.js';
 import { ColumnChangeObserver } from '../../src/changelog/column-hook.js';
+import { ormLog } from '../../src/host.js';
 import { AccessResource, Parent } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -153,6 +155,19 @@ describe('AncestorObserver', function () {
         await ticks();
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i2>org:o2@2', 'item:i2>project:p2@1']);
         expect(forgetter.calls).to.deep.equal([{ scope: { type: 'item', id: 'i1' }, reason: 'resource-deleted', ormTx: false }]);
+      });
+
+      it('warns once per model about inserts without ids, naming the commands that find and repair the rows', async () => {
+        const warn = sinon.stub(ormLog(), 'warn');
+        try {
+          await createQuery(Task, InsertQueryBuilder).query.values([{ title: 'a', project_id: 'p1' }, { title: 'b', project_id: 'p2' }]);
+          await createQuery(Task, InsertQueryBuilder).query.values([{ title: 'c', project_id: 'p1' }, { title: 'd', project_id: 'p2' }]);
+          const ours = warn.getCalls().map((c) => String(c.args[1])).filter((m) => m.includes('authz_resource_ancestor'));
+          expect(ours).to.have.length(1);
+          expect(ours[0]).to.include('authz:ancestors-verify').and.include('authz:ancestors-rebuild');
+        } finally {
+          warn.restore();
+        }
       });
 
       it('a delete runs one key select, which the column changelog shares', async () => {
