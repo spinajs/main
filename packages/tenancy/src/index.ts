@@ -5,3 +5,6 @@ export type { TenantScopeGuard } from './scope.js';
 export * from './schema.js';
 export * from './registries.js';
 export * from './cache.js';
+export * from './access.js';
+export * from './services.js';
+export * from './each.js';
