@@ -3,9 +3,10 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { AuditConfigError, AuditWriteFailed, audit, payloadHash, trailConfig } from '@spinajs/audit';
-import type { AuditEvent } from '@spinajs/audit';
+import { AuditConfigError, AuditStore, AuditWriteFailed, audit, payloadHash, trailConfig } from '@spinajs/audit';
+import type { AuditAppend, AuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { FrameworkLogger } from '@spinajs/log';
 import { TableAuditStore } from '../src/index.js';
 import { DIALECTS, TestDb } from '../src/testing.js';
 
@@ -20,9 +21,10 @@ const lostOf = (dialect: string): string => `l_${dialect}`;
 const TRAILS = Object.fromEntries(
   DIALECTS.flatMap((d) => [
     [trailOf(d), { connection: d, table: TABLE, onFailure: 'reject', retry: { attempts: 1, delay: 1 } }],
-    // Three tries: a joined write must still be tried once only.
+    // Three tries: a joined write must still be tried once only. No two trails of one connection share a table, and
+    // audit_missing and audit_lost are never created.
     [missingOf(d), { connection: d, table: 'audit_missing', onFailure: 'reject', retry: { attempts: 3, delay: 1 } }],
-    [lostOf(d), { connection: d, table: 'audit_missing', onFailure: 'continue', retry: { attempts: 3, delay: 1 } }],
+    [lostOf(d), { store: 'CountingStore', connection: d, table: 'audit_lost', onFailure: 'continue', retry: { attempts: 3, delay: 1 } }],
   ]),
 );
 const SPARE = { Driver: 'orm-driver-sqlite', Name: 'spare', Filename: ':memory:' };
@@ -31,12 +33,34 @@ const CONFIRM_TIMEOUT_MS = 3000;
 // Drivers that serve one outermost transaction at a time (supportedFeatures().concurrentTransactions === false).
 const SINGLE: readonly string[] = ['sqlite', 'pglite'];
 
+class CountingStore extends TableAuditStore {
+  static calls = 0;
+  override append(write: AuditAppend): Promise<void> {
+    CountingStore.calls += 1;
+    return super.append(write);
+  }
+}
+
+// The audit error lines written while `run` runs, as [trail, message]; the suite's targets drop them anyway.
+async function auditErrors(run: () => Promise<void>): Promise<unknown[][]> {
+  const lines: unknown[][] = [];
+  const own = Object.getOwnPropertyDescriptor(FrameworkLogger.prototype, 'error');
+  Object.defineProperty(FrameworkLogger.prototype, 'error', { value: (...args: unknown[]) => void lines.push(args), configurable: true, writable: true });
+  try {
+    await run();
+  } finally {
+    if (own) Object.defineProperty(FrameworkLogger.prototype, 'error', own);
+  }
+  return lines.filter(([, message]) => typeof message === 'string' && message.startsWith('audit:')).map(([fields, message]) => [fields !== null && typeof fields === 'object' && 'trail' in fields ? fields.trail : undefined, message]);
+}
+
 describe('TableAuditStore', function () {
   this.timeout(60000);
   let db: TestDb;
 
   before(async () => {
     db = await TestDb.open({ trails: TRAILS, confirmTimeoutMs: CONFIRM_TIMEOUT_MS }, { connections: [SPARE] });
+    DI.register(CountingStore).as(AuditStore);
   });
 
   after(async () => {
@@ -176,13 +200,31 @@ describe('TableAuditStore', function () {
 
         it("leaves the caller's transaction usable when a joined confirmed write fails, on a reject and on a continue trail", async () => {
           const driver = db.driver(dialect);
-          await driver.transaction(async () => {
-            await expect(audit().record(input, { trail: missingOf(dialect) })).to.be.rejectedWith(AuditWriteFailed, `audit: trail "${missingOf(dialect)}" could not record 1 event(s) after 1 attempt(s)`);
-            await audit().record(input, { trail: lostOf(dialect), mode: 'confirmed' });
-            // The caller's own write after both failures, in the same transaction.
-            await audit().record({ kind: 'data', action: 'insert' }, { trail, mode: 'transactional', transaction: driver });
-          });
+          CountingStore.calls = 0;
+          const lines = await auditErrors(() =>
+            driver.transaction(async () => {
+              await expect(audit().record(input, { trail: missingOf(dialect) })).to.be.rejectedWith(AuditWriteFailed, `audit: trail "${missingOf(dialect)}" could not record 1 event(s) after 1 attempt(s)`);
+              await audit().record(input, { trail: lostOf(dialect), mode: 'confirmed' });
+              // The caller's own write after both failures, in the same transaction.
+              await audit().record({ kind: 'data', action: 'insert' }, { trail, mode: 'transactional', transaction: driver });
+            }),
+          );
           expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.deep.eq(['insert']);
+          expect(CountingStore.calls).to.eq(1);
+          expect(lines).to.deep.eq([[lostOf(dialect), 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
+        });
+
+        it('runs parallel joined confirmed writes of one transaction one after another', async () => {
+          await db.driver(dialect).transaction(() => Promise.all(['a', 'b'].map((action) => audit().record({ kind: 'custom', action }, { trail }))));
+          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.have.members(['a', 'b']);
+        });
+
+        it('keeps the row of a parallel joined write when the other one fails', async () => {
+          await db.driver(dialect).transaction(async () => {
+            const settled = await Promise.allSettled([audit().record(input, { trail: missingOf(dialect) }), audit().record({ kind: 'custom', action: 'kept' }, { trail })]);
+            expect(settled.map((s) => s.status)).to.deep.eq(['rejected', 'fulfilled']);
+          });
+          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.deep.eq(['kept']);
         });
       } else {
         it("keeps a confirmed event when the caller's transaction rolls back", async () => {
