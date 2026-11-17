@@ -37,6 +37,7 @@ export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
   'postgres integration - time (process zone Europe/Warsaw) reads an instant another client wrote in a non-UTC session, at millisecond precision': 'second-session: writes through another client session',
   'postgres stream (integration) rejects and drops the client when the backend dies mid-stream': 'server-admin: terminates the backend through an admin session',
   'postgres stream (integration) settles a loop that leaves after the backend died between batches': 'server-admin: terminates the backend through an admin session',
+  'postgres explain (integration) runs on its own pool connection, not on the transaction in scope': 'second-session: plans on another pool connection while a transaction is open',
 };
 
 export function pgliteSkip(title: string | undefined): string | undefined {

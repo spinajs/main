@@ -60,6 +60,7 @@
   "dependencies": {
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/orm-sql": "3.0.23",
     "mysql2": "^3.0.1",

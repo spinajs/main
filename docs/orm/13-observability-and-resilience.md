@@ -148,9 +148,9 @@ export class SlowQueryCollector extends SlowQuerySink {
 - No driver runs `EXPLAIN ANALYZE`, so the planned statement itself never runs: a `SELECT … INTO`, a `FOR UPDATE` or a select that calls a writing function is planned, not executed.
 - An EXPLAIN never runs a second statement. What the builder compiled itself (quoted names, placeholders, the dialect's keywords) is planned as it is. Only SQL the caller wrote, a `RawQuery` anywhere in the builder or an `executeSql` fragment, is checked as text: such a statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator, `LIKE … ESCAPE ''`, a select wrapped in parentheses. `ExecutedStatement.rawSql` says which kind a statement is, and `OrmDriver.explain(sql, bindings, rawSql)` passes it on, so a driver checks the text only where it is caller-written.
 - Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
-- `OrmDriver.explain()` runs outside the ambient transaction. On a driver without concurrent transactions (sqlite without a read pool, PGlite) it waits for an open transaction to end: never await it inside one. A capture made while the transaction is still open on PGlite ends with `planError`.
+- `OrmDriver.explain()` runs outside the ambient transaction, on a connection of its own. A driver with one session cannot do that while a transaction is open (see the end of this section): never await `explain()` inside a transaction there. A capture made while the transaction is still open on PGlite ends with `planError`.
 - Streams, direct `executeOnDb()` calls and transaction control statements are not recorded.
-- SQLite plans its selects (below); postgres and MySQL follow. Until then a record of a select on those drivers carries `planError: driver <token> cannot explain`.
+- SQLite, postgres (and PGlite) and MySQL plan their selects (below). MSSQL does not: a record of a select there carries `planError: driver <token> cannot explain`.
 
 #### Plans: sqlite
 
@@ -166,6 +166,47 @@ QUERY PLAN
 
 - It accepts a single `SELECT` or `WITH` statement and rejects anything else with `InvalidArgument`; the values are bound as parameters, never spliced into the statement.
 - It runs outside the transaction in scope, on a connection of its own (`SqlDriver.runExplain`). SQLite without a read pool has one writer handle, so the EXPLAIN waits until an open transaction ends: never await `explain()` inside a transaction.
+
+#### Plans: postgres
+
+`PostgresOrmDriver.explain(sql, bindings)` runs `EXPLAIN (FORMAT JSON)`, and `normalizePostgresPlan` turns its `Plan` tree into `PlanNode`s. `PgliteOrmDriver` inherits both.
+
+- `label` is the `Node Type`, followed by `on <relation>` and the alias when it differs from the relation: `Index Scan on explain_user u`.
+- `detail` joins, with `; `, the `Join Type` (`Inner join`), the index (`using explain_user_pkey`), the conditions (`Hash Cond`, `Merge Cond`, `Index Cond`, `Recheck Cond`, `Join Filter`, `Filter`, `One-Time Filter`) and the `Sort Key` and `Group Key` lists. Every other key, `Output` included, stays in `raw`.
+- `estimatedRows` is `Plan Rows`, `estimatedCost` is `Total Cost`, and `Plans` become the children.
+- The bindings travel as statement parameters, and the planner prints their values in the conditions and keys. Unless `db.Explain.CaptureBindings` is set, they are replaced by `?`, and the double-quoted names stay:
+
+```text
+Nested Loop                        Inner join
+├── Index Scan on explain_user u   using explain_user_pkey; Index Cond: ("Id" = ?)
+└── Seq Scan on explain_order o    Filter: ("UserId" = ?)
+```
+
+#### Plans: mysql
+
+`MySqlOrmDriver.explain(sql, bindings)` runs `EXPLAIN FORMAT=JSON` and reads the document of `explain_json_format_version` 1, the 8.x default; `MySqlSSHOrmDriver` inherits it. `normalizeMysqlPlan` builds the tree in the document's key order:
+
+| Document key | Node |
+| --- | --- |
+| `query_block` | `select #<select_id>`, cost `query_cost` |
+| `table` | `<table_name> (<access_type>)`, rows `rows_examined_per_scan`, cost `prefix_cost`, detail `key <key>; where <attached_condition>` |
+| `nested_loop` | `nested loop` |
+| `ordering_operation`, `grouping_operation`, `duplicates_removal`, `windowing`, `buffer_result` | `order`, `group`, `distinct`, `window`, `buffer` |
+| `union_result` | `union` |
+| `attached_subqueries`, `optimized_away_subqueries`, `select_list_subqueries`, `order_by_subqueries`, `having_subqueries`, `group_by_subqueries` | their query blocks |
+| `materialized_from_subquery` | `materialized` |
+| `message` | its text (`Impossible WHERE`) |
+
+`used_key_parts`, `ref`, `index_condition` and every other key stay in `raw`. `mysql2` writes the bindings into the statement text, so the server prints them as literals in `where …`. The redaction replaces them with `?`, a double-quoted token included, and cuts the condition at a literal that holds a backslash: MySQL 8.4 prints `O'Brien` as `'O\'Brien'`.
+
+```text
+select #1
+└── nested loop
+    ├── u (const)   key PRIMARY
+    └── o (ref)     key explain_order_user
+```
+
+No driver runs `EXPLAIN ANALYZE`, and MSSQL has no `explain()`. On a driver with one session, an EXPLAIN cannot get a connection of its own while a transaction is open: sqlite without a read pool holds it until the transaction ends; PGlite fails it with the pool's acquire timeout, or never settles it when session settings apply. So never await `explain()` inside a transaction on either.
 
 ## Configuration
 

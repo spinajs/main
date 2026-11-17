@@ -15,6 +15,8 @@ import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
 import { MySqlInSetStatement, MySqlLiteralQuoter, MySqlNowExpression, MySqlTextWrapper } from './statements.js';
 import { mapMySqlError } from './errors.js';
+import { normalizeMysqlPlan } from './explain.js';
+import type { QueryPlan } from '@spinajs/orm';
 
 export * from './errors.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
@@ -26,6 +28,7 @@ export * from './compilers.js';
 export * from './statements.js';
 
 export * from './expressions.js';
+export * from './explain.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
@@ -126,6 +129,10 @@ export class MySqlOrmDriver extends SqlDriver {
     // where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
     return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
+  }
+
+  public async explain(sql: string, bindings: unknown[]): Promise<QueryPlan> {
+    return normalizeMysqlPlan(await this.runExplain('EXPLAIN FORMAT=JSON', sql, bindings));
   }
 
   /**

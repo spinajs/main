@@ -12,12 +12,15 @@ import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, P
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './converters.js';
+import { normalizePostgresPlan } from './explain.js';
+import type { QueryPlan } from '@spinajs/orm';
 
 export * from './compilers.js';
 export * from './expressions.js';
 export * from './statements.js';
 export * from './errors.js';
 export * from './converters.js';
+export * from './explain.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
@@ -207,6 +210,10 @@ export class PostgresOrmDriver extends SqlDriver {
     // failures, where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
     return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
+  }
+
+  public async explain(sql: string, bindings: unknown[]): Promise<QueryPlan> {
+    return normalizePostgresPlan(await this.runExplain('EXPLAIN (FORMAT JSON)', sql, bindings));
   }
 
   protected isRetryableError(err: unknown): boolean {
