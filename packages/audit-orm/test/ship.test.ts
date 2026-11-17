@@ -1,0 +1,257 @@
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import 'mocha';
+import { AuditConfigError, AuditEventSink, AuditNotSupported, AuditReader, AuditWriteFailed, audit, trailConfig } from '@spinajs/audit';
+import type { AuditBatch, AuditInput, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import { DI } from '@spinajs/di';
+import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, shipAudit } from '../src/index.js';
+import { AuditShipError, AuditShipTask } from '../src/scheduler.js';
+import { TestDb } from '../src/testing.js';
+import { TRACE, config, event, setTrail, tableRows } from './support/events.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+class RecordingSink extends AuditEventSink {
+  static batches: AuditBatch[] = [];
+  static failNext = 0;
+  deliver(batch: AuditBatch): Promise<void> {
+    if (RecordingSink.failNext > 0) {
+      RecordingSink.failNext -= 1;
+      return Promise.reject(new Error('sink down'));
+    }
+    RecordingSink.batches.push(batch);
+    return Promise.resolve();
+  }
+}
+
+class DownSink extends AuditEventSink {
+  deliver(): Promise<void> {
+    return Promise.reject(new Error('always down'));
+  }
+}
+
+class RecordingReader extends AuditReader {
+  static redacted: AuditSubject[] = [];
+  list(): Promise<readonly StoredAuditEvent[]> {
+    return Promise.resolve([]);
+  }
+  redact(_trail: TrailConfig, subject: AuditSubject): Promise<number> {
+    RecordingReader.redacted.push(subject);
+    return Promise.resolve(3);
+  }
+  prune(): Promise<number> {
+    return Promise.resolve(0);
+  }
+}
+
+describe('audit shipping', function () {
+  this.timeout(60000);
+  let db: TestDb;
+
+  before(async () => {
+    db = await TestDb.open();
+    DI.register(RecordingSink).as(AuditEventSink);
+    DI.register(DownSink).as(AuditEventSink);
+    DI.register(RecordingReader).as(AuditReader);
+  });
+
+  after(async () => {
+    await db?.close();
+  });
+
+  for (const dialect of TestDb.dialects()) {
+    describe(dialect, () => {
+      let store: OutboxAuditStore;
+      const driver = () => db.driver(dialect);
+      const connection = (): string => db.connectionName(dialect);
+      const buffered = () => tableRows(driver(), 'audit_outbox');
+      const delivered = (): string[] => RecordingSink.batches.flatMap((b) => b.events.map((e) => e.id));
+      const shipped = (): TrailConfig => trailConfig('shipped');
+
+      before(function () {
+        if (!db.has(dialect)) this.skip();
+      });
+
+      beforeEach(async () => {
+        RecordingSink.batches = [];
+        RecordingSink.failNext = 0;
+        RecordingReader.redacted = [];
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'RecordingSink', connection: connection() });
+        config().set(['audit', 'ship'], { batchSize: 2 });
+        await new AuditOutboxTableMigration().down(driver());
+        await new AuditOutboxTableMigration().up(driver());
+        store = DI.resolve(OutboxAuditStore);
+      });
+
+      afterEach(async () => {
+        setTrail('shipped', undefined);
+        setTrail('other', undefined);
+        config().set(['audit', 'ship'], undefined);
+        await new AuditOutboxTableMigration().down(driver());
+      });
+
+      it('buffers on the trail connection, and in the write transaction when one is passed', async () => {
+        await store.append({ trail: shipped(), events: [event(1)] });
+        await expect(
+          driver().transaction(async () => {
+            await store.append({ trail: shipped(), events: [event(2)], transaction: driver() });
+            throw new Error('caller failed');
+          }),
+        ).to.be.rejectedWith('caller failed');
+        await driver().transaction(() => store.append({ trail: shipped(), events: [event(3)], transaction: driver() }));
+
+        expect((await buffered()).map((r) => [r.trail, r.id, r.kind, r.action, r.subject_type, r.subject_id])).to.deep.eq([
+          ['shipped', event(1).id, 'custom', 'contract.signed', 'contract', 'c1'],
+          ['shipped', event(3).id, 'custom', 'contract.signed', 'contract', 'c3'],
+        ]);
+        expect(RecordingSink.batches).to.have.length(0);
+      });
+
+      it('keeps a confirmed event buffered when the caller transaction around it rolls back', async function () {
+        // sqlite and PGlite hold a statement from outside the open transaction until it ends.
+        if (dialect === 'sqlite' || dialect === 'pglite') this.skip();
+        // The service runs a confirmed append outside the caller's transaction scope; a bare append would join it.
+        await expect(
+          driver().transaction(async () => {
+            await audit().record({ kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id: 'c1' } }, { trail: 'shipped', mode: 'confirmed', onFailure: 'reject' });
+            throw new Error('caller failed');
+          }),
+        ).to.be.rejectedWith('caller failed');
+        expect((await buffered()).map((r) => r.subject_id)).to.deep.eq(['c1']);
+      });
+
+      it('buffers on the connection a write names instead of the trail connection', async () => {
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'RecordingSink', connection: 'elsewhere' });
+        await store.append({ trail: shipped(), events: [event(1)], connection: connection() });
+        expect((await buffered()).map((r) => r.id)).to.deep.eq([event(1).id]);
+        expect(store.joinsTransaction).to.eq(true);
+        await expect(store.append({ trail: shipped(), events: [event(2)] })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "elsewhere"');
+      });
+
+      it('ships in buffer order, in batches, and empties the buffer', async () => {
+        await store.append({ trail: shipped(), events: [event(1), event(2), event(3)] });
+
+        expect(await shipAudit()).to.deep.eq({ shipped: 3, failed: [] });
+        expect(RecordingSink.batches.map((b) => [b.trail, b.source, b.events.length])).to.deep.eq([
+          ['shipped', connection(), 2],
+          ['shipped', connection(), 1],
+        ]);
+        expect(delivered()).to.deep.eq([event(1).id, event(2).id, event(3).id]);
+        const [first] = RecordingSink.batches[0].events;
+        expect([first.kind, first.action, first.subject, first.outcome, first.actor, first.traceId, first.data]).to.deep.eq(['custom', 'contract.signed', { type: 'contract', id: 'c1' }, 'ok', 'user:u1', TRACE, { version: 1 }]);
+        expect(first.at.getTime()).to.eq(event(1).at.getTime());
+        expect(first).to.not.have.property('seq');
+        expect(first).to.not.have.property('redacted');
+        expect(await buffered()).to.have.length(0);
+      });
+
+      it('keeps the rows when the sink fails and redelivers the same events', async () => {
+        await store.append({ trail: shipped(), events: [event(1)] });
+        RecordingSink.failNext = 1;
+
+        expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: [{ trail: 'shipped', connection: connection() }] });
+        expect(await buffered()).to.have.length(1);
+        const [lag] = await auditBacklog({ connection: connection() });
+        expect([lag.trail, lag.connection, lag.pending, lag.oldestAt?.getTime()]).to.deep.eq(['shipped', connection(), 1, event(1).at.getTime()]);
+
+        expect((await shipAudit()).shipped).to.eq(1);
+        expect(delivered()).to.deep.eq([event(1).id]);
+        expect((await auditBacklog({ connection: connection() }))[0]).to.deep.include({ pending: 0, oldestAt: null });
+      });
+
+      it('stops after maxBatches and continues on the next run', async () => {
+        config().set(['audit', 'ship'], { batchSize: 1, maxBatches: 2 });
+        await store.append({ trail: shipped(), events: [event(1), event(2), event(3)] });
+        expect((await shipAudit()).shipped).to.eq(2);
+        expect((await shipAudit()).shipped).to.eq(1);
+        expect(delivered()).to.deep.eq([event(1).id, event(2).id, event(3).id]);
+      });
+
+      it('ships each trail to its own sink; a failing trail does not hold up another', async () => {
+        setTrail('other', { store: 'OutboxAuditStore', sink: 'DownSink', connection: connection() });
+        await store.append({ trail: trailConfig('other'), events: [event(1)] });
+        await store.append({ trail: shipped(), events: [event(2)] });
+
+        const out = await shipAudit();
+        expect(out.shipped).to.eq(1);
+        expect(out.failed).to.deep.eq([{ trail: 'other', connection: connection() }]);
+        expect(delivered()).to.deep.eq([event(2).id]);
+        expect((await buffered()).map((r) => r.trail)).to.deep.eq(['other']);
+        expect(await shipAudit({ trail: 'shipped' })).to.deep.eq({ shipped: 0, failed: [] });
+      });
+
+      it('reports a shipping trail without a sink and keeps its events', async () => {
+        setTrail('shipped', { store: 'OutboxAuditStore', connection: connection() });
+        await store.append({ trail: shipped(), events: [event(1)] });
+        expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: [{ trail: 'shipped', connection: connection() }] });
+        expect(await buffered()).to.have.length(1);
+      });
+
+      it('has no reader unless the trail names one', async () => {
+        expect(await store.reader(shipped())).to.eq(undefined);
+        await expect(audit().trail('shipped').of({ type: 'contract', id: 'c1' })).to.be.rejectedWith(AuditNotSupported, 'audit: trail "shipped" (store OutboxAuditStore) cannot be read from this application (of)');
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'RecordingSink', reader: 'NoSuchReader', connection: connection() });
+        await expect(store.reader(shipped())).to.be.rejectedWith(AuditConfigError, 'audit: audit.trails.shipped.reader names "NoSuchReader", but no AuditReader is registered under that name (registered: ');
+      });
+
+      it('erases through the named reader and blanks what is still buffered', async () => {
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'RecordingSink', reader: 'RecordingReader', connection: connection() });
+        await store.append({ trail: shipped(), events: [event(1), event(2)] });
+
+        const reader = await store.reader(shipped());
+        expect(await reader?.redact(shipped(), { type: 'contract', id: 'c1' })).to.eq(1 + 3);
+        expect(RecordingReader.redacted).to.deep.eq([{ type: 'contract', id: 'c1' }]);
+        expect((await buffered()).map((r) => r.data)).to.deep.eq(['', '{"version":2}']);
+
+        await shipAudit();
+        expect(RecordingSink.batches[0].events.map((e) => e.data)).to.deep.eq([{}, { version: 2 }]);
+      });
+
+      it('records through the audit service, confirmed and inside the audited transaction', async () => {
+        const signed = (id: string): AuditInput => ({ kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id }, data: { version: 9 } });
+        await audit().record(signed('c8'), { trail: 'shipped', mode: 'confirmed' });
+        await driver().transaction(() => audit().record(signed('c9'), { trail: 'shipped', mode: 'transactional', transaction: driver() }));
+        await expect(
+          driver().transaction(async () => {
+            await audit().record(signed('c10'), { trail: 'shipped', mode: 'transactional', transaction: driver() });
+            throw new Error('caller failed');
+          }),
+        ).to.be.rejectedWith('caller failed');
+        expect((await buffered()).map((r) => [r.trail, r.subject_id])).to.deep.eq([
+          ['shipped', 'c8'],
+          ['shipped', 'c9'],
+        ]);
+      });
+
+      it('refuses what cannot be buffered and names the missing table', async () => {
+        const longName = 'x'.repeat(65);
+        await expect(store.append({ trail: { ...shipped(), name: longName }, events: [event(1)] })).to.be.rejectedWith(AuditConfigError, `audit: trail name "${longName}" is longer than 64 characters and cannot be buffered`);
+        await expect(store.append({ trail: shipped(), events: [event(1)], transaction: 'not a driver' })).to.be.rejectedWith(AuditConfigError, 'audit: OutboxAuditStore takes the OrmDriver of the audited write as the transaction of trail "shipped"');
+        await expect(store.append({ trail: shipped(), events: [event(1)], transaction: driver() })).to.be.rejectedWith(AuditWriteFailed, `audit: a transactional write to trail "shipped" found no open transaction on connection "${connection()}"`);
+
+        await new AuditOutboxTableMigration().down(driver());
+        await expect(store.append({ trail: shipped(), events: [event(1)] })).to.be.rejectedWith(AuditWriteFailed, `audit: buffering 1 event(s) of trail "shipped" in audit_outbox on connection "${connection()}" failed; is the table migrated there (AuditOutboxTableMigration)?`);
+      });
+
+      it('the task reports the run and fails it when a delivery failed', async () => {
+        await store.append({ trail: shipped(), events: [event(1)] });
+        const results: unknown[] = [];
+        const ctx = { result: (data: unknown): void => void results.push(data) };
+
+        RecordingSink.failNext = 1;
+        await expect(new AuditShipTask().execute(ctx)).to.be.rejectedWith(AuditShipError, `audit: shipping failed for shipped@${connection()}`);
+        expect(await new AuditShipTask().execute(ctx)).to.deep.eq({ shipped: 1, failed: [] });
+        expect(results).to.deep.eq([
+          { shipped: 0, failed: [{ trail: 'shipped', connection: connection() }] },
+          { shipped: 1, failed: [] },
+        ]);
+      });
+    });
+  }
+
+  it('does nothing without a shipping trail', async () => {
+    expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: [] });
+    expect(await auditBacklog()).to.deep.eq([]);
+  });
+});
