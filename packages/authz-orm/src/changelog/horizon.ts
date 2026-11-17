@@ -10,7 +10,7 @@ import { tableOf } from '../ids.js';
 import { selectFrom } from '../records.js';
 import { changelogColumns, classesOf, entryOf } from '../registry.js';
 import type { RelationColumn } from '../registry.js';
-import { HORIZON_TABLE, HORIZON_WIDTHS } from './table.js';
+import { HORIZON_TABLE, HORIZON_WIDTHS, LOST_TABLE } from './table.js';
 
 /** An `authz_change_log_horizon` row; `resource_type` is the type for `column` and `''` for every other kind. */
 @Connection(AUTHZ_CONNECTION)
@@ -28,6 +28,21 @@ export class HorizonRecord extends ModelBase<HorizonRecord> {
 
   /** `column` rows: the {@link relationFingerprint} of the type when its coverage last started; null for other kinds. */
   public fingerprint!: string | null;
+}
+
+/** An `authz_change_log_lost` marker: a write of `kind` escaped the log at `at`; `resource_type` `''` for `column` means every type. */
+@Connection(AUTHZ_CONNECTION)
+@Model(LOST_TABLE)
+export class LostRecord extends ModelBase<LostRecord> {
+  @Primary()
+  public id!: number;
+
+  public kind!: string;
+
+  public resource_type!: string;
+
+  @DateTimeColumn()
+  public at!: DateTime;
 }
 
 /** A type whose relation columns this boot records, with their {@link relationFingerprint}. */
@@ -106,6 +121,17 @@ async function refingerprint(type: ResourceType, fingerprint: string, now: DateT
   };
   await HorizonRecord.update({ fingerprint, since: now }).where('kind', 'column').where('resource_type', type).where('since', '<', now).where(differs);
   await HorizonRecord.update({ fingerprint }).where('kind', 'column').where('resource_type', type).where(differs);
+}
+
+/** The later of the horizon's `since` and the last lost-write marker of the kind and type; undefined without a horizon row. */
+export async function coverageStart(kind: ChangeKind, resourceType: ResourceType | undefined): Promise<Date | undefined> {
+  const type = horizonType(kind, resourceType);
+  const row = (await selectFrom(HorizonRecord).onPrimary().where('kind', kind).where('resource_type', type).first()) as HorizonRecord | undefined;
+  if (row === undefined) return undefined;
+  const types = kind === 'column' && type !== '' ? [type, ''] : [''];
+  const marker = (await selectFrom(LostRecord).onPrimary().where('kind', kind).whereIn('resource_type', types).orderByDescending('at').first()) as LostRecord | undefined;
+  const since = row.since.toJSDate();
+  return marker !== undefined && marker.at.toMillis() > since.getTime() ? marker.at.toJSDate() : since;
 }
 
 /** A write of `kind` escaped the log: coverage starts again at `now`. For `column` without a type, of every type. */

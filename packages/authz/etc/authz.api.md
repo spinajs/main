@@ -307,8 +307,9 @@ export declare abstract class ChangeLog {
      */
     abstract coveredSince(kind: ChangeKind, resourceType?: ResourceType): Promise<Date | undefined>;
     /**
-     * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. Never
-     * rejects: a store awaits it inside the write that escaped, which must not fail over the signal.
+     * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. A store
+     * awaits it inside the write that escaped, so the signal commits or rolls back with the write; it may reject, and
+     * then the write fails: a write whose loss cannot be recorded is not made.
      */
     abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }

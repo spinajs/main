@@ -9,7 +9,9 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../../src/contributor.js';
-import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Owner, Parent, pruneChangeLog, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
+import { DateTime } from 'luxon';
+
+import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, LOST_TABLE, LostRecord, Owner, Parent, pruneChangeLog, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -84,11 +86,13 @@ describe('changelog horizon', function () {
         const horizon = await driver.tableInfo(HORIZON_TABLE, driver.Options.Database);
         expect(horizon.map((c) => c.Name).sort()).to.deep.equal(['fingerprint', 'kind', 'resource_type', 'since']);
         expect(horizon.filter((c) => c.PrimaryKey).map((c) => c.Name).sort()).to.deep.equal(['kind', 'resource_type']);
+        expect((await driver.tableInfo(LOST_TABLE, driver.Options.Database)).map((c) => c.Name).sort()).to.deep.equal(['at', 'id', 'kind', 'resource_type']);
         const columns = async () => (await driver.tableInfo(CHANGE_LOG_TABLE, driver.Options.Database)).map((c) => c.Name);
         expect(await columns()).to.include('before');
         await new AuthzChangeLogHorizon_2026_11_06_00_00_00().down(driver);
         expect(await columns()).to.not.include('before');
         expect(await driver.tableInfo(HORIZON_TABLE, driver.Options.Database)).to.equal(null);
+        expect(await driver.tableInfo(LOST_TABLE, driver.Options.Database)).to.equal(null);
       });
 
       it('coveredSince is the first boot that tracked the kind, and survives a process that tracks nothing', async () => {
@@ -124,19 +128,36 @@ describe('changelog horizon', function () {
         expect([await log.coveredSince('column', 'doc'), await log.coveredSince('column', 'folder')]).to.deep.equal([t4, t4]);
       });
 
-      it('lost() outside a transaction restarts coverage at once and never rejects', async () => {
-        await recordCoverage(['policy'], [], [], T1);
+      it('lost() outside a transaction leaves a marker at once: coverage starts at the later of the horizon and the marker', async () => {
+        await recordCoverage(['policy'], ['doc', 'folder'], [], T1);
         const before = Date.now();
         await log.lost('policy', undefined, 'test');
         expect((await log.coveredSince('policy'))!.getTime()).to.be.within(before, Date.now());
+        await log.lost('column', 'doc', 'test');
+        expect(await log.coveredSince('column', 'folder')).to.deep.equal(T1);
+        await log.lost('column', undefined, 'test');
+        expect((await log.coveredSince('column', 'folder'))!.getTime()).to.be.within(before, Date.now());
+        const later = new Date(Date.now() + 60_000);
+        await restartCoverage('policy', undefined, later);
+        expect(await log.coveredSince('policy')).to.deep.equal(later);
+        // A marker without a horizon row claims nothing.
+        await log.lost('tuple', undefined, 'test');
+        expect(await log.coveredSince('tuple')).to.equal(undefined);
+      });
+
+      it('before the migration, lost() warns once, inserts nothing and leaves the write alone', async () => {
         const error = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
         const warn = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
-        await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
+        await db.raw(`DROP TABLE "${LOST_TABLE}"`, [], dialect);
         const fresh = new DbChangeLog();
         await fresh.lost('policy', undefined, 'test');
-        await driver.transaction(() => fresh.lost('policy', undefined, 'test'));
-        // Before the migration ran: one warning per process, not an error per escaped write.
-        expect([error.callCount, warn.getCalls().filter((c) => String(c.args[1]).includes(HORIZON_TABLE)).length]).to.deep.equal([0, 1]);
+        await driver.transaction(async () => {
+          await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
+          await fresh.lost('policy', undefined, 'test');
+          await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
+        });
+        expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
+        expect([error.callCount, warn.getCalls().filter((c) => String(c.args[1]).includes(LOST_TABLE)).length]).to.deep.equal([0, 1]);
       });
 
       it('retention prunes and moves the horizon together, and deletes nothing without the horizon table', async () => {
@@ -144,8 +165,13 @@ describe('changelog horizon', function () {
         const old = new Date('2025-01-02T00:00:00Z');
         await recordCoverage(['tuple'], [], [], new Date('2025-01-01T00:00:00Z'));
         await driver.transaction(() => log.append([{ kind: 'tuple', op: 'add', key: 'old', at: old }, { kind: 'tuple', op: 'add', key: 'new', at: new Date('2026-11-01T00:00:00Z') }]));
+        await LostRecord.insert([
+          { kind: 'tuple', resource_type: '', at: DateTime.fromJSDate(old) },
+          { kind: 'rule', resource_type: '', at: DateTime.fromISO('2026-10-01T00:00:00Z') },
+        ]);
         expect(await pruneChangeLog(400, now)).to.equal(1);
         expect((await log.coveredSince('tuple'))!.toISOString()).to.equal('2025-10-02T00:00:00.000Z');
+        expect((await LostRecord.all()).map((r) => r.kind)).to.deep.equal(['rule']);
         await driver.transaction(() => log.append([{ kind: 'tuple', op: 'add', key: 'old2', at: old }]));
         await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
         await rejection(pruneChangeLog(400, now));
@@ -162,20 +188,58 @@ describe('changelog horizon', function () {
         ]);
       });
 
-      it('lost() inside a transaction moves the horizon with the write, so a failed restart after the commit still leaves it moved', async () => {
+      it('a committed lost write moves coverage to the moment of lost()', async () => {
         await recordCoverage(['policy'], [], [], T1);
-        const update = sinon.stub(HorizonRecord, 'update').callThrough();
-        update.onSecondCall().throws(new Error('connection lost'));
-        const error = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
         const before = Date.now();
         let inside = 0;
         await driver.transaction(async () => {
           await log.lost('policy', undefined, 'test');
           inside = Date.now();
         });
-        expect(update.callCount).to.equal(2);
-        expect(error.callCount).to.equal(1);
         expect((await log.coveredSince('policy'))!.getTime()).to.be.within(before, inside);
+      });
+
+      it('two parallel lost() calls of one transaction both resolve, leave one marker and the transaction commits', async () => {
+        await recordCoverage(['policy'], ['doc'], [], T1);
+        await driver.transaction(async () => {
+          await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
+          await Promise.all([log.lost('column', 'doc', 'a'), log.lost('column', 'doc', 'b'), log.lost('policy', undefined, 'c')]);
+          await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
+        });
+        expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
+        expect((await LostRecord.all()).map((r) => [r.kind, r.resource_type]).sort()).to.deep.equal([
+          ['column', 'doc'],
+          ['policy', ''],
+        ]);
+      });
+
+      it('a marker that a savepoint rolled back is written again by the next lost() of the transaction', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        await driver.transaction(async () => {
+          await driver.transaction(async () => {
+            await log.lost('policy', undefined, 'inner');
+            throw new Error('roll back the savepoint');
+          }).catch(() => undefined);
+          await log.lost('policy', undefined, 'outer');
+          await log.lost('policy', undefined, 'again');
+        });
+        expect(await LostRecord.all()).to.have.length(1);
+        expect((await log.coveredSince('policy'))!.getTime()).to.be.greaterThan(T1.getTime());
+      });
+
+      it('a marker that cannot be inserted fails the write', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        sinon.stub(LostRecord, 'insert').rejects(new Error('lock timeout'));
+        const error = await rejection(
+          driver.transaction(async () => {
+            await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
+            await log.lost('policy', undefined, 'test');
+          }),
+        );
+        expect(error.message).to.equal('lock timeout');
+        expect(await log.since(0)).to.deep.equal([]);
+        expect((await rejection(new DbChangeLog().lost('policy', undefined, 'test'))).message).to.equal('lock timeout');
+        expect(await log.coveredSince('policy')).to.deep.equal(T1);
       });
 
       it('lost() in a transaction that rolls back leaves the horizon where it was', async () => {
@@ -187,18 +251,6 @@ describe('changelog horizon', function () {
           })
           .catch(() => undefined);
         expect(await log.coveredSince('policy')).to.deep.equal(T1);
-      });
-
-      it('a restart that fails inside the transaction does not fail the write', async () => {
-        await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
-        sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
-        sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
-        await driver.transaction(async () => {
-          await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
-          await log.lost('policy', undefined, 'test');
-          await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
-        });
-        expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
       });
 
       it('a column row restarts when its relation fingerprint differs, and keeps its since when it is equal', async () => {

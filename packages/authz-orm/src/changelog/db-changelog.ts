@@ -7,9 +7,9 @@ import { DateTime } from 'luxon';
 import { ormLog } from '../host.js';
 import { recordDriver, selectFrom } from '../records.js';
 import { classesOf, entryOf, registeredTypes } from '../registry.js';
-import { HorizonRecord, columnFingerprint, horizonType, recordCoverage, restartCoverage } from './horizon.js';
+import { LostRecord, columnFingerprint, coverageStart, horizonType, recordCoverage } from './horizon.js';
 import { ChangeLogRecord } from './record.js';
-import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS, HORIZON_TABLE } from './table.js';
+import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS, LOST_TABLE } from './table.js';
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 10000;
@@ -32,13 +32,19 @@ function columnsCovered(type: ResourceType): boolean {
   return models.length > 0 && models.every((m) => entryOf(m)?.changelog !== false);
 }
 
-async function horizonMissing(): Promise<boolean> {
+async function tableMissing(record: typeof LostRecord, table: string): Promise<boolean> {
   try {
-    const driver = recordDriver(HorizonRecord);
-    return (await driver.tableInfo(HORIZON_TABLE, driver.Options.Database)) === null;
+    const driver = recordDriver(record);
+    return (await driver.tableInfo(table, driver.Options.Database)) === null;
   } catch {
     return false;
   }
+}
+
+/** One lost-write marker of a transaction; `sentinel` sits in its after-commit queue until a savepoint rollback drops both. */
+interface Mark {
+  readonly sentinel: () => void;
+  readonly done: Promise<void>;
 }
 
 /**
@@ -97,6 +103,8 @@ export class DbChangeLog extends ChangeLog {
   private readonly tracked = new Set<ChangeKind>();
   private coverageWarned = false;
   private lostWarned = false;
+  private markersExist = false;
+  private readonly marks = new WeakMap<object, Map<string, Mark>>();
 
   covers(kind: ChangeKind, resourceType?: ResourceType): boolean {
     if (kind === 'column') return columnHook && (resourceType === undefined || columnsCovered(resourceType));
@@ -161,48 +169,43 @@ export class DbChangeLog extends ChangeLog {
     return out;
   }
 
-  /** Reads the horizon only: what this process tracks says nothing of the writes before it started. */
-  async coveredSince(kind: ChangeKind, resourceType?: ResourceType): Promise<Date | undefined> {
-    const row = (await selectFrom(HorizonRecord).onPrimary().where('kind', kind).where('resource_type', horizonType(kind, resourceType)).first()) as HorizonRecord | undefined;
-    return row?.since.toJSDate();
+  /** Reads the horizon and the lost-write markers only: what this process tracks says nothing of the writes before it started. */
+  coveredSince(kind: ChangeKind, resourceType?: ResourceType): Promise<Date | undefined> {
+    return coverageStart(kind, resourceType);
   }
 
   /**
-   * Inside a transaction the restart runs twice: in a savepoint of the write's transaction, so the horizon commits or
-   * rolls back with the write even when the second restart never runs, and after the commit, which moves `since` past
-   * the instant the write became visible. Never rejects, so the write that escaped does not fail over its signal.
+   * Inserts one marker in the write's transaction (once per transaction, kind and type), as a plain statement: it
+   * commits or rolls back with the write, takes no row lock, and a failed insert fails the write. Before the migration
+   * ran it warns once and inserts nothing.
    */
   async lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void> {
-    const fields = { kind, resourceType: resourceType ?? '*', reason: reason ?? 'unknown' };
-    const fail = async (e: unknown): Promise<void> => {
-      // Before the migration ran there is no coverage to restart: say so once, not on every escaped write.
-      if (await horizonMissing()) {
-        if (!this.lostWarned) ormLog().warn(fields, 'authz-orm: authz_change_log_horizon does not exist, so a ${kind} write that escaped the changelog cannot restart its coverage; run the authz migrations');
-        this.lostWarned = true;
-        return;
-      }
-      ormLog().error({ ...fields, error: thrownError(e) }, 'authz-orm: a ${kind} write of ${resourceType} escaped the changelog (${reason}) and its coverage could not be restarted; replays before now may read a wrong state');
-    };
-    const restart = async (): Promise<void> => {
-      try {
-        await restartCoverage(kind, resourceType, new Date());
-      } catch (e) {
-        await fail(e);
-      }
-    };
-    try {
-      const driver = recordDriver(HorizonRecord);
-      if (driver.CurrentTransaction !== undefined) {
-        try {
-          await driver.transaction(() => restartCoverage(kind, resourceType, new Date()));
-        } catch (e) {
-          await fail(e);
-        }
-      }
-      await driver.afterCommit(restart);
-    } catch (e) {
-      await fail(e);
+    const driver = recordDriver(LostRecord);
+    const tx = driver.CurrentTransaction;
+    const type = horizonType(kind, resourceType);
+    if (tx === undefined) return this.mark(kind, type, reason);
+    const marks = this.marks.get(tx) ?? new Map<string, Mark>();
+    this.marks.set(tx, marks);
+    const slot = `${kind}#${type}`;
+    const known = marks.get(slot);
+    // A savepoint that rolled back took its marker along, and with it the sentinel queued in the same part.
+    if (known !== undefined && tx.afterCommit?.includes(known.sentinel)) return known.done;
+    const sentinel = (): void => undefined;
+    const queued = driver.afterCommit(sentinel);
+    const done = this.mark(kind, type, reason);
+    marks.set(slot, { sentinel, done });
+    await queued;
+    return done;
+  }
+
+  private async mark(kind: ChangeKind, type: string, reason: string | undefined): Promise<void> {
+    if (!this.markersExist && (await tableMissing(LostRecord, LOST_TABLE))) {
+      if (!this.lostWarned) ormLog().warn({ kind, resourceType: type || '*', reason: reason ?? 'unknown' }, 'authz-orm: authz_change_log_lost does not exist, so a ${kind} write that escaped the changelog leaves no marker; run the authz migrations');
+      this.lostWarned = true;
+      return;
     }
+    this.markersExist = true;
+    await LostRecord.insert({ kind, resource_type: type, at: DateTime.now() });
   }
 
   /**

@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
 import { recordDriver } from '../records.js';
-import { HorizonRecord } from './horizon.js';
+import { HorizonRecord, LostRecord } from './horizon.js';
 import { ChangeLogRecord } from './record.js';
 import { CHANGELOG_RETENTION_DAYS_DEFAULT } from './schema.js';
 
@@ -17,7 +17,8 @@ export function changeLogRetentionDays(): number {
 }
 
 /**
- * Deletes the changes recorded more than `days` days before `now` and moves the horizon up to that cutoff, in one
+ * Deletes the changes recorded more than `days` days before `now`, moves the horizon up to that cutoff and drops the
+ * lost-write markers at or before it, in one
  * transaction: history deleted under an unmoved horizon would let a replay take a pruned key for an unchanged one.
  * Returns how many changes it deleted.
  */
@@ -27,6 +28,7 @@ export async function pruneChangeLog(days: number = changeLogRetentionDays(), no
   return recordDriver(ChangeLogRecord).transaction(async () => {
     const { RowsAffected } = await ChangeLogRecord.destroy().where('at', '<', cutoff);
     await HorizonRecord.update({ since: cutoff }).where('since', '<', cutoff);
+    await LostRecord.destroy().where('at', '<=', cutoff);
     return RowsAffected;
   });
 }
