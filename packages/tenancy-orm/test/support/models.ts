@@ -131,8 +131,9 @@ export class Folder extends ModelBase<Folder> {
 @Model('archived_note')
 export class ArchivedNote extends Note {}
 
-// No table of its own: the tables of its subclasses are tenant tables.
-@Tenant()
+// No table of its own: the tables of its subclasses are tenant tables. Row level security makes their connection keep
+// one tenant scope per transaction.
+@Tenant({ rls: true })
 export abstract class TenantOwned<M = unknown> extends ModelBase<M> {
   @Column({ family: 'text', length: 64 })
   public tenant_id: string;

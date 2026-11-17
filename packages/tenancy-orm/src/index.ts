@@ -11,3 +11,6 @@ export { acrossTenantsReason } from './marker.js';
 // Registers `.acrossTenants()` on select, update and delete builders.
 export { TenantDeleteExtension, TenantSelectExtension, TenantUpdateExtension } from './across.js';
 export type { SameQuery, TenantQueryMethods } from './across.js';
+export { carriesTenantSettings } from './transaction.js';
+// Registers the scope-change guard of T4 with @spinajs/tenancy.
+export { stopTransactionScopeGuard } from './scope-guard.js';

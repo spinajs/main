@@ -12,6 +12,7 @@ import { acrossTenantsReason } from './marker.js';
 import { keepTenantColumn, refuseJoinedTenantTables, refusePartlyFiltered, requireCondition } from './shapes.js';
 import { isStatement, requireColumn, statementName, targetOf } from './target.js';
 import type { TenantTarget } from './target.js';
+import { keepOneScopePerTransaction } from './transaction.js';
 
 /** `.acrossTenants(reason)` is the all-tenants scope of one statement. */
 function statementScope(query: QueryBuilder): TenantScope | undefined {
@@ -35,6 +36,7 @@ export class TenantScopeMiddleware extends QueryMiddleware {
       if (query instanceof SelectQueryBuilder) refuseJoinedTenantTables(query, scope);
       return;
     }
+    keepOneScopePerTransaction(query, scope);
     const name = statementName(query, target.entry);
     if (scope === undefined) throw new TenantRequired(`tenancy-orm: ${name} needs a tenant scope: run it inside runInTenant(), or leave the scope with a declared reason`);
     if (!target.owned) {
