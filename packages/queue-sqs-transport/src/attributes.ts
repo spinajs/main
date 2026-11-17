@@ -36,9 +36,10 @@ export function toMessageAttributes(message: IQueueMessage, extra: Record<string
     if (result.length === MAX_ATTRIBUTES) break;
     // a body parsed from JSON may carry a header that is not a string
     const value = all.get(name);
-    if (typeof value !== 'string' || !usableValue(value) || !usableName(name)) continue;
+    if (typeof value !== 'string' || !usableName(name)) continue;
+    // the budget first, so a large header is dropped without a scan of its characters
     const size = attributeBytes(name, value);
-    if (bytes + size > MAX_ATTRIBUTES_BYTES) continue;
+    if (bytes + size > MAX_ATTRIBUTES_BYTES || !usableValue(value)) continue;
     bytes += size;
     result.push([name, { DataType: 'String', StringValue: value }]);
   }

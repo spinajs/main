@@ -389,7 +389,9 @@ export class SqsQueueClient extends QueueClient {
     if (message.Headers || Object.keys(standard).length > 0) message.Headers = { ...message.Headers, ...standard };
 
     const notBefore = Number(attributes[NOT_BEFORE_ATTRIBUTE]);
-    if (!this.isFifo(desc.url) && Number.isFinite(notBefore) && notBefore > this.now()) {
+    const now = this.now();
+    // the transport never writes a deadline past the timer limit; a later one would be re-sent every 15 minutes for ever
+    if (!this.isFifo(desc.url) && Number.isFinite(notBefore) && notBefore > now && notBefore <= now + MAX_TIMER_MS) {
       await this.sendMessage(this.sendParams(desc.url, message, { notBefore }));
       await this.deleteMessage(desc.url, m.ReceiptHandle);
       return;

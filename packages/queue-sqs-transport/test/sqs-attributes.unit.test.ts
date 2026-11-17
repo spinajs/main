@@ -193,6 +193,35 @@ describe('sqs transport: attributes, FIFO, delays', () => {
     expect(c.deleted).to.deep.equal(['rh-1']);
   });
 
+  it('keeps the MessageId, traceparent and retry count on the re-sent copy, in the body and in the attributes', async () => {
+    const c = await recordingClient({ queue: STANDARD });
+    await c.receive(STANDARD, message({ Headers: { [QueueHeaders.TraceParent]: 'tp', [QueueHeaders.RetryCount]: '2' } }), {
+      attributes: { [NOT_BEFORE_ATTRIBUTE]: String(c.clockMs + 1_200_000) },
+    });
+    const body = JSON.parse(c.sent[0].MessageBody ?? '{}') as IQueueMessage;
+    expect(body.MessageId).to.equal('m-1');
+    expect(body.Headers).to.include({ [QueueHeaders.TraceParent]: 'tp', [QueueHeaders.RetryCount]: '2' });
+    expect(readMessageAttributes(c.sent[0].MessageAttributes)).to.include({ [QueueHeaders.MessageId]: 'm-1', [QueueHeaders.TraceParent]: 'tp', [QueueHeaders.RetryCount]: '2' });
+  });
+
+  it('re-sends a not-before up to the timer limit, and handles one past it as unreadable', async () => {
+    const c = await recordingClient({ queue: STANDARD });
+    let calls = 0;
+    const handler = () => {
+      calls++;
+      return Promise.resolve();
+    };
+    await c.receive(STANDARD, message(), { attributes: { [NOT_BEFORE_ATTRIBUTE]: String(c.clockMs + MAX_TIMER_MS) }, handler });
+    expect(calls).to.equal(0);
+    expect(c.sent).to.have.length(1);
+
+    for (const notBefore of [String(c.clockMs + MAX_TIMER_MS + 1), '1e20', '1e+300']) {
+      await c.receive(STANDARD, message(), { attributes: { [NOT_BEFORE_ATTRIBUTE]: notBefore }, handler });
+    }
+    expect(calls).to.equal(3);
+    expect(c.sent).to.have.length(1);
+  });
+
   it('handles a message whose not-before is due, unreadable, or on a FIFO queue', async () => {
     const c = await recordingClient({ queue: STANDARD });
     let calls = 0;
@@ -222,5 +251,18 @@ describe('sqs transport: attributes, FIFO, delays', () => {
     expect(got[0].Headers).to.include({ [QueueHeaders.TraceParent]: 'tp', [QueueHeaders.MessageId]: 'm-9' });
     expect(got[0].Headers).to.not.have.property('custom');
     expect(c.deleted).to.deep.equal(['rh-1']);
+  });
+
+  it('keeps the body MessageId when the attribute disagrees', async () => {
+    const c = await recordingClient({ queue: STANDARD });
+    const got: IQueueMessage[] = [];
+    await c.receive(STANDARD, message(), {
+      attributes: { [QueueHeaders.MessageId]: 'm-x' },
+      handler: (m) => {
+        got.push(m);
+        return Promise.resolve();
+      },
+    });
+    expect(got[0].MessageId).to.equal('m-1');
   });
 });

@@ -77,7 +77,7 @@ A producer that emits with a `ScheduleDelay` above 900 s sends the message with 
 
 This is the one send the consume side makes, so the consumer needs `sqs:SendMessage` on the queue it consumes. Without it the send fails, `pollLoop()` logs the error, and the message comes back after each visibility timeout until it is due. Each of those rounds is a receive, so a small `maxReceiveCount` can move it to the dead-letter queue first.
 
-A FIFO queue takes no per-message delay, so the attribute is never sent there and is ignored on receipt.
+A FIFO queue takes no per-message delay, so the attribute is never sent there and is ignored on receipt. A value that is not a number, or that is later than now + 2^31 - 1 ms (the longest delay a producer writes), is ignored too, and the message is handled at once.
 
 For a `QueueJob` consumed through `QueueService`, a failed attempt marks the `queue_jobs` row `retrying` or, after `RetryCount` retries, `dead`, then rethrows. With `queue.deduplicate` on (the default), the next delivery of a `dead` job finds a terminal row, returns without running, and the transport deletes it. So a job runs at most `RetryCount + 1` times, or fewer if the queue's `maxReceiveCount` is lower.
 
