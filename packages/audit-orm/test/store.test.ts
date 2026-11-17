@@ -15,15 +15,28 @@ const expect = chai.expect;
 const TABLE = 'audit_t';
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 const trailOf = (dialect: string): string => `t_${dialect}`;
-const TRAILS = Object.fromEntries(DIALECTS.map((d) => [trailOf(d), { connection: d, table: TABLE, onFailure: 'reject', retry: { attempts: 1, delay: 1 } }]));
+const missingOf = (dialect: string): string => `m_${dialect}`;
+const lostOf = (dialect: string): string => `l_${dialect}`;
+const TRAILS = Object.fromEntries(
+  DIALECTS.flatMap((d) => [
+    [trailOf(d), { connection: d, table: TABLE, onFailure: 'reject', retry: { attempts: 1, delay: 1 } }],
+    // Three tries: a joined write must still be tried once only.
+    [missingOf(d), { connection: d, table: 'audit_missing', onFailure: 'reject', retry: { attempts: 3, delay: 1 } }],
+    [lostOf(d), { connection: d, table: 'audit_missing', onFailure: 'continue', retry: { attempts: 3, delay: 1 } }],
+  ]),
+);
 const SPARE = { Driver: 'orm-driver-sqlite', Name: 'spare', Filename: ':memory:' };
+// Short, so a confirmed write that waits for the caller's transaction fails here instead of hanging the suite.
+const CONFIRM_TIMEOUT_MS = 3000;
+// Drivers that serve one outermost transaction at a time (supportedFeatures().concurrentTransactions === false).
+const SINGLE: readonly string[] = ['sqlite', 'pglite'];
 
 describe('TableAuditStore', function () {
   this.timeout(60000);
   let db: TestDb;
 
   before(async () => {
-    db = await TestDb.open({ trails: TRAILS }, { connections: [SPARE] });
+    db = await TestDb.open({ trails: TRAILS, confirmTimeoutMs: CONFIRM_TIMEOUT_MS }, { connections: [SPARE] });
   });
 
   after(async () => {
@@ -42,6 +55,20 @@ describe('TableAuditStore', function () {
     const trail = { ...trailConfig(trailOf('sqlite')), connection: 'nowhere' };
     const event: AuditEvent = { id: 'e1', at: new Date(), kind: 'custom', action: 'x', outcome: 'ok', actor: 'system:test', data: {} };
     await expect(new TableAuditStore().append({ trail, events: [event] })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nowhere"');
+  });
+
+  it('joins the caller only inside a transaction open on a single-connection driver, and never for a connection it cannot find', async () => {
+    const store = new TableAuditStore();
+    const sqlite = trailConfig(trailOf('sqlite'));
+    expect(store.joinsCaller(sqlite, undefined)).to.eq(false);
+    await db.driver('sqlite').transaction(async () => {
+      expect(store.joinsCaller(sqlite, undefined)).to.eq(true);
+      expect(store.joinsCaller(sqlite, 'nowhere')).to.eq(false);
+      expect(store.joinsCaller({ ...sqlite, connection: 'nowhere' }, undefined)).to.eq(false);
+      // The transaction is open on sqlite, not on the connection the write names.
+      expect(store.joinsCaller(sqlite, 'spare')).to.eq(false);
+      await expect(audit().record({ kind: 'custom', action: 'x' }, { trail: trailOf('sqlite'), connection: 'nowhere' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nowhere"');
+    });
   });
 
   it("writes a confirmed event on the connection the write names instead of the trail's", async function () {
@@ -128,28 +155,47 @@ describe('TableAuditStore', function () {
         expect(inner).to.eq(`audit: recording 1 event(s) of trail "${trail}" in ${TABLE} on connection "${dialect}" failed; is the table migrated there (AuditTrailTableMigration)?`);
       });
 
-      it("keeps a confirmed event when the caller's transaction rolls back", async () => {
-        const driver = db.driver(dialect);
-        const input = { kind: 'read', action: 'patient.read' } as const;
-        // sqlite and PGlite hold a statement from outside the open transaction until it ends: awaited inside, the record would wait
-        // forever on sqlite and fail at the pool's AcquireTimeout on PGlite.
-        const held = dialect === 'sqlite' || dialect === 'pglite';
-        let settled = false;
-        let recorded: Promise<void> = Promise.resolve();
-        const failing = driver.transaction(async () => {
-          if (held) {
-            recorded = audit()
-              .record(input, { trail })
-              .finally(() => (settled = true));
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            expect(settled).to.eq(false);
-          } else await audit().record(input, { trail });
-          throw new Error('caller failed');
+      const input = { kind: 'read', action: 'patient.read' } as const;
+
+      if (SINGLE.includes(dialect)) {
+        it("joins the caller's transaction with a confirmed event: gone when it rolls back, kept when it commits", async () => {
+          const driver = db.driver(dialect);
+          const failing = driver.transaction(async () => {
+            const started = Date.now();
+            await audit().record(input, { trail });
+            expect(Date.now() - started).to.be.below(CONFIRM_TIMEOUT_MS);
+            expect(await db.rows(dialect, TABLE)).to.have.length(1);
+            throw new Error('caller failed');
+          });
+          await expect(failing).to.be.rejectedWith('caller failed');
+          expect(await db.rows(dialect, TABLE)).to.have.length(0);
+
+          await driver.transaction(() => audit().record(input, { trail }));
+          expect(await db.rows(dialect, TABLE)).to.have.length(1);
         });
-        await expect(failing).to.be.rejectedWith('caller failed');
-        await recorded;
-        expect(await db.rows(dialect, TABLE)).to.have.length(1);
-      });
+
+        it("leaves the caller's transaction usable when a joined confirmed write fails, on a reject and on a continue trail", async () => {
+          const driver = db.driver(dialect);
+          await driver.transaction(async () => {
+            await expect(audit().record(input, { trail: missingOf(dialect) })).to.be.rejectedWith(AuditWriteFailed, `audit: trail "${missingOf(dialect)}" could not record 1 event(s) after 1 attempt(s)`);
+            await audit().record(input, { trail: lostOf(dialect), mode: 'confirmed' });
+            // The caller's own write after both failures, in the same transaction.
+            await audit().record({ kind: 'data', action: 'insert' }, { trail, mode: 'transactional', transaction: driver });
+          });
+          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.deep.eq(['insert']);
+        });
+      } else {
+        it("keeps a confirmed event when the caller's transaction rolls back", async () => {
+          const driver = db.driver(dialect);
+          const failing = driver.transaction(async () => {
+            expect(new TableAuditStore().joinsCaller(trailConfig(trail), undefined)).to.eq(false);
+            await audit().record(input, { trail });
+            throw new Error('caller failed');
+          });
+          await expect(failing).to.be.rejectedWith('caller failed');
+          expect(await db.rows(dialect, TABLE)).to.have.length(1);
+        });
+      }
     });
   }
 });
