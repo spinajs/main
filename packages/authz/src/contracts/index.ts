@@ -18,4 +18,5 @@ export * from './admin.js';
 export * from './changelog.js';
 export * from './tap.js';
 export * from './decision-log.js';
+export * from './replay.js';
 export * from './consistency.js';

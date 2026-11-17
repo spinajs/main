@@ -1,12 +1,11 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import type { ChangeRecord, ResourceType } from '@spinajs/authz';
+import type { ChangeRecord, ReplayRead, ResourceType } from '@spinajs/authz';
 
 import { objectLabel, subjectLabel } from '../eval/check.js';
 import type { TupleSource } from '../eval/evaluator.js';
 import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeDef, TypeName } from '../ir.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor.js';
 import { TupleSourceGap } from './gap.js';
-import type { ReplayRead } from './gap.js';
 import { coverageGap, stateAt } from './history.js';
 import type { KeyState } from './history.js';
 import type { ReplayHistory } from './history-scan.js';
