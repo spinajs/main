@@ -80,9 +80,11 @@ code lowers the score. `ignoreStatic` drops mutants of module-level constants (a
 per test).
 
 A target fails when its score is more than `tolerance` (2) points below its `baseline.json` entry, when its report is
-missing (the job failed or timed out), or when the report still holds Pending mutants. A target without a baseline
-entry is reported and not gated. Surviving and NoCoverage mutants of each target's `focus` files are listed under the
-table.
+missing (the job failed or timed out), or when the report still holds Pending mutants. The gate cannot run without
+`baseline.json` or with a malformed one. While the baseline holds no score at all (`"targets": {}`, before the first
+recorded run), every target is reported as "not gated: no baseline yet". Once it holds scores, a target without an
+entry fails until its first CI score is recorded. Surviving and NoCoverage mutants of each target's `focus` files are
+listed under the table.
 
 ## The baseline
 
@@ -93,7 +95,10 @@ table.
   feature branch has no runs.
 - **A given run:** `--run <run id>`. **A downloaded candidate:** pass the file path.
 - **Lower** only with `--allow-lower <target>` for each target that dropped, and the reason in the pull request
-  (new untested code, a Stryker upgrade, a target split).
+  (new untested code, a Stryker upgrade).
+- **A new or split target** added to `targets.json` after the first baseline fails the next run ("no baseline entry")
+  by design. Record it from that run with `--run <id>`: the script writes the targets of `targets.json` only, so a
+  replaced target's old key leaves `baseline.json` in the same commit.
 
 The script refuses a candidate measured locally, a run of another workflow, a `pull_request` run, a run of a fork's
 code, and a run in which a target has no score. `--latest` and `--run` need the `gh` CLI.
@@ -111,13 +116,14 @@ git status --porcelain src test                                     # must print
 - One target at a time, `--concurrency 4` at most: the machine runs out of memory otherwise.
 - A partial run (`--mutate` one file) compared with a full-target baseline reads as a drop; judge it by its survivors.
 - Runs are in place. Stryker writes mutants into `src/` and `// @ts-nocheck` into every `.js`/`.ts` file of `src/`,
-  `test/` and `lib/`, and restores them only on a clean exit. After a killed run, stop the Stryker parent and its
-  workers (on Windows killing `npx` leaves them running: stop them by PID), then
-  `git checkout -- packages/<pkg>/src packages/<pkg>/test` and copy `lib/` back from
-  `.stryker-tmp/<pkg>/backup-*/lib` (git does not see `lib/`), then delete that backup folder.
+  `test/` and `lib/`, and restores them only on a clean exit. A killed run leaves `src/` and `test/` modified:
+  1. Stop the Stryker parent and its workers. On Windows, killing `npx` (or `timeout`) leaves them running as orphans:
+     find them by command line and stop them by PID.
+  2. `git checkout -- packages/<pkg>/src packages/<pkg>/test`.
+  3. Copy `lib/` back from `.stryker-tmp/<pkg>/backup-*/lib` (git does not see `lib/`), then delete that backup folder.
 - On Windows with `core.autocrlf=true`, the golden fixtures `authz-ir/test/fixtures/{docs.fga,impact-3-3.fga,impact-3-3.ir.json}`
-  and `authz-rbac/test/fixtures/invoice.ir.json` check out as CRLF, and their tests fail, so does a dry run. Check them
-  out as LF: `git -c core.autocrlf=false checkout -- <files>`.
+  and `authz-rbac/test/fixtures/invoice.ir.json` check out with CRLF line endings, and their tests fail locally, and so
+  does a Stryker dry run. Check them out as LF: `git -c core.autocrlf=false checkout -- <files>`.
 
 ## Triage of survivors
 
@@ -139,23 +145,24 @@ A survivor is closed in one of two ways, nothing else ("not worth a test" is not
 
 ## Runtime
 
-Measured locally (Windows, `--concurrency 4`, on a machine shared with other builds, so pessimistic).
-s/mutant/worker = mutation-phase seconds × 4 ÷ mutants tested; CI = mutants × s ÷ 3 workers.
+Measured locally (Windows, `--concurrency 4`, on a machine shared with other builds, so pessimistic). Projected CI
+minutes are for 3 workers at the same speed per worker.
 
-| Target | Mutants | Tests | Initial test run | s/mutant/worker | Projected CI minutes |
-|---|---|---|---|---|---|
-| `authz-engine` | 8,981 | 1,897 | 100 s | 6.24 (pilot files only, an upper estimate) | ~311 |
-| `authz-ir-eval` | 952 | 73 | 8 s | 0.15 | ~1 |
-| `authz-rbac-model` | 4,934 | 1,518 | 112 s | 4.25 (stopped at 60 min, 3,173 tested) | ~117 |
-| `authz-rebac-model` | 1,050 | 113 | 16 s | 14.6 (100 timeouts at 10 s each) | ~85 |
-| `authz-abac-model` | 1,222 | 204 | 15 s | 1.22 | ~8 |
+| Target | Mutants | Tests | Initial test run | Local measurement | Projected CI minutes | 90-minute budget |
+|---|---|---|---|---|---|---|
+| `authz-engine` | 8,981 | 1,897 | 100 s | scaled from a 783-mutant sample (`evaluate.ts`, `combinators.ts`): 6.24 s per mutant per worker | ~311 | does not fit |
+| `authz-ir-eval` | 952 | 73 | 8 s | complete in 1 min | ~1 | fits |
+| `authz-rbac-model` | 4,934 | 1,518 | 112 s | stopped at 60 min with 3,173 of 4,841 tested; Stryker estimated 74 min more | 117 (linear) to ~180 (Stryker's estimate) | does not fit |
+| `authz-rebac-model` | 1,050 | 113 | 16 s | stopped at 60 min with 1,011 of 1,035 tested, 100 of them timeouts at 10 s each | ~85 to 87 | borderline |
+| `authz-abac-model` | 1,222 | 204 | 15 s | complete in 10 min | ~8 to 13 | fits |
 
 The budget is **90 minutes of Stryker per target**. The `stryker` step stops at 150 minutes and the job at 170, so a
-target between 90 and 150 minutes still reports a score. A target over 90 minutes is split into two targets with
-disjoint `mutate` globs (two configs, two gate keys), and their baselines are recorded with `--allow-lower` in a
-reviewed pull request. A target over 150 minutes is cut off: its job fails, the gate fails it as "no report", and the
-run cannot set a baseline. The step logs `progress-append-only` lines (tested count, elapsed and remaining time), so a
-cut-off run still shows its rate.
+target between 90 and 150 minutes still reports a score. A target over the budget is split into targets with disjoint
+`mutate` globs (one config and one gate key each, `authz-engine` into about four, `authz-rbac-model` into two). The
+workflow's matrix comes from `targets.json`, so a split needs no workflow change. The split lands before the first
+baseline is recorded. **Until it lands, the `authz-engine` and `authz-rbac-model` jobs are expected to exceed their
+time limit:** the job fails, the gate fails the target as "no report", and the run cannot set a baseline. The step
+logs `progress-append-only` lines (tested count, elapsed and remaining time), so a cut-off run still shows its rate.
 
 ## Test minimisation runs
 
