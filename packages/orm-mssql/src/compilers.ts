@@ -75,10 +75,6 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
   }
 
   public compile() {
-    if (this._builder.Ignore) {
-      throw new OrmException(`mssql insert or ignore is not supported`);
-    }
-
     if (this._builder.Replace) {
       throw new OrmException(`mssql insert or replace is not supported`);
     }
@@ -86,14 +82,27 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     const into = this.into();
     const columns = this.columns();
     const values = this.values();
-
-    const iBindings = values.bindings;
-    const iExpression = `${into} ${columns} ${values.data}`;
     const dResult = super.upsort();
+    const insert = dResult.expression + `${into} ${columns} ${values.data}`;
+    const bindings = dResult.bindings!.concat(values.bindings);
 
+    // an upsert decides what a conflict does on its own
+    if (!this._builder.Ignore || this.isDuplicate) {
+      return { bindings, expression: insert + '; SELECT SCOPE_IDENTITY() as ID;' };
+    }
+
+    if (this._builder.Values.length > 1) {
+      throw new OrmException('mssql insert or ignore takes one row per statement: a duplicate would refuse the other rows too');
+    }
+
+    // 2627 / 2601: duplicate key under a unique constraint / a unique index. The batch reports its own count: the
+    // driver's rowsAffected[0] would be the count of the DECLARE's assignment, not of the INSERT.
     return {
-      bindings: dResult.bindings!.concat(iBindings),
-      expression: dResult.expression + iExpression + '; SELECT SCOPE_IDENTITY() as ID;',
+      bindings,
+      expression:
+        `DECLARE @spinajs_inserted INT = 0; BEGIN TRY ${insert}; SET @spinajs_inserted = @@ROWCOUNT; END TRY ` +
+        `BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) BEGIN; THROW; END; END CATCH; ` +
+        `SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;`,
     };
   }
 

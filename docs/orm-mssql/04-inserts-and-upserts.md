@@ -1,15 +1,24 @@
 # Inserts and upserts
 
-On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, and neither `INSERT IGNORE` nor `INSERT OR REPLACE` exists. `MsSqlServerResponseMapper` reads the generated key back for model inserts.
+On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, there is no `INSERT OR REPLACE`, and `orIgnore()` is a guarded batch. `MsSqlServerResponseMapper` reads the generated key back for model inserts.
 
 ## How it works
 
 ### Builder insert
 
 1. `driver.insert().into('orders').values({...})` builds an `InsertQueryBuilder` with `QueryContext.Insert`.
-2. `MsSqlInsertQueryCompiler.compile()` throws `OrmException('mssql insert or ignore is not supported')` when `orIgnore()` was called, and `OrmException('mssql insert or replace is not supported')` when `orReplace()` was called.
+2. `MsSqlInsertQueryCompiler.compile()` throws `OrmException('mssql insert or replace is not supported')` when `orReplace()` was called.
 3. Otherwise it emits `INSERT INTO <table> (<columns>) VALUES (...)` and appends `; SELECT SCOPE_IDENTITY() as ID;`.
-4. `executeOnDb()` returns `{ RowsAffected, LastInsertId, Returning: [] }`, `LastInsertId` read from the `ID` column. The builder resolves with that object. No mapper is involved.
+4. With `orIgnore()` the insert is wrapped in `BEGIN TRY … END TRY BEGIN CATCH … END CATCH`. The catch swallows errors 2627 (unique constraint) and 2601 (unique index) and rethrows every other error with `THROW`. The batch then selects `ID` and `INSERTED`:
+
+```sql
+DECLARE @spinajs_inserted INT = 0;
+BEGIN TRY INSERT INTO [shop].[dbo].[subscribers] ([Email]) VALUES (?); SET @spinajs_inserted = @@ROWCOUNT; END TRY
+BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) BEGIN; THROW; END; END CATCH;
+SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;
+```
+
+5. `executeOnDb()` returns `{ RowsAffected, LastInsertId, Returning: [] }`, `LastInsertId` read from the `ID` column and `RowsAffected` from `INSERTED` when the batch has it. For an ignored row both are `0`. The builder resolves with that object. No mapper is involved.
 
 ### Model insert
 
@@ -123,7 +132,10 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 
 - **`SCOPE_IDENTITY()` is the last identity of the batch.** A multi-row insert reports the last generated key, so `insertIdIsFirstOfBatch` is `false` and the ORM does not backfill keys of a batch.
 - **`RETURNING` is not supported.** `insertReturning` is `false`; `InsertQueryBuilder.returning()` throws `NotSupported`.
-- **`InsertBehaviour.InsertOrIgnore` throws** `OrmException('mssql insert or ignore is not supported')` at compile time, before anything is sent.
+- **`orIgnore()` takes one row per statement.** A duplicate in a multi-row `VALUES` would refuse every row of it, where the other dialects skip only the duplicate, so several rows with `orIgnore()` throw `OrmException` at compile time.
+- **An ignored duplicate leaves the transaction usable** with the default `XACT_ABORT OFF`: the error ends the statement only. Under `SET XACT_ABORT ON` the same error dooms the transaction, and its `COMMIT` fails.
+- **`orIgnore()` with `onDuplicate()` compiles the `MERGE`.** The upsert decides what a conflict does, and `orIgnore()` has no effect.
+- **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index is ignored, not only the one the caller had in mind. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored gets `0` as its key.
 - **`InsertBehaviour.InsertOrReplace` throws** `OrmException('mssql insert or replace is not supported')` at compile time. Use `InsertBehaviour.InsertOrUpdate`.
 - **`MERGE` matches on every unique column**, joined with `AND`, against the inserted values. It works on a builder query without a model: `driver.insert().into('t').values({...}).onDuplicate('Email').update(['Name'])`.
 - **`SCOPE_IDENTITY()` is `NULL` after an update.** When `MERGE` updates, the identity row holds `ID: null`, and `MsSqlServerResponseMapper` reports `LastInsertId: 0`.
@@ -132,16 +144,18 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 ## Best practices
 
 - Use `InsertBehaviour.InsertOrUpdate` with the model's `@Unique` columns for an upsert.
-- Guard a "create if missing" with `Model.where(...).orderBy(...).first()` or an upsert, not with `InsertOrIgnore`.
+- Use `InsertBehaviour.InsertOrIgnore` for a "create if missing" of a single row, and check `RowsAffected` to know whether it was created.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: InsertOrIgnore throws on SQL Server
-await Subscriber.insert(subscriber, InsertBehaviour.InsertOrIgnore);
+// Don't: several rows with InsertOrIgnore throw on SQL Server
+await driver.insert().into('subscribers').values(subscribers).orIgnore();
 
-// Do: upsert on the unique column
-await Subscriber.insert(subscriber, InsertBehaviour.InsertOrUpdate);
+// Do: one statement per row
+for (const subscriber of subscribers) {
+  await driver.insert().into('subscribers').values(subscriber).orIgnore();
+}
 ```
 
 ## Examples
