@@ -30,7 +30,7 @@ export function validateCaveats(caveats: Record<CaveatName, CaveatDef>): IRDiagn
   return out;
 }
 
-const own =(o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
 class Validator {
   readonly out: IRDiagnostic[] = [];

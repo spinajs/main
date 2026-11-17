@@ -233,6 +233,7 @@ describe('authz-rebac: RebacModel', () => {
   describe('freshness', () => {
     it('a store write is live and moves the version', async () => {
       const before = s.model.version();
+      expect(before).to.equal('61dfdb1987bbb7f6#0');
       expect(await allowed(s, 'dave', 'doc:read', d1)).to.equal(false);
       await s.store.write([tuple(d1, 'viewer', user('dave'))], [], user('admin'));
       expect(await allowed(s, 'dave', 'doc:read', d1)).to.equal(true);

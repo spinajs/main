@@ -57,6 +57,8 @@ describe('authz-rebac: namespace compiler', () => {
 
     it('hashes the configuration: equal for equal input, changed by any change', () => {
       expect(NamespaceSchema.compile(NAMESPACES, PERMISSIONS).hash()).to.equal(schema.hash());
+      // The digest from before caveats existed: a schema without them keeps its version and policy hash.
+      expect(schema.hash()).to.equal('61dfdb1987bbb7f6');
       expect(NamespaceSchema.compile(NAMESPACES, { ...PERMISSIONS, 'doc:read': 'doc#view' }).hash()).to.not.equal(schema.hash());
       expect(NamespaceSchema.compile({ ...NAMESPACES, user: { relations: { self: ['user'] } } }, PERMISSIONS).hash()).to.not.equal(schema.hash());
     });
