@@ -49,8 +49,7 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   private readonly remembered = new Map<string, { at: number; outcome: PlanOutcome }>();
   private readonly planning = new Map<string, Promise<PlanOutcome>>();
   private readonly pending = new Set<Promise<void>>();
-  private windowStart = Number.NEGATIVE_INFINITY;
-  private windowCount = 0;
+  private rateWindow = { start: Number.NEGATIVE_INFINITY, count: 0 };
   private dropped = 0;
   private options: ExplainOptions | undefined;
 
@@ -90,10 +89,11 @@ export class SlowQueryMiddleware extends QueryMiddleware {
     }
   }
 
-  /** Re-reads `db.Explain`, for tests and tooling that change it after the first query. A remembered plan was made under the old options, so none is kept. */
+  /** Re-reads `db.Explain`, for tests and tooling that change it after the first query. A remembered plan was made under the old options, so none is kept, and `MaxPerMinute` counts from now. */
   public reload(): void {
     this.options = undefined;
     this.remembered.clear();
+    this.rateWindow = { start: Number.NEGATIVE_INFINITY, count: 0 };
     this.current();
   }
 
@@ -192,16 +192,15 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   }
 
   private takeExplainSlot(now: number, maxPerMinute: number): boolean {
-    if (now - this.windowStart >= MINUTE_MS) {
-      this.windowStart = now;
-      this.windowCount = 0;
+    if (now - this.rateWindow.start >= MINUTE_MS) {
+      this.rateWindow = { start: now, count: 0 };
     }
 
-    if (this.windowCount >= maxPerMinute) {
+    if (this.rateWindow.count >= maxPerMinute) {
       return false;
     }
 
-    this.windowCount++;
+    this.rateWindow.count++;
     return true;
   }
 
