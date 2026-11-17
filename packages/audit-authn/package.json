@@ -1,0 +1,61 @@
+{
+  "name": "@spinajs/audit-authn",
+  "version": "3.0.23",
+  "description": "Records authentication events in the audit trail",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/audit-authn"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "audit",
+    "authn"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/audit": "3.0.23",
+    "@spinajs/authn": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/authn-testing": "3.0.23",
+    "@spinajs/log-common": "3.0.23",
+    "@spinajs/testing": "3.0.23"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}
