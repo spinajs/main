@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import sinon from 'sinon';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -48,11 +48,11 @@ class CapMember extends ModelBase {
   public Name: string;
 }
 
-const fixture = { writes: [] as CapturedWrite[] };
+const fixture = { writes: [] as CapturedWrite[], transactional: true };
 
 class FixtureObserver extends WriteObserver {
   interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === CapMember ? { columns: '*', transactional: true } : undefined;
+    return query.Model === CapMember ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {
@@ -226,6 +226,27 @@ describe('write capture on sqlite', function () {
       await CapMember.insert({ Email: 'a', Name: 'one' });
       await CapMember.insert({ Email: 'x', Name: 'two' });
       fixture.writes = [];
+      fixture.transactional = true;
+    });
+
+    it('locks the rows of the key select inside a transaction, and not without one', async () => {
+      const driver = db().Connections.get('sqlite')!;
+      const locks: string[] = [];
+      const execute = driver.execute.bind(driver);
+      const stub = sinon.stub(driver, 'execute').callsFake((builder) => {
+        if (builder instanceof SelectQueryBuilder && builder.Model === CapMember) locks.push(builder.RowLock ?? 'none');
+        return execute(builder);
+      });
+      try {
+        await CapMember.update({ Name: 'b' }).where('Id', 1);
+        fixture.transactional = false;
+        await CapMember.update({ Name: 'c' }).where('Id', 1);
+      } finally {
+        stub.restore();
+      }
+
+      expect(locks).to.deep.eq(['update', 'none']);
+      expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b', 'c']);
     });
 
     it('reports the row an upsert updates through a unique column as an update', async () => {

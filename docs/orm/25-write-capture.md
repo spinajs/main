@@ -33,7 +33,7 @@ export class InvoiceStatusLog extends WriteObserver {
 
 `CapturedWrite` carries the statement's `kind` (`insert`, `update`, `delete`), the builder, the model, the driver the statement ran on (inside its transaction when one is open) and `rows`: one `RowChange` per row the statement reached, unchanged rows included. A `RowChange` has the primary key as text (`id`), `before` (undefined when the row did not exist) and `after` (undefined when the row is gone), each projected to the columns the observer asked for plus the primary key. `columns: '*'` reads the whole row.
 
-The optional `prepare(query)` runs before any capture read, inside the transaction; throwing from it, or from `observe()`, aborts the statement and rolls it back when the capture opened the transaction.
+The optional `prepare(query)` runs before any capture read, inside the transaction; throwing from it aborts the statement. Throwing from `observe()` rejects the write and rolls it back inside a transaction; without one the statement has already committed (see [Concurrent writers](#concurrent-writers)).
 
 ## What is read, and when
 
@@ -52,6 +52,13 @@ The before and after reads are raw selects on the statement's own connection, so
 The key select runs through `CaptureReadScope`. By default it runs as it is; `@spinajs/authz-orm` registers a scope that runs it as `SYSTEM`, so row-level filters do not hide rows the write reaches. `captureReadScope()` returns the registered scope.
 
 The helpers the middleware uses are exported for observers and tests: `writeTargetKeys(query, pk)`, `upsertKeys(query, pk)`, `insertedKeys(query, result, pk)` and `captureKeyText(value)`, which turns a key into the text `RowChange.id` holds (strings, safe integers and bigints; anything else has no key text).
+
+## Concurrent writers
+
+Inside a transaction (the capture's own or the caller's) the key select of an update or delete locks the rows it finds (`SELECT ... FOR UPDATE` on PostgreSQL and MySQL; SQLite locks the whole database for a write; MSSQL has no row lock on a select and takes none). The before values are therefore what the statement overwrites. Two gaps remain:
+
+- A row that starts to match the statement's where clauses after the key select (another transaction inserts it, or changes it so that it matches) is changed by the statement but not reported. Only the `SERIALIZABLE` isolation level closes that window.
+- Without any transaction (every interested observer asks for none and the caller opened none), the key select, the before read, the statement and the after read are four separate statements, each committed on its own: other writers can change the rows in between, and an observer that throws cannot undo a statement that has already committed.
 
 ## Read replicas
 

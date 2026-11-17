@@ -3,6 +3,8 @@ import { InvalidArgument } from '@spinajs/exceptions';
 
 import { SelectQueryBuilder, createQuery } from '../builders.js';
 import type { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
+import type { OrmDriver } from '../driver.js';
+import { SqlExpressions } from '../expressions.js';
 import { CaptureReadScope } from './contracts.js';
 
 class DirectCaptureReadScope extends CaptureReadScope {
@@ -29,7 +31,20 @@ const uniqueKeys = (values: readonly unknown[]): string[] => [...new Set(values.
 
 const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
-/** The keys an update or delete reaches: a select with its where statements, soft-deleted and archived rows included. */
+// A dialect whose SELECT has no row lock (MSSQL) throws from rowLock(); SQLite answers '' as its writes lock the database.
+function locksRows(driver: OrmDriver): boolean {
+  try {
+    driver.Container.resolve(SqlExpressions).rowLock('update');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The keys an update or delete reaches: a select with its where statements, soft-deleted and archived rows included.
+ * Inside a transaction it locks those rows, so they keep the values the capture reads until the statement ran.
+ */
 export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, pk: string): Promise<string[]> {
   const model = query.Model;
   if (!model) throw new InvalidArgument('write capture: the keys of a write are read through its model, and this query has none');
@@ -37,6 +52,7 @@ export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | Delet
     const { query: select } = createQuery(model, SelectQueryBuilder);
     // A model select may be routed to a replica; the rows a write is about to change are read where it runs.
     select.withDeleted().withArchived().onPrimary();
+    if (query.Driver.CurrentTransaction !== undefined && locksRows(query.Driver)) select.forUpdate();
     const clones = query.Statements.map((s) => {
       const c = s.clone(select);
       c.Boolean = s.Boolean;
