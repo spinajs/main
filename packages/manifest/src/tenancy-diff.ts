@@ -34,6 +34,8 @@ function modelChanges(base: TenancyModel[], head: TenancyModel[]): TenancyChange
 }
 
 const entryId = (entry: TenancyEntryPoint): string => `${entry.kind} ${entry.id}`;
+/** Two packages may each have a `job:<Class>` or a schedule of the same name. */
+const entryKey = (entry: TenancyEntryPoint): string => `${entry.source.package} ${entryId(entry)}`;
 const stated = (entry: TenancyEntryPoint): string => (entry.tenancy === 'all' ? `all (${entry.reason ?? 'no literal reason'})` : entry.tenancy);
 
 /** A client that sends no tenant is refused once a route requires one. */
@@ -41,10 +43,10 @@ const refusesClients = (before: TenancyEntryPoint, after: TenancyEntryPoint): bo
 
 /** An entry point that disappears is a row of its own section (routes, socket, commands), so only the head is walked. */
 function entryChanges(base: TenancyEntryPoint[], head: TenancyEntryPoint[]): TenancyChange[] {
-  const before = new Map(base.map((e) => [entryId(e), e]));
+  const before = new Map(base.map((e) => [entryKey(e), e]));
   const out: TenancyChange[] = [];
   for (const entry of head) {
-    const old = before.get(entryId(entry));
+    const old = before.get(entryKey(entry));
     if (old === undefined) {
       if (entry.declared !== undefined) out.push({ kind: 'added', id: entryId(entry), breaking: false, detail: `declares tenancy ${stated(entry)}` });
       continue;

@@ -1,7 +1,7 @@
 import { canonicalize, hashManifest } from './hash.js';
-import { defaultEntryPoints, mountsTenantMiddleware, undeclaredTenancy } from './tenancy.js';
+import { defaultEntryPoints, mountsTenantMiddleware, TENANT_MIDDLEWARE, undeclaredTenancy } from './tenancy.js';
 import { MANIFEST_VERSION } from './types.js';
-import type { AuthzSection, Diagnostic, Manifest, ManifestFragment, ModelEntry, TenancySection } from './types.js';
+import type { AuthzSection, Diagnostic, Manifest, ManifestFragment, MiddlewareRef, ModelEntry, TenancyEntryPoint, TenancySection } from './types.js';
 
 export interface MergeMeta {
   app: Manifest['app'];
@@ -66,6 +66,25 @@ function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefin
   return models.map((m) => (m.accessResource === undefined && types.has(m.id) ? { ...m, accessResource: types.get(m.id) } : m));
 }
 
+const mountsTenantLocally = (refs: MiddlewareRef[]): boolean => refs.some((m) => m.type === TENANT_MIDDLEWARE);
+
+/**
+ * At run time a route's own `TenantMiddleware`, or its controller's, replaces the global entry with its own declaration. On
+ * an undeclared route such a mount is hand-written (the decorators yield `declared`), so the global mount says nothing there.
+ */
+function locallyMountedRoutes(fragment: ManifestFragment): Set<string> {
+  const mounted = fragment.controllers.flatMap((c) => c.routes.filter((r) => mountsTenantLocally(c.middlewares) || mountsTenantLocally(r.middlewares)));
+  return new Set(mounted.map((r) => `${r.method.toUpperCase()} ${r.fullPath}`));
+}
+
+function fragmentEntryPoints(fragment: ManifestFragment, globalMount: boolean): TenancyEntryPoint[] {
+  const local = globalMount ? locallyMountedRoutes(fragment) : new Set<string>();
+  return (fragment.tenancy?.entryPoints ?? defaultEntryPoints(fragment)).map((e) => {
+    if (e.declared !== undefined) return e;
+    return { ...e, tenancy: undeclaredTenancy(e.kind, globalMount && !(e.kind === 'route' && local.has(e.id))) };
+  });
+}
+
 /**
  * Once a package declares tenancy, or `TenantMiddleware` is mounted on every route, the section covers every entry point:
  * a fragment without one contributes its own as undeclared. Only the merge knows the global mount, so only here can an
@@ -74,10 +93,9 @@ function withRegisteredTypes(models: ModelEntry[], authz: AuthzSection | undefin
 function mergeTenancy(fragments: ManifestFragment[], globals: Manifest['globalRouteMiddlewares']): TenancySection | undefined {
   const globalMount = mountsTenantMiddleware(globals);
   if (!globalMount && !fragments.some((f) => f.tenancy)) return undefined;
-  const entryPoints = fragments.flatMap((f) => f.tenancy?.entryPoints ?? defaultEntryPoints(f));
   return {
     models: fragments.flatMap((f) => f.tenancy?.models ?? []),
-    entryPoints: entryPoints.map((e) => (e.declared === undefined ? { ...e, tenancy: undeclaredTenancy(e.kind, globalMount) } : e)),
+    entryPoints: fragments.flatMap((f) => fragmentEntryPoints(f, globalMount)),
     escapes: fragments.flatMap((f) => f.tenancy?.escapes ?? []),
     ignores: fragments.flatMap((f) => f.tenancy?.ignores ?? []),
   };

@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { DECLARED_ENTRY_TENANCY, hashManifest, mergeFragments, mountsTenantMiddleware, undeclaredTenancy, validateFragment, validateManifest } from '../src/index.js';
 import type { AuthzSection, Manifest, ModelEntry, ModelTenant, TenancyEntryPoint, TenancySection } from '../src/index.js';
-import { fragment, src } from './support.js';
+import { controllerEntry, fragment, routeEntry, src } from './support.js';
 
 const meta = (names: string[]): { app: Manifest['app']; packages: Manifest['packages']; generatedAt: string } => ({
   app: { name: 'app', version: '1.0.0', root: '.', outDir: 'lib' },
@@ -89,6 +89,28 @@ describe('manifest tenancy section', () => {
       escapes: [],
       ignores: [],
     });
+  });
+
+  it('keeps an undeclared route that mounts TenantMiddleware itself, or through its controller, at none under the global mount', () => {
+    const handMounted = { type: 'TenantMiddleware', options: [{ tenancy: 'none' }] };
+    const controllers = [
+      controllerEntry({ className: 'Open', routes: [routeEntry('get', '/plain'), routeEntry('get', '/own', { middlewares: [handMounted] })] }),
+      controllerEntry({ className: 'Ops', middlewares: [{ type: 'TenantMiddleware', options: [{ tenancy: 'all', reason: 'ops' }] }], routes: [routeEntry('get', '/ops/stats')] }),
+    ];
+    const ids = ['GET /plain', 'GET /own', 'GET /ops/stats'];
+    const mounted = { ...meta(['dep', 'app']), globalRouteMiddlewares: [{ type: 'TenantMiddleware' }] };
+    const scopes = (m: Manifest): Array<[string, string]> => (m.tenancy?.entryPoints ?? []).map((e) => [`${e.source.package} ${e.id}`, e.tenancy]);
+    const dep = fragment('dep', { controllers, authz: authz(...ids.map((id) => ({ kind: 'route' as const, id, access: [], source: src('dep') }))) });
+    const app = fragment('app', { controllers, tenancy: section({ entryPoints: ids.map((id) => route(id)) }) });
+    expect(scopes(mergeFragments(app, [dep], mounted))).to.deep.equal([
+      ['dep GET /plain', 'required'], ['dep GET /own', 'none'], ['dep GET /ops/stats', 'none'],
+      ['app GET /plain', 'required'], ['app GET /own', 'none'], ['app GET /ops/stats', 'none'],
+    ]);
+  });
+
+  it('records an undeclared entry point that a fragment claims is required as none without the global mount', () => {
+    const app = fragment('app', { tenancy: section({ entryPoints: [route('GET /a', { tenancy: 'required' }), { kind: 'queue-handler', id: 'job:Sync', tenancy: 'required', source: src() }] }) });
+    expect(mergeFragments(app, [], meta(['app'])).tenancy?.entryPoints.map((e) => e.tenancy)).to.deep.equal(['none', 'none']);
   });
 
   it('marks a dependency model a tenant model when another package registers it, and keeps what the model itself states', () => {

@@ -61,7 +61,7 @@ Result: **BREAKING** (5 breaking of 6 changes)
 
 This is the snapshot `packages/manifest/test/__snapshots__/breaking.md`, rendered from the `app-basic` fixture and an edited copy of it.
 
-The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`, `workflows`, `tenancy`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
+The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `models`, `services`, `commands`, `socket`, `workflows`, `tenancy`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
 

@@ -58,6 +58,25 @@ describe('diffManifest tenancy', () => {
     expect(diffManifest(base, head).breaking).to.equal(true);
   });
 
+  it('breaks only for a route that now requires a tenant, from all as well, and never for a queue handler', () => {
+    const job = (tenancy: TenancyEntryPoint['tenancy']): TenancyEntryPoint => ({ kind: 'queue-handler', id: 'job:Sync', tenancy, declared: tenancy === 'required' ? 'required' : 'carry', source: src() });
+    const base = withTenancy({ entryPoints: [route('GET /ops', { tenancy: 'all', declared: 'AllTenants', reason: 'ops' }), job('none')] });
+    const head = withTenancy({ entryPoints: [route('GET /ops', { tenancy: 'required', declared: 'TenantRoute' }), job('required')] });
+    expect(rows(base, head)).to.deep.equal([
+      { section: 'tenancy', kind: 'changed', id: 'queue-handler job:Sync', breaking: false, detail: 'tenancy changed from none to required' },
+      { section: 'tenancy', kind: 'changed', id: 'route GET /ops', breaking: true, detail: 'tenancy changed from all (ops) to required' },
+    ]);
+  });
+
+  it('keeps the entry points of two packages that share an id apart', () => {
+    const job = (pkg: string, tenancy: TenancyEntryPoint['tenancy']): TenancyEntryPoint => ({ kind: 'queue-handler', id: 'job:Recount', tenancy, declared: tenancy === 'required' ? 'required' : 'none', source: src(pkg) });
+    const base = withTenancy({ entryPoints: [job('dep', 'none'), job('app', 'required')] });
+    expect(rows(base, withTenancy({ entryPoints: [job('dep', 'none'), job('app', 'required')] }))).to.deep.equal([]);
+    expect(rows(base, withTenancy({ entryPoints: [job('dep', 'required'), job('app', 'required')] }))).to.deep.equal([
+      { section: 'tenancy', kind: 'changed', id: 'queue-handler job:Recount', breaking: false, detail: 'tenancy changed from none to required' },
+    ]);
+  });
+
   it('compares a manifest without a section as one whose entry points have no scope', () => {
     const before = manifestWith({ authz: routes('GET /a', 'GET /b') });
     const after = manifestWith({ authz: routes('GET /a', 'GET /b'), tenancy: { models: [], entryPoints: [route('GET /a', { tenancy: 'required' }), route('GET /b', { declared: 'NoTenant' })], escapes: [], ignores: [] } });
