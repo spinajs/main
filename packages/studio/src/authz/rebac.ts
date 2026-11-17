@@ -124,11 +124,15 @@ export function namespacesGraph(schema: SchemaLike): StudioGraph {
 /** Store calls one walk may make; past it the graph is cut like past the node limit. */
 export const MAX_STORE_READS = 2000;
 
+/** Edges one walk may add: on dense tuples a node limit alone still lets every store call add up to `limit` edges. */
+export const MAX_RELATION_EDGES = 20_000;
+
 interface Walk {
   readonly model: RebacLike;
   readonly b: GraphBuilder;
   readonly limit: number;
   readonly seen: Set<string>;
+  readonly edges: Set<string>;
   reads: number;
   truncated: boolean;
 }
@@ -157,11 +161,20 @@ function visit(w: Walk, f: Focus): boolean {
   return true;
 }
 
-// Adds `node` when the limit allows and the edge `from -> to`; a node seen for the first time joins the next frontier.
+// Adds `node` when the limits allow and the edge `from -> to`; a node seen for the first time joins the next frontier.
 function link(w: Walk, node: Focus, from: Focus, to: Focus, relation: string, found: Focus[]): void {
+  const key = JSON.stringify([focusId(from), relation, focusId(to)]);
+  const known = w.edges.has(key);
+  if (!known && w.edges.size >= MAX_RELATION_EDGES) {
+    w.truncated = true;
+    return;
+  }
   const fresh = visit(w, node);
   if (!w.seen.has(focusId(node))) return;
-  w.b.edge(focusId(from), focusId(to), truncate(relation), relation);
+  if (!known) {
+    w.edges.add(key);
+    w.b.edge(focusId(from), focusId(to), truncate(relation), relation);
+  }
   if (fresh) found.push(node);
 }
 
@@ -202,9 +215,9 @@ async function inbound(w: Walk, f: Focus): Promise<Focus[]> {
   return found;
 }
 
-/** Breadth-first over stored tuples in both directions, at most `depth` hops, `limit` nodes and MAX_STORE_READS store calls. */
+/** Breadth-first over stored tuples in both directions, at most `depth` hops, `limit` nodes, MAX_RELATION_EDGES edges and MAX_STORE_READS store calls. */
 export async function relationsGraph(model: RebacLike, focus: Focus, depth: number, limit: number): Promise<StudioGraph> {
-  const w: Walk = { model, b: new GraphBuilder(), limit, seen: new Set(), reads: 0, truncated: false };
+  const w: Walk = { model, b: new GraphBuilder(), limit, seen: new Set(), edges: new Set(), reads: 0, truncated: false };
   visit(w, focus);
   let frontier = [focus];
   for (let hop = 0; hop < depth && frontier.length > 0 && !w.truncated; hop++) {

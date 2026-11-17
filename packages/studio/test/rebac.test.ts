@@ -5,7 +5,7 @@ import type { ResourceRef } from '@spinajs/authz';
 import { MemoryTupleStore, NamespaceSchema, RebacModel } from '@spinajs/authz-rebac';
 import type { Tuple, TuplePage, TupleQuery } from '@spinajs/authz-rebac';
 
-import { MAX_STORE_READS, parseFocus, relationsGraph, toStudioTuple } from '../src/authz/rebac.js';
+import { MAX_RELATION_EDGES, MAX_STORE_READS, parseFocus, relationsGraph, toStudioTuple } from '../src/authz/rebac.js';
 import type { RebacLike, TupleLike, TupleStoreLike } from '../src/authz/rebac.js';
 import type { StudioCapabilities, StudioGraph, StudioPage, StudioTuple } from '../src/contracts/index.js';
 import { startApp, stopApp } from './support/app.js';
@@ -15,7 +15,7 @@ import { registerHeaderSource } from './support/principals.js';
 
 const NAMESPACES = {
   user: {},
-  group: { relations: { member: ['user'] } },
+  group: { relations: { member: ['user'], admin: ['user'] } },
   folder: { relations: { viewer: ['user', 'group#member'] }, permissions: { view: 'viewer' } },
   document: { relations: { parent: ['folder'], viewer: ['user'] }, permissions: { view: { union: ['viewer', 'parent->view'] } } },
 };
@@ -88,10 +88,12 @@ describe('ReBAC relation graph', () => {
     const store = new MemoryTupleStore([
       { object: { type: 'folder', id: '7' }, relation: 'viewer', subject: { object: { type: 'group', id: 'eng' }, relation: 'member' } },
       { object: { type: 'group', id: 'eng' }, relation: 'member', subject: { type: 'user', id: 'ann' } },
+      { object: { type: 'group', id: 'eng' }, relation: 'admin', subject: { type: 'user', id: 'root' } },
     ]);
     const g = await relationsGraph({ schema: () => schema, store: () => store }, parseFocus('folder:7'), 2, 500);
     expect(g.nodes.find((n) => n.id === 'group:eng#member')).to.include({ kind: 'userset', group: 'group' });
     expect(g.edges.some((e) => e.source === 'group:eng#member' && e.target === 'user:ann' && e.kind === 'member')).to.eq(true);
+    expect(g.nodes.map((n) => n.id)).to.not.include('user:root');
   });
 
   it('stops asking the store once the node limit is hit', async () => {
@@ -140,6 +142,32 @@ describe('ReBAC relation graph', () => {
     expect(g.nodes.length).to.be.lessThan(5000);
   });
 
+  it('stops adding edges at MAX_RELATION_EDGES on dense tuples and marks the cut', async () => {
+    // Every folder has every user as viewer: each read after the node limit still links K known nodes.
+    const K = 300;
+    const schema = NamespaceSchema.compile(NAMESPACES, PERMISSIONS);
+    const store: TupleStoreLike = {
+      read: async (object, relation) => (object.type === 'folder' && relation === 'viewer' ? Array.from({ length: K }, (_, i) => ({ object, relation, subject: { type: 'user', id: String(i) } })) : []),
+      reverse: async (_subject, relation, type) => (type === 'folder' && relation === 'viewer' ? Array.from({ length: K }, (_, i) => ({ type, id: String(i) })) : []),
+      find: async () => ({ items: [], total: 0 }),
+    };
+    const g = await relationsGraph({ schema: () => schema, store: () => store }, parseFocus('user:0'), 2, 600);
+    expect(g.edges.length).to.be.at.most(MAX_RELATION_EDGES);
+    expect(g.truncated).to.eq(true);
+  });
+
+  it('cuts a long relation name in edge kind and label', async () => {
+    const relation = `r${'x'.repeat(5000)}`;
+    const schema = NamespaceSchema.compile({ user: {}, doc: { relations: { [relation]: ['user'] } } });
+    const store = new MemoryTupleStore([{ object: { type: 'doc', id: '1' }, relation, subject: { type: 'user', id: 'ann' } }]);
+    const g = await relationsGraph({ schema: () => schema, store: () => store }, parseFocus('doc:1'), 1, 500);
+    expect(g.edges).to.have.length(1);
+    expect(Buffer.byteLength(g.edges[0].kind)).to.be.lessThan(2100);
+    expect(Buffer.byteLength(g.edges[0].label ?? '')).to.be.lessThan(2100);
+    // Two cut copies of the name and the two node ids.
+    expect(Buffer.byteLength(g.edges[0].id)).to.be.lessThan(4300);
+  });
+
   it('copies a tuple field by field and cuts every value at 2 KiB', async () => {
     const long = 'x'.repeat(5000);
     const t: TupleLike = planted({ object: { type: 'document', id: long }, relation: 'viewer', subject: { object: { type: 'group', id: 'eng' }, relation: 'member' } });
@@ -173,7 +201,7 @@ describe('Studio ReBAC routes', function () {
       models: [bootable()],
       config: { 'authz.permissions': { ...ROOT_PERMISSIONS, 'document:read': {} }, 'authz.combine.default.models': ['m1', 'rebac'] },
     });
-    // The first guarded request boots root, which runs the model's init.
+    // startApp already booted root; this only warms the access path before the cases.
     await get('/_studio/api/capabilities');
   });
 
@@ -232,6 +260,21 @@ describe('Studio ReBAC routes', function () {
     );
     expect(statuses).to.deep.eq([400, 400, 400, 400, 400, 400, 400, 400, 400]);
     for (const q of ['namespaces', 'tuples', 'relations/graph?focus=document:42']) expect((await get(`/_studio/api/authz/${q}`, 'alice')).status).to.eq(403);
+  });
+
+  it('refuses a malformed object filter with the rule of the object filter', async () => {
+    const res = await get('/_studio/api/authz/tuples?object=zz%20QQ');
+    expect(res.status).to.eq(400);
+    expect(res.text).to.include('object must be type or type:id');
+    expect(res.text).to.not.include('zz QQ');
+  });
+
+  it('refuses a domain outside the name pattern without echoing it, on each route', async () => {
+    for (const q of ['namespaces?', 'tuples?', 'relations/graph?focus=document:42&']) {
+      const bad = await get(`/_studio/api/authz/${q}domain=zz%2Fqq%3C`);
+      expect(bad.status).to.eq(400);
+      expect(bad.text).to.not.include('zz/qq<');
+    }
   });
 
   it('answers 404 for a domain without a booted ReBAC model', async () => {

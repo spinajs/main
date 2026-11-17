@@ -13,14 +13,14 @@ import { DomainQuery, LimitQuery, OffsetCursorQuery, TextQuery, given } from '..
 
 const TUPLE_PAGE = 50;
 const MAX_TUPLE_PAGE = 500;
-const NAMESPACE = /^[^:#\s]+$/;
+// The focus syntax without `#relation`; the id is everything after the first colon.
+const OBJECT = /^[^:#\s]+(?::[^#\s]+)?$/;
 
 // `object=document` (no id) selects the whole namespace, as the tuple query allows.
 function objectRef(raw: string): NonNullable<TupleQueryLike['object']> {
-  if (NAMESPACE.test(raw)) return { type: raw };
-  const { type, id, relation } = parseFocus(raw, 'object');
-  if (relation !== undefined) throw new BadRequest('object must be type or type:id');
-  return { type, id };
+  if (!OBJECT.test(raw)) throw new BadRequest('object must be type or type:id');
+  const colon = raw.indexOf(':');
+  return colon < 0 ? { type: raw } : { type: raw.slice(0, colon), id: raw.slice(colon + 1) };
 }
 
 function subjectOf(raw: string): NonNullable<TupleQueryLike['subject']> {

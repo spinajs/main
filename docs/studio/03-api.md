@@ -181,7 +181,7 @@ Walks the stored tuples breadth-first from `focus`, in both directions, and answ
 | `depth` | 0 to 10; default 2. |
 | `limit` | 1 to 5000 nodes; default 500. |
 
-Node ids are in the focus syntax: `object` nodes (`document:42`) and `userset` nodes (`group:eng#member`), grouped by type. An edge's `kind` and `label` are the relation name, from the object holding the tuple to its subject. An object reads every relation of its namespace and the tuples that name it as a direct subject; a userset reads its one relation. Each read is one store call; the walk stops at `limit` nodes or after 2000 store calls, and the graph is then `truncated`.
+Node ids are in the focus syntax: `object` nodes (`document:42`) and `userset` nodes (`group:eng#member`), grouped by type. An edge's `kind` and `label` are the relation name, from the object holding the tuple to its subject. An object reads every relation of its namespace and the tuples that name it as a direct subject; a userset reads its one relation. Each read is one store call; the walk stops at `limit` nodes, at 20 000 edges or after 2000 store calls, and the graph is then `truncated`. The edge cap bounds the reply on dense tuples, where every store call can link up to `limit` nodes that are already in the graph.
 
 The ReBAC routes show namespace, relation and permission names and rewrites, and each tuple's object, relation and subject: principal ids, object ids and subject sets. That is data about principals: whoever holds the `authz` endpoint's permission (`studio:read` by default) reads it. Nothing else a store keeps beside a tuple (who wrote it, when) is sent, and neither is the permission map or the check limits. Every id and name is cut at 2 KiB.
 
