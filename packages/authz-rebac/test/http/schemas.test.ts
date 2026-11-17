@@ -20,6 +20,21 @@ describe('authz-rebac/http: command schemas', () => {
     expect(tuple.properties.subject.oneOf).to.have.length(2);
   });
 
+  it('takes a closed caveat { name, context? } on tuple.write and tuple.delete', () => {
+    type Caveat = { additionalProperties: boolean; required: string[]; properties: { name: unknown; context: { type: string; additionalProperties: { oneOf: { type: unknown }[] } } } };
+    const schemas = new RebacCommandSchemas().schemas() as Record<string, { properties: { tuple: { required: string[]; properties: { caveat: Caveat } } } }>;
+    for (const kind of ['tuple.write', 'tuple.delete']) {
+      const { tuple } = schemas[kind].properties;
+      const caveat = tuple.properties.caveat;
+      expect(tuple.required, kind).to.not.include('caveat');
+      expect(caveat.additionalProperties, kind).to.equal(false);
+      expect(caveat.required, kind).to.deep.equal(['name']);
+      expect(Object.keys(caveat.properties), kind).to.deep.equal(['name', 'context']);
+      expect(caveat.properties.context.type).to.equal('object');
+      expect(caveat.properties.context.additionalProperties.oneOf.map((s) => s.type)).to.deep.equal(['string', 'number', 'boolean', 'array']);
+    }
+  });
+
   it('joins the registry next to the built-in sources', () => {
     const registry = DI.resolve(AuthzCommandSchemaRegistry);
     const kinds = Object.keys(registry.commands());
