@@ -59,7 +59,8 @@
     "@spinajs/configuration": "3.0.23",
     "@spinajs/fs": "3.0.23",
     "@spinajs/orm": "3.0.23",
-    "@spinajs/orm-sqlite": "3.0.23"
+    "@spinajs/orm-sqlite": "3.0.23",
+    "express": "^5.1.0"
   },
   "types": "./lib/index.d.ts",
   "spinajs": {
