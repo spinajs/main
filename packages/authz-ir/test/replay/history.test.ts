@@ -54,6 +54,18 @@ describe('stateAt', () => {
     expect(reason({ current: { role: 'y' }, after: [change('put', 60_000, b, a)] })).to.match(/differs from its last logged change/);
   });
 
+  it('links every change to the state before it by its op, so a write outside the log between two changes is a gap', () => {
+    expect(reason({ current: a, before: change('add', -60_000, a), after: [change('add', 60_000, a)] })).to.match(/between seq/);
+    expect(reason({ current: undefined, before: change('add', -60_000, a), after: [change('remove', 60_000, b)] })).to.match(/between seq/);
+    expect(reason({ current: b, before: change('remove', -60_000, a), after: [change('put', 60_000, b)] })).to.match(/between seq/);
+    expect(reason({ current: undefined, before: change('remove', -60_000, a), after: [change('remove', 60_000, a)] })).to.match(/between seq/);
+  });
+
+  it('finds no gap in a healthy history that adds, rewrites, removes and adds again', () => {
+    const after = [change('put', 60_000, b, a), change('remove', 120_000, b), change('add', 180_000, a), change('remove', 240_000, a, a)];
+    expect(stateAt(T, input({ current: undefined, before: change('add', -60_000, a), after }))).to.deep.include({ known: true, value: a });
+  });
+
   it('treats a change inside the asymmetric window as a gap and one just outside as history', () => {
     expect(reason({ current: a, before: change('add', -window.beforeMs, a) })).to.match(/ambiguity window/);
     expect(reason({ current: a, after: [change('add', window.afterMs, a)] })).to.match(/ambiguity window/);

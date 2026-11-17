@@ -3,9 +3,11 @@ import { expect } from 'chai';
 import fc from 'fast-check';
 
 import { IREvaluator, stateAt } from '../../src/index.js';
-import { changeSequence, completedSource, completion, foldForward, gapSelection, gappedSource, instantAt, irAndTuples, keyInput, keysOf } from './arbitraries.js';
+import { changeSequence, completedSource, completion, escapedHistory, foldForward, gapSelection, gappedSource, instantAt, irAndTuples, keyInput, keysOf } from './arbitraries.js';
 
-describe('replay properties', () => {
+describe('replay properties', function () {
+  this.timeout(60_000);
+
   // P1: reverse equals forward wherever before-images exist, and is never wrong without them.
   it('stateAt equals the forward fold of the changes at or before T', () => {
     fc.assert(
@@ -21,6 +23,21 @@ describe('replay properties', () => {
       }),
       { numRuns: 500 },
     );
+  });
+
+  // P1, R1 rule: with writes that escaped the log, a known state is still the true one.
+  it('stateAt answers the true state or a gap when writes escaped the log', () => {
+    let known = 0;
+    fc.assert(
+      fc.property(escapedHistory(), (h) => {
+        const s = stateAt(h.t, h.input);
+        if (!s.known) return;
+        known++;
+        expect(s.value).to.deep.equal(h.truth);
+      }),
+      { numRuns: 5000 },
+    );
+    expect(known).to.be.greaterThan(500);
   });
 
   // P2: Kleene soundness: a determinate truth with gap reads equals the truth of any completion.

@@ -49,7 +49,7 @@ export function stateAt(t: Date, k: KeyInput): KeyState {
   for (let i = 1; i < known.length; i++) {
     const prev = known[i - 1];
     const next = known[i];
-    if (next.before !== null && !sameImage(afterImage(prev), next.before, precision)) return gap(`a write outside the changelog between seq ${prev.seq} and seq ${next.seq}`);
+    if (!follows(afterImage(prev), next, precision)) return gap(`a write outside the changelog between seq ${prev.seq} and seq ${next.seq}`);
   }
   const last = known.at(-1);
   if (last && !sameImage(afterImage(last), k.current, precision)) return gap(`the current ${k.kind} differs from its last logged change (seq ${last.seq}): a write outside the changelog`);
@@ -58,6 +58,14 @@ export function stateAt(t: Date, k: KeyInput): KeyState {
   const value = beforeImage(first, k.before);
   if (value === UNKNOWN) return gap(`seq ${first.seq} is a put without a before-image and no earlier change is retained`);
   return { known: true, value, origin: 'history', seq: first.seq };
+}
+
+/** Can `next` be the change that came right after a key held `state`? The stores never log a write that changes nothing. */
+function follows(state: unknown, next: ChangeRecord, precisionMs: number): boolean {
+  if (next.op === 'add') return state === undefined;
+  if (state === undefined) return false;
+  if (next.before !== null) return sameImage(state, next.before, precisionMs);
+  return next.op !== 'remove' || next.payload === null || sameImage(state, next.payload, precisionMs);
 }
 
 // add: absent before; a before-image when logged; remove: what was removed; put: else the last earlier after-image.

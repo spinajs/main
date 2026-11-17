@@ -154,3 +154,60 @@ export function completedSource(w: World, g: { reads: Set<string>; hidden: Set<n
   const extra = CANDIDATES.filter((t, i) => fill.has(i) && g.reads.has(readOf(t)));
   return memory(w.ir, [...known, ...extra]);
 }
+// ---- P1, R1 rule: histories with writes that escaped the log ----
+
+export interface EscapedHistory {
+  input: KeyInput;
+  t: Date;
+  truth: Image;
+}
+
+/**
+ * One key whose writes may escape the log. An escape is either noticed (a `lost` marker moves coverage to it) or comes
+ * right after a logged change of the key while an earlier one is retained: the case the links between changes expose.
+ * Two escapes in a row could restore a state unseen (R1), so the second one is always noticed. Coverage starts at the
+ * latest of a drawn instant, the markers and a retention cutoff, which also drops the changes at or before it. T and
+ * the window are drawn so that changes land on and around both window edges.
+ */
+export function escapedHistory(): fc.Arbitrary<EscapedHistory> {
+  const event = fc.record({ logged: fc.boolean(), lost: fc.boolean(), remove: fc.boolean(), v: fc.integer({ min: 0, max: 2 }) });
+  return fc
+    .record({
+      initial: fc.option(fc.integer({ min: 0, max: 2 }), { nil: undefined }),
+      events: fc.array(event, { maxLength: 8 }),
+      since: fc.integer({ min: -30, max: 40 }),
+      cutoff: fc.option(fc.integer({ min: 0, max: 40 }), { nil: undefined, freq: 1 }),
+      anchor: fc.integer({ min: 0, max: 5 }),
+      shift: fc.integer({ min: -14, max: 14 }),
+      beforeMs: fc.integer({ min: 0, max: 12 }),
+      afterMs: fc.integer({ min: 0, max: 12 }),
+    })
+    .map((h) => {
+      let state: Image = h.initial === undefined ? undefined : { v: h.initial };
+      let since = h.since;
+      let retainedLog = false;
+      let prevLogged = false;
+      const at = (i: number): number => 10 * (i + 1);
+      const tMs = at(h.anchor) + h.shift;
+      let truth = state;
+      const rows: ChangeRecord[] = [];
+      h.events.forEach((e, i) => {
+        const was = state;
+        const op: ChangeOp = was === undefined ? 'add' : e.remove ? 'remove' : 'put';
+        state = op === 'remove' ? undefined : { v: e.v };
+        const kept = h.cutoff === undefined || at(i) > h.cutoff;
+        if (e.logged) {
+          rows.push({ seq: i + 1, at: new Date(BASE + at(i)), kind: 'tuple', op, key: 'k', payload: op === 'remove' ? was : state, before: op === 'put' ? was : null, actor: null, traceId: null });
+          retainedLog ||= kept;
+        } else if (e.lost || !retainedLog || !prevLogged) since = Math.max(since, at(i));
+        prevLogged = e.logged;
+        if (at(i) <= tMs) truth = state;
+      });
+      if (h.cutoff !== undefined) since = Math.max(since, h.cutoff);
+      const t = new Date(BASE + tMs);
+      const kept = rows.filter((r) => h.cutoff === undefined || r.at.getTime() - BASE > h.cutoff);
+      const before = kept.filter((r) => r.at <= t).at(-1);
+      const input: KeyInput = { kind: 'tuple', current: state, after: kept.filter((r) => r.at > t), ...(before ? { before } : {}), since: new Date(BASE + since), window: { beforeMs: h.beforeMs, afterMs: h.afterMs } };
+      return { input, t, truth };
+    });
+}
