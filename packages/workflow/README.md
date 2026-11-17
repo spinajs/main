@@ -8,18 +8,40 @@ top after every wake-up or crash and continues where it stopped. See `docs/workf
 
 Each step row records how many results the workflow had received when the step was called (`Meta.after`) and the
 order its result was committed in (`Meta.order`). A replay hands recorded results back in that order, one per
-event-loop turn, each only once the calls that preceded it have been made again. Concurrent branches (`Promise.all`,
-`Promise.race`) then continue in their original interleaving. A sleep that woke and a wait that consumed an event or
-timed out are results like a step's; `ctx.now()`, `ctx.uuid()` and `ctx.random()` return synchronously and are not.
+event-loop turn, each only once the calls that preceded it have been made again. Results are handed back in their
+recorded order; a call may be made earlier or later than the first time. A sleep that woke and a wait that consumed
+an event or timed out are results like a step's; `ctx.now()`, `ctx.uuid()` and `ctx.random()` return synchronously
+and are not.
 The contract:
 
-- A step name used in several concurrent branches (`ctx.step('save', ...)` inside `items.map(...)`) is replay-safe
-  only if the code between those steps awaits workflow operations alone. If it awaits anything else (a file read, an
-  HTTP call, a timer), per-item step names (`save:${id}`) are required.
-- With per-item step names, awaiting non-durable work between steps is safe for the steps: every recorded result
-  belongs to exactly one call. It is not safe for markers: `ctx.now()`, `ctx.uuid()` and `ctx.random()` are keyed by
-  call order alone, so in concurrent branches call them before any non-durable await, or take the value from a
-  per-item step (``ctx.step(`id:${k}`, () => randomUUID())``).
+- Keys are counted per branch. Durable calls made in one synchronous turn (`Promise.all([ctx.step(...), ...])`,
+  `items.map(async (item) => { await ctx.step(...); ... })`) are siblings, and the code after each of them is a branch
+  of its own, whose keys end in `@<branch>`. A step name used in such branches names one call per branch, whatever
+  the timing. Non-durable awaits between the steps of a branch are safe, and so are `ctx.now()`, `ctx.uuid()` and
+  `ctx.random()` inside a branch. Sequential code keeps its keys (`step:save#1`, `step:save#2`).
+- **A branch must make a durable call before any non-durable await.** A branch that first awaits something else (an
+  HTTP call, a file read, a timer) has no identity yet: its calls are counted in the order they happen to be made.
+  Either make a durable call first, or give such branches per-item step names (`save:${id}`).
+- **What goes wrong when branches share one count.** In the case above and in the five below, several pieces of
+  code number their calls together, in the order they happen to run. After a crash, a replay with other timing
+  either hands one caller the journaled result of another without any error, or fails the instance with
+  `NonDeterminismError` although the code did not change. An instance that failed with `non-determinism` is not
+  compensated.
+- After `Promise.race`, `Promise.any` or a `Promise.all` that rejected, the code that follows shares a branch with the
+  last call of the fan-out. If code chained to that call is still making durable calls, the two are counted together
+  by timing. Put the call that has code chained to it first, or wait for every branch (`Promise.allSettled`).
+- Start concurrent durable calls in one synchronous turn. A call started later, next to one that is still running,
+  is counted after it in the same branch.
+- A concurrency limiter (`p-limit`, `p-map`, a hand-written pool) starts most of its tasks later, in the context of
+  whichever task has just finished, so none of them is a branch. Give the steps of limited tasks per-item names.
+- A wrapper that restores the whole async context around each branch (`AsyncResource.runInAsyncScope`, a callback
+  made with `AsyncResource.bind`) hides the branches from each other; they count as one. Give their steps per-item
+  names. `AsyncLocalStorage.run()` of another store, such as a tracing span, is safe.
+- Branches that all await one durable promise (`const user = ctx.step('load', ...)`, then `await user` in every
+  branch) resume as one branch. Await that call before the fan-out and start each branch with a durable call of
+  its own, or give their steps per-item names.
+- With per-item step names every recorded result belongs to exactly one call, so the moment a call is made may
+  differ between the first run and a replay.
 - A sleep that is not due, a wait without an event and a step waiting out its retry backoff do not suspend the run
   at once: the activation parks only when every durable operation in flight is parked and no new one is called for
   a macrotask. A branch that is still working (steps, another wait that finds its event) can therefore finish a
@@ -40,10 +62,11 @@ The contract:
   }
   ```
 - Sequential code is not affected.
-- A replay fails with `NonDeterminismError` when it can see the code changed: a new step where the journal recorded
-  another one, or a repeated step name called at another position or after another number of results. A recorded
-  step that is never asked for again fails the replay when the stall timer fires (`workflow.leaseTtl`) or at the end
-  of the run.
+- A replay fails with `NonDeterminismError` when it can see the code changed: a call where its branch recorded
+  another one, or a repeated name called under another number in its branch. Each journal row keeps the number of
+  its call in its branch, so a crash in the middle of a fan-out, which leaves some calls unrecorded, is not mistaken
+  for a change. A recorded step that is never asked for again fails the replay when the stall timer fires
+  (`workflow.leaseTtl`) or at the end of the run.
 
 ## Sagas
 
