@@ -62,15 +62,3 @@ export class AuthnListenerFailed extends CodedHttpException<'authn_listener_fail
     super(503, 'authn_listener_failed', 'an authentication event could not be recorded; try again later', undefined, inner);
   }
 }
-
-/**
- * @deprecated Extend AuthnEventListener and rename `publish` to `on`. Kept only while the packages of this repository
- * move over; it is removed before 4.0 is released.
- */
-export abstract class AuthnEventSink extends AuthnEventListener {
-  abstract publish(e: AuthnEvent): Promise<void>;
-
-  public on(e: AuthnEvent): Promise<void> {
-    return this.publish(e);
-  }
-}

@@ -29,7 +29,7 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `FakeStrategy` | `AuthenticationStrategy` | A strategy from two functions, plus `password`, `bearer` and `external` presets | `verifyCalls`, `keyCalls` |
 | `RecordingThrottle` | `AuthnThrottle` | Allows everything except the refusals you script | `attempts`, `succeeds` |
 | `FakeBackoffThrottle` | `AuthnThrottle` | Per-key exponential backoff, never a lock, with an atomic `peek` | protected `rows` |
-| `RecordingEventListener` | `AuthnEventSink` | Keeps every published event, frozen | `all()`, `ofType()`, `clear()` |
+| `RecordingEventListener` | `AuthnEventListener` | Keeps every published event, frozen | `all()`, `ofType()`, `clear()` |
 | `RecordingPrincipalFactory` | `PrincipalFactory` | Builds a `Principal` from the identity, facts and extras | `calls` |
 | `FakeImpersonationGuard` | `ImpersonationGuard` | Allows every impersonation until you deny one target or all | `calls` |
 | `FakeImpersonationStartHook(() => guard)` | `ActionHook` on `authn.impersonation.start` | The start check as users registers it: asks the guard about `input.actor` and `input.target` and refuses with its code. Register it beside the guard, or every start is refused (`no_guard`) | none |

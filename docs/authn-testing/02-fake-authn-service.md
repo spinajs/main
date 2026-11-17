@@ -38,7 +38,7 @@ sequenceDiagram
   participant I as IdentityStore
   participant P as MfaPolicy
   participant Se as SessionIssuer
-  participant E as AuthnEventSink
+  participant E as AuthnEventListener
   T->>S: authenticate(credentials, ctx)
   S->>St: throttleKeys(credentials, ctx)
   S->>Th: attempt(keys, 'login', ctx)
@@ -47,7 +47,7 @@ sequenceDiagram
   S->>Th: succeed(keys, 'login')
   S->>P: required(identity, facts)
   S->>Se: issue(identity, facts, pending?)
-  S->>E: publish(login / mfa.challenge / session.issue)
+  S->>E: on(login / mfa.challenge / session.issue)
   S-->>T: success, mfa_required or failure
 ```
 

@@ -586,7 +586,7 @@ export class DefaultAuthnService extends AuthnService {
 
     const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[], ...externalFactsOf(r.external) };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes !== undefined ? { attributes } : {}) };
-    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
+    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no listener.
     if (!s.interactive) {
       if (!clean) await this.Throttle.succeed(keys, 'login');
       this.Auditor.publishDetached(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });

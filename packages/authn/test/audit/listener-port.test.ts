@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 
-import { AuthnAudit, AuthnEventListener, AuthnEventSink } from '../../src/index.js';
+import { AuthnAudit, AuthnEventListener } from '../../src/index.js';
 import type { AuthnEvent } from '../../src/index.js';
 import { bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
@@ -23,14 +23,6 @@ class Listening extends AuthnEventListener {
 
   async flush(): Promise<void> {
     this.calls.push('flush');
-  }
-}
-
-class LegacySink extends AuthnEventSink {
-  readonly seen: AuthnEvent[] = [];
-
-  async publish(e: AuthnEvent): Promise<void> {
-    this.seen.push(e);
   }
 }
 
@@ -110,17 +102,5 @@ describe('AuthnEventListener', function () {
 
     assert.strictEqual(listener.seen.length, 1);
     assert.strictEqual(warnings.length, 1);
-  });
-
-  // Removed with AuthnEventSink (the last branch of the authn stack).
-  it('still delivers to a class registered under the deprecated AuthnEventSink name', async () => {
-    const legacy = new LegacySink();
-    parts = await buildCore({}, { register: (c) => bind(c, AuthnEventSink, 'LegacySink', legacy) });
-    const audit = await parts.child.resolve(AuthnAudit);
-
-    await audit.publish(login());
-
-    assert.strictEqual(legacy.seen.length, 1);
-    assert.ok(audit.listeners().includes(legacy));
   });
 });

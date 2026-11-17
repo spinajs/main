@@ -76,7 +76,7 @@ The `AccessToken` model uses the ORM's `default` connection, and the table comes
 
 - [`@spinajs/authn`](../authn/README.md): the `TokenService`, `AuthenticationStrategy` and `IdentityStore` contracts, the [authentication flow](../authn/01-authentication-flow.md), [throttling](../authn/05-throttling.md) and the `authn.*` config schema.
 - [`@spinajs/authn-http`](../authn-http/README.md): extracts `bearer` credentials from `Authorization` and `authn.token.headerName`, and serves `GET`, `POST`, `PATCH` and `DELETE` under `/user/tokens`, and `POST /user/tokens/:uuid/rotate`.
-- [`@spinajs/authn-orm`](../authn-orm/README.md): the [`authn_identity` links](../authn-orm/03-identity-links.md) that map a JWT subject to an identity, the audit sink and the throttle.
+- [`@spinajs/authn-orm`](../authn-orm/README.md): the [`authn_identity` links](../authn-orm/03-identity-links.md) that map a JWT subject to an identity, and the throttle.
 - [`@spinajs/authn-keys`](../authn-keys/README.md): client assertions (`typ: spinajs-client+jwt`), which `JwtBearerStrategy` refuses so they never pass as a bearer JWT.
 - [`@spinajs/authz`](../authz/README.md): applies the token's ceiling (permission globs, resources, roles) and the agent delegation at check time.
 - [`@spinajs/authz-rbac`](../authz-rbac/README.md): narrows a token principal's role assignments to `ceiling.roles`, `authz.token.excludedRoles` and the `TokenRolePolicy`.

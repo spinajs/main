@@ -1,12 +1,12 @@
 # Audit events
 
-`LocalPasswordService` publishes an `AuthnEvent` for each step of change, set, reset, invite and expiry. Subscribe with an `AuthnEventSink` to alert on resets, keep an audit trail, or update account data. Login events come from the authn core, not from this package.
+`LocalPasswordService` publishes an `AuthnEvent` for each step of change, set, reset, invite and expiry. Subscribe with an `AuthnEventListener` to alert on resets, keep an audit trail, or update account data. Login events come from the authn core, not from this package.
 
 ## How it works
 
 1. A flow builds the event body and calls `LocalPasswordService.audit(ctx, body)`.
 2. `audit()` calls `AuthnAudit.publishIn(ctx, body)`, which stamps `at` (`ctx.now`), `ip` and `userAgent` from the context. A service built with `deps` publishes through `AuthnAudit.over(deps.listeners)` instead.
-3. `AuthnAudit` delivers a frozen copy to every `AuthnEventSink` concurrently, each call bounded by `authn.audit.listenerTimeoutMs`, and waits for all of them. A sink that throws or times out is logged with its class name, the event type and the error class; the flow goes on. See [Audit and events](../authn/06-audit-events.md).
+3. `AuthnAudit` delivers a frozen copy to every `AuthnEventListener` concurrently, each call bounded by `authn.audit.listenerTimeoutMs`, and waits for all of them. A listener that throws or times out is logged with its class name, the event type and the error class; the flow goes on unless the listener is blocking. See [Audit and events](../authn/06-audit-events.md).
 
 ## Events
 
@@ -47,34 +47,34 @@ Not audited: a policy violation in `set()` or `redeemReset()`.
 
 ## Configuration
 
-No key of this package. Sinks are registered, not configured; `authn.audit.listenerTimeoutMs` (default `2000`) of the [authn core](../authn/06-audit-events.md) bounds each sink call.
+No key of this package. Listeners are registered, not configured; `authn.audit.listenerTimeoutMs` (default `2000`) of the [authn core](../authn/06-audit-events.md) bounds each listener call.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports, such as the `@spinajs/users` sinks; `AuthnAuditRecorder` ([`@spinajs/audit-authn`](../../packages/audit-authn/README.md)) is an `AuthnEventListener` and gets the same events | your sink | Add one with `@Injectable(AuthnEventSink)`. |
+| Event listener | `AuthnEventListener`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports, such as `QueueAuthnEventListener` of `@spinajs/users` or `AuthnAuditRecorder` of [`@spinajs/audit-authn`](../../packages/audit-authn/README.md) | your listener | Add one with `@Injectable(AuthnEventListener)`. |
 
-### Event sink: custom implementation
+### Event listener: custom implementation
 
 Alert the security team when a password is reset through a mailed link.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
-import { AuthnEventSink } from '@spinajs/authn';
+import { AuthnEventListener } from '@spinajs/authn';
 import type { AuthnEvent } from '@spinajs/authn';
 
 interface SecurityChannel {
   post(text: string): Promise<void>;
 }
 
-@Injectable(AuthnEventSink)
-export class ResetAlertSink extends AuthnEventSink {
+@Injectable(AuthnEventListener)
+export class ResetAlerts extends AuthnEventListener {
   public static channel: SecurityChannel = { post: async () => undefined };
 
-  public async publish(e: AuthnEvent): Promise<void> {
+  public async on(e: AuthnEvent): Promise<void> {
     if (e.type === 'password.reset' && e.outcome === 'success' && e.identity) {
-      await ResetAlertSink.channel.post(`Password reset for ${e.identity.type} ${e.identity.id} from ${e.ip ?? 'unknown ip'}`);
+      await ResetAlerts.channel.post(`Password reset for ${e.identity.type} ${e.identity.id} from ${e.ip ?? 'unknown ip'}`);
     }
   }
 }
@@ -82,19 +82,19 @@ export class ResetAlertSink extends AuthnEventSink {
 
 ## Important behaviour
 
-- **Sinks run concurrently and are awaited.** A slow sink slows the password flow that published the event, by at most `authn.audit.listenerTimeoutMs`.
-- **A failing sink never fails the flow.** Its error is logged by class only, never by message, which may echo the event.
-- **Register sinks before the first event.** `AuthnAudit` collects the sinks once per container, when it is resolved.
+- **Listeners run concurrently and are awaited.** A slow listener slows the password flow that published the event, by at most `authn.audit.listenerTimeoutMs`.
+- **A failing listener never fails the flow, unless it is [blocking](../authn/06-audit-events.md#blocking-listeners).** Its error is logged by class only, never by message, which may echo the event.
+- **Register listeners before the first event.** `AuthnAudit` collects the listeners once per container, when it is resolved.
 - **Reset request events are deferred.** They are published after `requestReset()` has answered.
 - **The reason is for audit only.** Clients get one answer for every failure.
 
 ## Best practices
 
-- Keep `publish()` fast: hand slow work to a queue, which is safe here because events never carry secrets.
-- Filter on `type` and `outcome` first; every sink gets every event, login events included.
+- Keep `on()` fast: hand slow work to a queue, which is safe here because events never carry secrets.
+- Filter on `type` and `outcome` first; every listener gets every event, login events included.
 
 ## Related
 
 - [Change and set](05-change-and-set.md), [Reset and invite](06-reset-and-invite.md), [Password expiry](08-password-expiry.md): the flows behind each event.
 - [`@spinajs/audit-authn`](../../packages/audit-authn/README.md): records the events in the audit trail; a [login history](../authn-orm/06-audit-sink.md) is a table trail.
-- [`@spinajs/users`](../users/08-authn-event-sinks.md): the users sinks of authn events. `PasswordSetAt` and invite activation follow the [action hooks](16-action-hooks.md) instead, through [`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state).
+- [`@spinajs/users`](../users/08-authn-event-sinks.md): the users listener of authn events. `PasswordSetAt` and invite activation follow the [action hooks](16-action-hooks.md) instead, through [`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state).

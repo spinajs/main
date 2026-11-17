@@ -19,7 +19,7 @@
 | `SecretStore` | `Secrets`, optional | reset, invite, expiry mail | `redeemReset()` throws `InvalidOperation`; so do `invite()` and the reset mails once a `PasswordMailer` is registered (the deferred part of `requestReset()` logs it) |
 | `PasswordMailer` | `Mailer`, optional | reset, invite, expiry mail | No mail, no secret, a warning |
 | `TokenService` | `Tokens`, optional | set, reset, admin expiry | No tokens to revoke |
-| `AuthnAudit` | `Audit` | every audited step | Never missing: a concrete class of `@spinajs/authn`, one per container; with no `AuthnEventSink` it logs a warning and publishes to nobody |
+| `AuthnAudit` | `Audit` | every audited step | Never missing: a concrete class of `@spinajs/authn`, one per container; with no `AuthnEventListener` it logs a warning and publishes to nobody |
 | `Hooks` (`@spinajs/hooks`) | `Hooks` | every [action hook](16-action-hooks.md) of change, set, reset, invite, expiry and address verification | Never missing: `@spinajs/hooks` registers `DefaultHooks`; with no matching `ActionHook` a flow runs alone |
 
 | Method | Page |
@@ -121,7 +121,7 @@ export class LegacySyncPasswordService extends LocalPasswordService {
 DI.register(LegacySyncPasswordService).as(PasswordService);
 ```
 
-For a reaction to every password event, including reset and expiry, an [`AuthnEventSink`](12-audit-events.md) or a hook on `authn.password.*` is simpler than a subclass.
+For a reaction to every password event, including reset and expiry, an [`AuthnEventListener`](12-audit-events.md) or a hook on `authn.password.*` is simpler than a subclass.
 
 ### Test seam
 
@@ -145,7 +145,7 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 - **Collaborators are injected when the service is built,** from the container that resolves it. Register an optional one (`SecretStore`, `PasswordMailer`, `TokenService`) before `PasswordService` is first resolved; a later registration does not reach a service already built.
 - **Secret store, mailer and token service are optional;** the other collaborators are required by the flows that use them. Without a `SecretStore` the reset and invite flows throw `InvalidOperation`.
 - **Deferred work runs in process.** `requestReset()` work is scheduled with `setImmediate`; a process that exits right after the answer can drop it. Call `drain()` before shutdown.
-- **Audit never fails a flow.** `AuthnAudit` runs every sink with a timeout and logs a sink that fails or times out by its class and error class.
+- **Audit fails a flow only through a blocking listener.** `AuthnAudit` runs every listener with a timeout and logs one that fails or times out by its class and error class; a [blocking](../authn/06-audit-events.md#blocking-listeners) listener that fails stops a success.
 
 ## Best practices
 

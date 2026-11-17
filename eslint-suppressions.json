@@ -423,7 +423,7 @@
   },
   "packages/authn-oidc/test/acceptance.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
@@ -497,11 +497,6 @@
   "packages/authn-orm/src/mfa/db-mfa-store.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
-    }
-  },
-  "packages/authn-orm/test/audit-sink.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/authn-orm/test/boot-defaults.test.ts": {
@@ -8540,11 +8535,6 @@
   "packages/users/test/authn-local-flows.test.ts": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 3
-    }
-  },
-  "packages/users/test/authn-sinks.test.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
     }
   },
   "packages/users/test/config-role-switch.test.ts": {

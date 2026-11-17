@@ -64,7 +64,7 @@ export async function onboardAndSuspend(): Promise<boolean> {
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): the contracts users implements (`IdentityStore`, `PrincipalFactory`, guards, sinks).
+- [`@spinajs/authn`](../authn/README.md): the contracts users implements (`IdentityStore`, `PrincipalFactory`, guards, event listeners).
 - [`@spinajs/authz`](../authz/README.md): the engine that checks the `user` resource and the relations users registers.
 - [`@spinajs/orm`](../orm/README.md): models, metadata relations and migrations behind `User`.
 - [`@spinajs/email`](../email/README.md): sends the lifecycle mails and provides `EmailPasswordMailer`.

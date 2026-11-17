@@ -13,7 +13,7 @@
 
 The body is the `AuthnEvent` as it is: `type`, `at`, `outcome` and the optional `identity`, `actor`, `strategy`, `reason`, `ip`, `userAgent`, `session` and `data`. The listener adds no field. Events never hold passwords, tokens or secrets (see [Audit events](../authn/06-audit-events.md)); the `session` field is the hashed handle, not the session id.
 
-It is not blocking: a success reaches it only after every blocking listener took the event, so no webhook announces a login that a blocking listener stopped; that login arrives as a `login` failure with reason `listener_failed`.
+It is not blocking: a success reaches it only after every blocking listener took that event, so no webhook announces a `login` event that a blocking listener stopped; that login arrives as a `login` failure with reason `listener_failed`. A login is announced by two events, though. When the `login` event got through and the `session.issue` after it was stopped, the webhook has already posted the `login` success. What follows is a `login` and a `session.issue` failure, both with reason `listener_failed`: a receiver that acts on a login success must also read those failures to know that the login did not stand.
 
 The listener waits for the answer, so a slow endpoint delays the call that published the event by at most `timeoutMs` (the auditor's own `authn.audit.listenerTimeoutMs` also applies). Keep `timeoutMs` low and let the receiver queue its work.
 

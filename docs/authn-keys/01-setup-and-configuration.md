@@ -87,7 +87,7 @@ The registry and the strategies also resolve services this package does not regi
 | --- | --- | --- |
 | `DefaultKeyRegistry`, `KeyChallengeStrategy` | `SecretStore` | `DbSecretStore` in [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) |
 | `DefaultKeyRegistry` (login challenge throttle) | `AuthnThrottle` | `MemoryAuthnThrottle` in `@spinajs/authn`, `DbAuthnThrottle` in [`@spinajs/authn-orm`](../authn-orm/01-throttle.md) |
-| `DefaultKeyRegistry` (`key.register`, `key.revoke` events) | `AuthnAudit`, which delivers to every `AuthnEventSink` | `@spinajs/authn`, see [Audit and events](../authn/06-audit-events.md) |
+| `DefaultKeyRegistry` (`key.register`, `key.revoke` events) | `AuthnAudit`, which delivers to every `AuthnEventListener` | `@spinajs/authn`, see [Audit and events](../authn/06-audit-events.md) |
 
 `DefaultKeyRegistry` injects `AuthnThrottle` with a plain `@Autoinject`, so it takes the last registration of `AuthnThrottle`, not the one `authn.throttle.service` names.
 

@@ -31,7 +31,7 @@
 | `sessions` | `SessionIssuer` | the registered `SessionIssuer` (optional) | `InvalidOperation` |
 | `authn` | `AuthnService` | the registered `AuthnService` (optional) | `InvalidOperation` |
 | `throttle` | `AuthnThrottle` | the registered `AuthnThrottle` (optional) | `InvalidOperation` |
-| `listeners` | `AuthnEventListener[]`, delivered through `AuthnAudit.over(listeners)` | `AuthnAudit`, over every registered `AuthnEventSink` | |
+| `listeners` | `AuthnEventListener[]`, delivered through `AuthnAudit.over(listeners)` | `AuthnAudit`, over every registered `AuthnEventListener` | |
 | `maxAgeSeconds` | `number` | `authn.freshAuth.maxAgeSeconds` | |
 | `hooks` | `Hooks` | the registered `Hooks` | no [action hook](10-action-hooks.md) runs |
 

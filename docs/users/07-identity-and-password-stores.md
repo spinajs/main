@@ -223,21 +223,20 @@ const changed = await store.set(ref, newHash, oldHash);
 
 ## Migrating from `UserAccountSink`
 
-3.0's `UserAccountSink` (an `AuthnEventSink` on `password.change`, `password.reset` and `invite.redeem`) is removed. `UserPasswordStateHook` does its work on the action hooks of authn-local, with the same protected `recordPasswordSet()` and `activateInvited()`.
+3.0's `UserAccountSink` (an authn event sink, the port that `AuthnEventListener` replaced, on `password.change`, `password.reset` and `invite.redeem`) is removed. `UserPasswordStateHook` does its work on the action hooks of authn-local, with the same protected `recordPasswordSet()` and `activateInvited()`.
 
 | 3.0 | 3.x |
 | --- | --- |
-| `UserAccountSink`, `@Injectable(AuthnEventSink)` | `UserPasswordStateHook`, `@Injectable(ActionHook)` |
+| `UserAccountSink`, registered as an authn event sink | `UserPasswordStateHook`, `@Injectable(ActionHook)` |
 | `publish(e: AuthnEvent)`, `e.at` | `after(ctx: AfterContext)`, `ctx.input.ctx.now` |
 | `activateInvited(id): Promise<void>` | `activateInvited(id): Promise<boolean>`, `true` when it activated |
 | logs on the `rbac` log | logs on the `users` log |
 | `DI.unregister(UserAccountSink)` | `DI.unregister(UserPasswordStateHook)` |
 
-Before:
+Before, registered in place of `UserAccountSink` under the authn event sink port of 3.0:
 
 ```ts
 import { DI } from '@spinajs/di';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { UserAccountSink } from '@spinajs/users';
 
@@ -249,7 +248,6 @@ export class AuditedAccountSink extends UserAccountSink {
 }
 
 DI.unregister(UserAccountSink);
-DI.register(AuditedAccountSink).as(AuthnEventSink);
 ```
 
 After: the subclass of `UserPasswordStateHook` in [Password state: custom implementation](#password-state-custom-implementation). An `AuthnEventListener` of your own that listened for these authn events keeps working: authn still publishes them.

@@ -57,14 +57,6 @@ export declare class AuthnListenerFailed extends CodedHttpException<"authn_liste
     readonly eventType: string;
     constructor(listener: string, eventType: string, inner: unknown);
 }
-/**
- * @deprecated Extend AuthnEventListener and rename `publish` to `on`. Kept only while the packages of this repository
- * move over; it is removed before 4.0 is released.
- */
-export declare abstract class AuthnEventSink extends AuthnEventListener {
-    abstract publish(e: AuthnEvent): Promise<void>;
-    on(e: AuthnEvent): Promise<void>;
-}
 ```
 
 ## src/contracts/cli.ts

@@ -61,7 +61,7 @@ npx spinajs authn:mfa-qr "JBSW Y3DP EHPK 3PXP" --label jane.doe@acme.example --o
 
 ## Important behaviour
 
-- `authn:mfa-reset` audits `mfa.disable` with the actor `{ type: 'system', id: 'cli' }` through `AuthnAudit`, so every registered `AuthnEventSink` gets it.
+- `authn:mfa-reset` audits `mfa.disable` with the actor `{ type: 'system', id: 'cli' }` through `AuthnAudit`, so every registered `AuthnEventListener` gets it.
 - `authn:mfa-reset` needs no `SessionIssuer`, `AuthnService` or `AuthnThrottle`: `TotpService` injects them as optional.
 - `authn:mfa-qr` does not touch any stored enrolment. It renders what you pass it, so the operator sees the secret: use it for test accounts and devices you own, not to enrol users.
 - `authn:mfa-qr` takes `algorithm`, `digits` and `period` from config even when they differ from what the secret was made for; a full `otpauth://` URI keeps its own.

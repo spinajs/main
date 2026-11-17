@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import { AuthnEventListener, AuthnEventSink, AuthnListenerFailed } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, fakeHash, throttleParams } from '../../src/index.js';
 
@@ -71,17 +71,14 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   afterEach(() => {
     DI.unregister(RecordingEventListener);
     DI.uncache(AuthnEventListener);
-    DI.uncache(AuthnEventSink);
   });
 
-  it('delivers once to a listener registered under both AuthnEventListener and AuthnEventSink', async () => {
+  it('delivers to the listeners DI resolves under AuthnEventListener', async () => {
     DI.register(RecordingEventListener).as(AuthnEventListener);
-    DI.register(RecordingEventListener).as(AuthnEventSink);
-    const both = [...(await DI.resolve(Array.ofType(AuthnEventListener))), ...(await DI.resolve(Array.ofType(AuthnEventSink)))];
-    const events = both.find((l): l is RecordingEventListener => l instanceof RecordingEventListener)!;
-    assert.strictEqual(both.filter((l) => l === events).length, 2, 'both lookups answer the one instance');
+    const listeners = await DI.resolve(Array.ofType(AuthnEventListener));
+    const events = listeners.find((l): l is RecordingEventListener => l instanceof RecordingEventListener)!;
 
-    const r = await login(build(both));
+    const r = await login(build(listeners));
 
     assert.strictEqual(r.status, 'success');
     assert.deepStrictEqual(summary(events), [
