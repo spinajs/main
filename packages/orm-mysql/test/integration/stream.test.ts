@@ -1,5 +1,5 @@
 /**
- * Streams against a live MySQL. Local only: CI covers MySQL streams through the orm-conformance suite.
+ * Streams against a live MySQL. CI: the mysql:8.0 leg of .github/workflows/migrations-mysql.yml.
  *
  *   docker compose --profile test up -d mysql
  *   npx ts-mocha -p tsconfig.json test/integration/stream.test.ts

@@ -48,3 +48,7 @@ fails on a pending entry only with `ORM_CONFORMANCE_REQUIRE_ISSUES=1`, which the
 mysql 8.4); `mssql-nightly` runs on a schedule (from `master`) and by `workflow_dispatch`, and is not a required check.
 GitHub runs a `schedule` trigger only on the default branch, so until `v4` is the default branch the nightly job runs
 only when dispatched.
+
+The corpus is not where the drivers' own suites run. `build.yml` skips `orm-mysql` and `orm-mssql`
+(`scripts/coverage/local-only.json`); the orm-mysql integration folder runs in `.github/workflows/migrations-mysql.yml`
+(`mysql:8.0`), and the orm-mssql folder in `.github/workflows/orm-mssql.yml`. Both include the drivers' stream suites.

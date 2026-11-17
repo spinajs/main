@@ -1,5 +1,5 @@
 /**
- * Streams against a live SQL Server. Local only: CI runs MSSQL streams in the nightly orm-conformance job.
+ * Streams against a live SQL Server. CI: .github/workflows/orm-mssql.yml.
  *
  *   docker compose --profile test up -d mssql mssql-init
  */

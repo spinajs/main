@@ -1,5 +1,5 @@
 /**
- * A stream inside a transaction, against a live SQL Server.
+ * A stream inside a transaction, against a live SQL Server. CI: .github/workflows/orm-mssql.yml.
  *
  *   docker compose --profile test up -d mssql mssql-init
  */

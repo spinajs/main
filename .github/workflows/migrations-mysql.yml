@@ -106,3 +106,19 @@ jobs:
           SPINAJS_TEST_MYSQL_PASSWORD: root
           SPINAJS_TEST_MYSQL_DB: spinajs_queue_test
         run: TS_NODE_PROJECT=tsconfig.json npx mocha --no-config --extension ts --node-option experimental-specifier-resolution=node --node-option loader=ts-node/esm --exit test/migrations.mysql.test.ts
+
+      # orm-mysql's live suites connect to `test` and `test-2` ( scripts/docker/mysql-init ); the service creates one database only
+      - name: create the orm-mysql databases
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS `test`; CREATE DATABASE IF NOT EXISTS `test-2`;'
+
+      # mysql:8.0 only: infra.test.ts asserts innodb_autoinc_lock_mode 2, the 8.0 default ( 5.7 defaults to 1 ). On master the
+      # 5.7 leg runs migrationLock.test.ts instead, a suite v4 does not have.
+      - name: orm-mysql integration suite
+        if: matrix.image == 'mysql:8.0'
+        working-directory: packages/orm-mysql
+        env:
+          ORM_TEST_MYSQL_PORT: 3306
+          # the restart test addresses the service container by id
+          ORM_TEST_MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: npm run test:integration

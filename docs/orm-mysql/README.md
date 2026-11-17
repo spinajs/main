@@ -100,6 +100,10 @@ cd packages/orm-mysql && npm run test:integration
 
 The container publishes MySQL on host port `13306`, not `3306`, so it cannot collide with a local MySQL. `ORM_TEST_MYSQL_PORT` moves it. See the [repository README](../../README.md).
 
+CI runs the integration tests on `mysql:8.0`, in the `mysql` job of `.github/workflows/migrations-mysql.yml`, on every
+pull request that touches `orm`, `orm-sql`, `orm-mysql` or `queue`. The unit tests are not run there: `build.yml` skips
+the package (`scripts/coverage/local-only.json`).
+
 ## Related packages
 
 - [`@spinajs/orm`](../orm/README.md): models, query builder, migrations and the driver contract.
