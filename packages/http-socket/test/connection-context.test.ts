@@ -15,6 +15,7 @@ interface StoreProbe {
   keys: string[];
   shard: unknown;
   principalType: string | null;
+  call: unknown;
 }
 
 @SocketController('ctxprobe')
@@ -22,7 +23,7 @@ export class ContextProbeSocket extends BaseSocketController {
   @Command('store')
   public async store(): Promise<StoreProbe> {
     const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
-    return { keys: Object.keys(store ?? {}).sort(), shard: store?.Shard ?? null, principalType: store?.Principal.type ?? null };
+    return { keys: Object.keys(store ?? {}).sort(), shard: store?.Shard ?? null, principalType: store?.Principal.type ?? null, call: store?.socketCall ?? null };
   }
 }
 
@@ -32,7 +33,7 @@ class ShardContext extends SocketConnectionContext {
   public establish(handshake: ISocketHandshake, principal: Principal): Promise<Readonly<Record<string, unknown>>> {
     ShardContext.calls += 1;
     if (handshake.auth.shard === 'closed') return Promise.reject(new SocketException('forbidden', 'shard closed'));
-    return Promise.resolve({ Shard: handshake.auth.shard ?? 'eu', Principal: 'forged', PrincipalSeen: principal.type });
+    return Promise.resolve({ Shard: handshake.auth.shard ?? 'eu', Principal: 'forged', socketCall: 'forged', PrincipalSeen: principal.type });
   }
 }
 
@@ -104,7 +105,7 @@ describe('socket connection context', function () {
     });
 
     it('never lets it replace a fixed key of the store', async () => {
-      expect((await probe()).principalType).to.equal('unattended');
+      expect(await probe()).to.include({ principalType: 'unattended', call: 'ctxprobe.store' });
     });
 
     it('refuses the handshake when it throws', async () => {
