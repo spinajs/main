@@ -1,4 +1,4 @@
-import { ChangeLog } from '@spinajs/authz';
+import { AuthzConfigError, ChangeLog } from '@spinajs/authz';
 import type { ChangeEntry, ChangeKind, ChangeQuery, ChangeRecord, ResourceType } from '@spinajs/authz';
 
 type Row = ChangeRecord & { visible: boolean };
@@ -47,9 +47,9 @@ export class MemoryChangeLog extends ChangeLog {
     return this;
   }
 
-  /** Retention: drops the changes before `cutoff` and moves every horizon up to it, in one step. */
+  /** Retention: drops the changes at or before `cutoff` and moves every horizon up to it, in one step. */
   prune(cutoff: Date): void {
-    for (let i = this.rows.length - 1; i >= 0; i--) if (this.rows[i].at < cutoff) this.rows.splice(i, 1);
+    for (let i = this.rows.length - 1; i >= 0; i--) if (this.rows[i].at <= cutoff) this.rows.splice(i, 1);
     for (const [k, since] of this.horizon) if (since < cutoff) this.horizon.set(k, cutoff);
   }
 
@@ -95,7 +95,8 @@ export class MemoryChangeLog extends ChangeLog {
   }
 
   private page(filter: (r: Row) => boolean, query: ChangeQuery = {}): ChangeRecord[] {
-    const limit = Math.min(query.limit ?? 1000, 10_000);
+    const limit = query.limit ?? 1000;
+    if (!Number.isInteger(limit) || limit < 0 || limit > 10_000) throw new AuthzConfigError('ChangeLog: limit must be an integer from 0 to 10000');
     return this.rows
       .filter((r) => r.visible && filter(r) && (query.after === undefined || r.seq > query.after) && (query.kinds === undefined || query.kinds.includes(r.kind)))
       .sort((a, b) => a.seq - b.seq)

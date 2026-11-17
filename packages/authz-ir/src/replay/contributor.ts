@@ -17,7 +17,10 @@ export interface HistoryEdge {
   subject: TupleSubjectRef;
 }
 
-/** Rebuilds the relations one store serves at an instant, from its current rows and its changelog kind. */
+/**
+ * Rebuilds the relations one store serves at an instant, from its current rows and its changelog kind. Images are
+ * plain JSON: a Map, a Set, a bigint or a non-finite number never compares equal, so it makes its key a gap.
+ */
 export interface HistoryContributor {
   readonly kind: ChangeKind;
   serves(source: RelationDef['source']): boolean;

@@ -102,15 +102,18 @@ export class ReplayHistory {
     this.lastPass = started;
   }
 
-  /** Each key's last change at or before T. @throws ReplayBudgetExceeded past `maxKeys` */
+  /** Each key's last change at or before T. */
   beforeOf(kind: ChangeKind, keys: readonly string[]): Promise<ReadonlyMap<string, ChangeRecord>> {
-    for (const k of keys) this.resolved.add(slot(kind, k));
-    if (this.resolved.size > this.limits.maxKeys) throw new ReplayBudgetExceeded('maxKeys', this.resolved.size);
     return this.latest(kind, keys, this.at);
   }
 
-  /** Each key's last change, whenever it happened: read after the current rows, it shows a write the scan missed. */
+  /**
+   * Each key's last change, whenever it happened: read after the current rows, it shows a write the scan missed. The
+   * first lookup of a key, so the keys count against `maxKeys` here. @throws ReplayBudgetExceeded past `maxKeys`
+   */
   headOf(kind: ChangeKind, keys: readonly string[]): Promise<ReadonlyMap<string, ChangeRecord>> {
+    for (const k of keys) this.resolved.add(slot(kind, k));
+    if (this.resolved.size > this.limits.maxKeys) throw new ReplayBudgetExceeded('maxKeys', this.resolved.size);
     return this.latest(kind, keys);
   }
 

@@ -349,6 +349,15 @@ describe('HistoricalTupleSource', () => {
     expect(error).to.be.instanceOf(ReplayBudgetExceeded).and.to.deep.include({ limit: 'maxKeys' });
   });
 
+  it('counts keys against maxKeys before it reads their heads', async () => {
+    const { log, tuples } = await setup();
+    const s = await source(log, [tuples], { ...limits, maxKeys: 1 });
+    const order: ChangeLogRead[] = [];
+    log.beforeRead = (m) => void order.push(m);
+    expect(await subjects(s, doc('d1'), 'editor').catch((e: unknown) => e)).to.be.instanceOf(ReplayBudgetExceeded);
+    expect(order).to.not.include('latest');
+  });
+
   it('stops when the signal aborts', async () => {
     const { log } = await setup();
     const error = await ReplayHistory.load(log, T, ['tuple'], limits, AbortSignal.abort()).catch((e: unknown) => e);
@@ -357,4 +366,24 @@ describe('HistoricalTupleSource', () => {
 });
 
 describe('MemoryChangeLog', () => {
+  it('prunes at or before the cutoff, refuses a limit the database refuses, and restarts coverage on a lost write', async () => {
+    const log = new MemoryChangeLog().cover('tuple', ms(-MIN));
+    await log.append([
+      { kind: 'tuple', op: 'add', key: 'a', at: T },
+      { kind: 'tuple', op: 'add', key: 'b', at: ms(1) },
+    ]);
+    log.prune(T);
+    expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['b']);
+    expect(await log.coveredSince('tuple')).to.deep.equal(T);
+    expect(await log.since(0, { limit: 10_001 }).catch((e: unknown) => e)).to.be.instanceOf(AuthzConfigError);
+    log.cover('column', ms(-MIN), 'doc').cover('column', ms(-MIN), 'folder');
+    const before = Date.now();
+    await log.lost('column', 'doc');
+    expect((await log.coveredSince('column', 'doc'))?.getTime()).to.be.at.least(before);
+    expect(await log.coveredSince('column', 'folder')).to.deep.equal(ms(-MIN));
+    await log.lost('column');
+    expect((await log.coveredSince('column', 'folder'))?.getTime()).to.be.at.least(before);
+    await log.lost('rule');
+    expect(await log.coveredSince('rule')).to.equal(undefined);
+  });
 });
