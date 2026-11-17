@@ -3,7 +3,7 @@ import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 
-import { authzStorage, currentPrincipal, requestScope, runWithPrincipal, UNATTENDED } from '@spinajs/authz';
+import { ambientTraceId, authzStorage, currentPrincipal, requestScope, runWithPrincipal, UNATTENDED } from '@spinajs/authz';
 import type { IAuthzAsyncStorage, Principal } from '@spinajs/authz';
 
 const expect = chai.expect;
@@ -30,6 +30,17 @@ describe('host ALS storage', () => {
       const b = requestScope();
       expect(a.cache).to.be.instanceOf(Map);
       expect(a.cache).to.not.equal(b.cache);
+    });
+  });
+
+  describe('ambientTraceId', () => {
+    it("is the request store's 32-hex traceId, else null", () => {
+      const id = '0af7651916cd43dd8448eb211c80319c';
+      expect(ambientTraceId()).to.equal(null);
+      expect(authzStorage().run({ traceId: id }, () => ambientTraceId())).to.equal(id);
+      for (const bad of [id.toUpperCase(), `${id}0`, 'xyz', 42, undefined]) {
+        expect(authzStorage().run({ traceId: bad }, () => ambientTraceId()), String(bad)).to.equal(null);
+      }
     });
   });
 

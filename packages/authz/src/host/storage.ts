@@ -22,6 +22,14 @@ export function authzStorage(): AsyncLocalStorage<AuthzStore> {
   return DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<AuthzStore>;
 }
 
+const TRACE_ID = /^[0-9a-f]{32}$/;
+
+/** The W3C trace id http's RequestId puts on the request store; decision records and changelog rows both read it. */
+export function ambientTraceId(): string | null {
+  const id = authzStorage().getStore()?.traceId;
+  return typeof id === 'string' && TRACE_ID.test(id) ? id : null;
+}
+
 export function currentPrincipal(): Principal {
   const p = authzStorage().getStore()?.Principal;
   return p !== null && typeof p === 'object' ? p : UNATTENDED;

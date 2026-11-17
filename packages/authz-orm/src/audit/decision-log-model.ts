@@ -47,4 +47,13 @@ export class AuthzDecisionLogEntry extends ModelBase<AuthzDecisionLogEntry> {
 
   /** JSON, only with authz.decisionLog.captureInputs */
   public inputs!: string | null;
+
+  /** JSON `DecisionRecord.facts`; null on rows logged before AuthzDecisionLogFacts_2026_11_06_00_00_00. */
+  public facts!: string | null;
+
+  /** Optional, not `DateTime | null`: `@DateTime()` reads `design:type`, which a union emits as `Object`. */
+  @DateTimeColumn()
+  public logged_at?: DateTime;
+
+  public duration_ms!: number | null;
 }

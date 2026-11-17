@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { activeTraceIds } from '@spinajs/tracing';
 import type { Decision, DecisionRequest } from '../contracts/decision.js';
 import type { DecisionLog, DecisionRecord, DecisionTraceContext, PolicyHashSource } from '../contracts/decision-log.js';
+import type { Permission } from '../contracts/permission.js';
 import { principalKey } from '../contracts/principal.js';
 import type { Principal } from '../contracts/principal.js';
 import { resourceKey } from '../contracts/resource.js';
@@ -11,6 +13,8 @@ import { newDecisionId } from '../engine/support/ids.js';
 import { isObject } from '../engine/internal/util.js';
 import { thrownError } from './log.js';
 import type { AuthzLog } from './log.js';
+import { principalFacts } from './principal-facts.js';
+import { ambientTraceId } from './storage.js';
 
 export type DecisionLogMode = 'off' | 'deny' | 'sampled' | 'all';
 
@@ -55,7 +59,7 @@ export class DecisionLogTap extends DecisionTap {
     if (!this.logs(decision)) return;
     const id = decision.id ?? newDecisionId();
     const trace = this.options.trace;
-    const record = this.record(id, req, decision, reads, meta.cached, trace?.current());
+    const record = this.record(id, req, decision, reads, meta, traceOf(trace));
     trace?.annotate(id);
     this.buffer.push(record);
     if (this.buffer.length >= this.options.batch.size) void this.flush();
@@ -93,12 +97,16 @@ export class DecisionLogTap extends DecisionTap {
     }
   }
 
-  private record(id: string, req: DecisionRequest, decision: Decision, reads: DecisionReadSet, cached: boolean, trace: { readonly traceId: string; readonly spanId: string } | undefined): DecisionRecord {
+  private record(id: string, req: DecisionRequest, decision: Decision, reads: DecisionReadSet, { cached, durationMs }: { cached: boolean; durationMs: number }, trace: { traceId: string; spanId?: string } | undefined): DecisionRecord {
     const now = req.env?.now;
+    const loggedAt = new Date();
     const policyHash = this.options.policy?.policyHash(this.options.domain) ?? 'unknown';
+    const parts = inputsHashParts(req, decision, reads, policyHash);
     const record: DecisionRecord = {
       id,
-      at: (now instanceof Date ? now : new Date()).toISOString(),
+      at: (now instanceof Date ? now : loggedAt).toISOString(),
+      loggedAt: loggedAt.toISOString(),
+      durationMs,
       domain: decision.domain,
       principal: principalKey(decision.principal),
       permission: decision.permission,
@@ -107,12 +115,14 @@ export class DecisionLogTap extends DecisionTap {
       cached,
       policyHash,
       modelVersions: reads.modelVersions,
-      inputsHash: inputsHash(req, decision, reads, policyHash),
+      inputsHash: inputsHashOf(parts),
     };
-    if (trace) Object.assign(record, { traceId: trace.traceId, spanId: trace.spanId });
+    if (trace) Object.assign(record, trace);
     if (decision.actor) record.actor = principalKey(decision.actor);
     if (decision.reason) record.reason = decision.reason.code;
-    if (this.options.captureInputs) record.inputs = { env: reads.env, attributes: reads.attributes, relations: reads.relations, modelVersions: reads.modelVersions };
+    const facts = factsOf(req);
+    if (facts) record.facts = facts;
+    if (this.options.captureInputs) record.inputs = { env: reads.env, attributes: reads.attributes, relations: reads.relations, modelVersions: reads.modelVersions, principalState: parts.principal, actorState: parts.actor };
     return record;
   }
 }
@@ -122,26 +132,75 @@ function unref<T>(timer: T): T {
   return timer;
 }
 
+/** All or nothing: an actor without facts would read as a record without an actor. */
+function factsOf(req: DecisionRequest): DecisionRecord['facts'] {
+  const principal = isObject(req.principal) ? principalFacts(req.principal) : undefined;
+  if (principal === undefined) return undefined;
+  if (req.actor === undefined) return { principal };
+  const actor = principalFacts(req.actor);
+  return actor === undefined ? undefined : { principal, actor };
+}
+
 /**
- * SHA-256 of what the decision read (G14): the principal's and actor's full state, the permission and resource, the env,
- * attribute and relation reads (sorted, so concurrent model reads hash alike), the model versions and the policy hash.
+ * The trace of a registered DecisionTraceContext; else the request store's trace id (the one changelog rows get) or,
+ * outside a request, the active span's, with the active span's id when it belongs to that trace.
  */
-export function inputsHash(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, policyHash: string): string {
+function traceOf(context: DecisionTraceContext | undefined): { traceId: string; spanId?: string } | undefined {
+  const given = context?.current();
+  if (given) return { traceId: given.traceId, spanId: given.spanId };
+  const active = activeTraceIds();
+  const traceId = ambientTraceId() ?? active?.traceId;
+  if (traceId === undefined) return undefined;
+  return active?.traceId === traceId ? { traceId, spanId: active.spanId } : { traceId };
+}
+
+/** What `inputsHash` hashes, before its reads are sorted. */
+export interface InputsHashParts {
+  principal: string | null;
+  actor: string | null;
+  permission: Permission;
+  /** resourceKey() */
+  resource: string;
+  env: Record<string, unknown>;
+  attributes: DecisionReadSet['attributes'];
+  relations: DecisionReadSet['relations'];
+  modelVersions: Record<string, string>;
+  policyHash: string;
+}
+
+export function inputsHashParts(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, policyHash: string): InputsHashParts {
   const stateOf = (p: Principal | undefined) => (p === undefined ? null : (principalState(p) ?? principalKey(p)));
-  const sortBy = <T>(xs: readonly T[], key: (x: T) => string) => [...xs].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
-  const refOf = (r: DecisionReadSet['attributes'][number]['ref']) => (typeof r === 'string' ? r : resourceKey(r));
-  const inputs = {
+  return {
     principal: isObject(req.principal) ? stateOf(req.principal) : principalKey(decision.principal),
     actor: stateOf(req.actor),
     permission: decision.permission,
     resource: resourceKey(decision.resource),
     env: reads.env,
-    attributes: sortBy(reads.attributes, (a) => `${refOf(a.ref)}\u0000${a.path}`),
-    relations: sortBy(reads.relations, (r) => `${r.model}\u0000${resourceKey(r.object)}\u0000${r.relation}`),
+    attributes: reads.attributes,
+    relations: reads.relations,
     modelVersions: reads.modelVersions,
     policyHash,
   };
+}
+
+/** Sorts the attribute and relation reads, so concurrent model reads hash alike, and hashes the canonical JSON. */
+export function inputsHashOf(parts: InputsHashParts): string {
+  const sortBy = <T>(xs: readonly T[], key: (x: T) => string) => [...xs].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  const refOf = (r: DecisionReadSet['attributes'][number]['ref']) => (typeof r === 'string' ? r : resourceKey(r));
+  const inputs = {
+    ...parts,
+    attributes: sortBy(parts.attributes, (a) => `${refOf(a.ref)}\u0000${a.path}`),
+    relations: sortBy(parts.relations, (r) => `${r.model}\u0000${resourceKey(r.object)}\u0000${r.relation}`),
+  };
   return createHash('sha256').update(canonical(inputs)).digest('hex');
+}
+
+/**
+ * SHA-256 of what the decision read (G14): the principal's and actor's full state, the permission and resource, the env,
+ * attribute and relation reads, the model versions and the policy hash.
+ */
+export function inputsHash(req: DecisionRequest, decision: Decision, reads: DecisionReadSet, policyHash: string): string {
+  return inputsHashOf(inputsHashParts(req, decision, reads, policyHash));
 }
 
 /** JSON with sorted keys; Dates as ISO strings, anything JSON cannot hold as a tagged string, cycles cut. */

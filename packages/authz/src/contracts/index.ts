@@ -1,6 +1,7 @@
 export * from './principal.js';
 export * from './link.js';
 export * from './resource.js';
+export * from './resource-key.js';
 export * from './errors.js';
 export * from './permission.js';
 // Named: filter.js also carries a test-only hash seam that is not public API.
