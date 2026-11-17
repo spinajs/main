@@ -68,7 +68,13 @@ export class FlowTracer extends QueryTracer {
   observe(node: ts.Node): void {
     if (ts.isVariableDeclaration(node) && node.initializer) this.declare(node.name, node.initializer);
     if (ts.isExpressionStatement(node)) this.extendBuilder(node.expression);
-    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind) && ts.isIdentifier(node.left)) this.reassign(node.left, this.traced(node.right), node.right);
+    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind)) this.assign(node);
+  }
+
+  private assign(node: ts.BinaryExpression): void {
+    if (ts.isIdentifier(node.left)) this.reassign(node.left, this.traced(node.right), node.right);
+    // `[q] = [...]`, `({ q } = ...)`: what each name receives is not traced.
+    else for (const name of assignedNames(node.left)) this.reassign(name, undefined, node);
   }
 
   private declare(name: ts.BindingName, initializer: ts.Expression): void {
@@ -100,7 +106,8 @@ export class FlowTracer extends QueryTracer {
    * read: it is scoped only when every one of them is.
    */
   private reassign(name: ts.Identifier, assigned: Traced | undefined, origin: ts.Node): void {
-    const symbol = this.checker.getSymbolAtLocation(name);
+    // The name of `{ q }` is the property; the variable it writes is the shorthand's value symbol.
+    const symbol = ts.isShorthandPropertyAssignment(name.parent) ? this.checker.getShorthandAssignmentValueSymbol(name.parent) : this.checker.getSymbolAtLocation(name);
     if (symbol === undefined) return;
     const held = this.builders.get(symbol);
     const next = assigned?.pending === true ? assigned.value : (this.declaredBuilder(symbol, origin) ?? (held === undefined ? undefined : unscopedBuilder(origin, held.model)));
@@ -217,6 +224,20 @@ export class FlowTracer extends QueryTracer {
     const traced = argument === undefined ? undefined : this.traced(argument);
     return traced?.pending === true ? traced.value : undefined;
   }
+}
+
+/** The names a destructuring assignment target writes to. */
+function assignedNames(target: ts.Expression): ts.Identifier[] {
+  const e = unwrap(target);
+  if (ts.isIdentifier(e)) return [e];
+  if (ts.isArrayLiteralExpression(e)) return e.elements.flatMap(assignedNames);
+  if (ts.isSpreadElement(e)) return assignedNames(e.expression);
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.EqualsToken) return assignedNames(e.left);
+  if (!ts.isObjectLiteralExpression(e)) return [];
+  return e.properties.flatMap((p) => {
+    if (ts.isShorthandPropertyAssignment(p)) return [p.name];
+    return ts.isPropertyAssignment(p) ? assignedNames(p.initializer) : ts.isSpreadAssignment(p) ? assignedNames(p.expression) : [];
+  });
 }
 
 function scopeBy(value: QueryValue, call: ts.CallExpression): void {

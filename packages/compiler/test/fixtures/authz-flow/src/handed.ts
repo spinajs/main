@@ -169,3 +169,17 @@ export class UnexplainedShapes {
     return q;
   }
 }
+
+export class DestructuredShapes {
+  public fromArray(c: boolean) {
+    let q = Invoice.query().accessible('invoice:read');
+    if (c) [q] = [Invoice.query()];
+    return q;
+  }
+
+  public fromObject(c: boolean) {
+    let q = Invoice.query().accessible('invoice:read');
+    if (c) ({ q } = { q: Invoice.query() });
+    return q;
+  }
+}
