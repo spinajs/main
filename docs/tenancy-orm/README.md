@@ -36,7 +36,8 @@ export class Invoice extends ModelBase<Invoice> {
 
 `@Tenant({ column: 'org' })` names another column. `registerTenantModel(Model, options)` declares a model of a package
 you do not own. A subclass of a tenant model is a tenant model, also under an abstract `@Tenant()` base. A table that
-has no such column is refused at the first statement on the model.
+has no such column is refused at the first statement on the model. Make every unique index of a tenant table include
+the tenant column: otherwise an insert, or an insert-or-ignore, tells a caller that a key exists in another tenant.
 
 ## What happens to a statement
 
@@ -57,7 +58,8 @@ await runAcrossTenants('nightly billing', async () => {
 ```
 
 - The caller's conditions are grouped before the tenant predicate is added, so an `orWhere` cannot leave the tenant.
-- An insert that carries another tenant throws `TenantMismatch`. In the all-tenants scope an insert sets the column itself.
+- An insert that carries another tenant throws `TenantMismatch`. In the all-tenants scope the caller sets the column on
+  every row; an insert without it throws `TenantRequired`.
 - A hasMany populate and every page of `stream()` are statements of their own and are confined the same way.
 - The model instance does not get the tenant written back after an insert; read it again when you need the value.
 
@@ -68,8 +70,10 @@ const overdue = await Invoice.where('status', 'overdue').acrossTenants('nightly 
 ```
 
 `.acrossTenants(reason)` exists on select, update and delete builders of a tenant model. The reason is required. It
-works inside a tenant and with no scope, and it widens that one statement only: a clone made from it keeps it, but a
-populated relation runs as a statement of its own in the scope around it.
+works inside a tenant and with no scope, and it widens that one statement only. A clone made from it and a to-one
+populate, which is part of the statement, are widened with it. A to-many populate runs as a statement of its own in the
+scope around it: inside a tenant, the other tenants' rows come back with empty related lists. An insert has no
+`.acrossTenants()`: in `runAcrossTenants()` the caller sets the tenant column on every row.
 
 ## What is refused
 
@@ -80,7 +84,7 @@ populated relation runs as a statement of its own in the scope around it.
 | in a select of a tenant model, `populate()` of any to-one relation, and a recursive query (`withRecursive()`, a `@Recursive` relation) | `NotSupported` inside a tenant: the ORM merges a to-one relation's conditions into the statement after the middleware ran, and builds the recursive part without them |
 | in a select of a model that is no tenant model, `populate()` of a to-one relation whose target is a tenant model, at any depth of to-one relations | `NotSupported` inside a tenant; load it with a query of its own |
 | an upsert (`onDuplicate()`, `orReplace()`, `InsertOrUpdate`, `InsertOrReplace`) on a tenant model | `NotSupported` inside a tenant |
-| an update that writes or increments the tenant column, in any letter case | `InvalidOperation`, in every scope |
+| an update that writes or increments the tenant column under any name a database may take for it (letter case, accents, trailing spaces), or sets a key that is no declared column of its model | `InvalidOperation`, in every scope, also when the update does not go through the model |
 | an update with no condition | `InvalidOperation` inside a tenant; write `.where(true)` to update every row of the tenant |
 | `@Tenant({ isolation: 'schema' })` | `NotSupported`: schema placements are not available yet |
 
@@ -91,7 +95,7 @@ populated relation runs as a statement of its own in the scope around it.
 The middleware sees query builders, not SQL text. It does not see `sql` templates, `driver.execute` with SQL text, raw
 fragments inside a builder, or a `Lazy` condition. `driver.execute(builder)` and `executeStream(builder)` skip the query
 middlewares, so a builder run that way is not confined either. In this release it also does not look into a join you
-write yourself (`leftJoin(Model)`) or into a sub-select (`whereExist(query)`, `whereIn(column, query)`), nor into the
+write yourself (`leftJoin(Model)`) or into a sub-select (`whereExist(query)`, `whereIn(column, query)`, `whereExist('relation')`), nor into the
 static `Model.populate(relation, owner)`, which reads through a join the framework builds: put the tenant condition into
 those by hand until they are covered. Such a statement reads the rows of every tenant, with or without a tenant scope,
 and nothing throws. Schema builders are not checked: a view over a tenant table, or a table clone with data, carries
@@ -108,6 +112,16 @@ change. Enter the scope first, then open the transaction.
 `carriesTenantSettings(driver)` tells whether a connection is one. The package registers the check with
 `onTenantScopeChange()` of `@spinajs/tenancy` when it loads; `stopTransactionScopeGuard()` removes it for a tool that
 must run without it, and the check of each statement still holds then.
+
+## Before you enable it
+
+- `rls: true` creates no policy and applies no session setting in this release; it only turns on the transaction rule.
+- Saving a loaded relation list (`relation.update()` of a one-to-many or many-to-many list) is an upsert, so it throws
+  `NotSupported` inside a tenant.
+- In the all-tenants scope an upsert is not refused: its update half can rewrite the tenant column, and `orReplace()` can
+  replace another tenant's row.
+- On sqlite an instance `insert()` needs the tenant column set on the model: the driver checks the not-null columns
+  before the middleware stamps it.
 
 ## Configuration
 

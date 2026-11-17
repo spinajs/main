@@ -93,13 +93,21 @@ export class Depot extends ModelBase<Depot> {
   @BelongsTo(Depot, 'parent_id')
   public Parent: SingleRelation<Depot>;
 
+  // Named by string: both are declared below.
+  @BelongsTo('InvoiceView', 'invoice_id')
+  public View: SingleRelation<InvoiceView>;
+
+  @Recursive()
+  @BelongsTo('Folder', 'parent_id')
+  public Folders: SingleRelation<Folder>;
+
   @HasMany(Depot, { foreignKey: 'parent_id', primaryKey: 'Id' })
   public Children: Relation<Depot, Depot>;
 }
 
-// Not a tenant model, on a tenant table.
+// Not a tenant model, on a tenant table named in another letter case.
 @Connection('default')
-@Model('invoice')
+@Model('INVOICE')
 export class InvoiceView extends ModelBase<InvoiceView> {
   @Primary()
   public Id: number;

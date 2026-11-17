@@ -40,6 +40,7 @@ export class TenantScopeMiddleware extends QueryMiddleware {
     const name = statementName(query, target.entry);
     if (scope === undefined) throw new TenantRequired(`tenancy-orm: ${name} needs a tenant scope: run it inside runInTenant(), or leave the scope with a declared reason`);
     if (!target.owned) {
+      if (query instanceof UpdateQueryBuilder) keepTenantColumn(query, target.entry, scope);
       if (scope.kind === 'all') return;
       throw new NotSupported(`tenancy-orm: ${name} does not go through the model's own query, so it is not filtered by tenant yet (v4-td-03-row-mode-conformance); query ${nameOf(target.entry.model)} itself, or run it inside runAcrossTenants(reason)`);
     }

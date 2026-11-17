@@ -112,6 +112,17 @@ describe('.acrossTenants()', function () {
     expect(() => driver.select().from('invoice').acrossTenants('why')).to.throw(InvalidOperation, '(no model)');
   });
 
+  it('ignores a mark written on a builder class prototype', async () => {
+    const prototype = Reflect.getPrototypeOf(Invoice.query());
+    if (prototype === null) throw new Error('no prototype');
+    markAcrossTenants(prototype, 'every builder');
+    try {
+      expect(codes(await inTenant('t1', () => Invoice.query()))).to.deep.eq(['A-1']);
+    } finally {
+      Reflect.deleteProperty(prototype, Symbol.for('@spinajs/tenancy-orm:across'));
+    }
+  });
+
   it('takes a blank mark written past the method as no mark', async () => {
     const query = Invoice.query();
     markAcrossTenants(query, ' ');

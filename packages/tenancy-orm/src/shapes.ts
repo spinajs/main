@@ -1,5 +1,5 @@
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { RelationType } from '@spinajs/orm';
+import { RelationType, extractModelDescriptor } from '@spinajs/orm';
 import type { ISelectQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { TenantRequired } from '@spinajs/tenancy';
 import type { TenantScope } from '@spinajs/tenancy';
@@ -48,16 +48,25 @@ export function refuseJoinedTenantTables(query: SelectQueryBuilder, scope: Tenan
   throw new NotSupported(`tenancy-orm: ${what} joins a tenant model on the same statement, and a joined table is not filtered by tenant yet (v4-td-03-row-mode-conformance); load it with a query of its own`);
 }
 
+// What a database may still take for the same column name: MySQL ignores letter case, accents and trailing spaces.
+const folded = (name: string): string => name.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').trim();
+
 /**
  * A row never changes its tenant. Inside a tenant, writing that tenant's own id is what archive() does with the whole
- * row. Names are compared in any letter case: the databases resolve a column name that way.
+ * row. A key the database may resolve to the tenant column counts as it; on a model every key must be a declared column,
+ * because no rule of ours knows every database's collation.
  */
 export function keepTenantColumn(query: UpdateQueryBuilder<unknown>, entry: TenantModelEntry, scope: TenantScope): void {
-  const isTenant = (column: string): boolean => column.toLowerCase() === entry.column.toLowerCase();
-  const written = Object.keys(query.Value).filter(isTenant);
-  const own = scope.kind === 'tenant' && written.every((column) => Reflect.get(query.Value, column) === scope.tenant.id);
-  if ([...query.Increments.keys()].some(isTenant) || (written.length > 0 && !own)) {
+  const keys = [...Object.keys(query.Value), ...query.Increments.keys()];
+  const written = keys.filter((key) => folded(key) === folded(entry.column));
+  const own = scope.kind === 'tenant' && written.every((key) => !query.Increments.has(key) && Reflect.get(query.Value, key) === scope.tenant.id);
+  if (written.length > 0 && !own) {
     throw new InvalidOperation(`tenancy-orm: update of ${entry.table} writes the tenant column ${entry.column}; a row never changes its tenant`);
+  }
+  const declared = extractModelDescriptor(query.Model)?.Columns.map((column) => column.Name);
+  const undeclared = declared === undefined ? undefined : keys.find((key) => !declared.includes(key));
+  if (undeclared !== undefined) {
+    throw new InvalidOperation(`tenancy-orm: update of ${entry.table} sets ${JSON.stringify(undeclared)}, which is not a declared column of ${nameOf(query.Model)}, so it cannot be shown to leave the tenant column alone`);
   }
 }
 

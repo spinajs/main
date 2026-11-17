@@ -2,17 +2,19 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { InsertBehaviour } from '@spinajs/orm';
+import { InsertBehaviour, Orm } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
 import { TenantRequired } from '@spinajs/tenancy';
 import { bootApp } from './support/app.js';
-import { Depot, Invoice } from './support/models.js';
+import { Depot, Invoice, InvoiceView } from './support/models.js';
 import { everywhere, inTenant } from './support/scope.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const summary = async (): Promise<string[]> => (await everywhere(() => Invoice.query())).map((row) => `${row.code}:${row.tenant_id}:${row.status}`).sort();
+const moved = 'tenancy-orm: update of invoice writes the tenant column tenant_id; a row never changes its tenant';
 const joined = (path: string): string =>
   `tenancy-orm: populate('${path}') on Depot joins a tenant model on the same statement, and a joined table is not filtered by tenant yet (v4-td-03-row-mode-conformance); load it with a query of its own`;
 
@@ -20,9 +22,13 @@ describe('TenantScopeMiddleware, what it refuses', function () {
   this.timeout(30_000);
 
   let app: TestApp;
+  let driver: OrmDriver;
 
   before(async () => {
     app = await bootApp();
+    const connection = (await app.resolve(Orm)).Connections.get('default');
+    if (!connection) throw new Error('no default connection');
+    driver = connection;
   });
 
   after(async () => {
@@ -47,6 +53,28 @@ describe('TenantScopeMiddleware, what it refuses', function () {
 
     // archive() writes the whole row back, the tenant column with the value it already has.
     await inTenant('t1', () => Invoice.update({ tenant_id: 't1', status: 'void' }).where('code', 'A-1'));
+    expect(await summary()).to.deep.eq(['A-1:t1:void', 'B-1:t2:open']);
+  });
+
+  it('applies the tenant column rule to every update on a tenant table, under every name a database may take for it', async () => {
+    await expect(everywhere(() => InvoiceView.update({}).update({ tenant_id: 't2' }).where(true))).to.be.rejectedWith(InvalidOperation, moved);
+    await expect(everywhere(() => driver.update().in('invoice').update({ 'TENANT_ÍD ': 't2' }).where(true))).to.be.rejectedWith(InvalidOperation, moved);
+    await expect(inTenant('t1', () => Invoice.update({}).update({ 'tenant_id ': 't2' }).where('code', 'A-1'))).to.be.rejectedWith(InvalidOperation, moved);
+    await expect(inTenant('t1', () => Invoice.update({}).update({ tenant_íd: 't2' }).where('code', 'A-1'))).to.be.rejectedWith(InvalidOperation, moved);
+    const undeclared = 'tenancy-orm: update of invoice sets "nope", which is not a declared column of Invoice, so it cannot be shown to leave the tenant column alone';
+    await expect(inTenant('t1', () => Invoice.update({}).update({ status: 'void', nope: 1 }).where('code', 'A-1'))).to.be.rejectedWith(InvalidOperation, undeclared);
+    expect(await summary()).to.deep.eq(['A-1:t1:open', 'B-1:t2:open']);
+  });
+
+  it('lets the updates the ORM builds itself through, and refuses one that moves the row or upserts', async () => {
+    const [row] = await inTenant('t1', () => Invoice.where('code', 'A-1'));
+    // What archive() sends: the whole row, as toSql() gives it.
+    await inTenant('t1', () => Invoice.update(row.toSql()).where('Id', row.Id));
+    row.status = 'void';
+    await inTenant('t1', () => row.update());
+    row.tenant_id = 't2';
+    await expect(inTenant('t1', () => row.update())).to.be.rejectedWith(InvalidOperation, moved);
+    await expect(inTenant('t1', () => new Invoice({ code: 'A-9', status: 'open', tenant_id: 't1' }).insert(InsertBehaviour.InsertOrUpdate))).to.be.rejectedWith(NotSupported, 'upserts on tenant models');
     expect(await summary()).to.deep.eq(['A-1:t1:void', 'B-1:t2:open']);
   });
 
@@ -88,6 +116,9 @@ describe('TenantScopeMiddleware, what it refuses', function () {
       await expect(inTenant('t1', () => Depot.where('name', 'root').populate('Children', function () {
         this.populate('Invoice');
       }))).to.be.rejectedWith(NotSupported, joined('Invoice'));
+      // A model that is no tenant model on a tenant table in another letter case, and a @Recursive relation.
+      await expect(inTenant('t1', () => Depot.query().populate('View'))).to.be.rejectedWith(NotSupported, joined('View'));
+      await expect(inTenant('t1', () => Depot.query().populate('Folders'))).to.be.rejectedWith(NotSupported, joined('Folders'));
       await expect(Promise.resolve(Depot.query().populate('Invoice'))).to.be.rejectedWith(
         TenantRequired,
         "tenancy-orm: populate('Invoice') on Depot joins a tenant model and needs a tenant scope: run it inside runInTenant(), or leave the scope with a declared reason",
