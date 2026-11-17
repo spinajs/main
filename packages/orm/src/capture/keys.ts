@@ -84,7 +84,9 @@ function keysFromLastInsertId(query: InsertQueryBuilder, r: InsertResult, suppli
   if (typeof last !== 'number' || !Number.isSafeInteger(last) || last <= 0) return undefined;
   if (rows === 1) return [String(last)];
   const noneSupplied = supplied.every((v) => v === null || v === undefined);
-  if (noneSupplied && query.Driver.supportedFeatures().insertIdIsFirstOfBatch === true && r.RowsAffected === rows && !query.Ignore && !query.Replace && !query.Update) {
+  // A split insert reports the insert id of its last statement, not of the first row (as ModelBase.insert knows).
+  const oneStatement = query.splitByDriverLimits().length === 1;
+  if (noneSupplied && oneStatement && query.Driver.supportedFeatures().insertIdIsFirstOfBatch === true && r.RowsAffected === rows && !query.Ignore && !query.Replace && !query.Update) {
     return Array.from({ length: rows }, (_, k) => String(last + k));
   }
   return undefined;

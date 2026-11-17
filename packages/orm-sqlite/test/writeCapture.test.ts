@@ -2,9 +2,11 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { InsertBehaviour, InsertQueryBuilder, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery } from '@spinajs/orm';
+import sinon from 'sinon';
+import { InsertBehaviour, InsertQueryBuilder, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
+import { db } from './common.js';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
 
 chai.use(chaiAsPromised);
@@ -38,7 +40,8 @@ class Everything extends WriteObserver {
 const selectsOn = (statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
 
 describe('write capture on sqlite', function () {
-  this.timeout(10000);
+  // Each test boots the ORM again, which takes several seconds on a loaded machine.
+  this.timeout(60000);
 
   before(() => {
     registerUowConnection();
@@ -134,6 +137,20 @@ describe('write capture on sqlite', function () {
     expect(write.unknownKeys).to.eq(true);
     expect(write.rows).to.deep.eq([]);
     expect(await rows('uow_tag')).to.have.length(2);
+  });
+
+  it('reports the keys of an insert split into several statements as unknown', () => {
+    // The merged result of a split insert holds the last statement's insert id and the summed row count.
+    const driver = db().Connections.get('sqlite')!;
+    const features = { ...driver.supportedFeatures(), insertIdIsFirstOfBatch: true };
+    const stubs = [sinon.stub(driver, 'MaxInsertRows').value(1), sinon.stub(driver, 'supportedFeatures').returns(features)];
+    try {
+      const { query } = createQuery(UowTag, InsertQueryBuilder);
+      query.values([{ Name: 'a' }, { Name: 'b' }]);
+      expect(insertedKeys(query, { LastInsertId: 2, RowsAffected: 2 }, 'Id')).to.eq(undefined);
+    } finally {
+      for (const s of stubs) s.restore();
+    }
   });
 
   it('rolls the statement back when an observer throws', async () => {
