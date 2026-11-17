@@ -158,6 +158,24 @@ export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
 }
 ```
 
+## Migration
+
+### `__mutex__.Tenant` is `__mutex__.Holder`
+
+The column and the model property are renamed, with no alias. `MutexHolder_2026_11_16_00_00_00` renames the column and keeps the rows. It runs with `Migration.OnStartup: true` or with the ORM migration commands.
+
+```ts
+// Before
+const mine = await __mutex__.where({ Tenant: holder, Locked: true });
+
+// After
+const mine = await __mutex__.where({ Holder: holder, Locked: true });
+```
+
+- Change raw SQL and dashboards that read `__mutex__.Tenant`.
+- A migration of your own that names the `Tenant` column must run before `MutexHolder_2026_11_16_00_00_00`, or name `Holder`.
+- The rename does not survive a rolling deploy. A replica of the old version fails on the renamed column; a replica of the new version fails until the migration has run. Stop the old replicas, migrate, then start the new ones.
+
 ## Related
 
 - [Database mutex](01-database-mutex.md): how `OrmMutex` reads and writes these rows.

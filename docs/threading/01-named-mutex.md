@@ -213,6 +213,26 @@ export class StockSync extends AsyncService {
 
 `release(options, true)` deletes the lock row instead of unlocking it; use it for locks with a one-off name.
 
+## Migration
+
+### `Tenant` is `Holder`
+
+`MutexLockOptions.Tenant` and `MutexLock.Tenant` are renamed to `Holder`. There is no alias: TypeScript rejects the old property.
+
+Plain JavaScript that still passes `Tenant` gets the backend's default holder. With `OrmMutex` that is one holder per process, so callers inside one process stop excluding each other.
+
+```ts
+// Before
+const result = await mutex_acquire({ Name: 'catalog', Tenant: 'catalog-rebuild' });
+console.log(result.Mutex.Tenant);
+
+// After
+const result = await mutex_acquire({ Name: 'catalog', Holder: 'catalog-rebuild' });
+console.log(result.Mutex.Holder);
+```
+
+The backend side of the rename: [your own backend](02-mutex-backends.md#migration), the [configuration key](../orm-threading/01-database-mutex.md#migration), [`OrmMutex` subclasses](../orm-threading/02-custom-mutex-backends.md#migration) and the [`__mutex__` column](../orm-threading/03-mutex-table-and-migration.md#migration).
+
 ## Related
 
 - [Mutex backends](02-mutex-backends.md): the `Mutex` contract, registration and custom backends.

@@ -201,6 +201,30 @@ DI.register(PodHolderMutex).as(Mutex);
 await mutex_acquire({ Name: 'warmup', Holder: holder });
 ```
 
+## Migration
+
+### `tenantOf()` is `holderOf()`, `ConfiguredTenant` is `ConfiguredHolder`
+
+Both protected members of `OrmMutex` are renamed, with no alias. `OrmMutex` picks the holder through `holderOf()` only: a subclass method still named `tenantOf()` is never called.
+
+```ts
+// Before
+export class PodHolderMutex extends OrmMutex {
+  protected tenantOf(options: MutexLockOptions): string {
+    return options.Tenant?.trim() || this.ConfiguredTenant || podName();
+  }
+}
+
+// After
+export class PodHolderMutex extends OrmMutex {
+  protected holderOf(options: MutexLockOptions): string {
+    return options.Holder?.trim() || this.ConfiguredHolder || podName();
+  }
+}
+```
+
+A `Mutex` backend of your own reads `options.Holder`; see [Mutex backends](../threading/02-mutex-backends.md#migration).
+
 ## Related
 
 - [Database mutex](01-database-mutex.md): what each `OrmMutex` method does.

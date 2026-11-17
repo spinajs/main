@@ -236,6 +236,26 @@ export class StockRecalculation extends AsyncService {
 }
 ```
 
+## Migration
+
+### `threading.mutex.tenant` is `threading.mutex.holder`
+
+The configuration key is renamed, with no alias. A value left under `threading.mutex.tenant` is not read: the default holder becomes `processIdentity()`.
+
+```ts
+// Before
+this.Config = _.merge(this.Config, {
+  threading: { mutex: { tenant: 'import-worker' } },
+});
+
+// After
+this.Config = _.merge(this.Config, {
+  threading: { mutex: { holder: 'import-worker' } },
+});
+```
+
+The same rename covers the lock options ([`Tenant` is `Holder`](../threading/01-named-mutex.md#migration)), the protected members of `OrmMutex` ([Custom mutex backends](02-custom-mutex-backends.md#migration)) and the table column ([Mutex table and migration](03-mutex-table-and-migration.md#migration)).
+
 ## Related
 
 - [Custom mutex backends](02-custom-mutex-backends.md): extend `OrmMutex`, or swap the backend.

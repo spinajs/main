@@ -295,6 +295,28 @@ public async acquire(options: MutexLockOptions) {
 // Do: return Locked: false at once and let the caller decide to wait with mutex_wait()
 ```
 
+## Migration
+
+### A backend reads `options.Holder` and returns `MutexLock.Holder`
+
+`MutexLockOptions.Tenant` and `MutexLock.Tenant` are renamed to `Holder`, with no alias. A `Mutex` subclass of your own reads the owner from `options.Holder` and returns it as `Holder` in every `MutexLock`.
+
+```ts
+// Before
+public async renew(options: MutexLockOptions): Promise<boolean> {
+  const lock = this.locks.get(options.Name);
+  return !!lock && lock.Locked && lock.Tenant === (options.Tenant?.trim() || processIdentity());
+}
+
+// After
+public async renew(options: MutexLockOptions): Promise<boolean> {
+  const lock = this.locks.get(options.Name);
+  return !!lock && lock.Locked && lock.Holder === (options.Holder?.trim() || processIdentity());
+}
+```
+
+`OrmMutex` subclasses rename two protected members as well; see [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md#migration).
+
 ## Related
 
 - [Named mutex](01-named-mutex.md): the helpers and types callers use.
