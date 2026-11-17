@@ -45,10 +45,11 @@ The trace is the one `AuthzService.explain()` returns for the denied permission 
 2. `DecisionsPolicy` refuses an unauthenticated caller with 401, and one without an unconditional grant of `authz.http.decisionsRoute.permission` (default `authz:replay`) in the access domain with 403. `authz:explain` does not open it.
 3. `:id` must be a UUID and `format` one of `''`, `report`, `tree`; anything else is a 400. The replay runs outside any transaction and gets `req.storage.signal` while `http.deadline` is enabled.
 4. A record of another domain needs the same permission there. Without it, or for a domain this node does not run, the answer is the 404 of an unknown id, so ids of other domains are not confirmed.
-5. The answer is a 200 with the `ReplayReport` (`ReplayReportDto` in OpenAPI) for every verdict, `unreplayable` included, or its `tree` with `format=tree`. Each one writes an `explain` entry to the access domain's `DecisionAudit` (`reason: 'replay <id>'`, the record's permission and resource).
-6. While `authz.replay.concurrency` replays run, the answer is 429 `{ error: 'replay_busy' }` with `Retry-After: 5`. A replay the `DecisionReplay` refuses with an `AuthzConfigError` (inside a transaction, two contributors of one kind) is a 500 `{ error: 'replay_refused', message }`, answered rather than thrown so production keeps the message.
+   A check that fails there (the domain does not declare the permission) counts as not held. The replay has run by then, so the 404 hides the answer, not the replay's duration.
+5. The answer is a 200 with the `ReplayReport` (`ReplayReportDto` in OpenAPI) for every verdict, `unreplayable` included, or its `tree` with `format=tree` (an empty body for a report without one). Each one writes an `explain` entry (`reason: 'replay <id>'`, the record's permission and resource) through `AuthzService.audit()`, to the `DecisionAudit` the access domain selected (`authz.audit.service`); a hidden domain's 404 writes a `deny` entry (`reason: 'replay <id> refused: domain <name>'`).
+6. While `authz.replay.concurrency` replays run, the answer is 429 `{ error: 'replay_busy' }` with `Retry-After: 5`. A replay refused inside a transaction (`ReplayInTransaction`) is a 500 `{ error: 'replay_refused', message }`, answered rather than thrown so production keeps the message; any other error of the replay is an ordinary 500.
 
-A report holds the principal's facts, its captured inputs and the other holders of the relations read: grant `authz:replay` like an admin permission.
+A report holds the principal's facts, its captured inputs and the other holders of the relations read. Declare `authz:replay` in `authz.permissions` of the access domain and of every domain whose records it replays (or of their common parent), and grant it like an admin permission.
 
 ## Configuration
 
@@ -89,7 +90,8 @@ Declare the explain permission in `authz.permissions` and grant it to the people
 
 ## Important behaviour
 
-- **Never in production.** `configuration.isProduction: true` wins over every switch; the route is not even registered.
+- **The explain route is never in production.** `configuration.isProduction: true` wins over every switch; the route is not even registered.
+- **The decisions route is allowed in production.** It replays only logged decisions, under its own permission, and every call is audited.
 - **The route explains a bare principal.** It knows only `<type>:<id>`: no attributes, no ceiling, no session facts. A decision that depends on them can differ from the real request's.
 - **The route can explain anyone.** Whoever holds the explain permission sees how any principal is decided; grant it like an admin permission.
 - **Only an unconditional grant counts.** A conditional grant of the explain permission is a 403 on the route and no trace in a 403.
