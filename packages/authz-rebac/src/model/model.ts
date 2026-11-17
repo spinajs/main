@@ -245,6 +245,8 @@ export class RebacModel extends AuthorizationModel {
     let unknown = false;
     let cut = false;
     for (const t of await w.read(object, name)) {
+      // Fails closed until caveats are evaluated: a conditional tuple is not held.
+      if (t.caveat) continue;
       const s = t.subject;
       if (!isSubjectSet(s)) {
         if (rel.direct.includes(s.type) && s.type === w.principal.type && s.id === w.principal.id) return { m: 'member', cut: false };
@@ -293,7 +295,7 @@ export class RebacModel extends AuthorizationModel {
   private async arrow(object: ResourceRef, tupleset: string, computed: string, depth: number, w: Walk): Promise<Result> {
     const rel = this.schema().relation(object.type, tupleset);
     if (!rel) return NOT;
-    const objects = (await w.read(object, tupleset)).flatMap((t) => (!isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema().namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
+    const objects = (await w.read(object, tupleset)).flatMap((t) => (!t.caveat && !isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema().namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
     return this.any(objects.map((o) => () => this.hop(o, computed, depth, w)));
   }
 

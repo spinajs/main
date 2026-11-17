@@ -3,8 +3,8 @@ import 'mocha';
 import { IREvaluator, mergeFragments, validateIR } from '@spinajs/authz-ir';
 import { FakePermissionRegistry } from '@spinajs/authz-testing';
 
-import { NamespaceSchema, RebacModel, rebacTupleSource, rebacToIR } from '../src/index.js';
-import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, setup } from './support/world.js';
+import { MemoryTupleStore, NamespaceSchema, RebacModel, rebacTupleSource, rebacToIR } from '../src/index.js';
+import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, setup, tuple, user } from './support/world.js';
 
 const expect = chai.expect;
 
@@ -39,6 +39,19 @@ describe('authz-rebac: rebacToIR', () => {
     ]);
     const before = new RebacModel().toIR({ config: <T>(path: string, d?: T) => (config.get(path) ?? d) as T });
     expect(before.types).to.deep.equal(after.types);
+  });
+
+  it('refuses conditional subject types until it compiles them', () => {
+    const c = { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } as const;
+    expect(() => rebacToIR(NamespaceSchema.compile({ user: {}, doc: { relations: { viewer: ['user', 'user with c'] } } }, {}, { c }))).to.throw(/doc#viewer: conditional subject types are not compiled yet/);
+    expect(rebacToIR(NamespaceSchema.compile({ user: {}, doc: { relations: { viewer: ['user'] } } }, {}, { c })).types!.doc.relations.viewer.allowed).to.deep.equal(['user']);
+  });
+
+  it('the tuple source yields no conditional tuple', async () => {
+    const store = new MemoryTupleStore([tuple(d1, 'viewer', user('alice')), { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'c' } }]);
+    const read: unknown[] = [];
+    for await (const s of rebacTupleSource(store).read({ type: 'doc', id: 'd1' }, 'viewer')) read.push(s);
+    expect(read).to.deep.equal([{ type: 'user', id: 'alice' }]);
   });
 
   it('agrees with RebacModel.check on every user, permission and object of the fixture', async () => {

@@ -1,6 +1,6 @@
 import type { ListSupport, ModelListPlan, Permission, PrincipalRef, ResourceType } from '@spinajs/authz';
 
-import type { TupleStore } from '../contracts.js';
+import type { TupleStore, TupleSubject } from '../contracts.js';
 import { NAME_PATTERN, objectKey, subjectKey } from '../keys.js';
 import type { CompiledRewrite, NamespaceSchema } from '../namespace/compile.js';
 
@@ -92,16 +92,19 @@ export function rebacHolders(schema: NamespaceSchema, store: TupleStore, princip
     return found;
   };
 
+  // Fails closed until caveats are evaluated: a conditional tuple is not held.
+  const unconditional = async (subjects: readonly TupleSubject[], name: string, t: ResourceType): Promise<string[]> => (await store.reverseTuples(subjects, name, t)).flatMap((x) => (x.caveat ? [] : [x.object.id!]));
+
   const expand = async (t: ResourceType, name: string, budget: number): Promise<Ids> => {
     const rel = schema.relation(t, name);
     if (!rel) return expandRewrite(t, schema.permission(t, name)!, budget);
     const out = new Set<string>();
-    if (rel.direct.includes(principal.type)) for (const r of await store.reverse(principal, name, t)) out.add(r.id!);
+    if (rel.direct.includes(principal.type)) for (const id of await unconditional([principal], name, t)) out.add(id);
     if (budget < 1) return out;
     for (const s of rel.sets) {
       const members = await holders(s.type, s.relation, budget - 1);
       if (members.size === 0) continue;
-      for (const r of await store.reverseMany([...members].map((id) => ({ object: { type: s.type, id }, relation: s.relation })), name, t)) out.add(r.id!);
+      for (const id of await unconditional([...members].map((m) => ({ object: { type: s.type, id: m }, relation: s.relation })), name, t)) out.add(id);
     }
     return out;
   };
@@ -112,7 +115,7 @@ export function rebacHolders(schema: NamespaceSchema, store: TupleStore, princip
     for (const x of objectTypes(schema, t, tupleset)) {
       const objects = await holders(x, computed, budget - 1);
       if (objects.size === 0) continue;
-      for (const ref of await store.reverseMany([...objects].map((id) => ({ type: x, id })), tupleset, t)) out.add(ref.id!);
+      for (const id of await unconditional([...objects].map((o) => ({ type: x, id: o })), tupleset, t)) out.add(id);
     }
     return out;
   };

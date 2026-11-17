@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { AuthzConfigError, CORE_FILTER_OPS, FALSE, TRUE } from '@spinajs/authz';
 import type { PermissionDef, Principal, ResourceRef, Vote } from '@spinajs/authz';
-import { FakePermissionRegistry, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
+import { FakePermissionRegistry, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
 import { MemoryTupleStore, REBAC_CHECK_OP, RebacModel, TupleStore } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
@@ -188,6 +188,45 @@ describe('authz-rebac: RebacModel', () => {
       await model.init(fakeModelInitContext()).catch((e: unknown) => (error = e));
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.include('keeps no caveats');
+    });
+  });
+
+  describe('conditional tuples before the model evaluates caveats', () => {
+    const c = { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } as const;
+    const caveated = (t: Tuple): Tuple => ({ ...t, caveat: { name: 'c' } });
+    const namespaces = {
+      user: {},
+      group: { relations: { member: ['user', 'user with c'] } },
+      folder: { relations: { viewer: ['user'] } },
+      doc: { relations: { viewer: ['user', 'user with c', 'group#member'], parent: ['folder', 'folder with c'] }, permissions: { read: { union: ['viewer', 'parent->viewer'] } } },
+    };
+
+    async function conditional(): Promise<RebacModel> {
+      const store = new MemoryTupleStore([
+        caveated(tuple(d1, 'viewer', user('bob'))),
+        tuple(d2, 'viewer', { object: { type: 'group', id: 'eng' }, relation: 'member' }),
+        caveated(tuple({ type: 'group', id: 'eng' }, 'member', user('bob'))),
+        caveated(tuple(d3, 'parent', { type: 'folder', id: 'f1' })),
+        tuple(f1, 'viewer', user('bob')),
+      ]);
+      const model = new RebacModel({ store, namespaces, permissions: { 'doc:read': 'doc#read' }, caveats: { c } });
+      await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS }));
+      return model;
+    }
+
+    it('a check holds no conditional tuple: direct, through a subject set or an arrow', async () => {
+      const model = await conditional();
+      for (const doc of [d1, d2, d3]) expect(await model.check(doc, 'read', user('bob')), doc.id).to.equal('not');
+    });
+
+    it('a list plan expands no conditional membership; expand and listSubjects leave conditional tuples out', async () => {
+      const model = await conditional();
+      const plan = await model.listPlan({ principal: userPrincipal('bob'), permission: def('doc:read'), type: 'doc' }, fakeEvaluationContext({ permissions: PERMISSION_INPUTS }));
+      expect(plan).to.deep.equal({ kind: 'terms', permit: [{ op: 'rebac.tuples', args: { any: [{ tuples: { relation: 'viewer', subjects: ['user:bob'] } }, { tuples: { relation: 'parent', subjects: ['folder:f1'] } }] } }], deny: [] });
+      expect(await model.expand(d1, 'viewer')).to.deep.equal({ kind: 'tuples', object: d1, relation: 'viewer', subjects: [] });
+      expect(await model.expand(d3, 'read')).to.deep.include({ kind: 'union' });
+      expect(JSON.stringify(await model.expand(d3, 'read'))).to.not.include('f1');
+      expect((await model.listSubjects(d1, 'read', 'user')).subjects).to.deep.equal([]);
     });
   });
 

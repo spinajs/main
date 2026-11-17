@@ -11,7 +11,7 @@ import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, Re
 import type { RebacRlsExpr } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
-import { TUPLES, setup, user } from '../support/world.js';
+import { TUPLES, ref, setup, tuple, user } from '../support/world.js';
 import type { Setup } from '../support/world.js';
 
 const expect = chai.expect;
@@ -19,6 +19,7 @@ const expect = chai.expect;
 const DOCS = 'rls_doc';
 const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const def = (name: string) => ({ name }) as PermissionDef;
+const d4 = ref('doc', 'd4');
 
 /**
  * rebac.rls rendered against SQLite: `ctx.subjectKeys` is the only Postgres-specific part of the SQL, so a
@@ -103,6 +104,19 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
     expect(expr.any[2]).to.deep.equal({ any: [{ arrow: { tupleset: 'parent', type: 'folder', expr: { any: [{ tuples: 'viewer' }, { any: [{ arrow: { tupleset: 'parent', type: 'folder', expr: { any: [{ tuples: 'viewer' }, { any: [] }] } } }] }] } } }] });
     expect(() => new RebacRlsPlanSource().plan(world.model, def('doc:view'), 'doc')).to.throw(/exclusion/);
     expect(() => new RebacRlsPlanSource().plan({ name: 'rebac' } as AuthorizationModel, def('doc:read'), 'doc')).to.throw(/not a RebacModel/);
+  });
+
+  it('follows no conditional tuple, neither a relation tuple nor an arrow', async () => {
+    const sql = new RebacRlsTerm().renderSql({ any: [{ tuples: 'viewer' }, { arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' } } }] }, ctxFor(['user:x']));
+    expect(sql.match(/\.caveat_key IS NULL/g)).to.have.length(3);
+    const conditional = [{ ...tuple(d4, 'viewer', user('xavier')), caveat: { name: 'c' } }];
+    const store = new DbTupleStore();
+    await store.write(conditional, [], user('admin'));
+    try {
+      expect(await rlsRows('xavier')).to.deep.equal([]);
+    } finally {
+      await store.write([], conditional, user('admin'));
+    }
   });
 
   it('refuses the query-builder form: .accessible() plans never hold it', () => {

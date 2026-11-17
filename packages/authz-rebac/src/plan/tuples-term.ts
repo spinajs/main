@@ -19,7 +19,8 @@ function applyExpr(e: RebacPlanExpr, where: Where, row: PlanRow): void {
       return;
     }
     const t = row.from(AUTHZ_REBAC_TUPLE_TABLE, 'authz_rt');
-    t.where('namespace', row.type).whereColumn('object_id', '=', outer(row.id)).where('relation', relation).whereIn('subject_key', [...subjects]);
+    // caveat_key IS NULL: a conditional tuple is not held until list plans evaluate caveats.
+    t.where('namespace', row.type).whereColumn('object_id', '=', outer(row.id)).where('relation', relation).whereIn('subject_key', [...subjects]).whereNull('caveat_key');
     where.whereExist(t);
     return;
   }
