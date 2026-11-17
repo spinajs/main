@@ -15,6 +15,7 @@ A socket handshake is turned into an authz-v3 `Principal` by the registered `Soc
    - a `system` or `unattended` principal throws `AuthzConfigError` (answered `internal`): no credential may yield one.
 5. No source answers: with `http.socket.auth.required` the handshake is refused with `unauthenticated`; otherwise the connection runs as `UNATTENDED` and `conn.authenticated` is `false`.
 6. The principal, its source and the check time are kept in `socket.data.auth`, which connection state recovery restores. `SocketPrincipalGuard` re-checks it later (see [Principal revalidation](09-revalidation.md)).
+7. With the principal known, every registered `SocketConnectionContext` adds its keys to the stores of the connection's calls; a throw refuses the handshake (see [Connection context](18-connection-context.md)).
 
 ### Origins
 

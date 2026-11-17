@@ -37,6 +37,7 @@ The server pushes events to clients through `SocketHub` (by room, by connection 
 | `principal`, `authenticated`, `user`, `auth` | authz-v3 principal (`UNATTENDED` without credentials); whether a source resolved it; `principal.identity`; its source and last check |
 | `handshake` | the `ISocketHandshake` the sources saw |
 | `data` | app data bag, restored by connection state recovery |
+| `context` | the keys the handshake's `SocketConnectionContext`s set, part of every call's store; a copy (see [Connection context](18-connection-context.md)) |
 | `rooms`, `connected`, `connectedAt`, `recovered`, `signal` | joined rooms (without its own id); state; the signal aborted when the connection closes |
 | `emit(name, payload)`, `join(room)`, `leave(room)`, `disconnect(reason)` | push to this connection; rooms; close with `sys.disconnect { reason }` |
 
