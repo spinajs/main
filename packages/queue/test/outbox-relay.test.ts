@@ -3,6 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import type { FakeClock } from '@spinajs/durable/testing';
+import type { Log } from '@spinajs/log';
 import type { OrmDriver } from '@spinajs/orm';
 import { OutboxRelay, OutboxStore, type OutboxClaim, type OutboxRelayOptions, type OutboxRow } from '../src/index.js';
 import { bootOutbox, broker, deferred, disposeOutbox, faultsHit, orderIdOf, OrderPlaced, outboxRows, T0, TestCrash, type OutboxEnv } from './support/outbox-env.js';
@@ -29,6 +30,58 @@ class StoreSwapRelay extends OutboxRelay {
     await super.resolve();
     for (const [connection, store] of this.stores) this.stores.set(connection, this.swap.store(store.driver));
   }
+}
+
+class LoggedRelay extends OutboxRelay {
+  public get queueLog(): Log {
+    return this.Log;
+  }
+}
+
+const MARK_REFUSED = 'Outbox row ${messageId} on ${connection} lost its claim while publishing; another relay may publish it again';
+const FAILURE_REFUSED = 'Publishing outbox row ${messageId} failed after the row was claimed by another relay; the failure is not recorded';
+const RELEASE_REFUSED = 'Outbox row ${messageId} on ${connection} was claimed by another relay before this one reached it';
+
+/** Records the message template of every warning until `restore()`. */
+function spyWarnings(log: Log): { messages: string[]; restore: () => void } {
+  const messages: string[] = [];
+  log.warn = (...args: unknown[]) => {
+    messages.push(typeof args[1] === 'string' ? args[1] : '');
+  };
+  return { messages, restore: () => Reflect.deleteProperty(log, 'warn') };
+}
+
+interface TakeOver {
+  resumeStale(): Promise<void>;
+  resumeOwner(): Promise<void>;
+}
+
+/** `stale` claims every row and is held on its first publish; r2 takes the rows over at +31 s and is held on its first publish too. */
+async function takeOver(env: OutboxEnv, stale: OutboxRelay): Promise<TakeOver> {
+  const staleGate = deferred();
+  const staleReached = deferred();
+  broker.gate = staleGate.promise;
+  broker.onEmit = () => staleReached.resolve();
+  const staleTick = stale.tick();
+  await staleReached.promise;
+
+  const ownerGate = deferred();
+  const ownerReached = deferred();
+  broker.gate = ownerGate.promise;
+  broker.onEmit = () => ownerReached.resolve();
+  env.clock.set(T0 + 31_000);
+  const ownerTick = (await relay('r2')).tick();
+  await ownerReached.promise;
+  return {
+    resumeStale: () => {
+      staleGate.resolve();
+      return staleTick;
+    },
+    resumeOwner: () => {
+      ownerGate.resolve();
+      return ownerTick;
+    },
+  };
 }
 
 /** A database that takes `readMs` to read the due rows and `claimMs` for each claim. */
@@ -230,32 +283,52 @@ describe('queue outbox: relay claim, publish, mark', function () {
     expect(broker.sent).to.have.length(2);
   });
 
-  it('a relay that lost its claims cannot release the rows it did not reach', async () => {
+  it('releases a row its claim can no longer cover and goes on with the batch, so a slow database still makes progress', async () => {
     const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
     await emitCommitted(env, 2);
-    const staleGate = deferred();
-    const staleReached = deferred();
-    broker.gate = staleGate.promise;
-    broker.onEmit = () => staleReached.resolve();
-    const stale = (await relay('r1')).tick();
-    await staleReached.promise;
+    // 11 s per claim statement: the first claim has 8 s left once both are made, the second 19 s. Stopping the batch at
+    // the first row would release both on every pass
+    const r = await DI.resolve(StoreSwapRelay, [{ replicaId: 'r1', autoStart: false, store: (driver: OrmDriver) => new SlowStore(driver, env.clock, 0, 11_000) }]);
+    for (let pass = 0; pass < 3; pass++) await r.tick();
+    expect((await outboxRows(env.orders)).map((row) => row.Status)).to.deep.equal(['published', 'published']);
+    expect(broker.sent.map((s) => orderIdOf(s.message))).to.deep.equal(['2', '1']);
+  });
 
-    const ownerGate = deferred();
-    const ownerReached = deferred();
-    broker.gate = ownerGate.promise;
-    broker.onEmit = () => ownerReached.resolve();
-    env.clock.set(T0 + 31_000);
-    const owner = (await relay('r2')).tick();
-    await ownerReached.promise;
-
-    // r1 finishes its first row at +31 s; its claim on the second ended at +30 s, so the stop rule releases it, fenced
-    staleGate.resolve();
-    await stale;
-    const [, second] = await outboxRows(env.orders);
+  it('a relay that lost its claims cannot mark the row it published or release the rows it did not reach, and warns of each', async () => {
+    const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
+    await emitCommitted(env, 2);
+    const stale = await DI.resolve(LoggedRelay, [{ replicaId: 'r1', autoStart: false }]);
+    const run = await takeOver(env, stale);
+    const warnings = spyWarnings(stale.queueLog);
+    try {
+      // r1 finishes its first row at +31 s; its claim on the second ended at +30 s, so it releases that one, fenced
+      await run.resumeStale();
+    } finally {
+      warnings.restore();
+    }
+    expect(warnings.messages).to.deep.equal([MARK_REFUSED, RELEASE_REFUSED]);
+    const [first, second] = await outboxRows(env.orders);
+    expect(first).to.include({ Status: 'pending', ClaimedBy: 'r2', ClaimEpoch: 2 });
     expect(second).to.include({ Status: 'pending', ClaimedBy: 'r2', ClaimEpoch: 2, ClaimedUntil: T0 + 61_000 });
 
-    ownerGate.resolve();
-    await owner;
+    await run.resumeOwner();
     expect((await outboxRows(env.orders)).map((row) => row.Status)).to.deep.equal(['published', 'published']);
+  });
+
+  it('a relay that lost its claim warns that it cannot record the failure of its publish', async () => {
+    const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
+    await emitCommitted(env, 2);
+    const stale = await DI.resolve(LoggedRelay, [{ replicaId: 'r1', autoStart: false }]);
+    const run = await takeOver(env, stale);
+    broker.failures.set('bus-a', [new Error('broker down')]);
+    const warnings = spyWarnings(stale.queueLog);
+    try {
+      await run.resumeStale();
+    } finally {
+      warnings.restore();
+    }
+    expect(warnings.messages).to.deep.equal([FAILURE_REFUSED, RELEASE_REFUSED]);
+    expect((await outboxRows(env.orders))[0]).to.include({ ClaimedBy: 'r2', Attempts: 0, LastError: null });
+    await run.resumeOwner();
   });
 });

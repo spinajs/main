@@ -18,7 +18,7 @@ export interface IQueueOutboxConfig {
   tick: number;
   batchSize: number;
   claimTtl: number;
-  /** How long one publish is expected to take at most; a batch stops before a row its claim can no longer cover. Not a timeout. */
+  /** How long one publish is expected to take at most; a row its claim can no longer cover is released unpublished. Not a timeout. */
   maxPublishMs: number;
   /** A row whose publish fails once it is this old (since CreatedAt) becomes `dead`; younger rows are retried. */
   maxAge: string | number;

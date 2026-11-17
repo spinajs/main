@@ -101,16 +101,14 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
       if (claim) claims.push(claim);
     }
 
-    for (const [i, claim] of claims.entries()) {
-      if (this.Time.now() + this.config.maxPublishMs > claim.until) {
-        for (const left of claims.slice(i)) {
-          if (!(await store.release(left))) {
-            this.Log.warn({ messageId: left.row.MessageId, connection }, 'Outbox row ${messageId} on ${connection} was claimed by another relay before this one reached it');
-          }
-        }
-        return;
+    // Claims later in the batch end later, so a row its claim can no longer cover is released and the batch goes on:
+    // stopping there would release rows that still have time, and on a slow database every pass would publish nothing
+    for (const claim of claims) {
+      if (this.Time.now() + this.config.maxPublishMs <= claim.until) {
+        await this.publishRow(connection, store, claim);
+      } else if (!(await store.release(claim))) {
+        this.Log.warn({ messageId: claim.row.MessageId, connection }, 'Outbox row ${messageId} on ${connection} was claimed by another relay before this one reached it');
       }
-      await this.publishRow(connection, store, claim);
     }
   }
 
