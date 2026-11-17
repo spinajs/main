@@ -29,6 +29,15 @@ describe('payload hashing', () => {
     sparse[0] = 1;
     sparse[2] = 3;
     expect(canonicalJson({ a: sparse, b: new Array<number>(2) })).to.eq('{"a":[1,null,3],"b":[null,null]}');
+    const ownIterator = new Proxy([1, 2], {
+      get: (target, key, receiver): unknown =>
+        key === Symbol.iterator
+          ? function* (): Generator<number> {
+              yield 9;
+            }
+          : Reflect.get(target, key, receiver),
+    });
+    expect(canonicalJson({ p: ownIterator })).to.eq(JSON.stringify({ p: ownIterator }));
     const circular: Record<string, unknown> = { a: [] };
     circular.a = [circular];
     expect(() => canonicalJson(circular)).to.throw(TypeError);

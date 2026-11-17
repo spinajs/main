@@ -351,6 +351,34 @@ describe('audit(): deferred batches and failure paths', function () {
     expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['a', 'd']);
   });
 
+  it('lifts a block when the held append fails', async () => {
+    app = await boot({ timeoutMs: 50, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b'), { trail: 'slow' });
+    await audit().flush();
+    SlowStore.held[0].fail();
+    await pause(20);
+    expect(lines.map((l) => l.level)).to.deep.eq(['error', 'warn', 'error', 'error']);
+    expect(lines[3].message).to.eq('audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}');
+    await audit().record(actions('c'), { trail: 'slow' });
+    await audit().flush();
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+  });
+
+  it('blocks only the connection whose append is held', async () => {
+    app = await boot({ timeoutMs: 50, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b'), { trail: 'slow', connection: 'x' });
+    await audit().record(actions('c'), { trail: 'slow', connection: 'y' });
+    await audit().flush();
+    expect(MemoryAuditStore.appends().map((a) => [a.connection, a.events.map((e) => e.action)])).to.deep.eq([['y', ['c']]]);
+    expect(lines.filter((l) => l.level === 'warn').map((l) => l.fields.connection)).to.deep.eq(['x']);
+    SlowStore.held[0].release();
+    await pause(20);
+  });
+
   it('logs a failed batch with its event ids and drops it', async () => {
     app = await boot();
     const lines = pipelineLog(app.container);

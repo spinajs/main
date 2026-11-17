@@ -19,8 +19,8 @@ function jsonOf(raw: unknown, key: string, path: object[]): string | undefined {
   if (path.includes(value)) throw new TypeError('canonicalJson: a circular structure cannot be written as JSON');
   path.push(value);
   try {
-    // Array.from visits holes, which map skips: a sparse array is written with null, as JSON.stringify does.
-    if (Array.isArray(value)) return `[${Array.from(value, (item: unknown, i) => jsonOf(item, String(i), path) ?? 'null').join(',')}]`;
+    // By length and index, as JSON.stringify reads an array: holes become null, and an array's own iterator is not used.
+    if (Array.isArray(value)) return `[${Array.from({ length: value.length }, (_, i) => jsonOf(Reflect.get(value, i), String(i), path) ?? 'null').join(',')}]`;
     const members = Object.entries(value)
       .sort(byKey)
       .flatMap(([k, item]) => {

@@ -248,6 +248,8 @@ export class DefaultAuditService extends AuditService {
   }
 
   private block(key: string, trail: TrailConfig, connection: string | undefined): void {
+    // A late append that settled meanwhile has already unblocked the target; a block set now would never be lifted.
+    if (!this.late.has(key)) return;
     this.blocked.add(key);
     this.report('warn', { trail: trail.name, connection }, BLOCKED);
   }
