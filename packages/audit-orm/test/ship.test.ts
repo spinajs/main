@@ -67,10 +67,15 @@ const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink];
 
 class RecordingReader extends AuditReader {
   static redacted: AuditSubject[] = [];
+  static failNext = 0;
   list(): Promise<readonly StoredAuditEvent[]> {
     return Promise.resolve([]);
   }
   redact(_trail: TrailConfig, subject: AuditSubject): Promise<number> {
+    if (RecordingReader.failNext > 0) {
+      RecordingReader.failNext -= 1;
+      return Promise.reject(new Error('reader down'));
+    }
     RecordingReader.redacted.push(subject);
     return Promise.resolve(3);
   }
@@ -296,12 +301,14 @@ describe('audit shipping', function () {
     const ids = (...n: number[]): string[] => n.map((i) => event(i).id);
     const delivered = (): string[] => RecordingSink.batches.flatMap((b) => b.events.map((e) => e.id));
     const failure = [{ trail: 'shipped', connection: 'sqlite' }];
+    const c1 = { type: 'contract', id: 'c1' };
 
     beforeEach(async () => {
       RecordingSink.batches = [];
       RecordingSink.calls = 0;
       RecordingSink.failOnCall = 0;
       RecordingReader.redacted = [];
+      RecordingReader.failNext = 0;
       for (const d of [sqlite(), db.driver('pglite')]) await new AuditOutboxTableMigration().up(d);
     });
 
@@ -347,7 +354,6 @@ describe('audit shipping', function () {
 
     it('blanks an erased subject on every buffer, or on the source it names', async () => {
       const shippedTrail = trail('RecordingSink');
-      const c1 = { type: 'contract', id: 'c1' };
       await store().append({ trail: shippedTrail, events: [event(1, { subject: c1 })] });
       await store().append({ trail: shippedTrail, events: [event(2, { subject: c1 })], connection: 'pglite' });
       const reader = await store().reader(shippedTrail);
@@ -376,6 +382,39 @@ describe('audit shipping', function () {
         { type: 'contract', id: 'c1' },
         { type: 'contract', id: 'c1' },
       ]);
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('redacts the destination when an abandoned delivery lands after the erasure', async () => {
+      config().set(['audit', 'ship'], { deliverTimeoutMs: 50 });
+      const entered = new Promise<void>((resolve) => (GateSink.entered = resolve));
+      let release = (): void => undefined;
+      GateSink.release = new Promise<void>((resolve) => (release = resolve));
+      const gated = trail('GateSink');
+      await store().append({ trail: gated, events: [event(1)] });
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: failure });
+      await entered;
+      await (await store().reader(gated))?.redact(gated, c1);
+      release();
+      await GateSink.release;
+      expect(RecordingSink.batches.map((b) => b.events[0].data)).to.deep.eq([{ version: 1 }]);
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('keeps erased events buffered until the destination was redacted', async () => {
+      const shippedTrail = trail('RecordingSink');
+      await store().append({ trail: shippedTrail, events: [event(1), event(2)] });
+      await (await store().reader(shippedTrail))?.redact(shippedTrail, c1);
+      RecordingReader.failNext = 1;
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: failure });
+      expect((await tableRows(sqlite(), 'audit_outbox')).map((r) => r.id)).to.deep.eq(ids(1));
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
       expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
     });
   });

@@ -1,12 +1,12 @@
 import { AuditConfigError, AuditEventSink, AuditReader, AuditWriteFailed } from '@spinajs/audit';
-import type { AuditBatch, AuditSubject, TrailConfig } from '@spinajs/audit';
+import type { AuditBatch, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { auditConnection } from '../rows.js';
-import { oldestBuffered, removeBuffered } from './outbox.js';
+import { oldestBuffered, removeBlank, removeBuffered } from './outbox.js';
 import { distinctConnections, namedService } from './services.js';
 import { AUDIT_OUTBOX_TABLE } from './table.js';
 import { shippingTrails } from './trails.js';
@@ -81,7 +81,7 @@ async function deliverBy(sink: AuditEventSink, batch: AuditBatch, ms: number): P
   }
 }
 
-// These events were erased while they were delivered: the destination holds the payload the erasure removed.
+// These events were erased before their delivery returned: a delivery of them may have brought the destination the payload the erasure removed.
 async function redactShipped(trail: TrailConfig, source: string, subjects: readonly AuditSubject[]): Promise<void> {
   const unique = [...new Map(subjects.map((s) => [JSON.stringify([s.type, s.id]), s])).values()];
   if (trail.reader === undefined) {
@@ -90,6 +90,22 @@ async function redactShipped(trail: TrailConfig, source: string, subjects: reado
   }
   const reader = await namedService(AuditReader, trail.reader, `audit.trails.${trail.name}.reader`);
   for (const subject of unique) await reader.redact(trail, subject, source);
+}
+
+// Removed only after the redaction returned, so a failed one is tried again with the next delivery of these rows.
+async function redactBlank(driver: OrmDriver, trail: TrailConfig, blank: readonly StoredAuditEvent[]): Promise<void> {
+  if (blank.length === 0) return;
+  try {
+    await redactShipped(
+      trail,
+      driver.Options.Name,
+      blank.flatMap((e) => (e.subject === undefined ? [] : [e.subject])),
+    );
+  } catch (error) {
+    log().error({ error, trail: trail.name, connection: driver.Options.Name }, 'audit: redacting the destination of trail ${trail} for events erased before their delivery from ${connection} returned failed; they stay buffered and are redacted again on the next run');
+    throw error;
+  }
+  await removeBlank(driver, blank);
 }
 
 async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, progress: { shipped: number }): Promise<void> {
@@ -101,9 +117,10 @@ async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, 
     if (batch.length === 0) break;
     await deliverBy(sink, { trail: trail.name, source, events: batch.map((b) => b.event) }, limits.deliverTimeoutMs);
     // Deleted only after the sink returned: a crash in between redelivers these events, which sinks deduplicate on event.id.
-    const erased = await removeBuffered(driver, batch);
-    progress.shipped += batch.length;
-    if (erased.length > 0) await redactShipped(trail, source, erased);
+    const blank = await removeBuffered(driver, batch);
+    progress.shipped += batch.length - blank.length;
+    await redactBlank(driver, trail, blank);
+    progress.shipped += blank.length;
     if (batch.length < limits.batchSize) break;
   }
 }
