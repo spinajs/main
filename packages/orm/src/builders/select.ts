@@ -792,6 +792,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     if (this._database) {
       probe.database(this._database);
     }
+    // not `*`: a column computed at read time can refuse its own row data, which says nothing about the cursor
+    probe.select(columns[0].column);
     applyKeysetPredicate(probe, columns, values, side);
     // one row, not none: mysql and mssql evaluate the comparison only against a row
     probe.take(1);

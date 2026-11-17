@@ -160,6 +160,23 @@ describe('paginate() on PGlite', function () {
     }
   });
 
+  // a column computed at read time can refuse its own row data, which says nothing about the cursor
+  it('probes the first keyset column only, not every column of the row', async () => {
+    const driver = orm!.Connections.get('pglite')!;
+    const { next } = await PglKeyset.select().paginate({ orderBy: [['Score', 'asc']], limit: 1 });
+    const execute = sinon.stub(driver, 'execute').callThrough();
+    execute.onFirstCall().rejects(new DataException('value out of range'));
+    try {
+      await expect(PglKeyset.select().paginate({ orderBy: [['Score', 'asc']], limit: 1, after: next! })).to.be.rejectedWith(DataException);
+      const compiled = execute.secondCall.args[0].toDB();
+      const expression = Array.isArray(compiled) ? compiled.map((c) => c.expression).join('; ') : compiled.expression;
+
+      expect(/^SELECT (.+?) FROM /.exec(expression ?? '')?.[1]).to.eq('"Score"');
+    } finally {
+      execute.restore();
+    }
+  });
+
   it('keeps a data error of a page without a cursor as it is, without a probe', async () => {
     const driver = orm!.Connections.get('pglite')!;
     const execute = sinon.stub(driver, 'execute').rejects(new DataException('value out of range'));
