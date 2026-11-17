@@ -127,12 +127,17 @@ export interface E2eHarness extends BehaviourHarness {
   model(name: string): ModelClass;
 }
 
+export interface E2eHarnessOptions {
+  /** More lane wiring, after the stack's own and before the services boot. */
+  register?(host: HostSetup): Promise<void>;
+}
+
 /**
  * hostHarness over TestDb (`kind`): the real authz migrations, the world's ORM models, RBAC from `world.rbac` (roles in
  * config, assignments as rows, `RbacModel` listed in the domain's models), ABAC from `world.abac` (config policies plus a DbPolicyStore that
  * AuthzAdmin writes), the DB admin backend, and the app env `test` (the runtime guard throws).
  */
-export function e2eHarness(kind: Dialect): E2eHarness {
+export function e2eHarness(kind: Dialect, options: E2eHarnessOptions = {}): E2eHarness {
   let db: TestDb | undefined;
   let lane: E2eOrm | undefined;
   const need = <T>(v: T | undefined, what: string): T => v ?? (() => { throw new Error(`e2eHarness: ${what} (beforeAll did not run)`); })();
@@ -173,6 +178,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed(), abac.name]);
         c.register(testHost.instance(written)).as(PolicyStore);
       }
+      await options.register?.(host);
     },
     extend(_host: HostSetup, session: HarnessSession) {
       return { admin: (session.authz as unknown as AuthzService).admin(), lane: { orm: need(lane, 'no orm lane') } } as Partial<HarnessSession>;
