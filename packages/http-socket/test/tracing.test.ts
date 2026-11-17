@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
-import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { SpanKind, SpanStatusCode, propagation } from '@opentelemetry/api';
+import type { TextMapPropagator } from '@opentelemetry/api';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { Injectable } from '@spinajs/di';
 import { resetTracing, useInMemorySpans } from '@spinajs/tracing/testing';
@@ -9,7 +10,7 @@ import type { InMemorySpans } from '@spinajs/tracing/testing';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
 import { ISocketCommandContext, STAGE_ORDER, SocketMiddleware } from '../src/interfaces.js';
-import { ITestServer, command, open, startServer } from './harness.js';
+import { ITestServer, command, open, resultOf, startServer } from './harness.js';
 
 /** The ids of the call storage, as every log line and policy of a `trc.` command reads them. */
 export const trcIds: Array<{ traceId: string; spanId: string }> = [];
@@ -43,6 +44,16 @@ export class TrcSocket extends BaseSocketController {
 }
 
 const PARENT = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+const THROWING_PROPAGATOR: TextMapPropagator = {
+  inject: () => {
+    throw new Error('propagator inject failed');
+  },
+  extract: () => {
+    throw new Error('propagator extract failed');
+  },
+  fields: () => ['traceparent'],
+};
 
 describe('socket command spans', function () {
   this.timeout(15000);
@@ -128,5 +139,40 @@ describe('socket call storage while tracing is not started', function () {
     const [ids] = trcIds;
     expect(ids.traceId).to.equal('4bf92f3577b34da6a3ce929d0e0e4736');
     expect(ids.spanId).to.match(/^[0-9a-f]{16}$/).and.not.equal('00f067aa0ba902b7');
+  });
+});
+
+describe('socket command under a propagator that throws', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let socket: ClientSocket;
+
+  before(async () => {
+    await resetTracing();
+    propagation.setGlobalPropagator(THROWING_PROPAGATOR);
+  });
+
+  after(async () => {
+    propagation.disable();
+    await resetTracing();
+  });
+
+  beforeEach(async () => {
+    trcIds.length = 0;
+    t = await startServer();
+    socket = await open(t);
+  });
+
+  afterEach(async () => {
+    socket.close();
+    await t.close();
+  });
+
+  it('still answers the command, untraced, with ids of a new trace', async () => {
+    expect(resultOf(await command(socket, 'trc.echo', 7, { traceparent: PARENT }))).to.equal(7);
+
+    const [ids] = trcIds;
+    expect(ids.traceId).to.match(/^[0-9a-f]{32}$/).and.not.match(/^0+$/).and.not.equal('4bf92f3577b34da6a3ce929d0e0e4736');
   });
 });

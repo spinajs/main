@@ -1,5 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
+import { propagation } from '@opentelemetry/api';
+import type { TextMapPropagator } from '@opentelemetry/api';
 import { DEFAULT_TRACING_OPTIONS, ensureTracing, withSpan } from '@spinajs/tracing';
 import { resetTracing } from '@spinajs/tracing/testing';
 
@@ -9,6 +11,14 @@ import { makeConnection } from './support/connection.js';
 import { serveStream } from './support/stream-stub.js';
 import { streamsOn } from './support/streams.js';
 import { StubServer } from './support/stub-server.js';
+
+const THROWING_PROPAGATOR: TextMapPropagator = {
+  inject: () => {
+    throw new Error('propagator inject failed');
+  },
+  extract: (ctx) => ctx,
+  fields: () => ['traceparent'],
+};
 
 describe('command trace context', () => {
   let server: StubServer;
@@ -40,6 +50,20 @@ describe('command trace context', () => {
     const { commands } = await onlineDispatcher(server);
     await withSpan('caller', {}, () => commands.execute('ping', null, { traceparent: '00-abc-def-01' }));
     expect(server.requests[0].traceparent).to.equal('00-abc-def-01');
+  });
+
+  it('sends commands and streams without a traceparent when the registered propagator throws', async () => {
+    propagation.setGlobalPropagator(THROWING_PROPAGATOR);
+    try {
+      serveStream(server, 'n.list', () => [0]);
+      const { connection, commands } = await onlineDispatcher(server);
+
+      expect(await commands.execute('ping', null)).to.equal('pong');
+      expect(await streamsOn(connection).stream<number>('n.list', null)[Symbol.asyncIterator]().next()).to.deep.equal({ value: 0, done: false });
+      expect(server.requests.map((request) => request.traceparent)).to.deep.equal([undefined, undefined]);
+    } finally {
+      propagation.disable();
+    }
   });
 
   it('sends no traceparent when no propagator is registered', async () => {

@@ -4,6 +4,7 @@ import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { ROOT_CONTEXT, SpanKind, SpanStatusCode, TraceFlags, context, isSpanContextValid, trace } from '@opentelemetry/api';
+import type { Context, Span } from '@opentelemetry/api';
 import { Log, Logger } from '@spinajs/log';
 import { SpinaAttr, childTraceIds, extractTraceContext, tracer } from '@spinajs/tracing';
 import type { TraceIds } from '@spinajs/tracing';
@@ -376,20 +377,32 @@ export class SocketDispatcher extends AsyncService {
   }
 
   protected createContext(runtime: IConnectionRuntime, request: CommandRequest): SocketCommandContext {
-    const parent = extractTraceContext(request.traceparent === undefined ? {} : { traceparent: request.traceparent }, ROOT_CONTEXT);
-    const span = tracer().startSpan(
-      `socket ${this.Registry.command(request.name) ? request.name : '_OTHER'}`,
-      { kind: SpanKind.SERVER, attributes: { [SpinaAttr.SocketCommand]: request.name } },
-      parent,
-    );
-    const sc = span.spanContext();
-    // Tracing not started: the API's no-op tracer answers the parent's own context, or an invalid one without a parent.
-    const minted = isSpanContextValid(sc) && sc.spanId !== trace.getSpanContext(parent)?.spanId;
-    const ids: TraceIds = minted ? { traceId: sc.traceId, spanId: sc.spanId, sampled: (sc.traceFlags & TraceFlags.SAMPLED) !== 0 } : childTraceIds(parent);
+    const { commandTrace, ids } = this.startCommandSpan(request);
     const ctx = new SocketCommandContext(runtime, request, this.callStorage(runtime.connection, request.name, request.id, ids));
-    ctx.trace = { span, context: trace.setSpan(parent, span) };
+    ctx.trace = commandTrace;
     ctx.armDeadline(request.deadline);
     return ctx;
+  }
+
+  /** The command's SERVER span and the ids of its call storage. */
+  protected startCommandSpan(request: CommandRequest): { commandTrace?: { span: Span; context: Context }; ids: TraceIds } {
+    try {
+      const parent = extractTraceContext(request.traceparent === undefined ? {} : { traceparent: request.traceparent }, ROOT_CONTEXT);
+      const span = tracer().startSpan(
+        `socket ${this.Registry.command(request.name) ? request.name : '_OTHER'}`,
+        { kind: SpanKind.SERVER, attributes: { [SpinaAttr.SocketCommand]: request.name } },
+        parent,
+      );
+      const sc = span.spanContext();
+      // Tracing not started: the API's no-op tracer answers the parent's own context, or an invalid one without a parent.
+      const minted = isSpanContextValid(sc) && sc.spanId !== trace.getSpanContext(parent)?.spanId;
+      const ids: TraceIds = minted ? { traceId: sc.traceId, spanId: sc.spanId, sampled: (sc.traceFlags & TraceFlags.SAMPLED) !== 0 } : childTraceIds(parent);
+      return { commandTrace: { span, context: trace.setSpan(parent, span) }, ids };
+    } catch (error) {
+      // socket.io calls the listener outside any promise: a failing propagator or sampler of an external SDK would leave the command unanswered
+      this.Log.error({ error, command: request.name }, 'Tracing could not start the span of socket command ${command}; it runs untraced');
+      return { ids: childTraceIds(ROOT_CONTEXT) };
+    }
   }
 
   /** The command's ALS store and its span, active together. */
