@@ -358,6 +358,14 @@ describe('read auditing', function () {
         expect(JSON.stringify(events[0])).to.not.contain('checkup');
       });
 
+      it('records a count and an exists in query mode, as statements that disclosed no column', async () => {
+        await Visit.query().where('Reason', 'checkup').selectCount();
+        // ModelBase declares exists() without the key it takes.
+        await Reflect.apply(Visit.exists.bind(Visit), undefined, [1]);
+
+        expect((await searched()).map((e) => (e.data as { columns: unknown[] }).columns)).to.deep.eq([[], []]);
+      });
+
       it('audits the columns a belongsTo populate joins in, once per related row', async () => {
         await Visit.query().populate('Patient');
 
@@ -628,6 +636,13 @@ describe('read auditing', function () {
       await ward.Patients.populate();
 
       expect((await of('patient')).map((e) => e.subject?.id)).to.deep.eq(['1', '1', '2']);
+    });
+
+    it('records no count and no exists in row mode: they return no row of the model', async () => {
+      await Badge.query().selectCount();
+      await Reflect.apply(Badge.exists.bind(Badge), undefined, [Buffer.from('ab01', 'hex')]);
+
+      expect(await of('badge')).to.deep.eq([]);
     });
 
     it('names a row by a binary key as hex', async () => {

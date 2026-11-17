@@ -155,6 +155,8 @@ function addColumn(list: Sources, statement: ColumnStatement, column: string, ou
  */
 export function selectListOf(query: SelectQueryBuilder<unknown>, root: IModelDescriptor): SelectList {
   const list = new Sources(query, root);
+  // Every select of the model is a statement against it, `count()` included.
+  list.own();
   const statements = query.getColumns();
   const outputs = new Map<string, number>();
   const output = (name: string): void => {

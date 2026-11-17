@@ -34,17 +34,26 @@ sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only
 Each selected column belongs to the table its table alias names: the queried table, or a join of the query under the
 alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
 alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
-audited table. A raw or `CASE` select expression counts for every audited column of every table in the query; next to a `CASE`
-column, such as authz-orm's `withAccess()` and `withFields()` add, rows are still named by their key. An aggregate over an audited column (`min`,
-`max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join for every table of the query that has a
-column of that name, since its SQL names no table; `count(*)` and aggregates over other columns do not. Where no row
-can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement
-in the query-mode shape with `keyless: true`. So does a select where another column returns under the key's name, or a
-raw select column, whose name the builder cannot read. A binary key is written as hex.
+audited table. A raw or `CASE` select expression counts for every audited column of every table in the query; next to
+a `CASE` column, such as authz-orm's `withAccess()` and `withFields()` add, rows are still named by their key. An
+aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join
+for every table of the query with a column of that name, since its SQL names no table; `count(*)` and aggregates over
+other columns do not.
+
+Where no row can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event
+per statement in the query-mode shape with `keyless: true`. So does a select where another column returns under the
+key's name, or with a raw select column, whose name the builder cannot read. A binary key is written as hex.
+
+`mode: 'query'` without `columns` records every select of the model, `count()` and `exists()` included, with the
+columns it disclosed (none for those two). `mode: 'row'` records nothing for `count(*)` and `exists()`: they return no
+row of the model, only a number or the key the caller already named.
 
 What it does not see:
 
 - raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
+- a sub-select inside a raw select expression, which is raw SQL too: on a query without a join a raw expression counts
+  for the queried table only, so `Visit.query().select(RawQuery.create('(SELECT Ssn FROM patient WHERE patient.Id =
+  visit.patient_id) AS s'))` records nothing about `patient`;
 - what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
   condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
 - data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.

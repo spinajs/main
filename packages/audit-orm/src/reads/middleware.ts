@@ -35,8 +35,11 @@ function disclosed(source: ReadSource, rule: ReadRule): Disclosure | undefined {
   const everything = source.all || source.opaque;
   if (rule.columns === undefined) {
     if (everything) return { columns: ['*'], computed: source.computed.size > 0 };
-    const names = [...new Set([...source.keys.keys(), ...source.computed])].map((name) => columnName(source, name));
-    return names.length === 0 ? undefined : { columns: names, computed: source.computed.size > 0 };
+    // The key alone (`exists()`) discloses nothing the caller did not name; a query-mode rule still records the statement.
+    const key = new Set(pkColumns(source.descriptor).map(lc));
+    const names = [...new Set([...[...source.keys.keys()].filter((name) => !key.has(name)), ...source.computed])].map((name) => columnName(source, name));
+    if (names.length === 0) return rule.mode === 'query' && source.own ? { columns: [], computed: false } : undefined;
+    return { columns: names, computed: source.computed.size > 0 };
   }
 
   const columns = everything ? [...rule.columns] : rule.columns.filter((c) => source.keys.has(lc(c)) || source.computed.has(lc(c)));
