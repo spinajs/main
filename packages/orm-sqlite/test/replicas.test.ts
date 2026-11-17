@@ -8,6 +8,7 @@ import _ from 'lodash';
 import 'mocha';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import sqlite3 from 'sqlite3';
 import { SqliteOrmDriver } from '../src/index.js';
 import { mergeArrays } from './util.js';
 
@@ -405,6 +406,96 @@ describe('read replicas on sqlite', function () {
         await driver.del().from('routed_note').where({ Id: 2 });
         await driver.del().from('routed_item').where({ Id: 2 });
       }
+    }
+  });
+});
+
+/** sqlite holds a native cursor only on a WAL file it has read handles for; replicas inherit `Pool`. */
+class RoutedCursorConf extends RoutedConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const connections = (this.Config as { db: { Connections: Array<Record<string, unknown>> } }).db.Connections;
+    Object.assign(connections.find((c) => c.Name === 'routed')!, { Pool: { Max: 3 } });
+  }
+}
+
+/** WAL is a property of the file, which the driver only reads. */
+async function createWalFile(filename: string): Promise<void> {
+  const file = new sqlite3.Database(filename);
+  await new Promise<void>((resolve, reject) => file.exec('PRAGMA journal_mode=WAL', (err) => (err ? reject(err) : resolve())));
+  await new Promise<void>((resolve) => file.close(() => resolve()));
+}
+
+describe('read replicas on sqlite with a native stream cursor', function () {
+  this.timeout(30000);
+
+  let container: IContainer;
+  let orm: Orm;
+  let primary: OrmDriver;
+  let replica: OrmDriver;
+
+  before(async () => {
+    removeFiles();
+    await createWalFile(PRIMARY_FILE);
+    await createWalFile(REPLICA_FILE);
+    DI.clearCache();
+    container = DI.child({ isolateSingletons: true });
+    container.register(RoutedCursorConf).as(Configuration);
+    container.register(SqliteOrmDriver).as('orm-driver-sqlite');
+
+    orm = await container.resolve(Orm);
+    primary = orm.Connections.get('routed')!;
+    replica = orm.Replicas.get('routed')![0];
+
+    for (const [driver, name] of [
+      [primary, 'primary'],
+      [replica, 'replica'],
+    ] as Array<[OrmDriver, string]>) {
+      await driver.schema().createTable('routed_item', (t) => {
+        t.int('Id').primaryKey();
+        t.string('Name');
+      });
+      await driver.schema().createTable('routed_note', (t) => {
+        t.int('Id').primaryKey();
+        t.int('item_id');
+        t.string('Body');
+      });
+      for (const id of [1, 2]) {
+        await driver.insert().into('routed_item').values({ Id: id, Name: name });
+        await driver.insert().into('routed_note').values({ Id: id, item_id: id, Body: name });
+      }
+    }
+    await orm.reloadTableInfo();
+  });
+
+  after(async () => {
+    await orm?.dispose();
+    container.unregister(RoutedCursorConf);
+    container.clearCache();
+    DI.clearCache();
+    removeFiles();
+  });
+
+  it('loads the relations of every cursor batch from the stream connection', async () => {
+    expect(await primary.canStreamNatively()).to.eq(true);
+    expect(await replica.canStreamNatively()).to.eq(true);
+
+    const router = container.get(ReplicaRouter)!;
+    router.register(primary, [replica, primary]);
+    try {
+      const mismatched: number[] = [];
+      let read = 0;
+      for await (const item of RoutedItem.select().order('Id').populate('Notes').stream({ batchSize: 1 })) {
+        read++;
+        if (item.Notes.map((n) => n.Body).join() !== item.Name) {
+          mismatched.push(item.Id);
+        }
+      }
+
+      expect(read).to.eq(2);
+      expect(mismatched).to.deep.equal([]);
+    } finally {
+      router.register(primary, [replica]);
     }
   });
 });
