@@ -125,4 +125,24 @@ describe('flow: effects and the tracer across calls', () => {
     expect(returnedScope('OptionalShapes.orUnion')).to.deep.equal([true, UNSCOPED]);
     expect(returnedScope('OptionalShapes.anyOperand')).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a scoped return of a followed target does not speak for an opaque or external member of the same call', () => {
+    const scoped: FunctionSummary = { effects: [], systemRuns: [], executes: new Map(), returns: { kind: 'select', model: 'Invoice', scoped: { accessible: true, unscoped: false } } };
+    const call = (owner: string): ts.CallExpression => {
+      const expression = returned(owner);
+      if (!ts.isCallExpression(expression)) throw new Error(`${owner} returns no call`);
+      return expression;
+    };
+    const flags = (owner: string): [string[], boolean, boolean] => {
+      const resolved = graph.resolve(call(owner));
+      return [resolved.targets.map((t) => graph.nameOf(t.fn)), resolved.opaque, resolved.external];
+    };
+    expect(flags('MakerShapes.picked')).to.deep.equal([['LocalMaker.make'], true, false]);
+    expect(flags('MakerShapes.external')).to.deep.equal([['LocalCloner.clone'], false, true]);
+    expect(returnedScope('MakerShapes.picked', new Map([[fn('LocalMaker.make'), scoped]]))).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('MakerShapes.external', new Map([[fn('LocalCloner.clone'), scoped]]))).to.deep.equal([true, UNSCOPED]);
+    const noReturn: FunctionSummary = { effects: [], systemRuns: [], executes: new Map() };
+    const twoTargets = new Map([[fn('Narrowing.narrow'), scoped], [fn('FreshNarrowing.narrow'), noReturn]]);
+    expect(returnedScope('HandedShapes.scopedThenHanded', twoTargets)).to.deep.equal([true, UNSCOPED]);
+  });
 });

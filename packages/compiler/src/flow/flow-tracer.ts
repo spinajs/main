@@ -129,7 +129,8 @@ export class FlowTracer extends QueryTracer {
   }
 
   private returnedBy(call: ts.CallExpression): QueryValue | undefined {
-    const returns = this.graph.resolve(call).targets.flatMap((t) => this.summaries.get(t.fn)?.returns ?? []);
+    const resolved = this.graph.resolve(call);
+    const returns = resolved.targets.flatMap((t) => this.summaries.get(t.fn)?.returns ?? []);
     const [first] = returns;
     if (first === undefined) return undefined;
     // A target that builds a fresh builder is not scoped by the argument another target hands back.
@@ -137,6 +138,8 @@ export class FlowTracer extends QueryTracer {
       const argument = r.param === undefined ? undefined : this.pendingArgument(call, r.param);
       return { argument, accessible: r.scoped.accessible || argument?.scoped.accessible === true, unscoped: r.scoped.unscoped || argument?.scoped.unscoped === true };
     });
+    // What the pass does not see may hand back an unscoped builder.
+    if (resolved.opaque || resolved.external || resolved.targets.some((t) => this.handsBackUnsummarised(t.fn))) handed.push({ argument: undefined, accessible: false, unscoped: false });
     const from = handed[0].argument;
     const value = unscopedBuilder(call, from?.model ?? first.model);
     value.scoped.accessible = handed.every((h) => h.accessible);
@@ -144,6 +147,14 @@ export class FlowTracer extends QueryTracer {
     const meta = from === undefined ? undefined : this.metaOf(from);
     this.meta.set(value, { kind: first.kind, origin: meta?.origin ?? call, ...(meta?.param === undefined ? {} : { param: meta.param }) });
     return value;
+  }
+
+  /** A summarised target that records no returned builder although its declared return type is one. */
+  private handsBackUnsummarised(fn: FunctionLike): boolean {
+    const summary = this.summaries.get(fn);
+    if (summary === undefined || summary.returns !== undefined) return false;
+    const signature = this.checker.getSignatureFromDeclaration(fn);
+    return signature !== undefined && builderOf(this.checker, signature.getReturnType()) !== undefined;
   }
 
   private pendingArgument(call: ts.CallExpression, index: number): QueryValue | undefined {

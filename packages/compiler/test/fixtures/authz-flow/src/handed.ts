@@ -56,3 +56,37 @@ export class OptionalShapes {
     return this.maybe!;
   }
 }
+
+export class LocalMaker {
+  public make(): Selected {
+    return Invoice.query().accessible('invoice:read');
+  }
+}
+
+export interface UnmadeMaker {
+  make(): Selected;
+}
+
+export class MakerShapes {
+  public local = new LocalMaker();
+
+  public other: UnmadeMaker;
+
+  public picked(c: boolean) {
+    const m = c ? this.local : this.other;
+    return m.make();
+  }
+
+  public external(c: boolean, q: Selected) {
+    const m = c ? this.cloner : q;
+    return m.clone();
+  }
+
+  private cloner = new LocalCloner();
+}
+
+export class LocalCloner {
+  public clone(): Selected {
+    return Invoice.query().accessible('invoice:read');
+  }
+}
