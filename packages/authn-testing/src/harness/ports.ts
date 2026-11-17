@@ -133,7 +133,7 @@ export interface EventsPort {
   clear(): void;
 }
 
-/** What the log audit sink wrote, one entry per line. */
+/** What the application's log received, one entry per line. */
 export interface LogsPort {
   lines(): readonly string[];
 }

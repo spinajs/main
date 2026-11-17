@@ -119,6 +119,7 @@ canvas commit, hashes and how to refresh. The keys are public test keys.
 | C1 | A08/lifecycle, A12/identity, A12/flow |
 | C2, SEC1 | A12/api |
 | C3 | A26/http |
+| audit-authn | A21/log |
 
 Some of these are not yet in the lane's plan list (see below). Ports per
 facet: the `needs` of each case in `src/behaviour/A*.spec.ts`. Shared names

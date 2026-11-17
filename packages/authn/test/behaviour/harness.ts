@@ -17,7 +17,7 @@ export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'auth
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';
 
-/** Registers a capturing DI Log for the `logs` port; call inside the describe that runs the harness. */
+/** Registers a capturing DI Log, so the services under test do not write to the console; call inside the describe that runs the harness. */
 export const useHarnessLog = useTestLog;
 
 export interface StrategySpec {
