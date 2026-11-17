@@ -6,7 +6,7 @@ import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
 import { markSpanErrorType } from '@spinajs/tracing';
-import { endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
+import { closeStreamCursor, endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
 import type { StatementTarget } from './tracing.js';
 import { DateTime } from 'luxon';
 
@@ -155,7 +155,7 @@ export abstract class SqlDriver extends OrmDriver {
     } finally {
       try {
         if (next?.done !== true) {
-          await rows.return?.();
+          await closeStreamCursor(rows, span);
         }
       } finally {
         span.setAttribute('db.response.returned_rows', returned);
