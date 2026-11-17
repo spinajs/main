@@ -1,4 +1,4 @@
-import { AuthzConfigError, DecisionReplay, PolicyHashSource, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, DecisionReplay, PolicyHashSource, ReplayBusy, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport, ResourceRef } from '@spinajs/authz';
 import { HistoryContributors, StoredPolicySplicers, replayDecision, replayVerdict } from '@spinajs/authz-ir';
 import type { ReplayDeps } from '@spinajs/authz-ir';
@@ -12,14 +12,6 @@ import { ChangeLogRecord } from '../changelog/record.js';
 import { recordDriver } from '../records.js';
 import { REPLAY_MAX_CHANGES_LIMIT, replayConfig } from './schema.js';
 import type { ReplayConfig } from './schema.js';
-
-/** A replay was refused: `authz.replay.concurrency` replays run in this process already. */
-export class ReplayBusy extends Error {
-  constructor(readonly concurrency: number) {
-    super(`authz replay: ${concurrency} replays are running in this process already (authz.replay.concurrency)`);
-    this.name = 'ReplayBusy';
-  }
-}
 
 const POLICY_HASH = /^[0-9a-f]{64}$/;
 
@@ -55,9 +47,15 @@ async function depsOf(config: ReplayConfig): Promise<ReplayDeps> {
 export class DbDecisionReplay extends DecisionReplay {
   private running = 0;
 
-  /** @throws ReplayBusy when `authz.replay.concurrency` replays are running */
+  /**
+   * @throws ReplayBusy when `authz.replay.concurrency` replays are running
+   * @throws AuthzConfigError inside a transaction open on the authz connection
+   */
   async replay(decisionId: string, options: ReplayOptions = {}): Promise<ReplayReport | undefined> {
     const config = replayConfig();
+    // Under REPEATABLE READ (MySQL's default) the changelog would be read from the transaction's snapshot while the
+    // stores' current rows, on other connections, stay fresh: the stale pairing the primary-only rule forbids.
+    if (recordDriver(ChangeLogRecord).CurrentTransaction !== undefined) throw new AuthzConfigError('authz replay: refused inside a transaction open on the authz connection; replay outside it');
     if (this.running >= config.concurrency) throw new ReplayBusy(config.concurrency);
     this.running++;
     try {

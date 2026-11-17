@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { DecisionLogTap, DecisionReplay, ScopeForgetter, TRUE, changeLog } from '@spinajs/authz';
+import { AuthzConfigError, DecisionLogTap, DecisionReplay, ReplayBusy, ScopeForgetter, TRUE, changeLog } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, DecisionRecord, PolicyHashSource, Principal, ReplayReport, ResourceRef } from '@spinajs/authz';
 import { HistoryContributors, canonicalize, policyHash } from '@spinajs/authz-ir';
 import type { ChangeRecord } from '@spinajs/authz';
@@ -14,7 +14,7 @@ import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
 import { AUDIT_CONNECTION, AuthzDecisionLogFacts_2026_11_06_00_00_00, AuthzDecisionLog_2026_11_04_00_00_00, DbDecisionLog } from '../../src/audit/index.js';
 import { AccessResource, HorizonRecord, Parent, columnFingerprint, ormToIR, pruneChangeLog, recordCoverage, recordPolicyVersion } from '../../src/index.js';
-import { ColumnHistoryContributor, DbDecisionReplay, ReplayBusy } from '../../src/replay/index.js';
+import { ColumnHistoryContributor, DbDecisionReplay } from '../../src/replay/index.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -263,6 +263,15 @@ describe('DbDecisionReplay', function () {
         expect(results.filter((r) => r.status === 'fulfilled')).to.have.length(2);
         const refused = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
         expect(refused?.reason).to.be.instanceOf(ReplayBusy);
+      });
+
+      it('refuses to replay inside a transaction open on the authz connection', async () => {
+        await world();
+        const id = await decide(true);
+        const refused = await driver.transaction(() => new DbDecisionReplay().replay(id).then(() => undefined, (e: unknown) => e));
+        expect(refused).to.be.instanceOf(AuthzConfigError);
+        expect((refused as Error).message).to.match(/inside a transaction/);
+        expect((await replay(id)).replay).to.equal('faithful');
       });
 
       it('11: a caller-supplied env.now far in the past is replayed at loggedAt', async () => {
