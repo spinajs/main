@@ -22,6 +22,8 @@ class Both extends Contract {
   }
 }
 class RuntimeOnly {}
+abstract class Port {}
+class Adapter extends Port {}
 
 // The shape the compiler writes (checked against the built lib/manifest.fragment.json files): `id` is
 // `<package>:<class>`, `registeredAs` holds the class itself after asSelf, `lazy` appears only when true.
@@ -42,6 +44,8 @@ const manifest = testManifest({
     service({ className: 'Both', registeredAs: ['Contract', 'Both'], ctorInjects: ['Dep'], imperativeResolves: [{ token: 'Dep', method: 'run', awaited: true, source: sourceRef('src/Both.ts', 'fixture') }] }),
     service({ className: 'Dep' }),
     service({ className: 'ManifestOnly', propertyInjects: [{ property: 'dep', token: 'Dep', optional: false, array: false, lazy: true }] }),
+    // Injects a key that only the runtime registers.
+    service({ className: 'Bridge', ctorInjects: ['RuntimeOnly'], source: sourceRef('src/Bridge.ts', 'other') }),
   ],
 });
 
@@ -84,6 +88,8 @@ describe('DI graph', () => {
     expect(node(g, svcId('RuntimeOnly'))?.attributes.unknownToManifest).to.eq(true);
     expect(node(g, svcId('Both'))?.attributes).to.include({ instantiated: true, manifestId: 'fixture:Both' });
     expect(hasEdge(g, svcId('Both'), 'imperative', svcId('Dep'), 'run()')).to.eq(true);
+    expect(hasEdge(g, svcId('Bridge'), 'ctor', svcId('RuntimeOnly'))).to.eq(true);
+    expect(node(g, tokId('RuntimeOnly'))).to.eq(undefined);
   });
 
   it('maps a node id back to its DI key', () => {
@@ -124,6 +130,18 @@ describe('DI graph', () => {
     expect(serviceDetail('Nope', runtimeContainer().describe(), manifest)).to.eq(undefined);
   });
 
+  it('describes a class registered only under another key, by its own name', () => {
+    const c = new Container();
+    c.register(Adapter).as(Port);
+    c.resolve(Port);
+    const runtime = serviceDetail('Adapter', c.describe(), undefined);
+    expect(runtime).to.deep.include({ token: 'Adapter', source: 'runtime', runtime: { resolving: false } });
+    expect(runtime?.implementations.map((i) => [i.name, i.instantiated])).to.deep.eq([['Adapter', true]]);
+    const withManifest = serviceDetail('Adapter', c.describe(), testManifest({ services: [service({ className: 'Adapter', registeredAs: ['Port'] })] }));
+    expect(withManifest?.source).to.eq('merged');
+    expect(withManifest?.implementations.map((i) => i.instantiated)).to.deep.eq([true]);
+  });
+
   it('takes the injections of a class the runtime could not read from its manifest entry', () => {
     const description: ContainerDescription = {
       services: [{ token: 'ManifestOnly', resolving: false, implementations: [{ name: 'ManifestOnly', kind: 'class', lifetime: 'singleton', instantiated: false, async: false, injects: [], error: 'property dep has no type' }] }],
@@ -142,12 +160,17 @@ describe('DI graph', () => {
     const graph = mergeDiGraphs(manifestDiGraph(testManifest({ services: [service({ className: long, source: sourceRef(long, long) })] })), runtimeDiGraph(description));
     // An edge id joins three cut parts; each part is bounded.
     expect(longest([graph.nodes, graph.edges.map((e) => [e.source, e.target, e.label])])).to.be.within(MAX_ATTRIBUTE_BYTES, MAX_ATTRIBUTE_BYTES + 32);
-    const entries = testManifest({ services: [service({ className: 'Long', registeredAs: ['Long', long], ctorInjects: [long], source: sourceRef(long, long) })] });
-    expect(longest(serviceDetail('Long', description, entries))).to.be.within(MAX_ATTRIBUTE_BYTES, MAX_ATTRIBUTE_BYTES + 32);
+    // A hand-written manifest may carry fields the compiler never writes.
+    const entry = Object.assign(service({ className: 'Long', registeredAs: ['Long', long], ctorInjects: [long], source: Object.assign(sourceRef(long, long), { extra: long }) }), { extra: long });
+    const detail = serviceDetail('Long', description, testManifest({ services: [entry] }));
+    expect(longest(detail)).to.be.within(MAX_ATTRIBUTE_BYTES, MAX_ATTRIBUTE_BYTES + 32);
+    expect(JSON.stringify(detail)).to.not.include('extra');
   });
 });
 
 class StudioDiProbe {}
+abstract class StudioDiPort {}
+class StudioDiAdapter extends StudioDiPort {}
 @Inject(StudioDiProbe)
 class StudioDiConsumer {
   public constructor(public readonly probe: StudioDiProbe) {}
@@ -164,6 +187,7 @@ describe('GET /_studio/api/di', function () {
     unregister = registerHeaderSource();
     DI.register(StudioDiProbe).asSelf();
     DI.register(StudioDiConsumer).asSelf();
+    DI.register(StudioDiAdapter).as(StudioDiPort);
     DI.register({ password: 'studio-di-secret' }).asValue('StudioDiSettings');
     app = await startApp();
   });
@@ -173,6 +197,8 @@ describe('GET /_studio/api/di', function () {
     DI.RootContainer.Registry.removeValue('StudioDiSettings');
     DI.unregister(StudioDiConsumer);
     DI.unregister(StudioDiProbe);
+    DI.unregister(StudioDiAdapter);
+    DI.uncache(StudioDiPort);
     unregister();
   });
 
@@ -193,10 +219,19 @@ describe('GET /_studio/api/di', function () {
 
   it('answers 404 for an unknown focus and 400 for an argument outside its schema', async () => {
     const tooLong = 'x'.repeat(513);
-    const paths = ['graph?focus=NoSuchService', 'graph?focus=StudioDiProbe&depth=99', 'graph?depth=1', 'graph?limit=0', 'graph?limit=5001', `graph?focus=${tooLong}`, `graph?package=${tooLong}`, `services/${tooLong}`];
+    const paths = ['graph?focus=NoSuchService', `graph?focus=${'x'.repeat(512)}`, 'graph?focus=StudioDiProbe&depth=99', 'graph?depth=1', 'graph?limit=0', 'graph?limit=5001', `graph?focus=${tooLong}`, `graph?package=${tooLong}`, `services/${tooLong}`];
     const statuses: number[] = [];
     for (const path of paths) statuses.push((await get(`/_studio/api/di/${path}`)).status);
-    expect(statuses).to.deep.eq([404, 400, 400, 400, 400, 400, 400, 400]);
+    expect(statuses).to.deep.eq([404, 404, 400, 400, 400, 400, 400, 400, 400]);
+  });
+
+  it('answers a class registered only under another key by its node id', async () => {
+    await DI.resolve(StudioDiPort);
+    const res = await get(`/_studio/api/di/services/${encodeURIComponent(svcId('StudioDiAdapter'))}`);
+    expect(res.status).to.eq(200);
+    const detail = res.body as DiServiceDetail;
+    expect(detail.source).to.eq('runtime');
+    expect(detail.implementations.map((i) => [i.name, i.instantiated])).to.deep.eq([['StudioDiAdapter', true]]);
   });
 
   it('answers one service by key or by node id', async () => {

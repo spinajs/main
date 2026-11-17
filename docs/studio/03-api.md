@@ -102,7 +102,7 @@ Node attributes:
 
 ### `GET /api/di/services/:id`
 
-Answers a `DiServiceDetail` for one DI key. `id` is a node id or a bare key; a key that neither the runtime nor the manifest knows is a `404`. The answer holds:
+Answers a `DiServiceDetail` for one DI key. `id` is a node id or a bare key; a key that neither the runtime nor the manifest knows is a `404`. A `svc:` id names a class: the answer lists that class even when it is registered only under other keys. The answer holds:
 
 - `implementations`: each registered implementation with its lifetime, whether it is instantiated, and its injections. When the runtime could not read a class's injections (`error`), they come from its manifest entry.
 - `injectedBy`: the classes that inject this key, with the kind of injection.

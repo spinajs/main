@@ -1,7 +1,7 @@
 import type { ContainerDescription, ImplementationDescription, InjectionDescription } from '@spinajs/di';
 import type { Condition, Manifest, PropertyInject, ServiceEntry, SourceRef } from '@spinajs/manifest';
 
-import type { DiImplementation, DiInjection, DiServiceDetail, StudioGraph, StudioSource } from '../contracts/index.js';
+import type { DiImplementation, DiInjection, DiServiceDetail, GraphNode, StudioGraph, StudioSource } from '../contracts/index.js';
 import { truncate } from '../span.js';
 import { GraphBuilder } from './graph.js';
 
@@ -76,11 +76,15 @@ export function manifestDiGraph(manifest: Manifest): StudioGraph {
   return b.build('manifest');
 }
 
+const isBareToken = (n: GraphNode): boolean => n.kind === 'token' && n.attributes.registered === false;
+
 export function mergeDiGraphs(manifest: StudioGraph, runtime: StudioGraph): StudioGraph {
   const b = new GraphBuilder();
-  for (const n of manifest.nodes) b.node({ ...n, attributes: { ...n.attributes, instantiated: false } });
-  for (const n of runtime.nodes) b.node(b.has(n.id) ? n : { ...n, attributes: { ...n.attributes, unknownToManifest: true } });
-  for (const e of [...manifest.edges, ...runtime.edges]) b.edge(e.source, e.target, e.kind, e.label);
+  // Each side adds a bare token for a key it injects but does not register; the other side may register that key.
+  const bare = new Set([...manifest.nodes, ...runtime.nodes].filter(isBareToken).map((n) => n.id));
+  for (const n of manifest.nodes) if (!bare.has(n.id)) b.node({ ...n, attributes: { ...n.attributes, instantiated: false } });
+  for (const n of runtime.nodes) if (!bare.has(n.id)) b.node(b.has(n.id) ? n : { ...n, attributes: { ...n.attributes, unknownToManifest: true } });
+  for (const e of [...manifest.edges, ...runtime.edges]) b.edge(e.source, bare.has(e.target) ? targetOf(b, tokenOf(e.target)) : e.target, e.kind, e.label);
   return b.build('merged');
 }
 
@@ -93,27 +97,38 @@ const toInjection = (x: InjectionDescription): DiInjection => ({ token: truncate
 
 const toImplementation = (i: ImplementationDescription): DiImplementation => ({ name: truncate(i.name), kind: i.kind, lifetime: i.lifetime, instantiated: i.instantiated, async: i.async, injects: i.injects.map(toInjection), ...(i.error ? { error: truncate(i.error) } : {}) });
 
-const cutRef = (r: SourceRef): SourceRef => ({ ...r, file: truncate(r.file), package: truncate(r.package) });
+// Field by field, never a spread: a hand-written manifest is not schema-checked for unknown fields.
+const cutRef = (r: SourceRef): SourceRef => ({ file: truncate(r.file), line: r.line, col: r.col, package: truncate(r.package) });
 
 const cutProperty = (p: PropertyInject): PropertyInject => ({
-  ...p,
   property: truncate(p.property),
   token: truncate(p.token),
+  optional: p.optional,
+  array: p.array,
+  ...(p.lazy === undefined ? {} : { lazy: p.lazy }),
+  ...(p.concrete === undefined ? {} : { concrete: p.concrete }),
+  ...(p.check === undefined ? {} : { check: p.check }),
   ...(p.tokenRef ? { tokenRef: { package: truncate(p.tokenRef.package), file: truncate(p.tokenRef.file), export: truncate(p.tokenRef.export) } } : {}),
 });
 
 // `expected` is dropped: the compiler never writes it, and a hand-made manifest could put a configuration value there.
 const cutCondition = (c: Condition): Condition => (c.kind === 'config' ? { kind: 'config', path: truncate(c.path) } : { kind: 'dynamic', reason: truncate(c.reason) });
 
+type ImperativeResolve = NonNullable<ServiceEntry['imperativeResolves']>[number];
+const cutResolve = (r: ImperativeResolve): ImperativeResolve => ({ token: truncate(r.token), method: truncate(r.method), awaited: r.awaited, source: cutRef(r.source) });
+
 function cutEntry(s: ServiceEntry): ServiceEntry {
   return {
-    ...s,
     id: truncate(s.id),
     className: truncate(s.className),
     registeredAs: s.registeredAs.map(truncate),
+    lifetime: s.lifetime,
+    async: s.async,
+    bootstrapper: s.bootstrapper,
     ctorInjects: s.ctorInjects.map(truncate),
+    ...(s.ctorConcrete ? { ctorConcrete: s.ctorConcrete.map((c) => c === true) } : {}),
     propertyInjects: s.propertyInjects.map(cutProperty),
-    ...(s.imperativeResolves ? { imperativeResolves: s.imperativeResolves.map((r) => ({ ...r, token: truncate(r.token), method: truncate(r.method), source: cutRef(r.source) })) } : {}),
+    ...(s.imperativeResolves ? { imperativeResolves: s.imperativeResolves.map(cutResolve) } : {}),
     ...(s.condition ? { condition: cutCondition(s.condition) } : {}),
     source: cutRef(s.source),
   };
@@ -149,9 +164,19 @@ function readable(impl: DiImplementation, known: readonly ServiceEntry[]): DiImp
   return entry ? { ...impl, injects: fromManifest(cutEntry(entry)).injects } : impl;
 }
 
+// A class registered only under other keys (`register(Impl).as(Contract)`) has a `svc:` node but no key of its own.
+function runtimeOf(token: string, description: ContainerDescription): { implementations: ImplementationDescription[]; resolving: boolean } | undefined {
+  const keyed = description.services.find((s) => s.token === token);
+  if (keyed) return keyed;
+  const isClass = (i: ImplementationDescription): boolean => i.kind === 'class' && i.name === token;
+  const holders = description.services.filter((s) => s.implementations.some(isClass));
+  const implementation = holders.flatMap((s) => s.implementations).find(isClass);
+  return implementation ? { implementations: [implementation], resolving: holders.some((s) => s.resolving) } : undefined;
+}
+
 export function serviceDetail(token: string, description: ContainerDescription, manifest: Manifest | undefined): DiServiceDetail | undefined {
   const known = manifest?.services ?? [];
-  const runtime = description.services.find((s) => s.token === token);
+  const runtime = runtimeOf(token, description);
   const entries = known.filter((s) => s.className === token || s.registeredAs.includes(token)).map(cutEntry);
   if (!runtime && entries.length === 0) return undefined;
   const source: StudioSource = runtime && manifest ? 'merged' : runtime ? 'runtime' : 'manifest';
