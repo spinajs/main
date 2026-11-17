@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./lib/testing.d.ts",
       "import": "./lib/testing.js"
+    },
+    "./queue": {
+      "types": "./lib/queue/index.d.ts",
+      "import": "./lib/queue/index.js"
     }
   },
   "type": "module",
@@ -57,7 +61,16 @@
   },
   "devDependencies": {
     "@spinajs/log": "3.0.23",
+    "@spinajs/queue": "3.0.23",
     "@spinajs/testing": "3.0.23"
+  },
+  "peerDependencies": {
+    "@spinajs/queue": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/queue": {
+      "optional": true
+    }
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

@@ -14,6 +14,7 @@
     { "path": "../log/tsconfig.json" },
     { "path": "../log-common/tsconfig.json" },
     { "path": "../principal/tsconfig.json" },
+    { "path": "../queue/tsconfig.json" },
     { "path": "../testing/tsconfig.json" }
   ]
 }
