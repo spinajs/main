@@ -11,17 +11,51 @@ Files: `targets.json` (targets, tolerance, CI concurrency, triage focus), `basel
 
 ## What runs
 
-| Target (gate key) | Package | `mutate` | Triage focus |
+| Package | Whole-package `mutate` (`stryker.config.json`) | Targets (gate keys) | Triage focus |
 |---|---|---|---|
-| `authz-engine` | `authz` | `src/engine/**/*.ts` | `src/engine/combinators.ts` |
-| `authz-ir-eval` | `authz-ir` | `src/eval/**/*.ts` | `src/eval/check.ts` |
-| `authz-rbac-model` | `authz-rbac` | `src/model/**/*.ts`, `!src/model/memory.ts` | none |
-| `authz-rebac-model` | `authz-rebac` | `src/model/**/*.ts`, `src/namespace/compile.ts` | none |
-| `authz-abac-model` | `authz-abac` | `src/model/**/*.ts`, `!src/model/stores/**`, `!src/model/schema.ts` | none |
+| `authz` | `src/engine/**/*.ts` | four shards, `authz-engine-<shard>` (below) | `src/engine/combinators.ts` |
+| `authz-ir` | `src/eval/**/*.ts` | `authz-ir-eval` | `src/eval/check.ts` |
+| `authz-rbac` | `src/model/**/*.ts`, `!src/model/memory.ts` | three shards, `authz-rbac-model-<shard>` (below) | none |
+| `authz-rebac` | `src/model/**/*.ts`, `src/namespace/compile.ts` | `authz-rebac-model` | none |
+| `authz-abac` | `src/model/**/*.ts`, `!src/model/stores/**`, `!src/model/schema.ts` | `authz-abac-model` | none |
 
 Each package has a `stryker.config.json` (mocha runner, ts-node ESM loader in `testRunnerNodeArgs`, per-test coverage,
 `inPlace`, `ignoreStatic`, `timeoutMS` 10000) and a `.mocharc.stryker.json` with its test selection. Stryker's mocha
 runner ignores the `node-option` entries of `.mocharc`, hence the separate file.
+
+### Shards
+
+The engine and the RBAC model take longer than the 90-minute budget ("Runtime"), so CI runs them as shards: one
+`stryker.<shard>.config.json` next to `stryker.config.json` each, the same settings with a part of the `mutate` set, a
+report of its own (`reports/mutation/<shard>/mutation.json`) and a temp folder of its own, and one entry in
+`targets.json`. The whole-package `stryker.config.json` stays for local runs and triage; `mutation-shards.test.mjs`
+checks that the shards of a package together mutate exactly its files, each file in one shard.
+
+| Target | Config `mutate` (under `src/engine/` or `src/model/`) | Files | Mutants | Projected CI minutes |
+|---|---|---|---|---|
+| `authz-engine-decide` | `{evaluate,combinators,vote,ceiling,delegation,attributes}.ts` | 6 | 2,203 | 66 to 76 |
+| `authz-engine-pipeline` | `pipeline/**`, `{authorizer,run,tracing}.ts`, `summary/**` | 16 | 2,153 | 63 to 75 |
+| `authz-engine-cache` | `{cache-key,cache,context,plan,registry,routes}.ts`, `{cache,context,plan}/**` | 16 | 2,283 | 65 to 79 |
+| `authz-engine-rest` | every other engine file: `refs`, `fields`, `reasons`, `validate`, `support/**`, `types`, ... | 16 | 2,342 | 59 to 81 |
+| `authz-rbac-model-rules` | `rules/**`, `sets/**`, `links/**`, `{service,contributor}.ts` | 13 | 1,675 | 40 to 60 |
+| `authz-rbac-model-ladder` | `ladder/**`, `{evaluate,roles,patterns,fields}.ts` | 10 | 1,584 | 38 to 61 |
+| `authz-rbac-model-rest` | every other model file but `memory.ts`: `model`, `cache`, `grants`, `list/**`, ... | 13 | 1,675 | 40 to 59 |
+
+How the cuts were made: mutant counts per file from Stryker's own instrumenter (they add up to the dry-run totals),
+and a cost per file from a dry run, the summed time of the tests covering each mutant (what a mutant costs when it
+survives). Each shard holds about a quarter (engine) or a third (RBAC) of both. The projections scale the
+whole-package ones ("Runtime"): for the engine, from the shard's share of the cost (~253 minutes for the package, the
+cost calibrated on the measured `evaluate.ts` + `combinators.ts` sample) to its share of the mutants at that sample's
+rate (~311); for RBAC, from its share of the mutants at the linear rate (117) to its share of the cost at Stryker's
+estimate (~180). RBAC is cut in three, not two: at Stryker's estimate two halves would take about 90 minutes each.
+
+To re-cut a shard (a file grew, or a shard runs over the budget): move globs between the shard configs, keep the shard
+that holds a target's `focus` file listing it, and run `npm run test:scripts`. A new file under a sharded `mutate` glob
+lands in the shard whose globs match it; the `rest` shard of each package matches every file the others do not name.
+Once `baseline.json` holds scores, a re-cut moves mutants between gate keys, so the next run may fail the gate for a
+shard whose score dropped: record that run with `update-baseline.mjs --run <id> --allow-lower <target>` for each such
+shard, and say in the pull request that the drop is the re-cut. A new shard has no baseline entry and is recorded the
+same way ("The baseline").
 
 Left out, and why:
 
@@ -125,7 +159,8 @@ changes `baseline.json` must take them from `--run <id>` (or `--latest`) and lin
 
 ```bash
 cd packages/<pkg>
-npm run mutation                                                     # whole target
+npm run mutation                                                     # whole package (stryker.config.json)
+npx stryker run stryker.decide.config.json                           # one shard, as CI runs it
 npx stryker run stryker.config.json --mutate src/engine/combinators.ts   # one file
 node ../../scripts/mutation/gate.mjs --report <target>=reports/mutation/mutation.json
 git status --porcelain src test                                     # must print nothing
@@ -167,24 +202,24 @@ A survivor is closed in one of three ways, nothing else ("not worth a test" is n
 Measured locally (Windows, `--concurrency 4`, on a machine shared with other builds, so pessimistic). Projected CI
 minutes are for 3 workers at the same speed per worker.
 
-| Target | Mutants | Tests | Initial test run | Local measurement | Projected CI minutes | 90-minute budget |
+| Whole package | Mutants | Tests | Initial test run | Local measurement | Projected CI minutes | 90-minute budget |
 |---|---|---|---|---|---|---|
-| `authz-engine` | 8,981 | 1,897 | 100 s | scaled from a 783-mutant sample (`evaluate.ts`, `combinators.ts`): 6.24 s per mutant per worker | ~311 | does not fit |
+| `authz-engine` | 8,981 | 1,897 | 100 s | scaled from a 783-mutant sample (`evaluate.ts`, `combinators.ts`): 6.24 s per mutant per worker | ~311 | does not fit: four shards |
 | `authz-ir-eval` | 952 | 73 | 8 s | complete in 1 min | ~1 | fits |
-| `authz-rbac-model` | 4,934 | 1,518 | 112 s | stopped at 60 min with 3,173 of 4,841 tested; Stryker estimated 74 min more | 117 (linear) to ~180 (Stryker's estimate) | does not fit |
-| `authz-rebac-model` | 1,050 | 113 | 16 s | stopped at 60 min with 1,011 of 1,035 tested, 100 of them timeouts at 10 s each | ~85 to 87 | borderline |
+| `authz-rbac-model` | 4,934 | 1,518 | 112 s | stopped at 60 min with 3,173 of 4,841 tested; Stryker estimated 74 min more | 117 (linear) to ~180 (Stryker's estimate) | does not fit: three shards |
+| `authz-rebac-model` | 1,050 | 113 | 16 s | complete in 72 min, 124 timeouts (118 in `namespace/compile.ts`) | ~85 to ~96 | borderline, not sharded (below) |
 | `authz-abac-model` | 1,222 | 204 | 15 s | complete in 10 min | ~8 to 13 | fits |
 
 The budget is **90 minutes of Stryker per target**. The `stryker` step stops at 150 minutes and the job at 170, so a
-target between 90 and 150 minutes still reports a score. A target over the budget is split into targets with disjoint
-`mutate` globs (one config and one gate key each, `authz-engine` into about four, `authz-rbac-model` into two). The
-workflow's matrix comes from `targets.json` and its `paths` filter matches `packages/*/stryker*.json`, so a split needs
-no workflow change as long as each shard config keeps `jsonReporter.fileName` `reports/mutation/mutation.json`. The
-split lands before the first baseline is recorded. **Until it lands, the `authz-engine` job is expected to exceed its
-time limit, and the `authz-rbac-model` job may** (117 minutes projected linearly fits the 150-minute step limit, ~180
-by Stryker's estimate does not): a job cut off fails, the gate fails its target as "no report", and the run cannot set
-a baseline. The step
-logs `progress-append-only` lines (tested count, elapsed and remaining time), so a cut-off run still shows its rate.
+target between 90 and 150 minutes still reports a score; a job cut off fails, and the gate fails its target as "no
+report". A target over the budget is split into shards ("Shards"). The workflow's matrix comes from `targets.json`
+(`gate.mjs --matrix` adds each config's report path) and its `paths` filter matches `packages/*/stryker*.json`, so a
+re-cut needs no workflow change. The step logs `progress-append-only` lines (tested count, elapsed and remaining time),
+so a cut-off run still shows its rate.
+
+`authz-rebac-model` is not sharded: its complete local run spent about 2 of its 72 minutes on the 676 mutants of
+`model/**` and the other 70 on the 374 of `namespace/compile.ts`, which holds 118 of its 124 timeouts. A cut at file boundaries leaves that one file over the budget on its own, so a split would add a job and
+save nothing. If CI confirms more than 90 minutes, the lever is the timeouts of `compile.ts`, not a shard.
 
 ## Test minimisation runs
 
