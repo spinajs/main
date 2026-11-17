@@ -109,5 +109,7 @@ describe('traces API', function () {
     const lines = ((await get('/_studio/api/logs')).body as StudioPage<StudioLogLine>).items.map((l) => `${String(l.fields.path)} ${l.message}`.toLowerCase());
     expect(lines.filter((l) => l.includes('/orders'))).to.have.length(2);
     expect(lines.filter((l) => l.includes('/_studio'))).to.deep.eq([]);
+    const warnings = ((await get('/_studio/api/logs?level=warn')).body as StudioPage<StudioLogLine>).items;
+    expect(warnings.map((l) => [l.level, l.message.toLowerCase().includes('/orders')])).to.deep.eq([['error', true]]);
   });
 });

@@ -9,7 +9,7 @@ import { StudioLogTarget } from '../src/log-target.js';
 
 const entry = (level: LogLevel, levelName: string, extra: Record<string, unknown> = {}): ILogEntry => ({
   Level: level,
-  Variables: { level: levelName, logger: 'orders', message: `a ${levelName} line`, error: undefined, ...extra },
+  Variables: { level: levelName.toUpperCase(), logger: 'orders', message: `a ${levelName} line`, error: undefined, ...extra },
 });
 
 describe('StudioLogTarget and LogStore', () => {
@@ -57,6 +57,15 @@ describe('StudioLogTarget and LogStore', () => {
     expect(line.message.length).to.be.below(2100);
     expect(String(line.fields.note).length).to.be.below(2100);
     expect(line.fields).to.not.have.property('b');
+  });
+
+  it('treats an id that is not lower-case hex of the W3C length as absent and cuts the logger name', () => {
+    target.write(entry(LogLevel.Info, 'info', { traceId: 'a'.repeat(5000) }));
+    target.write(entry(LogLevel.Warn, 'warn', { trace_id: 'A'.repeat(32), spanId: 'b'.repeat(17), logger: 'l'.repeat(3000) }));
+    const lines = store.query({});
+    expect(lines).to.have.length(1);
+    expect(lines[0]).to.not.have.any.keys('traceId', 'spanId');
+    expect(lines[0].logger.length).to.be.below(2100);
   });
 
   it('writes nothing before Studio mounted its store', () => {

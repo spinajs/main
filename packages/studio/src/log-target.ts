@@ -12,7 +12,10 @@ const RESERVED = new Set(['level', 'logger', 'message', 'error', 'traceId', 'spa
 /** Field data kept per line; the fields after it are dropped. */
 export const MAX_LOG_LINE_BYTES = 8192;
 
-const text = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
+const TRACE_ID = /^[0-9a-f]{32}$/;
+const SPAN_ID = /^[0-9a-f]{16}$/;
+
+const idOf = (pattern: RegExp, ...values: unknown[]): string | undefined => values.find((v): v is string => typeof v === 'string' && pattern.test(v));
 
 function scalar(v: unknown): string | number | boolean | undefined {
   if (typeof v === 'string') return truncate(v);
@@ -38,11 +41,12 @@ function fieldsOf(entry: ILogEntry, redact: ReadonlySet<string>): Record<string,
 
 export function toLogLine(entry: ILogEntry, traceId: string | undefined, redact: ReadonlySet<string>): StudioLogLine {
   const vars = entry.Variables;
-  const spanId = text(vars.spanId) ?? text(vars.span_id);
+  const spanId = idOf(SPAN_ID, vars.spanId, vars.span_id);
   return {
     time: new Date().toISOString(),
-    level: vars.level,
-    logger: vars.logger,
+    // The logger writes level names in upper case; StrToLogLevel and the query use lower case.
+    level: vars.level.toLowerCase(),
+    logger: truncate(vars.logger),
     message: typeof vars.message === 'string' ? truncate(vars.message) : '',
     ...(traceId ? { traceId } : {}),
     ...(spanId ? { spanId } : {}),
@@ -60,12 +64,12 @@ export function toLogLine(entry: ILogEntry, traceId: string | undefined, redact:
 export class StudioLogTarget extends LogTarget<ICommonTargetOptions> {
   public write(entry: ILogEntry): void {
     if (!this.Options.enabled) return;
-    const traceId = text(entry.Variables.traceId) ?? text(entry.Variables.trace_id);
+    const traceId = idOf(TRACE_ID, entry.Variables.traceId, entry.Variables.trace_id);
     if (traceId === undefined && entry.Level < LogLevel.Warn) return;
     const store = DI.get(LogStore);
     if (!store) return;
     // By span id, as the trace store judges own-ness: the trace id is the caller's to choose.
-    const spanId = text(entry.Variables.spanId) ?? text(entry.Variables.span_id);
+    const spanId = idOf(SPAN_ID, entry.Variables.spanId, entry.Variables.span_id);
     if (spanId !== undefined && DI.get(TraceStore)?.ownsSpan(spanId) === true) return;
     store.add(toLogLine(entry, traceId, store.redact));
   }
