@@ -432,6 +432,29 @@ describe('read auditing', function () {
         ]);
       });
 
+      it('reads a column of a join inside a populate callback, which no join of the query names, from every table that has it', async function () {
+        // sqlite cannot compile a join nested in a populated join (`no such column`).
+        if (dialect === 'sqlite') this.skip();
+        await Visit.query()
+          .populate('Patient', function () {
+            this.leftJoin({
+              joinModel: Patient,
+              sourceTablePrimaryKey: 'Id',
+              joinTableForeignKey: 'Id',
+              callback: function (this: { where(column: string, operator: string, value: number): unknown }) {
+                this.where('Id', '>', 0);
+              },
+              queryCallback: function (this: { select(column: string, alias: string): unknown }) {
+                this.select('Ssn', 'twin');
+              },
+            });
+          })
+          .asRaw();
+
+        const keyless = (await recorded('restricted')).filter((e) => e.subject === undefined);
+        expect(keyless.map((e) => [e.action, (e.data as { columns: string[]; keyless: boolean }).columns])).to.deep.eq([['patient.read', ['Ssn']]]);
+      });
+
       it('counts an aggregate in a query with a join for every table of the query that has the column', async () => {
         const positive = function (this: { where(column: string, operator: string, value: number): unknown }) {
           this.where('Id', '>', 0);
