@@ -154,3 +154,18 @@ export class LogicalAssignShapes {
     return q;
   }
 }
+
+export class UnexplainedShapes {
+  public unexplainedFirst(x: any) {
+    let q: Selected = x;
+    q = Invoice.query().accessible('invoice:read');
+    return q;
+  }
+
+  public unexplainedBranch(c: boolean, x: any) {
+    let q: Selected;
+    if (c) q = x;
+    else q = Invoice.query().accessible('invoice:read');
+    return q;
+  }
+}

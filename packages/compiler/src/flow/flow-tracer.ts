@@ -66,9 +66,27 @@ export class FlowTracer extends QueryTracer {
 
   /** The per-node part of `QueryTracer.run`. */
   observe(node: ts.Node): void {
-    if (ts.isVariableDeclaration(node) && node.initializer) this.bind(node.name, this.traced(node.initializer));
+    if (ts.isVariableDeclaration(node) && node.initializer) this.declare(node.name, node.initializer);
     if (ts.isExpressionStatement(node)) this.extendBuilder(node.expression);
-    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind) && ts.isIdentifier(node.left)) this.reassign(node.left, node.right);
+    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind) && ts.isIdentifier(node.left)) this.reassign(node.left, this.traced(node.right), node.right);
+  }
+
+  private declare(name: ts.BindingName, initializer: ts.Expression): void {
+    const traced = this.traced(initializer);
+    const symbol = traced === undefined && ts.isIdentifier(name) ? this.checker.getSymbolAtLocation(name) : undefined;
+    const unexplained = symbol === undefined ? undefined : this.declaredBuilder(symbol, initializer);
+    if (symbol !== undefined && unexplained !== undefined) this.builders.set(symbol, unexplained);
+    else this.bind(name, traced);
+  }
+
+  /** What a builder-typed variable holds when the tracer cannot explain the value it is given: an unscoped builder. */
+  private declaredBuilder(symbol: ts.Symbol, origin: ts.Node): QueryValue | undefined {
+    const declaration = symbol.valueDeclaration;
+    const builder = declaration === undefined ? undefined : builderOf(this.checker, this.checker.getTypeAtLocation(declaration));
+    if (builder === undefined) return undefined;
+    const value = unscopedBuilder(origin, builder.model);
+    this.meta.set(value, { kind: builder.kind, origin });
+    return value;
   }
 
   /** Calls after a `clone()` change the copy, not the builder the statement starts from. */
@@ -81,16 +99,16 @@ export class FlowTracer extends QueryTracer {
    * The tracer does not follow control flow, so a reassigned builder variable holds any of its values at a later
    * read: it is scoped only when every one of them is.
    */
-  private reassign(name: ts.Identifier, value: ts.Expression): void {
+  private reassign(name: ts.Identifier, assigned: Traced | undefined, origin: ts.Node): void {
     const symbol = this.checker.getSymbolAtLocation(name);
     if (symbol === undefined) return;
     const held = this.builders.get(symbol);
-    const assigned = this.traced(value);
+    const next = assigned?.pending === true ? assigned.value : (this.declaredBuilder(symbol, origin) ?? (held === undefined ? undefined : unscopedBuilder(origin, held.model)));
+    if (next === undefined) return;
     if (held === undefined) {
-      if (assigned?.pending === true) this.builders.set(symbol, assigned.value);
+      this.builders.set(symbol, next);
       return;
     }
-    const next = assigned?.pending === true ? assigned.value : unscopedBuilder(value, held.model);
     const joined = unscopedBuilder(next.node, next.model);
     joined.scoped.accessible = held.scoped.accessible && next.scoped.accessible;
     joined.scoped.unscoped = held.scoped.unscoped && next.scoped.unscoped;

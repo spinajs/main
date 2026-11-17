@@ -166,4 +166,9 @@ describe('flow: effects and the tracer across calls', () => {
     expect(returnedScope('LogicalAssignShapes.nullishAssigned')).to.deep.equal([true, UNSCOPED]);
     expect(returnedScope('LogicalAssignShapes.orAssigned')).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a value the tracer cannot explain, held by a builder-typed variable, is an unscoped builder', () => {
+    expect(returnedScope('UnexplainedShapes.unexplainedFirst')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('UnexplainedShapes.unexplainedBranch')).to.deep.equal([true, UNSCOPED]);
+  });
 });
