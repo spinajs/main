@@ -158,38 +158,50 @@ export function joinRoutes(runtime: readonly RouteInfo[], manifest: readonly Rou
   });
 }
 
-/** Routes, the permissions they require, and the RBAC roles granting one of those; bounded by {@link MAX_ACCESS_MAP_EDGES}. */
+// Permission id, as the role graph's builder cut it, to the roles granting it.
+function grantIndex(roles: RoleGraphLike | undefined): Map<string, GraphNode[]> {
+  const rbac = roles ? rolesGraph(roles) : undefined;
+  const nodes = new Map<string, GraphNode>((rbac?.nodes ?? []).map((n) => [n.id, n]));
+  const index = new Map<string, GraphNode[]>();
+  for (const e of rbac?.edges ?? []) {
+    const role = nodes.get(e.source);
+    if (e.kind !== 'grants' || !role) continue;
+    const granting = index.get(e.target);
+    if (granting) granting.push(role);
+    else index.set(e.target, [role]);
+  }
+  return index;
+}
+
+/**
+ * Routes, the permissions they require, and the RBAC roles granting one of those. Built one route at a time (the route,
+ * its permissions, then the roles granting a permission not seen before), so a node limit or the edge budget
+ * ({@link MAX_ACCESS_MAP_EDGES}) drops whole routes from the end and keeps the roles of the routes it shows.
+ */
 export function accessMap(routes: readonly RouteInfo[], roles: RoleGraphLike | undefined): StudioGraph {
+  const grantedBy = grantIndex(roles);
   const b = new GraphBuilder();
-  const required = new Set<string>();
+  const seen = new Set<string>();
   let edges = 0;
-  const edge = (source: string, target: string, kind: string): boolean => {
-    if (edges >= MAX_ACCESS_MAP_EDGES) return false;
-    b.edge(source, target, kind);
-    edges++;
-    return true;
-  };
-  let truncated = false;
   for (const r of routes) {
+    const perms = [...new Set([...r.access, ...r.controllerAccess])].map((p) => ({ name: p, id: truncate(permId(p)) }));
+    const fresh = perms.filter((p) => !seen.has(p.id));
+    const cost = perms.length + fresh.reduce((n, p) => n + (grantedBy.get(p.id)?.length ?? 0), 0);
+    if (edges + cost > MAX_ACCESS_MAP_EDGES) return { ...b.build('runtime'), truncated: true };
+    edges += cost;
     const id = `route:${routeKey(r.method, r.path)}`;
     b.node({ id, label: routeKey(r.method, r.path), kind: 'route', group: r.controller, attributes: { unguarded: r.unguarded, allowAnonymous: r.allowAnonymous, action: r.action } });
-    for (const p of [...r.access, ...r.controllerAccess]) {
-      if (!edge(id, permId(p), 'requires')) truncated = true;
-      else {
-        // As the role graph's builder cut it.
-        required.add(truncate(permId(p)));
-        b.node({ id: permId(p), label: p, kind: 'permission', attributes: {} });
+    for (const p of perms) {
+      b.node({ id: p.id, label: p.name, kind: 'permission', attributes: {} });
+      b.edge(id, p.id, 'requires');
+    }
+    for (const p of fresh) {
+      seen.add(p.id);
+      for (const role of grantedBy.get(p.id) ?? []) {
+        b.node(role);
+        b.edge(role.id, p.id, 'grants');
       }
     }
   }
-  const rbac = roles ? rolesGraph(roles) : undefined;
-  const roleNodes = new Map<string, GraphNode>((rbac?.nodes ?? []).map((n) => [n.id, n]));
-  for (const e of rbac?.edges ?? []) {
-    if (e.kind !== 'grants' || !required.has(e.target)) continue;
-    const role = roleNodes.get(e.source);
-    if (!role) continue;
-    if (!edge(e.source, e.target, 'grants')) truncated = true;
-    else b.node(role);
-  }
-  return { ...b.build('runtime'), truncated };
+  return { ...b.build('runtime'), truncated: false };
 }

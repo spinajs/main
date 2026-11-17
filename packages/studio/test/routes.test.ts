@@ -1,21 +1,30 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
+import { ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
+import { DI, Singleton } from '@spinajs/di';
 import { Access, AllowAnonymous } from '@spinajs/authz-http';
 import { BaseController, BasePath, BasePolicy, Get, Ok, Param, Policy, Post, Public } from '@spinajs/http';
 import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
 import { sourceRef, testManifest } from '@spinajs/testing';
 
+import type { RoleGraphLike } from '../src/authz/roles.js';
+import { TraceStore } from '../src/buffers/trace-store.js';
 import type { RouteInfo, StudioGraph, StudioRoutes, StudioSpan } from '../src/contracts/index.js';
-import { MAX_ACCESS_MAP_EDGES, accessMap, joinRoutes, manifestRoutes, routeKey, routeStats } from '../src/routes/routes.js';
+import { MAX_GRAPH_LIMIT, viewOf } from '../src/graph/graph.js';
+import { StudioSpanProcessor } from '../src/processor.js';
+import { MAX_ACCESS_MAP_EDGES, accessMap, joinRoutes, manifestRoutes, routeKey, routeStats, telemetryStats } from '../src/routes/routes.js';
+import { RoutesService } from '../src/routes/service.js';
+import { STUDIO_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { RBAC_SECRETS, rbacModel } from './support/authz.js';
 import { ROOT_PERMISSIONS } from './support/config.js';
 import { registerHeaderSource } from './support/principals.js';
+import { fakeSpan } from './support/spans.js';
 
 const SECRET_OPTION = 'SECRET-policy-option';
 const SECRET_REASON = 'SECRET-public-reason';
+const SECRET_CLASS_REASON = 'SECRET-class-reason';
 
 class StudioRoutesOpenPolicy extends BasePolicy {
   public isEnabled(): boolean {
@@ -59,6 +68,49 @@ class StudioRoutesProbeController extends BaseController {
     return new Ok({});
   }
 }
+
+@BasePath('pub')
+@Public(SECRET_CLASS_REASON)
+class StudioRoutesPublicController extends BaseController {
+  @Get('ping')
+  public ping() {
+    return new Ok({});
+  }
+}
+
+@BasePath('anon')
+@AllowAnonymous()
+class StudioRoutesAnonController extends BaseController {
+  @Get('ping')
+  public ping() {
+    return new Ok({});
+  }
+}
+
+// Found by DI under this class name, as @spinajs/telemetry's store is.
+@Singleton()
+class TelemetryStore {
+  public readonly RouteStats = { toJSON: () => ({ truncated: false, routes: [{ method: 'POST', route: '/orders', stats: { responses: 4, errors: 1 } }] }) };
+}
+
+class LatencyProbe extends RoutesService {
+  public routesVersion = 0;
+
+  public constructor(traces: TraceStore) {
+    super();
+    this.Traces = traces;
+  }
+
+  public latencyOf(runtime: readonly RouteInfo[]) {
+    return this.latency(runtime);
+  }
+
+  protected index() {
+    return { version: this.routesVersion, all: () => [] };
+  }
+}
+
+const singleRole = (permission: string): RoleGraphLike => ({ names: ['r'], ladders: [], get: () => ({ def: { extends: [], grants: [{ permission }] }, assignable: true }) });
 
 const span = (route: string, durationMs: number, status: StudioSpan['status'] = 'unset', kind: StudioSpan['kind'] = 'server'): StudioSpan => ({
   traceId: '0'.repeat(32),
@@ -113,6 +165,12 @@ describe('route stats and the manifest source', () => {
     expect(routes.map((r) => [r.method, r.allowAnonymous, r.unguarded])).to.deep.eq([['GET', false, true], ['POST', true, false]]);
   });
 
+  it('reads a class-level @Public or @AllowAnonymous of the manifest as anonymous', () => {
+    const controller = (className: string, scope: Partial<ControllerEntry>): ControllerEntry => ({ id: `app:${className}`, className, basePath: className, policies: [], middlewares: [], routes: [entry({ fullPath: `/${className}` })], source: sourceRef('src/C.ts'), ...scope });
+    const routes = manifestRoutes(testManifest({ controllers: [controller('pub', { public: 'x' }), controller('anon', { allowAnonymous: true })] }), undefined);
+    expect(routes.map((r) => [r.allowAnonymous, r.unguarded])).to.deep.eq([[true, false], [true, false]]);
+  });
+
   it('sends policy names, never their options or a @Public reason, and cuts every name at 2 KiB', () => {
     const long = 'x'.repeat(5000);
     const controller: ControllerEntry = {
@@ -148,6 +206,42 @@ describe('route stats and the manifest source', () => {
     expect(g.truncated).to.eq(true);
     expect(accessMap(routes.slice(0, 2), undefined).truncated).to.eq(false);
   });
+
+  it('keeps the roles of the routes it shows when the map is cut by nodes or by edges', () => {
+    const routes = Array.from({ length: 21_000 }, (_, i) => info('GET', `/r${i}`, { access: ['p:0'], unguarded: false }));
+    const g = viewOf(accessMap(routes, singleRole('p:0')), { limit: MAX_GRAPH_LIMIT });
+    expect(g.truncated).to.eq(true);
+    expect(g.nodes.map((n) => n.id)).to.include('role:r');
+    expect(g.edges.some((e) => e.source === 'role:r' && e.kind === 'grants' && e.target === 'perm:p:0')).to.eq(true);
+  });
+
+  it('reads telemetry route counts by shape, and nothing from anything else', () => {
+    expect(telemetryStats(new TelemetryStore()).get('POST /orders')).to.deep.eq({ count: 4, errorRate: 0.25 });
+    expect(telemetryStats({ RouteStats: {} }).size).to.eq(0);
+  });
+
+  it('caches latency for mounted routes only, until the mounted routes change', () => {
+    const traces = new TraceStore({ traces: 10, spansPerTrace: 10, maxBytes: 1_000_000, capture: { redact: new Set(), captureBindings: false }, basePath: '/_studio' });
+    const processor = new StudioSpanProcessor(() => traces);
+    const s = fakeSpan({ trace: 'l', kind: SpanKind.SERVER, attributes: { 'http.route': '/later', 'http.request.method': 'GET' } });
+    processor.onStart(s, ROOT_CONTEXT);
+    processor.onEnd(s);
+    const probe = new LatencyProbe(traces);
+    const later = [info('GET', '/later')];
+
+    expect(probe.latencyOf([]).size).to.eq(0);
+    probe.routesVersion++;
+    expect(probe.latencyOf(later).get('GET /later')?.count).to.eq(1);
+  });
+});
+
+describe('studio.path', () => {
+  it('refuses a mount at the root', () => {
+    // As Ajv reads `pattern`: unanchored.
+    const accepted = (path: string) => path.match(STUDIO_CONFIGURATION_SCHEMA.properties.path.pattern) !== null;
+    expect(['/', '//', ' / '].filter(accepted)).to.deep.eq([]);
+    expect(['/_studio', '_studio', 'admin/studio'].every(accepted)).to.eq(true);
+  });
 });
 
 describe('GET /_studio/api/routes', function () {
@@ -160,7 +254,7 @@ describe('GET /_studio/api/routes', function () {
 
   before(async () => {
     unregister = registerHeaderSource();
-    DI.register(StudioRoutesProbeController).as(BaseController);
+    for (const c of [StudioRoutesProbeController, StudioRoutesPublicController, StudioRoutesAnonController]) DI.register(c).as(BaseController);
     app = await startApp({
       models: [rbacModel()],
       config: {
@@ -171,11 +265,13 @@ describe('GET /_studio/api/routes', function () {
     });
     await app.request().get('/orders/7');
     await app.request().get('/orders/8');
+    DI.resolve(TelemetryStore);
   });
 
   after(async () => {
     await stopApp();
-    DI.unregister(StudioRoutesProbeController);
+    for (const c of [StudioRoutesProbeController, StudioRoutesPublicController, StudioRoutesAnonController]) DI.unregister(c);
+    DI.uncache(TelemetryStore);
     unregister();
   });
 
@@ -186,6 +282,8 @@ describe('GET /_studio/api/routes', function () {
     expect(find(body.data, 'GET', '/orders/:id')).to.deep.include({ allowAnonymous: true, unguarded: false });
     expect(find(body.data, 'POST', '/orders')?.unguarded).to.eq(true);
     expect(find(body.data, 'GET', '/orders/probe/health')).to.deep.include({ allowAnonymous: true, unguarded: false });
+    expect(find(body.data, 'GET', '/pub/ping')).to.deep.include({ allowAnonymous: true, unguarded: false });
+    expect(find(body.data, 'GET', '/anon/ping')).to.deep.include({ allowAnonymous: true, unguarded: false });
     expect(body.data.some((r) => r.path.startsWith('/_studio'))).to.eq(false);
   });
 
@@ -195,6 +293,12 @@ describe('GET /_studio/api/routes', function () {
     expect(find((res.body as StudioRoutes).data, 'GET', '/orders')?.policies).to.deep.eq([['AccessPolicy']]);
     expect(res.text).to.not.include(SECRET_OPTION);
     expect(res.text).to.not.include(SECRET_REASON);
+    expect(res.text).to.not.include(SECRET_CLASS_REASON);
+  });
+
+  it('joins the counts of a resolved TelemetryStore', async () => {
+    const body = (await get('/_studio/api/routes')).body as StudioRoutes;
+    expect(find(body.data, 'POST', '/orders')?.telemetry).to.deep.eq({ count: 4, errorRate: 0.25 });
   });
 
   it('joins latency from the trace buffer on method and route template', async () => {
@@ -227,8 +331,9 @@ describe('GET /_studio/api/routes', function () {
     expect(g.edges.filter((e) => e.kind === 'grants' && e.target === 'perm:order:read').map((e) => e.source)).to.have.members(['role:viewer', 'role:editor', 'role:member']);
     // order:write is granted but no route requires it.
     expect(g.nodes.some((n) => n.id === 'perm:order:write' || n.id === 'role:owner')).to.eq(false);
-    const limited = (await get('/_studio/api/authz/access-map?limit=1')).body as StudioGraph;
-    expect(limited.nodes).to.have.length(1);
+    const limited = (await get('/_studio/api/authz/access-map?limit=3')).body as StudioGraph;
+    expect(limited.nodes.map((n) => n.id)).to.deep.eq(['route:GET /orders', 'perm:order:read', 'role:viewer']);
+    expect(limited.edges.some((e) => e.source === 'role:viewer' && e.kind === 'grants' && e.target === 'perm:order:read')).to.eq(true);
     expect(limited.truncated).to.eq(true);
   });
 

@@ -52,12 +52,12 @@ export class RoutesService {
     const cached = this.latencyAt;
     if (cached && cached.traces === traces && cached.routes === routes) return cached.byRoute;
     const mounted = new Set(runtime.map((r) => routeKey(r.method, r.path)));
-    const byRoute: Latency = new Map([...routeStats(this.Traces.spans())].filter(([key]) => mounted.has(key)));
+    const byRoute: Latency = new Map([...routeStats(this.Traces.latencySpans())].filter(([key]) => mounted.has(key)));
     this.latencyAt = { traces, routes, byRoute };
     return byRoute;
   }
 
-  protected index(): RouteIndex | undefined {
+  protected index(): Pick<RouteIndex, 'all' | 'version'> | undefined {
     return this.Container.get(RouteIndex) ?? undefined;
   }
 }

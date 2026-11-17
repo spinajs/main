@@ -7,7 +7,7 @@ import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import { MAX_DOMAIN_LIMIT, describeDomains, domainParam } from '../authz/domains.js';
 import { rbacRolesOf, rolesGraph } from '../authz/roles.js';
 import type { StudioAuthzDomain, StudioPage } from '../contracts/index.js';
-import { DEFAULT_GRAPH_LIMIT, DepthQuery, GraphBuilder, MAX_GRAPH_LIMIT, graphView, viewOf } from '../graph/graph.js';
+import { DepthQuery, GraphBuilder, MAX_GRAPH_LIMIT, graphView, viewOf } from '../graph/graph.js';
 import { StudioAccess } from '../policies/StudioAccessPolicy.js';
 import { DomainQuery, LimitQuery, OffsetCursorQuery, TextQuery } from '../queries/params.js';
 import { accessMap } from '../routes/routes.js';
@@ -64,6 +64,7 @@ export class StudioAuthzController extends BaseController {
   @StudioAccess('authz')
   public async accessMap(@DomainQuery() domain?: string, @LimitQuery(MAX_GRAPH_LIMIT) limit?: number) {
     const roles = rbacRolesOf(this.Domains, domainParam(this.Domains, domain));
-    return new Ok(viewOf(accessMap(this.RouteCatalog.mounted(), roles), { limit: limit ?? DEFAULT_GRAPH_LIMIT }));
+    // The largest view by default: a smaller one would show routes and permissions and cut every role.
+    return new Ok(viewOf(accessMap(this.RouteCatalog.mounted(), roles), { limit: limit ?? MAX_GRAPH_LIMIT }));
   }
 }
