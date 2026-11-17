@@ -16,6 +16,9 @@ declare module '@spinajs/orm' {
 
     /** Relations a request may load through `include`; absent means the model does not restrict `@FromModel`. */
     IncludableRelations?: Set<string>;
+
+    /** Group levels a filter request may nest (`@FilterGroupDepth`); absent means 1. */
+    FilterGroupDepth?: number;
   }
 
   export interface ISelectQueryBuilder {
