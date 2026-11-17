@@ -82,9 +82,14 @@ export class DecisionsController extends BaseController {
       this.Log.error({ error: e, decisionId: id }, 'authz-http: the replay of decision ${decisionId} was refused');
       return new ServerError({ error: 'replay_refused', message: e.message });
     }
-    if (report === undefined || !(await this.mayReplayIn(report.decision.domain, domain, principal))) return new NotFound({ error: 'not_found', message: `no decision ${id}` });
+    const notFound = new NotFound({ error: 'not_found', message: `no decision ${id}` });
+    if (report === undefined) return notFound;
+    if (!(await this.mayReplayIn(report.decision.domain, domain, principal))) {
+      await this.audit(domain, principal, report, 'deny', `replay ${id} refused: domain ${report.decision.domain}`);
+      return notFound;
+    }
 
-    await this.audit(domain, principal, report);
+    await this.audit(domain, principal, report, 'explain', `replay ${id}`);
     return new Ok(format === 'tree' ? report.tree : report);
   }
 
@@ -96,8 +101,8 @@ export class DecisionsController extends BaseController {
     return held?.held === true;
   }
 
-  private async audit(domain: string, principal: Principal, report: ReplayReport): Promise<void> {
-    const { id, permission, resource } = report.decision;
-    (await this.Domains.service(domain)).audit?.({ kind: 'explain', principal: { type: principal.type, id: principal.id }, permission, resource, reason: `replay ${id}` });
+  private async audit(domain: string, principal: Principal, report: ReplayReport, kind: 'explain' | 'deny', reason: string): Promise<void> {
+    const { permission, resource } = report.decision;
+    (await this.Domains.service(domain)).audit?.({ kind, principal: { type: principal.type, id: principal.id }, permission, resource, reason });
   }
 }
