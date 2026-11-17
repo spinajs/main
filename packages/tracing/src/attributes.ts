@@ -21,5 +21,8 @@ export const SpinaAttr = {
   Schedule: 'spina.scheduler.schedule',
   Step: 'spina.scheduler.step',
   Resumed: 'spina.scheduler.resumed',
+  Attempt: 'spina.scheduler.attempt',
+  Trigger: 'spina.scheduler.trigger',
+  Replayed: 'spina.scheduler.replayed',
   SocketCommand: 'spina.socket.command',
 } as const;

@@ -1,7 +1,11 @@
+import { ROOT_CONTEXT, context, trace } from '@opentelemetry/api';
+import type { Context, Span } from '@opentelemetry/api';
 import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { toError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { QueueJob } from '@spinajs/queue';
+import { markSpanErrorType, tracingState } from '@spinajs/tracing';
 import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
 import { emitMessage, runJobId, ScheduledJobPayload } from '../emit/emit.js';
 import { isCrashError, QueueJobFailedError, RunAbortedError } from '../errors.js';
@@ -22,6 +26,7 @@ import { journalAttemptEnd } from './end.js';
 import { RunEventWriter } from './RunEventWriter.js';
 import { RunFinalizer } from './RunFinalizer.js';
 import { loadResumeMap } from './resume.js';
+import { currentTraceParent, startRunSpan } from './tracing.js';
 
 export interface ExecutionHandle {
   runId: string;
@@ -78,7 +83,8 @@ export class RunExecutor {
     const abort = (reason: AbortReason) => {
       if (!ac.signal.aborted) ac.abort(reason);
     };
-    const work = def.emit ? this.dispatchEmit(run, def, def.emit, ac.signal) : this.execute(run, def, ac, abort);
+    const job = def.emit;
+    const work = job ? this.traced(run, () => this.dispatchEmit(run, def, job, ac.signal)) : this.execute(run, def, ac, abort);
     const done = work.catch((err) => this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`));
     return { runId: run.Id, schedule: run.Schedule, done, abort };
   }
@@ -89,12 +95,31 @@ export class RunExecutor {
     ac: AbortController,
     abort: (r: AbortReason) => void,
   ): Promise<void> {
+    // registered before the first await: an abort while traced() reads the attempt this one continues must still bound the wind-down
+    const aborted: { at?: number } = {};
+    ac.signal.addEventListener('abort', () => (aborted.at = this.Timers.now()), { once: true });
+
+    await this.traced(run, (span) => this.attempt(run, def, ac, abort, aborted, span));
+  }
+
+  protected async attempt(
+    run: RunModel,
+    def: ScheduleDefinition,
+    ac: AbortController,
+    abort: (r: AbortReason) => void,
+    aborted: { at?: number },
+    span: Span,
+  ): Promise<void> {
     const cfg = resolveSchedulerConfig(this.RawConfig);
     const startedAt = this.Clock.now();
-    let abortedAt: number | undefined;
-    ac.signal.addEventListener('abort', () => (abortedAt = this.Timers.now()), { once: true });
 
-    await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
+    await RunAttemptModel.create({
+      RunId: run.Id,
+      Attempt: run.Attempt,
+      StartedAt: startedAt,
+      Status: 'running',
+      TraceParent: currentTraceParent(),
+    });
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
 
     const ctx = await this.createContext(run, def, ac.signal, cfg, () => abort('lease-lost'));
@@ -129,10 +154,12 @@ export class RunExecutor {
       // a synchronous throw from an overridden invoke() is a task failure like any other
       const work = new Promise<unknown>((resolve) => resolve(this.invoke(def, ctx)));
       outcome = await this.settle(work, ac.signal, cfg.shutdownGrace);
+      // a task that failed settles as an outcome, it does not throw into traced()
+      if (outcome.kind === 'error') markSpanErrorType(span, outcome.error);
     } finally {
       if (timeout !== undefined) this.Timers.clearTimeout(timeout);
       // after an abort the whole wind-down stays within shutdownGrace, even while a renewal hangs
-      const graceLeft = abortedAt === undefined ? Infinity : abortedAt + cfg.shutdownGrace - this.Timers.now();
+      const graceLeft = aborted.at === undefined ? Infinity : aborted.at + cfg.shutdownGrace - this.Timers.now();
       await heartbeat.stop(Math.max(0, graceLeft));
     }
 
@@ -141,6 +168,47 @@ export class RunExecutor {
       await this.complete(run, def, ctx, outcome);
     } finally {
       this.Events.forget(run.Id);
+    }
+  }
+
+  /** One attempt under its `run` span. */
+  protected async traced(run: RunModel, work: (span: Span) => Promise<void>): Promise<void> {
+    const parent = this.spanParent();
+    const span = startRunSpan(run, await this.previousTraceParent(run), parent);
+    try {
+      await context.with(trace.setSpan(parent, span), () => work(span));
+    } catch (err) {
+      markSpanErrorType(span, err);
+      throw err;
+    } finally {
+      span.end();
+    }
+  }
+
+  /** The scheduler loop runs a claim long after whatever queued it, so its run span starts a trace. */
+  protected spanParent(): Context {
+    return ROOT_CONTEXT;
+  }
+
+  /** The attempt this one continues: the previous attempt of this run, else the last attempt of the run it resumes. */
+  protected async previousTraceParent(run: RunModel): Promise<string | null> {
+    // a link nobody records is not worth a query
+    if (tracingState().owner === 'none') return null;
+
+    try {
+      if (run.Attempt > 1) {
+        const previous = await RunAttemptModel.where('RunId', run.Id).where('Attempt', run.Attempt - 1).first();
+        return previous?.TraceParent ?? null;
+      }
+      if (run.ResumeFrom) {
+        const last = await RunAttemptModel.where('RunId', run.ResumeFrom.runId).orderByDescending('Attempt').first();
+        return last?.TraceParent ?? null;
+      }
+      return null;
+    } catch (err) {
+      // a link is diagnostics: a failed lookup must not stop a claimed run
+      this.Log.warn(toError(err), `could not read the trace of the attempt run ${run.Id} continues`);
+      return null;
     }
   }
 
@@ -162,7 +230,13 @@ export class RunExecutor {
     const emitDeadline = leaseStartedAt + Math.floor(this.Leases.LeaseTtl / 2);
 
     try {
-      await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
+      await RunAttemptModel.create({
+        RunId: run.Id,
+        Attempt: run.Attempt,
+        StartedAt: startedAt,
+        Status: 'running',
+        TraceParent: currentTraceParent(),
+      });
       await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
       await this.Signals.runStarted(run, startedAt);
 
