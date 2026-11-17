@@ -31,6 +31,20 @@ EXISTS (SELECT 1 FROM authz_rebac_tuple authz_rt
 
 and `any`/`all` as OR/AND groups.
 
+### Conditional tuples
+
+A caveat reads only the request, so a list plan decides each distinct `(caveat, context)` once, before rows are read. A leaf becomes
+
+```ts
+{ tuples: { relation, subjects, conditional?: [{ caveat: caveatKey, subjects }] } }
+```
+
+`subjects` match unconditional tuples (`caveat_key IS NULL`); each group matches the tuples of one caveat key that evaluated to `allow`. `unknown` and `deny` keep nothing. A plan that evaluated a caveat has `validUntil` set to the evaluation instant, so it is never reused. The type-level residual of a permission that can reach a caveat carries the request values the caveats read (`caveatInput`) and is not cacheable.
+
+### Row-level security
+
+`rebac.rls` has no request to evaluate a caveat with: its SQL matches only `caveat_key IS NULL`, and `RebacRlsPlanSource` refuses a permission that reaches a conditional relation by any route (direct, subject set, arrow, union, intersection). The generator reports `AUTHZ020`, or writes a `TRUE` policy under `rls: 'partial'` (`AUTHZ021`). A conditional membership gives no session key.
+
 ### Why exclusion is not planned
 
 A row whose proof lies past `maxDepth` is refused by the check and absent from the plan, so positive rewrites agree. Under a subtraction that breaks: a subtracted proof past the limit would vanish from the plan and list a row the check refuses. Such permissions stay on the residual path.
@@ -39,6 +53,7 @@ A row whose proof lies past `maxDepth` is refused by the check and absent from t
 
 - The subject lists grow with the groups and folders the principal reaches; very wide graphs make long IN lists.
 - `RebacTuplesTerm` needs the rows' table on the same connection as `authz_rebac_tuple`.
+- One OR group per distinct caveat key: per-share contexts (an expiry per share) give one group each, and a principal with very many of them can reach the database's bind-parameter limit.
 
 ## See also
 
