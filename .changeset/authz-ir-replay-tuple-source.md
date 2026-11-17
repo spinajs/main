@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-ir": minor
+---
+
+`HistoricalTupleSource` serves the evaluator the relationships as they were at a decision's instant, rebuilt per key with `stateAt` from the rows each `HistoryContributor` reads now and the changes `ReplayHistory` loads from the `ChangeLog`. `ReplayHistory` scans the changes after the instant once (`maxChanges`, `maxKeys`, `ReplayBudgetExceeded`, an `AbortSignal`), and every read follows a fixed order: current rows, the changes committed since the scan, each key's last change, its last change before the instant, and the coverage last, so a retention prune or a lost write between the reads can only move coverage forward. A key whose last change is newer than anything the replay saw is read once more, and a gap (`changed during the replay`) when it still is; a read whose kind is not covered at the instant is a gap as a whole. A read it cannot establish throws `TupleSourceGap` with the subjects it could. Also new: `StoredPolicySplicer`, the DI tokens `HistoryContributors` and `StoredPolicySplicers`, and `MemoryChangeLog`, an in-memory `ChangeLog` for tests that can hold rows back until a late commit.
