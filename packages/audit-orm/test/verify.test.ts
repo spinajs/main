@@ -311,12 +311,30 @@ describe('audit verification', function () {
         expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'count', fromSeq: 1, toSeq: 1 });
       });
 
+      it('names a forged prune whose seal time was moved back past retention', async () => {
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
+        await append(event(1));
+        await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
+        await append(event(2));
+        await sealNow();
+        await driver().update().in('audit_seal').update({ pruned_at: new Date() }).where('from_seq', 1);
+        await driver()
+          .update()
+          .in('audit_seal')
+          .update({ sealed_at: new Date('2020-06-02T00:00:00Z'), pruned_at: new Date() })
+          .where('from_seq', 2);
+        await driver().del().from(TABLE).where('seq', '<=', 2);
+
+        expect((await verify()).tampered).to.deep.eq({ seq: 2, reason: 'seal', fromSeq: 2, toSeq: 2 });
+      });
+
       it('takes a seal that retention pruned during the walk as pruned', async () => {
         setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
         await append(event(1), event(2));
         await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
         const reader = await DI.resolve(TableAuditStore).reader(sealedTrail());
         // The first select of the walk reads the seal page; retention runs once it has resolved, before the range is read.
+        // The builder is a thenable that `await` calls once: its own `then` property wraps the resolution.
         const select = Reflect.get(driver(), 'select');
         Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
           Reflect.deleteProperty(driver(), 'select');

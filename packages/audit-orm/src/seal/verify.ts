@@ -17,7 +17,8 @@ const SUBJECT_CHUNK = 500;
 const CLOCK_SKEW_MS = 5000;
 /** An archive row carries `at` from another application's clock: the queue consumer accepts it up to 5 minutes ahead. */
 export const ARCHIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
-// AuditSealTask's period: a row is sealed by the run after the one that first saw it.
+// AuditSealTask's default period. A slower `scheduler.schedules` entry for `audit.seal` is not read here: with one, rows
+// in the tail read as stale (suspect) for up to the difference.
 const SEAL_PERIOD_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
