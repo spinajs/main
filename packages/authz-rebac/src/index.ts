@@ -9,3 +9,4 @@ export * from './admin/index.js';
 export * from './expand.js';
 export * from './list-subjects.js';
 export * from './ir.js';
+export * from './replay.js';

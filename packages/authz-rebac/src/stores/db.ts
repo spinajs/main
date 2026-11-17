@@ -69,7 +69,8 @@ function rowOf(t: Tuple, actor: PrincipalRef, now: Date): TupleRow {
   };
 }
 
-function tupleOf(r: Pick<TupleRecord, 'namespace' | 'object_id' | 'relation' | 'subject_type' | 'subject_id' | 'subject_relation'>): Tuple {
+/** The tuple an `authz_rebac_tuple` row holds. */
+export function tupleOf(r: Pick<TupleRecord, 'namespace' | 'object_id' | 'relation' | 'subject_type' | 'subject_id' | 'subject_relation'>): Tuple {
   const object = { type: r.namespace, id: r.object_id };
   if (!r.subject_relation) return { object, relation: r.relation, subject: { type: r.subject_type, id: r.subject_id } };
   return { object, relation: r.relation, subject: { object: { type: r.subject_type, id: r.subject_id }, relation: r.subject_relation } };

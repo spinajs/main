@@ -6,19 +6,29 @@ import '@spinajs/log';
 import { Orm, OrmDriver, OrmMigrator, QueryContext } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+// Types only: the drivers load where their dialect runs.
+import type { MySqlOrmDriver } from '@spinajs/orm-mysql';
+import type { PgliteOrmDriver } from '@spinajs/orm-pglite';
 import { randomBytes } from 'node:crypto';
 
 export type DbKind = 'sqlite' | 'postgres';
 
+export type Dialect = DbKind | 'pglite' | 'mysql';
+
 export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
+
+/** Every dialect, for the suites that round-trip stored values through each. */
+export const ALL_DB_KINDS: Dialect[] = ['sqlite', 'pglite', 'postgres', 'mysql'];
+
+const MYSQL_SERVER = { Host: '127.0.0.1', Port: 13306, User: 'root', Password: 'root' };
 
 export const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
 /** The shared server can be slow to answer while other lanes load it. */
 export const PG_ACQUIRE_TIMEOUT = 15000;
 
-export interface TestDb {
-  kind: DbKind;
+export interface TestDb<K extends Dialect = DbKind> {
+  kind: K;
   orm: Orm;
   /** Resolved in the same container; it ran the boot pass. */
   migrator: OrmMigrator;
@@ -67,6 +77,34 @@ async function adminDriver(): Promise<OrmDriver> {
   return driver;
 }
 
+/** Runs `sql` on the MySQL test server without a database; skips the calling suite when the server is unreachable. */
+async function mysqlAdmin(ctx: Mocha.Context, sql: string): Promise<void> {
+  const { MySqlOrmDriver } = await import('@spinajs/orm-mysql');
+  const admin = await DI.child().resolve<OrmDriver>(MySqlOrmDriver, [{ Name: 'l2-mysql-admin', Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Pool: { Max: 1 } }]);
+  try {
+    await admin.connect();
+  } catch (err) {
+    console.warn(`      MySQL at ${MYSQL_SERVER.Host}:${MYSQL_SERVER.Port} is unreachable, suite skipped: ${(err as Error).message}`);
+    ctx.skip();
+  }
+  try {
+    await rawQuery(admin, sql, [], QueryContext.Schema);
+  } finally {
+    await admin.disconnect();
+  }
+}
+
+/** The connection of a dialect other than Postgres, with the driver class it needs; MySQL gets a database of its own. */
+async function otherConnection(ctx: Mocha.Context, kind: Exclude<Dialect, 'postgres'>, name: string, migration: object): Promise<{ connection: Record<string, unknown>; driver: typeof SqliteOrmDriver | typeof PgliteOrmDriver | typeof MySqlOrmDriver; drop?: string }> {
+  if (kind === 'pglite') return { connection: { Name: name, Driver: 'orm-driver-pglite', Filename: ':memory:', Migration: migration }, driver: (await import('@spinajs/orm-pglite')).PgliteOrmDriver };
+  if (kind === 'mysql') {
+    const database = `l2_${randomBytes(4).toString('hex')}`;
+    await mysqlAdmin(ctx, `CREATE DATABASE ${database}`);
+    return { connection: { Name: name, Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Database: database, Migration: migration }, driver: (await import('@spinajs/orm-mysql')).MySqlOrmDriver, drop: database };
+  }
+  return { connection: { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration }, driver: SqliteOrmDriver };
+}
+
 /**
  * Throws when Postgres is unreachable and `L2_REQUIRE_PG=1`; otherwise skips the calling suite.
  */
@@ -113,18 +151,23 @@ export async function dropPgDatabase(name: string): Promise<void> {
  * Call from a `before()` hook. For Postgres, skips the suite (see {@link requirePostgres}) and
  * creates a database named after `suite`, dropped again by `dispose()`.
  */
-export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
+export async function bootDb<K extends Dialect>(ctx: Mocha.Context, kind: K, suite: string, options: BootOptions = {}): Promise<TestDb<K>> {
   DI.setESMModuleSupport();
   const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;
   let connection: Record<string, unknown>;
+  let mysqlDatabase: string | undefined;
+  let other: typeof SqliteOrmDriver | typeof PgliteOrmDriver | typeof MySqlOrmDriver = SqliteOrmDriver;
 
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = await createPgDatabase(suite);
     connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
+    const c = await otherConnection(ctx, kind, `l2-${suite}`, migration);
+    connection = c.connection;
+    other = c.driver;
+    mysqlDatabase = c.drop;
   }
 
   const container: IContainer = DI.child();
@@ -135,6 +178,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined, migration.OnStartup)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
+  if (kind === 'pglite' || kind === 'mysql') container.register(other).as(`orm-driver-${kind}`);
 
   let orm: Orm;
   let migrator: OrmMigrator;
@@ -147,6 +191,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
     if (database) {
       await dropPgDatabase(database);
     }
+    if (mysqlDatabase) await mysqlAdmin(ctx, `DROP DATABASE IF EXISTS ${mysqlDatabase}`);
     throw err;
   }
 
@@ -164,6 +209,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
       if (database) {
         await dropPgDatabase(database);
       }
+      if (mysqlDatabase) await mysqlAdmin(ctx, `DROP DATABASE IF EXISTS ${mysqlDatabase}`);
     },
   };
 }

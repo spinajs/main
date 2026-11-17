@@ -116,8 +116,8 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
   const binding = Object.entries(ir.permissions).find(([p]) => p === record.permission)?.[1];
   const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history, binding);
   run.reads.push(...spliced.reads);
-  const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history);
   const ctx = replayContext(record);
+  const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history, ctx.at);
   let result;
   try {
     result = await new IREvaluator(spliced.ir, source, { maxDepth: limits.maxDepth, maxCalls: limits.maxCalls }).check({ principal: ctx.principal, permission: record.permission, resource: record.resource.id == null ? { type: record.resource.type } : { type: record.resource.type, id: record.resource.id }, context: ctx.context, at: ctx.at });

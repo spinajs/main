@@ -23,6 +23,11 @@ export interface HistoryEdge {
  */
 export interface HistoryContributor {
   readonly kind: ChangeKind;
+  /**
+   * Precision in ms of the instants inside this contributor's images, that of the store column they come from (an
+   * assignment's `expiresAt`); the history's `precisionMs` when absent.
+   */
+  readonly precisionMs?: number;
   serves(source: RelationDef['source']): boolean;
   /** The coverage type for `column` (the object's type), else undefined. */
   coverageType(object: ObjectRef): ResourceType | undefined;

@@ -9,3 +9,4 @@ export * from './host/index.js';
 export * from './cli/index.js';
 export * from './token/index.js';
 export * from './ir.js';
+export * from './replay.js';

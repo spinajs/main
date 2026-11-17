@@ -35,6 +35,8 @@ export class HistoricalTupleSource implements TupleSource {
     private readonly at: Date,
     private readonly contributors: readonly HistoryContributor[],
     private readonly history: ReplayHistory,
+    /** The instant liveness is judged at (`subjectAt`): the decision's `env.now`, which may precede the state's `at`. */
+    private readonly liveAt: Date = at,
   ) {
     const unscanned = contributors.find((c) => !history.kinds.includes(c.kind));
     if (unscanned !== undefined) throw new AuthzConfigError(`HistoricalTupleSource: the history was loaded without the ${unscanned.kind} changes a contributor reads`);
@@ -115,7 +117,7 @@ export class HistoricalTupleSource implements TupleSource {
       (e) => (e.relation === relation && e.object.type === object.type && e.object.id === object.id ? e.subject : undefined),
       c.coverageType(object),
     );
-    const known = r.present.map((p) => c.subjectAt(p.value, this.at)).filter((s): s is TupleSubjectRef => s !== undefined);
+    const known = r.present.map((p) => c.subjectAt(p.value, this.liveAt)).filter((s): s is TupleSubjectRef => s !== undefined);
     if (r.gaps.length > 0) throw new TupleSourceGap(known, r.gaps);
     return known;
   }
@@ -158,7 +160,7 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   private liveSubject(c: HistoryContributor, image: unknown, subject: TupleSubjectRef): boolean {
-    const s = c.subjectAt(image, this.at);
+    const s = c.subjectAt(image, this.liveAt);
     return s !== undefined && sameSubject(s, subject);
   }
 
@@ -235,6 +237,6 @@ export class HistoricalTupleSource implements TupleSource {
       .afterFor(c.kind, key)
       .map(project)
       .filter((ch): ch is ChangeRecord => ch !== undefined);
-    return stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: this.history.precisionMs });
+    return stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: c.precisionMs ?? this.history.precisionMs });
   }
 }
