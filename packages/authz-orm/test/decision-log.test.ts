@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { DecisionLog } from '@spinajs/authz';
+import { DecisionLog, DecisionLogTap, TRUE, inputsHashOf, resourceKey } from '@spinajs/authz';
 import type { DecisionRecord, HostLog, Principal } from '@spinajs/authz';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import { renderTemplate } from '@spinajs/log-common';
@@ -188,6 +188,28 @@ describe('authz-orm DbDecisionLog', function () {
         expect(await readDecisionRecord(full.id)).to.deep.equal({ record: full, truncated: [] });
         expect((await readDecisionRecord('0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6d'))?.record).to.deep.equal(record({ id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6d', durationMs: 1 }));
         expect(await readDecisionRecord('0192f0c4-7a10-7c3e-9b2a-000000000000')).to.equal(undefined);
+      });
+
+      it('a captured record read back re-hashes to its inputsHash, with undefined, NaN and a bigint in env', async () => {
+        await reset();
+        let captured: DecisionRecord | undefined;
+        class Keep extends DecisionLog {
+          write(records: DecisionRecord[]): Promise<void> {
+            captured = records[0];
+            return Promise.resolve();
+          }
+        }
+        const tap = new DecisionLogTap({ domain: 'root', sink: new Keep(), mode: 'all', allowSampleRate: 0, captureInputs: true, batch: { size: 1, flushMs: 60_000 }, log: recordingLog().log });
+        const resource = { type: 'doc', id: 'd1' };
+        const reads = { env: { ip: undefined, score: Number.NaN, big: 10n, at: new Date('2026-11-04T10:00:00.123Z') }, attributes: [{ ref: resource, path: 'a', value: [undefined, Number.POSITIVE_INFINITY] }], relations: [], modelVersions: { m: 'v1' } };
+        const decision = { allowed: true, permission: 'doc:read', resource, principal: alice, residual: TRUE, fields: { read: [], write: [] }, roles: {}, domain: 'root', id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6e' };
+        tap.onDecision({ principal: alice, permission: 'doc:read', resource }, decision, reads, { cached: false, durationMs: 1 });
+        await tap.flush();
+        await new DbDecisionLog().write([captured!]);
+        const { record: back } = (await readDecisionRecord(captured!.id))!;
+        const parts = { principal: back.inputs!.principalState, actor: back.inputs!.actorState, permission: back.permission, resource: resourceKey(back.resource), env: back.inputs!.env, attributes: back.inputs!.attributes, relations: back.inputs!.relations, modelVersions: back.modelVersions, policyHash: back.policyHash };
+        expect(back.inputsHash).to.equal(captured!.inputsHash);
+        expect(inputsHashOf(parts)).to.equal(back.inputsHash);
       });
 
       it('reports the keys the log truncated', async () => {

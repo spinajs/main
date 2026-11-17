@@ -40,7 +40,7 @@ describe('principalFacts', () => {
     expect(principalFacts(user('a', { ceiling: { resources: [] } }))).to.deep.equal({ type: 'user', id: 'a', ceiling: { resources: [] } });
   });
 
-  it('gives none over 4 KB, for a cycle, a chain deeper than 8 or an invalid expiry', () => {
+  it('gives none over 4 KB (a long chain included), for a cycle or an invalid expiry', () => {
     expect(principalFacts(user('a', { ceiling: { permissions: ['p'.repeat(4096)] } }))).to.equal(undefined);
     expect(principalFacts(user('a', { ceiling: { permissions: ['p'.repeat(3900)] } }))).to.not.equal(undefined);
 
@@ -48,13 +48,18 @@ describe('principalFacts', () => {
     looped.onBehalfOf = looped;
     expect(principalFacts(looped)).to.equal(undefined);
 
-    let chain: Principal = user('root');
-    for (let i = 0; i < 9; i++) chain = user(`d${i}`, { onBehalfOf: chain });
-    expect(principalFacts(chain)).to.equal(undefined);
-    let shorter: Principal = user('root');
-    for (let i = 0; i < 8; i++) shorter = user(`d${i}`, { onBehalfOf: shorter });
-    expect(principalFacts(shorter)).to.not.equal(undefined);
+    let wide: Principal = user('root');
+    for (let i = 0; i < 200; i++) wide = user(`d${i}`, { onBehalfOf: wide });
+    expect(principalFacts(wide)).to.equal(undefined);
 
     expect(principalFacts(user('a', { ceiling: { expiresAt: new Date(Number.NaN) } }))).to.equal(undefined);
+  });
+
+  it('keeps a delegation chain deeper than the default maxDelegation, which an app may raise', () => {
+    let chain: Principal = user('root');
+    for (let i = 0; i < 12; i++) chain = user(`d${i}`, { onBehalfOf: chain, delegation: 'intersect' });
+    let depth = 0;
+    for (let f = principalFacts(chain); f?.onBehalfOf; f = f.onBehalfOf) depth++;
+    expect(depth).to.equal(12);
   });
 });

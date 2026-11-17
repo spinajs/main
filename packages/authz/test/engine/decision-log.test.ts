@@ -8,7 +8,7 @@ import type { InMemorySpans } from '@spinajs/tracing/testing';
 import { Authorizer } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
 import { DecisionLogTap, inputsHash, inputsHashOf, inputsHashParts } from '../../src/host/decision-log-tap.js';
-import type { DecisionLogOptions } from '../../src/host/decision-log-tap.js';
+import type { DecisionLogOptions, InputsHashParts } from '../../src/host/decision-log-tap.js';
 import { DecisionLog, DecisionTraceContext, FALSE, PolicyHashSource, TRUE, authzStorage, resourceKey } from '../../src/index.js';
 import type { Decision, DecisionReadSet, DecisionRecord, DecisionRequest, EvaluationContext, ResourceFilter, Vote } from '../../src/index.js';
 import { FakeAdapter, RecordingLog, StaticModel, fakeClock, principal, registryOf } from './fakes.js';
@@ -182,22 +182,37 @@ describe('DecisionLogTap', () => {
       expect(inputsHash({ ...req, principal: p, actor: bot }, { ...decision, principal: p }, rs, 'p'.repeat(64))).to.equal('6acb0ba828e9efe6f90a8dbd913fbc5fbbc111e7b0ee8d069a210d12cc17e14a');
     });
 
-    it('splits inputsHash into parts without changing it, whatever the principal and the reads', () => {
+    const partsOf = (r: DecisionRecord): InputsHashParts => ({ principal: r.inputs!.principalState, actor: r.inputs!.actorState, permission: r.permission, resource: resourceKey(r.resource), env: r.inputs!.env, attributes: r.inputs!.attributes, relations: r.inputs!.relations, modelVersions: r.modelVersions, policyHash: r.policyHash });
+
+    it('a captured record stored as JSON and read back re-hashes to its inputsHash, whatever the env holds', async () => {
       const text = fc.string({ maxLength: 6 });
-      const principalArb = fc.record({ type: fc.constantFrom('user', 'agent', 'a:b'), id: text, authenticated: fc.boolean(), source: text, attributes: fc.dictionary(text, fc.jsonValue({ maxDepth: 2 })), ceiling: fc.option(fc.record({ permissions: fc.array(text, { maxLength: 3 }) }), { nil: undefined }) });
+      const odd = fc.constantFrom<unknown>(undefined, Number.NaN, Number.POSITIVE_INFINITY, 10n, new Date('2026-01-01T00:00:00.000Z'), -0);
+      const value = fc.oneof(fc.jsonValue({ maxDepth: 2 }), odd, fc.array(odd, { maxLength: 2 }), fc.dictionary(text, odd, { maxKeys: 2 }));
+      const principalArb = fc.record({ type: fc.constantFrom('user', 'agent'), id: text, authenticated: fc.boolean(), source: text, attributes: fc.dictionary(text, value) });
       const refArb = fc.oneof(fc.constant<'principal'>('principal'), fc.record({ type: fc.constantFrom('doc', 'a%b'), id: text }));
       const readsArb = fc.record({
-        env: fc.dictionary(text, fc.jsonValue({ maxDepth: 2 })),
-        attributes: fc.array(fc.record({ ref: refArb, path: text, value: fc.jsonValue({ maxDepth: 2 }) }), { maxLength: 4 }),
+        env: fc.dictionary(text, value),
+        attributes: fc.array(fc.record({ ref: refArb, path: text, value }), { maxLength: 4 }),
         relations: fc.array(fc.record({ model: text, object: fc.record({ type: text, id: text }), relation: text }), { maxLength: 4 }),
         modelVersions: fc.dictionary(text, text),
       });
-      fc.assert(
-        fc.property(principalArb, fc.option(principalArb, { nil: undefined }), readsArb, text, (p, actor, rs, policyHash) => {
-          const r: DecisionRequest = { ...req, principal: p, ...(actor ? { actor } : {}) };
-          return inputsHashOf(inputsHashParts(r, decision, rs, policyHash)) === inputsHash(r, decision, rs, policyHash);
+      await fc.assert(
+        fc.asyncProperty(principalArb, fc.option(principalArb, { nil: undefined }), readsArb, async (p, actor, rs) => {
+          const { tap, sink } = tapOf({ captureInputs: true });
+          tap.onDecision({ ...req, principal: p, ...(actor ? { actor } : {}) }, { ...decision, principal: p }, rs, { cached: false, durationMs: 1 });
+          const stored = JSON.parse(JSON.stringify(await recorded(tap, sink))) as DecisionRecord;
+          return inputsHashOf(partsOf(stored)) === stored.inputsHash;
         }),
+        { numRuns: 200 },
       );
+    });
+
+    it('inputsHashOf hashes the nine parts only, not other keys of a wider object', async () => {
+      const { tap, sink } = tapOf({ captureInputs: true });
+      tap.onDecision(req, decision, reads, { cached: false, durationMs: 1 });
+      const r = await recorded(tap, sink);
+      const wider = { ...r.inputs!, ...inputsHashParts(req, decision, reads, r.policyHash), extra: 'x' };
+      expect(inputsHashOf(wider)).to.equal(r.inputsHash);
     });
 
     it('stores facts on every record, without attributes', async () => {

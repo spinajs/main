@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { activeTraceIds } from '@spinajs/tracing';
 import type { Decision, DecisionRequest } from '../contracts/decision.js';
-import type { DecisionLog, DecisionRecord, DecisionTraceContext, PolicyHashSource } from '../contracts/decision-log.js';
+import type { CapturedInputs, DecisionLog, DecisionRecord, DecisionTraceContext, PolicyHashSource } from '../contracts/decision-log.js';
 import type { Permission } from '../contracts/permission.js';
 import { principalKey } from '../contracts/principal.js';
 import type { Principal } from '../contracts/principal.js';
@@ -122,9 +122,19 @@ export class DecisionLogTap extends DecisionTap {
     if (decision.reason) record.reason = decision.reason.code;
     const facts = factsOf(req);
     if (facts) record.facts = facts;
-    if (this.options.captureInputs) record.inputs = { env: reads.env, attributes: reads.attributes, relations: reads.relations, modelVersions: reads.modelVersions, principalState: parts.principal, actorState: parts.actor };
+    if (this.options.captureInputs) record.inputs = capturedInputs(reads, parts);
     return record;
   }
+}
+
+/**
+ * The capture as the JSON `canonical()` hashed: `undefined`, non-finite numbers, bigints and Dates become the strings
+ * it hashes them as. A sink that stores the capture as JSON then keeps `inputsHash` recomputable from it, which a
+ * plain `JSON.stringify` would not (it drops `undefined`, writes `NaN` as null and throws on a bigint).
+ */
+function capturedInputs(reads: DecisionReadSet, parts: InputsHashParts): CapturedInputs {
+  const capture = { env: reads.env, attributes: reads.attributes, relations: reads.relations, modelVersions: reads.modelVersions, principalState: parts.principal, actorState: parts.actor };
+  return JSON.parse(canonical(capture)) as CapturedInputs;
 }
 
 function unref<T>(timer: T): T {
@@ -132,7 +142,7 @@ function unref<T>(timer: T): T {
   return timer;
 }
 
-/** All or nothing: an actor without facts would read as a record without an actor. */
+/** All or nothing: with the principal's facts but not the actor's, a replay would see the actor without its ceiling and delegation. */
 function factsOf(req: DecisionRequest): DecisionRecord['facts'] {
   const principal = isObject(req.principal) ? principalFacts(req.principal) : undefined;
   if (principal === undefined) return undefined;
@@ -187,8 +197,15 @@ export function inputsHashParts(req: DecisionRequest, decision: Decision, reads:
 export function inputsHashOf(parts: InputsHashParts): string {
   const sortBy = <T>(xs: readonly T[], key: (x: T) => string) => [...xs].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   const refOf = (r: DecisionReadSet['attributes'][number]['ref']) => (typeof r === 'string' ? r : resourceKey(r));
+  // Named one by one: a wider object passed as the parts must not add its other keys to the hash.
   const inputs = {
-    ...parts,
+    principal: parts.principal,
+    actor: parts.actor,
+    permission: parts.permission,
+    resource: parts.resource,
+    env: parts.env,
+    modelVersions: parts.modelVersions,
+    policyHash: parts.policyHash,
     attributes: sortBy(parts.attributes, (a) => `${refOf(a.ref)}\u0000${a.path}`),
     relations: sortBy(parts.relations, (r) => `${r.model}\u0000${resourceKey(r.object)}\u0000${r.relation}`),
   };

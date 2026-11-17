@@ -3,7 +3,6 @@ import { principalKey } from '../contracts/principal.js';
 import type { Ceiling, Principal } from '../contracts/principal.js';
 
 const MAX_BYTES = 4096;
-const MAX_DELEGATION_DEPTH = 8;
 
 class NoFacts extends Error {}
 
@@ -20,24 +19,24 @@ function ceilingFacts(c: Ceiling): NonNullable<PrincipalFactsRecord['ceiling']> 
   return out;
 }
 
-function factsOf(p: Principal, depth: number, chain: Set<Principal>): PrincipalFactsRecord {
-  if (depth > MAX_DELEGATION_DEPTH || chain.has(p)) throw new NoFacts();
+function factsOf(p: Principal, chain: Set<Principal>): PrincipalFactsRecord {
+  if (chain.has(p)) throw new NoFacts();
   chain.add(p);
   const out: PrincipalFactsRecord = { type: p.type, id: p.id };
   if (p.ceiling != null) out.ceiling = ceilingFacts(p.ceiling);
-  if (p.onBehalfOf != null) out.onBehalfOf = factsOf(p.onBehalfOf, depth + 1, chain);
+  if (p.onBehalfOf != null) out.onBehalfOf = factsOf(p.onBehalfOf, chain);
   if (p.delegation !== undefined) out.delegation = p.delegation;
   if (p.companions != null) out.companions = p.companions.map(principalKey);
   return out;
 }
 
 /**
- * The facts a decision record keeps of a principal (Q2). Undefined when they cannot be stored whole: over 4 KB, a
- * delegation cycle or a chain deeper than the engine follows, or a malformed field; a partial chain would replay wrong.
+ * The facts a decision record keeps of a principal. Undefined when they cannot be stored whole: over 4 KB, a
+ * delegation cycle, or a malformed field; a partial chain would replay wrong. The size cap also bounds the chain's depth.
  */
 export function principalFacts(p: Principal): PrincipalFactsRecord | undefined {
   try {
-    const facts = factsOf(p, 0, new Set());
+    const facts = factsOf(p, new Set());
     return Buffer.byteLength(JSON.stringify(facts)) <= MAX_BYTES ? facts : undefined;
   } catch {
     return undefined;

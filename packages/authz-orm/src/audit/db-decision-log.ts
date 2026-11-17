@@ -22,9 +22,10 @@ const json = (v: unknown): string | null => {
 };
 
 /**
- * Writes each batch of decision records to `authz_decision_log` (migration `AuthzDecisionLog_2026_11_04_00_00_00`) in one
- * insert, on the `authz-audit` connection. Append-only: nothing here updates or deletes a row. Not registered by importing
- * it: the app registers it as the `DecisionLog`. A failed batch is logged and dropped; `write` never rejects.
+ * Writes each batch of decision records to `authz_decision_log` (migrations `AuthzDecisionLog_2026_11_04_00_00_00` and
+ * `AuthzDecisionLogFacts_2026_11_06_00_00_00`) in one insert, on the `authz-audit` connection. Append-only: nothing here
+ * updates or deletes a row. Not registered by importing it: the app registers it as the `DecisionLog`. A failed batch is
+ * logged and dropped; `write` never rejects.
  */
 @Singleton()
 export class DbDecisionLog extends DecisionLog {
