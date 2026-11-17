@@ -25,3 +25,5 @@ export * from './authz/domains.js';
 export * from './authz/roles.js';
 export * from './authz/explain.js';
 export * from './authz/rebac.js';
+export * from './routes/routes.js';
+export * from './routes/service.js';

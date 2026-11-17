@@ -10,6 +10,8 @@ import type { StudioAuthzDomain, StudioPage } from '../contracts/index.js';
 import { DepthQuery, GraphBuilder, MAX_GRAPH_LIMIT, graphView, viewOf } from '../graph/graph.js';
 import { StudioAccess } from '../policies/StudioAccessPolicy.js';
 import { DomainQuery, LimitQuery, OffsetCursorQuery, TextQuery } from '../queries/params.js';
+import { accessMap } from '../routes/routes.js';
+import { RoutesService } from '../routes/service.js';
 
 @BasePath({ config: 'studio.path', default: '/_studio' })
 export class StudioAuthzController extends BaseController {
@@ -18,6 +20,9 @@ export class StudioAuthzController extends BaseController {
 
   @Config('authz', { defaultValue: {} })
   protected AuthzTree: unknown;
+
+  @Autoinject(RoutesService)
+  protected RouteCatalog: RoutesService;
 
   /**
    * Authz domains: models of booted domains, algorithms and the permission catalogue.
@@ -48,5 +53,18 @@ export class StudioAuthzController extends BaseController {
     // A focus is a node id as it is: a role and a permission of the same name have different ids.
     if (view.focus !== undefined && !graph.nodes.some((n) => n.id === view.focus)) throw new ResourceNotFound(`no role graph node ${view.focus}`);
     return new Ok(viewOf(graph, view));
+  }
+
+  /**
+   * Routes and the permissions they require, joined with the RBAC grants of a domain.
+   *
+   * @returns {StudioGraph} Routes (unguarded ones marked), permissions and roles
+   */
+  @Get('api/authz/access-map')
+  @StudioAccess('authz')
+  public async accessMap(@DomainQuery() domain?: string, @LimitQuery(MAX_GRAPH_LIMIT) limit?: number) {
+    const roles = rbacRolesOf(this.Domains, domainParam(this.Domains, domain));
+    // The largest view by default: a smaller one would show routes and permissions and cut every role.
+    return new Ok(viewOf(accessMap(this.RouteCatalog.mounted(), roles), { limit: limit ?? MAX_GRAPH_LIMIT }));
   }
 }
