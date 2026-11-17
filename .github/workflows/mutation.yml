@@ -1,0 +1,127 @@
+name: mutation
+
+# Stryker mutation testing of the authz decision code ( scripts/mutation/README.md ). One job per target of
+# scripts/mutation/targets.json, then a gate that fails when a score is more than `tolerance` points below
+# scripts/mutation/baseline.json. The workflow never writes the baseline: scripts/mutation/update-baseline.mjs copies the
+# candidate of a run into place in a reviewed commit. GitHub starts `schedule` and `workflow_dispatch` runs only from
+# the default branch's copy of this file, so until v4 reaches master the push trigger runs it on v4.
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+  push:
+    branches: [v4]
+    paths:
+      - 'packages/authz/src/engine/**'
+      - 'packages/authz/src/contracts/**'
+      - 'packages/authz/test/**'
+      - 'packages/authz-ir/src/eval/**'
+      - 'packages/authz-ir/test/**'
+      - 'packages/authz-rbac/src/model/**'
+      - 'packages/authz-rbac/test/**'
+      - 'packages/authz-rebac/src/model/**'
+      - 'packages/authz-rebac/src/namespace/**'
+      - 'packages/authz-rebac/test/**'
+      - 'packages/authz-abac/src/model/**'
+      - 'packages/authz-abac/test/**'
+      - 'packages/authz-testing/src/**'
+      - 'packages/*/stryker.config.json'
+      - 'packages/*/.mocharc.stryker.json'
+      - 'scripts/mutation/**'
+      - '.github/workflows/mutation.yml'
+
+permissions:
+  contents: read
+
+# A run takes hours: a newer push waits for it instead of cancelling it, and GitHub keeps only the newest waiter.
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - id: read
+        run: echo "matrix=$(node scripts/mutation/gate.mjs --matrix)" >> "$GITHUB_OUTPUT"
+
+  mutate:
+    needs: targets
+    name: mutate ${{ matrix.target.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # Tests import other packages from their built lib/.
+      - name: build monorepo
+        run: npm run build
+
+      # The budget is 90 minutes per target; a target over it is sharded ( README, "Runtime" ). progress-append-only
+      # logs the tested count every 10 s, so a run cut off by the timeout still shows how far it got.
+      - name: stryker
+        timeout-minutes: 150
+        working-directory: packages/${{ matrix.target.package }}
+        run: npx stryker run ${{ matrix.target.config }} --concurrency ${{ matrix.target.concurrency }} --reporters json,clear-text,progress-append-only
+
+      # inPlace runs write mutants into src/ and restore them on exit; a killed run leaves them behind.
+      - name: sources restored
+        if: always()
+        run: git diff --exit-code --stat -- packages/
+
+      # overwrite: a re-run of a failed job uploads under the same name.
+      - name: upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-${{ matrix.target.name }}
+          path: packages/${{ matrix.target.package }}/reports/mutation/mutation.json
+          if-no-files-found: warn
+          overwrite: true
+
+  gate:
+    needs: [targets, mutate]
+    if: always() && needs.targets.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-*
+          path: mutation-reports
+
+      - name: gate
+        run: node scripts/mutation/gate.mjs --reports mutation-reports --out-dir mutation-gate
+
+      - name: upload gate result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-gate
+          path: mutation-gate/
+          if-no-files-found: warn
+          overwrite: true
