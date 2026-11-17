@@ -33,8 +33,8 @@ const KEY_BATCH = 500;
 export class ReplayHistory {
   private readonly byKey = new Map<string, ChangeRecord[]>();
   private readonly resolved = new Set<string>();
-  private cursor: number | undefined;
-  private count = 0;
+  private readonly seen = new Set<number>();
+  private lastPass: number | undefined;
 
   private constructor(
     private readonly log: ChangeLog,
@@ -61,7 +61,7 @@ export class ReplayHistory {
 
   /** Changes scanned so far. */
   get changes(): number {
-    return this.count;
+    return this.seen.size;
   }
 
   /** Distinct keys resolved so far. */
@@ -84,14 +84,25 @@ export class ReplayHistory {
     }
   }
 
-  /** Scans the changes committed since the last page, so a write that landed during the replay is seen. */
+  /**
+   * Scans the changes committed since the previous pass, so a write that landed during the replay is seen. Each pass
+   * starts the window's backward side before the previous one began, not at a `seq` cursor: sequence numbers commit
+   * out of order, and a change inserted before a pass and committed after it carries an `at` at most commit lag and
+   * clock skew earlier than that pass (R7).
+   */
   async catchUp(): Promise<void> {
+    const started = Date.now();
+    const edge = this.at.getTime() - this.limits.window.beforeMs;
+    const from = new Date(this.lastPass === undefined ? edge : Math.max(edge, this.lastPass - this.limits.window.beforeMs));
+    let cursor: number | undefined;
     for (;;) {
       this.signal?.throwIfAborted();
-      const page = await this.log.afterInstant(new Date(this.at.getTime() - this.limits.window.beforeMs), { kinds: this.kinds, limit: PAGE, ...(this.cursor === undefined ? {} : { after: this.cursor }) });
+      const page = await this.log.afterInstant(from, { kinds: this.kinds, limit: PAGE, ...(cursor === undefined ? {} : { after: cursor }) });
       for (const c of page) this.add(c);
-      if (page.length < PAGE) return;
+      if (page.length < PAGE) break;
+      cursor = page[page.length - 1].seq;
     }
+    this.lastPass = started;
   }
 
   /** Each key's last change at or before T. @throws ReplayBudgetExceeded past `maxKeys` */
@@ -113,12 +124,14 @@ export class ReplayHistory {
   }
 
   private add(c: ChangeRecord): void {
-    if (++this.count > this.limits.maxChanges) throw new ReplayBudgetExceeded('maxChanges', this.count);
-    this.cursor = Math.max(this.cursor ?? c.seq, c.seq);
+    if (this.seen.has(c.seq)) return;
+    this.seen.add(c.seq);
+    if (this.seen.size > this.limits.maxChanges) throw new ReplayBudgetExceeded('maxChanges', this.seen.size);
     const s = slot(c.kind, c.key);
-    const list = this.byKey.get(s);
-    if (list) list.push(c);
-    else this.byKey.set(s, [c]);
+    const list = this.byKey.get(s) ?? [];
+    list.push(c);
+    if (list.length > 1 && list[list.length - 2].seq > c.seq) list.sort((a, b) => a.seq - b.seq);
+    this.byKey.set(s, list);
   }
 
   private async latest(kind: ChangeKind, keys: readonly string[], at?: Date): Promise<ReadonlyMap<string, ChangeRecord>> {

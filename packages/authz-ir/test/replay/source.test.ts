@@ -299,6 +299,16 @@ describe('HistoricalTupleSource', () => {
       expect(gap.known.map((x) => x.id).sort()).to.deep.equal(['u1', 'u2']);
     });
 
+    it('finds a removal of a key present at T that committed late below the scan cursor', async () => {
+      const { log, tuples } = await setup();
+      const late = log.appendPending([{ kind: 'tuple', op: 'remove', key: tupleKey(editor('u2')), payload: editor('u2'), at: new Date() }]);
+      await tuples.add(editor('u5', 'd9'), new Date(Date.now() + 1));
+      const s = await source(log, [tuples]);
+      tuples.rows.delete(tupleKey(editor('u2')));
+      log.commit(late);
+      expect(await subjects(s, doc('d1'), 'editor')).to.deep.equal(['user:u1', 'user:u2']);
+    });
+
     it('reads the coverage after the history it vouches for', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);
