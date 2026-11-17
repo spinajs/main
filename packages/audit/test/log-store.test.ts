@@ -25,13 +25,13 @@ describe('LogAuditStore', () => {
     await store.append({
       trail: trailConfig('security'),
       events: [
-        { id: 'e1', at, kind: 'security', action: 'login', outcome: 'ok', actor: 'h1', data: { strategy: 'local' } },
+        { id: 'e1', at, kind: 'security', action: 'login', outcome: 'ok', actor: 'h1', data: { strategy: 'local', attempt: 2n } },
         { id: 'e2', at, kind: 'security', action: 'login', outcome: 'failed', actor: 'h1', subject: { type: 'user', id: 'u1' }, data: {} },
       ],
     });
 
     expect(store.lines.map((l) => l.level)).to.deep.eq(['info', 'warn']);
-    expect(store.lines[0].fields).to.include({ trail: 'security', id: 'e1', kind: 'security', action: 'login', outcome: 'ok', at: '2026-11-16T10:00:00.000Z', actor: 'h1', data: '{"strategy":"local"}' });
+    expect(store.lines[0].fields).to.include({ trail: 'security', id: 'e1', kind: 'security', action: 'login', outcome: 'ok', at: '2026-11-16T10:00:00.000Z', actor: 'h1', data: '{"attempt":"2","strategy":"local"}' });
     expect(store.lines[1].fields).to.include({ subject: 'user:u1' });
     expect(await store.reader()).to.eq(undefined);
   });

@@ -53,7 +53,7 @@ export class MemoryAuditStore extends AuditStore {
 
   /** Every append that succeeded, with the transaction it was handed. */
   static appends(): readonly AuditAppend[] {
-    return appends;
+    return [...appends];
   }
 
   /** Makes the next `count` appends reject. */

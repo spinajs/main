@@ -10,6 +10,7 @@ import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, AuditService } from './contr
 import type { AuditEvent, AuditInput, AuditStore, AuditTrail, AuditWriteMode, AuditWriteOptions, TrailConfig } from './contracts.js';
 import { AuditConfigError, AuditWriteFailed } from './errors.js';
 import { quoted } from './guards.js';
+import { canonicalJson } from './hash.js';
 import { maskOf } from './mask.js';
 import { auditStore } from './stores.js';
 import { StoreAuditTrail } from './trail.js';
@@ -44,6 +45,11 @@ function check(input: AuditInput): void {
   sized('subject.type', input.subject?.type, AUDIT_WIDTHS.subject_type);
   sized('subject.id', input.subject?.id, AUDIT_WIDTHS.subject_id);
   sized('dataSubject', input.dataSubject, AUDIT_WIDTHS.data_subject);
+  try {
+    canonicalJson(input.data);
+  } catch (err) {
+    throw new AuditConfigError('audit: data cannot be written as JSON', undefined, undefined, err);
+  }
 }
 
 function wayOf(trail: TrailConfig, options: AuditWriteOptions): Way {
@@ -73,18 +79,27 @@ function stamped(inputs: readonly AuditInput[], container: IContainer): AuditEve
   });
 }
 
-async function inTime(work: Promise<void>, ms: number): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
+const LOST = 'audit: trail ${trail} lost ${count} event(s): ${ids}';
+const UNCONFIRMED = 'audit: trail ${trail} gave up ${count} event(s) not confirmed in time; an append already under way may still store them: ${ids}';
+const MISCONFIGURED = 'audit: trail ${trail} is misconfigured; dropped ${count} event(s): ${ids}';
+
+const warn = (text: string): void => process.emitWarning(text, 'AuditWarning');
+const errorText = (_key: string, value: unknown): unknown => (value instanceof Error ? value.message : value);
+
+interface Deadline {
+  readonly signal: AbortSignal;
+  readonly expired: Promise<never>;
+  clear(): void;
+}
+
+function deadline(ms: number): Deadline {
+  const controller = new AbortController();
   const expired = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new AuditWriteFailed(`audit: a deferred write did not finish within ${ms} ms`)), ms);
+    controller.signal.addEventListener('abort', () => reject(new AuditWriteFailed(`audit: a deferred write did not finish within ${ms} ms`)), { once: true });
   });
-  // A write that loses the race still settles later; nobody awaits it any more.
-  work.catch(() => undefined);
-  try {
-    await Promise.race([work, expired]);
-  } finally {
-    clearTimeout(timer);
-  }
+  void expired.catch(() => undefined);
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, expired, clear: () => clearTimeout(timer) };
 }
 
 /** One per container: it reads `audit.*` and resolves its stores through the lineage of the container that resolved it. */
@@ -95,9 +110,13 @@ export class DefaultAuditService extends AuditService {
   protected Container!: IContainer;
 
   private readonly buffer: Pending[] = [];
+  // Per trail and connection: an append given up on that may still store its batch.
+  private readonly late = new Map<string, Promise<void>>();
   private timer: NodeJS.Timeout | undefined;
   private draining: Promise<void> | undefined;
   private logger: Log | undefined;
+  private overflowing = false;
+  private disposed = false;
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
     const trail = trailConfig(options.trail, this.Container);
@@ -126,6 +145,7 @@ export class DefaultAuditService extends AuditService {
   }
 
   public override async dispose(): Promise<void> {
+    this.disposed = true;
     await this.flush();
     await super.dispose();
   }
@@ -140,21 +160,29 @@ export class DefaultAuditService extends AuditService {
     }
   }
 
-  private defer(trail: TrailConfig, store: AuditStore, events: readonly AuditEvent[], connection: string | undefined): void {
+  private defer(trail: TrailConfig, store: AuditStore, events: readonly AuditEvent[], connection: string | undefined): Promise<void> {
     const { flushMs, maxBuffered } = deferredConfig(this.Container);
     const accepted = events.slice(0, Math.max(0, maxBuffered - this.buffer.length));
-    if (accepted.length < events.length) {
-      this.log().warn({ trail: trail.name, dropped: events.length - accepted.length }, 'audit: the deferred buffer is full; dropped ${dropped} event(s) of trail ${trail}');
+    if (accepted.length < events.length && !this.overflowing) {
+      this.report('warn', { trail: trail.name, dropped: events.length - accepted.length }, 'audit: the deferred buffer is full; dropped ${dropped} event(s) of trail ${trail}');
     }
+    this.overflowing = accepted.length < events.length || this.overflowing;
     for (const event of accepted) this.buffer.push({ trail, store, event, connection });
-    this.timer ??= DETACHED.runInAsyncScope(() => setTimeout(() => void this.flush(), flushMs).unref());
+    // No timer may outlive the service: once disposed, an event is written before record() returns.
+    if (this.disposed) return this.flush();
+    this.timer ??= DETACHED.runInAsyncScope(() => setTimeout(() => void this.flush().catch((err: unknown) => warn(`audit: a background flush failed: ${String(err)}`)), flushMs).unref());
+    return Promise.resolve();
   }
 
   private async drain(): Promise<void> {
     // Yields first: without it an empty buffer would clear `draining` before flush() has assigned it.
     await Promise.resolve();
     try {
-      while (this.buffer.length > 0) await this.write(this.buffer.splice(0, deferredConfig(this.Container).maxBatch));
+      while (this.buffer.length > 0) {
+        const batch = this.buffer.splice(0, deferredConfig(this.Container).maxBatch);
+        this.overflowing = false;
+        await this.write(batch);
+      }
     } finally {
       this.draining = undefined;
     }
@@ -165,46 +193,79 @@ export class DefaultAuditService extends AuditService {
     for (const pending of batch) {
       // A trail name holds no space, so the key cannot mix two trails or two connections.
       const key = `${pending.trail.name} ${pending.connection ?? ''}`;
-      byTarget.set(key, [...(byTarget.get(key) ?? []), pending]);
+      const group = byTarget.get(key);
+      if (group) group.push(pending);
+      else byTarget.set(key, [pending]);
     }
-    for (const group of byTarget.values()) {
-      const { trail, store, connection } = group[0];
-      const events = group.map((p) => p.event);
-      try {
-        await inTime(this.attempt(store, trail, events, connection), deferredConfig(this.Container).timeoutMs);
-      } catch (err) {
-        this.lost(trail, events, err);
-      }
+    for (const [key, group] of byTarget) await this.send(key, group);
+  }
+
+  // The deadline stops the retries of a batch it gave up on. The append under way cannot be recalled, so the next
+  // append to the same target first waits for it, within its own deadline: a call split at maxBatch keeps its order.
+  private async send(key: string, group: readonly Pending[]): Promise<void> {
+    const { trail, store, connection } = group[0];
+    const events = group.map((p) => p.event);
+    const limit = deadline(deferredConfig(this.Container).timeoutMs);
+    let work: Promise<void> | undefined;
+    try {
+      await Promise.race([this.late.get(key), limit.expired]);
+      work = this.attempt(store, trail, events, connection, limit.signal);
+      await Promise.race([work, limit.expired]);
+    } catch (err) {
+      if (work !== undefined && limit.signal.aborted) this.wait(key, work);
+      this.lost(trail, events, err, limit.signal.aborted ? UNCONFIRMED : LOST);
+    } finally {
+      limit.clear();
     }
+  }
+
+  private wait(key: string, work: Promise<void>): void {
+    const settled: Promise<void> = work
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.late.get(key) === settled) this.late.delete(key);
+      });
+    this.late.set(key, settled);
   }
 
   private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined): Promise<void> {
     try {
       await DETACHED.runInAsyncScope(() => this.attempt(store, trail, events, connection));
     } catch (err) {
+      if (err instanceof AuditConfigError) throw err;
       if (onFailure === 'continue') return this.lost(trail, events, err);
       throw new AuditWriteFailed(`audit: trail ${quoted(trail.name)} could not record ${events.length} event(s) after ${trail.retry.attempts} attempt(s)`, err);
     }
   }
 
-  // `retry.attempts` counts every try, the first included.
-  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined): Promise<void> {
+  // `retry.attempts` counts every try, the first included. A configuration error would fail every try alike.
+  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined, signal?: AbortSignal): Promise<void> {
     for (let tries = 1; ; tries++) {
       try {
         return await store.append({ trail, events, connection });
       } catch (err) {
-        if (tries >= trail.retry.attempts) throw err;
-        await sleep(trail.retry.delayMs);
+        if (err instanceof AuditConfigError || tries >= trail.retry.attempts || signal?.aborted === true) throw err;
+        await sleep(trail.retry.delayMs, undefined, { signal });
       }
     }
   }
 
-  private lost(trail: TrailConfig, events: readonly AuditEvent[], err: unknown): void {
+  private lost(trail: TrailConfig, events: readonly AuditEvent[], err: unknown, message = LOST): void {
     const ids = events
       .slice(0, 20)
       .map((e) => e.id)
       .join(',');
-    this.log().error({ error: err, trail: trail.name, count: events.length, ids }, 'audit: trail ${trail} lost ${count} event(s): ${ids}');
+    this.report('error', { error: err, trail: trail.name, count: events.length, ids }, err instanceof AuditConfigError ? MISCONFIGURED : message);
+  }
+
+  // A log line must not change the outcome of a write: without a working logger the line becomes a process warning.
+  private report(level: 'warn' | 'error', fields: Record<string, unknown>, message: string): void {
+    try {
+      if (level === 'warn') this.log().warn(fields, message);
+      else this.log().error(fields, message);
+    } catch (err) {
+      warn(`audit: the logger "audit-pipeline" failed (${String(err)}): ${message} ${JSON.stringify(fields, errorText)}`);
+    }
   }
 
   private log(): Log {

@@ -4,6 +4,7 @@ import { Log } from '@spinajs/log-common';
 
 import { AuditStore } from './contracts.js';
 import type { AuditAppend, AuditReader } from './contracts.js';
+import { canonicalJson } from './hash.js';
 
 const LINE = 'audit ${trail} ${kind} ${action} ${outcome} id=${id} at=${at} actor=${actor}' + '${?onBehalfOf} onBehalfOf=${onBehalfOf}${/onBehalfOf}${?subject} subject=${subject}${/subject}' + '${?traceId} trace=${traceId}${/traceId}${?origin} origin=${origin}${/origin} data=${data}';
 
@@ -20,7 +21,7 @@ export class LogAuditStore extends AuditStore {
     const log = this.log(write.trail.name);
     for (const e of write.events) {
       const subject = e.subject ? `${e.subject.type}:${e.subject.id}` : undefined;
-      const fields = { trail: write.trail.name, id: e.id, kind: e.kind, action: e.action, outcome: e.outcome, at: e.at.toISOString(), actor: e.actor, onBehalfOf: e.onBehalfOf, subject, traceId: e.traceId, origin: e.origin, data: JSON.stringify(e.data) };
+      const fields = { trail: write.trail.name, id: e.id, kind: e.kind, action: e.action, outcome: e.outcome, at: e.at.toISOString(), actor: e.actor, onBehalfOf: e.onBehalfOf, subject, traceId: e.traceId, origin: e.origin, data: canonicalJson(e.data) };
       log[e.outcome === 'failed' || e.outcome === 'denied' ? 'warn' : 'info'](fields, LINE);
     }
     return Promise.resolve();
