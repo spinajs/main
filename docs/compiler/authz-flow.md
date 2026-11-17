@@ -102,7 +102,7 @@ What a static model member starts is read from what it returns: a builder gives 
 
 - Code no entry point reaches: policies, route middlewares, model hooks, the `resolve()` of an injected service, field initialisers of a class without a constructor of its own.
 - Writes through a model instance (`invoice.update()`, `invoice.destroy()`) and raw driver queries: they have no builder of a model.
-- Control flow inside one body. `.accessible()` applied on one branch, in a loop, or in a closure that may never run counts as applied for the rest of the body.
+- Control flow inside one body. `.accessible()` applied on one branch or in a loop counts as applied for the rest of the body, when nothing writes the variable after its declaration. A closure scopes only the builders it declares.
 - A builder put into an array or object held in a variable before it leaves.
 - A value typed only as the ORM's base `QueryBuilder` (or `IQueryBuilder`, `IBuilder`, `IWhereBuilder`). It has no kind and no model, so it is not reported. The pass knows the six select, update and delete builder types of `@spinajs/orm`.
 - Getters declared in a dependency and setters. A property read typed as a builder is still read from its type.
@@ -116,7 +116,7 @@ Two places where a finding is reported somewhere else than you may expect:
 Noise on purpose (reported, though it may be safe):
 
 - A builder returned in an object shorthand (`return { q }`), and a closure that is also summarised as a callee of its own: both are read from their types.
-- Every builder member of a union is reported, one finding per kind and model.
+- Every builder member of a union is an effect of its own: the pass's summaries hold one effect per kind and model. The findings stay one per code and site, and the message names the first.
 
 ## Ignoring a finding
 

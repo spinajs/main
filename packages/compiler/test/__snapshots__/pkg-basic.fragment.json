@@ -1745,8 +1745,8 @@
     "findings": [],
     "ignores": [],
     "flow": {
-      "entryPoints": 11,
-      "unresolvedRoots": 3,
+      "entryPoints": 13,
+      "unresolvedRoots": 1,
       "opaqueCalls": 0,
       "externalCalls": 4,
       "foreignModelQueries": 0

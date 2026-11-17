@@ -37,7 +37,7 @@ The `app-basic` fixture has a `ChatSocketController` with a `send` command and a
 ```json
 {
   "asyncapi": "3.0.0",
-  "info": { "title": "app-basic", "version": "1.0.0", "x-spinajs-manifest-hash": "b27a0605470c05838585255bfb5b938f0ea1a8c328020fba2671ba4f9e34b8fb" },
+  "info": { "title": "app-basic", "version": "1.0.0", "x-spinajs-manifest-hash": "2aa41def89c2355f1d27cdbba0cfd74507ee88315c67b172bbd2c23e47c20795" },
   "servers": { "default": { "host": "localhost:4557", "protocol": "ws" } },
   "channels": {
     "queue/SendMailJob": {

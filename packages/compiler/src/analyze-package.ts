@@ -87,10 +87,10 @@ export function configFilesOf(packageRoot: string): string[] {
 }
 
 /** The extractors' authz facts, with the findings and coverage of the flow pass. */
-function authzOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs, models: readonly ModelEntry[]): AuthzSection | undefined {
+function authzOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs, handlers: Pick<AuthzInputs, 'controllers' | 'socketControllers'>, models: readonly ModelEntry[]): AuthzSection | undefined {
   const facts = authzSectionOf(ctx, files, inputs);
   if (facts === undefined) return undefined;
-  const flow = authzFlowOf(ctx, files, facts, inputs, new Set(models.map((m) => m.className)));
+  const flow = authzFlowOf(ctx, files, facts, handlers, new Set(models.map((m) => m.className)));
   // Key order as the fragments on disk have it: findings before ignores.
   return { resources: facts.resources, permissions: facts.permissions, entryPoints: facts.entryPoints, findings: flow.findings, ignores: facts.ignores, flow: flow.flow };
 }
@@ -136,7 +136,9 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
   const { models, resources } = accessResources(ctx, files, run(extractModels));
-  const authz = authzOf(ctx, files, { controllers, socketControllers, schedules, commands, resources }, models);
+  // The written socket entries drop each event's `handler` (`withoutRetypingHints`); the flow pass starts there.
+  const socketHandlers = effectiveSockets.slice(0, ownSockets.length).filter((c) => isListed('socketControllers', c));
+  const authz = authzOf(ctx, files, { controllers, socketControllers, schedules, commands, resources }, { controllers, socketControllers: socketHandlers }, models);
 
   const sqlQueries = run(extractSqlQueries);
   const sqlDialects = run(extractSqlDialects);

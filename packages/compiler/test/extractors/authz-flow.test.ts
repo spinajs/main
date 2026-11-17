@@ -55,4 +55,12 @@ describe('authz flow findings', () => {
     const { findings } = authzFlowOf(ctx, loaded.sourceFiles, section, { controllers: [], socketControllers: [] }, new Set(['Invoice']));
     expect(findings.map((f) => f.message).filter((m) => m.includes('UnionDrop.drop'))).to.deep.equal(["schedule drop reaches an unscoped update of access resource 'invoice' (Invoice); path: UnionDrop.execute -> UnionDrop.drop (reference)"]);
   });
+
+  it('starts at the handler of a socket event, which the manifest entry does not name', async () => {
+    const fragment = await analyzePackage({ tsconfig: 'test/fixtures/authz-flow-socket/tsconfig.json', packageRoot: 'test/fixtures/authz-flow-socket' });
+    expect(fragment.authz?.findings.map((f) => [f.code, f.source?.line, f.message])).to.deep.equal([
+      ['AUTHZ001', 16, "socket event invoices.opened reaches an unscoped multi-row read of access resource 'invoice' (Invoice); path: InvoiceSocket.opened"],
+    ]);
+    expect(fragment.authz?.flow).to.deep.include({ entryPoints: 1, unresolvedRoots: 0 });
+  });
 });
