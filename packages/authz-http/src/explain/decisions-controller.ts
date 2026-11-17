@@ -1,4 +1,4 @@
-import { AuthzDomains, DecisionReplay, ReplayBusy, ReplayInTransaction } from '@spinajs/authz';
+import { AuthzDomains, DecisionReplay, ReplayBusy, ReplayInTransaction, thrownError } from '@spinajs/authz';
 import type { Permission, Principal, ReplayReport } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, NotFound, Ok, Policy, ServerError, TooManyRequests } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -97,8 +97,13 @@ export class DecisionsController extends BaseController {
   private async mayReplayIn(recordDomain: string, accessDomain: string, principal: Principal): Promise<boolean> {
     if (recordDomain === accessDomain) return true;
     if (!this.Domains.names().includes(recordDomain)) return false;
-    // A failing check (the domain does not declare the permission) is not a grant, and a 500 would confirm the id.
-    const held = await holdsExplain(await this.Domains.service(recordDomain), principal, this.ReplayPermission).catch(() => undefined);
+    // A failing check is not a grant, and a 500 would confirm the id: logged, so a broken domain stays visible.
+    const held = await this.Domains.service(recordDomain)
+      .then((authz) => holdsExplain(authz, principal, this.ReplayPermission))
+      .catch((e: unknown) => {
+        this.Log.warn({ error: thrownError(e), domain: recordDomain, permission: this.ReplayPermission }, 'authz-http: the check of ${permission} in domain ${domain} failed; the replay is answered as unknown');
+        return undefined;
+      });
     return held?.held === true;
   }
 

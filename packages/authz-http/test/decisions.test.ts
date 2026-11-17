@@ -176,6 +176,20 @@ describe('GET /authz/decisions/:id/explain', function () {
     const undeclared = await get(URL, 'erin');
     expect(undeclared.status, 'a domain that does not declare authz:replay').to.eq(404);
     expect(undeclared.body).to.deep.eq(unknown.body);
+
+    // Listed by names(), but its service cannot boot: the audit service it names is not registered.
+    const BROKEN = 'dec-broken';
+    testHost.config().set(['authz', 'domains', BROKEN], { audit: { service: 'Missing' } });
+    const broken = (await testHost.domains()).create(BROKEN, 'root');
+    try {
+      answer = async () => report({}, BROKEN);
+      const unbootable = await get(URL, 'erin');
+      expect(unbootable.status, 'a domain whose service fails to boot').to.eq(404);
+      expect(unbootable.body).to.deep.eq(unknown.body);
+    } finally {
+      await broken.dispose();
+      testHost.config().unset(['authz', 'domains', BROKEN]);
+    }
   });
 
   it('refuses an id that is not a UUID with 400, before any replay', async () => {
