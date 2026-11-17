@@ -60,8 +60,15 @@ export class TenantSocketContext extends SocketConnectionContext {
   }
 
   protected async scopeOf(handshake: ISocketHandshake, principal: Principal): Promise<TenantScope | undefined> {
-    this.chain ??= tenantResolvers(this.ResolverNames, this.Container);
-    this.trust ??= this.proxyTrust();
+    // A rejected lookup is not kept, so one transient failure does not refuse every later handshake.
+    this.chain ??= tenantResolvers(this.ResolverNames, this.Container).catch((err: unknown) => {
+      this.chain = undefined;
+      throw err;
+    });
+    this.trust ??= this.proxyTrust().catch((err: unknown) => {
+      this.trust = undefined;
+      throw err;
+    });
     try {
       const tenant = await resolveTenant(await this.chain, socketSource(handshake, principal, this.Header, await this.trust), this.Container);
       return tenant ? tenantScopeOf(tenant) : undefined;

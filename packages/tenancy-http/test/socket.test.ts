@@ -3,8 +3,10 @@ import { expect } from 'chai';
 import { BaseSocketController, Command, OnConnect, Payload, SocketConnectionContext, SocketController, SocketException } from '@spinajs/http-socket';
 import type { ISocketHandshake, SocketError } from '@spinajs/http-socket';
 import type { Principal } from '@spinajs/principal';
-import { MemoryTenantRegistry, currentTenant, tenantRegistry, tenantScope, tenantScopeOf } from '@spinajs/tenancy';
+import { MemoryTenantRegistry, TenantResolver, currentTenant, tenantRegistry, tenantScope, tenantScopeOf } from '@spinajs/tenancy';
+import type { TenantProposal } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
+import { RequestTenantResolver } from '../src/index.js';
 import { TenantSocketContext, socketSource } from '../src/socket.js';
 import { anonymous, seedTenants, tenancyHttpApp, user } from './support/source.js';
 import { call, connected, handshakeOutcome, handshakeScopes, startSocketApp } from './support/sockets.js';
@@ -15,6 +17,23 @@ const handshake = (over: Partial<ISocketHandshake> = {}): ISocketHandshake => ({
 const alice = user('alice', { tenants: ['acme'] });
 
 const connectHooks: Array<string | null> = [];
+
+/** Fails to build `failures` times, then proposes acme. */
+class FlakyTenantResolver extends RequestTenantResolver {
+  public static failures = 0;
+
+  constructor() {
+    super();
+    if (FlakyTenantResolver.failures > 0) {
+      FlakyTenantResolver.failures -= 1;
+      throw new Error('resolver store down');
+    }
+  }
+
+  protected propose(): TenantProposal {
+    return 'acme';
+  }
+}
 
 @SocketController('tenant')
 export class TenantProbeSocket extends BaseSocketController {
@@ -102,6 +121,16 @@ describe('tenant of a socket connection', () => {
 
       expect(await refusalOf(establish(handshake({ auth: { tenant: 'acme' } }), alice))).to.eq('unexpected Error: registry down');
     });
+  });
+
+  it('looks the resolvers up again at the next handshake after the lookup failed', async () => {
+    app = await tenancyHttpApp({ http: { resolvers: ['flaky'] } });
+    await seedTenants();
+    app.container.register(FlakyTenantResolver).as(TenantResolver);
+    FlakyTenantResolver.failures = 1;
+
+    expect(await refusalOf(establish(handshake(), alice))).to.contain('resolver store down');
+    expect(await establish(handshake(), alice)).to.deep.eq({ Tenant: { kind: 'tenant', tenant: { id: 'acme' } } });
   });
 
   it('refuses with forbidden when tenancy.http.unknownTenant is 403', async () => {

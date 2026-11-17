@@ -12,7 +12,7 @@ import { tenantScope } from '@spinajs/tenancy';
 import type { TenantScope } from '@spinajs/tenancy';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { user } from './source.js';
+import { SILENT_LOGGER, user } from './source.js';
 
 class TestHttpHost extends SocketHttpHost {
   private readonly http: Server = createServer();
@@ -75,7 +75,7 @@ export async function startSocketApp(trustProxy: string | undefined, tenancy: Re
   const app = await createTestApp({
     bootstrap: false,
     config: {
-      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '${message}' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
+      logger: SILENT_LOGGER,
       system: { dirs: { socketControllers: [] } },
       http: { trustProxy, socket: SOCKET_CONFIG },
       tenancy: { registry: 'MemoryTenantRegistry', ...tenancy },

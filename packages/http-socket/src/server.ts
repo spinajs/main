@@ -431,16 +431,28 @@ export class SocketServer extends AsyncService {
     return { principal: UNATTENDED, source: null, checkedAt: Date.now() };
   }
 
-  /** What the registered SocketConnectionContext contributors add to the stores of this connection's calls. */
+  /**
+   * What the registered SocketConnectionContext contributors add to the stores of this connection's calls. Two that set
+   * the same key refuse the handshake: the later one would silently replace a value the earlier one checked (a tenant).
+   */
   protected async connectionContext(handshake: ISocketHandshake, principal: Principal): Promise<Record<string, unknown>> {
-    const context: Record<string, unknown> = {};
-    if (!this.Container.hasRegistered(SocketConnectionContext)) return context;
+    if (!this.Container.hasRegistered(SocketConnectionContext)) return {};
 
     const contributors: SocketConnectionContext[] = (await this.Container.resolve(Array.ofType(SocketConnectionContext))) ?? [];
+    const context = new Map<string, unknown>();
+    const owners = new Map<string, string>();
     for (const contributor of contributors) {
-      Object.assign(context, await contributor.establish(handshake, principal));
+      const name = contributor.constructor.name;
+      for (const [key, value] of Object.entries(await contributor.establish(handshake, principal))) {
+        const owner = owners.get(key);
+        if (owner !== undefined) {
+          throw new AuthzConfigError(`socket connection contexts ${owner} and ${name} both set the key ${key}`);
+        }
+        owners.set(key, name);
+        context.set(key, value);
+      }
     }
-    return context;
+    return Object.fromEntries(context);
   }
 
   protected onConnection(socket: Socket): void {

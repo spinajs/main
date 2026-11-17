@@ -37,6 +37,12 @@ class ShardContext extends SocketConnectionContext {
   }
 }
 
+class RegionContext extends SocketConnectionContext {
+  public establish(): Promise<Readonly<Record<string, unknown>>> {
+    return Promise.resolve({ Region: 'north', Shard: 'overridden' });
+  }
+}
+
 const FIXED_KEYS = ['AuthnPrincipal', 'Principal', 'clientId', 'connectionId', 'realIp', 'requestId', 'socketCall', 'spanId', 'traceId'];
 
 describe('socket connection context', function () {
@@ -112,6 +118,23 @@ describe('socket connection context', function () {
       const error = await refusalOf(track(connect(t, { auth: { shard: 'closed' } })));
 
       expect(error).to.include({ code: 'forbidden', message: 'shard closed' });
+    });
+
+    describe('and a second one that sets one of its keys', () => {
+      before(() => {
+        DI.register(RegionContext).as(SocketConnectionContext);
+      });
+
+      after(() => {
+        DI.unregister(RegionContext);
+      });
+
+      it('refuses the handshake as a configuration error naming the key and both contributors', async () => {
+        const error = await refusalOf(track(connect(t)));
+
+        expect(error.code).to.equal('internal');
+        expect(error.message).to.equal('socket connection contexts ShardContext and RegionContext both set the key Shard');
+      });
     });
   });
 });
