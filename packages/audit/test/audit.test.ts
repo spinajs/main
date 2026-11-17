@@ -9,7 +9,7 @@ import { Log } from '@spinajs/log-common';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { AuditConfigError, AuditContext, AuditStore, AuditWriteFailed, audit, trailConfig } from '../src/index.js';
-import type { AuditAppend, AuditInput, AuditReader } from '../src/index.js';
+import type { AuditAppend, AuditInput } from '../src/index.js';
 import { MemoryAuditStore, TestAuditContext } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -21,15 +21,16 @@ const TRACE = '0af7651916cd43dd8448eb211c80319c';
 // Stands in for a context of the caller's own, such as a driver's transaction storage.
 const callers = new AsyncLocalStorage<string>();
 
-class ProbeStore extends AuditStore {
+class ProbeStore extends MemoryAuditStore {
   static seen: (string | undefined)[] = [];
-  override readonly joinsTransaction = true;
-  append(_write: AuditAppend): Promise<void> {
+  static asked = 0;
+  override append(write: AuditAppend): Promise<void> {
     ProbeStore.seen.push(callers.getStore());
-    return Promise.resolve();
+    return super.append(write);
   }
-  reader(): Promise<AuditReader | undefined> {
-    return Promise.resolve(undefined);
+  override joinsCaller(): boolean {
+    ProbeStore.asked += 1;
+    return super.joinsCaller();
   }
 }
 
@@ -74,6 +75,7 @@ const TRAILS = {
   twice: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
   flaky: { store: 'FlakyStore', retry: { attempts: 2, delay: 1 } },
   slow: { store: 'SlowStore', retry: { attempts: 3, delay: 1 } },
+  slowStrict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
   misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
@@ -97,9 +99,9 @@ function pipelineLog(container: IContainer, broken = false): Line[] {
   return lines;
 }
 
-const boot = (deferred: Record<string, unknown> = {}): Promise<TestApp> =>
+const boot = (deferred: Record<string, unknown> = {}, audit: Record<string, unknown> = {}): Promise<TestApp> =>
   createTestApp({
-    config: { logger: SILENT, audit: { deferred: { flushMs: 20, ...deferred }, trails: TRAILS } },
+    config: { logger: SILENT, audit: { deferred: { flushMs: 20, ...deferred }, trails: TRAILS, ...audit } },
     register: (container) => {
       for (const store of [ProbeStore, FlakyStore, SlowStore, MisconfiguredStore]) container.register(store).as(AuditStore);
     },
@@ -115,6 +117,7 @@ describe('audit().record', function () {
   beforeEach(async () => {
     MemoryAuditStore.reset();
     ProbeStore.seen = [];
+    ProbeStore.asked = 0;
     FlakyStore.calls = 0;
     FlakyStore.down = false;
     app = await boot();
@@ -247,14 +250,20 @@ describe('audit().record', function () {
     ]);
   });
 
-  it("keeps confirmed and deferred writes out of the caller's async context", async () => {
-    await callers.run('caller', async () => {
-      await audit().record({ kind: 'action', action: 'a' }, { trail: 'probe', mode: 'confirmed' });
-      await audit().record({ kind: 'action', action: 'b' }, { trail: 'probe' });
-      await audit().flush();
-      await audit().record({ kind: 'data', action: 'insert' }, { trail: 'probe', mode: 'transactional', transaction: {} });
-    });
-    expect(ProbeStore.seen).to.deep.eq([undefined, undefined, 'caller']);
+  it("keeps confirmed and deferred writes out of the caller's async context, unless the store joins the caller", async () => {
+    const run = (): Promise<void> =>
+      callers.run('caller', async () => {
+        await audit().record({ kind: 'action', action: 'a' }, { trail: 'probe', mode: 'confirmed' });
+        await audit().record({ kind: 'action', action: 'b' }, { trail: 'probe' });
+        await audit().flush();
+        await audit().record({ kind: 'data', action: 'insert' }, { trail: 'probe', mode: 'transactional', transaction: {} });
+      });
+    await run();
+    MemoryAuditStore.joinCaller(true);
+    await run();
+    expect(ProbeStore.seen).to.deep.eq([undefined, undefined, 'caller', 'caller', undefined, 'caller']);
+    // Asked once per confirmed write, never for a deferred or a transactional one.
+    expect(ProbeStore.asked).to.eq(2);
   });
 
   it('refuses a misconfiguration at the call', async () => {
@@ -271,6 +280,38 @@ describe('audit().record', function () {
     await audit().record({ kind: 'action', action: 'late' });
     await app.dispose();
     expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['late']);
+  });
+});
+
+describe('audit(): confirmed deadline', function () {
+  this.timeout(15000);
+  let app: TestApp;
+
+  beforeEach(() => {
+    MemoryAuditStore.reset();
+    SlowStore.calls = 0;
+    SlowStore.held.length = 0;
+  });
+
+  afterEach(async () => {
+    await app.dispose();
+  });
+
+  it('fails a confirmed write that misses confirmTimeoutMs, and logs it when it lands later', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 2;
+    const failed: unknown = await audit()
+      .record(actions('a'), { trail: 'slowStrict' })
+      .catch((e: unknown) => e);
+    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slowStrict" could not record 1 event(s) after 3 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+    await audit().record(actions('b'), { trail: 'slow', mode: 'confirmed' });
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message.includes('not confirmed in time')])).to.deep.eq([['error', 'slow', true]]);
+
+    for (const held of SlowStore.held) held.release();
+    await pause(20);
+    expect(lines.slice(1).map((l) => l.message)).to.deep.eq(['audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}', 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}']);
+    expect(SlowStore.calls).to.eq(2);
   });
 });
 

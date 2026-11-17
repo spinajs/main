@@ -98,6 +98,11 @@ export interface AuditAppend {
 export abstract class AuditStore {
   /** True when an append that is handed a transaction commits and rolls back with it; a transactional write is refused on a store without it. */
   readonly joinsTransaction?: boolean;
+  /**
+   * Asked synchronously in the caller's async context before a confirmed write; true appends there instead of detached.
+   * The cost of joining: the record then commits or rolls back with the caller's open transaction.
+   */
+  joinsCaller?(trail: TrailConfig, connection: string | undefined): boolean;
   /** Throwing fails the write; the service applies retry and onFailure around it. */
   abstract append(write: AuditAppend): Promise<void>;
   /** Undefined: the trail cannot be read from this application. */

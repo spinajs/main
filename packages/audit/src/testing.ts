@@ -13,6 +13,7 @@ let rows: Row[] = [];
 let appends: AuditAppend[] = [];
 let seq = 0;
 let failures = 0;
+let joining = false;
 
 const TESTS: readonly ((e: StoredAuditEvent, f: AuditFilter) => boolean)[] = [(e, f) => f.kinds === undefined || f.kinds.includes(e.kind), (e, f) => f.actions === undefined || f.actions.includes(e.action), (e, f) => f.subject === undefined || (e.subject?.type === f.subject.type && e.subject?.id === f.subject.id), (e, f) => f.subjectType === undefined || e.subject?.type === f.subjectType, (e, f) => f.actor === undefined || e.actor === f.actor, (e, f) => f.traceId === undefined || e.traceId === f.traceId, (e, f) => f.afterSeq === undefined || e.seq > f.afterSeq, (e, f) => f.from === undefined || e.at >= f.from, (e, f) => f.to === undefined || e.at <= f.to];
 
@@ -61,12 +62,18 @@ export class MemoryAuditStore extends AuditStore {
     failures = count;
   }
 
-  /** Forgets every event and append, restarts the sequence and drops the failures asked for. */
+  /** Makes `joinsCaller` answer `join`, so confirmed writes are appended in the caller's async context. */
+  static joinCaller(join = true): void {
+    joining = join;
+  }
+
+  /** Forgets every event and append, restarts the sequence and drops the failures and the joining asked for. */
   static clear(): void {
     rows = [];
     appends = [];
     seq = 0;
     failures = 0;
+    joining = false;
   }
 
   static reset(): void {
@@ -81,6 +88,10 @@ export class MemoryAuditStore extends AuditStore {
     appends.push(write);
     for (const event of write.events) rows.push({ trail: write.trail.name, event: { ...event, seq: ++seq, redacted: false } });
     return Promise.resolve();
+  }
+
+  joinsCaller(): boolean {
+    return joining;
   }
 
   reader(): Promise<AuditReader | undefined> {

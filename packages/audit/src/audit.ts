@@ -2,6 +2,7 @@ import { AsyncResource } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { inspect } from 'node:util';
+import { Configuration } from '@spinajs/configuration';
 import { Autoinject, Container, DI, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
@@ -17,7 +18,8 @@ import { auditStore } from './stores.js';
 import { StoreAuditTrail } from './trail.js';
 import { deferredConfig, trailConfig } from './trails.js';
 
-// Confirmed and deferred writes run in this scope, outside the caller's async context. Joined to the caller's
+// Confirmed and deferred writes run in this scope, outside the caller's async context, unless the store joins the
+// caller (AuditStore.joinsCaller) on a confirmed write. Joined to the caller's
 // transaction they would roll back with it, and a flush timer would inherit the transaction of whoever buffered first.
 const DETACHED = new AsyncResource('spinajs.audit');
 
@@ -110,14 +112,19 @@ interface Deadline {
   clear(): void;
 }
 
-function deadline(ms: number): Deadline {
+function deadline(ms: number, mode: 'deferred' | 'confirmed' = 'deferred'): Deadline {
   const controller = new AbortController();
   const expired = new Promise<never>((_resolve, reject) => {
-    controller.signal.addEventListener('abort', () => reject(new AuditWriteFailed(`audit: a deferred write did not finish within ${ms} ms`)), { once: true });
+    controller.signal.addEventListener('abort', () => reject(new AuditWriteFailed(`audit: a ${mode} write did not finish within ${ms} ms`)), { once: true });
   });
   void expired.catch(() => undefined);
   const timer = setTimeout(() => controller.abort(), ms);
   return { signal: controller.signal, expired, clear: () => clearTimeout(timer) };
+}
+
+function confirmTimeoutMs(container: IContainer): number {
+  const value = container.get(Configuration)?.get<unknown>(['audit', 'confirmTimeoutMs']);
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 10000;
 }
 
 /** One per container: it reads `audit.*` and resolves its stores through the lineage of the container that resolved it. */
@@ -153,7 +160,9 @@ export class DefaultAuditService extends AuditService {
     if (events.length === 0) return;
     if (mode === 'transactional') return this.joined(store, trail, events, options.transaction);
     if (mode === 'deferred') return this.defer(trail, store, events, options.connection);
-    await this.confirm(store, trail, events, onFailure, options.connection);
+    // Asked here, still in the caller's async context, which a joined write keeps.
+    const joined = store.joinsCaller?.(trail, options.connection) === true;
+    await this.confirm(store, trail, events, onFailure, options.connection, joined);
   }
 
   trail(name?: string): AuditTrail {
@@ -265,28 +274,43 @@ export class DefaultAuditService extends AuditService {
   }
 
   private wait(key: string, work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[]): void {
-    const settle = (stored: boolean, error?: unknown): void => {
+    const settled: Promise<void> = this.watch(work, trail, events, () => {
       // Released at the ceiling, the target may already be blocked again behind a newer append.
       if (this.late.get(key) === settled) {
         this.late.delete(key);
         this.blocked.delete(key);
       }
-      this.report(stored ? 'warn' : 'error', { error, trail: trail.name, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
-    };
-    const settled: Promise<void> = work.then(
-      () => settle(true),
-      (err: unknown) => settle(false, err),
-    );
+    });
     this.late.set(key, settled);
   }
 
-  private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined): Promise<void> {
+  // Logs once how an append given up on settled; never rejects.
+  private watch(work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[], before?: () => void): Promise<void> {
+    const settle = (stored: boolean, error?: unknown): void => {
+      before?.();
+      this.report(stored ? 'warn' : 'error', { error, trail: trail.name, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
+    };
+    return work.then(
+      () => settle(true),
+      (err: unknown) => settle(false, err),
+    );
+  }
+
+  private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined, joined: boolean): Promise<void> {
+    const limit = deadline(confirmTimeoutMs(this.Container), 'confirmed');
+    const flight = { appending: false };
+    const run = (): Promise<void> => this.attempt(store, trail, events, connection, limit.signal, flight);
+    const work = joined ? run() : DETACHED.runInAsyncScope(run);
     try {
-      await DETACHED.runInAsyncScope(() => this.attempt(store, trail, events, connection));
+      await Promise.race([work, limit.expired]);
     } catch (err) {
+      const late = limit.signal.aborted && flight.appending;
+      if (late) void this.watch(work, trail, events);
       if (err instanceof AuditConfigError) throw err;
-      if (onFailure === 'continue') return this.lost(trail, events, err);
+      if (onFailure === 'continue') return this.lost(trail, events, err, late ? UNCONFIRMED : LOST);
       throw new AuditWriteFailed(`audit: trail ${quoted(trail.name)} could not record ${events.length} event(s) after ${trail.retry.attempts} attempt(s)`, err);
+    } finally {
+      limit.clear();
     }
   }
 

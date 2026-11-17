@@ -36,6 +36,7 @@ export const AUDIT_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    confirmTimeoutMs: positive,
     hashKey: { type: 'object', properties: { secret: { type: ['string', 'null'], minLength: 32 } } },
     deferred: { type: 'object', properties: { flushMs: positive, maxBatch: positive, maxBuffered: positive, timeoutMs: positive, blockCeilingMs: positive } },
   },
