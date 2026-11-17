@@ -74,7 +74,8 @@ function maxRows(): number {
 
 function project(row: CapturedRow | undefined, pk: string, columns: readonly string[] | '*'): CapturedRow | undefined {
   if (row === undefined || columns === '*') return row;
-  return Object.fromEntries([pk, ...columns].filter((c) => c in row).map((c) => [c, row[c]]));
+  const wanted = new Set([pk, ...columns]);
+  return Object.fromEntries(Object.entries(row).filter(([c]) => wanted.has(c)));
 }
 
 function changesOf(before: ReadonlyMap<string, CapturedRow>, after: ReadonlyMap<string, CapturedRow>): RowChange[] {
@@ -104,11 +105,19 @@ function everyRowConflicts(query: InsertQueryBuilder, plan: Plan): boolean {
   return query.Values.every((_, i) => values.some((v) => captureKeyText(v.at(i)) !== undefined));
 }
 
+function refuseAbove(plan: Plan, rows: number, max: number): void {
+  if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.kind} of ${plan.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
+}
+
 async function targetRows(query: QueryBuilder, plan: Plan): Promise<Map<string, CapturedRow>> {
-  if (query instanceof InsertQueryBuilder) return isUpsert(query) ? conflictingRows(query, plan) : new Map<string, CapturedRow>();
-  const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk) : [];
   const max = maxRows();
-  if (keys.length > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.kind} of ${plan.model.name} reaches ${keys.length} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
+  if (query instanceof InsertQueryBuilder) {
+    refuseAbove(plan, query.Values.length, max);
+    return isUpsert(query) ? conflictingRows(query, plan) : new Map<string, CapturedRow>();
+  }
+  // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
+  const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk, max === Infinity ? undefined : max + 1) : [];
+  refuseAbove(plan, keys.length, max);
   return readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys);
 }
 

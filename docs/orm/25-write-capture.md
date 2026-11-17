@@ -66,12 +66,24 @@ The before and after reads are raw `driver.select()` statements, which never lea
 
 ## Limits
 
-`db.WriteCapture.MaxRows` (default `0`, no limit) refuses a captured statement that reaches more rows, before it runs, with `WriteCaptureLimitExceeded`:
+`db.WriteCapture.MaxRows` (default `0`, no limit) refuses a captured statement that reaches more rows, before it runs, with `WriteCaptureLimitExceeded`. For an update or delete the rows are those the key select finds, and the key select reads at most `MaxRows + 1` keys, so the count in the message stops there; for an insert they are the rows it supplies.
 
 ```json
 { "db": { "WriteCapture": { "MaxRows": 10000 } } }
 ```
 
-- Only writes made through the ORM builders are captured. Raw SQL, `TRUNCATE`, `driver.executeOnDb()` and other services that write to the database are not.
 - The model needs a single-column primary key. A captured write of a model with a composite key fails with `write capture: <Model> needs a single-column primary key, it has <n>`.
-- An insert whose keys the driver does not report (a multi-row insert without `RETURNING` on SQLite or MSSQL, an insert builder made without `ModelBase.insert`) reaches the observers with `unknownKeys: true` and no rows. What to do then is the observer's decision.
+- An insert whose keys the driver does not report (a multi-row insert without `RETURNING` on SQLite or MSSQL, an insert split into several statements, an insert builder made without `ModelBase.insert`) reaches the observers with `unknownKeys: true` and no rows. What to do then is the observer's decision.
+- An update that writes the primary key reaches the observers with `after: undefined` for the old key, as if the row were gone, and the row under its new key is not reported. An observer that keys its records by the primary key refuses such updates itself.
+- The key select copies the where clauses the statement has when the capture runs (order 91): those from its creation and from middlewares of a lower order. Restrictions a later middleware adds (the authz access lists, order 100) and the `LIMIT` of a delete are not in it, so it may find rows the statement leaves alone. They reach the observers as unchanged rows and count against `MaxRows`, and a delete then reads them again after the statement.
+- A soft delete of a `@SoftDelete` model is an update of its deleted-at column and reaches the observers as one.
+
+## What the capture does not see
+
+Only statements built on a model reach the capture. It does not see:
+
+- builders without a model: `driver.insert()`, `driver.update()`, `driver.del()`, `insertChunked`, and the rows of a junction table written without a junction model;
+- `RawQuery` statements, `driver.execute()` with a compiled expression, `driver.executeOnDb()`, raw SQL and `TRUNCATE`;
+- schema builders;
+- rows the database changes by itself: foreign-key `ON DELETE CASCADE` or `SET NULL`, and triggers;
+- writes of other services to the same database.

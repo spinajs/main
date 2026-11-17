@@ -2,8 +2,10 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { DateTime } from 'luxon';
 import sinon from 'sinon';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -48,15 +50,44 @@ class CapMember extends ModelBase {
   public Name: string;
 }
 
-const fixture = { writes: [] as CapturedWrite[], transactional: true };
+@Connection('sqlite')
+@Model('cap_pair')
+class CapPair extends ModelBase {
+  @Primary()
+  public A: number;
+
+  @Primary()
+  public B: number;
+
+  public Name: string;
+}
+
+@Connection('sqlite')
+@Model('cap_soft')
+class CapSoft extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+
+  @SoftDelete()
+  public DeletedAt: DateTime;
+}
+
+const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false };
 
 class FixtureObserver extends WriteObserver {
   interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === CapMember ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft].some((m) => query.Model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+  }
+
+  prepare(): void {
+    if (fixture.prepareFails) throw new Error('prepare failed');
   }
 
   async observe(write: CapturedWrite): Promise<void> {
     fixture.writes.push(write);
+    fixture.inTransaction.push(write.driver.CurrentTransaction !== undefined);
   }
 }
 
@@ -207,26 +238,36 @@ describe('write capture on sqlite', function () {
     expect(recorder.writes).to.have.length(0);
   });
 
-  describe('on a model with a unique column', () => {
+  describe('on models of its own', () => {
     before(() => DI.register(FixtureObserver).as(WriteObserver));
 
     after(() => DI.unregister(FixtureObserver));
 
     beforeEach(async () => {
+      const schema = db().Connections.get('sqlite')!.schema();
       // Id is the primary key only, so the upsert of Model.insert conflicts on Email, its one unique column.
-      await db()
-        .Connections.get('sqlite')!
-        .schema()
-        .createTable('cap_member', (t) => {
-          t.int('Id').primaryKey().autoIncrement();
-          t.string('Email').unique();
-          t.string('Name');
-        });
+      await schema.createTable('cap_member', (t) => {
+        t.int('Id').primaryKey().autoIncrement();
+        t.string('Email').unique();
+        t.string('Name');
+      });
+      await schema.createTable('cap_pair', (t) => {
+        t.int('A').notNull().primaryKey();
+        t.int('B').notNull().primaryKey();
+        t.string('Name');
+      });
+      await schema.createTable('cap_soft', (t) => {
+        t.int('Id').primaryKey().autoIncrement();
+        t.string('Name');
+        t.dateTime('DeletedAt');
+      });
       await db().reloadTableInfo();
+      fixture.transactional = true;
+      fixture.prepareFails = false;
       await CapMember.insert({ Email: 'a', Name: 'one' });
       await CapMember.insert({ Email: 'x', Name: 'two' });
       fixture.writes = [];
-      fixture.transactional = true;
+      fixture.inTransaction = [];
     });
 
     it('locks the rows of the key select inside a transaction, and not without one', async () => {
@@ -247,6 +288,81 @@ describe('write capture on sqlite', function () {
 
       expect(locks).to.deep.eq(['update', 'none']);
       expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b', 'c']);
+      expect(fixture.inTransaction).to.deep.eq([true, false]);
+    });
+
+    it('refuses a model with a composite primary key', async () => {
+      await expect(CapPair.insert({ A: 1, B: 2, Name: 'x' })).to.be.rejectedWith(InvalidOperation, 'write capture: CapPair needs a single-column primary key, it has 2');
+      expect(await rows('cap_pair')).to.deep.eq([]);
+    });
+
+    it('hands a soft delete over as an update', async () => {
+      await CapSoft.insert({ Name: 'a' });
+      fixture.writes = [];
+
+      await CapSoft.destroy(1);
+
+      expect(fixture.writes[0].kind).to.eq('update');
+      expect(fixture.writes[0].rows[0].before?.DeletedAt).to.eq(null);
+      expect(fixture.writes[0].rows[0].after?.DeletedAt).to.be.a('string');
+    });
+
+    it('aborts the statement when prepare throws, before any capture read', async () => {
+      fixture.prepareFails = true;
+      const { statements, restore } = captureStatements();
+      try {
+        await expect(CapMember.update({ Name: 'b' }).where('Id', 1)).to.be.rejectedWith('prepare failed');
+      } finally {
+        restore();
+      }
+
+      expect(statements.filter((s) => s.expression.includes('cap_member'))).to.deep.eq([]);
+      expect(fixture.writes).to.deep.eq([]);
+    });
+
+    it("observes an update inside the caller's transaction, which the caller then rolls back", async () => {
+      const driver = db().Connections.get('sqlite')!;
+      await expect(
+        driver.transaction(async () => {
+          await CapMember.update({ Name: 'b' }).where('Id', 1);
+          throw new Error('roll back');
+        }),
+      ).to.be.rejectedWith('roll back');
+
+      expect(fixture.inTransaction).to.deep.eq([true]);
+      expect(fixture.writes[0].rows[0].after?.Name).to.eq('b');
+      expect((await rows<{ Name: string }>('cap_member')).map((r) => r.Name)).to.deep.eq(['one', 'two']);
+    });
+
+    it('skips the after read of a delete that removed every row it reached', async () => {
+      const { statements, restore } = captureStatements();
+      try {
+        await CapMember.destroy(1);
+      } finally {
+        restore();
+      }
+
+      // key select + before read
+      expect(selectsOn(statements, 'cap_member')).to.eq(2);
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '1', before: { Id: 1, Email: 'a', Name: 'one' }, after: undefined }]);
+    });
+
+    it('bounds the key select by db.WriteCapture.MaxRows and refuses an insert of more rows', async () => {
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 1);
+      const { statements, restore } = captureStatements();
+      try {
+        await expect(CapMember.update({ Name: 'c' }).where('Id', '>', 0)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an update of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+        await expect(CapMember.insert([{ Email: 'p', Name: 'p' }, { Email: 'q', Name: 'q' }])).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an insert of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      } finally {
+        restore();
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      const selects = statements.filter((s) => s.context === QueryContext.Select).map((s) => s.expression);
+      expect(selects).to.have.length(1);
+      expect(selects[0]).to.match(/LIMIT/i);
+      expect(await rows('cap_member')).to.have.length(2);
     });
 
     it('reports the row an upsert updates through a unique column as an update', async () => {

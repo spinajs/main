@@ -6,7 +6,7 @@ import type { OrmDriver } from '../driver.js';
 import { findColumn } from '../helpers.js';
 import type { ModelBase } from '../model.js';
 import type { CapturedRow } from './contracts.js';
-import { captureKeyText } from './keys.js';
+import { captureKeyText, columnValue } from './keys.js';
 
 const IN_CHUNK = 500;
 
@@ -26,7 +26,7 @@ export async function readRows(driver: OrmDriver, model: Constructor<ModelBase>,
     if (columns !== '*') select.columns([...new Set([pk, ...columns])]);
     const rows = await select.whereIn(by, values.slice(i, i + IN_CHUNK));
     for (const row of rows) {
-      const key = captureKeyText(row[pk]);
+      const key = captureKeyText(columnValue(row, pk));
       if (key !== undefined) out.set(key, row);
     }
   }

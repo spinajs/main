@@ -31,6 +31,9 @@ const uniqueKeys = (values: readonly unknown[]): string[] => [...new Set(values.
 
 const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
+/** The value of a column whose name is only known at run time. */
+export const columnValue = (row: Readonly<Record<string, unknown>>, column: string): unknown => Reflect.get(row, column);
+
 // A dialect whose SELECT has no row lock (MSSQL) throws from rowLock(); SQLite answers '' as its writes lock the database.
 function locksRows(driver: OrmDriver): boolean {
   try {
@@ -43,9 +46,10 @@ function locksRows(driver: OrmDriver): boolean {
 
 /**
  * The keys an update or delete reaches: a select with its where statements, soft-deleted and archived rows included.
- * Inside a transaction it locks those rows, so they keep the values the capture reads until the statement ran.
+ * Inside a transaction it locks those rows, so they keep the values the capture reads until the statement ran. With
+ * `limit`, at most that many keys are read.
  */
-export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, pk: string): Promise<string[]> {
+export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, pk: string, limit?: number): Promise<string[]> {
   const model = query.Model;
   if (!model) throw new InvalidArgument('write capture: the keys of a write are read through its model, and this query has none');
   return captureReadScope().run(async () => {
@@ -60,8 +64,9 @@ export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | Delet
     });
     select.Statements.splice(0, select.Statements.length, ...clones);
     select.columns([pk]);
+    if (limit !== undefined) select.take(limit);
     const rows = await select.asRaw<Record<string, unknown>[]>();
-    return uniqueKeys(rows.map((r) => r[pk]));
+    return uniqueKeys(rows.map((r) => columnValue(r, pk)));
   });
 }
 
@@ -90,7 +95,8 @@ export function insertedKeys(query: InsertQueryBuilder, result: unknown, pk: str
   if (supplied.length === rows && supplied.every((v) => v !== null && v !== undefined)) return uniqueKeys(supplied);
   const r = insertResultOf(result);
   const returning = Array.isArray(r.Returning) ? r.Returning.filter(isRow) : [];
-  if (returning.length === rows && returning.every((x) => x[pk] !== undefined && x[pk] !== null)) return uniqueKeys(returning.map((x) => x[pk]));
+  const returned = returning.map((x) => columnValue(x, pk));
+  if (returned.length === rows && returned.every((v) => v !== undefined && v !== null)) return uniqueKeys(returned);
   return keysFromLastInsertId(query, r, supplied);
 }
 
