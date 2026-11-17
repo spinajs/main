@@ -453,6 +453,37 @@ describe('audit shipping', function () {
       }
     });
 
+    it('starts at a trail the budget stopped before it shipped anything; a narrowed run leaves the rotation alone', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      setTrail('other', { store: 'OutboxAuditStore', sink: 'SlowSink', connection: 'sqlite' });
+      try {
+        // `other` comes first: `trail()` writes `shipped` after it. A run that leaves nothing resets the rotation.
+        const shippedTrail = trail('SlowSink');
+        await shipAudit();
+        await store().append({ trail: shippedTrail, events: [event(1), event(2)] });
+        await store().append({ trail: trailConfig('other'), events: [event(3)] });
+        // `other` finishes past the budget, `shipped` never starts.
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        await store().append({ trail: trailConfig('other'), events: [event(4)] });
+        expect(await shipAudit({ trail: 'other' })).to.deep.eq({ shipped: 1, failed: [] });
+        await store().append({ trail: trailConfig('other'), events: [event(5)] });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        expect(delivered()).to.deep.eq(ids(3, 4, 1));
+      } finally {
+        setTrail('other', undefined);
+      }
+    });
+
+    it('rotates the connections of one trail too', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      const shippedTrail = trail('SlowSink');
+      await shipAudit();
+      for (const d of [sqlite(), db.driver('pglite')]) await store().append({ trail: shippedTrail, events: [event(1), event(2)], connection: d.Options.Name });
+      expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+      expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+      expect(RecordingSink.batches.map((b) => b.source).sort()).to.deep.eq([db.connectionName('pglite'), db.connectionName('sqlite')].sort());
+    });
+
     it('refuses a delivery deadline over two minutes, and limits that outlast the schedule timeout', async () => {
       expect(() => config().set(['audit', 'ship'], { deliverTimeoutMs: 120001 })).to.throw();
       config().set(['audit', 'ship'], { deliverTimeoutMs: 30000, runBudgetMs: 570001 });

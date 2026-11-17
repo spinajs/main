@@ -118,15 +118,17 @@ async function redactBlank(driver: OrmDriver, trail: TrailConfig, blank: readonl
   await removeBlank(driver, blank);
 }
 
-/** True when the run budget ended it with events of the trail left on this connection. */
-async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, progress: { shipped: number }): Promise<boolean> {
+/** How a trail ended on one connection: emptied or at maxBatches, or stopped by the run budget after or before its first batch. */
+type Drained = 'done' | 'interrupted' | 'unstarted';
+
+async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, progress: { shipped: number }): Promise<Drained> {
   const sink = await sinkOf(trail);
   const source = driver.Options.Name;
   // spinajs-orm-ignore ORM102: deliberate batching, one SELECT, one delivery and one DELETE per batch
   for (let i = 0; i < limits.maxBatches; i += 1) {
     const batch = await oldestBuffered(driver, trail.name, limits.batchSize);
     if (batch.length === 0) break;
-    if (Date.now() >= limits.stopAt) return true;
+    if (Date.now() >= limits.stopAt) return i === 0 ? 'unstarted' : 'interrupted';
     await deliverBy(sink, { trail: trail.name, source, events: batch.map((b) => b.event) }, limits.deliverTimeoutMs);
     // Deleted only after the sink returned: a crash in between redelivers these events, which sinks deduplicate on event.id.
     const blank = await removeBuffered(driver, batch);
@@ -135,15 +137,23 @@ async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, 
     progress.shipped += blank.length;
     if (batch.length < limits.batchSize) break;
   }
-  return false;
+  return 'done';
 }
 
-// The trail the last run's budget stopped on: the next run starts after it, so a slow trail cannot take every run's budget.
-let stoppedOn: string | undefined;
+interface Target {
+  readonly trail: TrailConfig;
+  readonly driver: OrmDriver;
+  readonly key: string;
+}
 
-function rotated(trails: readonly TrailConfig[]): TrailConfig[] {
-  const start = trails.findIndex((t) => t.name === stoppedOn) + 1;
-  return [...trails.slice(start), ...trails.slice(0, start)];
+// Where the next full run starts, so a slow trail or connection cannot take every run's budget: at the pair the budget
+// stopped before it shipped anything, or after the pair it interrupted.
+let resume: { readonly key: string; readonly after: boolean } | undefined;
+
+function rotated(targets: readonly Target[]): Target[] {
+  const at = resume === undefined ? -1 : targets.findIndex((t) => t.key === resume?.key);
+  const start = at < 0 ? 0 : at + (resume?.after === true ? 1 : 0);
+  return [...targets.slice(start), ...targets.slice(0, start)];
 }
 
 /** Moves buffered events to each shipping trail's sink; a trail whose delivery fails on a connection, or a connection that cannot be searched, keeps its rows there and is named in `failed`. */
@@ -157,23 +167,20 @@ export async function shipAudit(options: ShipOptions = {}): Promise<ShipResult> 
   });
   const limits = shipLimits();
   const progress = { shipped: 0 };
-  const left: TrailConfig[] = [];
-  const leftOn: string[] = [];
-  for (const trail of rotated(trails)) {
-    for (const driver of drivers) {
-      try {
-        if (await drain(driver, trail, limits, progress)) {
-          left.push(trail);
-          leftOn.push(`${trail.name}@${driver.Options.Name}`);
-        }
-      } catch (err) {
-        failed.push({ trail: trail.name, connection: driver.Options.Name });
-        log().error({ error: err, trail: trail.name, connection: driver.Options.Name }, 'audit: shipping trail ${trail} from connection ${connection} failed, its events stay buffered');
-      }
+  const left: { readonly key: string; readonly after: boolean }[] = [];
+  const targets = trails.flatMap((trail) => drivers.map((driver) => ({ trail, driver, key: `${trail.name}@${driver.Options.Name}` })));
+  for (const { trail, driver, key } of rotated(targets)) {
+    try {
+      const drained = await drain(driver, trail, limits, progress);
+      if (drained !== 'done') left.push({ key, after: drained === 'interrupted' });
+    } catch (err) {
+      failed.push({ trail: trail.name, connection: driver.Options.Name });
+      log().error({ error: err, trail: trail.name, connection: driver.Options.Name }, 'audit: shipping trail ${trail} from connection ${connection} failed, its events stay buffered');
     }
   }
-  stoppedOn = left[0]?.name;
+  // A narrowed run sees only part of the rotation.
+  if (options.trail === undefined && options.connection === undefined) resume = left[0];
   if (left.length === 0) return { shipped: progress.shipped, failed };
-  log().warn({ budget: limits.budgetMs, left: leftOn.join(', ') }, 'audit: the shipping run stopped at audit.ship.runBudgetMs (${budget} ms); left buffered for the next run: ${left}');
+  log().warn({ budget: limits.budgetMs, left: left.map((l) => l.key).join(', ') }, 'audit: the shipping run stopped at audit.ship.runBudgetMs (${budget} ms); left buffered for the next run: ${left}');
   return { shipped: progress.shipped, failed, stoppedEarly: true };
 }
