@@ -6,6 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import type { AuditEvent, AuditWriteOptions, TrailConfig } from './contracts.js';
 import { AuditConfigError } from './errors.js';
 import { isRecord, quoted } from './guards.js';
+import { canonicalJson } from './hash.js';
 
 export const MASKED = '***';
 
@@ -29,10 +30,22 @@ export function auditHash(value: string, container: IContainer = DI.RootContaine
   return createHmac('sha256', key).update(value).digest('base64url');
 }
 
+// A number or bigint hashes as its decimal text, like the same identifier written as a string, so the two stay correlatable.
+function hashText(path: string, v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'bigint') return v.toString();
+  try {
+    return canonicalJson(v);
+  } catch (err) {
+    throw new AuditConfigError(`audit: hash path ${quoted(path)} reached a value that cannot be written as JSON`, undefined, undefined, err);
+  }
+}
+
 const hashed =
-  (container: IContainer): Leaf =>
+  (container: IContainer) =>
+  (path: string): Leaf =>
   (v) =>
-    v === undefined || v === null ? v : auditHash(typeof v === 'string' ? v : JSON.stringify(v), container);
+    v === undefined || v === null ? v : auditHash(hashText(path, v), container);
 
 const united = (trail: readonly string[], call: readonly string[]): readonly string[] => [...new Set([...trail, ...call])];
 
@@ -91,15 +104,15 @@ export function assertMaskPaths(where: string, lists: Lists): void {
 export function maskOf(trail: TrailConfig, options: AuditWriteOptions, container: IContainer = DI.RootContainer): (event: AuditEvent) => AuditEvent {
   const own: Lists = { omit: options.omit ?? [], mask: options.mask ?? [], hash: options.hash ?? [] };
   assertMaskPaths(`a write to trail ${quoted(trail.name)}`, own);
-  const steps: readonly (readonly [readonly string[], Leaf])[] = [
-    [united(trail.omit, own.omit), () => OMIT],
-    [united(trail.mask, own.mask), () => MASKED],
+  const steps: readonly (readonly [readonly string[], (path: string) => Leaf])[] = [
+    [united(trail.omit, own.omit), () => () => OMIT],
+    [united(trail.mask, own.mask), () => () => MASKED],
     [united(trail.hash, own.hash), hashed(container)],
   ];
   return (event) => {
     const out: MutableEvent = { ...event };
-    for (const [paths, leaf] of steps) {
-      for (const path of paths) apply(out, path, leaf);
+    for (const [paths, leafAt] of steps) {
+      for (const path of paths) apply(out, path, leafAt(path));
     }
     return out;
   };

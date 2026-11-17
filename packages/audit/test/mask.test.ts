@@ -82,6 +82,19 @@ describe('audit masking', () => {
     expect(own.data).to.deep.eq({ user: 'a', password: MASKED, pin: '1', email: 'a@b.c' });
   });
 
+  it('hashes a value that is not a string as its canonical JSON', () => {
+    const out = maskOf(trail, { hash: ['data.*'] })(event({ a: { y: 1, x: 2 }, b: { x: 2, y: 1 }, n: 7, s: '7', big: 7n }));
+    expect(out.data.a).to.eq(auditHash('{"x":2,"y":1}'));
+    expect(out.data.b).to.eq(out.data.a);
+    // One identifier written as a number in one place and as text in another stays correlatable.
+    expect([out.data.n, out.data.big]).to.deep.eq([auditHash('7'), auditHash('7')]);
+    expect(out.data.s).to.eq(auditHash('7'));
+
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    expect(() => maskOf(trail, { hash: ['data.loop'] })(event({ loop }))).to.throw(AuditConfigError, 'audit: hash path "data.loop" reached a value that cannot be written as JSON');
+  });
+
   it('refuses a path that would break the event', () => {
     expect(() => maskOf(trail, { omit: ['actor'] })).to.throw(AuditConfigError, 'audit: a write to trail "default": omit path "actor" is not maskable');
     expect(() => maskOf(trail, { mask: ['data'] })).to.throw(AuditConfigError, 'mask path "data" is not maskable');

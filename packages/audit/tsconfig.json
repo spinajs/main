@@ -12,6 +12,7 @@
     { "path": "../di/tsconfig.json" },
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
+    { "path": "../log-common/tsconfig.json" },
     { "path": "../principal/tsconfig.json" },
     { "path": "../testing/tsconfig.json" }
   ]
