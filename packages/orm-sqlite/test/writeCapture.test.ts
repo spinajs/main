@@ -5,7 +5,7 @@ import 'mocha';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -385,6 +385,44 @@ describe('write capture on sqlite', function () {
         { id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: undefined },
         { id: '5', before: undefined, after: { Id: 5, Email: 'x', Name: 'new' } },
       ]);
+    });
+
+    it('reports an upsert that may conflict on a composite unique index as unknown, though its columns are marked unique', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_pair ON cap_member (Name, Email)');
+      // As PostgreSQL and MySQL report a member of a composite unique index.
+      const name = extractModelDescriptor(CapMember)!.Columns.find((c) => c.Name === 'Name')!;
+      name.Unique = true;
+      const { statements, restore } = captureStatements();
+      try {
+        await CapMember.insert({ Email: 'z', Name: 'one' }, InsertBehaviour.InsertOrIgnore);
+      } finally {
+        restore();
+        name.Unique = false;
+      }
+
+      expect(statements.filter((s) => s.context === QueryContext.Select)).to.deep.eq([]);
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
+    });
+
+    it('bounds the rows an upsert reads by db.WriteCapture.MaxRows', async () => {
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 1);
+      try {
+        await expect(CapMember.insert({ Id: 1, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrReplace)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an insert of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect((await rows<{ Name: string }>('cap_member')).map((r) => r.Name)).to.deep.eq(['one', 'two']);
+    });
+
+    it('reports an upsert whose unique value has no key text (a date) as unknown', async () => {
+      const { query } = createQuery(CapMember, InsertQueryBuilder);
+      await query.values({ Email: new Date(Date.UTC(2026, 0, 1)), Name: 'd' }).orIgnore();
+
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
     });
   });
 });

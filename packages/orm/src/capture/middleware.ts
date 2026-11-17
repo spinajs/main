@@ -31,6 +31,8 @@ interface Plan {
 interface Pending {
   readonly plan: Plan;
   readonly before: ReadonlyMap<string, CapturedRow>;
+  /** An upsert's conflict columns, empty for any other statement; undefined when the rows of the upsert cannot be known. */
+  readonly conflict: readonly string[] | undefined;
 }
 
 function kindOf(query: QueryBuilder): CaptureKind | undefined {
@@ -84,24 +86,40 @@ function changesOf(before: ReadonlyMap<string, CapturedRow>, after: ReadonlyMap<
 
 const isUpsert = (query: InsertQueryBuilder): boolean => query.Ignore === true || query.Replace || query.Update;
 
-/** What an upsert may conflict on: the primary key, every unique column and its own conflict target. */
-function conflictColumns(query: InsertQueryBuilder, plan: Plan): string[] {
-  const unique = extractModelDescriptor(plan.model)?.Columns.filter((c) => c.Unique).map((c) => c.Name) ?? [];
-  return [...new Set([plan.pk, ...unique, ...(query.Update ? query.DuplicateQueryBuilder.getColumn() : [])])];
+// The column flag Unique cannot be used: PostgreSQL and MySQL set it on every member of a composite unique index.
+async function uniqueKeys(query: InsertQueryBuilder, plan: Plan): Promise<string[][]> {
+  const live = await query.Driver.tableIndexes?.(plan.table);
+  if (live) return live.filter((i) => i.unique && !i.primary).map((i) => i.columns);
+  return [...(extractModelDescriptor(plan.model)?.Indexes?.values() ?? [])].filter((i) => i.unique).map((i) => i.columns);
+}
+
+const searchable = (query: InsertQueryBuilder, column: string): boolean => query.getColumnValues(column).every((v) => v === null || v === undefined || captureKeyText(v) !== undefined);
+
+/**
+ * What an upsert may conflict on: the primary key, every single-column unique index and its own conflict target.
+ * Undefined when it may conflict on a key over several columns, or supplies a value no key text holds (a date, bytes).
+ */
+async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<string[] | undefined> {
+  const target = query.Update ? query.DuplicateQueryBuilder.getColumn() : [];
+  const keys = [[plan.pk], ...(await uniqueKeys(query, plan)), ...(target.length > 0 ? [target] : [])];
+  if (keys.some((k) => k.length !== 1)) return undefined;
+  const columns = [...new Set(keys.map(([c]) => c))];
+  return columns.every((c) => searchable(query, c)) ? columns : undefined;
 }
 
 /** The rows holding a value the upsert supplies for one of its conflict columns: the rows it may update or replace. */
-async function conflictingRows(query: InsertQueryBuilder, plan: Plan): Promise<Map<string, CapturedRow>> {
+async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: readonly string[]): Promise<Map<string, CapturedRow>> {
   const out = new Map<string, CapturedRow>();
-  for (const column of conflictColumns(query, plan)) {
+  for (const column of columns) {
     for (const [key, row] of await readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column)) out.set(key, row);
   }
+  refuseAbove(plan, out.size, maxRows());
   return out;
 }
 
 /** Every row supplies a conflict value, so the rows the upsert wrote are found by those values after it. */
-function everyRowConflicts(query: InsertQueryBuilder, plan: Plan): boolean {
-  const values = conflictColumns(query, plan).map((c) => query.getColumnValues(c));
+function everyRowConflicts(query: InsertQueryBuilder, columns: readonly string[]): boolean {
+  const values = columns.map((c) => query.getColumnValues(c));
   return query.Values.every((_, i) => values.some((v) => captureKeyText(v.at(i)) !== undefined));
 }
 
@@ -109,11 +127,11 @@ function refuseAbove(plan: Plan, rows: number, max: number): void {
   if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.kind} of ${plan.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
 }
 
-async function targetRows(query: QueryBuilder, plan: Plan): Promise<Map<string, CapturedRow>> {
+async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly string[] | undefined): Promise<Map<string, CapturedRow>> {
   const max = maxRows();
   if (query instanceof InsertQueryBuilder) {
     refuseAbove(plan, query.Values.length, max);
-    return isUpsert(query) ? conflictingRows(query, plan) : new Map<string, CapturedRow>();
+    return conflict && conflict.length > 0 ? conflictingRows(query, plan, conflict) : new Map<string, CapturedRow>();
   }
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
   const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk, max === Infinity ? undefined : max + 1) : [];
@@ -122,11 +140,14 @@ async function targetRows(query: QueryBuilder, plan: Plan): Promise<Map<string, 
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
-async function rowsAfter(query: QueryBuilder, plan: Plan, before: ReadonlyMap<string, CapturedRow>, result: unknown): Promise<ReadonlyMap<string, CapturedRow> | undefined> {
-  if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before, result) ? new Map<string, CapturedRow>() : readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, [...before.keys()]);
-  const upsert = isUpsert(query);
-  const conflicting = upsert ? await conflictingRows(query, plan) : new Map<string, CapturedRow>();
-  if (upsert && everyRowConflicts(query, plan)) return conflicting;
+async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pending, result: unknown): Promise<ReadonlyMap<string, CapturedRow> | undefined> {
+  const byBeforeKeys = () => readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, [...before.keys()]);
+  if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before, result) ? new Map<string, CapturedRow>() : byBeforeKeys();
+  if (conflict === undefined) return undefined;
+  const upsert = conflict.length > 0;
+  // A row found before is read again by its key too: an update of its conflict column would hide it from the values.
+  const conflicting = upsert ? new Map([...(await byBeforeKeys()), ...(await conflictingRows(query, plan, conflict))]) : new Map<string, CapturedRow>();
+  if (upsert && everyRowConflicts(query, conflict)) return conflicting;
   const keys = insertedKeys(query, result, plan.pk);
   if (keys === undefined) return undefined;
   const inserted = await readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys.filter((k) => !conflicting.has(k)));
@@ -160,7 +181,8 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
     const plan = this.plan(query);
     if (!plan) return;
     for (const w of plan.watches) await w.observer.prepare?.(query);
-    this.pending.set(query, { plan, before: await targetRows(query, plan) });
+    const conflict = query instanceof InsertQueryBuilder && isUpsert(query) ? await conflictColumns(query, plan) : [];
+    this.pending.set(query, { plan, conflict, before: await targetRows(query, plan, conflict) });
   }
 
   async afterQueryExecution(query: QueryBuilder, result: unknown): Promise<void> {
@@ -168,7 +190,7 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
     if (!pending) return;
     this.pending.delete(query);
     const { plan, before } = pending;
-    const after = await rowsAfter(query, plan, before, result);
+    const after = await rowsAfter(query, pending, result);
     const changes = after === undefined ? [] : changesOf(before, after);
     for (const { observer, interest } of plan.watches) {
       await observer.observe({
