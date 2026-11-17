@@ -13,6 +13,8 @@ import { Intl } from '@spinajs/intl';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
+import { AUDIT_HTTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
+
 chai.use(chaiHttp);
 
 const httpSrc = (path: string): string => resolve(normalize(join(process.cwd(), '..', 'http', 'src', path)));
@@ -62,13 +64,15 @@ function configurationOf(options: AuditAppOptions): Class<FrameworkConfiguration
         audit: options.audit,
         ...options.sections,
       };
+      // The boot check ran on the loaded configuration, so audit.http is checked here as the boot would check it.
+      this.validateModule(AUDIT_HTTP_CONFIGURATION_SCHEMA);
     }
   };
 }
 
-/** Boots a server on a free port with `controllers` and the given `audit` section. Dispose it in `after`. */
 let current: TestApp | undefined;
 
+/** Boots a server on a free port with `controllers` and the given `audit` section. Dispose it in `after`. */
 export async function auditApp(options: AuditAppOptions): Promise<TestApp> {
   const app = await createTestApp({
     scope: options.scope,

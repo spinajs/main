@@ -485,6 +485,11 @@ describe('Audit on a trail that cannot record', function () {
     expect(await bootFailure({ audit: { trails: TRAILS }, controllers: [NowhereController] })).to.contain('no trail named "nope"');
   });
 
+  it('fails the boot on a misspelt key of audit.http instead of dropping it', async () => {
+    const message = await bootFailure({ audit: { trails: TRAILS, http: { trial: 'admin' } }, http: { routes: { middlewares: ['Audit'] } }, controllers: [PlainController] });
+    expect(message).to.contain('Invalid configuration: audit.http.trial');
+  });
+
   it('names the store of the default trail when no package registered it (@spinajs/audit-orm is not installed)', async () => {
     const message = await bootFailure({ audit: {}, http: { routes: { middlewares: ['Audit'] } }, controllers: [PlainController] });
     expect(message).to.contain('trail "default" names the store "TableAuditStore", and no AuditStore is registered under that name');

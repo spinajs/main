@@ -32,6 +32,6 @@ describe('audit.http.rules patterns', () => {
     expect(ruleFor(rules, 'GET', '/admin/users')?.trail).to.eq('admin');
     expect(ruleFor(rules, 'GET', '/reports')).to.eq(undefined);
     expect(rulesOf(undefined)).to.deep.eq([]);
-    expect(() => rulesOf([{ match: 'DELETE /a' }, { match: 'DELETE' }])).to.throw(AuditConfigError, "audit.http.rules[1]: match must be '<METHOD or *> <path pattern>', and action and trail, when given, a name");
+    expect(() => rulesOf([{ match: 'DELETE /a', trail: 'admin' }, { match: 'DELETE' }])).to.throw(AuditConfigError, "audit.http.rules[1]: match must be '<METHOD or *> <path pattern>', and action and trail, when given, a name");
   });
 });

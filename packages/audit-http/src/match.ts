@@ -38,6 +38,8 @@ export function rulesOf(value: unknown): readonly IAuditRule[] {
     if (!isRule(rule)) {
       throw new AuditConfigError(`audit.http.rules[${index}]: match must be '<METHOD or *> <path pattern>', and action and trail, when given, a name`);
     }
+    // An empty rule would win the first match and hide every later rule from its routes.
+    if (rule.action === undefined && rule.trail === undefined) throw new AuditConfigError(`audit.http.rules[${index}]: a rule sets action, trail or both`);
     return rule;
   });
 }

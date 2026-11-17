@@ -58,6 +58,9 @@ type Res = IMiddlewareContext['res'];
 
 const HTTP_METHOD_TYPES: ReadonlySet<string> = new Set([RouteType.GET, RouteType.POST, RouteType.PUT, RouteType.PATCH, RouteType.DELETE, RouteType.HEAD]);
 
+// A HEAD request runs the action of the GET route it matched, so the route's method decides whether it is audited.
+const methodOf = (req: IMiddlewareContext['req'], route: IRoute | undefined): string => (route && HTTP_METHOD_TYPES.has(route.Type) ? route.Type : req.method).toUpperCase();
+
 function stringArray(value: unknown, name: string): string[] | undefined {
   if (value !== undefined && !isStringArray(value)) {
     throw new InvalidOption(`Audit: ${name} must be an array of strings`);
@@ -165,9 +168,9 @@ export class Audit extends RouteMiddleware {
 
   /** On a rejecting trail an attempt that cannot be recorded rejects: no policy and no action runs, and the client gets 503 (`AuditUnavailable`). */
   public override onBefore(ctx: IMiddlewareContext): void | Promise<void> {
-    const { req, res, storage } = ctx;
+    const { req, res, storage, route } = ctx;
     const settings = this.Settings;
-    if (settings.methods && !settings.methods.has(req.method.toUpperCase())) return;
+    if (settings.methods && !settings.methods.has(methodOf(req, route))) return;
 
     const state = this.capture(req, settings);
     this.states.set(res, state);
