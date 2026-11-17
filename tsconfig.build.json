@@ -287,6 +287,9 @@
       "path": "packages/authz-queue/tsconfig.build.json"
     },
     {
+      "path": "packages/authz-workflow/tsconfig.build.json"
+    },
+    {
       "path": "packages/authz-fs/tsconfig.build.json"
     },
     {
