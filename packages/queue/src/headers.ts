@@ -1,5 +1,5 @@
-/** Header names every transport writes and reads the same way. `traceparent` is reserved for tracing. */
-export const QueueHeaders = { MessageId: 'x-spinajs-message-id', RetryCount: 'x-retry-count', Error: 'x-error', OriginalDestination: 'x-original-destination', TraceParent: 'traceparent' } as const;
+/** Header names every transport writes and reads the same way. `traceparent` is reserved for tracing; `x-spinajs-tenant` is written and read by a `QueueMessageHook`. */
+export const QueueHeaders = { MessageId: 'x-spinajs-message-id', RetryCount: 'x-retry-count', Error: 'x-error', OriginalDestination: 'x-original-destination', TraceParent: 'traceparent', Tenant: 'x-spinajs-tenant' } as const;
 
 export type QueueHeaderName = (typeof QueueHeaders)[keyof typeof QueueHeaders];
 
