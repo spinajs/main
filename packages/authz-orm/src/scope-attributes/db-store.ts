@@ -56,6 +56,14 @@ export function attributeChangeKey(ref: ResourceRef, path: string): string {
   return createHash('sha256').update(`${resourceKey(ref)}\u0000${path}`).digest('hex');
 }
 
+/** The node's leaves as the changelog logs them, read on the primary: the current state replay rebuilds them from. */
+export async function loggedLeaves(ref: ResourceRef): Promise<Array<{ scope: string; path: string; value?: ScopeAttributeLeaf }>> {
+  const key = keyOf(ref);
+  if (!fits(key)) return [];
+  const rows = await selectFrom(ScopeAttributeRecord).columns(['path', 'value_json']).where(key).onPrimary().asRaw<StoredLeaf[]>();
+  return rows.map((r) => loggedLeaf(resourceKey(ref), r));
+}
+
 /** One change per leaf a write touched: a removed path (and one a set path drops), a replaced path, a fresh one. */
 function leafChanges(ref: ResourceRef, stored: ReadonlyMap<string, StoredLeaf>, removed: readonly string[], set: readonly (readonly [string, ScopeAttributeLeaf])[], actor: string): ChangeEntry[] {
   const scope = resourceKey(ref);

@@ -1,6 +1,6 @@
 import { AuthzConfigError, DecisionReplay, PolicyHashSource, ReplayBusy, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport, ResourceRef } from '@spinajs/authz';
-import { HistoryContributors, StoredPolicySplicers, replayDecision, replayVerdict } from '@spinajs/authz-ir';
+import { AttributeHistoryContributors, HistoryContributors, StoredPolicySplicers, replayDecision, replayVerdict } from '@spinajs/authz-ir';
 import type { ReplayDeps } from '@spinajs/authz-ir';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 
@@ -24,9 +24,17 @@ function contributors(): HistoryContributors[] {
   return all;
 }
 
+function attributeContributor(): AttributeHistoryContributors | undefined {
+  const all = DI.resolve(Array.ofType(AttributeHistoryContributors)).filter((c) => c instanceof AttributeHistoryContributors);
+  if (all.length > 1) throw new AuthzConfigError('authz replay: two history contributors are registered for the attribute changelog kind');
+  return all.at(0);
+}
+
 async function depsOf(config: ReplayConfig): Promise<ReplayDeps> {
   const hashes = DI.check(PolicyHashSource) ? await DI.resolve(PolicyHashSource) : undefined;
+  const attributes = attributeContributor();
   return {
+    ...(attributes === undefined ? {} : { attributes }),
     log: changeLog(),
     // A hash readPolicyVersion would refuse names no stored version.
     loadPolicy: async (h) => (POLICY_HASH.test(h) ? (await readPolicyVersion(h))?.ir : undefined),

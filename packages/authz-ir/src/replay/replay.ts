@@ -5,7 +5,8 @@ import { policyHash } from '../canonical.js';
 import { IREvaluator } from '../eval/evaluator.js';
 import type { ExplainNode, Truth } from '../eval/explain.js';
 import type { PolicyIR } from '../ir.js';
-import type { HistoryContributor, StoredPolicySplicer } from './contributor.js';
+import { capturedNodes, checkCapturedState } from './attributes.js';
+import type { AttributeHistoryContributor, HistoryContributor, StoredPolicySplicer } from './contributor.js';
 import { conditionReads, instantOf, policyProblems, recordProblems, replayContext, replayWindow } from './context.js';
 import type { ReplayContext } from './context.js';
 import { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
@@ -32,6 +33,8 @@ export interface ReplayDeps {
   loadPolicy(policyHash: string): Promise<string | undefined>;
   contributors: readonly HistoryContributor[];
   splicers: readonly StoredPolicySplicer[];
+  /** Without it the captured-state check of rule 6 does not run, and the report lists no `attribute` read. */
+  attributes?: AttributeHistoryContributor;
   limits: ReplayLimits;
   /** `PolicyHashSource.policyHash(domain)`, for `ReplayReport.currentPolicy`. */
   currentPolicyHash?(domain: string): string | undefined;
@@ -110,7 +113,8 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
 
   const t = instantOf(record);
   const limits = deps.limits;
-  const kinds = [...new Set([...deps.contributors.map((c) => c.kind), ...deps.splicers.map((s) => s.kind)])];
+  const attributes = attributeCheck(record, deps);
+  const kinds = [...new Set([...deps.contributors, ...deps.splicers, ...[attributes].filter((a) => a !== undefined)].map((c) => c.kind))];
   const historyLimits = { maxChanges: o.maxChanges, maxKeys: limits.maxKeys, window: replayWindow(record, limits), ...(limits.precisionMs === undefined ? {} : { precisionMs: limits.precisionMs }), ...(deps.now === undefined ? {} : { now: deps.now }) };
   const history = (run.history = await ReplayHistory.load(deps.log, t, kinds, historyLimits, o.signal));
   const binding = Object.entries(ir.permissions).find(([p]) => p === record.permission)?.[1];
@@ -132,7 +136,24 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
     truth = 'unknown';
     unknowns.push({ input: 'principal-facts', reason: 'the record has no principal facts: its companions are unknown' });
   }
-  return { blocked: [], truth, unknowns: unique(unknowns), tree: result.tree, reads: run.reads, history, ...(record.inputs === undefined ? {} : { inputsHash: { recorded: record.inputsHash, replayed: rehash(record, record.inputs) } }) };
+  // After the unknowns: an attribute gap leaves the truth as it is.
+  const evidence = await capturedEvidence(record, truth === 'unknown' ? undefined : attributes, t, history, run);
+  return { blocked: [], truth, unknowns: unique(unknowns), tree: result.tree, reads: run.reads, history, ...evidence };
+}
+
+/** The attribute contributor, when the record captured scope nodes for rule 6 to check. */
+const attributeCheck = (record: DecisionRecord, deps: ReplayDeps): AttributeHistoryContributor | undefined =>
+  deps.attributes !== undefined && record.inputs !== undefined && capturedNodes(record.inputs).length > 0 ? deps.attributes : undefined;
+
+/** Rule 6's evidence, with captured inputs only: the recomputed inputs hash, and the captured scope attributes at T. */
+async function capturedEvidence(record: DecisionRecord, attributes: AttributeHistoryContributor | undefined, t: Date, history: ReplayHistory, run: Run): Promise<Pick<Outcome, 'inputsHash' | 'captured'>> {
+  const inputs = record.inputs;
+  if (inputs === undefined) return {};
+  const inputsHash = { recorded: record.inputsHash, replayed: rehash(record, inputs) };
+  if (attributes === undefined) return { inputsHash };
+  const check = await checkCapturedState(t, inputs, attributes, history);
+  run.reads.push(...check.reads);
+  return { inputsHash, captured: check.divergence };
 }
 
 async function policyAt(record: DecisionRecord, deps: ReplayDeps): Promise<PolicyIR | ReplayMissing> {
