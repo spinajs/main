@@ -2,7 +2,7 @@ import { Injectable } from '@spinajs/di';
 import { AuditConfigError, audit } from '@spinajs/audit';
 import type { AuditInput } from '@spinajs/audit';
 import { QueryMiddleware, SelectQueryBuilder, WhereStatement, extractModelDescriptor, pkColumns } from '@spinajs/orm';
-import type { IModelDescriptor, QueryBuilder } from '@spinajs/orm';
+import type { QueryBuilder } from '@spinajs/orm';
 
 import { auditSubjectId } from '../model-audit.js';
 import { auditReadsOf, hasAuditReads } from './rules.js';
@@ -136,7 +136,8 @@ export class ReadAuditMiddleware extends QueryMiddleware {
   // After the authz hooks (90 to 100), so a select they refuse writes no record; before intl-orm (1000).
   public override order = 200;
 
-  private readonly checked = new Set<string>();
+  // By rule and table: two rules may meet one table, and one rule several tables.
+  private readonly checked = new WeakMap<ReadRule, Set<string>>();
 
   public afterQueryCreation(_query: QueryBuilder): void {}
 
@@ -152,7 +153,7 @@ export class ReadAuditMiddleware extends QueryMiddleware {
     const { sources, outputs } = selectListOf(query, root);
     for (const source of sources) {
       for (const rule of rulesOf(source)) {
-        this.verify(rule, source.descriptor);
+        this.verify(rule, source);
         const disclosure = disclosed(source, rule);
         if (disclosure) {
           await this.write(rule, eventsOf(rule, source, disclosure, rows, query, outputs));
@@ -161,14 +162,19 @@ export class ReadAuditMiddleware extends QueryMiddleware {
     }
   }
 
-  private verify(rule: ReadRule, descriptor: IModelDescriptor): void {
-    if (!rule.columns || this.checked.has(descriptor.Name)) return;
+  private verify(rule: ReadRule, source: ReadSource): void {
+    const table = lc(source.descriptor.TableName);
+    const checked = this.checked.get(rule) ?? new Set<string>();
+    if (!rule.columns || checked.has(table)) return;
 
-    const unknown = rule.columns.filter((c) => !descriptor.Columns.some((d) => lc(d.Name) === lc(c)));
+    // A model of the table may declare fewer columns than the table has: any of them knowing the column is enough.
+    const known = [source.descriptor, ...source.models.map((m) => extractModelDescriptor(m))].flatMap((d) => d?.Columns ?? []);
+    const unknown = rule.columns.filter((c) => !known.some((d) => lc(d.Name) === lc(c)));
     if (unknown.length > 0) {
-      throw new AuditConfigError(`@AuditReads on ${descriptor.Name}: ${descriptor.TableName} has no column ${unknown.join(', ')}`);
+      throw new AuditConfigError(`@AuditReads on ${rule.model}: ${source.descriptor.TableName} has no column ${unknown.join(', ')}`);
     }
-    this.checked.add(descriptor.Name);
+    checked.add(table);
+    this.checked.set(rule, checked);
   }
 
   /** Confirmed: written and acknowledged before the rows go on. On a 'reject' rule a failed write throws AuditWriteFailed, which aborts the select. */

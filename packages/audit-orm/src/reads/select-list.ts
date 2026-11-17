@@ -23,19 +23,31 @@ export interface ReadSource {
   opaque: boolean;
 }
 
-function descriptorsOn(driver: OrmDriver): { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[] {
-  const found: { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[] = [];
-  for (const { type } of DI.get(Orm)?.Models ?? []) {
-    const descriptor = extractModelDescriptor(type);
-    if (descriptor && descriptor.Driver === driver) found.push({ type, descriptor });
-  }
+interface ModelOn {
+  readonly type: Constructor<ModelBase>;
+  readonly descriptor: IModelDescriptor;
+}
 
-  return found;
+// Built once per connection and model count: descriptors are updated in place when table info is read again.
+const onDriver = new WeakMap<OrmDriver, { readonly count: number; readonly models: readonly ModelOn[] }>();
+
+function descriptorsOn(driver: OrmDriver): readonly ModelOn[] {
+  const all = DI.get(Orm)?.Models ?? [];
+  const cached = onDriver.get(driver);
+  if (cached?.count === all.length) return cached.models;
+
+  const models: ModelOn[] = [];
+  for (const { type } of all) {
+    const descriptor = extractModelDescriptor(type);
+    if (descriptor && descriptor.Driver === driver) models.push({ type, descriptor });
+  }
+  onDriver.set(driver, { count: all.length, models });
+  return models;
 }
 
 class Sources {
   public readonly sources = new Map<string, ReadSource>();
-  private readonly models: { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[];
+  private readonly models: readonly ModelOn[];
   /** The table each join of the query is read under, by its alias; a raw join names none. */
   private readonly joins = new Map<string, IModelDescriptor>();
   private readonly joined: boolean;

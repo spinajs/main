@@ -98,12 +98,13 @@ interface Models {
   readonly Visit: typeof Visit;
 }
 
-const MODELS: Record<Dialect, Models> = {
-  sqlite: { Patient, Visit },
-  pglite: { Patient: PglitePatient, Visit: PgliteVisit },
-  postgres: { Patient: PostgresPatient, Visit: PostgresVisit },
-  mysql: { Patient: MysqlPatient, Visit: MysqlVisit },
-};
+const SQLITE: Models = { Patient, Visit };
+const MODELS = new Map<Dialect, Models>([
+  ['sqlite', SQLITE],
+  ['pglite', { Patient: PglitePatient, Visit: PgliteVisit }],
+  ['postgres', { Patient: PostgresPatient, Visit: PostgresVisit }],
+  ['mysql', { Patient: MysqlPatient, Visit: MysqlVisit }],
+]);
 
 class Keyless extends ModelBase<Keyless> {
   public Name: string;
@@ -154,6 +155,16 @@ class Badge extends ModelBase<Badge> {
   public Id: Buffer;
 
   public Holder: string;
+}
+
+// A second model of the audited table, with no rule of its own.
+@Connection('sqlite')
+@Model('patient')
+class PatientCard extends ModelBase<PatientCard> {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
 }
 
 @Connection('sqlite')
@@ -281,14 +292,14 @@ describe('read auditing', function () {
     expect(() => registerAuditReads(Keyless, { mode: 'query' })).to.not.throw();
   });
 
-  for (const dialect of DIALECTS) {
+  for (const [dialect, models] of MODELS) {
     describe(dialect, () => {
-      const { Patient, Visit } = MODELS[dialect];
+      const { Patient, Visit } = models;
       const searched = () => audit().trail(searches(dialect)).since(0);
 
       before(async function () {
         if (!db.has(dialect)) this.skip();
-        await seed(db, dialect, MODELS[dialect]);
+        await seed(db, dialect, models);
       });
 
       beforeEach(async () => {
@@ -510,6 +521,13 @@ describe('read auditing', function () {
         expect(await recorded('restricted')).to.have.length(3);
       });
 
+      it('rejects a select whose second record fails after its first was written', async () => {
+        MemoryAuditStore.failNext(2);
+
+        await expect(Visit.query().populate('Patient')).to.be.rejectedWith(AuditWriteFailed);
+        expect(await searched()).to.have.length(1);
+      });
+
       it('rejects the select when the record cannot be written, after the retries', async () => {
         MemoryAuditStore.failNext(2);
 
@@ -566,7 +584,7 @@ describe('read auditing', function () {
   describe('relations, keys and limits (sqlite)', () => {
     before(async () => {
       const driver = db.driver('sqlite');
-      await seed(db, 'sqlite', MODELS.sqlite);
+      await seed(db, 'sqlite', SQLITE);
       await createTables(driver, {
         ward: (t) => {
           t.int('Id').primaryKey();
@@ -601,7 +619,7 @@ describe('read auditing', function () {
       await db.migrate('sqlite', searches('sqlite'));
       await new NamedTrail('audit_wedge').up(db.driver('wedge'));
       await new NamedTrail('audit_held').up(db.driver('wedge'));
-      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart, Clinic, Appointment] });
+      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart, Clinic, Appointment, PatientCard] });
 
       await Ward.insert({ Id: 4, Code: 'W4' });
       await Ward.insert({ Id: 5, Code: 'W5' });
@@ -628,7 +646,7 @@ describe('read auditing', function () {
     });
 
     it('audits relations loaded through their accessors', async () => {
-      const visit = await MODELS.sqlite.Visit.get(1);
+      const visit = await SQLITE.Visit.get(1);
       const ward = await Ward.get(4);
       resetTrail();
 
@@ -652,7 +670,7 @@ describe('read auditing', function () {
     });
 
     it('counts an expression for every table of the query, and of no other', async () => {
-      await MODELS.sqlite.Visit.query()
+      await SQLITE.Visit.query()
         .leftJoin('Patient', function () {
           this.where('Id', '>', 0);
         })
@@ -660,6 +678,24 @@ describe('read auditing', function () {
         .asRaw();
 
       expect((await recorded('restricted')).map((e) => [e.action, e.data])).to.deep.eq([['patient.read', { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+    });
+
+    it('applies a rule to every model of its table, and to a select from() that table', async () => {
+      await PatientCard.query().where('Id', 1).asRaw();
+      await SQLITE.Visit.query().from('patient').where('Id', 2).asRaw();
+
+      expect((await of('patient')).map((e) => [e.subject?.id, e.data])).to.deep.eq([
+        ['1', { columns: ['Ssn'] }],
+        ['2', { columns: ['Ssn'] }],
+      ]);
+    });
+
+    it('reads an aggregate next to a raw join from every table of the connection that has the column', async () => {
+      const raw = SQLITE.Visit.query().leftJoin(RawQuery.create('patient ON patient.Id = visit.patient_id'));
+      Reflect.apply(raw.max.bind(raw), undefined, ['Ssn', 'S']);
+      await raw.asRaw();
+
+      expect((await of('patient')).map((e) => [e.subject?.id, e.data])).to.deep.eq([[undefined, { columns: ['Ssn'], rows: 1, filter: [], keyless: true }]]);
     });
 
     it('reads a join under the alias of its model, not as the relation that alias also names', async () => {
@@ -694,10 +730,12 @@ describe('read auditing', function () {
       await held;
     });
 
-    it('fails the first audited select of a rule that names a column the table lacks', async () => {
+    it('fails the first audited select of each rule that names a column its table lacks', async () => {
       registerAuditReads(Doctor, { trail: 'restricted', mode: 'query', columns: ['Nope'] });
 
       await expect(Doctor.all()).to.be.rejectedWith(AuditConfigError, '@AuditReads on Doctor: doctor has no column Nope');
+      registerAuditReads(PatientCard, { trail: 'restricted', mode: 'query', columns: ['Nope'] });
+      await expect(SQLITE.Patient.query()).to.be.rejectedWith(AuditConfigError, '@AuditReads on PatientCard: patient has no column Nope');
     });
   });
 });
