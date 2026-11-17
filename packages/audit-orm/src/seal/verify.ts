@@ -58,7 +58,7 @@ function lateRows(rows: readonly Checked[], seal: AuditSeal): Set<number> | unde
     if ((budget -= 1) < 0) return undefined;
     const late = new Set(rows.filter((_, i) => left.includes(i)).map((r) => r.seq));
     const digests = rows.filter((r) => !late.has(r.seq)).map((r) => r.digest);
-    if (sealHash(seal.previousHash, digests) === seal.hash) return late;
+    if (sealHash(seal.previousHash, seal.sealedAt, digests) === seal.hash) return late;
   }
   return undefined;
 }
@@ -98,6 +98,7 @@ async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, afte
     late.size === 0 &&
     sealHash(
       seal.previousHash,
+      seal.sealedAt,
       sealed.map((r) => r.digest),
     ) !== seal.hash
   )
