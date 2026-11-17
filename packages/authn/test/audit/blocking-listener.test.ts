@@ -323,4 +323,31 @@ describe('blocking listeners', function () {
     );
     assert.strictEqual(await p.sessions.restore(started.session.id), null);
   });
+
+  it('an impersonation session that cannot be revoked after a stopped start is logged, and the 503 stands', async () => {
+    const gate = new Gate(true);
+    gate.failOn = 'impersonation.start';
+    const { p, svc, admin, target } = await bootImpersonation(gate);
+    // The first revoke ends the admin's own session; the second is the one of the stopped start.
+    sinon.stub(p.sessions, 'revoke').callThrough().onSecondCall().rejects(new RangeError('store gone'));
+
+    const failure = await failureOf(svc.start(admin, target, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.ok(TestLog.of('authn-audit').some((e) => e.message.includes('impersonation') && e.message.includes('could not be revoked (RangeError)')));
+  });
+
+  it('an impersonator session that cannot be revoked after a stopped end is logged, and the 503 stands', async () => {
+    const gate = new Gate(true);
+    const { p, svc, admin, target } = await bootImpersonation(gate);
+    const started = await svc.start(admin, target, ctx());
+    assert.ok(started.ok, 'impersonation starts');
+    gate.failOn = 'impersonation.end';
+    sinon.stub(p.sessions, 'revoke').callThrough().onSecondCall().rejects(new RangeError('store gone'));
+
+    const failure = await failureOf(svc.stop(started.session, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.ok(TestLog.of('authn-audit').some((e) => e.message.includes('impersonation') && e.message.includes('could not be revoked (RangeError)')));
+  });
 });

@@ -2,6 +2,7 @@ import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Hooks } from '@spinajs/hooks';
+import { Log, Logger } from '@spinajs/log-common';
 import { TimeSpan, isFiniteNumber, isNonEmptyString, isPlainObject, isValidDate } from '@spinajs/util';
 
 import { AuthnListenerFailed } from '../contracts/audit.js';
@@ -102,6 +103,9 @@ export class AuthnImpersonationService extends AsyncService {
   @Autoinject(AuthnAudit)
   protected Auditor: AuthnAudit;
 
+  @Logger('authn-audit')
+  protected AuditLog: Log;
+
   @Autoinject(Hooks)
   protected Hooks: Hooks;
 
@@ -175,7 +179,7 @@ export class AuthnImpersonationService extends AsyncService {
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.impersonation.start');
       if (stopped) return this.refuseStart(ctx, stopped.reason, about, stopped.data);
-      if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
+      if (issued) await this.revokeIssued(issued);
       if (err instanceof AuthnListenerFailed) return this.stopped(ctx, 'impersonation.start', about, err);
       return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
@@ -213,10 +217,15 @@ export class AuthnImpersonationService extends AsyncService {
       if (!this.Hooks.has('authn.impersonation.stop')) return await swap();
       return await this.Hooks.run('authn.impersonation.stop', { session: hookView(session), ctx: hookView(ctx) }, swap, { mutable: [], refusable: false });
     } catch (err) {
-      if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
+      if (issued) await this.revokeIssued(issued);
       if (err instanceof AuthnListenerFailed) return this.stopped(ctx, 'impersonation.end', about, err);
       return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
+  }
+
+  // No client holds the session, which lives until it expires; the error that led here is answered as it is.
+  private async revokeIssued(issued: SessionHandle): Promise<void> {
+    await this.Sessions.revoke(issued).catch((revokeErr: unknown) => this.AuditLog.warn({ errorClass: errorClass(revokeErr) }, 'authn: a session issued by an impersonation that did not complete could not be revoked (${errorClass})'));
   }
 
   private async startRefusal(stored: Session, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<Denial | null> {

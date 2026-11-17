@@ -60,7 +60,7 @@ What can be stopped: every success event an emitter awaits through `publishIn` o
 
 Operations that do not issue a session are not undone. A password change, a token creation or a logout whose success event is stopped rejects with 503 after its effect is committed: the state has changed, and the record is missing, which is what the 503 reports. A stopped `token.create`, `mfa.enrol` or `key.register` also loses the one-time secret the client would have received: the token is stored and nobody holds it, the recovery codes are never shown. A stopped password change in `@spinajs/authn-local` has already rotated the session, so the rotated session stays alive, nobody holds it, and the user is logged out.
 
-Latency: a login publishes two success events one after the other, so each blocking listener is awaited twice, and a listener that does not answer costs `authn.audit.listenerTimeoutMs` before the login is refused.
+Latency: a login publishes two success events one after the other, so each blocking listener is awaited twice. A listener that does not answer costs `authn.audit.listenerTimeoutMs` on the stopped event, and as much again on each event that is then published again as a failure, one after the other: a login stopped on `login` takes up to twice the timeout (4 s by default), one stopped on `session.issue` up to three times (6 s).
 
 ## The event
 
