@@ -1,6 +1,6 @@
 # Transactional outbox
 
-The outbox is being built up over several releases of 4.x. What works so far: the `queue.outbox` configuration is validated at boot, and with `queue.outbox.enabled` set to `true` the `queue_outbox` table is created on every database that `queue.outbox.connections` names, and `emit()` inside a transaction writes a row to it instead of publishing ([What `emit()` does](#what-emit-does)). Nothing publishes the rows yet: the relay arrives in a later release.
+The outbox is being built up over several releases of 4.x. What works so far: the `queue.outbox` configuration is validated at boot, and with `queue.outbox.enabled` set to `true` the `queue_outbox` table is created on every database that `queue.outbox.connections` names, and `emit()` inside a transaction writes a row to it instead of publishing ([What `emit()` does](#what-emit-does)), and `OutboxRelay.tick()` publishes the committed rows ([The relay](#the-relay)). Nothing calls `tick()` on a timer yet: the loop that drives it arrives in a later release.
 
 ## Configuration
 
@@ -47,7 +47,7 @@ A duration (`maxAge`, `retention`, `backoff.delay`, `backoff.maxDelay`) is a who
 
 **Unknown keys under `queue.outbox` are dropped by the configuration validator, without an error or a log line.** A misspelt key therefore has no effect: check the spelling against the table above when a setting seems to be ignored.
 
-Outbox times are database time, which `@spinajs/durable` reads from the ORM connection `default`: an app that enables the outbox sets `db.DefaultConnection`.
+Outbox times are database time, which `@spinajs/durable` reads from the ORM connection `default`: an app that enables the outbox sets `db.DefaultConnection`. The writer reads the database clock once, when the queue service resolves (or at the first emit through the outbox), and the relay reads it again on every pass.
 
 ## What `emit()` does
 
@@ -79,6 +79,36 @@ The row is written with insert-or-ignore, so a `MessageId` the table already hol
 The throw is an ordinary rejection of `emit()`: nothing was written, and on Postgres the transaction is still usable, because the ignored insert raised no error. `MessageId` is compared exactly: `'Order-1'` and `'order-1'` are two ids on every database. MySQL and SQL Server compare two ids that differ only in trailing spaces (`'a1'` and `'a1 '`) as equal; such an emit throws `OutboxMessageIdConflict` too, and is not accepted as a repeat.
 
 `QueueService.publishDirect(message, { skip, published })` sends to the brokers now and bypasses the outbox: it skips the queue connections listed in `skip` and pushes every connection that confirmed the message to `published`. The relay publishes rows through it.
+
+## The relay
+
+`OutboxRelay` publishes the rows. One `tick()` makes one pass over every connection in `queue.outbox.connections`, one connection after the other:
+
+1. It reads up to `batchSize` due rows, in `Id` order: `pending`, `AvailableAt` reached, and either unclaimed or with a claim that ended.
+2. It claims each row it read, one statement per row. A claim is a compare-and-set on the row's `ClaimEpoch` as it was read: it sets `ClaimedBy` to the relay's `replicaId`, `ClaimedUntil` to now plus `claimTtl`, and moves the epoch by one. A row that another relay claimed since it was read is lost to this one, even if that relay has let it go again.
+3. It publishes each claimed row through `QueueService.publishDirect`, skipping the queue connections in the row's `PublishedTo`, and then marks it `published` with the connections that confirmed it in `PublishedTo`.
+
+Concurrent calls of `tick()` on one relay share the pass in progress. Several relays, in one process (one per `replicaId`, `DI.resolve(OutboxRelay, [{ replicaId }])`) or in several, drain the same table in parallel: each row goes to the relay whose claim won.
+
+```ts
+import { DI } from '@spinajs/di';
+import { OutboxRelay } from '@spinajs/queue';
+
+const relay = await DI.resolve(OutboxRelay, [{ replicaId: 'reports-1', autoStart: false }]);
+await relay.tick();
+```
+
+**Fenced writes.** The mark, and the release of a row, change the row only while it still carries the relay's `ClaimedBy` and the epoch of its claim. A relay whose claim ended and was taken over by another relay can still finish a publish it had started, but it can no longer mark or release the row: it logs a warning and leaves the row to its new owner.
+
+**The stop rule.** Before each publish, the relay checks that the claim still covers it: when now plus `maxPublishMs` is past the claim's end, it releases the rows it has not reached yet, unpublished, and ends the pass on that connection. The next pass claims them again. `maxPublishMs` is an estimate the stop rule uses, not a timeout: a single publish that takes longer than its claim has left is published a second time by another relay once the claim ends. `claimTtl` must therefore exceed the transport's worst confirm time.
+
+**A failed publish** releases the row, and the pass goes on with the next one; the row is published again by a later pass. A crash (an error with `crash: true`, which stands for a dead process) leaves the pass before anything is written: the row keeps its claim, and another relay takes it over once the claim ends.
+
+What the relay guarantees, and what it does not:
+
+- **At least once.** A committed row is published at least once. A crash between publish and mark, or a publish that outlives its claim, publishes it again. Consumers must therefore treat a repeat of a `MessageId` as normal: a job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default), and an event handler must tolerate receiving the same event twice.
+- **Fenced writes.** Every mark and release is fenced by `ClaimedBy` and `ClaimEpoch`, so a relay that lost its claim changes nothing.
+- **No ordering.** One relay with no failures publishes in `Id` order, but two relays, a failed publish that is retried later, or a second queue connection reorder messages.
 
 ## What happens at boot
 

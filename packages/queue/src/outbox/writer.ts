@@ -30,6 +30,7 @@ export class OutboxWriter {
 
   protected config?: IQueueOutboxConfig;
   protected connections?: OutboxConnections;
+  protected synced?: Promise<number>;
 
   public get Config(): IQueueOutboxConfig {
     return (this.config ??= outboxConfig(this.Raw));
@@ -39,6 +40,7 @@ export class OutboxWriter {
   public async ready(): Promise<void> {
     if (!this.Config.enabled) return;
     for (const target of (await this.allConnections()).targets) assertInsertOrIgnore(target);
+    await this.syncTime();
   }
 
   /** The target the message was written to, or undefined when the caller must publish it directly. */
@@ -53,6 +55,7 @@ export class OutboxWriter {
     if (messageId.length > OUTBOX_MESSAGE_ID_MAX) {
       throw new InvalidArgument(`queue.emit(): MessageId is ${messageId.length} characters long; the outbox holds at most ${OUTBOX_MESSAGE_ID_MAX}`);
     }
+    await this.syncTime();
     const store = new OutboxStore(target.driver);
     if (!(await store.insert(newOutboxRow(message, messageId, this.Time.now())))) {
       await this.duplicate(store, message, messageId);
@@ -93,6 +96,15 @@ export class OutboxWriter {
     if (existing.Status === 'dead') {
       throw new OutboxMessageIdConflict(messageId, 'that row is dead and will never be published; re-drive or delete the row, or emit with a new MessageId');
     }
+  }
+
+  /** Rows carry database time, which the relay compares AvailableAt with. A running relay keeps the shared offset current. */
+  protected async syncTime(): Promise<void> {
+    // a failed sync is tried again by the next emit, not remembered
+    await (this.synced ??= this.Time.sync().catch((error: unknown) => {
+      this.synced = undefined;
+      throw error;
+    }));
   }
 
   protected async allConnections(): Promise<OutboxConnections> {
