@@ -38,12 +38,14 @@ test('the shipped targets: five, a 2-point tolerance, configs that exist, focus 
   assert.deepEqual(targets.find((t) => t.name === 'authz-ir-eval').focus, ['src/eval/check.ts']);
 });
 
-test('the shipped baseline is empty or holds a CI score for every target', () => {
+// A target the baseline does not know yet is allowed here: the gate fails it at run time until a run records it.
+test('the shipped baseline is empty, or holds CI scores of targets only', () => {
   const baseline = readBaseline(fileURLToPath(new URL('../mutation/baseline.json', import.meta.url)));
   if (baseline.measuredOn === null) return assert.deepEqual(baseline.targets, {});
   assert.equal(baseline.measuredOn.ci, 'github-actions');
-  const { targets } = readTargets(fileURLToPath(new URL('../mutation/targets.json', import.meta.url)));
-  assert.deepEqual(Object.keys(baseline.targets).sort(), targets.map((t) => t.name).sort());
+  const names = readTargets(fileURLToPath(new URL('../mutation/targets.json', import.meta.url))).targets.map((t) => t.name);
+  assert.notDeepEqual(Object.keys(baseline.targets), []);
+  for (const key of Object.keys(baseline.targets)) assert.ok(names.includes(key), `baseline.json scores ${key}, which targets.json does not list`);
 });
 
 test('readTargets rejects a malformed or duplicated target and a missing tolerance', () => {

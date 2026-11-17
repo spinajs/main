@@ -68,7 +68,8 @@ Jobs: `targets` prints the matrix (`gate.mjs --matrix`); `mutate` runs one job p
 `npx stryker run <config> --concurrency 3`), fails if the run left mutants in `packages/`, and uploads
 `mutation-<target>` (its `mutation.json`); `gate` downloads them all and runs
 `gate.mjs --reports mutation-reports --out-dir mutation-gate`, writes the table to the job summary and uploads
-`mutation-gate` (`mutation-baseline.candidate.json`). Runs of one branch queue instead of cancelling each other.
+`mutation-gate` (`mutation-baseline.candidate.json`). A run in progress is never cancelled: a newer push waits for
+it, and a third push cancels the waiting run and waits in its place (the newest run covers the commits of both).
 
 The runner checks out LF line endings (every authz fixture is stored LF and Linux git does not convert them).
 
@@ -135,10 +136,11 @@ git status --porcelain src test                                     # must print
 
 ## Triage of survivors
 
-A survivor is closed in one of two ways, nothing else ("not worth a test" is not a verdict):
+A survivor is closed in one of three ways, nothing else ("not worth a test" is not a verdict):
 
-1. **Confirm in a clean process:** `npx stryker run stryker.config.json --mutate <file>:<line>-<line> --concurrency 1`.
-   Killed now means the survival came from worker state: no change.
+1. **Flaky:** confirm it in a clean process,
+   `npx stryker run stryker.config.json --mutate <file>:<line>-<line> --concurrency 1`. Killed now means the survival
+   came from worker state: no change.
 2. **Kill it:** find an input whose observable result differs under the mutant. Hand-apply the replacement, write the
    test so it fails against the mutant, restore the source with `git checkout -- <file>`, see the test pass, repeat
    step 1 (expected: Killed).
@@ -167,9 +169,12 @@ minutes are for 3 workers at the same speed per worker.
 The budget is **90 minutes of Stryker per target**. The `stryker` step stops at 150 minutes and the job at 170, so a
 target between 90 and 150 minutes still reports a score. A target over the budget is split into targets with disjoint
 `mutate` globs (one config and one gate key each, `authz-engine` into about four, `authz-rbac-model` into two). The
-workflow's matrix comes from `targets.json`, so a split needs no workflow change. The split lands before the first
-baseline is recorded. **Until it lands, the `authz-engine` and `authz-rbac-model` jobs are expected to exceed their
-time limit:** the job fails, the gate fails the target as "no report", and the run cannot set a baseline. The step
+workflow's matrix comes from `targets.json` and its `paths` filter matches `packages/*/stryker*.json`, so a split needs
+no workflow change as long as each shard config keeps `jsonReporter.fileName` `reports/mutation/mutation.json`. The
+split lands before the first baseline is recorded. **Until it lands, the `authz-engine` job is expected to exceed its
+time limit, and the `authz-rbac-model` job may** (117 minutes projected linearly fits the 150-minute step limit, ~180
+by Stryker's estimate does not): a job cut off fails, the gate fails its target as "no report", and the run cannot set
+a baseline. The step
 logs `progress-append-only` lines (tested count, elapsed and remaining time), so a cut-off run still shows its rate.
 
 ## Test minimisation runs

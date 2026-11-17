@@ -26,7 +26,7 @@ on:
       - 'packages/authz-abac/src/model/**'
       - 'packages/authz-abac/test/**'
       - 'packages/authz-testing/src/**'
-      - 'packages/*/stryker.config.json'
+      - 'packages/*/stryker*.json'
       - 'packages/*/.mocharc.stryker.json'
       - 'scripts/mutation/**'
       - '.github/workflows/mutation.yml'
@@ -49,8 +49,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+      # The assignment keeps node's exit status, which `echo "matrix=$(...)"` would drop.
       - id: read
-        run: echo "matrix=$(node scripts/mutation/gate.mjs --matrix)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -e
+          matrix=$(node scripts/mutation/gate.mjs --matrix)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   mutate:
     needs: targets
@@ -62,7 +67,10 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
+      # npm install scripts and every test Stryker runs execute here; nothing after checkout needs the token.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
