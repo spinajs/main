@@ -69,7 +69,7 @@ A caveat is `allow`, `deny` or `unknown`. A value missing from both the context 
 
 ### Caching, lists and row-level security
 
-- A vote whose walk read env through a caveat is `cacheable: false`. A type-level residual that can reach a caveat carries the request values it reads (`caveatInput`) and is not cacheable.
+- A vote whose walk read env through a caveat is `cacheable: false`. A type-level residual that can reach a caveat is not cacheable and carries the request values of the caveats' parameters (`caveatInput`); when one of those caveats calls a condition function, which may read env and principal beyond its parameters (`ip.in` reads `env.ip`), it carries the whole request env and principal (`caveatRequest`), so each row is decided as the check would decide it. `listSubjects` without a principal leaves such caveats undecided.
 - A list plan evaluates each distinct `(caveat, context)` once and keeps the conditional tuples whose caveat is `allow`; `unknown` and `deny` keep none. Such a plan is valid until the evaluation instant, so it is never reused ([Lists](04-lists.md#conditional-tuples)).
 - Row-level security has no request to read: a permission that reaches a conditional relation is refused (`AUTHZ020`, or a `TRUE` policy under `rls: 'partial'`), and a conditional membership gives no session key.
 - `expand` does not evaluate caveats; it labels conditional leaves. `listSubjects` and the `tuples.subjects` query evaluate them when given an `env`, and return holders under an undecided caveat as `conditional`.

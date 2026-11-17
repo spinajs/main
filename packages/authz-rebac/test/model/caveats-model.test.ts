@@ -1,8 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
-import { DefaultConditionCompiler, FALSE, TRUE } from '@spinajs/authz';
-import type { ResourceFilter, Vote } from '@spinajs/authz';
-import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, TRUE } from '@spinajs/authz';
+import type { Principal, ResourceFilter, Vote } from '@spinajs/authz';
+import { evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
 import { MemoryTupleStore, RebacModel } from '../../src/index.js';
 import { INPUTS, caveatModel } from '../support/caveat-world.js';
@@ -58,10 +58,52 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
     const at = (iso: string) => fakeEvaluationContext({ conditions: new DefaultConditionCompiler(), permissions: INPUTS, nativeFilters: [m.nativeFilter], now: new Date(iso) });
     const v = await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: {} }, at('2026-11-17T10:00:00Z'));
     const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
-    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {} });
+    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {}, caveatRequest: { env: {}, principal: userPrincipal('bob') } });
     expect(v.cacheable).to.equal(false);
     expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T10:00:00Z'))).to.equal(true);
     expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T20:00:00Z'))).to.equal(false);
+  });
+
+  describe('caveats that call a condition function', () => {
+    // Permissive when its input is missing: only the request env can make it deny.
+    class NotBlocked extends ConditionFunction {
+      readonly name = 'not_blocked';
+      evaluate(_args: unknown, c: { principal: Principal; env: Readonly<Record<string, unknown>> }): boolean {
+        return c.env.ip !== '6.6.6.6';
+      }
+    }
+    let fns: RebacModel;
+    const fnCtx = () => fakeEvaluationContext({ conditions: new DefaultConditionCompiler([...BUILTIN_CONDITION_FUNCTIONS, new NotBlocked()]), permissions: INPUTS, nativeFilters: [fns.nativeFilter] });
+
+    before(async () => {
+      const caveats = { open_net: { params: {}, expr: { fn: 'not_blocked' } }, office: { params: {}, expr: { fn: 'ip.in', args: { cidrs: ['10.0.0.0/8'] } } } };
+      const tuples = [
+        { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'open_net' } },
+        { ...tuple(d2, 'viewer', user('bob')), caveat: { name: 'office' } },
+      ];
+      fns = new RebacModel({ store: new MemoryTupleStore(tuples), namespaces: { user: {}, doc: { relations: { viewer: ['user with open_net', 'user with office'] } } }, permissions: { 'doc:read': 'doc#viewer' }, caveats });
+      await fns.init(fakeModelInitContext({ permissions: INPUTS, model: fns.name }));
+    });
+
+    it('the residual lists a row exactly when the check permits it, with the env and principal the check sees', async () => {
+      for (const env of [{ ip: '6.6.6.6' }, { ip: '10.1.2.3' }, {}]) {
+        const residual = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env }, fnCtx());
+        expect(residual.cacheable).to.equal(false);
+        for (const row of [d1, d2]) {
+          const check = (await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: row, env }, fnCtx())).permitWhen === TRUE;
+          const listed = await evaluateFilter(residual.permitWhen, {}, { principal: userPrincipal('bob'), ref: row, env, nativeFilters: [fns.nativeFilter], context: fnCtx() });
+          expect(listed === true, `${row.id} ${JSON.stringify(env)}`).to.equal(check);
+        }
+      }
+      const blocked = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: { ip: '6.6.6.6' } }, fnCtx());
+      expect(await fns.nativeFilter.matches((blocked.permitWhen as Extract<ResourceFilter, { args: unknown }>).args, {}, d1, fnCtx())).to.equal(false);
+      const office = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: { ip: '10.1.2.3' } }, fnCtx());
+      expect(await fns.nativeFilter.matches((office.permitWhen as Extract<ResourceFilter, { args: unknown }>).args, {}, d2, fnCtx())).to.equal(true);
+    });
+
+    it('listSubjects without a principal leaves a function caveat undecided', async () => {
+      expect(await fns.listSubjects(d1, 'viewer', 'user', { env: {}, ctx: fnCtx() })).to.deep.equal({ subjects: [], conditional: [user('bob')], complete: true });
+    });
   });
 
   describe('a caveat over the principal identity', () => {

@@ -39,7 +39,7 @@ A caveat reads only the request, so a list plan decides each distinct `(caveat, 
 { tuples: { relation, subjects, conditional?: [{ caveat: caveatKey, subjects }] } }
 ```
 
-`subjects` match unconditional tuples (`caveat_key IS NULL`); each group matches the tuples of one caveat key that evaluated to `allow`. `unknown` and `deny` keep nothing. A plan that evaluated a caveat has `validUntil` set to the evaluation instant, so it is never reused. The type-level residual of a permission that can reach a caveat carries the request values the caveats read (`caveatInput`) and is not cacheable.
+`subjects` match unconditional tuples (`caveat_key IS NULL`); each group matches the tuples of one caveat key that evaluated to `allow`. `unknown` and `deny` keep nothing. A plan that evaluated a caveat has `validUntil` set to the evaluation instant, so it is never reused. The type-level residual of a permission that can reach a caveat carries the values of the caveats' parameters (`caveatInput`), or the whole request env and principal when a caveat calls a condition function (`caveatRequest`), and is not cacheable.
 
 ### Row-level security
 
