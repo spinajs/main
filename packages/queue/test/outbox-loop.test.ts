@@ -262,6 +262,20 @@ describe('queue outbox: relay loop and after-commit nudge', function () {
     expect((await outboxRows(env.orders))[0]).to.include({ Status: 'published', ClaimedBy: null });
   });
 
+  it('disposes within claimTtl in all when the publish in flight hangs, though both the queue service and DI stop the relay', async () => {
+    const env = await bootOutbox({ outbox: { relay: true, claimTtl: 30_000, maxPublishMs: 10_000 } });
+    await env.orders.transaction(() => env.queue.emit(new OrderPlaced({ OrderId: '1' })));
+    // never released: a pass resumed after disposal would only log against a disposed container
+    await holdFirstPublish(env);
+    let disposed = false;
+    const disposing = disposeOutbox().then(() => (disposed = true));
+    await env.clock.advance(29_999);
+    expect(disposed).to.equal(false);
+    await env.clock.advance(1);
+    await disposing;
+    expect(env.clock.pendingTimers).to.equal(0);
+  });
+
   it('runs one loop per relay: a second start() arms nothing, a second relay drains the same rows without a duplicate', async () => {
     const env = await bootOutbox({ outbox: { relay: true } });
     const relay = await DI.resolve(OutboxRelay);

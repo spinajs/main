@@ -64,6 +64,8 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
   protected again = false;
   /** stop() came during the pass in flight, which then releases the rows it has not published yet. */
   protected halting = false;
+  /** The bounded wait for the halting pass, shared by every stop() during it: DI disposes the relay and the queue service, and both stop it. */
+  protected stopping?: Promise<void>;
 
   constructor(public readonly Options: OutboxRelayOptions = {}) {
     super();
@@ -89,21 +91,19 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
     if (this.running) return;
     this.running = true;
     this.halting = false;
+    this.stopping = undefined;
     this.schedule(0);
   }
 
   /** Waits for the pass in flight, but not past claimTtl: by then another relay may take its rows over anyway. */
-  public async stop(): Promise<void> {
+  public stop(): Promise<void> {
     this.running = false;
     this.again = false;
-    if (this.timer !== undefined) this.Timers.clearTimeout(this.timer);
-    this.timer = undefined;
+    this.clearTimer();
     const pass = this.ticking;
-    if (!pass) return;
+    if (!pass) return Promise.resolve();
     this.halting = true;
-    const bound = new AbortController();
-    await Promise.race([pass.catch(() => undefined), this.Timers.sleep(this.config.claimTtl, bound.signal)]);
-    bound.abort();
+    return (this.stopping ??= this.waitFor(pass));
   }
 
   /** While the loop runs: a pass at once, or one more right after the pass in flight. Otherwise the next tick() drains. */
@@ -133,12 +133,24 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
     this.ticking ??= this.pass().finally(() => {
       this.ticking = undefined;
       this.halting = false;
+      this.stopping = undefined;
     });
     return this.ticking;
   }
 
-  protected schedule(ms: number): void {
+  protected async waitFor(pass: Promise<void>): Promise<void> {
+    const bound = new AbortController();
+    await Promise.race([pass.catch(() => undefined), this.Timers.sleep(this.config.claimTtl, bound.signal)]);
+    bound.abort();
+  }
+
+  protected clearTimer(): void {
     if (this.timer !== undefined) this.Timers.clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  protected schedule(ms: number): void {
+    this.clearTimer();
     this.timer = this.Timers.setTimeout(() => inRootContext(() => void this.loop()), ms);
   }
 
@@ -150,6 +162,8 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
     } catch (error) {
       if (isCrash(error)) {
         this.running = false;
+        // a nudge from another chain may have armed a timer between the end of the pass and this catch
+        this.clearTimer();
         return;
       }
       this.Log.error({ error, replicaId: this.replicaId }, 'Outbox relay ${replicaId} tick failed');
@@ -169,7 +183,7 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
     for (const [connection, store] of this.stores) {
       if (this.halting) return;
       await this.drain(connection, store);
-      await this.purgeIfDue(connection, store);
+      if (!this.halting) await this.purgeIfDue(connection, store);
     }
   }
 
