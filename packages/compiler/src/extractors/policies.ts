@@ -77,6 +77,9 @@ export const FACTORY_MIDDLEWARES: Readonly<Record<string, FactoryMiddleware>> = 
   Unscoped: { package: '@spinajs/authz-http', type: 'UnscopedMiddleware' },
   // `answer` (index 1) is a function, never a literal: skipping it keeps the flow and mode and spares a CMP001 note
   IpThrottle: { package: '@spinajs/authn-http', type: 'AuthnIpThrottleMiddleware', args: [0, 2] },
+  TenantRoute: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
+  NoTenant: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
+  AllTenants: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
 };
 
 /** The decorator names that mount a middleware, as declared; an import alias of one is not listed. */

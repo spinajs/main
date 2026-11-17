@@ -21,6 +21,7 @@ import { extractQueueMessages } from './extractors/queue.js';
 import { accessResources } from './extractors/access-resources.js';
 import { authzSectionOf } from './extractors/authz.js';
 import { tenantModelsOf, withTenants } from './extractors/tenant-models.js';
+import { tenancyOf } from './extractors/tenancy.js';
 import { extractWorkflows } from './extractors/workflows.js';
 import { extractSqlQueries } from './extractors/sql.js';
 import { extractSqlDialects } from './extractors/sql-dialects.js';
@@ -163,6 +164,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
+    ...tenancyOf(ctx, files, { controllers, schedules, authz, models: tenantModels }),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

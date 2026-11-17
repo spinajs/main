@@ -1,0 +1,123 @@
+import ts from 'typescript';
+import { DECLARED_ENTRY_TENANCY, undeclaredTenancy } from '@spinajs/manifest';
+import type { AuthzSection, ControllerEntry, ManifestFragment, ScheduleEntry, TenancyDeclaration, TenancyEntryPoint, TenancyModel, TenancySection } from '@spinajs/manifest';
+import type { ExtractorContext } from '../context.js';
+import { findDecorator, literalValue } from '../decorators.js';
+import { baseClassOf } from '../schema/framework-members.js';
+import { classesBySource } from './access-options.js';
+import { routeEntryId, sourceKey } from './authz.js';
+import { declaredDecorator } from './decorator-origin.js';
+import { optionOf } from './model-sql.js';
+import { literalText } from './string-arg.js';
+
+export const TENANCY_HTTP = '@spinajs/tenancy-http';
+
+const ROUTE_DECORATORS = ['TenantRoute', 'NoTenant', 'AllTenants'] as const;
+
+type EntryPoint = AuthzSection['entryPoints'][number];
+
+interface Declaration {
+  declared: TenancyDeclaration;
+  reason?: string;
+}
+
+export interface TenancyInputs {
+  controllers: ControllerEntry[];
+  schedules: ScheduleEntry[];
+  authz: AuthzSection | undefined;
+  models: TenancyModel[];
+}
+
+function declarationOn(node: ts.HasDecorators | undefined, ctx: ExtractorContext): Declaration | undefined {
+  const found = node && declaredDecorator(node, TENANCY_HTTP, ROUTE_DECORATORS, ctx);
+  if (!found) return undefined;
+  const reason = found.name === 'AllTenants' ? literalText(found.decorator.args[0]) : undefined;
+  return reason === undefined ? { declared: found.name } : { declared: found.name, reason };
+}
+
+/** The controller class and its base classes, nearest first. A base that is only a declaration file is listed and carries no decorator. */
+function classChain(cls: ts.ClassDeclaration | undefined, ctx: ExtractorContext): ts.ClassDeclaration[] {
+  const out: ts.ClassDeclaration[] = [];
+  const symbol = cls?.name && ctx.checker.getSymbolAtLocation(cls.name);
+  let current: ts.Type | undefined = symbol ? ctx.checker.getDeclaredTypeOfSymbol(symbol) : undefined;
+  for (let hops = 0; current && hops < 32; hops++) {
+    const declaration = current.getSymbol()?.declarations?.find(ts.isClassDeclaration);
+    if (declaration) out.push(declaration);
+    current = baseClassOf(ctx.checker, current);
+  }
+  return out;
+}
+
+const methodNamed = (cls: ts.ClassDeclaration, name: string): ts.MethodDeclaration | undefined =>
+  cls.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === name);
+
+/** The first of `nodes` that carries a declaration. */
+function nearestDeclaration(nodes: Array<ts.HasDecorators | undefined>, ctx: ExtractorContext): Declaration | undefined {
+  for (const node of nodes) {
+    const found = declarationOn(node, ctx);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * What TenantMiddleware decides at run time: the nearest declaration on the route method up the class chain, else the
+ * nearest on a class. A subclass inherits the descriptors of its bases, so a redeclared method without a decorator keeps
+ * the base's.
+ */
+function routeDeclarations(controllers: ControllerEntry[], classes: Map<string, ts.ClassDeclaration>, ctx: ExtractorContext): Map<string, Declaration> {
+  const out = new Map<string, Declaration>();
+  for (const controller of controllers) {
+    const chain = classChain(classes.get(sourceKey(controller.source)), ctx);
+    const ofClass = nearestDeclaration(chain, ctx);
+    for (const route of controller.routes) {
+      const declaration = nearestDeclaration(chain.map((cls) => methodNamed(cls, route.handler)), ctx) ?? ofClass;
+      if (declaration) out.set(routeEntryId(route), declaration);
+    }
+  }
+  return out;
+}
+
+function jobDeclaration(cls: ts.ClassDeclaration | undefined, ctx: ExtractorContext): Declaration | undefined {
+  const value = cls && literalValue(optionOf(findDecorator(cls, 'Job')?.args[0], 'tenancy'), ctx);
+  return value === 'carry' || value === 'required' || value === 'none' ? { declared: value } : undefined;
+}
+
+function scheduleDeclarations(schedules: ScheduleEntry[]): Map<string, Declaration> {
+  const out = new Map<string, Declaration>();
+  for (const schedule of schedules) {
+    const value = schedule.options.tenancy;
+    if (value === 'none' || value === 'each') out.set(schedule.name, { declared: value });
+  }
+  return out;
+}
+
+/** Every entry point the authz section lists, with what it declares. A fragment cannot see a global mount, so an undeclared one is `none`. */
+function entryPointsOf(inputs: TenancyInputs, files: readonly ts.SourceFile[], ctx: ExtractorContext): TenancyEntryPoint[] {
+  const classes = classesBySource(files, ctx, sourceKey);
+  const routes = routeDeclarations(inputs.controllers, classes, ctx);
+  const schedules = scheduleDeclarations(inputs.schedules);
+  const declarationOf = (entry: EntryPoint): Declaration | undefined => {
+    if (entry.kind === 'route') return routes.get(entry.id);
+    if (entry.kind === 'schedule') return schedules.get(entry.id);
+    return entry.kind === 'queue-handler' ? jobDeclaration(classes.get(sourceKey(entry.source)), ctx) : undefined;
+  };
+  return (inputs.authz?.entryPoints ?? []).map((entry) => {
+    const declaration = declarationOf(entry);
+    const tenancy = declaration ? DECLARED_ENTRY_TENANCY[declaration.declared] : undeclaredTenancy(entry.kind, false);
+    return { kind: entry.kind, id: entry.id, tenancy, ...declaration, source: entry.source };
+  });
+}
+
+/** The package's `tenancy` section; undefined when it declares no tenant model, entry-point tenancy, escape or ignore. */
+export function tenancySectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: TenancyInputs): TenancySection | undefined {
+  const section: TenancySection = { models: inputs.models, entryPoints: entryPointsOf(inputs, files, ctx), escapes: [], ignores: [] };
+  const declares = section.models.length > 0 || section.entryPoints.some((e) => e.declared !== undefined) || section.escapes.length > 0 || section.ignores.length > 0;
+  return declares ? section : undefined;
+}
+
+/** The `tenancy` member of a fragment, to spread into it: `analyzePackage` has no room for another branch. */
+export function tenancyOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: TenancyInputs): Pick<ManifestFragment, 'tenancy'> {
+  const tenancy = tenancySectionOf(ctx, files, inputs);
+  return tenancy ? { tenancy } : {};
+}
