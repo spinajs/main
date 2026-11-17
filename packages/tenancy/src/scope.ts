@@ -57,6 +57,18 @@ function isScope(value: unknown): value is TenantScope {
   return scope.kind === 'tenant' && isTenantId(scope.tenant?.id);
 }
 
+function sameScope(a: TenantScope | undefined, b: TenantScope | undefined): boolean {
+  if (a?.kind === 'tenant' && b?.kind === 'tenant') return a.tenant.id === b.tenant.id;
+  if (a?.kind === 'all' && b?.kind === 'all') return a.reason === b.reason;
+  return a === b;
+}
+
+// The store's tenant and what was memoised under it (AUTHZ_CACHE_KEY) leave together.
+function leaveScope(store: object): void {
+  Reflect.deleteProperty(store, 'Tenant');
+  Reflect.deleteProperty(store, AUTHZ_CACHE_KEY);
+}
+
 export function tenantScope(): TenantScope | undefined {
   const scope: unknown = storage().getStore()?.Tenant;
   return isScope(scope) ? scope : undefined;
@@ -91,9 +103,24 @@ export async function establishTenantScope<T>(scope: TenantScope | undefined, fn
   for (const guard of guards) guard(from, scope);
 
   const als = storage();
-  const { Tenant: _replaced, [AUTHZ_CACHE_KEY]: _outerCache, ...rest } = als.getStore() ?? {};
-  const store: TenantStore = scope ? { ...rest, Tenant: scope } : rest;
+  const store: TenantStore = { ...als.getStore() };
+  leaveScope(store);
+  if (scope) store.Tenant = scope;
   return als.run(store, async () => fn());
+}
+
+/**
+ * Changes the scope of a store in place, for entry-point glue that owns the store (an HTTP or socket middleware). A
+ * scope equal to the store's is no change; any other is checked by the guards before the store is touched.
+ */
+export function applyTenantScope(store: ITenantAsyncStorage, scope: TenantScope | undefined): void {
+  const from = isScope(store.Tenant) ? store.Tenant : undefined;
+  if (!sameScope(from, scope)) {
+    for (const guard of guards) guard(from, scope);
+    leaveScope(store);
+  }
+  if (scope) store.Tenant = scope;
+  else delete store.Tenant;
 }
 
 export async function runInTenant<T>(tenant: TenantRef | string, fn: () => Promise<T>): Promise<T> {

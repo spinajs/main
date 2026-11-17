@@ -33,6 +33,13 @@ class MixedRoutes extends BaseController {
   public byHand() {
     return new Ok(null);
   }
+
+  @AllTenants('outermost')
+  @NoTenant()
+  @Get('stacked')
+  public stacked() {
+    return new Ok(null);
+  }
 }
 
 @BasePath('bare')
@@ -55,6 +62,31 @@ class ClosedRoutes extends BaseController {
   @Middleware(TenantMiddleware)
   @Get('by-hand')
   public byHand() {
+    return new Ok(null);
+  }
+}
+
+@NoTenant()
+@BasePath('parent')
+class ParentRoutes extends BaseController {
+  @Get('plain')
+  public plain() {
+    return new Ok(null);
+  }
+
+  @NoTenant()
+  @Get('report')
+  public report() {
+    return new Ok(null);
+  }
+}
+
+@TenantRoute()
+@BasePath('child')
+class ChildRoutes extends ParentRoutes {
+  @AllTenants('child report')
+  @Get('report')
+  public override report() {
     return new Ok(null);
   }
 }
@@ -100,6 +132,17 @@ describe('tenant route declarations', () => {
   it('lets a hand-written @Middleware(TenantMiddleware) on the route decide over the controller declaration', async () => {
     expect(await mounted(MixedRoutes, 'byHand')).to.deep.eq([{ tenancy: 'none' }]);
     expect(await mounted(ClosedRoutes, 'byHand')).to.deep.eq([{ tenancy: 'required' }]);
+  });
+
+  it('lets the first of two declarations stacked on one method win', async () => {
+    expect(await mounted(MixedRoutes, 'stacked')).to.deep.eq([{ tenancy: 'all', reason: 'outermost' }]);
+  });
+
+  it("lets a subclass's declaration win over its parent's, on the class and on an overridden route", async () => {
+    expect(await mounted(ChildRoutes, 'plain')).to.deep.eq([{ tenancy: 'required' }]);
+    expect(await mounted(ChildRoutes, 'report')).to.deep.eq([{ tenancy: 'all', reason: 'child report' }]);
+    expect(await mounted(ParentRoutes, 'plain')).to.deep.eq([{ tenancy: 'none' }]);
+    expect(await mounted(ParentRoutes, 'report')).to.deep.eq([{ tenancy: 'none' }]);
   });
 
   it('needs a reason for @AllTenants', () => {

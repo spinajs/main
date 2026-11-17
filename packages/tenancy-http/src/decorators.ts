@@ -6,7 +6,7 @@ import type { TenantRouteDeclaration } from './middleware.js';
 type RouteDecorator = ClassDecorator & MethodDecorator;
 
 // A new object per use: TenantMiddleware.isEnabled tells a route's declaration from its controller's by identity.
-const mount = (declaration: TenantRouteDeclaration): RouteDecorator => Middleware(TenantMiddleware, declaration) as RouteDecorator;
+const mount = (declaration: TenantRouteDeclaration): RouteDecorator => Middleware(TenantMiddleware, declaration);
 
 /** A tenant is required: the request is refused unless a resolver names a tenant it may enter. On a route or a controller; the route's wins. */
 export function TenantRoute(): RouteDecorator {

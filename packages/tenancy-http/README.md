@@ -11,4 +11,6 @@ Finds the tenant of an HTTP request or a socket handshake of a SpinaJS applicati
 
 - Turn tenancy on for every route with `http.routes.middlewares: ['TenantMiddleware']`. A route then needs a tenant unless it says otherwise, and its policies, action and reply hooks run in that tenant's scope.
 - `@TenantRoute()`, `@NoTenant()` and `@AllTenants(reason)` declare a route's or a controller's tenancy; the route's wins.
+- List `TenantMiddleware` first in `http.routes.middlewares`: a `beforePolicy` middleware that answers before it does so without a tenant scope.
+- An `@AllTenants` route runs for any caller, anonymous included: guard it with its own policy.
 - A request that names no tenant, or one that is unknown, not active or closed to the principal, is answered 404 (`tenancy.http.unknownTenant: 403` for 403) with the code `tenant.unavailable` and the same body in every case.

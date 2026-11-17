@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import type { IMiddlewareContext } from '@spinajs/http';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { TenantUnavailable } from '@spinajs/tenancy';
 import type { MemoryTenantRegistry } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
@@ -68,6 +69,15 @@ describe('TenantMiddleware', () => {
       expect(ctx.storage.Tenant).to.deep.eq({ kind: 'tenant', tenant: { id: 'acme' } });
     });
 
+    it('drops an authz cache loaded into the store before the tenant was known', async () => {
+      const ctx = context({ headers: { 'x-tenant': 'acme' }, storage: { Principal: alice, AuthzCache: new Map([['preloaded', true]]) } });
+
+      await (await mount()).onBefore(ctx);
+
+      expect(ctx.storage).to.not.have.property('AuthzCache');
+      expect(ctx.storage.Tenant).to.deep.eq({ kind: 'tenant', tenant: { id: 'acme' } });
+    });
+
     it('admits an anonymous request on a trusted source', async () => {
       const ctx = context({ params: { tenant: 'acme-inc' } });
 
@@ -129,6 +139,21 @@ describe('TenantMiddleware', () => {
     await (await mount({ tenancy: 'none' })).onBefore(ctx);
 
     expect(ctx.storage).to.not.have.property('Tenant');
+  });
+
+  it('refuses to be built with a declaration no decorator could write', async () => {
+    app = await tenancyHttpApp();
+
+    for (const declaration of [{ tenancy: 'None' }, null, { tenancy: 'all' }, { tenancy: 'all', reason: '  ' }]) {
+      // The constructor throws, and the container passes that on synchronously.
+      const built = await Promise.resolve()
+        .then(() => app.container.resolve(TenantMiddleware, [declaration]))
+        .then(
+          () => undefined,
+          (err: unknown) => err,
+        );
+      expect(built, JSON.stringify(declaration)).to.be.instanceOf(InvalidArgument);
+    }
   });
 
   it('writes the cross-tenant scope with its reason where the route declares it', async () => {

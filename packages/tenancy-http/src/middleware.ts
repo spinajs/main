@@ -1,10 +1,11 @@
 import { Autoinject, Container, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { RouteMiddleware } from '@spinajs/http';
 import type { IController, IMiddlewareContext, IMiddlewareDescriptor, IRoute, MiddlewareStage } from '@spinajs/http';
-import { TENANCY_DEFAULTS, TenantUnavailable, allTenantsScope, tenantScopeOf } from '@spinajs/tenancy';
-import type { TenantRecord, TenantResolver } from '@spinajs/tenancy';
+import { TENANCY_DEFAULTS, TenantUnavailable, allTenantsScope, applyTenantScope, tenantScopeOf } from '@spinajs/tenancy';
+import type { TenantRecord, TenantResolver, TenantScope } from '@spinajs/tenancy';
 import { resolveTenant } from './admission.js';
 import { TenantRefused } from './refusal.js';
 import { tenantResolvers } from './resolvers.js';
@@ -15,6 +16,20 @@ import './storage.js';
 export type TenantRouteDeclaration = { readonly tenancy: 'required' } | { readonly tenancy: 'none' } | { readonly tenancy: 'all'; readonly reason: string };
 
 const REQUIRED: TenantRouteDeclaration = { tenancy: 'required' };
+
+const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? (Reflect.get(value, key) as unknown) : undefined);
+
+// A declaration no decorator wrote (a hand-written mount, a configuration entry) fails the route registration here.
+function checkDeclaration(declaration: unknown): void {
+  const tenancy = field(declaration, 'tenancy');
+  if (tenancy !== 'required' && tenancy !== 'none' && tenancy !== 'all') {
+    throw new InvalidArgument(`TenantMiddleware: tenancy is 'required', 'none' or 'all', got ${JSON.stringify(declaration) ?? String(declaration)}`, 'tenancy');
+  }
+  const reason = field(declaration, 'reason');
+  if (tenancy === 'all' && (typeof reason !== 'string' || reason.trim() === '')) {
+    throw new InvalidArgument('@AllTenants needs a reason', 'reason');
+  }
+}
 
 function declared(middlewares: readonly IMiddlewareDescriptor[] | undefined): unknown {
   const own = (middlewares ?? []).filter((m) => m.Type === TenantMiddleware);
@@ -45,6 +60,7 @@ export class TenantMiddleware extends RouteMiddleware {
 
   constructor(public readonly declaration: TenantRouteDeclaration = REQUIRED) {
     super();
+    checkDeclaration(declaration);
   }
 
   public async resolve(): Promise<void> {
@@ -63,16 +79,14 @@ export class TenantMiddleware extends RouteMiddleware {
   // The action, onAfter and onFinish run with req.storage as their store, and authz's AccessPolicy enters it too:
   // a scope written here is the scope of everything after this middleware.
   public async onBefore(ctx: IMiddlewareContext): Promise<void> {
+    applyTenantScope(ctx.storage, await this.scopeOf(ctx));
+  }
+
+  protected async scopeOf(ctx: IMiddlewareContext): Promise<TenantScope | undefined> {
     const declaration = this.declaration;
-    if (declaration.tenancy === 'none') {
-      delete ctx.storage.Tenant;
-      return;
-    }
-    if (declaration.tenancy === 'all') {
-      ctx.storage.Tenant = allTenantsScope(declaration.reason);
-      return;
-    }
-    ctx.storage.Tenant = tenantScopeOf(await this.admit(ctx));
+    if (declaration.tenancy === 'none') return undefined;
+    if (declaration.tenancy === 'all') return allTenantsScope(declaration.reason);
+    return tenantScopeOf(await this.admit(ctx));
   }
 
   protected async admit(ctx: IMiddlewareContext): Promise<TenantRecord> {

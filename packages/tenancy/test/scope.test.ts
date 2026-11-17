@@ -4,8 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { TenantRequired, TenantSwitchDenied, currentTenant, onTenantScopeChange, requireTenant, runAcrossTenants, runInTenant, tenantRef, tenantScope } from '../src/index.js';
-import type { TenantScope } from '../src/index.js';
+import { TenantRequired, TenantSwitchDenied, applyTenantScope, currentTenant, onTenantScopeChange, requireTenant, runAcrossTenants, runInTenant, tenantRef, tenantScope } from '../src/index.js';
+import type { ITenantAsyncStorage, TenantScope } from '../src/index.js';
 import { establishTenantScope } from '../src/scope.js';
 
 chai.use(chaiAsPromised);
@@ -155,5 +155,73 @@ describe('tenant scope', () => {
 
     expect(replaced).to.eq('globex');
     expect(dropped).to.not.have.property('Tenant');
+  });
+});
+
+describe('applyTenantScope', () => {
+  type Store = ITenantAsyncStorage & Record<string, unknown>;
+  const acme: TenantScope = { kind: 'tenant', tenant: { id: 'acme' } };
+  const globex: TenantScope = { kind: 'tenant', tenant: { id: 'globex' } };
+
+  let changes: [TenantScope | undefined, TenantScope | undefined][];
+  let stop: () => void;
+
+  beforeEach(() => {
+    changes = [];
+    stop = onTenantScopeChange((from, to) => {
+      changes.push([from, to]);
+    });
+  });
+
+  afterEach(() => {
+    stop();
+  });
+
+  it('asks the guards and drops the authz cache on a change of scope', () => {
+    const store: Store = { Principal: 'alice', AuthzCache: new Map() };
+
+    applyTenantScope(store, acme);
+    expect(store).to.deep.eq({ Principal: 'alice', Tenant: acme });
+
+    store.AuthzCache = new Map();
+    applyTenantScope(store, undefined);
+    expect(store).to.deep.eq({ Principal: 'alice' });
+
+    expect(changes).to.deep.eq([
+      [undefined, acme],
+      [acme, undefined],
+    ]);
+  });
+
+  it('keeps the cache, and asks no guard, for a scope equal to the one in the store', () => {
+    const cache = new Map();
+    const inAcme: Store = { Tenant: { kind: 'tenant', tenant: { id: 'acme' } }, AuthzCache: cache };
+    const acrossAll: Store = { Tenant: { kind: 'all', reason: 'billing' }, AuthzCache: cache };
+    const none: Store = { AuthzCache: cache };
+
+    applyTenantScope(inAcme, acme);
+    applyTenantScope(acrossAll, { kind: 'all', reason: 'billing' });
+    applyTenantScope(none, undefined);
+
+    expect([inAcme.AuthzCache, acrossAll.AuthzCache, none.AuthzCache]).to.deep.eq([cache, cache, cache]);
+    expect(inAcme.Tenant).to.deep.eq(acme);
+    expect(changes).to.deep.eq([]);
+  });
+
+  it('leaves the store untouched when a guard refuses the change', () => {
+    const refuse = onTenantScopeChange(() => {
+      throw new TenantSwitchDenied('refused');
+    });
+    const cache = new Map();
+    const store: Store = { Tenant: acme, AuthzCache: cache };
+
+    try {
+      expect(() => applyTenantScope(store, globex)).to.throw(TenantSwitchDenied, 'refused');
+    } finally {
+      refuse();
+    }
+
+    expect(store.Tenant).to.eq(acme);
+    expect(store.AuthzCache).to.eq(cache);
   });
 });

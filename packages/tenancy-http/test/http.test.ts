@@ -20,6 +20,8 @@ const policySaw: { tenant: string | null } = { tenant: null };
 
 let sourceSeen: TenantRequestSource | undefined;
 
+let cacheKept: boolean | undefined;
+
 class SeesTenant extends BasePolicy {
   public isEnabled(): boolean {
     return true;
@@ -38,12 +40,13 @@ class SourceProbe extends RouteMiddleware {
 
   public onBefore(ctx: IMiddlewareContext): void {
     sourceSeen = httpSource(ctx);
+    cacheKept = Reflect.has(ctx.storage, 'AuthzCache');
   }
 }
 
 /**
  * Stands in for authz-http's PrincipalMiddleware (Order 10): `x-user: <id>` is an authenticated user, alice is a member
- * of acme; `x-session-tenant` stands in for the session authn restored.
+ * of acme, and authz's preload leaves a request cache; `x-session-tenant` stands in for the session authn restored.
  */
 class HeaderPrincipal extends ServerMiddleware {
   constructor() {
@@ -55,6 +58,7 @@ class HeaderPrincipal extends ServerMiddleware {
     const id = req.headers['x-user'];
     if (typeof id === 'string') {
       Reflect.set(storage, 'Principal', { type: 'user', id, authenticated: true, source: 'test', attributes: { tenants: id === 'alice' ? ['acme'] : [] } });
+      Reflect.set(storage, 'AuthzCache', new Map([['preloaded', true]]));
     }
     const sessionTenant = req.headers['x-session-tenant'];
     if (typeof sessionTenant === 'string') {
@@ -99,48 +103,39 @@ class OpenRoutes extends BaseController {
 
 const CONTROLLERS = [PathRoutes, HeaderRoutes, OpenRoutes];
 
-class TenancyHttpConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    const provider = (name: string) => ({ service: 'fsNative', name, basePath: tmpdir() });
-    this.Config = {
-      system: { dirs: { controllers: [] } },
-      fs: {
-        defaultProvider: 'fs-temp',
-        providers: [provider('fs-temp'), provider('__file_upload_default_provider__'), provider('__fs_http_templates__'), provider('__fs_controller_cache__'), provider('__fs_http_response_templates__')],
-      },
-      intl: { locales: ['en'], defaultLocale: 'en' },
-      logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '${message}' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-      http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, trustProxy: 'loopback', routes: { middlewares: ['TenantMiddleware'] } },
-      // The test's own host is a base domain, so it names no tenant and the path, header and session decide.
-      tenancy: { registry: 'MemoryTenantRegistry', http: { baseDomains: ['127.0.0.1', 'app.example.com'] } },
-    };
-  }
+// The test's own host is a base domain, so it names no tenant and the path, header and session decide.
+const configuration = (trustProxy: string | undefined) =>
+  class TenancyHttpConfiguration extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+      const provider = (name: string) => ({ service: 'fsNative', name, basePath: tmpdir() });
+      this.Config = {
+        system: { dirs: { controllers: [] } },
+        fs: {
+          defaultProvider: 'fs-temp',
+          providers: [provider('fs-temp'), provider('__file_upload_default_provider__'), provider('__fs_http_templates__'), provider('__fs_controller_cache__'), provider('__fs_http_response_templates__')],
+        },
+        logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '${message}' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
+        http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, trustProxy, routes: { middlewares: ['TenantMiddleware'] } },
+        tenancy: { registry: 'MemoryTenantRegistry', http: { baseDomains: ['127.0.0.1', 'app.example.com'] } },
+      };
+    }
+  };
+
+interface Answer {
+  status: number;
+  headers: string[];
+  body: Record<string, unknown>;
 }
 
-describe('tenant scope of an http request', function () {
-  this.timeout(60000);
-
-  let app: TestApp;
-  let port: number;
-  let registry: MemoryTenantRegistry;
-
-  // node:http rather than fetch: the Host header is set by hand.
-  const get = (path: string, headers: Record<string, string> = {}): Promise<{ status: number; body: Record<string, unknown> }> =>
-    new Promise((resolve, reject) => {
-      const req = request({ host: '127.0.0.1', port, path, headers: { accept: 'application/json', ...headers } }, (res) => {
-        let text = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk: string) => (text += chunk));
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(text) as Record<string, unknown> }));
-      });
-      req.on('error', reject);
-      req.end();
-    });
+/** Boots the server in `before` and stops it in `after` of the enclosing describe. */
+function useServer(trustProxy: string | undefined) {
+  const server: { port: number; registry?: MemoryTenantRegistry } = { port: 0 };
+  let app: TestApp | undefined;
 
   before(async () => {
     app = await createTestApp({
-      configuration: TenancyHttpConfiguration,
+      configuration: configuration(trustProxy),
       register: (c) => {
         for (const type of CONTROLLERS) c.register(type).as(BaseController);
         c.register(HeaderPrincipal).as(ServerMiddleware);
@@ -148,10 +143,10 @@ describe('tenant scope of an http request', function () {
       resolve: [fsService, Controllers],
       bootTimeout: 50000,
     });
-    registry = await seedTenants();
-    const server = await app.resolve(HttpServer);
-    await server.start();
-    port = (server.Server.address() as AddressInfo).port;
+    server.registry = await seedTenants();
+    const http = await app.resolve(HttpServer);
+    await http.start();
+    server.port = (http.Server.address() as AddressInfo).port;
   });
 
   after(async () => {
@@ -162,14 +157,37 @@ describe('tenant scope of an http request', function () {
   beforeEach(() => {
     policySaw.tenant = null;
     sourceSeen = undefined;
+    cacheKept = undefined;
   });
 
-  it('sets the scope before the policy gate and for the action', async () => {
+  // node:http rather than fetch: the Host header is set by hand.
+  const get = (path: string, headers: Record<string, string> = {}): Promise<Answer> =>
+    new Promise((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port: server.port, path, headers: { accept: 'application/json', ...headers } }, (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => (text += chunk));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: Object.keys(res.headers).sort(), body: JSON.parse(text) as Record<string, unknown> }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+  return { server, get };
+}
+
+describe('tenant scope of an http request', function () {
+  this.timeout(60000);
+
+  const { server, get } = useServer('loopback');
+
+  it('sets the scope before the policy gate and for the action, without the authz cache loaded before it', async () => {
     const res = await get('/t/acme-inc/who', { 'x-user': 'alice' });
 
     expect(res.status).to.eq(200);
     expect(res.body).to.deep.eq({ tenant: 'acme', policySaw: 'acme' });
     expect([sourceSeen?.host, sourceSeen?.params, sourceSeen?.principal?.id]).to.deep.eq(['127.0.0.1', { tenant: 'acme-inc' }, 'alice']);
+    expect(cacheKept).to.eq(false);
   });
 
   it('honours the header for a member and for nobody else', async () => {
@@ -178,18 +196,21 @@ describe('tenant scope of an http request', function () {
     expect((await get('/api/who', { 'x-tenant': 'acme' })).status).to.eq(404);
   });
 
-  it('answers 404 with the code tenant.unavailable for an unknown and for a suspended tenant, before the policy runs', async () => {
-    const bodies: Record<string, unknown>[] = [];
-    for (const slug of ['nobody', 'frozen']) {
-      const res = await get(`/t/${slug}/who`, { 'x-user': 'alice' });
+  it('answers an unknown, a forbidden, a missing and a suspended tenant alike, before the policy runs', async () => {
+    const answers = [
+      await get('/api/who', { 'x-user': 'alice', 'x-tenant': 'nobody' }),
+      await get('/api/who', { 'x-user': 'bob', 'x-tenant': 'acme' }),
+      await get('/api/who', { 'x-tenant': 'acme' }),
+      await get('/api/who', { 'x-user': 'alice', 'x-tenant': 'frozen' }),
+    ];
+    const suspendedOnPath = await get('/t/frozen/who', { 'x-user': 'alice' });
 
-      expect(res.status).to.eq(404);
-      expect(res.body).to.include({ status: 404, code: 'tenant.unavailable', detail: 'Not found' });
-      // `instance` is the request's own path; nothing else may differ.
-      const { instance: _path, ...body } = res.body;
-      bodies.push(body);
+    expect(answers[0].status).to.eq(404);
+    expect(answers[0].body).to.include({ status: 404, code: 'tenant.unavailable', detail: 'Not found' });
+    for (const answer of answers.slice(1)) {
+      expect([answer.status, answer.headers, answer.body]).to.deep.eq([answers[0].status, answers[0].headers, answers[0].body]);
     }
-    expect(bodies[0]).to.deep.eq(bodies[1]);
+    expect(suspendedOnPath.body).to.include({ status: 404, code: 'tenant.unavailable', detail: 'Not found' });
     expect(policySaw.tenant).to.eq(null);
   });
 
@@ -214,6 +235,8 @@ describe('tenant scope of an http request', function () {
   });
 
   it('refuses the request when the registry fails, and the action does not run', async () => {
+    const registry = server.registry;
+    if (!registry) throw new Error('the server did not boot');
     registry.get = () => Promise.reject(new Error('registry down'));
     try {
       const res = await get('/api/who', { 'x-user': 'alice', 'x-tenant': 'acme' });
@@ -224,5 +247,21 @@ describe('tenant scope of an http request', function () {
     } finally {
       Reflect.deleteProperty(registry, 'get');
     }
+  });
+});
+
+describe('tenant scope of an http request without a trusted proxy', function () {
+  this.timeout(60000);
+
+  const { get } = useServer(undefined);
+
+  it('ignores X-Forwarded-Host and takes the host from Host', async () => {
+    expect((await get('/api/who', { 'x-forwarded-host': 'shop.acme.example' })).status).to.eq(404);
+
+    expect((await get('/t/acme-inc/who', { 'x-forwarded-host': 'shop.acme.example' })).body).to.deep.eq({ tenant: 'acme', policySaw: 'acme' });
+    expect(sourceSeen?.host).to.eq('127.0.0.1');
+
+    expect((await get('/api/who', { host: 'shop.acme.example', 'x-forwarded-host': '127.0.0.1' })).body).to.deep.eq({ tenant: 'acme' });
+    expect(sourceSeen?.host).to.eq('shop.acme.example');
   });
 });
