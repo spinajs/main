@@ -15,3 +15,7 @@ export type { AuditBacklog } from './ship/backlog.js';
 import './ship/schema.js';
 export { ArchiveAuditSink } from './ship/archive-sink.js';
 export { ArchiveAuditReader } from './ship/archive-reader.js';
+export { AuditSealTableMigration } from './seal/migration.js';
+export { AuditSealer, sealAudit } from './seal/seal.js';
+export type { SealFailure, SealOptions, SealResult } from './seal/seal.js';
+import './seal/schema.js';

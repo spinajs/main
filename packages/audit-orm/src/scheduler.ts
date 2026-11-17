@@ -2,6 +2,8 @@ import { Schedule, ScheduledTask } from '@spinajs/scheduler';
 import type { RunContext } from '@spinajs/scheduler';
 
 import { AuditPruneFailed, pruneAudit } from './retention.js';
+import { sealAudit } from './seal/seal.js';
+import type { SealResult } from './seal/seal.js';
 import { shipAudit } from './ship/ship.js';
 import type { ShipResult } from './ship/ship.js';
 
@@ -39,6 +41,24 @@ export class AuditShipTask extends ScheduledTask {
     const out = await shipAudit();
     ctx.result(out);
     if (out.failed.length > 0) throw new AuditShipError(`audit: shipping failed for ${out.failed.map((f) => `${f.trail}@${f.connection}`).join(', ')}`);
+    return out;
+  }
+}
+
+export const AUDIT_SEAL_SCHEDULE = 'audit.seal';
+
+export class AuditSealError extends Error {}
+
+/**
+ * Seals the sealed trails every 60 seconds on the leader; a run seals what was already there one settle time earlier,
+ * so an event is sealed within about two minutes. A `scheduler.schedules` entry of the same name overrides the timing.
+ */
+@Schedule(AUDIT_SEAL_SCHEDULE, { every: '60s', runOn: 'leader', overlap: 'skip', misfire: 'run-once' })
+export class AuditSealTask extends ScheduledTask {
+  public async execute(ctx: Pick<RunContext, 'result'>): Promise<SealResult> {
+    const out = await sealAudit();
+    ctx.result(out);
+    if (out.failed.length > 0) throw new AuditSealError(`audit: sealing failed for ${out.failed.map((f) => `${f.trail}@${f.connection}`).join(', ')}`);
     return out;
   }
 }

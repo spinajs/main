@@ -5,6 +5,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 
 import { findConnection } from './rows.js';
+import { AUDIT_SEAL_TABLE } from './seal/table.js';
 import { AUDIT_OUTBOX_TABLE } from './ship/table.js';
 
 // One entry: the configuration and the registrations it was computed from, and the refusal per colliding trail.
@@ -26,6 +27,12 @@ function isTableStore(store: string, registered: readonly unknown[], tableStore:
 }
 
 const quoted = (v: string): string => JSON.stringify(v);
+
+// Tables of this package that hold the rows of every trail: reads, erasure and retention of a trail there would act on them all.
+const RESERVED = new Map([
+  [AUDIT_OUTBOX_TABLE, 'the outbox buffer'],
+  [AUDIT_SEAL_TABLE, 'the seal table'],
+]);
 
 // A table trail's table can hold events on any connection; an archive is the trail's table on its archive connection.
 interface Claim {
@@ -58,13 +65,18 @@ function refusalsOf(registered: readonly unknown[], tableStore: Class<AuditStore
   for (const name of trailNames()) {
     const trail = configOf(name);
     const claims = trail === undefined ? [] : claimsOf(trail, registered, tableStore);
-    // Reads, erasure and retention of such a trail would act on every shipping trail's buffered rows.
-    const buffer = claims.some((claim) => claim.table === AUDIT_OUTBOX_TABLE) ? `audit: trail ${quoted(name)} uses table ${quoted(AUDIT_OUTBOX_TABLE)}, which is the outbox buffer; give the trail its own table` : undefined;
-    const clash = buffer ?? claims.flatMap((claim) => owned.filter((o) => collide(o, claim)).map((o) => refusal(o, claim)))[0];
+    const reserved = claims.find((claim) => RESERVED.has(claim.table))?.table;
+    const taken = reserved === undefined ? undefined : `audit: trail ${quoted(name)} uses table ${quoted(reserved)}, which is ${RESERVED.get(reserved) ?? ''}; give the trail its own table`;
+    const clash = taken ?? claims.flatMap((claim) => owned.filter((o) => collide(o, claim)).map((o) => refusal(o, claim)))[0];
     if (clash === undefined) owned.push(...claims);
     else refusals.set(name, clash);
   }
   return refusals;
+}
+
+/** True when the trail's store is `tableStore` or a subclass of it, decided from the registration. */
+export function isTableTrail(trail: TrailConfig, tableStore: Class<AuditStore>): boolean {
+  return isTableStore(trail.store, DI.RootContainer.getRegisteredTypes(AuditStore), tableStore);
 }
 
 /**
