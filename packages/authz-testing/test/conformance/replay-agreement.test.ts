@@ -3,14 +3,14 @@ import 'mocha';
 import * as fc from 'fast-check';
 
 import { AuthorizationModel, DecisionLog, PolicyHashSource, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import type { AuthzTx, DecisionRecord, Permission, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { AuthzTx, DecisionRecord, Permission, PrincipalRef, ReplayReport, ResourceRef } from '@spinajs/authz';
 import { DbAssignmentStore } from '@spinajs/authz-rbac';
 import { AuthzRebac_2026_10_21_00_00_00, DbTupleStore, RebacModel } from '@spinajs/authz-rebac';
 import type { NamespaceConfig, Tuple } from '@spinajs/authz-rebac';
 import { AUDIT_CONNECTION, AuthzDecisionLogFacts_2026_11_06_00_00_00, AuthzDecisionLog_2026_11_04_00_00_00, DbDecisionLog } from '@spinajs/authz-orm/audit';
 import { CHANGE_LOG_TABLE, IRPolicyHashSource } from '@spinajs/authz-orm/changelog';
 import { DbDecisionReplay } from '@spinajs/authz-orm/replay';
-import { arb, fixtureDsl, replayAgreement, testHost, userPrincipal } from '@spinajs/authz-testing';
+import { arb, fixtureDsl, replayAgreement, replayAgreementRuns, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { HostSetup, OrmModelSpec, ReplayAgreementFixture, ReplayAgreementRun, SetupContext, World } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
@@ -20,7 +20,6 @@ import type { E2eHarness } from '../e2e/support/stack.js';
 
 const { combine, role } = fixtureDsl;
 
-const DOMAIN = 'test';
 // Small windows keep the pauses short; a pause longer than the backward side keeps every write outside it whatever the load.
 const WINDOW = { clockSkewMs: 10, commitLagMs: 40 };
 const PAUSE_MS = 3 * (WINDOW.clockSkewMs + WINDOW.commitLagMs);
@@ -34,7 +33,8 @@ const TASKS = ['t0', 't1', 't2', 't3'];
 const SCOPES: readonly ResourceRef[] = [...PROJECTS.map((id) => ({ type: 'project', id })), ...TASKS.map((id) => ({ type: 'task', id }))];
 const SCOPE_TYPES = ['project', 'task'];
 // The expressible RBAC fragment: plain grants and a deny role, no implies, `on`, ladders or rules. Until v4-z-26 the IR
-// carries a deny role down the scope chain only when `$global` is among its scope types.
+// carries a deny role down the scope chain only when `$global` is among its scope types: drop `'$global'` from `blocked`
+// once v4-z-26 is in the base, and P4 then guards that fix.
 const ROLES = [
   role('viewer', ['task:read', 'project:read'], { scopeTypes: SCOPE_TYPES }),
   role('editor', ['task:read', 'task:update', 'project:read'], { scopeTypes: SCOPE_TYPES }),
@@ -115,8 +115,8 @@ class Stack implements ReplayAgreementFixture<Scenario> {
   private log = new KeptDecisionLog();
   private captureInputs = false;
   private assignments!: DbAssignmentStore;
-  /** Replays that allowed, and replays that read a state from history: a property that saw none of either proves little. */
-  readonly seen = { allow: 0, history: 0 };
+  /** Replays that allowed, and history reads per kind: a property that saw none of one proves little about it. */
+  seen = { allow: 0, assignment: 0, tuple: 0, column: 0 };
 
   constructor() {
     this.harness = e2eHarness('sqlite', { register: (host) => this.register(host) });
@@ -180,7 +180,8 @@ class Stack implements ReplayAgreementFixture<Scenario> {
         if (g.revokedLater) revokedLater.add(id);
       }
       const hashes = await DI.resolve(PolicyHashSource);
-      if (hashes instanceof IRPolicyHashSource) await hashes.current(DOMAIN)?.recorded;
+      if (session.domain === undefined) throw new Error('replayAgreement: the e2e session names no domain');
+      if (hashes instanceof IRPolicyHashSource) await hashes.current(session.domain)?.recorded;
       await pause(PAUSE_MS);
       const ids = (rows: readonly { id: string }[]): string[] => [...new Set(rows.map((r) => r.id))];
       const objects = new Map<string, readonly string[]>([
@@ -204,7 +205,7 @@ class Stack implements ReplayAgreementFixture<Scenario> {
           // The domain's dispose flushes its decision log.
           await dispose();
           if (log.errors.length > 0) throw new Error(`the decision log failed: ${String(log.errors[0])}`);
-          return log.records;
+          return [...log.records];
         },
         write: async () => {
           await pause(PAUSE_MS);
@@ -216,7 +217,7 @@ class Stack implements ReplayAgreementFixture<Scenario> {
         replay: async (id: string) => {
           const report = await new DbDecisionReplay().replay(id);
           if (report?.outcome.replayed === 'allow') this.seen.allow++;
-          if (report?.reads.some((r) => r.origin === 'history') === true) this.seen.history++;
+          for (const r of report?.reads ?? []) if (r.origin === 'history' && (r.kind === 'assignment' || r.kind === 'tuple' || r.kind === 'column')) this.seen[r.kind]++;
           return report;
         },
         dispose,
@@ -228,6 +229,52 @@ class Stack implements ReplayAgreementFixture<Scenario> {
   }
 }
 
+describe('replayAgreement: the kit', () => {
+  const RECORD: DecisionRecord = { id: 'd1', at: '', domain: 'test', principal: 'user:u0', permission: 'task:read', resource: { type: 'task', id: 't0' }, allowed: true, cached: false, policyHash: 'h', modelVersions: {}, inputsHash: 'i' };
+  const faithful = (decision: DecisionRecord): ReplayReport => ({
+    decision,
+    currentPolicy: true,
+    replay: 'faithful',
+    evidence: 'outcome',
+    outcome: { recorded: 'allow', replayed: 'allow' },
+    inputsHash: { recorded: 'i', replayed: null },
+    missing: [],
+    divergence: [],
+    tree: null,
+    reads: [],
+    limits: { changes: 0, maxChanges: 1, keys: 0, durationMs: 0 },
+  });
+  /** One record, logged `offsetMs` from the moment the fixture is asked to decide. */
+  const fixture = (offsetMs: number): ReplayAgreementFixture<number> => ({
+    scenarios: fc.constant(0),
+    open: () => {
+      let record = RECORD;
+      return Promise.resolve({
+        decide: () => {
+          const at = new Date(Date.now() + offsetMs).toISOString();
+          record = { ...RECORD, at, loggedAt: at };
+          return Promise.resolve([record]);
+        },
+        write: async () => void (await pause(5)),
+        replay: () => Promise.resolve(faithful(record)),
+      });
+    },
+  });
+
+  it('accepts records logged before the writes', async () => {
+    await replayAgreement({ fixture: fixture(-1000), runs: 1 });
+  });
+
+  it('refuses a record logged after the writes started', async () => {
+    const failed = await replayAgreement({ fixture: fixture(60_000), runs: 1 }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    // fast-check keeps the property's own error as the cause.
+    expect(failed instanceof Error ? String(failed.cause) : String(failed)).to.contain('was logged after the later writes started');
+  });
+});
+
 describe('replayAgreement (P4): engine decisions replay faithfully', function () {
   this.timeout(1_800_000);
   const stack = new Stack();
@@ -237,8 +284,9 @@ describe('replayAgreement (P4): engine decisions replay faithfully', function ()
 
   for (const captureInputs of [false, true]) {
     it(`${captureInputs ? 'with' : 'without'} captured inputs: evidence ${captureInputs ? 'inputs-hash' : 'outcome'}`, async () => {
+      stack.seen = { allow: 0, assignment: 0, tuple: 0, column: 0 };
       await replayAgreement({ fixture: stack, captureInputs });
-      if ((Number(process.env.AUTHZ_REPLAY_AGREEMENT_RUNS) || 200) >= 50) expect(stack.seen.allow > 0 && stack.seen.history > 0, JSON.stringify(stack.seen)).to.equal(true);
+      if (replayAgreementRuns() >= 50) expect(Object.values(stack.seen).every((n) => n > 0), JSON.stringify(stack.seen)).to.equal(true);
     });
   }
 });

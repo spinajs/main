@@ -22,8 +22,10 @@ export interface ReplayAgreementOptions<T> {
   readonly runs?: number;
   /** Whether the decision log captures inputs; with them the evidence must be `inputs-hash`, without them `outcome`. Default false. */
   readonly captureInputs?: boolean;
-  /** Replays a failure fast-check printed. */
+  /** Replays a failure fast-check printed; default `AUTHZ_REPLAY_AGREEMENT_SEED`. */
   readonly seed?: number;
+  /** With `seed`, the shrink path fast-check printed; default `AUTHZ_REPLAY_AGREEMENT_PATH`. */
+  readonly path?: string;
 }
 
 const outcome = (allowed: boolean): 'allow' | 'deny' => (allowed ? 'allow' : 'deny');
@@ -44,16 +46,24 @@ export function replayDisagreement(record: DecisionRecord, report: ReplayReport 
  * report; fast-check adds the scenario and the seed that replays it.
  */
 export async function replayAgreement<T>(options: ReplayAgreementOptions<T>): Promise<void> {
-  const numRuns = options.runs ?? (Number(process.env.AUTHZ_REPLAY_AGREEMENT_RUNS) || 200);
+  const numRuns = options.runs ?? replayAgreementRuns();
   const captureInputs = options.captureInputs ?? false;
-  const { fixture, seed } = options;
+  const { fixture } = options;
+  const envSeed = process.env.AUTHZ_REPLAY_AGREEMENT_SEED;
+  const seed = options.seed ?? (envSeed === undefined || envSeed === '' ? undefined : Number(envSeed));
+  const path = options.path ?? (process.env.AUTHZ_REPLAY_AGREEMENT_PATH || undefined);
   await fc.assert(
     fc.asyncProperty(fixture.scenarios, async (scenario) => {
       const run = await fixture.open(scenario, { captureInputs });
       try {
-        const records = await run.decide();
+        const records = [...(await run.decide())];
         if (records.length === 0) throw new Error('the scenario logged no decision');
+        const writesStart = Date.now();
         await run.write();
+        for (const record of records) {
+          const logged = Date.parse(record.loggedAt ?? record.at);
+          if (!(logged < writesStart)) throw new Error(`decision ${record.id} was logged after the later writes started (${record.loggedAt ?? record.at} >= ${new Date(writesStart).toISOString()})`);
+        }
         for (const record of records) {
           const report = await run.replay(record.id);
           const wrong = replayDisagreement(record, report, captureInputs);
@@ -63,6 +73,11 @@ export async function replayAgreement<T>(options: ReplayAgreementOptions<T>): Pr
         await run.dispose?.();
       }
     }),
-    { numRuns, ...(seed === undefined ? {} : { seed }) },
+    { numRuns, ...(seed === undefined ? {} : { seed }), ...(seed === undefined || path === undefined ? {} : { path }) },
   );
+}
+
+/** `AUTHZ_REPLAY_AGREEMENT_RUNS`, else 200: the count `replayAgreement` runs without `runs`. */
+export function replayAgreementRuns(): number {
+  return Number(process.env.AUTHZ_REPLAY_AGREEMENT_RUNS) || 200;
 }
