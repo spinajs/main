@@ -21,7 +21,7 @@ export interface IListOptions extends PageOptions {
   fallbackSort?: { column: string; order?: SortOrder };
 
   /**
-   * Restricts every statement the list runs: the count, the page and the aggregates. What it adds becomes one
+   * Restricts the count, the page and the aggregates; the relations `include` loads are not scoped. What it adds becomes one
    * condition ANDed with the request's filter, e.g. `(q) => q.where('TenantId', tenant)` or, with
    * `@spinajs/authz-orm`, `(q) => q.accessible('order.read')`. It runs synchronously: a scope that returns a
    * promise is refused with `InvalidOption`.
