@@ -7,8 +7,9 @@ const DATA_CHANGING = /\b(?:insert|update|delete|merge|replace|create|drop|alter
 const UNREADABLE = /--|\/\*|[#$\\]/;
 
 /**
- * Whether `sql` is one statement that only reads. EXPLAIN without ANALYZE never runs the statement, but postgres
- * runs whatever follows a `;` when the call has no parameters. Quotes are not paired to find a `;` "inside a
+ * Whether `sql` is one statement that a plain EXPLAIN can plan. `SELECT … INTO`, `FOR UPDATE` and a select that calls
+ * a writing function pass: they are safe only because no EXPLAIN mode of any driver analyses, so the statement never
+ * runs. Postgres does run whatever follows a `;` when the call has no parameters. Quotes are not paired to find a `;` "inside a
  * string": a lone quote in a comment or a dollar-quoted string would pair with a later one and hide it.
  */
 export function isExplainable(sql: string): boolean {

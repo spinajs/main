@@ -8,7 +8,7 @@ import type { Log } from '@spinajs/log-common';
 import { ManualClock } from '@spinajs/util';
 import type { Builder } from '../src/builders.js';
 import { Orm } from '../src/orm.js';
-import { LogSlowQuerySink, MAX_PENDING_SLOW_QUERY_CAPTURES, recordStatement, setStatementRecording, SlowQuerySink, statementRecording } from '../src/explain/index.js';
+import { LogSlowQuerySink, MAX_PENDING_SLOW_QUERY_CAPTURES, recordStatement, setStatementRecording, SLOW_QUERY_SINK_TIMEOUT_MS, SlowQueryMiddleware, SlowQuerySink, statementRecording } from '../src/explain/index.js';
 import type { ExecutedStatement, ExplainOptions, QueryPlan, SlowQueryRecord } from '../src/explain/index.js';
 import { FakeSqliteDriver, ormApp, slowQueryMiddleware as middleware } from './misc.js';
 import '../src/bootstrap.js';
@@ -48,6 +48,13 @@ class ExplainingDriver extends FakeSqliteDriver {
   }
 }
 
+/** Registered ahead of the collecting sink; a test stubs it to never settle. */
+class StallableSink extends SlowQuerySink {
+  public record(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 class CollectingSink extends SlowQuerySink {
   public static records: SlowQueryRecord[] = [];
 
@@ -63,6 +70,13 @@ class ReadableLogSink extends LogSlowQuerySink {
   }
 }
 
+/** `@Logger` keeps one logger per decorated class, so this reads the logger of the registered middleware. */
+class MiddlewareLog extends SlowQueryMiddleware {
+  public logger(): Log {
+    return this.Log;
+  }
+}
+
 const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 describe('SlowQueryMiddleware', () => {
@@ -70,6 +84,7 @@ describe('SlowQueryMiddleware', () => {
     ormApp({
       register: (c) => {
         c.register(ExplainingDriver).as('sqlite');
+        c.register(StallableSink).as(SlowQuerySink);
         c.register(CollectingSink).as(SlowQuerySink);
         c.register(ReadableLogSink).as(SlowQuerySink);
       },
@@ -377,5 +392,47 @@ describe('SlowQueryMiddleware', () => {
     await slowSelect();
 
     expect(records()).to.have.length(1);
+  });
+
+  it('keeps recording when a sink never settles: the other sinks get every record, the hanging one times out', async () => {
+    enable();
+    sinon.stub(StallableSink.prototype, 'record').returns(new Promise<void>(() => undefined));
+    const warn = sinon.stub(new MiddlewareLog().logger(), 'warn');
+    const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 5; i++) await turn();
+      await clock.tickAsync(SLOW_QUERY_SINK_TIMEOUT_MS);
+      await middleware().idle();
+    };
+
+    for (let i = 0; i <= MAX_PENDING_SLOW_QUERY_CAPTURES; i++) await run();
+    for (let i = 0; i < 5; i++) await turn();
+    expect(records()).to.have.length(MAX_PENDING_SLOW_QUERY_CAPTURES);
+    await settle();
+
+    await run();
+    await settle();
+
+    expect(records()).to.have.length(MAX_PENDING_SLOW_QUERY_CAPTURES + 1);
+    const lines = warn.args.map((args) => JSON.stringify(args));
+    expect(lines.some((l) => l.includes('timed out'))).to.equal(true);
+    expect(lines.some((l) => l.includes('"dropped":1'))).to.equal(true);
+  });
+
+  it('writes no bound value to the log line with CaptureBindings', async () => {
+    enable({ CaptureBindings: true });
+    const warn = sinon.stub(logSink().logger(), 'warn');
+
+    await slowSelect();
+    sinon.stub(ExplainingDriver.prototype, 'explain').rejects(new TypeError('value "10000000000" is out of range'));
+    await slowSelect('SELECT * FROM missing WHERE Id = ?');
+
+    expect(records()[0].plan).to.equal(PLAN);
+    expect(records()[1].planError).to.equal('TypeError: value "10000000000" is out of range');
+    const logged = JSON.stringify(warn.args);
+    expect(logged).to.contain('Name=?');
+    expect(logged).to.contain('"planError":"TypeError"');
+    expect(logged).to.not.match(/ann|10000000000/);
   });
 });

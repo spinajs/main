@@ -111,7 +111,7 @@ Every statement a builder executes through `SqlDriver.execute` produces one Open
 | `plan` | The `QueryPlan` from `OrmDriver.explain()`, for a single select only. |
 | `planError` | Why a planned statement has no plan: `explain rate limit reached`, `driver <token> cannot explain`, or the class name of the EXPLAIN error (followed by its message only with `CaptureBindings`). |
 
-`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Register your own next to it; every sink receives every record, and a sink that throws is logged and does not stop the others:
+`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Its line never carries plan values or error text, also with `CaptureBindings` on: it redacts the plan as described below and writes only the class name of an EXPLAIN error. Register your own sink next to it; every sink receives every record at the same time, and a sink that throws, or has not settled after 5 s (`SLOW_QUERY_SINK_TIMEOUT_MS`), is logged and does not hold up the others or the capture:
 
 ```ts
 import { Injectable } from '@spinajs/di';
@@ -128,8 +128,8 @@ export class SlowQueryCollector extends SlowQuerySink {
 }
 ```
 
-- Off, the capture costs two boolean checks per statement: the driver keeps no statement, binding or timestamp. `db.Explain` is read once, at the first statement; `SlowQueryMiddleware.reload()` reads it again and forgets every remembered plan.
-- The capture runs after `setImmediate`, once the result has gone back to the caller, and holds no reference to the builder. At most 100 captures (`MAX_PENDING_SLOW_QUERY_CAPTURES`) wait or run at once; a slow statement beyond that is not recorded, and the number dropped is logged with the next record.
+- Off, the capture costs two boolean checks per statement: the driver keeps no statement, binding or timestamp. `db.Explain` is read once, at the first statement; `SlowQueryMiddleware.reload()` reads it again, forgets every remembered plan and starts a new `MaxPerMinute` window.
+- The capture runs after `setImmediate`, once the result has gone back to the caller, and holds no reference to the builder. At most 100 captures (`MAX_PENDING_SLOW_QUERY_CAPTURES`) wait or run at once; a slow statement beyond that is not recorded, and the number dropped is logged when the next capture ends.
 - A plan is attempted only for a builder with one statement in the select context, on the driver that ran it, with the statement's own bindings (databases cannot plan without them; they are not kept). A plan is remembered for 60 s per connection, `CaptureBindings` mode and fingerprint, for at most 1000 keys; a new key at capacity drops the least recently read plan. Overlapping captures of one key share one EXPLAIN, and at most `db.Explain.MaxPerMinute` EXPLAIN calls run per minute.
 - `SlowQueryMiddleware.clock`, a `Clock` from `@spinajs/util` (default `SystemClock`), times the plan cache and the `MaxPerMinute` window. Both read it on every call, so a test can assign a `ManualClock` at any time and move it with `advance(ms)`:
 
@@ -145,6 +145,7 @@ export class SlowQueryCollector extends SlowQuerySink {
   // ...run the slow select, await slowQueries!.idle()...
   clock.advance(60_000); // the remembered plan has expired: the next capture runs EXPLAIN again
   ```
+- No driver runs `EXPLAIN ANALYZE`, so the planned statement itself never runs: a `SELECT … INTO`, a `FOR UPDATE` or a select that calls a writing function is planned, not executed.
 - An EXPLAIN never runs a second statement. What the builder compiled itself (quoted names, placeholders, the dialect's keywords) is planned as it is. Only SQL the caller wrote, a `RawQuery` anywhere in the builder or an `executeSql` fragment, is checked as text: such a statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator, `LIKE … ESCAPE ''`, a select wrapped in parentheses. `ExecutedStatement.rawSql` says which kind a statement is, and `OrmDriver.explain(sql, bindings, rawSql)` passes it on, so a driver checks the text only where it is caller-written.
 - Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
 - `OrmDriver.explain()` runs outside the ambient transaction. On a driver without concurrent transactions (sqlite without a read pool, PGlite) it waits for an open transaction to end: never await it inside one. A capture made while the transaction is still open on PGlite ends with `planError`.

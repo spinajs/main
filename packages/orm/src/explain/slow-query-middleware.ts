@@ -1,6 +1,6 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { LruTtlCache, singleFlight, SystemClock, TaskTracker } from '@spinajs/util';
+import { LruTtlCache, settleWithin, singleFlight, SystemClock, TaskTracker } from '@spinajs/util';
 import type { Clock } from '@spinajs/util';
 import { QueryContext, QueryMiddleware } from '../interfaces.js';
 import type { QueryBuilder } from '../builders.js';
@@ -19,6 +19,9 @@ const MAX_REMEMBERED_FINGERPRINTS = 1000;
 
 /** Captures waiting for their turn or for an EXPLAIN; a slow statement beyond this is counted, not recorded. */
 export const MAX_PENDING_SLOW_QUERY_CAPTURES = 100;
+
+/** How long a capture waits for one sink before it logs the sink as timed out and lets the capture end. */
+export const SLOW_QUERY_SINK_TIMEOUT_MS = 5000;
 
 interface PlanOutcome {
   plan?: QueryPlan;
@@ -84,7 +87,7 @@ export class SlowQueryMiddleware extends QueryMiddleware {
 
     const at = new Date();
     const context = query.QueryContext;
-    this.captures.defer(() => this.capture(context, statements, durationMs, at, options));
+    this.captures.defer(() => this.capture(context, statements, durationMs, at, options).finally(() => this.reportDropped()));
   }
 
   /** Resolves when every deferred capture has finished. */
@@ -129,12 +132,15 @@ export class SlowQueryMiddleware extends QueryMiddleware {
       Object.assign(record, await this.planFor(driver, planKey(record, options), first, options));
     }
 
+    await this.publish(record);
+  }
+
+  /** Reported when a capture ends: captures that start later may never come. */
+  private reportDropped(): void {
     if (this.dropped > 0) {
       this.Log.warn({ dropped: this.dropped, limit: MAX_PENDING_SLOW_QUERY_CAPTURES }, '${dropped} slow queries were not recorded: more than ${limit} captures were pending');
       this.dropped = 0;
     }
-
-    await this.publish(record);
   }
 
   private planFor(driver: OrmDriver, key: string, statement: ExecutedStatement, options: ExplainOptions): Promise<PlanOutcome> {
@@ -178,12 +184,16 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   }
 
   private async publish(record: SlowQueryRecord): Promise<void> {
-    for (const sink of DI.resolve(Array.ofType(SlowQuerySink))) {
-      try {
-        await sink.record(record);
-      } catch (err) {
-        this.Log.warn({ error: err, sink: sink.constructor.name }, 'slow query sink ${sink} failed');
-      }
+    await Promise.allSettled(DI.resolve(Array.ofType(SlowQuerySink)).map((sink) => this.deliver(sink, record)));
+  }
+
+  /** A sink that never settles would hold its capture's pending slot for good, and past the limit stop every capture. */
+  private async deliver(sink: SlowQuerySink, record: SlowQueryRecord): Promise<void> {
+    const delivered = await settleWithin(Promise.resolve().then(() => sink.record(record)), SLOW_QUERY_SINK_TIMEOUT_MS);
+    if (delivered.status === 'timeout') {
+      this.Log.warn({ sink: sink.constructor.name, timeoutMs: SLOW_QUERY_SINK_TIMEOUT_MS }, 'slow query sink ${sink} timed out after ${timeoutMs} ms');
+    } else if (delivered.status === 'rejected') {
+      this.Log.warn({ error: delivered.reason, sink: sink.constructor.name }, 'slow query sink ${sink} failed');
     }
   }
 }
