@@ -270,6 +270,69 @@ Each call records an `explain` entry through the domain's `DecisionAudit`, namin
 | `500` | A `permission` the domain does not register, or a `resource` type outside the permission's types. Authz refuses both as configuration errors, as for `GET /authz/explain`; outside production the error detail names the value. |
 | `429` | The rate limit is spent. |
 
+## UI
+
+Endpoint `ui`. The UI routes are registered after every API route.
+
+### `GET /` and every other path that does not start with `api/`
+
+Below `studio.path`, the path names a file of the UI's `dist/` or a client-side route:
+
+| Path | Answer |
+| --- | --- |
+| `/` or `/index.html` | `index.html`, with three elements injected (below). |
+| A file of `dist/` of a listed type | The file. |
+| Anything else | `index.html`, so the UI opens its own route (`/_studio/traces/<id>`). |
+| `api` or `api/...` that no API route matched | `404` (JSON problem). Never `index.html`. |
+| A path that could leave `dist/` or names a hidden file | `404`, without the install hint (below). |
+| Any path, without the UI installed | `404` with the install hint, naming `@spinajs/studio-ui` and `studio.ui.path`. |
+
+The guard runs before any of this: without a caller the answer is `401`, without `studio:read` `403`, for an unknown `api/` path as well.
+
+`index.html` gets, first in its `<head>`:
+
+| Element | Value | For |
+| --- | --- | --- |
+| `<base href="...">` | The served Studio path with a trailing slash, e.g. `/_studio/` or `/api/_studio/`. | Relative asset URLs. |
+| `<meta name="spina-studio-base" content="...">` | The served Studio path, global route prefix included, no trailing slash, e.g. `/_studio` or `/api/_studio`. | Studio's own API: `<content>/api/...`. |
+| `<meta name="spina-app-base" content="...">` | The global route prefix as a path: empty when `http.controllers.route.prefix` is not set, else a leading slash and no trailing one, e.g. `/api`. | Controllers outside Studio (telemetry, scheduler-http): `<content>/telemetry/...`. |
+
+Both paths come from the function the router mounts routes with, so they are where the routes are. Both are escaped as attribute values.
+
+Without a route prefix, Studio at `/_studio`:
+
+```html
+<head><base href="/_studio/"><meta name="spina-studio-base" content="/_studio"><meta name="spina-app-base" content="">...
+```
+
+With `http.controllers.route.prefix: 'api'`:
+
+```html
+<head><base href="/api/_studio/"><meta name="spina-studio-base" content="/api/_studio"><meta name="spina-app-base" content="/api">...
+```
+
+`index.html` and every file carry `X-Content-Type-Options: nosniff` and this Content-Security-Policy, verbatim:
+
+```
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'
+```
+
+`worker-src blob:` and the `data:` sources are for the graph layout worker and inline icons of the UI. `base-uri 'self'` covers the injected `<base>`.
+
+Caching:
+
+| Answer | `Cache-Control` |
+| --- | --- |
+| `index.html`, also as the client-side route fallback | `no-store` |
+| `assets/*` (hashed file names) | `private, max-age=31536000, immutable` |
+| Any other file of `dist/` | `no-cache` |
+
+`private`, because the files are served behind the access check: a shared cache must not keep them.
+
+Files are served by type, from a fixed list: `.html`, `.js`, `.mjs`, `.css`, `.json`, `.map`, `.webmanifest`, `.txt`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.otf` and `.wasm` (`UI_CONTENT_TYPES`). The `Content-Type` comes from that list. A file of another type answers `404`.
+
+The path is decoded one segment at a time. It answers `404` when a segment is `.` or `..`, starts with a dot, or holds a `/`, a `\` or a NUL byte once decoded (`%2e%2e`, `%2f`, `%5c`, `%00`), and when a file's real path, its links followed, is outside `dist/`. An escape that does not decode (`%E0%A4%A`) is refused by the router before Studio sees the path. So a client-side route keeps such values in its query string, not in its path.
+
 ## Typed calls
 
 ```ts sample

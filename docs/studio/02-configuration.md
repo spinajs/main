@@ -8,7 +8,7 @@ Every Studio key lives under `studio.*`. The schema `spinajs/studio.configuratio
 | `studio.allowProduction` | `boolean` | `false` | | Lets Studio mount when `configuration.isProduction` is `true`. Without it Studio refuses and logs an error. |
 | `studio.allowExplainInProduction` | `boolean` | `false` | | Registers `POST /api/authz/explain` when `configuration.isProduction` is `true`. Without it the route is absent in production (404) while every other Studio route works. See [Explain in production](01-overview.md#explain-in-production). |
 | `studio.path` | `string` | `'/_studio'` | at least one character other than `/` and whitespace: not the root | Base path of every Studio route, under `http.controllers.route.prefix` when one is set. |
-| `studio.ui.path` | `string` | unset | non-empty | Path of the Studio UI. |
+| `studio.ui.path` | `string` | unset | non-empty | A directory holding the Studio UI's `index.html`, such as an unpacked `dist/`; a relative path is resolved against the working directory. Unset, the installed `@spinajs/studio-ui` is served. Set to a directory without `index.html`, every UI path answers `404` with the install hint; the package is not tried. |
 | `studio.buffers.traces` | `integer` | `1000` | `>= 1` | Traces kept in the trace buffer. |
 | `studio.buffers.spansPerTrace` | `integer` | `2000` | `>= 1` | Spans kept per trace; later spans are dropped and the trace is marked `truncated`. |
 | `studio.buffers.traceBytes` | `integer` | `67108864` (64 MiB) | `>= 1` | Approximate bytes of span data in the trace buffer. |
@@ -22,6 +22,8 @@ Every Studio key lives under `studio.*`. The schema `spinajs/studio.configuratio
 | `studio.auth.permissions.<endpoint>` | `string \| string[]` | `'studio:read'`; `'studio:explain'` for `explain` | permissions | What an `'AccessPolicy'` endpoint requires; any one permission of a list admits. |
 
 The endpoints are `capabilities`, `traces`, `logs`, `queries`, `di`, `routes`, `authz`, `explain` and `ui`.
+
+`ui` guards every UI path: `index.html`, the files of the UI's `dist/` and the client-side routes. Its defaults are `studio.auth.policies.ui: 'AccessPolicy'` and `studio.auth.permissions.ui: 'studio:read'`, so whoever may read the API may load the UI.
 
 ## Memory bound of the trace buffer
 
