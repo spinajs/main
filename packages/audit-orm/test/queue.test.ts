@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AuditConfigError, audit, trailConfig } from '@spinajs/audit';
+import { AUDIT_WIDTHS, AuditConfigError, audit, trailConfig } from '@spinajs/audit';
 import type { AuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { QueueService } from '@spinajs/queue';
@@ -118,6 +118,56 @@ describe('audit queue sink', function () {
     await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote' }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
     await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(2)), { ...wire(event(3)), at: 'yesterday' }] }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
     expect(await archived()).to.have.length(1);
+  });
+
+  it('refuses an event it cannot store alike on every dialect', async () => {
+    const malformed = async (e: Record<string, unknown>): Promise<void> => {
+      await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [e] }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
+    };
+    await malformed({ ...wire(event(1)), at: '2026-11-16 10:00:01' });
+    await malformed({ ...wire(event(1)), at: '2026-11-16T10:00:01Z' });
+    await malformed({ ...wire(event(1)), at: new Date(Date.now() + 6 * 60000).toISOString() });
+    await malformed({ ...wire(event(1)), actor: 'u'.repeat(AUDIT_WIDTHS.actor + 1) });
+    await malformed({ ...wire(event(1)), subject: { type: 'contract', id: 'c'.repeat(AUDIT_WIDTHS.subject_id + 1) } });
+    await malformed({ ...wire(event(1)), traceId: 42 });
+    await malformed({ ...wire(event(1)), tenant: null });
+    expect(await archived()).to.have.length(0);
+    await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [{ ...wire(event(1)), at: new Date(Date.now() + 60000).toISOString(), actor: 'u'.repeat(AUDIT_WIDTHS.actor) }] }));
+    expect(await archived()).to.have.length(1);
+  });
+
+  it('blanks what arrives of a subject erased after the event, with one select per batch', async () => {
+    const c1 = { type: 'contract', id: 'c1' };
+    await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(1))] }));
+    await audit().trail('remote').forget(c1);
+    await shipAudit({ trail: 'remote' });
+    const erasure = (await archived()).find((r) => r.action === 'erasure');
+    expect(erasure?.subject_id).to.eq('c1');
+
+    const late = event(7, { subject: c1 });
+    const after = event(8, { subject: c1, at: new Date(Date.now() + 60000) });
+    const other = event(9);
+    const select = Reflect.get(driver(), 'select');
+    let selects = 0;
+    Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
+      selects += 1;
+      const builder: unknown = Reflect.apply(select, driver(), args);
+      return builder;
+    });
+    try {
+      await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(late), wire(other)] }));
+    } finally {
+      Reflect.deleteProperty(driver(), 'select');
+    }
+    // The sink's dedup select and the erasure lookup.
+    expect(selects).to.eq(2);
+    const data = async (id: string): Promise<unknown> => (await archived()).find((r) => r.id === id)?.data;
+    expect(await data(late.id)).to.eq('');
+    expect(await data(other.id)).to.eq('{"version":9}');
+
+    // An event newer than the erasure keeps its payload when it arrives alone.
+    await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(after)] }));
+    expect(await data(after.id)).to.eq('{"version":8}');
   });
 
   it('archives a batch published as a plain message through QueueEvent.emit()', async () => {
