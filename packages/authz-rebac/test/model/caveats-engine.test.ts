@@ -159,6 +159,22 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
     expect(await paths({ ...userPrincipal('bob'), attributes }, doc('d1'))).to.deep.include({ residual: false });
   });
 
+  it('leaves a caveat undecided when measuring its parameter value throws, without an error vote', async () => {
+    const nested = Object.defineProperty({}, 'inner', {
+      enumerable: true,
+      get: () => {
+        throw new Error('no');
+      },
+    });
+    expect(await paths({ ...userPrincipal('bob'), attributes: { deep: nested } }, doc('d6'))).to.deep.include({ residual: false });
+    class BrokenDate extends Date {
+      getTime(): number {
+        throw new Error('no');
+      }
+    }
+    expect(await paths({ ...userPrincipal('bob'), attributes: { deep: { at: new BrokenDate() } } }, doc('d6'))).to.deep.include({ residual: false });
+  });
+
   it('reads the principal the check reads: a non-enumerable field is not there', async () => {
     const tenant: Principal = Object.defineProperty({ ...userPrincipal('bob') }, 'tenant', { value: 'acme', enumerable: false });
     expect(await paths(tenant, doc('d4'))).to.deep.equal({ check: false, residual: false });

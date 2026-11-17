@@ -88,7 +88,7 @@ function plainSize(v: unknown, limit: number): number | undefined {
     if (++n > limit) return false;
     if (x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') return true;
     if (typeof x !== 'object' || depth > MAX_VALUE_DEPTH || seen.has(x)) return false;
-    if (x instanceof Date) return !Number.isNaN(x.getTime());
+    if (x instanceof Date) return !Number.isNaN(Date.prototype.getTime.call(x));
     if (!Array.isArray(x) && !isPlain(x)) return false;
     seen.add(x);
     try {
@@ -149,7 +149,7 @@ export class RebacCaveats {
       if (def === undefined || callsFunction(def.expr)) continue;
       const picked = new Map<string, unknown>();
       let cost = 0;
-      const fits = Object.keys(def.params).every((path) => {
+      const measure = (path: string): boolean => {
         const v = path === 'env.now' || input.has(path) ? ABSENT : readParam(seen, path);
         if (v === ABSENT) return true;
         const size = v === THREW || v === undefined ? undefined : plainSize(v, left - cost);
@@ -157,7 +157,14 @@ export class RebacCaveats {
         picked.set(path, v);
         cost += size;
         return true;
-      });
+      };
+      let fits: boolean;
+      try {
+        fits = Object.keys(def.params).every(measure);
+      } catch {
+        // A getter inside the value threw: the vote copy would fail on it too.
+        fits = false;
+      }
       if (!fits) continue;
       for (const [path, v] of picked) input.set(path, v);
       left -= cost;
