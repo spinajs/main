@@ -6,7 +6,7 @@ The audit trail of a SpinaJS application: who did what to what, with which outco
 - Trails (`audit.trails`): named destinations with their own store, failure mode, retries, masking and retention.
 - Ports: `AuditStore`, `AuditReader`, `AuditEventSink`, `AuditContext`. `LogAuditStore` ships here; the table store is `@spinajs/audit-orm`.
 - `canonicalJson`, `payloadHash`: how the `data_hash` of an event is computed, wherever a copy of it is stored.
-- `eventDigest`, `sealHash`: what a seal covers of one event and how seals chain.
+- `eventDigest`, `eventsHash`, `sealHash`: what a seal covers of one event, of its events together, and how seals chain.
 - `@spinajs/audit/testing`: an in-memory store and reader and a settable context for tests.
 
 This package depends on neither the ORM nor http.
