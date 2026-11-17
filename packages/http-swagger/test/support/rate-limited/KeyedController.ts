@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Middleware, Ok, Post, RouteMiddleware } from '@spinajs/http';
+import { BaseController, BasePath, Header, Middleware, Ok, Post, RouteMiddleware } from '@spinajs/http';
 import type { IRouteMiddlewareDoc } from '@spinajs/http';
 
 class KeyedDocMiddleware extends RouteMiddleware {
@@ -17,5 +17,11 @@ export class KeyedController extends BaseController {
   @Middleware(KeyedDocMiddleware)
   public create() {
     return new Ok();
+  }
+
+  @Post()
+  @Middleware(KeyedDocMiddleware)
+  public own(@Header('x-key', undefined, { maxLength: 4 }) key: string) {
+    return new Ok({ key });
   }
 }

@@ -160,9 +160,12 @@ function requestBodyOf(body: BodyParts, multipart: BodyParts): RequestBody | und
   return { required, content: { [media]: { schema: composeSchema(parts), ...encoding } } };
 }
 
+// HTTP header names are case-insensitive, and the compiler lower-cases the wire name of a header the route reads.
+const sameParameter = (a: Parameter, b: Parameter): boolean => a.in === b.in && (a.in === 'header' ? a.name.toLowerCase() === b.name.toLowerCase() : a.name === b.name);
+
 function addParameters(parameters: Parameter[], added: Parameter[]): void {
   for (const p of added) {
-    if (!parameters.some((q) => q.name === p.name && q.in === p.in)) parameters.push(p);
+    if (!parameters.some((q) => sameParameter(q, p))) parameters.push(p);
   }
 }
 

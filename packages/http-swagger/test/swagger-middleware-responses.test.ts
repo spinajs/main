@@ -189,6 +189,12 @@ describe('Swagger middleware responses', function () {
     expect(operation.parameters).to.deep.include({ name: 'X-Key', in: 'header', required: true, description: 'A key', schema: { type: 'string', maxLength: 8 } });
   });
 
+  it("keeps the route's own parameter for a header the middleware also reads, compared without case", () => {
+    const headers = (spec.paths['/keyed/own'].post.parameters as { in: string; name: string }[]).filter((p) => p.in === 'header');
+    expect(headers).to.have.length(1);
+    expect(headers[0]).to.deep.include({ name: 'x-key', schema: { type: 'string', maxLength: 4 } });
+  });
+
   it('skips a middleware whose documentation() throws, with a warning, and documents the others', () => {
     expect(spec.paths['/misdocumented/throwing'].post.responses['423'].description).to.equal('Locked');
     const warning = warnings.find((w) => w.includes('ThrowingDocMiddleware'));

@@ -83,6 +83,14 @@ describe('manifestToOpenApi: @Idempotent routes', () => {
     expect(conflict).to.not.have.property('headers');
   });
 
+  it('keeps the header parameter of a route that reads Idempotency-Key itself, whose wire name the compiler lower-cases', () => {
+    const reading = withIdempotency(CREATE, true, (route) => {
+      route.params.push({ index: route.params.length, name: 'key', kind: 'FromHeader', runtimeType: { text: 'string' }, required: true, wire: { in: 'header', name: 'idempotency-key', shape: 'value' } });
+    });
+    const headers = (operationOf(reading, CREATE).parameters as Json[]).filter((p) => p.in === 'header');
+    expect(headers).to.deep.equal([{ name: 'idempotency-key', in: 'header', required: true, schema: {} }]);
+  });
+
   it('leaves a route without @Idempotent as it was', () => {
     const operation = operationOf(manifest, CREATE);
     expect(keyParameterOf(operation)).to.equal(undefined);
