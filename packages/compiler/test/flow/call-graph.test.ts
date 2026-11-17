@@ -91,6 +91,14 @@ describe('flow: CallGraph', () => {
     expect(followed('ChoiceShapes.chosen')).to.deep.equal([['list', ['listOpen:direct', 'listAll:direct'], false]]);
   });
 
+  it('keeps only the operands of a choice that the receiver may still hold after narrowing', () => {
+    expect(followed('NarrowedShapes.narrowed')).to.deep.equal([['s.run', ['Wide.run:direct'], false]]);
+  });
+
+  it('takes the right operand of && as the receiver, never the left', () => {
+    expect(followed('NarrowedShapes.guarded')).to.deep.equal([['s?.run', ['Narrow.run:direct'], false]]);
+  });
+
   it('resolves an interface a base class implements to the subclasses too', () => {
     expect(followed('viaBase')).to.deep.equal([['lister.list', ['BaseLister.list:implementation', 'LeafLister.list:implementation'], false]]);
     expect(followed('viaAbstractBase')).to.deep.equal([['counter.count', ['CounterBase.count:implementation'], false]]);

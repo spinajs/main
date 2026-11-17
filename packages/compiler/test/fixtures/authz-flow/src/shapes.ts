@@ -137,3 +137,40 @@ export class SubMaker extends Maker {
     return 2;
   }
 }
+
+export class Narrow {
+  public run(): number {
+    return 1;
+  }
+}
+
+export class Wide {
+  public run(): number {
+    return 2;
+  }
+
+  public extra(): number {
+    return 3;
+  }
+}
+
+export class Ctx {
+  public svc = new Narrow();
+
+  public run(): number {
+    return 0;
+  }
+}
+
+export class NarrowedShapes {
+  public narrowed(wide: boolean) {
+    const s = wide ? new Narrow() : new Wide();
+    if (s instanceof Wide) return s.run();
+    return 0;
+  }
+
+  public guarded(c: Ctx | undefined) {
+    const s = c && c.svc;
+    return s?.run();
+  }
+}

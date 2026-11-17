@@ -25,7 +25,7 @@ const EXTERNAL: ResolvedCall = { targets: [], opaque: false, external: true };
 const INJECT_DECORATORS = ['Autoinject', 'Inject'];
 /** The members of `Function.prototype` that run, or prepare to run, their receiver. */
 const FUNCTION_MEMBERS = new Set(['call', 'apply', 'bind']);
-const CHOICE_OPERATORS = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken]);
+const CHOICE_OPERATORS = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken]);
 
 export const isFunctionLike = (d: ts.Node | undefined): d is FunctionLike =>
   d !== undefined && (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d) || ts.isFunctionExpression(d) || ts.isArrowFunction(d) || ts.isGetAccessorDeclaration(d) || ts.isConstructorDeclaration(d));
@@ -48,7 +48,7 @@ const unwrap = (expr: ts.Expression): ts.Expression => {
 const implementedBy = (d: ts.Declaration): ts.ExpressionWithTypeArguments[] =>
   ts.isClassLike(d) ? (d.heritageClauses ?? []).filter((c) => c.token === ts.SyntaxKind.ImplementsKeyword).flatMap((c) => [...c.types]) : [];
 
-const bySource =(a: ts.Node, b: ts.Node): number => a.getSourceFile().fileName.localeCompare(b.getSourceFile().fileName) || a.pos - b.pos;
+const bySource = (a: ts.Node, b: ts.Node): number => a.getSourceFile().fileName.localeCompare(b.getSourceFile().fileName) || a.pos - b.pos;
 
 function addTargets(into: CallTarget[], more: readonly CallTarget[]): CallTarget[] {
   for (const target of more) if (!into.some((t) => t.fn === target.fn)) into.push(target);
@@ -180,8 +180,8 @@ export class CallGraph {
   private calleeTypes(callee: ts.Expression): ts.Type[] {
     const target = unwrap(callee);
     const types = ts.isPropertyAccessExpression(target)
-      ? this.choices(target.expression).flatMap((receiver) => this.memberType(receiver, target))
-      : this.choices(target).map((operand) => this.checker.getTypeAtLocation(operand));
+      ? this.heldHere(target.expression).flatMap((receiver) => this.memberType(receiver, target))
+      : this.heldHere(target).map((operand) => this.checker.getTypeAtLocation(operand));
     types.push(this.checker.getTypeAtLocation(callee));
     return types.flatMap((type) => {
       const value = this.checker.getNonNullableType(type);
@@ -194,12 +194,23 @@ export class CallGraph {
     return property === undefined ? [] : [this.checker.getTypeOfSymbolAtLocation(property, access)];
   }
 
-  /** What an expression may evaluate to: each operand of a choice, through parentheses and `const` bindings. */
+  /** The operands `expr` may still hold where it stands: narrowing (`instanceof`, a type guard) drops those that no longer fit. */
+  private heldHere(expr: ts.Expression): ts.Expression[] {
+    const nonNull = (node: ts.Node): ts.Type => this.checker.getNonNullableType(this.checker.getTypeAtLocation(node));
+    const here = nonNull(expr);
+    return this.choices(expr).filter((operand) => this.checker.isTypeAssignableTo(nonNull(operand), here));
+  }
+
+  /**
+   * What an expression may evaluate to: each operand of a choice, through parentheses and `const` bindings. The left
+   * operand of `&&` is the result only when it is falsy, and a falsy value has no member to call.
+   */
   private choices(expr: ts.Expression, seen = new Set<ts.Node>()): ts.Expression[] {
     const value = unwrap(expr);
     if (seen.has(value)) return [];
     seen.add(value);
     if (ts.isConditionalExpression(value)) return [...this.choices(value.whenTrue, seen), ...this.choices(value.whenFalse, seen)];
+    if (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return this.choices(value.right, seen);
     if (ts.isBinaryExpression(value) && CHOICE_OPERATORS.has(value.operatorToken.kind)) return [...this.choices(value.left, seen), ...this.choices(value.right, seen)];
     const bound = this.constInitializer(value);
     return bound === undefined ? [value] : this.choices(bound, seen);
