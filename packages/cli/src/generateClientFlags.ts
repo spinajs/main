@@ -95,3 +95,12 @@ export function unavailableFlag(flags: GenerateClientFlags, targets: TargetTable
 export function outputPaths(out: string, files: GeneratedFile[]): { path: string; contents: string }[] {
   return files.map((f, i) => ({ path: i === 0 ? out : join(dirname(out), f.path), contents: f.contents }));
 }
+
+/** One line per diagnostic, in the generator's order: `<file>: <severity> <code> <schema>#<pointer>: <message>`. */
+export function diagnosticLines(files: GeneratedFile[]): string[] {
+  return files.flatMap((f) => (f.diagnostics ?? []).map((d) => `${f.path}: ${d.severity} ${d.code} ${d.schema}#${d.pointer}: ${d.message}`));
+}
+
+export function diagnosticErrors(files: GeneratedFile[]): number {
+  return files.reduce((count, f) => count + (f.diagnostics ?? []).filter((d) => d.severity === 'error').length, 0);
+}

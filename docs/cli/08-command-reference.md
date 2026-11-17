@@ -141,7 +141,7 @@ spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <na
 | `--zod` | off | Write zod schemas |
 | `--zod-mini` | off | Use `zod/mini`; needs `--zod` |
 | `--zod-replies` | off | Also write lenient reply schemas; needs `--zod` |
-| `--zod-unsupported <warn\|error>` | `warn` | What to do with a keyword zod cannot express; needs `--zod` |
+| `--zod-unsupported <warn\|error>` | `warn` | What to do with a keyword zod cannot express; needs `--zod`. Each diagnostic is printed to stderr either way; with `error` the command writes nothing and exits with code 1 |
 | `--models` | off | Decode replies and encode requests into app types |
 | `--socket-hooks` | off | Add socket hooks to the hooks files; needs `--hooks` |
 | `--key-prefix <name>` | `spinajs` | First element of every generated query key |
@@ -152,6 +152,8 @@ spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <na
 | `--check` | off | Write nothing. Exit with code 1 and list each generated file that is missing or differs from disk |
 
 All generated files come from one read of the manifest, so they never disagree. A flag whose generator is not part of the installed `@spinajs/client` fails before anything is written, with `<flag> is not available in this version`. Each generator is released separately, in a 4.x minor, so a flag is accepted from the release that carries its generator; `--check` is available now.
+
+Diagnostics of the generators (`ZOD001`...`ZOD005`, `MOCK001`, `MSW001`) are printed to stderr, one per line: `client.zod.ts: warning ZOD002 app/UserDto#/properties/email: <message>`. A warning never changes the exit code. With `--zod-unsupported error` the zod diagnostics are errors: nothing is written, `--check` compares nothing, the line `<n> generator diagnostic(s) are errors (--zod-unsupported error); no file was written or checked` follows the diagnostics on stderr, and the exit code is 1, as for a stale file under `--check`. The mock and MSW diagnostics are always warnings. The codes are explained in [zod schemas](../client/zod.md#what-cannot-be-mapped).
 
 `--check` replaces `generate:client` followed by `git diff --exit-code` in CI. It checks only the files the given flags generate, so a companion file left over from a dropped flag is not reported. Pass the same flags the app uses locally. It compares text with line endings normalised, so a Windows checkout with `autocrlf` is not reported as stale.
 

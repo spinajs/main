@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
-import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
+import { diagnosticErrors, diagnosticLines, outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
 
 @Command('generate:client', 'Writes a typed client from app.manifest.json')
 @Option('-m, --manifest <path>', false, 'application manifest file', 'app.manifest.json')
@@ -41,6 +41,15 @@ export class GenerateClient extends CliCommand {
     const out = resolve(options.out);
     const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)) });
     const targets = outputPaths(out, files);
+
+    const lines = diagnosticLines(files);
+    if (lines.length > 0) process.stderr.write(`${lines.join('\n')}\n`);
+    const errors = diagnosticErrors(files);
+    if (errors > 0) {
+      process.stderr.write(`${errors} generator diagnostic(s) are errors (--zod-unsupported error); no file was written or checked\n`);
+      process.exitCode = 1;
+      return;
+    }
 
     if (options.check) {
       await this.check(targets);
