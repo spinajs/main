@@ -13,6 +13,15 @@ import { expireLease, instance, pick, rejects, seedInstance, stepsOf, T0 } from 
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Orders branches by an event of the run: a sleep loses to a slow journal write on a loaded machine. */
+function latch(): { wait: Promise<void>; open: () => void } {
+  let open = (): void => undefined;
+  const wait = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { wait, open };
+}
+
 /** Which item's branch waits longer between its two steps; flipped between activations to change the timing of a replay. */
 let slow = 'x';
 
@@ -112,16 +121,21 @@ describe('branch-lineage keys', () => {
   });
 
   it('implicit: same-name steps with a non-durable await between them keep their own results when the replay timing differs', async () => {
-    const code = (ctx: ActivationContext, slowId: string) =>
-      ctx.enter(() =>
+    // the slow branch calls save only after the other one has
+    const code = (ctx: ActivationContext, slowId: string) => {
+      const otherSaving = latch();
+      return ctx.enter(() =>
         Promise.all(
           ['x', 'y'].map(async (id) => {
             const v = await ctx.step('fetch', () => id);
-            await pause(id === slowId ? 40 : 0);
-            return ctx.step('save', () => `saved ${v}`);
+            if (id === slowId) await otherSaving.wait;
+            const saved = ctx.step('save', () => `saved ${v}`);
+            if (id !== slowId) otherSaving.open();
+            return saved;
           }),
         ),
       );
+    };
     const first = await activation('ln1');
     const live = await code(first.ctx, 'x');
     await first.release();
@@ -200,18 +214,23 @@ describe('branch-lineage keys', () => {
   });
 
   it('implicit: a crash while the first sibling is still running leaves a hole the replay fills', async () => {
-    const code = (ctx: ActivationContext, xMs: number) =>
-      ctx.enter(() =>
+    // with holdX, x's fetch finishes only once y's save is journaled
+    const code = (ctx: ActivationContext, holdX: boolean) => {
+      const ySaved = latch();
+      return ctx.enter(() =>
         Promise.all(
           ['x', 'y'].map(async (id) => {
-            const v = await ctx.step('fetch', () => pause(id === 'x' ? xMs : 0).then(() => id));
-            return ctx.step('save', () => `saved ${v}`);
+            const v = await ctx.step('fetch', () => (id === 'x' && holdX ? ySaved.wait : Promise.resolve()).then(() => id));
+            const saved = await ctx.step('save', () => `saved ${v}`);
+            if (id === 'y') ySaved.open();
+            return saved;
           }),
         ),
       );
+    };
     TestFaults.crashOnce('workflow.after-step-fn', 'step:fetch#1');
     const crashed = await activation('ln1');
-    await Promise.allSettled([code(crashed.ctx, 80)]);
+    await Promise.allSettled([code(crashed.ctx, true)]);
     await crashed.ctx.drain();
     // y finished while x was still fetching: call 1 of the root branch was never journaled
     expect((await stepsOf('ln1')).map((s) => [s.Key, s.Meta?.call])).to.deep.equal([
@@ -221,40 +240,50 @@ describe('branch-lineage keys', () => {
     await expireLease('ln1');
     TestFaults.reset();
     const replay = await activation('ln1');
-    const replayed = await code(replay.ctx, 0);
+    const replayed = await code(replay.ctx, false);
     const unvisited = replay.journal.unvisited();
     await replay.release();
     expect([replayed, unvisited, replay.ctx.interruption]).to.deep.equal([['saved x', 'saved y'], [], null]);
   });
 
   it('implicit: a branch continued by a later activation replays, although its new row has a lower Seq than the row before it', async () => {
-    const code = (ctx: ActivationContext, slowId: string) =>
-      ctx.enter(() =>
+    // the slow branch waits for the other one: x for y's load and scan to be called, y for x's ship to be called
+    const code = (ctx: ActivationContext, slowId: string, bodies: Promise<void>) => {
+      const yForked = latch();
+      const xShipping = latch();
+      return ctx.enter(() =>
         Promise.all(
           ['x', 'y'].map(async (id) => {
             await ctx.step('fetch', () => id);
             if (id === 'y') {
-              await pause(slowId === 'y' ? 150 : 0);
-              await Promise.all([ctx.step('load', () => pause(200)), ctx.step('scan', () => pause(200))]);
+              if (slowId === 'y') await xShipping.wait;
+              const both = Promise.all([ctx.step('load', () => bodies), ctx.step('scan', () => bodies)]);
+              yForked.open();
+              await both;
               return 'y done';
             }
-            await pause(slowId === 'x' ? 60 : 0);
+            if (slowId === 'x') await yForked.wait;
             const saved = await ctx.step('save', () => 'saved x');
-            return ctx.step('ship', () => `shipped ${saved}`);
+            const shipped = ctx.step('ship', () => `shipped ${saved}`);
+            xShipping.open();
+            return shipped;
           }),
         ),
       );
+    };
     const X = branchId('', 'step:fetch#1');
     // activation 1: y's two steps are in flight (Seq 3 and 4) when x saves (Seq 5) and crashes in ship
     TestFaults.crashOnce('workflow.after-step-fn', 'step:ship');
     const crashed = await activation('ln1');
-    await Promise.allSettled([code(crashed.ctx, 'x')]);
+    const inFlight = latch();
+    await Promise.allSettled([code(crashed.ctx, 'x', inFlight.wait)]);
+    inFlight.open();
     await crashed.ctx.drain();
     await expireLease('ln1');
     TestFaults.reset();
     // activation 2: x goes first, so its ship takes Seq 4, below the Seq 5 its save recorded
     const second = await activation('ln1');
-    const done = await code(second.ctx, 'y');
+    const done = await code(second.ctx, 'y', Promise.resolve());
     await second.release();
     const ofX = (await stepsOf('ln1')).filter((s) => s.Key.endsWith(`@${X}`));
     expect(ofX.map((s) => [s.Key, s.Seq, s.Meta?.call])).to.deep.equal([
@@ -263,7 +292,7 @@ describe('branch-lineage keys', () => {
     ]);
     // activation 3: a full replay with the first timing again
     const third = await activation('ln1');
-    const replayed = await code(third.ctx, 'x');
+    const replayed = await code(third.ctx, 'x', Promise.resolve());
     const unvisited = third.journal.unvisited();
     await third.release();
     expect([done, replayed, unvisited, third.ctx.interruption]).to.deep.equal([['shipped saved x', 'y done'], ['shipped saved x', 'y done'], [], null]);
