@@ -145,4 +145,10 @@ describe('flow: effects and the tracer across calls', () => {
     const twoTargets = new Map([[fn('Narrowing.narrow'), scoped], [fn('FreshNarrowing.narrow'), noReturn]]);
     expect(returnedScope('HandedShapes.scopedThenHanded', twoTargets)).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a builder variable reassigned is scoped only when every value it held is, and scoping a clone leaves it as it was', () => {
+    expect(returnedScope('ReassignedShapes.reassigned')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('ReassignedShapes.scopedLater')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('ReassignedShapes.clonedScope')).to.deep.equal([true, UNSCOPED]);
+  });
 });

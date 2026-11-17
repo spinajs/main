@@ -90,3 +90,23 @@ export class LocalCloner {
     return Invoice.query().accessible('invoice:read');
   }
 }
+
+export class ReassignedShapes {
+  public reassigned() {
+    let q = Invoice.query().accessible('invoice:read');
+    q = Invoice.query();
+    return q;
+  }
+
+  public scopedLater() {
+    let q = Invoice.query();
+    q = q.accessible('invoice:read');
+    return q;
+  }
+
+  public clonedScope() {
+    const q = Invoice.query();
+    q.clone().accessible('invoice:read');
+    return q;
+  }
+}

@@ -66,6 +66,35 @@ export class FlowTracer extends QueryTracer {
   observe(node: ts.Node): void {
     if (ts.isVariableDeclaration(node) && node.initializer) this.bind(node.name, this.traced(node.initializer));
     if (ts.isExpressionStatement(node)) this.extendBuilder(node.expression);
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left)) this.reassign(node.left, node.right);
+  }
+
+  /** Calls after a `clone()` change the copy, not the builder the statement starts from. */
+  protected override extendBuilder(expr: ts.Expression): void {
+    const clone = chainOf(expr)?.calls.find((c) => c.name === 'clone')?.call.expression;
+    super.extendBuilder(clone !== undefined && ts.isPropertyAccessExpression(clone) ? clone.expression : expr);
+  }
+
+  /**
+   * The tracer does not follow control flow, so a reassigned builder variable holds any of its values at a later
+   * read: it is scoped only when every one of them is.
+   */
+  private reassign(name: ts.Identifier, value: ts.Expression): void {
+    const symbol = this.checker.getSymbolAtLocation(name);
+    if (symbol === undefined) return;
+    const held = this.builders.get(symbol);
+    const assigned = this.traced(value);
+    if (held === undefined) {
+      if (assigned?.pending === true) this.builders.set(symbol, assigned.value);
+      return;
+    }
+    const next = assigned?.pending === true ? assigned.value : unscopedBuilder(value, held.model);
+    const joined = unscopedBuilder(next.node, next.model);
+    joined.scoped.accessible = held.scoped.accessible && next.scoped.accessible;
+    joined.scoped.unscoped = held.scoped.unscoped && next.scoped.unscoped;
+    // The finding points at the value that left the variable unscoped.
+    this.meta.set(joined, held.scoped.accessible ? this.metaOf(next) : this.metaOf(held));
+    this.builders.set(symbol, joined);
   }
 
   public override traced(expr: ts.Expression): Traced | undefined {
