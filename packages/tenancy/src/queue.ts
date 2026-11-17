@@ -48,11 +48,13 @@ export class TenantQueueHook extends QueueMessageHook {
     const tenancy = jobOptions(message).tenancy ?? 'carry';
     if (tenancy === 'none') return establishTenantScope(undefined, next);
 
-    const header = message.Headers?.[QueueHeaders.Tenant];
-    const scope = decodeTenantHeader(header);
-    if (tenancy === 'carry' && header !== undefined && scope === undefined) {
+    // Typed as a string, but a body-only transport (SQS) hands over whatever the publisher put in the JSON.
+    const raw: unknown = message.Headers?.[QueueHeaders.Tenant];
+    const scope = typeof raw === 'string' ? decodeTenantHeader(raw) : undefined;
+    if (tenancy === 'carry' && raw !== undefined && scope === undefined) {
       // Only version skew or tampering writes such a value; a cross-tenant reason can be long.
-      this.Log.warn({ messageName: message.Name, header: header.slice(0, 64), length: header.length }, 'Message ${messageName} carries a malformed tenant header; its handler runs with no tenant scope');
+      const detail = typeof raw === 'string' ? { header: raw.slice(0, 64), length: raw.length } : { type: typeof raw };
+      this.Log.warn({ messageName: message.Name, ...detail }, 'Message ${messageName} carries a malformed tenant header; its handler runs with no tenant scope');
     }
     if (tenancy === 'required' && scope?.kind !== 'tenant') {
       throw new PermanentJobFailure('tenant_required', `${message.Name} needs a tenant and the message carries ${scope ? 'the cross-tenant scope' : 'none'}`);

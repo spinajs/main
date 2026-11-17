@@ -3,7 +3,7 @@ import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage, PermanentJobFailure } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 
@@ -68,6 +68,7 @@ class HookConf extends FrameworkConfiguration {
 const trace: string[] = [];
 let failEmit = false;
 let failHandle = false;
+let refuseForGood = false;
 
 class OuterHook extends QueueMessageHook {
   beforeEmit(message: IQueueMessage): void {
@@ -79,6 +80,7 @@ class OuterHook extends QueueMessageHook {
   async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
     trace.push('outer.in');
     if (failHandle) throw new Error('refused to handle');
+    if (refuseForGood) throw new PermanentJobFailure('refused', 'for good');
     try {
       return await next();
     } finally {
@@ -109,6 +111,30 @@ class PlainJob extends QueueJob {
   public async execute() {
     trace.push('execute');
     return 'done';
+  }
+}
+
+@Job()
+class RetriedJob extends QueueJob {
+  public RetryCount = 3;
+
+  public async execute() {
+    trace.push('execute');
+    return 'done';
+  }
+}
+
+@Job()
+class FailingJob extends QueueJob {
+  public RetryCount = 0;
+
+  public async execute(): Promise<string> {
+    trace.push('execute');
+    throw new Error('boom');
+  }
+
+  public async onFailed(): Promise<void> {
+    trace.push('onFailed');
   }
 }
 
@@ -146,6 +172,7 @@ describe('queue message hooks', function () {
     trace.length = 0;
     failEmit = false;
     failHandle = false;
+    refuseForGood = false;
     DI.register(HookConf).as(Configuration);
     DI.register(OuterHook).as(QueueMessageHook);
     DI.register(InnerHook).as(QueueMessageHook);
@@ -349,6 +376,35 @@ describe('queue message hooks', function () {
     expect(row.Status).to.equal('dead');
     expect(row.LastError).to.equal('refused to handle');
     expect(trace).to.not.include('execute');
+  });
+
+  it('a hook that refuses for good ends a job with retries left dead after one attempt', async () => {
+    refuseForGood = true;
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(RetriedJob);
+    await RetriedJob.emit({});
+
+    const c = await client();
+    await expect(c.deliver(c.Emitted[0])).to.be.rejectedWith(PermanentJobFailure, 'refused: for good');
+
+    const row = (await JobModel.all())[0];
+    expect(row.MaxAttempts).to.equal(4);
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
+    expect(row.LastError).to.equal('refused: for good');
+    expect(trace).to.not.include('execute');
+  });
+
+  it('onFailed runs inside the hook chain', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(FailingJob);
+    await FailingJob.emit({});
+    trace.length = 0;
+
+    const c = await client();
+    await expect(c.deliver(c.Emitted[0])).to.be.rejectedWith('boom');
+
+    expect(trace).to.deep.equal(['outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out', 'outer.in', 'inner.in', 'onFailed', 'inner.out', 'outer.out']);
   });
 });
 

@@ -123,6 +123,23 @@ describe('TenantQueueHook', () => {
     expect(warnings[0][0]).to.deep.eq({ messageName: 'CarryJob', header: malformed.slice(0, 64), length: malformed.length });
   });
 
+  it('reads a tenant value that is not a string as malformed: a warning under carry, tenant_required under required', async () => {
+    const warnings: unknown[][] = [];
+    const watched = new TenantQueueHook();
+    Object.defineProperty(watched, 'Log', { value: { warn: (...args: unknown[]) => void warnings.push(args) } });
+
+    const carried = new CarryJob();
+    carried.hydrate({ Headers: { [TENANT]: 42 } });
+    const required = new RequiredJob();
+    required.hydrate({ Headers: { [TENANT]: { id: 'acme' } } });
+
+    expect(await watched.aroundHandle(carried, async () => tenantScope())).to.eq(undefined);
+    const refused: unknown = await watched.aroundHandle(required, async () => 'ran').catch((err: unknown) => err);
+
+    expect(warnings.map((w) => w[0])).to.deep.eq([{ messageName: 'CarryJob', type: 'number' }]);
+    expect(isPermanentJobFailure(refused) && refused.reason).to.eq('tenant_required');
+  });
+
   it('required: refuses for good a message that names no single tenant', async () => {
     for (const message of [new RequiredJob(), carrying(new RequiredJob(), encodeTenantHeader(BILLING)), carrying(new RequiredJob(), 'Not An Id')]) {
       const refused: unknown = await hook.aroundHandle(message, async () => 'ran').catch((err: unknown) => err);

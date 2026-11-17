@@ -94,7 +94,7 @@ export function currentCorrelationId(): string | undefined {
 
 - Keep `beforeEmit()` to data that survives JSON: the transport serialises the message.
 - Do not trust message fields in `aroundHandle()` that any emitter can set; check them against the job row or a signature. `AuthzQueueHook` drops a caller-supplied `Initiator` in `beforeEmit()` for this reason.
-- Put hooks that establish context (identity, tenant) before hooks that use it, by registration order.
+- Put hooks that establish context (identity, tenant) before hooks that use it, by a lower `order`.
 
 ## Patterns and antipatterns
 
