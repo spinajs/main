@@ -35,6 +35,8 @@ interface Subject {
   name: string;
   load(): Promise<Manifest>;
   gaps: Gap[];
+  /** The ids that must have every variant; without it, every id must have a `request` variant. */
+  named?: string[];
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,14 +66,22 @@ const GAPS: Gap[] = Object.entries(COERCED_KEYS).map(([schema, coerced]) => ({
 
 const gapsOf = (...schemas: string[]): Gap[] => GAPS.filter((g) => schemas.includes(g.schema));
 
+/** `parityManifest` sends every named schema as a body, a query argument and a reply, so each has all three variants unless the server refuses it. */
+const handWritten = (name: string, named: () => Record<string, unknown>, gapsHere: Gap[] = [], extra: () => Record<string, unknown> = () => ({})): Subject => ({
+  name,
+  load: once(async () => parityManifest(await appBasicManifest(), named(), extra())),
+  gaps: gapsHere,
+  named: Object.keys(named()).map((key) => `test/${key}`),
+});
+
 const SUBJECTS: Subject[] = [
   { name: 'app-basic', load: appBasicManifest, gaps: [] },
   { name: 'schema-corpus', load: once(corpusManifest), gaps: [] },
-  { name: 'draft-07 core', load: once(async () => parityManifest(await appBasicManifest(), core())), gaps: [] },
-  { name: 'draft-07 keywords', load: once(async () => parityManifest(await appBasicManifest(), keywords())), gaps: [] },
-  { name: 'explicit keywords', load: once(async () => parityManifest(await appBasicManifest(), explicit(), prefixed(keywords()))), gaps: [] },
-  { name: 'coercion', load: once(async () => parityManifest(await appBasicManifest(), coercion())), gaps: [] },
-  { name: 'diagnosed gaps and regressions', load: once(async () => parityManifest(await appBasicManifest(), gaps())), gaps: gapsOf(...GAPS.map((g) => g.schema)) },
+  handWritten('draft-07 core', core),
+  handWritten('draft-07 keywords', keywords),
+  handWritten('explicit keywords', explicit, [], () => prefixed(keywords())),
+  handWritten('coercion', coercion),
+  handWritten('diagnosed gaps and regressions', gaps, gapsOf(...GAPS.map((g) => g.schema))),
 ];
 
 /** Schemas no input satisfies in a variant, so the server accepts none there: the floor does not apply, and none may be accepted. */
@@ -167,6 +177,10 @@ describe('zod parity with the server', function () {
             let stricter = 0;
             let thinnest = Number.POSITIVE_INFINITY;
             let saturated = 0;
+            const required = subject.named ?? (variant === 'request' ? generated.ids : []);
+            // A schema the server refuses may go without a variant: it has no verdict to compare (Dunder has no Reply).
+            const absent = required.filter((id) => !zodSchemaOf(generated, id, variant) && serverRefusal(generated, id, options) === undefined);
+            expect(absent, `schemas without a ${variant} export`).to.deep.equal([]);
 
             for (const id of generated.ids) {
               if (!zodSchemaOf(generated, id, variant)) continue;
