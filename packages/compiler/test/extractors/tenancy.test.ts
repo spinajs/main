@@ -62,7 +62,7 @@ describe('tenancy entry points', () => {
 
   const entry = (id: string) => tenancy.entryPoints.find((e) => e.id === id);
 
-  it('lists the tenant models of the package with where each is declared, then a model of another package it registers', () => {
+  it('lists the tenant models of the package with where each is declared, then a model of another package it registers, from its declarations or its sources', () => {
     expect(tenancy.models.map((m) => [m.model, m.tenant, m.source.line])).to.deep.equal([
       ['tenancy-pkg:Ledger', { isolation: 'schema', column: false }, 6],
       ['tenancy-pkg:Invoice', {}, 14],
@@ -72,6 +72,7 @@ describe('tenancy entry points', () => {
       ['tenancy-pkg:Branch', { column: 'branch_id' }, 7],
       ['tenancy-pkg:Vault', { isolation: 'schema' }, 13],
       ['tenancy-pkg:Note', { rls: false }, 24],
+      ['ledger-src:Entry', { column: 'book_id' }, 4],
       ['@spinajs/queue:JobModel', {}, 44],
     ]);
     expect(tenancy.models.map((m) => m.model), 'a registered class of the package that is no model').to.not.include('tenancy-pkg:Stamped');

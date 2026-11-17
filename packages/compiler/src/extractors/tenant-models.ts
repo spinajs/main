@@ -6,7 +6,7 @@ import type { ExtractorContext } from '../context.js';
 import { literalValue } from '../decorators.js';
 import { owningPackage, type OwningPackage } from '../owning-package.js';
 import { baseClassOf } from '../schema/framework-members.js';
-import { classSymbolOf, modelIdOf } from './access-resources.js';
+import { classSymbolOf, modelIdOf, otherPackageOf } from './access-resources.js';
 import { declaredDecorator, isFunctionOf, programDeclares } from './decorator-origin.js';
 import { modelDeclarationOf } from './models.js';
 
@@ -84,8 +84,6 @@ function dependencyTenants(): (symbol: ts.Symbol) => ModelTenant | undefined {
   };
 }
 
-const isOfDependency = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().isDeclarationFile === true;
-
 function nearestTenant(symbol: ts.Symbol, registrations: Map<ts.Symbol, Registration>, dependency: (symbol: ts.Symbol) => ModelTenant | undefined, checker: ts.TypeChecker): Found | undefined {
   let current: ts.Type | undefined = checker.getDeclaredTypeOfSymbol(symbol);
   for (let hops = 0; current && hops < 32; hops++) {
@@ -120,7 +118,7 @@ export function tenantModelsOf(ctx: ExtractorContext, files: readonly ts.SourceF
   }
 
   for (const [symbol, registration] of registrations) {
-    if (covered.has(symbol) || !isOfDependency(symbol)) continue;
+    if (covered.has(symbol) || otherPackageOf(symbol, ctx) === undefined) continue;
     rows.push({ model: modelIdOf(symbol, ctx), tenant: registration.tenant, source: ctx.sourceRef(registration.node) });
   }
   return rows;
