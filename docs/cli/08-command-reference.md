@@ -128,13 +128,14 @@ See [`@spinajs/asyncapi`](../asyncapi/README.md).
 ```sh
 spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <name>] [--no-socket]
   [--hooks <list>] [--zod [--zod-mini] [--zod-replies] [--zod-unsupported <warn|error>]] [--models]
-  [--socket-hooks] [--key-prefix <name>] [--server] [--next] [--mocks [--msw]] [--check]
+  [--socket-hooks] [--key-prefix <name>] [--server] [--next] [--mocks [--msw]]
+  [--import-extension <js|ts|none>] [--check]
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-m, --manifest <path>` | `app.manifest.json` | Application manifest |
-| `-o, --out <path>` | `src/generated/client.ts` | Output file; companion files are written next to it, named after it (`client.zod.ts`). Missing folders are created |
+| `-o, --out <path>` | `src/generated/client.ts` | Output file; companion files are written next to it, named after it (`client.zod.ts`). Missing folders are created. An `--out` ending in `.mts` writes every file as `.mts`, importing each other as `.mjs` (or as chosen by `--import-extension`). |
 | `--module <name>` | `@spinajs/client/runtime` | Import path of the client runtime in the generated file |
 | `--no-socket` | sockets included | Omit socket contracts |
 | `--hooks <list>` | none | Comma-separated hooks targets: `react-query`, `swr` |
@@ -149,11 +150,14 @@ spinajs generate:client [-m, --manifest <path>] [-o, --out <path>] [--module <na
 | `--next` | off | Write the Next.js adapter; implies `--server` |
 | `--mocks` | off | Write mock data and a fake client |
 | `--msw` | off | Also write MSW handlers; needs `--mocks` |
+| `--import-extension <js\|ts\|none>` | `js` | How the generated files import each other: `./client.js` as Node's ESM resolution needs, `./client.ts` for `allowImportingTsExtensions`, `./client` for a bundler such as Turbopack |
 | `--check` | off | Write nothing. Exit with code 1 and list each generated file that is missing or differs from disk |
 
 All generated files come from one read of the manifest, so they never disagree. A flag whose generator is not part of the installed `@spinajs/client` fails before anything is written, with `<flag> is not available in this version`. Each generator is released separately, in a 4.x minor, so a flag is accepted from the release that carries its generator; `--check` is available now.
 
 Diagnostics of the generators (`ZOD001`...`ZOD005`, `MOCK001`, `MSW001`) are printed to stderr, one per line: `client.zod.ts: warning ZOD002 app/UserDto#/properties/email: <message>`. A warning never changes the exit code. With `--zod-unsupported error` the zod diagnostics are errors: nothing is written, `--check` compares nothing, the line `<n> generator diagnostic(s) are errors (--zod-unsupported error); no file was written or checked` follows the diagnostics on stderr, and the exit code is 1, as for a stale file under `--check`. The mock and MSW diagnostics are always warnings. The codes are explained in [zod schemas](../client/zod.md#what-cannot-be-mapped).
+
+`--import-extension none` needs `.ts` files: TypeScript resolves an extensionless import to `client.ts`, never to `client.mts`.
 
 `--check` replaces `generate:client` followed by `git diff --exit-code` in CI. It checks only the files the given flags generate, so a companion file left over from a dropped flag is not reported. Pass the same flags the app uses locally. It compares text with line endings normalised, so a Windows checkout with `autocrlf` is not reported as stale.
 

@@ -5,6 +5,7 @@ export { buildClientModel } from './generate/model.js';
 export type { ArgumentModel, BuildClientModelOptions, ClientModel, ControllerModel, PaginationModel, RouteKind, RouteModel } from './generate/model.js';
 export { generateClientFiles, GENERATOR_TARGETS, requestedTargets } from './generate/files.js';
 export type { GeneratedFile, GenerateClientFilesOptions, GeneratorTarget, ZodOptions } from './generate/files.js';
+export type { ImportExtension, SiblingImports } from './generate/companion.js';
 export { emitZod } from './generate/zod/emit.js';
 export type { GeneratorDiagnostic, GeneratorDiagnosticCode, ZodEmitResult } from './generate/zod/emit.js';
 export { emitMocks } from './generate/mocks.js';

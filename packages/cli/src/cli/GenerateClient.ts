@@ -21,6 +21,7 @@ import { diagnosticErrors, diagnosticLines, outputPaths, parseList, toFilesOptio
 @Option('--next', false, 'write the Next.js adapter (implies --server)')
 @Option('--mocks', false, 'write mock data and a fake client')
 @Option('--msw', false, 'also write MSW handlers (needs --mocks)')
+@Option({ flags: '--import-extension <mode>', description: 'how generated files import each other: js (Node ESM), ts, or none (bundlers such as Turbopack)', choices: ['js', 'ts', 'none'] })
 @Option('--check', false, 'write nothing; exit with code 1 and list the files that differ from disk')
 export class GenerateClient extends CliCommand {
   @Logger('cli')
@@ -39,7 +40,7 @@ export class GenerateClient extends CliCommand {
     if (refused) throw new Error(`${refused} is not available in this version`);
 
     const out = resolve(options.out);
-    const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)) });
+    const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)), fileExtension: extname(out) === '.mts' ? '.mts' : '.ts' });
     const targets = outputPaths(out, files);
 
     const lines = diagnosticLines(files);

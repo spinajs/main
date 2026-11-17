@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { generateClient, GENERATOR_TARGETS, type GeneratorTarget } from '@spinajs/client';
+import { generateClient, generateClientFiles, GENERATOR_TARGETS, type GeneratorTarget } from '@spinajs/client';
 import { hashManifest, readManifest } from '@spinajs/manifest';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -90,6 +90,19 @@ describe('generate:client', function () {
     });
   }
 
+  it('writes .mts files that import each other as .mjs when --out ends in .mts', async () => {
+    const out = join(dir, 'client.mts');
+    await run('--out', out, '--zod');
+    expect((await readdir(dir)).sort()).to.deep.equal(['client.mts', 'client.zod.mts']);
+    expect(await readFile(join(dir, 'client.zod.mts'), 'utf8')).to.contain("from './client.mjs'");
+  });
+
+  it('writes extensionless sibling imports with --import-extension none', async () => {
+    const out = join(dir, 'client.ts');
+    await run('--out', out, '--zod', '--import-extension', 'none');
+    expect(await readFile(join(dir, 'client.zod.ts'), 'utf8')).to.contain("from './client'");
+  });
+
   // Every target has landed, so a refusal test marks its target unavailable in the table the command reads.
   async function withUnavailable<T>(target: GeneratorTarget, body: () => Promise<T>): Promise<T> {
     const entry = GENERATOR_TARGETS[target] as { available: boolean };
@@ -171,6 +184,7 @@ describe('generate:client', function () {
         next: true,
         mocks: true,
         msw: true,
+        importExtension: 'none',
       });
       expect(options).to.deep.equal({
         moduleName: './rt.js',
@@ -184,6 +198,7 @@ describe('generate:client', function () {
         next: true,
         mocks: true,
         msw: true,
+        importExtension: 'none',
       });
     });
 
@@ -349,6 +364,29 @@ describe('generate:client', function () {
       expect(stderr).to.not.include('out of date');
       expect(process.exitCode).to.equal(1);
       expect(await readdir(dir)).to.deep.equal(['app.manifest.json']);
+    });
+
+    it('prints a warning under --check, writes nothing to stdout and leaves the exit code to the comparison', async () => {
+      const manifest = await manifestWithUnknownFormat();
+      const out = join(dir, 'client.ts');
+      const current = await generateClientFiles({ manifest: await readManifest(manifest), zod: true });
+      for (const file of outputPaths(out, current)) await writeFile(file.path, file.contents);
+      let stdout = '';
+      const realStdout = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        stdout += String(chunk);
+        return true;
+      });
+      try {
+        await run('--manifest', manifest, '--out', out, '--zod', '--check');
+      } finally {
+        process.stdout.write = realStdout;
+      }
+      expect(stderr).to.include(`client.zod.ts: warning ${ZOD002}`);
+      expect(stderr).to.not.match(SUMMARY);
+      expect(stderr).to.not.include('out of date');
+      expect(stdout).to.not.include('ZOD002');
+      expect(process.exitCode).to.equal(undefined);
     });
 
     it('prints no diagnostic line and keeps exit code 0 for a manifest that has none', async () => {
