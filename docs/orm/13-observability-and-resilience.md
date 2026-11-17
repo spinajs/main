@@ -73,6 +73,28 @@ Metrics go into the `Metrics` singleton from `@spinajs/telemetry-common`. `@spin
 | `SqliteOrmDriver` | no | `Size` only; `InUse` and `Waiting` are always `0` | no | yes |
 | `MsSqlOrmDriver` | no | no (base: all `0`) | no | no |
 
+### Query spans
+
+Every statement a builder executes through `SqlDriver.execute` produces one OpenTelemetry span named `db.query`, kind `CLIENT`, on the provider `@spinajs/tracing` owns. Its parent is the active span: the HTTP request, a queue consumer, a scheduler step. A builder that compiles to several statements (a schema builder, a chunked insert) gets one span per statement. Tracing runs in id-only mode by default, so the span carries ids and nothing is recorded or exported until a processor is attached.
+
+| Attribute | Set | Meaning |
+| --- | --- | --- |
+| `db.system.name` | always | `sqlite`, `postgresql`, `mysql`, `microsoft.sql_server`, or the driver token without its `orm-driver-` prefix. |
+| `spina.db.connection` | always | `db.Connections[].Name` of the connection that ran the statement. A select that failed on a read replica and ran again on another connection has two spans. |
+| `db.operation.name` | while recording | The statement's first keyword (`SELECT`, `INSERT`, `CREATE`, …). A `WITH` statement is named by its builder. |
+| `db.query.text` | while recording | The statement with every literal replaced by `?`, at most 2048 characters. |
+| `spina.db.fingerprint` | while recording | 16 hex characters of the statement's shape: literal values, whitespace, letter case and the length of `IN (…)` lists and multi-row `VALUES` do not change it. |
+| `db.collection.name` | while recording | The table of a query builder. A raw fragment (`executeSql`) has none. |
+| `db.response.returned_rows` | on success | Rows of an array result; for a stream, the rows it yielded. Still incubating in the OTel semantic conventions. |
+| `error.type` | on failure | The class name of the error. The span status is `ERROR` with the same class name as its message. |
+
+- Bindings and error messages never reach the span. A driver error often embeds the statement's parameters in its message; the message stays in the log line, which carries the same `traceId`.
+- A streamed select (`SelectQueryBuilder.stream()` on a driver that holds a cursor) gets one span that ends when the stream ends: read to the end, left with `break` or `return()`, failed while reading, or failed while closing its cursor. A stream read with `next()` by hand and then dropped without `return()` never runs its cleanup: its cursor stays open until the connection is released, and its span is never ended and therefore never exported. `for await` and `stream()` always call `return()`.
+- No span: a direct `executeOnDb()` call, and the transaction control statements (`BEGIN`, `COMMIT`, `ROLLBACK`, savepoints).
+- `sanitizeSql()` (exported from `@spinajs/orm`, as is `fingerprint()`) does not strip SQL comments or postgres dollar quoting (`$$…$$`). A quote inside either throws the literal matching off for the rest of that statement. The builders write neither; a raw fragment can.
+- Backslash rule: whether `\'` ends a literal depends on the server and its mode. MySQL compiles `O'Brien` in a `CREATE VIEW` as `'O\'Brien'`, and with `NO_BACKSLASH_ESCAPES` the same text ends at `\'`; postgres reads `\'` as an escape only in an `E''` string. Any guess leaks on some connection, so the text is dropped from the literal that holds the first backslash on: `` SELECT * FROM `users` WHERE `Name` = 'O\'Brien' AND `Ssn` = '123' `` becomes `` SELECT * FROM `users` WHERE `Name` = ? ``.
+- Double-quote rule: `"name"` is kept as an identifier only on a connection whose quoter writes identifiers in double quotes (postgres, `OrmDriver.ansiQuotedIdentifiers()`). On MySQL and SQLite, which quote with backticks, a double-quoted token is a string and becomes `?`.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
