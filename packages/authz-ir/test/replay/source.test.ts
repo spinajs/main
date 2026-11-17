@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AuthzConfigError } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
 
 import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, TupleSourceGap } from '../../src/index.js';
@@ -108,9 +109,9 @@ class Columns implements HistoryContributor {
     return subject === null ? undefined : { key: c.key, object: p.object, relation: 'parent', subject };
   }
 
-  project(c: ChangeRecord): ChangeRecord {
+  project(c: ChangeRecord): ChangeRecord | undefined {
     const p = c.payload as ColumnChange;
-    return { ...c, payload: p.new ?? undefined, before: p.old ?? undefined };
+    return p.column === 'folder_id' ? { ...c, payload: p.new ?? undefined, before: p.old ?? undefined } : undefined;
   }
 
   subjectAt(image: unknown): TupleSubjectRef {
@@ -123,6 +124,11 @@ class Columns implements HistoryContributor {
     if (target === null) this.rows.delete(key);
     else this.rows.set(key, target);
     await this.log.append([{ kind: 'column', op: 'put', key: `${key}#parent`, payload: { model: 'Doc', column: 'folder_id', object, old, new: target }, at }]);
+  }
+
+  /** Another `@Parent` column of the doc, which shares the changelog key. */
+  async other(object: ObjectRef, at: Date): Promise<void> {
+    await this.log.append([{ kind: 'column', op: 'put', key: `${object.type}:${object.id}#parent`, payload: { model: 'Doc', column: 'space_id', object, old: null, new: { type: 'space', id: 's1' } }, at }]);
   }
 }
 
@@ -212,6 +218,14 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf(s.column('Doc', 'folder_id', { type: 'folder', id: 'x' }))).message).to.match(/no history contributor/);
     log.cover('column', ms(-1_000), 'doc');
     expect((await gapOf(s.column('Doc', 'folder_id', doc('d1')))).message).to.match(/history starts/);
+  });
+
+  it('checks the window on a change the projection hides', async () => {
+    const { log, columns } = await setup();
+    await columns.set(doc('d1'), folder('f1'), ms(-30 * MIN));
+    await columns.other(doc('d1'), ms(-1_000));
+    const s = await source(log, [columns]);
+    expect((await gapOf(s.column('Doc', 'folder_id', doc('d1')))).message).to.match(/ambiguity window/);
   });
 
   it('lists the objects a subject held at T in reverse', async () => {
@@ -306,4 +320,7 @@ describe('HistoricalTupleSource', () => {
     const error = await ReplayHistory.load(log, T, ['tuple'], limits, AbortSignal.abort()).catch((e: unknown) => e);
     expect(error).to.be.instanceOf(Error).and.to.have.property('name', 'AbortError');
   });
+});
+
+describe('MemoryChangeLog', () => {
 });

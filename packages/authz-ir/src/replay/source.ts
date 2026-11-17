@@ -7,6 +7,7 @@ import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor
 import { TupleSourceGap } from './gap.js';
 import type { ReplayRead } from './gap.js';
 import { coverageGap, stateAt } from './history.js';
+import type { KeyState } from './history.js';
 import type { ReplayHistory } from './history-scan.js';
 
 interface Candidate<T> {
@@ -130,15 +131,8 @@ export class HistoricalTupleSource implements TupleSource {
 
   private settle<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
     const out: Resolved<T> = { present: [], gaps: [] };
-    const project = (ch: ChangeRecord | undefined): ChangeRecord | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch));
     for (const [key, cand] of candidates) {
-      const after = this.history
-        .afterFor(c.kind, key)
-        .map(project)
-        .filter((ch): ch is ChangeRecord => ch !== undefined);
-      const state = moved.has(key)
-        ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const)
-        : stateAt(this.at, { kind: c.kind, current: cand.image, after, before: project(befores.get(key)), since, window: this.history.window, precisionMs: this.history.precisionMs });
+      const state = moved.has(key) ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const) : this.stateOf(c, key, cand.image, befores.get(key), since);
       if (!state.known) {
         const read: ReplayRead = { kind: c.kind, key, origin: 'gap', reason: state.reason };
         this.reads.push(read);
@@ -149,5 +143,22 @@ export class HistoricalTupleSource implements TupleSource {
       if (state.value !== undefined) out.present.push({ value: state.value, carrier: cand.carrier });
     }
     return out;
+  }
+
+  /**
+   * The window is checked on the key's last change before T as logged: a projection that drops it (another column of a
+   * shared key) would also hide the window from the changes of this item it covers.
+   */
+  private stateOf(c: HistoryContributor, key: string, current: unknown, before: ChangeRecord | undefined, since: Date | undefined): KeyState {
+    const w = this.history.window;
+    if (before !== undefined && before.at.getTime() >= this.at.getTime() - w.beforeMs && before.at.getTime() <= this.at.getTime() + w.afterMs) {
+      return { known: false, reason: `change seq ${before.seq} at ${before.at.toISOString()} is within the ambiguity window of the decision` };
+    }
+    const project = (ch: ChangeRecord | undefined): ChangeRecord | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch));
+    const after = this.history
+      .afterFor(c.kind, key)
+      .map(project)
+      .filter((ch): ch is ChangeRecord => ch !== undefined);
+    return stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: this.history.precisionMs });
   }
 }
