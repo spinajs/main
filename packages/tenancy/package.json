@@ -8,6 +8,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./queue": {
+      "types": "./lib/queue.d.ts",
+      "import": "./lib/queue.js"
     }
   },
   "type": "module",
@@ -50,8 +54,17 @@
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/principal": "3.0.23"
   },
+  "peerDependencies": {
+    "@spinajs/queue": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/queue": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/authz": "3.0.23",
+    "@spinajs/queue": "3.0.23",
     "@spinajs/testing": "3.0.23"
   },
   "spinajs": {
