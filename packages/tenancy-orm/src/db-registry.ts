@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { TenantRegistry } from '@spinajs/tenancy';
+import { TenantRegistry, isTenantId } from '@spinajs/tenancy';
 import type { TenantRecord, TenantState } from '@spinajs/tenancy';
 
 import { TenantModel } from './models/TenantModel.js';
@@ -14,7 +14,9 @@ const DOMAIN = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
 export class DbTenantRegistry extends TenantRegistry {
   protected pageSize = 200;
 
+  /** A value that is not a tenant id finds nothing: MySQL and MSSQL would match `t1 ` to `t1`. */
   public async get(id: string): Promise<TenantRecord | undefined> {
+    if (!isTenantId(id)) return undefined;
     const row = await TenantModel.where('id', id).first();
     return row ? toTenantRecord(row) : undefined;
   }

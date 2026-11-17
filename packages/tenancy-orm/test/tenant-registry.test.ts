@@ -173,6 +173,39 @@ describe('DbTenantRegistry', function () {
     await expect(cached.find({ slug: 'globex' })).to.be.rejected;
   });
 
+  it('never hands out an active tenant whose placement it cannot read, the cache and admitTenant included', async () => {
+    await writeRaw('t1', { placement: '{"kind":"other"}' });
+    const cached = await tenantRegistry();
+    const message = 'tenancy-orm: tenant "t1" has the unreadable placement {"kind":"other"}';
+    await expect(registry.get('t1')).to.be.rejectedWith(InvalidOperation, message);
+    await expect(cached.get('t1')).to.be.rejectedWith(InvalidOperation, message);
+    await expect(admitTenant({ domain: 'acme.example' })).to.be.rejectedWith(InvalidOperation, message);
+  });
+
+  it('takes an id that is not a tenant id as no tenant, and never hands out a row that has one', async () => {
+    await seedTenant({ id: 'T3', slug: 'upper' });
+    expect(await registry.get('T3')).to.eq(undefined);
+    await expect(registry.find({ slug: 'upper' })).to.be.rejectedWith(InvalidOperation, 'tenancy-orm: the tenant row "T3" has an id that is not a tenant id');
+  });
+
+  it('keeps a slug to one tenant', async () => {
+    await expect(seedTenant({ id: 't3', slug: 'acme' })).to.be.rejected;
+    expect(await idsOf(registry.list())).to.deep.eq(['t1', 't2']);
+  });
+
+  it('neither repeats nor skips a tenant whose state changes between two pages', async () => {
+    await seedTenant({ id: 't3' });
+    await seedTenant({ id: 't4' });
+    await seedTenant({ id: 't5' });
+    const seen: string[] = [];
+    for await (const record of new SmallPages().list({ states: ['active'] })) {
+      seen.push(record.id);
+      // The first page was t1 and t3; t1 leaves the filter after it was read, t4 before.
+      if (record.id === 't3') await TenantModel.update({ state: 'suspended', updated_at: DateTime.utc() }).whereIn('id', ['t1', 't4']);
+    }
+    expect(seen).to.deep.eq(['t1', 't3', 't5']);
+  });
+
   it('lists tenants page by page, in id order, by state', async () => {
     await seedTenant({ id: 't3', state: 'provisioning' });
     await seedTenant({ id: 't4' });

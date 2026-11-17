@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { ConcurrencyConflict, InvalidOperation } from '@spinajs/exceptions';
-import { TenantUnavailable, tenantRegistry } from '@spinajs/tenancy';
+import { TenantUnavailable, isTenantId, tenantRegistry } from '@spinajs/tenancy';
 import type { TenantRecord, TenantState } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
 
@@ -19,12 +19,13 @@ export class TenantStateService {
     const result = await TenantModel.update({ state: to, updated_at: DateTime.utc() }).where('id', id).where('state', from);
     if (result.RowsAffected !== 1) throw new ConcurrencyConflict(`tenancy-orm: tenant "${id}" left state ${from} while it was moved to ${to}`);
     // DbTenantRegistry is read through the cache of @spinajs/tenancy; without this the tenant keeps its old state there for tenancy.registryCacheMs.
-    (await tenantRegistry()).invalidate(id);
+    (await tenantRegistry()).invalidate(row.id);
     return toTenantRecord(await this.current(id));
   }
 
   protected async current(id: string): Promise<TenantModel> {
-    const row = await TenantModel.where('id', id).first();
+    // MySQL and MSSQL would find `t1` for `t1 `, and the cache would then be invalidated for the wrong key.
+    const row = isTenantId(id) ? await TenantModel.where('id', id).first() : undefined;
     if (!row) throw new TenantUnavailable('unknown', `tenancy-orm: no tenant "${id}"`);
     return row;
   }

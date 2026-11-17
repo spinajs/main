@@ -7,7 +7,7 @@ import type { TestApp } from '@spinajs/testing';
 import { TENANT_STATES, TenantUnavailable } from '@spinajs/tenancy';
 import type { TenantState } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
-import { TENANCY_CONNECTION, TENANTS_TABLE, TenantModel, TenantStateService, canTransition, isTenantState, nextStates, toTenantRecord } from '../src/index.js';
+import { TENANCY_CONNECTION, TENANTS_TABLE, TenantModel, TenantStateService, Tenants_2026_11_16_00_00_00, canTransition, isTenantState, nextStates, toTenantRecord } from '../src/index.js';
 import { bootApp } from './support/app.js';
 import { clearTenants, seedTenant } from './support/tenants.js';
 
@@ -78,6 +78,57 @@ describe('tenant table and state machine', function () {
     await expect(states.transition('t1', 'active')).to.be.rejectedWith(InvalidOperation, 'tenancy-orm: tenant "t1" cannot go from frozen to active');
   });
 
+  it('refuses a row whose id, placement or settings it cannot read', async () => {
+    const rows: Record<string, Record<string, string>> = {
+      t1: { placement: '{"kind":"other","schema":"t_t1"}' },
+      t2: { placement: '{"kind":"schema","schema":""}' },
+      t3: { placement: '[]' },
+      t4: { settings: '["a"]' },
+      t5: { settings: 'null' },
+      T6: {},
+    };
+    const driver = (await app.resolve(Orm)).Connections.get(TENANCY_CONNECTION);
+    for (const [id, values] of Object.entries(rows)) {
+      await seedTenant({ id });
+      if (Object.keys(values).length > 0) await driver?.update().in(TENANTS_TABLE).update(values).where('id', id);
+    }
+
+    const messages = (await TenantModel.query().orderBy('id')).map((row): unknown => {
+      try {
+        return toTenantRecord(row);
+      } catch (err: unknown) {
+        return err instanceof InvalidOperation ? err.message : err;
+      }
+    });
+    expect(messages).to.deep.eq([
+      'tenancy-orm: the tenant row "T6" has an id that is not a tenant id',
+      'tenancy-orm: tenant "t1" has the unreadable placement {"kind":"other","schema":"t_t1"}',
+      'tenancy-orm: tenant "t2" has the unreadable placement {"kind":"schema","schema":""}',
+      'tenancy-orm: tenant "t3" has the unreadable placement []',
+      'tenancy-orm: tenant "t4" has the unreadable settings ["a"]',
+      'tenancy-orm: tenant "t5" has the unreadable settings null',
+    ]);
+  });
+
+  it('takes an id that is not a tenant id as no tenant', async () => {
+    await seedTenant({ id: 'T1' });
+    const states = await app.resolve(TenantStateService);
+    const unknown: unknown = await states.transition('T1', 'suspended').catch((err: unknown) => err);
+    expect(unknown).to.be.instanceOf(TenantUnavailable);
+    expect(unknown).to.include({ reason: 'unknown', message: 'tenancy-orm: no tenant "T1"' });
+    const [row] = await TenantModel.where('id', 'T1');
+    expect(row.state).to.eq('active');
+  });
+
+  it('drops the table and creates it again', async () => {
+    const driver = (await app.resolve(Orm)).Connections.get(TENANCY_CONNECTION);
+    if (driver === undefined) throw new Error('no tenancy connection');
+    await new Tenants_2026_11_16_00_00_00().down(driver);
+    await expect(TenantModel.query()).to.be.rejected;
+    await new Tenants_2026_11_16_00_00_00().up(driver);
+    expect(await TenantModel.query()).to.deep.eq([]);
+  });
+
   it('moves a tenant along the machine', async () => {
     await seedTenant({ id: 't1', state: 'provisioning' });
     const states = await app.resolve(TenantStateService);
@@ -123,6 +174,6 @@ describe('tenant table and state machine', function () {
     const results = await Promise.allSettled([states.transition('t1', 'suspended'), states.transition('t1', 'suspended')]);
     expect(results.filter((result) => result.status === 'fulfilled')).to.have.length(1);
     const [lost] = results.flatMap((result): unknown[] => (result.status === 'rejected' ? [result.reason] : []));
-    expect(lost instanceof ConcurrencyConflict || lost instanceof InvalidOperation).to.eq(true);
+    expect(lost).to.be.instanceOf(ConcurrencyConflict);
   });
 });

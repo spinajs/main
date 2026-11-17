@@ -26,7 +26,7 @@ connection unless the application maps it:
 | `settings` | `text` | JSON object |
 | `created_at`, `updated_at` | `datetime` | |
 
-`id` and `slug` compare case-sensitively on every database. Importing `@spinajs/tenancy-orm` registers the model and
+`id`, `slug` and `domains` compare case-sensitively on every database. Importing `@spinajs/tenancy-orm` registers the model and
 the migration, so the table is created with the application's other migrations, also when the registry in use is
 another one.
 
@@ -38,15 +38,17 @@ that serves tenant data over HTTP must not hand out `TenantModel` rows itself.
 
 `DbTenantRegistry` implements `TenantRegistry`:
 
-- `get(id)` reads one tenant.
-- `find({ slug })` and `find({ domain })` read one tenant; with both, the slug decides. Both are compared for
+- `get(id)` reads one tenant; a value that is not a tenant id finds nothing.
+- `find({ slug })` and `find({ domain })` read one tenant. With both, the slug decides and the domain is not checked,
+  where `ConfigTenantRegistry` requires both to match; `admitTenant` always passes one of them. Both are compared for
   equality, never as a pattern or a suffix: `evil-acme.example` does not find the tenant of `acme.example`. A domain is
   trimmed and compared in lower case; a value that is not a host name finds nothing. The table does not make a domain
   unique: when two tenants list one domain, `find` throws.
 - `list({ states })` yields every tenant in id order, 200 rows a page.
 
-A row the registry cannot read is never handed out: an unknown `state` throws `InvalidOperation`, and JSON that does
-not parse fails the lookup. `admitTenant` of `@spinajs/tenancy` then refuses the tenant instead of admitting it.
+A row the registry cannot read is never handed out: an id that is not a tenant id, an unknown `state`, a `placement`
+other than `null` or a schema placement and a `settings` value that is not an object throw `InvalidOperation`, and JSON
+that does not parse fails the lookup. `admitTenant` of `@spinajs/tenancy` then refuses the tenant instead of admitting it.
 
 These statements run in any tenant scope, and with none: the tenant table is where a scope is looked up.
 
