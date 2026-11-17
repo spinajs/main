@@ -9,4 +9,3 @@ import { StudioTracesController } from './Traces.js';
 export const STUDIO_CONTROLLERS: Class<BaseController>[] = [StudioCapabilitiesController, StudioTracesController, StudioLogsController];
 
 export { StudioCapabilitiesController, StudioLogsController, StudioTracesController };
-export { MAX_TRACE_STREAMS, TRACE_STREAM_MAX_MS } from './Traces.js';
