@@ -255,6 +255,8 @@ export interface ChangeEntry {
     readonly key: string;
     /** JSON-serialisable state after the change (or what was removed). */
     readonly payload?: unknown;
+    /** JSON-serialisable state the change replaced, when the store knows it. */
+    readonly before?: unknown;
     /** `principalKey` of who made the change; the current principal when absent. */
     readonly actor?: string;
     /** The instant of the change; now when absent. */
@@ -268,6 +270,8 @@ export interface ChangeRecord {
     readonly op: ChangeOp;
     readonly key: string;
     readonly payload: unknown;
+    /** null when the store logged none. */
+    readonly before: unknown;
     readonly actor: string | null;
     readonly traceId: string | null;
 }
@@ -293,6 +297,17 @@ export declare abstract class ChangeLog {
     abstract since(seq: number, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
     /** Changes at or before `at`, in `seq` order. */
     abstract until(at: Date, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    /** Changes whose `at` is after the instant, in `seq` order (`afterInstant`, not `after`: `ChangeQuery.after` is a seq). */
+    abstract afterInstant(at: Date, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    /** For each key, its last change at or before `at`; without `at`, its last change. Keys without one are absent. */
+    abstract latest(kind: ChangeKind, keys: readonly string[], at?: Date): Promise<ReadonlyMap<string, ChangeRecord>>;
+    /**
+     * From when every write of `kind` (of `resourceType`, for `column`) up to now is in the log, as recorded by the app's
+     * boots; undefined when never covered. Independent of the calling process.
+     */
+    abstract coveredSince(kind: ChangeKind, resourceType?: ResourceType): Promise<Date | undefined>;
+    /** A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. */
+    abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }
 /** The log of an app without a changelog store: records nothing, covers nothing. */
 export declare class NoChangeLog extends ChangeLog {
@@ -301,6 +316,10 @@ export declare class NoChangeLog extends ChangeLog {
     append(_entries: readonly ChangeEntry[]): Promise<void>;
     since(_seq: number, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
     until(_at: Date, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    afterInstant(_at: Date, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    latest(_kind: ChangeKind, _keys: readonly string[], _at?: Date): Promise<ReadonlyMap<string, ChangeRecord>>;
+    coveredSince(_kind: ChangeKind, _resourceType?: ResourceType): Promise<Date | undefined>;
+    lost(_kind: ChangeKind, _resourceType?: ResourceType, _reason?: string): Promise<void>;
 }
 
 // values

@@ -1,0 +1,8 @@
+---
+"@spinajs/authz": minor
+"@spinajs/authz-orm": minor
+---
+
+The `ChangeLog` port answers what a replay needs: `afterInstant(at)` (the changes after an instant, paged like `since`), `latest(kind, keys, at?)` (each key's last change at or before an instant, or its last change), `coveredSince(kind, type?)` (since when every write of a kind, or of a resource type for `column`, is in the log, as the app's boots recorded it) and `lost(kind, type?, reason?)` (a write escaped the log: coverage restarts now). `ChangeEntry` and `ChangeRecord` gain `before`, the state a change replaced (`null` until a store logs it). A custom `ChangeLog` must implement the four methods; `NoChangeLog` answers empty.
+
+`@spinajs/authz-orm`: run the new migration `AuthzChangeLogHorizon_2026_11_06_00_00_00` (table `authz_change_log_horizon`, nullable `before` column on `authz_change_log`). Every domain boot records the kinds its DB stores track and the `column` kind of each `@AccessResource` type that keeps the changelog, and deletes the row of a type opted out with `changelog: false`; a boot that cannot write the table warns once and goes on. The retention job moves the horizon up to its cutoff, and an insert whose ids the driver does not report restarts the column coverage of its type once it commits. New exports: `recordCoverage`, `restartCoverage`, `HorizonRecord`, `changeLogPrecisionMs`.

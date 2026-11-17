@@ -9,7 +9,7 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
 
-import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
+import { AuthzChangeLogHorizon_2026_11_06_00_00_00, AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 
 import { AuthzAbac_2026_10_01_00_00_00 } from '../../src/index.js';
 
@@ -130,6 +130,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
     // By hand, as authz-testing's e2e harness does: the boot migration pass is not what these suites test.
     await new AuthzAbac_2026_10_01_00_00_00().up(driver);
     await new AuthzChangeLog_2026_11_04_00_00_00().up(driver);
+    await new AuthzChangeLogHorizon_2026_11_06_00_00_00().up(driver);
     // The Orm read the table info before authz_policy existed.
     await orm.reloadTableInfo();
 

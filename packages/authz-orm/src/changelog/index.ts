@@ -1,7 +1,9 @@
 export * from './table.js';
 export { ChangeLogRecord } from './record.js';
-export { DbChangeLog } from './db-changelog.js';
+export { DbChangeLog, changeLogPrecisionMs } from './db-changelog.js';
 export * from './AuthzChangeLog_2026_11_04_00_00_00.js';
+export * from './AuthzChangeLogHorizon_2026_11_06_00_00_00.js';
+export { HorizonRecord, recordCoverage, restartCoverage } from './horizon.js';
 export * from './schema.js';
 export * from './policy-version.js';
 export * from './policy-source.js';

@@ -24,6 +24,16 @@ class RecordingChangeLog extends ChangeLog {
   async until(_at: Date, _q?: ChangeQuery): Promise<readonly ChangeRecord[]> {
     return [];
   }
+  async afterInstant(_at: Date, _q?: ChangeQuery): Promise<readonly ChangeRecord[]> {
+    return [];
+  }
+  async latest(_kind: ChangeKind, _keys: readonly string[], _at?: Date): Promise<ReadonlyMap<string, ChangeRecord>> {
+    return new Map();
+  }
+  async coveredSince(_kind: ChangeKind): Promise<Date | undefined> {
+    return undefined;
+  }
+  async lost(_kind: ChangeKind): Promise<void> {}
 }
 
 describe('ChangeLog contract', () => {
@@ -51,6 +61,11 @@ describe('ChangeLog contract', () => {
     for (const kind of CHANGE_KINDS) expect(log.covers(kind)).to.eq(false);
     expect(await log.since(0)).to.deep.eq([]);
     expect(await log.until(new Date())).to.deep.eq([]);
+    expect(await log.afterInstant(new Date(0))).to.deep.eq([]);
+    expect((await log.latest('tuple', ['k'])).size).to.eq(0);
+    expect(await log.coveredSince('tuple')).to.eq(undefined);
+    await log.lost('column', 'doc', 'test');
+    expect(await log.coveredSince('column', 'doc')).to.eq(undefined);
   });
 
   it('changeLog() answers a NoChangeLog when no ChangeLog is registered', () => {

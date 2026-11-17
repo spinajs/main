@@ -8,7 +8,8 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { AuthzChangeLog_2026_11_04_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, POLICY_VERSION_TABLE } from '../../src/index.js';
+import { AuthzChangeLog_2026_11_04_00_00_00, CHANGE_LOG_TABLE, ChangeLogRecord, DbChangeLog, POLICY_VERSION_TABLE, changeLogPrecisionMs } from '../../src/index.js';
+import { AUDIT_CONNECTION, AuthzDecisionLogFacts_2026_11_06_00_00_00, AuthzDecisionLog_2026_11_04_00_00_00, DbDecisionLog, readDecisionRecord } from '../../src/audit/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
@@ -89,7 +90,7 @@ describe('DbChangeLog', function () {
 
       it('the migration creates both tables', async () => {
         const log = await driver.tableInfo(CHANGE_LOG_TABLE, driver.Options.Database);
-        expect(log.map((c) => c.Name).sort()).to.deep.equal(['actor', 'at', 'key', 'kind', 'op', 'payload', 'seq', 'trace_id']);
+        expect(log.map((c) => c.Name).sort()).to.deep.equal(['actor', 'at', 'before', 'key', 'kind', 'op', 'payload', 'seq', 'trace_id']);
         expect(log.filter((c) => c.PrimaryKey).map((c) => c.Name)).to.deep.equal(['seq']);
         const versions = await driver.tableInfo(POLICY_VERSION_TABLE, driver.Options.Database);
         expect(versions.map((c) => c.Name).sort()).to.deep.equal(['first_seen_at', 'ir', 'policy_hash']);
@@ -160,6 +161,76 @@ describe('DbChangeLog', function () {
         expect(keys(await log.until(t('2')))).to.deep.equal(['add:a', 'add:b']);
         expect(keys(await log.until(t('3'), { kinds: ['tuple'], after: all[0].seq }))).to.deep.equal(['remove:a']);
         expect(await rejection(log.since(0, { limit: 10001 }))).to.be.instanceOf(AuthzConfigError);
+      });
+
+      it('afterInstant() answers the changes after an instant, in seq order, paged like since()', async () => {
+        const t = (s: string) => new Date(`2026-10-0${s}T00:00:00.000Z`);
+        await append([
+          { kind: 'tuple', op: 'add', key: 'a', at: t('3') },
+          { kind: 'tuple', op: 'add', key: 'b', at: t('1') },
+          { kind: 'assignment', op: 'add', key: 'c', at: t('2') },
+          { kind: 'tuple', op: 'remove', key: 'a', at: t('4') },
+        ]);
+        const keys = (rows: readonly { key: string; op: string }[]) => rows.map((r) => `${r.op}:${r.key}`);
+        expect(keys(await log.afterInstant(t('1')))).to.deep.equal(['add:a', 'add:c', 'remove:a']);
+        expect(keys(await log.afterInstant(t('2'), { kinds: ['tuple'] }))).to.deep.equal(['add:a', 'remove:a']);
+        const [first] = await log.afterInstant(t('1'), { limit: 1 });
+        expect(keys(await log.afterInstant(t('1'), { after: first.seq }))).to.deep.equal(['add:c', 'remove:a']);
+        expect(await log.afterInstant(t('4'))).to.deep.equal([]);
+      });
+
+      it('latest answers the last change at or before an instant per key', async () => {
+        const t = (s: string) => new Date(`2026-10-0${s}T00:00:00.000Z`);
+        await append([
+          { kind: 'tuple', op: 'add', key: 'k1', at: t('1'), payload: 1 },
+          { kind: 'tuple', op: 'put', key: 'k1', at: t('2'), payload: 2 },
+          { kind: 'assignment', op: 'put', key: 'k1', at: t('2') },
+          { kind: 'tuple', op: 'put', key: 'k1', at: t('3'), payload: 3 },
+          { kind: 'tuple', op: 'add', key: 'k2', at: t('4'), payload: 4 },
+        ]);
+        const summary = (m: ReadonlyMap<string, { at: Date; payload: unknown; before: unknown }>) => Object.fromEntries([...m].map(([k, r]) => [k, [r.at.toISOString(), r.payload, r.before]]));
+        expect(summary(await log.latest('tuple', ['k1', 'k2', 'k3'], t('2')))).to.deep.equal({ k1: [t('2').toISOString(), 2, null] });
+        expect(summary(await log.latest('tuple', ['k1', 'k2', 'k1']))).to.deep.equal({ k1: [t('3').toISOString(), 3, null], k2: [t('4').toISOString(), 4, null] });
+        expect((await log.latest('tuple', [])).size).to.equal(0);
+      });
+
+      it('latest batches more keys than one query holds', async () => {
+        await append(Array.from({ length: 1201 }, (_, i) => ({ kind: 'rule' as const, op: 'add' as const, key: `r${i}` })));
+        const found = await log.latest('rule', Array.from({ length: 1201 }, (_, i) => `r${i}`));
+        expect(found.size).to.equal(1201);
+        expect(found.get('r1200')!.key).to.equal('r1200');
+      });
+
+      it('reads the before column as JSON, null when the store logged none', async () => {
+        await append([{ kind: 'rule', op: 'put', key: 'r1', payload: { v: 2 } }]);
+        const [row] = await log.since(0);
+        expect(row.before).to.equal(null);
+        await ChangeLogRecord.update({ before: JSON.stringify({ v: 1 }) }).where('seq', row.seq);
+        expect((await log.since(0))[0].before).to.deep.equal({ v: 1 });
+      });
+
+      it('keeps instants to the precision changeLogPrecisionMs gives, on the changelog and the decision log', async () => {
+        const precision = changeLogPrecisionMs(driver);
+        expect(precision).to.equal(1);
+        const at = new Date('2026-10-03T09:14:07.123Z');
+        await append([{ kind: 'tuple', op: 'add', key: 'p', at }]);
+        const [row] = await log.since(0);
+        expect(Math.abs(row.at.getTime() - at.getTime())).to.be.below(precision);
+
+        const migrations = [new AuthzDecisionLog_2026_11_04_00_00_00(), new AuthzDecisionLogFacts_2026_11_06_00_00_00()];
+        db.orm.Connections.set(AUDIT_CONNECTION, driver);
+        try {
+          for (const m of migrations) await m.up(driver);
+          await db.orm.reloadTableInfo();
+          const id = '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b70';
+          await new DbDecisionLog().write([{ id, at: at.toISOString(), loggedAt: '2026-10-03T09:14:07.456Z', domain: 'root', principal: 'user:a', permission: 'doc:read', resource: { type: 'doc', id: 'd' }, allowed: true, cached: false, policyHash: 'unknown', modelVersions: {}, inputsHash: 'a'.repeat(64) }]);
+          const read = (await readDecisionRecord(id))!.record;
+          expect(Math.abs(Date.parse(read.at) - at.getTime())).to.be.below(precision);
+          expect(Math.abs(Date.parse(read.loggedAt!) - Date.parse('2026-10-03T09:14:07.456Z'))).to.be.below(precision);
+        } finally {
+          await migrations[0].down(driver);
+          db.orm.Connections.delete(AUDIT_CONNECTION);
+        }
       });
 
       it('appends more rows than one insert holds', async () => {

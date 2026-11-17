@@ -136,7 +136,10 @@ export class ColumnChangeMiddleware extends QueryMiddleware {
     let ids = [...before.keys()];
     if (work.kind === 'insert') {
       const refs = insertedRefs(query as InsertQueryBuilder, result, work.entry);
-      if (refs === undefined) return this.warnUnknownIds(work);
+      if (refs === undefined) {
+        await changeLog().lost('column', work.entry.type, 'insert without returned ids');
+        return this.warnUnknownIds(work);
+      }
       ids = refs.map((r) => String(r.id));
     }
     await changeLog().append(changesOf(work, before, await readValues(query.Driver, work, ids)));
