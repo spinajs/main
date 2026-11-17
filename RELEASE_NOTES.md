@@ -1,3 +1,31 @@
+# Release notes — orm-http, http-swagger: list queries (negated operators, multi-column sorting, aggregates, includes, readList)
+
+## Packages
+
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No breaking changes.
+
+## Behaviour note
+
+- A model that marks a relation `@Includable()` makes `@FromModel` refuse every other relation in `?include=` with
+  `400`. A model with no `@Includable` relation keeps populating any relation named, as before.
+
+## New
+
+- Filter operators `nlike`, `nb-like`, `ne-like` (does not contain, end with, begin with), `empty` and `nempty` (null or
+  empty text, and the rest), and `"not": true` on a filter group. See [Filtering](docs/orm-http/03-filtering.md).
+- `SortingDTO` and `readSorting` for several sort columns, the fallback column last; `@Sortable()` and
+  `Model.sortableColumns()`, the filterable table columns by default. See
+  [Pagination and ordering](docs/orm-http/05-pagination-and-order.md#multi-column-sorting).
+- `@Groupable()`, `@Aggregatable([...])`, `@Aggregate(Model)`, `SelectQueryBuilder.aggregate()` and
+  `readAggregateRows`: grouped sums, averages, minimums, maximums and counts over the filtered rows. See
+  [Aggregates](docs/orm-http/11-aggregates.md).
+- `@Includable()`, `@Include(Model)` and `readInclude`: an allow-list of the relations a request may load. See
+  [Lists and includes](docs/orm-http/12-lists-and-includes.md).
+- `readList(model, request, options)`: one page, the total and the aggregates of a model in SQL; `ListResponseDTO` and
+  `listResponseSchema` type the answer. See [Lists and includes](docs/orm-http/12-lists-and-includes.md).
+- `@spinajs/http-swagger` documents the `@Aggregate` and `@Include` arguments as query parameters naming the model's
+  allowed columns, functions and relations.
+
 # Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
 
 ## Behaviour change

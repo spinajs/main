@@ -60,6 +60,67 @@
 
 `DEFAULT_PAGE` is the frozen `{ limit: 50, offset: 0 }`.
 
+## Multi-column sorting
+
+`SortingDTO` carries several sort columns in one query-string argument: `?sorting={"by":[{"column":"Status","order":"DESC"},{"column":"Amount"}]}`. Earlier entries win.
+
+`SortingDTO` schema, `$id` `spinajs.orm-http.SortingDTO`, no other members allowed:
+
+| Field | Type | Constraint | Required |
+| --- | --- | --- | --- |
+| `by` | `OrderDTO[]` | at most 16 entries (`MAX_SORT_COLUMNS`) | no |
+| `by[].column` | `string` | at most 128 characters | yes |
+| `by[].order` | `SortOrder` | `ASC`, `DESC`, `asc`, `desc` | no |
+
+`readSorting(input, sortable, fallback, options?)` returns `Sort[]`:
+
+1. Each entry of `input.by` goes through `readSort`, so a column outside `sortable` or an unknown order goes to `invalid`.
+2. A column asked twice is kept once, at its first place.
+3. `fallback` comes last unless it was asked, so rows that tie on every requested column still have one order and no row lands on two pages.
+4. A `by` that is no list, or one longer than 16 entries, goes to `invalid`. An absent input or an empty list answers `[fallback]`.
+
+`fallback.column` must itself be in `sortable`.
+
+`@Sortable()` on a model property lets a list be sorted by that column. `Model.sortableColumns()` answers the columns a request may sort by:
+
+- the `@Sortable()` columns, when the model marks at least one;
+- otherwise the model's filterable columns that are real columns of its own table: no filter-only virtual column, no relation and no `Relation.Column` path.
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Filter, Filterable, IFilterRequest, PaginationDTO, Sortable, SortingDTO, readPage, readSorting } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('orders')
+export class Order extends ModelBase<Order> {
+  @Primary()
+  @Sortable()
+  public Id: number;
+
+  @Sortable()
+  @Filterable(['eq', 'in'])
+  public Status: string;
+
+  @Sortable()
+  @Filterable(['gt', 'lt'])
+  public Amount: number;
+}
+
+@BasePath('orders')
+export class OrderController extends BaseController {
+  /** GET /orders?sorting={"by":[{"column":"Status"},{"column":"Amount","order":"DESC"}]} */
+  @Get()
+  public async list(@Filter(Order) filter: IFilterRequest, @Query() pagination?: PaginationDTO, @Query() sorting?: SortingDTO) {
+    const sorts = readSorting(sorting, Order.sortableColumns(), { column: 'Id' });
+    const { limit, offset } = readPage(pagination);
+
+    const rows = await Order.query().filter(filter?.filters, filter?.op).order(sorts).take(limit).skip(offset);
+    return new Ok(rows.map((row) => row.dehydrate()));
+  }
+}
+```
+
 ```ts sample
 import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
 import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
@@ -330,5 +391,6 @@ export async function byAuthorName() {
 ## Related
 
 - [Filtering](03-filtering.md): filter the same listing with `@Filter()`.
+- [Lists and includes](12-lists-and-includes.md): `readList` pages, sorts, counts and aggregates a listing in one call.
 - [Query builder](../orm/05-query-builder.md): `take`, `skip`, `order`, `clone`, `selectCount`.
 - [Route arguments in http](../http/04-route-arguments.md): how `@Query()` reads and validates a DTO.
