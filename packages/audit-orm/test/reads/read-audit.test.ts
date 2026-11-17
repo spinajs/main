@@ -156,6 +156,33 @@ class Badge extends ModelBase<Badge> {
   public Holder: string;
 }
 
+@Connection('sqlite')
+@Model('clinic')
+class Clinic extends ModelBase<Clinic> {
+  @Primary()
+  public Id: number;
+
+  public Title: string;
+}
+
+// A relation named like another model's class: Patient targets Clinic, Attendee targets Patient.
+@Connection('sqlite')
+@Model('appointment')
+class Appointment extends ModelBase<Appointment> {
+  @Primary()
+  public Id: number;
+
+  public clinic_id: number;
+
+  public patient_id: number;
+
+  @BelongsTo(Clinic, 'clinic_id', 'Id')
+  public Patient: SingleRelation<Clinic>;
+
+  @BelongsTo(Patient, 'patient_id', 'Id')
+  public Attendee: SingleRelation<Patient>;
+}
+
 // Its trail lives on its own single connection, where save() opens the transaction its reload runs in.
 @Connection('wedge')
 @Model('chart')
@@ -363,6 +390,29 @@ describe('read auditing', function () {
         ]);
       });
 
+      it('reads a join by the alias it is declared with, whatever model that alias also names', async () => {
+        const join = (joinTableAlias: string, column: string) => ({
+          joinModel: Patient,
+          joinTableAlias,
+          sourceTablePrimaryKey: 'patient_id',
+          joinTableForeignKey: 'Id',
+          callback: function (this: { where(column: string, operator: string, value: number): unknown }) {
+            this.where('Id', '>', 0);
+          },
+          queryCallback: function (this: { select(column: string, alias?: string): unknown }) {
+            this.select(column, column === '*' ? undefined : 'x');
+          },
+        });
+        await Visit.query().leftJoin(join('ward', 'Ssn')).asRaw();
+        await Visit.query().leftJoin(join('p', '*')).asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.action, e.data])).to.deep.eq([
+          ['patient.read', keyless],
+          ['patient.read', keyless],
+        ]);
+      });
+
       it('audits an own column under an alias of its own', async () => {
         await Patient.query().select('Id').select('Ssn', 'x').where('Id', 1).asRaw();
 
@@ -480,6 +530,15 @@ describe('read auditing', function () {
           t.binary('Id', 2).primaryKey();
           t.string('Holder');
         },
+        clinic: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.string('Title');
+        },
+        appointment: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.int('clinic_id');
+          t.int('patient_id');
+        },
       });
       await createTables(db.driver('wedge'), {
         chart: (t) => {
@@ -490,7 +549,7 @@ describe('read auditing', function () {
       await db.migrate('sqlite', searches('sqlite'));
       await new NamedTrail('audit_wedge').up(db.driver('wedge'));
       await new NamedTrail('audit_held').up(db.driver('wedge'));
-      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart] });
+      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart, Clinic, Appointment] });
 
       await Ward.insert({ Id: 4, Code: 'W4' });
       await Ward.insert({ Id: 5, Code: 'W5' });
@@ -498,6 +557,8 @@ describe('read auditing', function () {
       await DoctorWard.insert({ doctor_id: 1, ward_id: 4 });
       await Badge.insert({ Id: Buffer.from('ab01', 'hex'), Holder: 'Ada' });
       await Chart.insert({ Name: 'x' });
+      await Clinic.insert({ Title: 'C1' });
+      await Appointment.insert({ clinic_id: 1, patient_id: 2 });
     });
 
     const of = async (type: string) => (await recorded('restricted')).filter((e) => e.subject?.type === type || (e.subject === undefined && e.action === `${type}.read`));
@@ -531,7 +592,7 @@ describe('read auditing', function () {
       expect((await of('badge')).map((e) => e.subject?.id)).to.deep.eq(['ab01']);
     });
 
-    it('counts an expression next to a join as reading every audited table of the connection', async () => {
+    it('counts an expression for every table of the query, and of no other', async () => {
       await MODELS.sqlite.Visit.query()
         .leftJoin('Patient', function () {
           this.where('Id', '>', 0);
@@ -539,11 +600,23 @@ describe('read auditing', function () {
         .select(RawQuery.create('1 AS one'))
         .asRaw();
 
-      expect((await recorded('restricted')).map((e) => [e.action, e.data]).sort()).to.deep.eq([
-        ['badge.read', { columns: ['*'], rows: 3, filter: [], keyless: true }],
-        ['patient.read', { columns: ['Ssn'], rows: 3, filter: [], keyless: true }],
-        ['ward.read', { columns: ['Code'], rows: 3, filter: [], keyless: true }],
-      ]);
+      expect((await recorded('restricted')).map((e) => [e.action, e.data])).to.deep.eq([['patient.read', { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+    });
+
+    it('reads a join under the alias of its model, not as the relation that alias also names', async () => {
+      await Appointment.query()
+        .leftJoin(
+          'Attendee',
+          function () {
+            this.where('Id', '>', 0);
+          },
+          function () {
+            this.select('Ssn', 'x');
+          },
+        )
+        .asRaw();
+
+      expect((await of('patient')).map((e) => e.data)).to.deep.eq([{ columns: ['Ssn'], rows: 1, filter: [], keyless: true }]);
     });
 
     it('records the reload of save({ reload: true }) in the transaction save() opens', async () => {

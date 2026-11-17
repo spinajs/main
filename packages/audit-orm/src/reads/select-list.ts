@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { ColumnMethodStatement, ColumnStatement, Orm, extractModelDescriptor } from '@spinajs/orm';
+import { ColumnMethodStatement, ColumnStatement, JoinStatement, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor, ModelBase, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 /** sqlite and MySQL resolve identifiers case-insensitively, so every comparison of a column name is. */
@@ -33,20 +33,20 @@ function descriptorsOn(driver: OrmDriver): { type: Constructor<ModelBase>; descr
   return found;
 }
 
-function targetOf(descriptor: IModelDescriptor, relation: string): IModelDescriptor | undefined {
-  for (const candidate of descriptor.Relations.values()) {
-    if (candidate.Name === relation) return extractModelDescriptor(candidate.TargetModel) ?? undefined;
-  }
-
-  return undefined;
-}
-
 class SelectList {
   public readonly sources = new Map<string, ReadSource>();
   private readonly models: { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[];
+  /** The table each join of the query is read under, by its alias; a raw join names none. */
+  private readonly joins = new Map<string, IModelDescriptor>();
 
   constructor(private readonly query: SelectQueryBuilder<unknown>, private readonly root: IModelDescriptor) {
     this.models = descriptorsOn(query.Driver);
+    for (const statement of query.JoinStatements) {
+      if (!(statement instanceof JoinStatement)) continue;
+      const { table, alias, model } = statement.Joined;
+      const descriptor = (model ? extractModelDescriptor(model) : null) ?? this.models.find((m) => lc(m.descriptor.TableName) === lc(table ?? ''))?.descriptor;
+      if (alias !== undefined && descriptor) this.joins.set(alias, descriptor);
+    }
   }
 
   /** The queried table; on a many-to-many junction select it is the junction, not the model the query carries. */
@@ -60,40 +60,27 @@ class SelectList {
     return this.at('', descriptor, models, true);
   }
 
-  /** The sources a column reads, found by its statement's table alias. A column under an alias that names no model reads every table that has a column of its name. */
+  /**
+   * The sources a column reads, found by its statement's table alias among the query's own and its joins'. Behind an
+   * alias no join names may stand any table of the connection: the column reads every table that has it, `*` all of them.
+   */
   public of(tableAlias: string | undefined, column: string): ReadSource[] {
     if (!tableAlias || tableAlias === this.query.TableAlias) return [this.own()];
 
-    const descriptor = this.joined(tableAlias);
-    if (descriptor) return [this.at(tableAlias, descriptor, this.modelsOf(descriptor.TableName), false)];
+    const joined = this.joins.get(tableAlias);
+    if (joined) return [this.joined(tableAlias, joined)];
 
-    return this.models.filter((m) => m.descriptor.Columns.some((c) => lc(c.Name) === lc(column))).map((m) => this.table(m.descriptor));
+    const wildcard = column.trim() === '*';
+    return this.models.filter((m) => wildcard || m.descriptor.Columns.some((c) => lc(c.Name) === lc(column))).map((m) => this.table(m.descriptor));
   }
 
-  /** Every table of the connection: what an expression may read in a query that joins tables the builder does not name. */
-  public everyTable(): void {
-    for (const { descriptor } of this.models) this.table(descriptor);
+  /** The queried table and every joined one. */
+  public queryTables(): ReadSource[] {
+    return [this.own(), ...[...this.joins].map(([alias, descriptor]) => this.joined(alias, descriptor))];
   }
 
-  /** A populate path walked through the relation descriptors, else a join's model class or table name. */
-  private joined(tableAlias: string): IModelDescriptor | undefined {
-    const separator = this.query.Driver.Options.AliasSeparator ?? '';
-    const path = (separator === '' ? tableAlias : tableAlias.split(separator).join('')).split('.').filter((part) => part !== '');
-    const owner = this.query.Owner;
-    let current: IModelDescriptor | undefined = this.root;
-    let rest = path;
-    // A many-to-many or recursive relation query carries the target model and prefixes its columns with the relation's own alias.
-    if (owner && rest[0] === owner.Name && targetOf(this.root, rest[0]) === undefined) {
-      current = extractModelDescriptor(owner.Descriptor.TargetModel) ?? undefined;
-      rest = rest.slice(1);
-    }
-    for (const name of rest) {
-      current = current ? targetOf(current, name) : undefined;
-    }
-    if (current || path.length === 0) return current;
-
-    const last = lc(path[path.length - 1]);
-    return (this.models.find((m) => lc(m.descriptor.Name) === last) ?? this.models.find((m) => lc(m.descriptor.TableName) === last))?.descriptor;
+  private joined(alias: string, descriptor: IModelDescriptor): ReadSource {
+    return this.at(alias, descriptor, this.modelsOf(descriptor.TableName), false);
   }
 
   private modelsOf(table: string): Constructor<ModelBase>[] {
@@ -131,9 +118,8 @@ function addColumn(list: SelectList, statement: ColumnStatement, column: string)
 
 /**
  * The tables a select returns values of, each with the columns it returns. A column belongs to the table its statement's
- * table alias names: the queried table, a populate path or a joined model. What the builder cannot attribute is read as
- * widely as it could reach: a column under an unknown alias reads every table that has a column of its name, and an
- * expression reads every table of the query, or of the connection when the query has a join.
+ * table alias names: the queried table or a join of the query (a populated relation is one). An expression the builder
+ * cannot read counts for every table of the query.
  */
 export function selectListOf(query: SelectQueryBuilder<unknown>, root: IModelDescriptor): ReadSource[] {
   const list = new SelectList(query, root);
@@ -151,9 +137,7 @@ export function selectListOf(query: SelectQueryBuilder<unknown>, root: IModelDes
 
   if (statements.length === 0) list.own().all = true;
   if (opaque) {
-    list.own();
-    if (query.JoinStatements.length > 0) list.everyTable();
-    for (const source of list.sources.values()) source.opaque = true;
+    for (const source of list.queryTables()) source.opaque = true;
   }
 
   return [...list.sources.values()];

@@ -31,10 +31,10 @@ type, or through a relation's accessor) or a `join()` brings into a select of an
 model's subclasses and to every model of its table on its connection. Column names match without regard to case, as
 sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only knows the declared spelling.
 
-Each selected column belongs to the table its table alias names: the queried table, a populate path, a joined model.
-What cannot be attributed is read as widely as it could reach: a column under an alias that names no model counts for
-every audited table with a column of that name, and a raw or `CASE` select expression for every audited column of
-every table in the query (of the connection, when the query has a join). An aggregate over an audited column (`min`,
+Each selected column belongs to the table its table alias names: the queried table, or a join of the query under the
+alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
+alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
+audited table. A raw or `CASE` select expression counts for every audited column of every table in the query. An aggregate over an audited column (`min`,
 `max`, `sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row
 can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement
 in the query-mode shape with `keyless: true`. A binary key is written as hex.
