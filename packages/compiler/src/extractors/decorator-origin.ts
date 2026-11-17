@@ -32,16 +32,20 @@ export function programDeclares(program: ts.Program, packageName: string): boole
   return names.has(packageName);
 }
 
-/** The declared name of the function a decorator calls, whatever name it is imported under, and the package that declares it. */
-export function decoratorOrigin(decorator: DecoratorInfo, ctx: ExtractorContext): { name: string; package?: string } | undefined {
-  const expr = decorator.node.expression;
-  const callee = ts.isCallExpression(expr) ? expr.expression : expr;
-  const name = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
-  let symbol = ctx.checker.getSymbolAtLocation(name);
+/** The declared name of what `expr` names, whatever name it is imported under, and the package that declares it. */
+export function originOf(expr: ts.Expression | undefined, ctx: ExtractorContext): { name: string; package?: string } | undefined {
+  const name = expr && ts.isPropertyAccessExpression(expr) ? expr.name : expr;
+  let symbol = name && ctx.checker.getSymbolAtLocation(name);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
   const declaration = symbol?.declarations?.[0];
   if (!symbol || !declaration) return undefined;
   return { name: symbol.name, package: packageNameOf(dirname(declaration.getSourceFile().fileName)) };
+}
+
+/** The declared name of the function a decorator calls, whatever name it is imported under, and the package that declares it. */
+export function decoratorOrigin(decorator: DecoratorInfo, ctx: ExtractorContext): { name: string; package?: string } | undefined {
+  const expr = decorator.node.expression;
+  return originOf(ts.isCallExpression(expr) ? expr.expression : expr, ctx);
 }
 
 /** The first decorator of `node` that `packageName` declares under one of `names`, whatever name it is imported under. */
