@@ -35,7 +35,8 @@ Each selected column belongs to the table its table alias names: the queried tab
 alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
 alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
 audited table. A raw or `CASE` select expression counts for every audited column of every table in the query. An aggregate over an audited column (`min`,
-`max`, `sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row
+`max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join for every table of the query that has a
+column of that name, since its SQL names no table; `count(*)` and aggregates over other columns do not. Where no row
 can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement
 in the query-mode shape with `keyless: true`. A binary key is written as hex.
 

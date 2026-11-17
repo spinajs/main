@@ -38,14 +38,22 @@ class SelectList {
   private readonly models: { type: Constructor<ModelBase>; descriptor: IModelDescriptor }[];
   /** The table each join of the query is read under, by its alias; a raw join names none. */
   private readonly joins = new Map<string, IModelDescriptor>();
+  private readonly joined: boolean;
+  /** A raw join, or one of a table no model maps: the tables of the query are not all known. */
+  private unnamedJoin = false;
 
   constructor(private readonly query: SelectQueryBuilder<unknown>, private readonly root: IModelDescriptor) {
     this.models = descriptorsOn(query.Driver);
+    this.joined = query.JoinStatements.length > 0;
     for (const statement of query.JoinStatements) {
       if (!(statement instanceof JoinStatement)) continue;
       const { table, alias, model } = statement.Joined;
       const descriptor = (model ? extractModelDescriptor(model) : null) ?? this.models.find((m) => lc(m.descriptor.TableName) === lc(table ?? ''))?.descriptor;
-      if (alias !== undefined && descriptor) this.joins.set(alias, descriptor);
+      if (alias !== undefined && descriptor) {
+        this.joins.set(alias, descriptor);
+      } else {
+        this.unnamedJoin = true;
+      }
     }
   }
 
@@ -68,18 +76,30 @@ class SelectList {
     if (!tableAlias || tableAlias === this.query.TableAlias) return [this.own()];
 
     const joined = this.joins.get(tableAlias);
-    if (joined) return [this.joined(tableAlias, joined)];
+    if (joined) return [this.joinedSource(tableAlias, joined)];
 
     const wildcard = column.trim() === '*';
     return this.models.filter((m) => wildcard || m.descriptor.Columns.some((c) => lc(c.Name) === lc(column))).map((m) => this.table(m.descriptor));
   }
 
-  /** The queried table and every joined one. */
-  public queryTables(): ReadSource[] {
-    return [this.own(), ...[...this.joins].map(([alias, descriptor]) => this.joined(alias, descriptor))];
+  /**
+   * The sources an aggregate reads. Its SQL names no table, so with a join the database finds the column in whichever
+   * table of the query has it.
+   */
+  public aggregated(tableAlias: string | undefined, column: string): ReadSource[] {
+    if (!this.joined) return this.of(tableAlias, column);
+
+    const has = (descriptor: IModelDescriptor): boolean => descriptor.Columns.some((c) => lc(c.Name) === lc(column));
+    const known = this.queryTables().filter((source) => has(source.descriptor));
+    return this.unnamedJoin ? [...known, ...this.of('?', column)] : known;
   }
 
-  private joined(alias: string, descriptor: IModelDescriptor): ReadSource {
+  /** The queried table and every joined one. */
+  public queryTables(): ReadSource[] {
+    return [this.own(), ...[...this.joins].map(([alias, descriptor]) => this.joinedSource(alias, descriptor))];
+  }
+
+  private joinedSource(alias: string, descriptor: IModelDescriptor): ReadSource {
     return this.at(alias, descriptor, this.modelsOf(descriptor.TableName), false);
   }
 
@@ -105,7 +125,8 @@ function addColumn(list: SelectList, statement: ColumnStatement, column: string)
   // `count(*)` reads no column.
   if (statement instanceof ColumnMethodStatement && column.trim() === '*') return;
 
-  for (const source of list.of(statement.TableAlias, column)) {
+  const sources = statement instanceof ColumnMethodStatement ? list.aggregated(statement.TableAlias, column) : list.of(statement.TableAlias, column);
+  for (const source of sources) {
     if (statement instanceof ColumnMethodStatement) {
       source.computed.add(lc(column));
     } else if (statement.IsWildcard) {
