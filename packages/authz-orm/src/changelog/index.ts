@@ -4,4 +4,5 @@ export { DbChangeLog } from './db-changelog.js';
 export * from './AuthzChangeLog_2026_11_04_00_00_00.js';
 export * from './schema.js';
 export * from './policy-version.js';
+export * from './policy-source.js';
 export { changeLogRetentionDays, pruneChangeLog } from './retention.js';
