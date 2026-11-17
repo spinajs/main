@@ -23,10 +23,25 @@ export interface Initiator {
 // JobOptions (@spinajs/queue)
 export interface JobOptions {
     runAs?: "initiator" | "system";
+    /** Permissions the principal the job runs as must hold, any one of them, before `execute`; a `QueueMessageHook` ( authz-queue ) checks them. */
+    access?: string | readonly string[];
+    /** The resource `access` is checked on; default: the type-level resource of each permission ( `invoice:send` checks `{ type: 'invoice' }` ). */
+    resource?: (message: any) => {
+        type: string;
+        id?: string;
+    };
+    /**
+     * The tenant scope the handler runs in; a `QueueMessageHook` ( `@spinajs/tenancy/queue` ) applies it. 'carry' ( default ): the scope the
+     * emitter had, if any. 'required': a message that names no single tenant is not handled ( dead-lettered, reason 'tenant_required' ).
+     * 'none': the handler always runs with no scope.
+     */
+    tenancy?: "carry" | "required" | "none";
 }
 
 // QueueMessageHook (@spinajs/queue)
 export declare abstract class QueueMessageHook {
+    /** Place in the chain: a lower order runs first in `beforeEmit` and is further out in `aroundHandle`. Hooks of one order keep their registration order. */
+    readonly order: number;
     abstract beforeEmit(message: IQueueMessage): void | Promise<void>;
     abstract aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T>;
 }

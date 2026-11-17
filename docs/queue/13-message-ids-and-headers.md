@@ -27,6 +27,7 @@ Every message `QueueService.emit()` sends carries a `MessageId`, and any message
 | `Error` | `x-error` | The transport, on a dead letter |
 | `OriginalDestination` | `x-original-destination` | STOMP only for now, on a dead letter |
 | `TraceParent` | `traceparent` | Reserved for tracing (W3C trace context) |
+| `Tenant` | `x-spinajs-tenant` | The hook of `@spinajs/tenancy/queue`: the tenant the message was emitted in, or `*:<reason>` for the cross-tenant scope. A value the caller wrote is replaced |
 
 `RetryCount`, `Error` and `OriginalDestination` belong to the transport: on publish, AMQP and STOMP drop them from `Headers`, so a received message emitted again does not carry a stale retry count. `readQueueHeaders(raw)` picks the standard headers out of a broker's raw headers as strings, and `withoutTransportHeaders(headers)` drops the transport's own; a custom transport calls them on receipt and on publish.
 

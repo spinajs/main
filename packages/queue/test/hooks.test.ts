@@ -192,6 +192,25 @@ describe('queue message hooks', function () {
     expect(jobOptions(new SendInvoice())).to.deep.equal({ runAs: 'initiator', access: ['invoice:send'], resource });
   });
 
+  it('jobOptions returns tenancy for a known value and nothing for an unknown one', () => {
+    @Job({ tenancy: 'required' })
+    class Billing extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+
+    @Job({ tenancy: 'sometimes' as never })
+    class Misspelt extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+
+    expect(jobOptions(new Billing())).to.deep.equal({ tenancy: 'required' });
+    expect(jobOptions(new Misspelt())).to.deep.equal({});
+  });
+
   it('refuses an empty access list, and reads a malformed one as declared and empty', () => {
     expect(() => Job({ access: [] })).to.throw('@Job access needs a permission');
     expect(() => Job({ access: [''] })).to.throw('@Job access needs a permission');
@@ -212,6 +231,37 @@ describe('queue message hooks', function () {
     const c = await client();
     expect(c.Emitted).to.have.length(1);
     expect(c.Emitted[0].Initiator).to.deep.equal({ type: 'user', id: 'alice' });
+  });
+
+  it('runs a hook of a lower order first, whenever it was registered', async () => {
+    class EarlyHook extends QueueMessageHook {
+      public override readonly order: number = -1;
+
+      beforeEmit(): void {
+        trace.push('early.beforeEmit');
+      }
+
+      async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+        trace.push('early.in');
+        return next();
+      }
+    }
+    DI.register(EarlyHook).as(QueueMessageHook);
+    DI.uncache(Array.ofType(QueueMessageHook));
+
+    try {
+      const queue = await DI.resolve(QueueService);
+      await queue.consume(PlainJob);
+      await PlainJob.emit({});
+      const c = await client();
+      await c.deliver(c.Emitted[0]);
+    } finally {
+      DI.unregister(EarlyHook);
+      DI.uncache(EarlyHook);
+      DI.uncache(Array.ofType(QueueMessageHook));
+    }
+
+    expect(trace).to.deep.equal(['early.beforeEmit', 'outer.beforeEmit', 'inner.beforeEmit', 'early.in', 'outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out']);
   });
 
   it('a throwing beforeEmit makes emit reject and sends nothing', async () => {

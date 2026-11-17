@@ -7,13 +7,13 @@ A `QueueMessageHook` runs code before every emit and around every message handle
 Emitting, in `DefaultQueueService.emit(message)`:
 
 1. It resolves `Array.ofType(QueueMessageHook)` from DI.
-2. It awaits `hook.beforeEmit(message)` for each hook, in registration order. A hook may change the message.
+2. It awaits `hook.beforeEmit(message)` for each hook, in ascending `order`; hooks of one order run in registration order. A hook may change the message.
 3. A hook that throws rejects `emit()`; no transport sees the message.
 
 Handling, in the consumer built by `DefaultQueueService.consume()`:
 
 1. It resolves `Array.ofType(QueueMessageHook)` again, on every call.
-2. It nests the hooks: the first registered hook's `aroundHandle(message, next)` is outermost, the last one calls the real work.
+2. It nests the hooks: the hook of the lowest `order` is outermost (among equals, the first registered), the last one calls the real work.
 3. The chain wraps, each separately: a job's `execute()`, a job's `onFailed()`, and the `callback` given to `consume()`.
 4. `message` is the hydrated message instance, so `jobOptions(message)` and `message.Initiator` are available.
 5. A hook that throws in a job's `execute()` chain fails the job through the normal failure path (see [Job tracking](03-job-tracking.md#how-it-works)).
@@ -36,10 +36,10 @@ sequenceDiagram
 
 | Export | Kind | Meaning |
 | --- | --- | --- |
-| `QueueMessageHook` | abstract class | `beforeEmit(message): void \| Promise<void>`; `aroundHandle<T>(message, next: () => Promise<T>): Promise<T>` |
+| `QueueMessageHook` | abstract class | `beforeEmit(message): void \| Promise<void>`; `aroundHandle<T>(message, next: () => Promise<T>): Promise<T>`; `order: number` (default `0`), its place in the chain |
 | `IQueueInitiator` | interface | `type`, `id`, optional `ceiling`: the shape a hook writes to `message.Initiator` |
-| `JobOptions` | interface | `runAs?: 'initiator' \| 'system'`, the `@Job()` options a hook interprets |
-| `jobOptions(message)` | function | `runAs` of the message's own class, or `{}` for an unknown value |
+| `JobOptions` | interface | `runAs?: 'initiator' \| 'system'`, `access?`, `resource?`, `tenancy?: 'carry' \| 'required' \| 'none'`: the `@Job()` options a hook interprets |
+| `jobOptions(message)` | function | the options of the message's own class; an unknown `runAs` or `tenancy` is left out |
 
 ## Services and extension points
 
@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### Message hook: custom implementation
 
-Implement both methods; `aroundHandle()` must call `next()` once and return its result. Registration order is chain order, so import the module that registers your hook where you want it in the chain. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
+Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Hooks of one order run in registration order. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
 
 This hook carries a correlation id from the request that emitted a message to the worker that handles it, through `AsyncLocalStorage`.
 
