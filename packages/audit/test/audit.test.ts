@@ -261,6 +261,7 @@ describe('audit().record', function () {
     const input = { kind: 'action', action: 'x' } as const;
     await expect(audit().record(input, { trail: 'nope' })).to.be.rejectedWith(AuditConfigError, 'audit: no trail named "nope"');
     await expect(audit().record(input, { trail: 'orphan' })).to.be.rejectedWith(AuditConfigError, 'audit: trail "orphan" names the store "NoSuchStore", and no AuditStore is registered under that name');
+    await expect(audit().record(input, { trail: 'history' })).to.be.rejectedWith(AuditConfigError, "); TableAuditStore is registered by @spinajs/audit-orm: install and import it, or set the trail's store to LogAuditStore");
     await expect(audit().record(input, { trail: 'strict', mode: 'deferred' })).to.be.rejectedWith(AuditConfigError, "audit: a deferred write cannot reject, and trail \"strict\" is written with onFailure 'reject'; use mode 'confirmed'");
     await expect(audit().record({ kind: 'action', action: '' })).to.be.rejectedWith(AuditConfigError, 'audit: action must be 1 to 128 characters');
     await expect(audit().record({ kind: 'action', action: 'x', subject: { type: 't', id: 'i'.repeat(256) } })).to.be.rejectedWith(AuditConfigError, 'audit: subject.id must be 1 to 255 characters');
