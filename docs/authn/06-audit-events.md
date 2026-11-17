@@ -7,7 +7,7 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 1. A core service (`DefaultAuthnService`, `AuthnImpersonationService`, `AccountLinkService`) or another authn package (`authn-local`, `authn-token`, `authn-keys`, `authn-totp`) injects `AuthnAudit` and calls `publish(event)`, or `publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent` from the `AuthnContext`. Every emitter goes through `AuthnAudit`; `@spinajs/authn/audit` exports it without registering anything.
 2. `AuthnAudit` makes one deep-frozen copy of the event (`frozenCopy`).
 3. It delivers the copy to every sink concurrently, each call bounded by `authn.audit.listenerTimeoutMs`.
-4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink.
+4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink, unless the sink is a [blocking listener](#blocking-listeners).
 5. `publish` resolves when every sink has settled or timed out. A login waits for the slowest sink, not for the sum.
 
 ### Delivery modes
@@ -24,6 +24,39 @@ A detached delivery runs the same way: every sink gets the same frozen copy, eac
 The sinks are every `AuthnEventSink` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no sink, boot logs a warning.
 
 A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
+
+## Blocking listeners
+
+A listener whose `blocking` getter answers `true` is one an operation must not go on without, such as a recorder whose trail must hold every login. `AuthnAudit` asks the getter on every event and applies these rules; no listener can change them:
+
+1. Only an event with `outcome: 'success'` that is published with `publish` or `publishIn` can be stopped. It goes to the blocking listeners first, concurrently among themselves. When one of them throws or runs out of `authn.audit.listenerTimeoutMs`, the publish rejects with `AuthnListenerFailed` and no other listener gets the event: no webhook and no queue event goes out for a login that did not stand.
+2. When every blocking listener took the event, the other listeners get it as before: concurrently, each bounded by the timeout, failures logged.
+3. An event with `outcome: 'failure'` is never stopped. A blocking listener still gets it, bounded and logged like any other, so a wrong password answers its 401 also while the listener's store is down.
+4. A detached event (`publishDetached`) is never stopped: the operation that raised it has returned. A blocking listener gets it like any other.
+5. The timeout is the one of every listener, and running out of it counts as a failure: a blocking listener that does not answer has not taken the event.
+
+```ts
+@Injectable(AuthnEventListener)
+export class LedgerListener extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  public async on(e: AuthnEvent): Promise<void> {
+    await ledger.append(e);
+  }
+}
+```
+
+`AuthnListenerFailed` is a `CodedHttpException` with status 503 and the code `authn_listener_failed`; `@spinajs/http` answers it as a problem document with that status. The message names the listener class and the event type; what the listener threw stays in `inner`, which the response does not carry.
+
+Where `DefaultAuthnService` announces a session it has just issued or elevated, a stopped announcement revokes that session before the failure goes on: the login (`login`, `session.issue`), the MFA challenge (the pending session), the MFA completion (`mfa.verify`, `login`) and the step-up (`mfa.verify`, `session.rotate`). No session cookie is set, because the login route sets it only from a result `authenticate` returned. `AuthnImpersonationService.start` revokes the session it issued and answers `session_error` when its `impersonation.start` event is stopped, as it does for any error there.
+
+What can be stopped: every success event an emitter awaits through `publishIn` or `publish`. What cannot: the success `token.use` and `key.use` of a request authenticated by a token or a key, which `DefaultAuthnService` publishes detached, so such a request is never refused or delayed for its record. An emitter that must be stoppable uses `publishIn`.
+
+Operations that do not issue a session are not undone. A password change, a token creation or a logout whose success event is stopped rejects with 503 after its effect is committed: the state has changed, and the record is missing, which is what the 503 reports.
+
+Latency: a login publishes two success events one after the other, so each blocking listener is awaited twice, and a listener that does not answer costs `authn.audit.listenerTimeoutMs` before the login is refused.
 
 ## The event
 
@@ -115,7 +148,7 @@ Import the module before the app boots: `AuthnAudit` lists the sinks when it res
 - A sink may see a detached `token.use` success after the response to its request has gone out.
 - Sinks run concurrently. No sink may rely on another sink having run first.
 - All sinks get the same deep-frozen copy, so a sink cannot change what another sees or what the caller holds.
-- A sink failure never fails a login.
+- A sink failure never fails a login, unless the sink is a [blocking listener](#blocking-listeners).
 - A child container that registers its own sink keeps its ancestors' sinks.
 
 ## Best practices

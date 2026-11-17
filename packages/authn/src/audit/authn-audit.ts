@@ -5,7 +5,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import { ResiliencePipelineBuilder, TimeoutRejectedException, TimeSpan, frozenCopy, isNonEmptyString } from '@spinajs/util';
 import type { ResiliencePipeline } from '@spinajs/util';
 
-import { AuthnEventListener, AuthnEventSink } from '../contracts/audit.js';
+import { AuthnEventListener, AuthnEventSink, AuthnListenerFailed } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext } from '../contracts/credentials.js';
 import { errorClass } from '../support/guards.js';
@@ -39,8 +39,7 @@ class ListenerDelivery implements AuthnAuditor {
   }
 
   public async publish(e: AuthnEvent): Promise<void> {
-    const event = frozenCopy(e);
-    await Promise.allSettled(this.listeners.map((listener) => this.deliver(listener, event)));
+    await this.deliverAll(frozenCopy(e), true);
   }
 
   public publishIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<void> {
@@ -48,7 +47,8 @@ class ListenerDelivery implements AuthnAuditor {
   }
 
   public publishDetached(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): void {
-    const delivery: Promise<void> = this.publishIn(ctx, body)
+    // The operation has returned, so nothing can stop it any more.
+    const delivery: Promise<void> = this.deliverAll(frozenCopy(stamped(ctx, body)), false)
       .catch((err: unknown) => this.log().warn({ eventType: body.type, errorClass: errorClass(err) }, 'AuthnAudit: a detached ${eventType} event was dropped (${errorClass})'))
       .finally(() => this.detached.delete(delivery));
     this.detached.add(delivery);
@@ -57,6 +57,27 @@ class ListenerDelivery implements AuthnAuditor {
   public async settled(): Promise<void> {
     await Promise.all([...this.detached]);
     await Promise.allSettled(this.listeners.map((listener) => this.flushed(listener)));
+  }
+
+  /**
+   * A success event that can still be stopped goes to the blocking listeners first; when one of them fails, nobody
+   * else is told and the failure goes to the emitter. Every other delivery is concurrent, bounded and only logged.
+   */
+  private async deliverAll(event: AuthnEvent, stoppable: boolean): Promise<void> {
+    const first = stoppable && event.outcome === 'success' ? this.listeners.filter((listener) => listener.blocking) : [];
+    await Promise.all(first.map((listener) => this.required(listener, event)));
+    await Promise.allSettled(this.listeners.filter((listener) => !first.includes(listener)).map((listener) => this.deliver(listener, event)));
+  }
+
+  // Running out of time counts as a failure: a blocking listener that does not answer has not taken the event.
+  private async required(listener: AuthnEventListener, event: AuthnEvent): Promise<void> {
+    try {
+      await this.pipeline.execute(() => Promise.resolve().then(() => listener.on(event)));
+    } catch (err) {
+      const name = listener.constructor.name;
+      this.log().warn({ listener: name, eventType: event.type, errorClass: errorClass(err) }, 'AuthnAudit: blocking listener ${listener} stopped a ${eventType} event (${errorClass})');
+      throw new AuthnListenerFailed(name, event.type, err);
+    }
   }
 
   // Logs the error class only: a listener's error message can echo event values.
@@ -85,8 +106,8 @@ const SILENT: Pick<Log, 'warn'> = { warn: () => undefined };
 
 /**
  * Every AuthnEventListener registered in the container's lineage gets every event (A21). Listeners run concurrently,
- * each bounded by `listenerTimeoutMs`, so a stuck listener cannot hold up a login. One per container, so a child boot
- * reads its own `authn.audit` and listeners.
+ * each bounded by `listenerTimeoutMs`, so a stuck listener holds up a login for that long at most. One per container,
+ * so a child boot reads its own `authn.audit` and listeners.
  */
 @PerChildInstance()
 export class AuthnAudit extends AsyncService {
@@ -130,13 +151,13 @@ export class AuthnAudit extends AsyncService {
     return this.delivery.listeners;
   }
 
-  /** Never rejects because of a listener. */
+  /** Rejects only with AuthnListenerFailed: a blocking listener did not take a success event. */
   public async publish(e: AuthnEvent): Promise<void> {
     this.assertResolved();
     await this.delivery.publish(e);
   }
 
-  /** Publishes `body` stamped with the context's `now`, `ip` and `userAgent`. Never rejects because of a listener. */
+  /** Publishes `body` stamped with the context's `now`, `ip` and `userAgent`. Rejects as `publish` does. */
   public publishIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<void> {
     return this.publish(stamped(ctx, body));
   }

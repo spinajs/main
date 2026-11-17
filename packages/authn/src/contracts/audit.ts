@@ -1,3 +1,5 @@
+import { CodedHttpException } from '@spinajs/exceptions';
+
 import type { IdentityRef } from './credentials.js';
 import type { PrincipalRef } from './principal.js';
 
@@ -22,17 +24,42 @@ export type AuthnEventType = 'login' | 'logout' | 'mfa.challenge' | 'mfa.verify'
 
 /**
  * Reacts to authentication events in the process that raised them: every registered listener gets every event (A21).
- * AuthnAudit calls the listeners concurrently, each bounded by `authn.audit.listenerTimeoutMs`; a listener that throws
- * or runs out of time is logged and never fails the publish. Recording is a listener too: `@spinajs/audit-authn`.
+ * AuthnAudit calls the listeners concurrently, each bounded by `authn.audit.listenerTimeoutMs`. A listener that throws
+ * or runs out of time is logged and does not fail the publish, unless it is blocking. Recording is a listener too:
+ * `@spinajs/audit-authn`.
  */
 export abstract class AuthnEventListener {
   abstract on(e: AuthnEvent): Promise<void>;
+
+  /**
+   * True for a listener an operation must not go on without. AuthnAudit asks on every event and hands a success event
+   * to the blocking listeners first: when one fails or runs out of time, `publish` and `publishIn` reject with
+   * AuthnListenerFailed and no other listener is told. Failure events and detached events are never stopped.
+   */
+  public get blocking(): boolean {
+    return false;
+  }
 
   /** Awaited once when AuthnAudit resolves; a throw fails the boot. For a setting that must be right before the first event. */
   ready?(): void | Promise<void>;
 
   /** Awaited by `AuthnAudit.settled()`: writes out what `on` buffered. */
   flush?(): Promise<void>;
+}
+
+/**
+ * A blocking listener did not take a success event, so the operation that raised it stops. `@spinajs/http` answers it
+ * 503 with the code `authn_listener_failed`: the caller is not at fault and may try again. Not an InvalidOperation,
+ * which the session routes of authn-http read as an ended session.
+ */
+export class AuthnListenerFailed extends CodedHttpException<'authn_listener_failed'> {
+  constructor(
+    public readonly listener: string,
+    public readonly eventType: string,
+    inner: unknown,
+  ) {
+    super(503, 'authn_listener_failed', `the ${eventType} event was not taken by ${listener}, which must take it before the operation goes on`, undefined, inner);
+  }
 }
 
 /**
