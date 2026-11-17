@@ -23,7 +23,7 @@ import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../respo
 import { runLogoutExtensions } from '../logout-extension.js';
 import { answerFor, auditEnded, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-// Registers the webhook audit sink: the controller scan imports this file, and an app may never import the package entry.
+// Registers WebhookAuthnEventListener: the controller scan imports this file, and an app may never import the package entry.
 import '../../webhook/sink.js';
 
 // Sec-Fetch-Mode values are a few characters; an Accept header is bounded by the header size limit alone.

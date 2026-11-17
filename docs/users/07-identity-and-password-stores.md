@@ -233,10 +233,9 @@ const changed = await store.set(ref, newHash, oldHash);
 | logs on the `rbac` log | logs on the `users` log |
 | `DI.unregister(UserAccountSink)` | `DI.unregister(UserPasswordStateHook)` |
 
-Before, registered in place of `UserAccountSink` under the authn event sink port of 3.0:
+Before, a subclass of `UserAccountSink` took its place: the app called `DI.unregister(UserAccountSink)` and registered the subclass under the 3.0 authn event sink port. The [upgrade guide](../upgrading/4.0.md#authentication-events-go-to-listeners) names that port and its replacement.
 
 ```ts
-import { DI } from '@spinajs/di';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { UserAccountSink } from '@spinajs/users';
 
@@ -246,8 +245,6 @@ export class AuditedAccountSink extends UserAccountSink {
     await securityLog.passwordSet(id.id, at);
   }
 }
-
-DI.unregister(UserAccountSink);
 ```
 
 After: the subclass of `UserPasswordStateHook` in [Password state: custom implementation](#password-state-custom-implementation). An `AuthnEventListener` of your own that listened for these authn events keeps working: authn still publishes them.
