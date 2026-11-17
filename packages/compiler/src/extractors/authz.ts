@@ -6,6 +6,7 @@ import { extendsFrameworkClass } from '../schema/framework-members.js';
 import { isAbstractClass } from './abstract.js';
 import { accessOptionsOf, classAccessOptionsOf, classesBySource, methodOf, type AccessOptions } from './access-options.js';
 import { classSymbolOf } from './access-resources.js';
+import { ignoreCommentsIn } from './ignore-comments.js';
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 type Resource = AuthzSection['resources'][number];
@@ -139,15 +140,6 @@ function queueEntryPoints(files: readonly ts.SourceFile[], ctx: ExtractorContext
   return out;
 }
 
-function ignoresIn(files: readonly ts.SourceFile[], ctx: ExtractorContext): AuthzSection['ignores'] {
-  return files.flatMap((file) =>
-    [...file.text.matchAll(IGNORE)].map((m) => {
-      const { line, character } = file.getLineAndCharacterOfPosition(m.index);
-      return { code: m[1], reason: m[2], source: { ...ctx.sourceRef(file), line: line + 1, col: character + 1 } };
-    }),
-  );
-}
-
 /** What authz-orm's adapter registers for every resource type at runtime. */
 function modelPermissions(resources: Resource[]): AuthzSection['permissions'] {
   const types = [...new Set(resources.map((r) => r.type))];
@@ -165,6 +157,6 @@ export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceF
     ...inputs.schedules.map((s) => systemEntry('schedule', s.name, s.source, system)),
     ...inputs.commands.map((c) => systemEntry('cli', c.name, c.source, system)),
   ];
-  const section: AuthzSection = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, findings: [], ignores: ignoresIn(files, ctx) };
+  const section: AuthzSection = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, findings: [], ignores: ignoreCommentsIn(files, ctx, IGNORE) };
   return section.resources.length || section.entryPoints.length || section.ignores.length ? section : undefined;
 }

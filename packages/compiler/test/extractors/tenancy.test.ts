@@ -168,3 +168,37 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
     expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none']);
   });
 });
+
+describe('tenancy escapes and ignores', () => {
+  let tenancy: NonNullable<ManifestFragment['tenancy']>;
+  before(async () => {
+    tenancy = (await fixture('tenancy-pkg')).tenancy!;
+  });
+
+  it('lists every acrossTenants and runAcrossTenants call with its literal reason and the model of the builder, through an alias and a namespace import too', () => {
+    expect(tenancy.escapes.map((e) => [e.kind, e.reason, e.model])).to.deep.equal([
+      ['acrossTenants', 'nightly dunning report', 'Invoice'],
+      ['acrossTenants', undefined, 'Payment'],
+      ['runAcrossTenants', 'usage rollup', undefined],
+      ['runAcrossTenants', 'an alias still counts', undefined],
+      ['runAcrossTenants', 'plain template', undefined],
+      ['runAcrossTenants', undefined, undefined],
+    ]);
+  });
+
+  it('leaves the member out when the reason is no string literal', () => {
+    expect(tenancy.escapes.filter((e) => !('reason' in e)).map((e) => e.kind)).to.deep.equal(['acrossTenants', 'runAcrossTenants']);
+  });
+
+  it('skips a method and a function of the same name that the tenancy packages do not declare', () => {
+    expect(tenancy.escapes.map((e) => e.source.file).filter((file) => file !== 'src/escapes.ts')).to.deep.equal([]);
+  });
+
+  it('points an acrossTenants escape at the method name, where an ignore comment goes', () => {
+    expect(tenancy.escapes[0].source).to.deep.equal({ file: 'src/escapes.ts', line: 8, col: 25, package: 'tenancy-pkg' });
+  });
+
+  it('records spinajs-tenancy-ignore comments', () => {
+    expect(tenancy.ignores).to.deep.equal([{ code: 'TEN002', reason: 'the usage export reads every tenant on purpose', source: { file: 'src/ignored.ts', line: 1, col: 1, package: 'tenancy-pkg' } }]);
+  });
+});

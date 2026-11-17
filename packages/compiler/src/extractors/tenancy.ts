@@ -7,12 +7,15 @@ import { baseClassOf } from '../schema/framework-members.js';
 import { classesBySource } from './access-options.js';
 import { routeEntryId, sourceKey } from './authz.js';
 import { declaredDecorator } from './decorator-origin.js';
+import { ignoreCommentsIn } from './ignore-comments.js';
 import { optionOf } from './model-sql.js';
 import { literalText } from './string-arg.js';
+import { escapesIn } from './tenancy-escapes.js';
 
 export const TENANCY_HTTP = '@spinajs/tenancy-http';
 
 const ROUTE_DECORATORS = ['TenantRoute', 'NoTenant', 'AllTenants'] as const;
+const IGNORE = /\/\/\s*spinajs-tenancy-ignore\s+(TEN\d{3})\s*:\s*(.*\S)/g;
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 
@@ -111,7 +114,7 @@ function entryPointsOf(inputs: TenancyInputs, files: readonly ts.SourceFile[], c
 
 /** The package's `tenancy` section; undefined when it declares no tenant model, entry-point tenancy, escape or ignore. */
 export function tenancySectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: TenancyInputs): TenancySection | undefined {
-  const section: TenancySection = { models: inputs.models, entryPoints: entryPointsOf(inputs, files, ctx), escapes: [], ignores: [] };
+  const section: TenancySection = { models: inputs.models, entryPoints: entryPointsOf(inputs, files, ctx), escapes: escapesIn(files, ctx), ignores: ignoreCommentsIn(files, ctx, IGNORE) };
   const declares = section.models.length > 0 || section.entryPoints.some((e) => e.declared !== undefined) || section.escapes.length > 0 || section.ignores.length > 0;
   return declares ? section : undefined;
 }
