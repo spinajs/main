@@ -15,3 +15,7 @@ export * from './external.js';
 export * from './buffers/ring.js';
 export * from './buffers/trace-store.js';
 export * from './tracing-capability.js';
+export * from './buffers/log-store.js';
+export * from './log-target.js';
+export * from './queries/params.js';
+export * from './queries/traces.js';

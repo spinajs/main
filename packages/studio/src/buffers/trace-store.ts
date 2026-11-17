@@ -239,6 +239,11 @@ export class TraceStore extends AsyncService implements SpanSink {
     return () => this.listeners.delete(listener);
   }
 
+  /** Whether the span belongs to a Studio request that is still open. */
+  public ownsSpan(spanId: string): boolean {
+    return this.own.has(spanId);
+  }
+
   public *spans(): Generator<StudioSpan> {
     for (const entry of this.traces.values()) yield* entry.spans;
   }
