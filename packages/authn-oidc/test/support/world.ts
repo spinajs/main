@@ -103,7 +103,7 @@ export async function world(o: WorldOptions = {}) {
     policy: new EnrolledMfaPolicy([]),
     steps: [],
     sessions,
-    sinks: [events],
+    listeners: [events],
     principals: new RecordingPrincipalFactory(),
     hooks: await hooksOf(hook),
   });

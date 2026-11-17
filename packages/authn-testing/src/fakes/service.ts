@@ -1,9 +1,10 @@
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
 import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
 import type { Hooks } from '@spinajs/hooks';
 import type { AuthnLoginIdentifiedInput } from '@spinajs/authn/hooks';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventListener, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -14,8 +15,8 @@ export interface FakeAuthnServiceDeps {
   readonly policy: MfaPolicy;
   readonly steps: readonly MfaStep[];
   readonly sessions: SessionIssuer;
-  /** Read at publish time, so a sink may be added after the service is built. */
-  readonly sinks: readonly AuthnEventSink[];
+  /** Read at publish time, so a listener may be added after the service is built. */
+  readonly listeners: readonly AuthnEventListener[];
   readonly principals: PrincipalFactory;
   /** `authn.throttle.ipv6Prefix`; 64 when unset. */
   readonly ipv6Prefix?: number;
@@ -65,10 +66,24 @@ export class FakeAuthnService extends AuthnService {
     return null;
   }
 
+  /** Delivered as AuthnAudit delivers: blocking listeners first, and a listener resolved under two ports gets it once. */
   protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
     const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of this.d.sinks) {
-      await sink.publish(event);
+    await AuthnAudit.over([...new Set(this.d.listeners)]).publish(event);
+  }
+
+  /** As the core: a session whose announcement a blocking listener stopped is revoked, and the told events go out again as failures. */
+  private async announce(ctx: AuthnContext, session: SessionHandle, ...events: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>[]): Promise<void> {
+    let told = 0;
+    try {
+      for (const e of events) {
+        told++;
+        await this.audit(ctx, e);
+      }
+    } catch (err) {
+      await this.d.sessions.revoke(session);
+      for (const e of events.slice(0, told)) await this.audit(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
+      throw err;
     }
   }
 
@@ -192,13 +207,12 @@ export class FakeAuthnService extends AuthnService {
     const steps = await this.d.policy.required(id, facts);
     if (steps.length > 0) {
       const pending = await this.d.sessions.issue(id, { ...facts, authenticatedAt: ctx.now }, { pending: { steps } });
-      await this.audit(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
+      await this.announce(ctx, pending, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
       return { status: 'mfa_required', pending, steps };
     }
     const session = await this.d.sessions.issue(id, { ...facts, authenticatedAt: ctx.now });
     const handle = await this.handleOf(session);
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.announce(ctx, session, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle }, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, sessionHandle: handle }, session, ...extra };
   }
 
@@ -240,8 +254,7 @@ export class FakeAuthnService extends AuthnService {
     const session = await this.d.sessions.elevate(pending, { assurance: 'aal2', mfa: [step] });
     const now = await this.d.sessions.restore(session.id);
     const { authenticatedAt: _at, ...facts } = now!.facts;
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: facts.strategy, identity: id, session: facts.sessionHandle });
+    await this.announce(ctx, session, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'login', outcome: 'success', strategy: facts.strategy, identity: id, session: facts.sessionHandle });
     return { status: 'success', identity: id, facts, session };
   }
 
@@ -308,8 +321,7 @@ export class FakeAuthnService extends AuthnService {
     await this.d.throttle.succeed(keys, 'mfa');
     const next = await this.d.sessions.reissue(session, { assurance: 'aal2', mfa: [step] });
     const { authenticatedAt: _at, ...facts } = (await this.d.sessions.restore(next.id))!.facts;
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
-    await this.audit(ctx, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
+    await this.announce(ctx, next, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
     return { status: 'success', identity: id, facts, session: next };
   }
 

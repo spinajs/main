@@ -303,7 +303,7 @@ describe('LocalPasswordStrategy', function () {
         secrets,
         throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),
         tokens: null,
-        sinks: [new RecordingEventSink()],
+        listeners: [new RecordingEventSink()],
         hasher,
         policy: new LocalPasswordPolicy({}),
       });

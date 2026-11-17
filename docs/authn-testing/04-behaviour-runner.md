@@ -57,7 +57,7 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `sessionStorage` | `SessionStoragePort` | List storage keys |
 | `throttle` | `ThrottlePort` | The throttle and the `ThrottleParams` it was built with |
 | `events` | `EventsPort` | Read and clear the published events |
-| `sinks` | `readonly EventsPort[]` | At least two sinks registered with `Array.ofType` (A21) |
+| `listeners` | `readonly EventsPort[]` | At least two listeners registered with `Array.ofType` (A21) |
 | `logs` | `LogsPort` | Lines the application's log received (A21/log) |
 | `spy` | `VerifySpyPort` | Count `verify` calls over all strategies |
 | `mfa` | `MfaPort` | The `MfaStep`, enrol an identity, get a valid code, read recovery codes |
@@ -303,7 +303,7 @@ function harness(ctx: HarnessContext): Harness {
     policy: new EnrolledMfaPolicy([step]),
     steps: [step],
     sessions,
-    sinks: [events],
+    listeners: [events],
     principals: new RecordingPrincipalFactory(),
   });
   return {

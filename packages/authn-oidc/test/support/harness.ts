@@ -68,7 +68,7 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
     policy: new EnrolledMfaPolicy([]),
     steps: [],
     sessions,
-    sinks: [events],
+    listeners: [events],
     principals,
   });
   const login = new OidcLogin({

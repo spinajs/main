@@ -46,8 +46,8 @@ describe('RecordingEventSink', () => {
   it('records frozen copies, filters by type and clears', async () => {
     const s = new RecordingEventSink();
     const e = ev('login');
-    await s.publish(e);
-    await s.publish(ev('logout'));
+    await s.on(e);
+    await s.on(ev('logout'));
     assert.equal(s.all().length, 2);
     assert.equal(s.ofType('login').length, 1);
     assert.notEqual(s.all()[0], e);

@@ -89,7 +89,7 @@ async function setup() {
     secrets,
     mailer,
     verifier,
-    sinks: [events],
+    listeners: [events],
     hasher,
     policy: new LocalPasswordPolicy({}),
     hooks: await kitHooks([hook]),

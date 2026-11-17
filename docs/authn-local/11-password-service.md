@@ -130,7 +130,7 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 | `deps` field | Required | Default |
 | --- | --- | --- |
 | `identities`, `passwords`, `sessions`, `throttle`, `hasher`, `policy` | yes | |
-| `sinks` | yes | published to through `AuthnAudit.over(sinks, { log })` |
+| `listeners` | yes | delivered to through `AuthnAudit.over(listeners, { log })` |
 | `tokens` | yes | `null`: no tokens to revoke |
 | `secrets` | for reset and invite | missing: those flows throw `InvalidOperation` |
 | `mailer` | no | none: no mail, no secret |

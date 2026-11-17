@@ -25,7 +25,7 @@ async function localPasswords(): Promise<LocalPasswordService> {
     tokens: null,
     secrets: new MemorySecretStore(),
     mailer: null,
-    sinks: [],
+    listeners: [],
     hasher,
     policy: new LocalPasswordPolicy({}),
   });

@@ -333,7 +333,7 @@ export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness
     sessionStorage: parts.sessions.storage,
     throttle: { throttle: parts.throttle, params: (parts.throttle as MemoryAuthnThrottle).params },
     events: parts.events,
-    sinks: [parts.events, parts.second],
+    listeners: [parts.events, parts.second],
     spy: spyOf(parts.strategies),
     mfa: { step: parts.step, enrol: async (id) => parts.step.enrol(id), code: async (id) => parts.step.nextCode(id) },
     passwordStore: parts.passwords,

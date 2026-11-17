@@ -345,7 +345,7 @@ describe('agent tokens (A15)', function () {
         policy: new EnrolledMfaPolicy([]),
         steps: [],
         sessions: new MemorySessionIssuer(),
-        sinks: [new RecordingEventSink()],
+        listeners: [new RecordingEventSink()],
         principals: new RecordingPrincipalFactory(),
       });
 

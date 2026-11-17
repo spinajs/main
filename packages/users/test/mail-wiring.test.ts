@@ -150,7 +150,7 @@ describe('authn mail wiring (MAIL-1, D12)', function () {
       tokens: null,
       secrets: new MemorySecretStore(),
       mailer: new EmailPasswordMailer({ email, options: { connection: 'test' } }),
-      sinks: [],
+      listeners: [],
       hasher,
       policy: new LocalPasswordPolicy({}),
       resetUrl: 'https://app.test/password-reset',

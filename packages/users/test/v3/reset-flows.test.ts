@@ -65,7 +65,7 @@ describe('reset and invite over the users stores', function () {
       tokens: null,
       secrets,
       mailer,
-      sinks: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

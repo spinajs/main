@@ -142,7 +142,7 @@ describe('runStrategyConformance: broken strategies fail the named case', functi
       passwordSubject((s, env) =>
         wrap(s, {
           verify: async (c, ctx) => {
-            await env.events.publish({ type: 'login', outcome: 'success', at: ctx.now } as never);
+            await env.events.on({ type: 'login', outcome: 'success', at: ctx.now } as never);
             return s.verify(c, ctx);
           },
         }),

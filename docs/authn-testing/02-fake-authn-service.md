@@ -65,7 +65,7 @@ sequenceDiagram
 | `policy` | `MfaPolicy` | required | `EnrolledMfaPolicy`, your own | Which steps a login must pass |
 | `steps` | `readonly MfaStep[]` | required | `FakeMfaStep`, your own | Steps `completeMfa` can verify |
 | `sessions` | `SessionIssuer` | required | `MemorySessionIssuer`, your own | Issues, restores and elevates sessions |
-| `sinks` | `readonly AuthnEventSink[]` | required | `RecordingEventSink`, your own | Every event goes to every sink; the array is read at publish time |
+| `listeners` | `readonly AuthnEventListener[]` | required | `RecordingEventSink`, your own | Every event goes to every listener once, through `AuthnAudit.over`; the array is read at publish time |
 | `principals` | `PrincipalFactory` | required | `RecordingPrincipalFactory`, your own | Builds the `Principal` |
 | `hooks` | `Hooks` (`@spinajs/hooks`) | none | a `DefaultHooks` over your `ActionHook`s | Runs `authn.login.identified` for interactive logins; without it no hook runs |
 
@@ -81,7 +81,7 @@ Protected members meant for subclasses:
 | --- | --- | --- |
 | `countBeforeVerify` | `true` | `false` claims the throttle slot only after `verify`. It exists to prove that rule A05 catches that bug |
 | `statusReason(status)` | `unknown_identity`, `deleted`, `banned`, `inactive` or `null` | Refuse more statuses, or report other audit reasons |
-| `audit(ctx, event)` | Adds `at`, `ip` and `userAgent` from `ctx`, then publishes to every sink | Filter or enrich events |
+| `audit(ctx, event)` | Adds `at`, `ip` and `userAgent` from `ctx`, then publishes to every listener as `AuthnAudit` does: a failing listener is dropped, a failing blocking one rejects with `AuthnListenerFailed` | Filter or enrich events |
 | `d` | The constructor deps | Read the wired fakes from a subclass |
 
 ### Authentication flow: custom implementation
@@ -121,7 +121,7 @@ export const service = new InviteAwareAuthnService({
   policy: new EnrolledMfaPolicy([]),
   steps: [],
   sessions: new MemorySessionIssuer(),
-  sinks: [new RecordingEventSink()],
+  listeners: [new RecordingEventSink()],
   principals: new RecordingPrincipalFactory(),
 });
 ```
@@ -195,7 +195,7 @@ describe('admin console', () => {
       policy: new EnrolledMfaPolicy([totp]),
       steps: [totp],
       sessions: new MemorySessionIssuer(),
-      sinks: [events],
+      listeners: [events],
       principals: new RecordingPrincipalFactory(),
     });
 

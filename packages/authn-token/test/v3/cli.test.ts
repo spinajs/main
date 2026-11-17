@@ -8,7 +8,7 @@ import { Configuration } from '@spinajs/configuration';
 import { OrmException } from '@spinajs/orm';
 import { InvalidArgument, InvalidOperation, InvalidOption, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventSink, IdentityStore, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, IdentityStore, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
@@ -111,7 +111,7 @@ describe('token cli commands', function () {
     DI.register(CliTestTokenService).as(TokenService);
     DI.register(CliTestIdentityStore).as(IdentityStore);
     DI.register(CliTestProfiles).as(TokenProfilePolicy);
-    DI.register(CliTestSink).as(AuthnEventSink);
+    DI.register(CliTestSink).as(AuthnEventListener);
     DI.uncache(AuthnAudit);
     savedDefaultTtl = config().get('authn.token.defaultTtlDays');
   });
@@ -126,7 +126,7 @@ describe('token cli commands', function () {
     DI.uncache(TokenProfilePolicy);
     DI.unregister(CliTestSink);
     DI.uncache(CliTestSink);
-    DI.uncache(Array.ofType(AuthnEventSink));
+    DI.uncache(Array.ofType(AuthnEventListener));
     DI.uncache(AuthnAudit);
     uncacheService();
     DI.uncache(CreateToken);
@@ -137,7 +137,7 @@ describe('token cli commands', function () {
 
   beforeEach(async () => {
     await v3Connection().del().from(TABLE);
-    sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof CliTestSink) as CliTestSink;
+    sink = DI.resolve(Array.ofType(AuthnEventListener)).find((s) => s instanceof CliTestSink) as CliTestSink;
     sink.clear();
     savedExitCode = process.exitCode;
     process.exitCode = undefined;

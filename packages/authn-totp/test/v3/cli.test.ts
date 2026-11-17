@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Orm } from '@spinajs/orm';
 import { DbAuthnThrottle } from '@spinajs/authn-orm';
-import { AuthnEventSink, AuthnService, AuthnThrottle, CLI_ACTOR, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnService, AuthnThrottle, CLI_ACTOR, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
@@ -62,8 +62,8 @@ describe('v3 cli: authn:mfa-reset', () => {
     events = new RecordingEventSink();
     const sessions = new MemorySessionIssuer();
     const throttle = new FakeBackoffThrottle(throttleParams());
-    const authn = new FakeAuthnService({ strategies: [], throttle, identities, links: new MemoryLinkStore(), linking: { jit: false, byVerifiedEmail: false }, policy: new EnrolledMfaPolicy([step]), steps: [step], sessions, sinks: [events], principals: new RecordingPrincipalFactory() });
-    service = new TotpService({ step, sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
+    const authn = new FakeAuthnService({ strategies: [], throttle, identities, links: new MemoryLinkStore(), linking: { jit: false, byVerifiedEmail: false }, policy: new EnrolledMfaPolicy([step]), steps: [step], sessions, listeners: [events], principals: new RecordingPrincipalFactory() });
+    service = new TotpService({ step, sessions, authn, throttle, listeners: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
   });
 
   afterEach(() => {
@@ -146,8 +146,8 @@ describe('v3 cli: authn:mfa-reset', () => {
   describe('under DI', () => {
     const seen: AuthnEvent[] = [];
 
-    class KitSink extends AuthnEventSink {
-      async publish(e: AuthnEvent): Promise<void> {
+    class KitSink extends AuthnEventListener {
+      async on(e: AuthnEvent): Promise<void> {
         seen.push(e);
       }
     }
@@ -171,7 +171,7 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
       DI.unregister(DbAuthnThrottle);
-      DI.register(KitSink).as(AuthnEventSink);
+      DI.register(KitSink).as(AuthnEventListener);
       DI.register(KitIdentities).as(IdentityStore);
       DI.register(KitTotp).as(TotpService);
       DI.register(KitOrm).as(Orm);
@@ -189,13 +189,13 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.clearCache();
     });
 
-    it('adminReset needs only the step and the sinks', async () => {
+    it('adminReset needs only the step and the listeners', async () => {
       for (const t of [SessionIssuer, AuthnService, AuthnThrottle]) {
         assert.strictEqual(DI.hasImplementation<unknown>(t), false, t.name);
       }
       await enrol();
       seen.length = 0;
-      const svc = new TotpService({ step, sinks: [new KitSink()] });
+      const svc = new TotpService({ step, listeners: [new KitSink()] });
       assert.deepStrictEqual(await svc.adminReset(CLI_ACTOR, alice, { now: clock.now(), purpose: 'request' }), { reset: true });
       assert.deepStrictEqual(
         seen.map((e) => e.type),

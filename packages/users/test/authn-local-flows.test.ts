@@ -53,9 +53,9 @@ describe('authn-local password flows over the users stores', function () {
     await hasher.resolve();
     const events = new RecordingEventSink();
     const mailer = new RecordingMailer();
-    const sinks = [await DI.resolve(QueueAuthnEventSink), events];
+    const listeners = [await DI.resolve(QueueAuthnEventSink), events];
     const sessions = new MemorySessionIssuer();
-    const service = new LocalPasswordService({ identities, passwords, sessions, throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE), tokens: null, secrets: new MemorySecretStore(), mailer, sinks, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
+    const service = new LocalPasswordService({ identities, passwords, sessions, throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE), tokens: null, secrets: new MemorySecretStore(), mailer, listeners, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
     const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
     await strategy.resolve();
 

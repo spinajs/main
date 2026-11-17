@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
 import { planCases, runAuthnBehaviour, settleCase } from '../src/behaviour/index.js';
 import type { Facet, HarnessContext, HarnessFactory, RuleId } from '../src/behaviour/index.js';
@@ -32,7 +32,7 @@ const logSinkExtras =
   (ctx) =>
   (base, parts) => {
     const logs = sink();
-    parts.sinks.push(logs);
+    parts.listeners.push(logs);
     return { logs, accountLinks: referenceAccountLinks(parts, ctx.config.authn?.freshAuth?.maxAgeSeconds), service: withLoginHints(base.service!, logs) };
   };
 
@@ -67,14 +67,14 @@ describe('A21 SR-19 log mutant', () => {
 });
 
 /** The mutant of the SR-19 events check: a failed login's events carry the login of the attempt in `data`. */
-class LoginEchoSink extends AuthnEventSink implements EventsPort {
+class LoginEchoSink extends AuthnEventListener implements EventsPort {
   private readonly seen: AuthnEvent[] = [];
 
   constructor(private readonly hints: ReferenceLogSink) {
     super();
   }
 
-  async publish(e: AuthnEvent): Promise<void> {
+  async on(e: AuthnEvent): Promise<void> {
     this.seen.push(e.outcome === 'failure' && this.hints.hint !== null ? { ...e, data: { ...e.data, login: this.hints.hint } } : e);
   }
 
@@ -94,7 +94,7 @@ describe('A21 SR-19 events mutant', () => {
     (base, parts) => {
       const extras = logSinkExtras()(ctx)(base, parts);
       const events = new LoginEchoSink(extras.logs as ReferenceLogSink);
-      parts.sinks.push(events);
+      parts.listeners.push(events);
       return { ...extras, events };
     };
 
@@ -161,7 +161,7 @@ describe('A20 SR-06 expiry mutant', () => {
               const row = await parts.sessions.restore(session.id);
               if (!row) return null;
               if (c.now.getTime() - (started.get(session.id) ?? 0) > maxMinutes * 60_000) {
-                await parts.events.publish({ type: 'impersonation.expire', at: c.now, outcome: 'success', identity: row.identity });
+                await parts.events.on({ type: 'impersonation.expire', at: c.now, outcome: 'success', identity: row.identity });
                 return stripOnly ? parts.principals.principalOf(row.identity, { ...row.facts, impersonator: undefined }, {}) : null;
               }
               return parts.principals.principalOf(row.identity, row.facts, {});

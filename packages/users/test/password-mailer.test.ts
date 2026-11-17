@@ -95,7 +95,7 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
       tokens: null,
       secrets: new MemorySecretStore(),
       mailer: (await DI.resolve(PasswordMailer)) as PasswordMailer,
-      sinks: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

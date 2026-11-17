@@ -93,11 +93,11 @@ describe('TotpService action hooks', () => {
       policy: new EnrolledMfaPolicy([step]),
       steps: [step],
       sessions,
-      sinks: [events],
+      listeners: [events],
       principals: new RecordingPrincipalFactory(),
     });
     hook = new ScriptedActionHook();
-    service = new TotpService({ step, sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300, ipv6Prefix: 64, hooks: await kitHooks([hook]) });
+    service = new TotpService({ step, sessions, authn, throttle, listeners: [events], maxAgeSeconds: 300, ipv6Prefix: 64, hooks: await kitHooks([hook]) });
   });
 
   afterEach(() => {

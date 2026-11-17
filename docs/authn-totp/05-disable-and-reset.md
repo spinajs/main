@@ -67,7 +67,7 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Owner service | `MfaEnrolmentService` (`@spinajs/authn/contracts`), singleton | `TotpService` | none shipped | See [Wiring and testing](09-wiring-and-testing.md). |
-| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | `AuthnAuditRecorder` of `@spinajs/audit-authn` as a listener | Register another `AuthnEventSink`, or pass `deps.sinks` (published through `AuthnAudit.over(sinks)`). |
+| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | `AuthnAuditRecorder` of `@spinajs/audit-authn` as a listener | Register another `AuthnEventSink`, or pass `deps.listeners` (delivered through `AuthnAudit.over(listeners)`). |
 
 ## Important behaviour
 

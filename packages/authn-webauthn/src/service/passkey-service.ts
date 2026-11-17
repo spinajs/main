@@ -8,7 +8,7 @@ import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { IdentityStore, PasskeyService } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEventSink, IdentityRef, PasskeyCeremony, PasskeyEntry, PasskeyRegisterResult, PasskeyRegistration } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEventListener, IdentityRef, PasskeyCeremony, PasskeyEntry, PasskeyRegisterResult, PasskeyRegistration } from '@spinajs/authn/contracts';
 
 import { WebAuthnCredentialExists, WebAuthnCredentialStore } from '../contracts.js';
 import type { WebAuthnCredential } from '../contracts.js';
@@ -25,8 +25,8 @@ export interface WebAuthnPasskeyServiceDeps {
   readonly challenges?: WebAuthnChallengeStore;
   readonly options?: WebAuthnOptions;
   readonly identities?: IdentityStore | null;
-  /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
-  readonly sinks?: readonly AuthnEventSink[];
+  /** Delivered to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
+  readonly listeners?: readonly AuthnEventListener[];
   /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
   readonly hooks?: Hooks;
 }
@@ -63,11 +63,11 @@ export class WebAuthnPasskeyService extends PasskeyService {
   @Autoinject(Hooks)
   protected Hooks: Hooks;
 
-  private readonly sinkAudit: AuthnAuditor | undefined;
+  private readonly listenerAudit: AuthnAuditor | undefined;
 
   constructor(protected readonly given: WebAuthnPasskeyServiceDeps = {}) {
     super();
-    this.sinkAudit = given.sinks && AuthnAudit.over(given.sinks);
+    this.listenerAudit = given.listeners && AuthnAudit.over(given.listeners);
   }
 
   async challenge(ctx: AuthnContext, identity?: IdentityRef): Promise<PasskeyCeremony> {
@@ -154,7 +154,7 @@ export class WebAuthnPasskeyService extends PasskeyService {
   }
 
   private async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
-    const auditor = this.sinkAudit ?? this.Audit;
+    const auditor = this.listenerAudit ?? this.Audit;
     if (!auditor) throw new InvalidOperation('WebAuthnPasskeyService: no AuthnAudit is registered');
     await auditor.publishIn(ctx, e);
   }

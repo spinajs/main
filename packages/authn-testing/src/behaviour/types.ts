@@ -19,7 +19,7 @@ const portNames = {
   sessionStorage: 1,
   throttle: 1,
   events: 1,
-  sinks: 1,
+  listeners: 1,
   logs: 1,
   spy: 1,
   mfa: 1,

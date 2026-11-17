@@ -77,7 +77,7 @@ describe('UserPasswordStateHook (HOOK-4, R2)', function () {
       secrets: new MemorySecretStore(),
       mailer,
       verifier: new UserAddressVerifier(),
-      sinks: [await DI.resolve(QueueAuthnEventSink)],
+      listeners: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
       hooks: await DI.resolve<Hooks>(Hooks),

@@ -38,7 +38,7 @@ function setup() {
     tokens: null,
     secrets: new MemorySecretStore(),
     mailer: new EmailPasswordMailer({ email: email.service, options: { connection: 'test' } }),
-    sinks: [events],
+    listeners: [events],
     hasher: new Argon2PasswordHasher({}),
     policy: new LocalPasswordPolicy({}),
     log: { warn: (...args: unknown[]) => void warnings.push(args) },

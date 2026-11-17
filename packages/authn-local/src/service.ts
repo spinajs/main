@@ -15,7 +15,7 @@ import type {
   AddressVerificationRequestResult,
   AddressVerificationResult,
   AuthnContext,
-  AuthnEventSink,
+  AuthnEventListener,
   CodeRequestResult,
   IdentityRef,
   IdentityStatus,
@@ -54,8 +54,8 @@ export interface LocalPasswordServiceDeps {
   readonly throttle: AuthnThrottle;
   /** null: no TokenService, so there are no tokens to revoke. */
   readonly tokens: TokenService | null;
-  /** Published to through `AuthnAudit.over`. */
-  readonly sinks: readonly AuthnEventSink[];
+  /** Delivered to through `AuthnAudit.over`. */
+  readonly listeners: readonly AuthnEventListener[];
   readonly hasher: PasswordHasher;
   readonly policy: LocalPasswordPolicy;
   /** Required by the reset and invite flows. */
@@ -838,7 +838,7 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected auditor(): AuthnAuditor {
-    return this.Deps ? (this._auditor ??= AuthnAudit.over(this.Deps.sinks, { log: this.log() })) : this.Audit;
+    return this.Deps ? (this._auditor ??= AuthnAudit.over(this.Deps.listeners, { log: this.log() })) : this.Audit;
   }
 
   protected log(): AuditLog {

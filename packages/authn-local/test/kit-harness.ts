@@ -6,7 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { Autoinject } from '@spinajs/di';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventListener, AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import {
   EnrolledMfaPolicy,
@@ -290,8 +290,8 @@ const REGISTRATIONS: [Function, Function][] = [
   [HarnessSessionIssuer, SessionIssuer],
   [HarnessSecretStore, SecretStore],
   [HarnessThrottle, AuthnThrottle],
-  [HarnessSink, AuthnEventSink],
-  [HarnessSecondSink, AuthnEventSink],
+  [HarnessSink, AuthnEventListener],
+  [HarnessSecondSink, AuthnEventListener],
   [HarnessTokenService, TokenService],
   [HarnessMailer, PasswordMailer],
   [HarnessBlocklist, PasswordBlocklist],
@@ -300,7 +300,7 @@ const REGISTRATIONS: [Function, Function][] = [
 
 /** Everything the container may cache for a case: the abstract keys, the fakes and the N3 classes. */
 const CACHED: Function[] = [
-  // AuthnAudit holds the sinks it was built with: a cached one would audit to an earlier case's sinks.
+  // AuthnAudit holds the listeners it was built with: a cached one would audit to an earlier case's listeners.
   ...new Set([...REGISTRATIONS.flat(), AuthnAudit, Hooks, DefaultHooks, HarnessHook, PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
 ];
 
@@ -361,7 +361,7 @@ export interface LocalParts {
   readonly sessions: HarnessSessionIssuer;
   readonly secrets: HarnessSecretStore;
   readonly throttle: HarnessThrottle;
-  readonly sinks: readonly RecordingEventSink[];
+  readonly listeners: readonly RecordingEventSink[];
   readonly tokens: HarnessTokenService;
   readonly mailer: HarnessMailer;
   readonly hasher: Argon2PasswordHasher;
@@ -388,7 +388,7 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
     sessions: DI.resolve(SessionIssuer) as HarnessSessionIssuer,
     secrets,
     throttle: DI.resolve(AuthnThrottle) as HarnessThrottle,
-    sinks: ((await DI.resolve(Array.ofType(AuthnEventSink))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
+    listeners: ((await DI.resolve(Array.ofType(AuthnEventListener))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
     tokens: DI.resolve(TokenService) as HarnessTokenService,
     mailer: DI.resolve(PasswordMailer) as HarnessMailer,
     hasher: (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher,
@@ -407,7 +407,7 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
 export async function localHarness(ctx: HarnessContext, emailCode = false): Promise<Harness> {
   const p = await buildParts(ctx.config);
   const params = current.params;
-  const [events, second] = p.sinks;
+  const [events, second] = p.listeners;
   let verifyCalls = 0;
   const verify = p.strategy.verify.bind(p.strategy);
   p.strategy.verify = async (c, vctx) => {
@@ -423,7 +423,7 @@ export async function localHarness(ctx: HarnessContext, emailCode = false): Prom
     policy: new EnrolledMfaPolicy(emailCode ? [p.codeStep] : []),
     steps: emailCode ? [p.codeStep] : [],
     sessions: p.sessions,
-    sinks: p.sinks,
+    listeners: p.listeners,
     principals: new RecordingPrincipalFactory(),
     requireVerifiedAddress: current.requireVerifiedAddress,
   });
@@ -444,7 +444,7 @@ export async function localHarness(ctx: HarnessContext, emailCode = false): Prom
     },
     sessions: p.sessions,
     events,
-    sinks: [events, second],
+    listeners: [events, second],
     throttle: { throttle: p.throttle, params },
     password: p.password,
     passwordStore: p.passwords,
@@ -525,7 +525,7 @@ export async function localStrategySubject(): Promise<StrategySubject> {
     unknown: async () => ({ kind: 'password', login: `nobody-${++n}@example.test`, password: `Wrong-Pass-${n}x` }),
     secretsOf: (c) => [(c as unknown as { password: string }).password],
     sessions: { count: async () => (await p.sessions.storage.storedKeys()).length },
-    events: p.sinks[0],
+    events: p.listeners[0],
     async dispose() {
       freshContainer();
     },
