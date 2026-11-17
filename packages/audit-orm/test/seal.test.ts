@@ -6,6 +6,7 @@ import type { AuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, AuditSealer, OutboxAuditStore, TableAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import { AuditSealError, AuditSealTask } from '../src/scheduler.js';
+import { bufferRows } from '../src/ship/outbox.js';
 import { TestDb } from '../src/testing.js';
 import { config, event, setTrail, tableRows } from './support/events.js';
 
@@ -187,6 +188,7 @@ describe('audit sealing', function () {
           const insertedSeal = new Promise<void>((resolve) => (inserted = resolve));
           let release!: () => void;
           const released = new Promise<void>((resolve) => (release = resolve));
+          // An own property shadows the prototype's transaction() for one call, then is removed again.
           const transaction = Reflect.get(driver(), 'transaction');
           Reflect.set(driver(), 'transaction', (work: () => Promise<unknown>): unknown => {
             Reflect.deleteProperty(driver(), 'transaction');
@@ -313,6 +315,12 @@ describe('audit sealing', function () {
       });
     });
   }
+
+  it('writes a data_hash on every row it stores, so a redacted row still verifies', () => {
+    for (const data of [{}, { version: 1 }, { nested: { list: [1, null, 'x'] } }]) {
+      expect([storedColumns(event(1, { data })), bufferRows('t', [event(1, { data })])[0]].map((row) => row.data_hash)).to.deep.eq([payloadHash(data), payloadHash(data)]);
+    }
+  });
 
   it('refuses a trail whose table is the seal table, and reports a sealed trail whose store keeps no table', async () => {
     setTrail('sealed', { store: 'TableAuditStore', table: 'audit_seal', connection: 'sqlite', integrity: 'sealed' });
