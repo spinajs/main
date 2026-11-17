@@ -1,4 +1,4 @@
-import type { IJoinStatementOptions } from './interfaces.js';
+import type { IJoinStatementOptions, IJoinedTable } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
 import { ColumnMethods, SqlOperator, WhereBoolean } from './enums.js';
 import { NewInstance, Container, Inject } from '@spinajs/di';
@@ -339,6 +339,17 @@ export abstract class JoinStatement extends QueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  /** What this join reads, named as `SqlJoinStatement.build()` names it; a raw join names nothing. */
+  public get Joined(): IJoinedTable {
+    const { query, joinModel, joinTable, joinTableAlias, joinTableDriver } = this._options;
+    if (query) return { table: undefined, alias: undefined, model: undefined };
+
+    const descriptor = joinModel ? extractModelDescriptor(joinModel) : null;
+    const separator = (descriptor ? descriptor.Driver : joinTableDriver)?.Options.AliasSeparator ?? '';
+    const alias = joinTableAlias ? joinTableAlias : descriptor ? `${separator}${descriptor.Name}${separator}` : undefined;
+    return { table: descriptor ? descriptor.TableName : joinTable, alias, model: joinModel };
+  }
 
   /**
    * Namespaces this join under a populated relation's alias, and only when the alias was not

@@ -2021,6 +2021,13 @@ export interface IDehydrateOptions {
   dateTimeFormat?: 'iso' | 'sql' | 'unix';
 }
 
+/** What a join reads: the joined table, the alias its columns are read under, and its model when it names one. */
+export interface IJoinedTable {
+  readonly table: string | undefined;
+  readonly alias: string | undefined;
+  readonly model: Constructor<ModelBase> | undefined;
+}
+
 export interface IJoinStatementOptions<R = ModelBase> {
 
   /**
