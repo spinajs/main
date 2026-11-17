@@ -1,5 +1,5 @@
-import { AuditConfigError, AuditReader, AuditStore, AuditWriteFailed } from '@spinajs/audit';
-import type { AuditAppend, AuditFilter, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import { AuditConfigError, AuditNotSupported, AuditReader, AuditStore, AuditWriteFailed } from '@spinajs/audit';
+import type { AuditAppend, AuditFilter, AuditPinnedHead, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Injectable } from '@spinajs/di';
 
 import { insertForWrite, joinsCallerOn, quoted, writeDriver } from '../orm-store.js';
@@ -32,6 +32,11 @@ export class ShippedAuditReader extends AuditReader {
 
   prune(trail: TrailConfig, before: Date, source?: string): Promise<number> {
     return this.shipped.prune(trail, before, source);
+  }
+
+  async verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
+    if (!this.shipped.verify) throw new AuditNotSupported(`audit: the reader ${this.shipped.constructor.name} of trail ${quoted(trail.name)} cannot verify seals`);
+    return this.shipped.verify(trail, source, pinned);
   }
 }
 

@@ -7,7 +7,7 @@ import { DI } from '@spinajs/di';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { AuditConfigError, AuditNotSupported, AuditStore, audit } from '../src/index.js';
-import type { AuditReader, AuditVerifyReport, TrailConfig } from '../src/index.js';
+import type { AuditPinnedHead, AuditReader, AuditVerifyReport, TrailConfig } from '../src/index.js';
 import { MemoryAuditReader, MemoryAuditStore } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -19,8 +19,8 @@ const patient = { type: 'patient', id: '17' };
 
 // Stands in for a reader that can verify, which arrives with the seals of the integrity branches.
 class VerifyingReader extends MemoryAuditReader {
-  verify(trail: TrailConfig, source?: string): Promise<AuditVerifyReport> {
-    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 0, head: undefined });
+  verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
+    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 0, head: pinned, uncovered: [], unexplainedRedactions: [] });
   }
 }
 
@@ -91,6 +91,7 @@ describe('audit().trail', function () {
 
   it('verifies through the reader, and refuses a trail that is not sealed or cannot be verified here', async () => {
     expect(await audit().trail('sealed').verify('orders')).to.include({ trail: 'sealed', connection: 'orders', table: 'audit_event', tampered: undefined });
+    expect((await audit().trail('sealed').verify(undefined, { toSeq: 7, hash: 'h' })).head).to.deep.eq({ toSeq: 7, hash: 'h' });
     await expect(audit().trail().verify()).to.be.rejectedWith(AuditNotSupported, 'audit: trail "default" is not sealed, so it has nothing to verify (audit.trails.default.integrity)');
     await expect(audit().trail('unverifiable').verify()).to.be.rejectedWith(AuditNotSupported, 'audit: the reader MemoryAuditReader of trail "unverifiable" cannot verify seals');
     await expect(audit().trail('logged').verify()).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (verify)');

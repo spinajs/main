@@ -1,10 +1,11 @@
 import { AuditReader } from '@spinajs/audit';
-import type { AuditFilter, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import type { AuditFilter, AuditPinnedHead, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
+import { verifyTable } from './seal/verify.js';
 
 const DELETE_CHUNK = 500;
 
@@ -78,5 +79,10 @@ export class TableAuditReader extends AuditReader {
       deleted += (await driver.del().from(table).whereIn('seq', seqs)).RowsAffected;
       if (seqs.length < DELETE_CHUNK) return deleted;
     }
+  }
+
+  /** The chain of an archive table spans its sources, so `source` does not narrow it there. */
+  async verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
+    return { trail: trail.name, ...(await verifyTable(this.driver(trail, source), this.table(trail), pinned)) };
   }
 }

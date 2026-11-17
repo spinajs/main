@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import type { AuditFilter, AuditQuery, AuditReader, AuditService, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
+import type { AuditFilter, AuditPinnedHead, AuditQuery, AuditReader, AuditService, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
 import { AuditConfigError, AuditNotSupported } from './errors.js';
 import { quoted } from './guards.js';
 import { auditStore } from './stores.js';
@@ -52,11 +52,11 @@ export class StoreAuditTrail implements AuditTrail {
     return redacted;
   }
 
-  async verify(source?: string): Promise<AuditVerifyReport> {
+  async verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
     const { name, integrity } = this.config;
     if (integrity !== 'sealed') throw new AuditNotSupported(`audit: trail ${quoted(name)} is not sealed, so it has nothing to verify (audit.trails.${name}.integrity)`);
     const reader = await readerOf(this.config, 'verify', this.container);
     if (!reader.verify) throw new AuditNotSupported(`audit: the reader ${reader.constructor.name} of trail ${quoted(name)} cannot verify seals`);
-    return reader.verify(this.config, source);
+    return reader.verify(this.config, source, pinned);
   }
 }

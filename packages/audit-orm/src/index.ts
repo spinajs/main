@@ -19,3 +19,4 @@ export { AuditSealTableMigration } from './seal/migration.js';
 export { AuditSealer, sealAudit } from './seal/seal.js';
 export type { SealFailure, SealOptions, SealResult } from './seal/seal.js';
 import './seal/schema.js';
+export { verifyTable } from './seal/verify.js';

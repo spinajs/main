@@ -10,6 +10,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../audit/tsconfig.build.json" },
+    { "path": "../cli/tsconfig.build.json" },
     { "path": "../configuration/tsconfig.build.json" },
     { "path": "../di/tsconfig.build.json" },
     { "path": "../exceptions/tsconfig.build.json" },
