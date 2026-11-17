@@ -122,3 +122,6 @@ export class OptimisticLockError extends ConcurrencyConflict {
     super(`${model} ${Array.isArray(key) ? key.join(',') : String(key)} was changed or deleted since it was read (expected version ${String(expectedVersion)})`);
   }
 }
+
+/** A captured write reaches more rows than `db.WriteCapture.MaxRows` allows. */
+export class WriteCaptureLimitExceeded extends InvalidOperation {}

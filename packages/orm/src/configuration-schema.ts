@@ -15,6 +15,13 @@ export const ORM_CONFIGURATION_SCHEMA = {
         Source: { enum: ['database', 'manifest'], default: 'database' },
       },
     },
+    WriteCapture: {
+      type: 'object',
+      properties: {
+        // 0: unlimited
+        MaxRows: { type: 'integer', minimum: 0, default: 0 },
+      },
+    },
   },
 };
 

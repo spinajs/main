@@ -61,3 +61,4 @@ export * from './schema-diff/index.js';
 // Import directly from './metadata.js' if needed.
 export * from './session-settings.js';
 export * from './replica-router.js';
+export * from './capture/index.js';

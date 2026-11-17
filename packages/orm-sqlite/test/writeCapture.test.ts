@@ -1,0 +1,169 @@
+import { DI } from '@spinajs/di';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import 'mocha';
+import { InsertBehaviour, InsertQueryBuilder, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import { Configuration } from '@spinajs/configuration';
+import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+// Module state, not instance state: the test does not depend on which instance DI hands the middleware.
+const recorder = { writes: [] as CapturedWrite[], failWith: undefined as Error | undefined };
+const everything: CapturedWrite[] = [];
+
+class Recorder extends WriteObserver {
+  interest(query: QueryBuilder): CaptureInterest | undefined {
+    return query.Model === UowTag ? { columns: ['Name'], transactional: true } : undefined;
+  }
+
+  async observe(write: CapturedWrite): Promise<void> {
+    if (recorder.failWith) throw recorder.failWith;
+    recorder.writes.push(write);
+  }
+}
+
+class Everything extends WriteObserver {
+  interest(query: QueryBuilder): CaptureInterest | undefined {
+    return query.Model === UowTag ? { columns: '*', transactional: true } : undefined;
+  }
+
+  async observe(write: CapturedWrite): Promise<void> {
+    everything.push(write);
+  }
+}
+
+const selectsOn = (statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
+
+describe('write capture on sqlite', function () {
+  this.timeout(10000);
+
+  before(() => {
+    registerUowConnection();
+    DI.register(Recorder).as(WriteObserver);
+  });
+
+  after(() => {
+    DI.unregister(Recorder);
+  });
+
+  beforeEach(async () => {
+    await bootUow();
+    recorder.writes = [];
+    recorder.failWith = undefined;
+    everything.length = 0;
+  });
+
+  afterEach(() => DI.clearCache());
+
+  it('hands an insert its new row', async () => {
+    await UowTag.insert({ Name: 'red' });
+
+    expect(recorder.writes).to.have.length(1);
+    expect(recorder.writes[0].kind).to.eq('insert');
+    expect(recorder.writes[0].unknownKeys).to.eq(false);
+    expect(recorder.writes[0].rows).to.deep.eq([{ id: '1', before: undefined, after: { Id: 1, Name: 'red' } }]);
+  });
+
+  it('hands an update the before and after values of the rows it reached', async () => {
+    await UowTag.insert({ Name: 'red' });
+    await UowTag.insert({ Name: 'blue' });
+    recorder.writes = [];
+
+    await UowTag.update({ Name: 'green' }).where('Name', 'red');
+
+    expect(recorder.writes[0].kind).to.eq('update');
+    expect(recorder.writes[0].rows).to.deep.eq([{ id: '1', before: { Id: 1, Name: 'red' }, after: { Id: 1, Name: 'green' } }]);
+  });
+
+  it('hands a delete the rows that are gone', async () => {
+    await UowTag.insert({ Name: 'red' });
+    recorder.writes = [];
+
+    await UowTag.destroy(1);
+
+    expect(recorder.writes[0].rows).to.deep.eq([{ id: '1', before: { Id: 1, Name: 'red' }, after: undefined }]);
+  });
+
+  it('reads once before and once after for two observers', async () => {
+    DI.register(Everything).as(WriteObserver);
+    try {
+      await UowTag.insert({ Name: 'red' });
+      const { statements, restore } = captureStatements();
+      try {
+        await UowTag.update({ Name: 'green' }).where('Id', 1);
+      } finally {
+        restore();
+      }
+
+      // key select + before + after
+      expect(selectsOn(statements, 'uow_tag')).to.eq(3);
+      expect(everything.at(-1)!.rows[0].after).to.deep.eq({ Id: 1, Name: 'green' });
+      expect(recorder.writes.at(-1)!.rows[0].after).to.deep.eq({ Id: 1, Name: 'green' });
+    } finally {
+      DI.unregister(Everything);
+    }
+  });
+
+  it('treats a replaced row as an existing one', async () => {
+    await UowTag.insert({ Name: 'red' });
+    recorder.writes = [];
+
+    await UowTag.insert({ Id: 1, Name: 'blue' }, InsertBehaviour.InsertOrReplace);
+
+    expect(recorder.writes[0].rows).to.deep.eq([{ id: '1', before: { Id: 1, Name: 'red' }, after: { Id: 1, Name: 'blue' } }]);
+  });
+
+  it('reads the keys of a multi-row insert from RETURNING', async () => {
+    await UowTag.insert([{ Name: 'a' }, { Name: 'b' }]);
+
+    const write = recorder.writes[0];
+    expect(write.unknownKeys).to.eq(false);
+    expect(write.rows.map((r) => r.id)).to.deep.eq(['1', '2']);
+    expect(write.rows.map((r) => r.after?.Name)).to.deep.eq(['a', 'b']);
+  });
+
+  it('reports a multi-row insert whose keys the driver does not report', async () => {
+    // Built without ModelBase.insert, so no RETURNING is added; sqlite reports only the last rowid.
+    const { query } = createQuery(UowTag, InsertQueryBuilder);
+    await query.values([{ Name: 'a' }, { Name: 'b' }]);
+
+    const write = recorder.writes[0];
+    expect(write.unknownKeys).to.eq(true);
+    expect(write.rows).to.deep.eq([]);
+    expect(await rows('uow_tag')).to.have.length(2);
+  });
+
+  it('rolls the statement back when an observer throws', async () => {
+    recorder.failWith = new Error('observer failed');
+
+    await expect(UowTag.insert({ Name: 'red' })).to.be.rejectedWith('observer failed');
+
+    expect(await rows('uow_tag')).to.have.length(0);
+  });
+
+  it('refuses a statement above db.WriteCapture.MaxRows', async () => {
+    await UowTag.insert({ Name: 'a' });
+    await UowTag.insert({ Name: 'b' });
+    (await DI.resolve(Configuration)).set('db.WriteCapture.MaxRows', 1);
+    try {
+      await expect(UowTag.update({ Name: 'c' }).where('Id', '>', 0)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an update of UowTag reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      expect((await rows<{ Name: string }>('uow_tag')).map((r) => r.Name)).to.deep.eq(['a', 'b']);
+    } finally {
+      (await DI.resolve(Configuration)).set('db.WriteCapture.MaxRows', 0);
+    }
+  });
+
+  it('adds nothing to a write no observer wants', async () => {
+    const { statements, restore } = captureStatements();
+    try {
+      await UowClient.insert({ Name: 'x' });
+    } finally {
+      restore();
+    }
+    expect(statements).to.have.length(1);
+    expect(recorder.writes).to.have.length(0);
+  });
+});
