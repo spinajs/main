@@ -7,3 +7,5 @@ Deferred writes: a batch that misses `audit.deferred.timeoutMs` is given up and 
 An unknown key on a trail or in its `retry` (a misspelt `onFailure`, say) now fails the boot instead of being dropped silently.
 
 The error for a trail whose store is `TableAuditStore` while no such store is registered now ends with a hint: install and import `@spinajs/audit-orm`, or set the trail's store to `LogAuditStore`.
+
+A blocked target gives up its order after `audit.deferred.blockCeilingMs` (default 10 times `timeoutMs`, so 20000 ms by default): the service logs once at error level that its events may now be stored out of order relative to the held append, and writes again; a new stuck append blocks it again.

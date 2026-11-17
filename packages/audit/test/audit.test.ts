@@ -339,7 +339,7 @@ describe('audit(): deferred batches and failure paths', function () {
     expect(SlowStore.calls).to.eq(1);
     expect(lines.map((l) => [l.level, l.message])).to.deep.eq([
       ['error', 'audit: trail ${trail} gave up ${count} event(s) not confirmed in time; an append already under way may still store them: ${ids}'],
-      ['warn', 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it does'],
+      ['warn', 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it settles or blockCeilingMs has passed'],
       ['error', 'audit: trail ${trail} lost ${count} event(s): ${ids}'],
       ['error', 'audit: trail ${trail} lost ${count} event(s): ${ids}'],
     ]);
@@ -365,6 +365,33 @@ describe('audit(): deferred batches and failure paths', function () {
     await audit().record(actions('c'), { trail: 'slow' });
     await audit().flush();
     expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+  });
+
+  it('gives up the order of a blocked target after blockCeilingMs, and blocks it again behind a new stuck append', async () => {
+    app = await boot({ timeoutMs: 50, blockCeilingMs: 150, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    const write = async (action: string): Promise<void> => {
+      await audit().record(actions(action), { trail: 'slow' });
+      await audit().flush();
+    };
+    SlowStore.holds = 1;
+    await write('a');
+    await write('b');
+    await pause(200);
+    await write('c');
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+    const released = lines.filter((l) => l.message.includes('out of order'));
+    expect(released.map((l) => [l.level, l.fields.trail])).to.deep.eq([['error', 'slow']]);
+
+    SlowStore.holds = 1;
+    await write('d');
+    await write('e');
+    SlowStore.held[0].release();
+    await pause(20);
+    expect(lines.filter((l) => l.message.includes('is blocked behind'))).to.have.length(2);
+    expect(lines.filter((l) => l.message.includes('stored ${count} event(s) it had given up on'))).to.have.length(1);
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c', 'a']);
+    SlowStore.held[1].release();
   });
 
   it('blocks only the connection whose append is held', async () => {

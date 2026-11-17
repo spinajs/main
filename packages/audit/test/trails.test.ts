@@ -18,7 +18,7 @@ describe('trailConfig', function () {
     expect(trailConfig('security')).to.include({ store: 'LogAuditStore' });
     expect(trailConfig('security').hash).to.deep.eq(SECURITY_HASH_PATHS);
     expect(trailNames()).to.deep.eq(['default', 'history', 'security']);
-    expect(deferredConfig()).to.deep.eq({ flushMs: 1000, maxBatch: 500, maxBuffered: 10000, timeoutMs: 2000 });
+    expect(deferredConfig()).to.deep.eq({ flushMs: 1000, maxBatch: 500, maxBuffered: 10000, timeoutMs: 2000, blockCeilingMs: 20000 });
   });
 
   it('refuses an unknown trail', () => {
@@ -28,7 +28,7 @@ describe('trailConfig', function () {
 
   it('lays a configured trail over the built-in of its name and parses the retry delay', async () => {
     const restricted = { table: 'audit_restricted', onFailure: 'reject', retry: { attempts: 5, delay: '2s' }, integrity: 'sealed', mask: ['data.args.password'], sink: 'ArchiveAuditSink', archiveConnection: 'audit' };
-    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted } } } });
+    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5, timeoutMs: 300 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted } } } });
     try {
       expect(trailConfig('history')).to.include({ table: 'orm_history', retentionDays: 30 });
       expect(trailConfig('history').retry).to.deep.eq({ attempts: 3, delayMs: 250 });
@@ -36,7 +36,7 @@ describe('trailConfig', function () {
       expect(trailConfig('restricted').retry).to.deep.eq({ attempts: 5, delayMs: 2000 });
       expect(trailConfig('restricted').mask).to.deep.eq(['data.args.password']);
       expect(trailNames()).to.deep.eq(['default', 'history', 'security', 'restricted']);
-      expect(deferredConfig().flushMs).to.eq(5);
+      expect(deferredConfig()).to.include({ flushMs: 5, timeoutMs: 300, blockCeilingMs: 3000 });
     } finally {
       await app.dispose();
     }

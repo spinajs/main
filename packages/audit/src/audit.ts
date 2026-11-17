@@ -83,7 +83,8 @@ function stamped(inputs: readonly AuditInput[], container: IContainer): AuditEve
 const LOST = 'audit: trail ${trail} lost ${count} event(s): ${ids}';
 const UNCONFIRMED = 'audit: trail ${trail} gave up ${count} event(s) not confirmed in time; an append already under way may still store them: ${ids}';
 const MISCONFIGURED = 'audit: trail ${trail} is misconfigured; dropped ${count} event(s): ${ids}';
-const BLOCKED = 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it does';
+const BLOCKED = 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it settles or blockCeilingMs has passed';
+const UNORDERED = 'audit: trail ${trail} was blocked for ${blockedMs} ms and writes again; its events may now be stored out of order relative to the held append';
 const STORED_LATE = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
 const FAILED_LATE = 'audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}';
 
@@ -129,8 +130,9 @@ export class DefaultAuditService extends AuditService {
   private readonly buffer: Pending[] = [];
   // Per trail and connection: an append given up on that may still store its batch.
   private readonly late = new Map<string, Promise<void>>();
-  // Targets whose late append outlived a later batch's deadline: their batches are dropped unsent until it settles.
-  private readonly blocked = new Set<string>();
+  // Targets whose late append outlived a later batch's deadline, with the time the block began: their batches are
+  // dropped unsent until it settles or blockCeilingMs has passed.
+  private readonly blocked = new Map<string, number>();
   private timer: NodeJS.Timeout | undefined;
   private draining: Promise<void> | undefined;
   // An error once resolving the logger failed: it is not resolved again on every line.
@@ -225,12 +227,20 @@ export class DefaultAuditService extends AuditService {
 
   // The deadline stops the retries of a batch it gave up on. The append under way cannot be recalled, so the next
   // append to the same target first waits for it, within its own deadline: a call split at maxBatch keeps its order.
-  // A late append that outlives that wait blocks the target until it settles, so later batches cost no deadline each.
+  // A late append that outlives that wait blocks the target until it settles, so later batches cost no deadline each;
+  // after blockCeilingMs the order is given up and the target writes again.
   private async send(key: string, group: readonly Pending[]): Promise<void> {
     const { trail, store, connection } = group[0];
     const events = group.map((p) => p.event);
-    if (this.blocked.has(key)) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
-    const limit = deadline(deferredConfig(this.Container).timeoutMs);
+    const { timeoutMs, blockCeilingMs } = deferredConfig(this.Container);
+    const since = this.blocked.get(key);
+    if (since !== undefined && Date.now() - since < blockCeilingMs) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
+    if (since !== undefined) {
+      this.blocked.delete(key);
+      this.late.delete(key);
+      this.report('error', { trail: trail.name, connection, blockedMs: Date.now() - since }, UNORDERED);
+    }
+    const limit = deadline(timeoutMs);
     const flight = { appending: false };
     let work: Promise<void> | undefined;
     try {
@@ -250,14 +260,17 @@ export class DefaultAuditService extends AuditService {
   private block(key: string, trail: TrailConfig, connection: string | undefined): void {
     // A late append that settled meanwhile has already unblocked the target; a block set now would never be lifted.
     if (!this.late.has(key)) return;
-    this.blocked.add(key);
+    this.blocked.set(key, Date.now());
     this.report('warn', { trail: trail.name, connection }, BLOCKED);
   }
 
   private wait(key: string, work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[]): void {
     const settle = (stored: boolean, error?: unknown): void => {
-      if (this.late.get(key) === settled) this.late.delete(key);
-      this.blocked.delete(key);
+      // Released at the ceiling, the target may already be blocked again behind a newer append.
+      if (this.late.get(key) === settled) {
+        this.late.delete(key);
+        this.blocked.delete(key);
+      }
       this.report(stored ? 'warn' : 'error', { error, trail: trail.name, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
     };
     const settled: Promise<void> = work.then(

@@ -23,6 +23,8 @@ export interface DeferredConfig {
   readonly maxBatch: number;
   readonly maxBuffered: number;
   readonly timeoutMs: number;
+  /** How long a target may stay blocked behind an append that does not settle before its order is given up; default 10 × timeoutMs. */
+  readonly blockCeilingMs: number;
 }
 
 // The resolved Configuration nearest to `container` in its lineage; with none, every trail is the built-in one.
@@ -50,7 +52,8 @@ export function trailNames(container: IContainer = DI.RootContainer): readonly s
 
 export function deferredConfig(container: IContainer = DI.RootContainer): DeferredConfig {
   const raw = section('deferred', container);
-  return { flushMs: positive(raw.flushMs, 1000), maxBatch: positive(raw.maxBatch, 500), maxBuffered: positive(raw.maxBuffered, 10000), timeoutMs: positive(raw.timeoutMs, 2000) };
+  const timeoutMs = positive(raw.timeoutMs, 2000);
+  return { flushMs: positive(raw.flushMs, 1000), maxBatch: positive(raw.maxBatch, 500), maxBuffered: positive(raw.maxBuffered, 10000), timeoutMs, blockCeilingMs: positive(raw.blockCeilingMs, 10 * timeoutMs) };
 }
 
 /** The trail as `container` configures it, laid over the built-in trail of the same name and the defaults. Read on every call. */
