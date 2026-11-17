@@ -16,6 +16,16 @@ export const AUDIT_HTTP_CONFIGURATION_SCHEMA = {
     maxBodyBytes: { type: 'integer', minimum: 0, description: 'A larger body, as JSON after redaction, is left out and only its size recorded. Default 16384.' },
     trail: { type: 'string', minLength: 1, description: 'The audit trail the events are written to (audit.trails.<name>). Default "default".' },
     action: { type: 'string', minLength: 1, description: 'A prefix for the action of every route: <action>.<method name>. Unset, the action is the route name.' },
+    rules: {
+      type: 'array',
+      description: 'Per-route action and trail where Audit is mounted: the first entry whose match fits the mounted path wins. A rule does not mount Audit.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['match'],
+        properties: { match: { type: 'string', minLength: 3 }, action: { type: 'string', minLength: 1 }, trail: { type: 'string', minLength: 1 } },
+      },
+    },
   },
 };
 
