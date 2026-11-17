@@ -8,6 +8,7 @@ import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers } f
 import type { Encoder } from './smt/encode.js';
 import { Unsupported, and, not, or } from './smt/formula.js';
 import type { Formula } from './smt/formula.js';
+import { narrowedImplies } from './narrowing.js';
 import { bounded } from './smt/solve.js';
 import type { BoundedOptions, BoundedQuery } from './smt/solve.js';
 import type { Universe } from './smt/universe.js';
@@ -17,7 +18,7 @@ import { Objects, instantiate, outcome } from './witness.js';
 import type { Scenario, WitnessTuple } from './witness.js';
 
 export type Assertion =
-  | { readonly kind: 'implies'; readonly a: Permission; readonly b: Permission }
+  | { readonly kind: 'implies'; readonly a: Permission; readonly b: Permission; readonly narrowed?: true }
   | { readonly kind: 'separated'; readonly a: Permission; readonly b: Permission; readonly on: 'same-resource' }
   | { readonly kind: 'isolated'; readonly type: TypeName; readonly except: readonly string[] }
   | { readonly kind: 'onlyVia'; readonly permission: Permission; readonly holders: readonly string[] }
@@ -25,8 +26,8 @@ export type Assertion =
 
 /** Function-valued fields, so an assertions file can destructure them. */
 export interface AssertionKit {
-  /** Whoever may `a` on a resource may `b` on it. */
-  readonly implies: (a: Permission, b: Permission) => Assertion;
+  /** Whoever may `a` on a resource may `b` on it; `narrowed: true` also quantifies over principals with a ceiling. */
+  readonly implies: (a: Permission, b: Permission, options?: { narrowed?: boolean }) => Assertion;
   /** Nobody may both `a` and `b` on the same resource. */
   readonly separated: (a: Permission, b: Permission, options?: { on?: 'same-resource' }) => Assertion;
   /** A principal whose grants all sit under one object of `type` reaches nothing under another; `except` holders may cross. */
@@ -42,7 +43,7 @@ export interface AssertionSet {
 }
 
 const KIT: AssertionKit = {
-  implies: (a, b) => ({ kind: 'implies', a, b }),
+  implies: (a, b, options) => (options?.narrowed === true ? { kind: 'implies', a, b, narrowed: true } : { kind: 'implies', a, b }),
   separated: (a, b, options) => ({ kind: 'separated', a, b, on: options?.on ?? 'same-resource' }),
   isolated: (type, options) => ({ kind: 'isolated', type, except: options?.except ?? [] }),
   onlyVia: (permission, holders) => ({ kind: 'onlyVia', permission, holders }),
@@ -57,7 +58,7 @@ export function defineAssertions(define: (kit: AssertionKit) => Assertion[]): As
 export function describeAssertion(a: Assertion): string {
   switch (a.kind) {
     case 'implies':
-      return `implies(${a.a}, ${a.b})`;
+      return a.narrowed === true ? `implies(${a.a}, ${a.b}, narrowed)` : `implies(${a.a}, ${a.b})`;
     case 'separated':
       return `separated(${a.a}, ${a.b})`;
     case 'isolated':
@@ -72,8 +73,12 @@ export function describeAssertion(a: Assertion): string {
 /** The exact engine first; what it leaves `unknown` goes to the bounded engine. */
 export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: BoundedOptions = {}): Promise<Verdict> {
   switch (a.kind) {
-    case 'implies':
-      return orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
+    case 'implies': {
+      const plain = await orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
+      if (a.narrowed !== true || plain.result === 'violated') return plain;
+      const narrowed = await narrowedImplies(ir, a.a, a.b, options);
+      return narrowed === undefined ? plain : { ...narrowed, opaque: mergeOpaque(plain.opaque, narrowed.opaque) };
+    }
     case 'onlyVia':
       return orBounded(await exactOnlyVia(ir, a.permission, a.holders), ir, { checks: [{ permission: a.permission, allowed: true }], admit: holderAdmits(ir, a.holders, 'without') }, options);
     case 'never':
@@ -213,7 +218,7 @@ function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   return out;
 }
 
-export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV090';
+export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV090';
 
 export interface VerifyDiagnostic {
   readonly code: VerifyCode;
@@ -235,7 +240,13 @@ export interface VerifyOptions extends BoundedOptions {
   readonly requireSolver?: boolean;
 }
 
-function diagnose(label: string, v: Verdict, options: VerifyOptions): VerifyDiagnostic[] {
+/** What a ceiling does to a holding `implies`, unless the assertion already asked for narrowed principals. */
+function ceilingNote(assertion: Assertion, v: Verdict, ir: PolicyIR): string | undefined {
+  if (!ir.principal.ceiling || assertion.kind !== 'implies' || assertion.narrowed === true || assertion.a === assertion.b || v.result !== 'holds') return undefined;
+  return `holds for principals without a ceiling: a ceiling whose permissions list ${assertion.a} and not ${assertion.b} denies ${assertion.b} where ${assertion.a} stays allowed (implies(a, b, { narrowed: true }) checks it)`;
+}
+
+function diagnose(assertion: Assertion, label: string, v: Verdict, ir: PolicyIR, options: VerifyOptions): VerifyDiagnostic[] {
   const out: VerifyDiagnostic[] = [];
   const on = (code: VerifyCode, severity: VerifyDiagnostic['severity'], message: string, counterexample?: Counterexample): number => out.push({ code, severity, assertion: label, message, ...(counterexample === undefined ? {} : { counterexample }) });
   if (v.result === 'violated') on('AZV001', 'error', `violated (${v.engine === 'exact' ? 'exact' : `bounded k=${v.bound ?? '?'}`})`, v.counterexample);
@@ -243,6 +254,8 @@ function diagnose(label: string, v: Verdict, options: VerifyOptions): VerifyDiag
   else if (v.code === 'AZV090') on('AZV090', options.requireSolver === true ? 'error' : 'warning', `not verified: ${v.message ?? 'solver unavailable'}`);
   else on('AZV003', 'warning', `not decided: ${v.message ?? 'outside both engines'}`);
   if (v.opaque.length > 0) on('AZV003', 'warning', `depends on opaque: ${v.opaque.map((o) => `${o.kind} '${o.name}'`).join(', ')}`);
+  const note = ceilingNote(assertion, v, ir);
+  if (note !== undefined) on('AZV004', 'info', note);
   return out;
 }
 
@@ -252,7 +265,7 @@ export async function verifyAssertions(ir: PolicyIR, set: AssertionSet, options:
   for (const assertion of set.assertions) {
     const label = describeAssertion(assertion);
     const verdict = await verifyAssertion(ir, assertion, options);
-    out.push({ assertion, label, verdict, diagnostics: diagnose(label, verdict, options) });
+    out.push({ assertion, label, verdict, diagnostics: diagnose(assertion, label, verdict, ir, options) });
   }
   return out;
 }
