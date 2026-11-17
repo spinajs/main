@@ -3,7 +3,7 @@ import type { ChangeRecord, ResourceType } from '@spinajs/authz';
 
 import { objectLabel, subjectLabel } from '../eval/check.js';
 import type { TupleSource } from '../eval/evaluator.js';
-import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeName } from '../ir.js';
+import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeDef, TypeName } from '../ir.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor.js';
 import { TupleSourceGap } from './gap.js';
 import type { ReplayRead } from './gap.js';
@@ -63,12 +63,8 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   async column(model: string, column: string, object: ObjectRef): Promise<ObjectRef | undefined> {
-    const relations = this.ir.types[object.type]?.relations ?? {};
-    const name = Object.keys(relations).find((n) => {
-      const s = relations[n].source;
-      return s.kind === 'column' && s.model === model && s.column === column;
-    });
-    const subjects = await this.subjects(object, name ?? `${model}.${column}`, name === undefined ? undefined : relations[name]);
+    const found = Object.entries(this.typeDef(object.type)?.relations ?? {}).find(([, d]) => d.source.kind === 'column' && d.source.model === model && d.source.column === column);
+    const subjects = await this.subjects(object, found?.[0] ?? `${model}.${column}`, found?.[1]);
     return subjects.length === 0 ? undefined : { type: subjects[0].type, id: subjects[0].id };
   }
 
@@ -87,8 +83,12 @@ export class HistoricalTupleSource implements TupleSource {
     return known;
   }
 
+  private typeDef(type: TypeName): TypeDef | undefined {
+    return Object.entries(this.ir.types).find(([t]) => t === type)?.[1];
+  }
+
   private relationDef(type: TypeName, relation: RelationName): RelationDef | undefined {
-    return Object.prototype.hasOwnProperty.call(this.ir.types, type) ? this.ir.types[type].relations[relation] : undefined;
+    return Object.entries(this.typeDef(type)?.relations ?? {}).find(([r]) => r === relation)?.[1];
   }
 
   private served(def: RelationDef | undefined, label: string): { c: HistoryContributor; source: RelationDef['source'] } {

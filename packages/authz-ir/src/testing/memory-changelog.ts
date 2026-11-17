@@ -49,7 +49,7 @@ export class MemoryChangeLog extends ChangeLog {
 
   /** Retention: drops the changes at or before `cutoff` and moves every horizon up to it, in one step. */
   prune(cutoff: Date): void {
-    for (let i = this.rows.length - 1; i >= 0; i--) if (this.rows[i].at <= cutoff) this.rows.splice(i, 1);
+    this.rows.splice(0, this.rows.length, ...this.rows.filter((r) => r.at > cutoff));
     for (const [k, since] of this.horizon) if (since < cutoff) this.horizon.set(k, cutoff);
   }
 
