@@ -105,3 +105,6 @@ export interface DiInjection { token: string; kind: 'ctor' | 'property' | 'lazy'
 export interface DiImplementation { name: string; kind: string; lifetime: string; instantiated: boolean; async: boolean; injects: DiInjection[]; error?: string }
 /** `GET /_studio/api/di/services/:id` */
 export interface DiServiceDetail { token: string; source: StudioSource; implementations: DiImplementation[]; injectedBy: { token: string; kind: string }[]; manifest: ServiceEntry[]; sourceRef?: SourceRef; runtime?: { resolving: boolean } }
+
+export interface StudioAuthzPermission { name: string; description?: string; types?: string[] }
+export interface StudioAuthzDomain { name: string; parent?: string; models: string[]; algorithm: string; typeAlgorithms: Record<string, string>; permissions: StudioAuthzPermission[]; error?: string }

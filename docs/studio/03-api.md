@@ -111,6 +111,44 @@ Answers a `DiServiceDetail` for one DI key. `id` is a node id or a bare key; a k
 
 The DI routes show class names, DI keys, lifetimes, package names and source file paths. They never show a registered value, a configuration value or an instance's state.
 
+## Authz model
+
+Endpoint `authz`. Studio reads the authz domains the app created; it never boots a domain. A domain is booted once something resolved its `AuthzService`, usually the first check in it.
+
+### `GET /api/authz/domains`
+
+Answers a `StudioPage<StudioAuthzDomain>`, in creation order, root first, with `total`, the number of domains.
+
+| Parameter | Value |
+| --- | --- |
+| `limit` | 1 to 1000; default 1000. |
+| `cursor` | The `cursor` of the previous page. |
+
+Without `limit` and `cursor` the page holds every domain, up to 1000.
+
+Each domain holds:
+
+- `parent`: the domain it was created under; absent for root.
+- `models`: the names of the domain's models. Filled only for a booted domain, empty otherwise.
+- `algorithm`, `typeAlgorithms`: the combining algorithm of `authz.combine.default`, and the one per resource type.
+- `permissions`: the permissions the domain's own configuration declares, with `description` and `types`.
+- `error`: the domain's configuration cannot be read. The domain is listed with this message and nothing else.
+
+### `GET /api/authz/roles`
+
+Answers the RBAC role graph of a domain as a `StudioGraph` with `source: 'runtime'`. The graph is empty when the domain is not booted or has no RBAC model.
+
+| Parameter | Value |
+| --- | --- |
+| `domain` | A domain name; default `root`. An unknown domain is a `400`. |
+| `focus` | A node id (`role:editor`, `perm:order:read`). Only the nodes within `depth` hops of it, nearest first. An unknown focus is a `404`. |
+| `depth` | 0 to 10; default 1. Only together with `focus`, otherwise a `400`. |
+| `limit` | 1 to 5000; default 500. |
+
+Nodes are `role` (`role:<name>`, grouped by its ladder, with `assignable` and `deny`) and `permission` (`perm:<name>`). Edges go from a role: `grants` to a permission it grants, `inherits` to a role it extends, and `ladder` to the role right below it on its ladder, labelled with the ladder name.
+
+The authz routes show domain, model, role and permission names, the inheritance between roles, permission descriptions and resource types. They never show an assignment, a principal, a grant's resource pattern, fields or relation, an RBAC rule, or a condition.
+
 ## Typed calls
 
 ```ts sample

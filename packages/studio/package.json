@@ -59,6 +59,7 @@
     "@spinajs/tracing": "3.0.23"
   },
   "devDependencies": {
+    "@spinajs/authz-rbac": "3.0.23",
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/fs": "3.0.23",
     "@spinajs/testing": "3.0.23",
