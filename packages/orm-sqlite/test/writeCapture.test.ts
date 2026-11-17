@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import sinon from 'sinon';
-import { InsertBehaviour, InsertQueryBuilder, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -34,6 +34,29 @@ class Everything extends WriteObserver {
 
   async observe(write: CapturedWrite): Promise<void> {
     everything.push(write);
+  }
+}
+
+@Connection('sqlite')
+@Model('cap_member')
+class CapMember extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Email: string;
+
+  public Name: string;
+}
+
+const fixture = { writes: [] as CapturedWrite[] };
+
+class FixtureObserver extends WriteObserver {
+  interest(query: QueryBuilder): CaptureInterest | undefined {
+    return query.Model === CapMember ? { columns: '*', transactional: true } : undefined;
+  }
+
+  async observe(write: CapturedWrite): Promise<void> {
+    fixture.writes.push(write);
   }
 }
 
@@ -182,5 +205,49 @@ describe('write capture on sqlite', function () {
     }
     expect(statements).to.have.length(1);
     expect(recorder.writes).to.have.length(0);
+  });
+
+  describe('on a model with a unique column', () => {
+    before(() => DI.register(FixtureObserver).as(WriteObserver));
+
+    after(() => DI.unregister(FixtureObserver));
+
+    beforeEach(async () => {
+      // Id is the primary key only, so the upsert of Model.insert conflicts on Email, its one unique column.
+      await db()
+        .Connections.get('sqlite')!
+        .schema()
+        .createTable('cap_member', (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.string('Email').unique();
+          t.string('Name');
+        });
+      await db().reloadTableInfo();
+      await CapMember.insert({ Email: 'a', Name: 'one' });
+      await CapMember.insert({ Email: 'x', Name: 'two' });
+      fixture.writes = [];
+    });
+
+    it('reports the row an upsert updates through a unique column as an update', async () => {
+      await CapMember.insert({ Id: 5, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(fixture.writes[0].unknownKeys).to.eq(false);
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x', Name: 'new' } }]);
+    });
+
+    it('reports the row an upsert without a key updates as an update with its before values', async () => {
+      await CapMember.insert({ Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x', Name: 'new' } }]);
+    });
+
+    it('reports a row a replace deletes through a unique column as gone, and the new row as inserted', async () => {
+      await CapMember.insert({ Id: 5, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrReplace);
+
+      expect(fixture.writes[0].rows).to.deep.eq([
+        { id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: undefined },
+        { id: '5', before: undefined, after: { Id: 5, Email: 'x', Name: 'new' } },
+      ]);
+    });
   });
 });
