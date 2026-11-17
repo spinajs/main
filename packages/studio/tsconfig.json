@@ -11,6 +11,7 @@
     { "path": "../authz/tsconfig.json" },
     { "path": "../authz-http/tsconfig.json" },
     { "path": "../authz-rbac/tsconfig.json" },
+    { "path": "../authz-rebac/tsconfig.json" },
     { "path": "../authz-testing/tsconfig.json" },
     { "path": "../configuration/tsconfig.json" },
     { "path": "../configuration-common/tsconfig.json" },

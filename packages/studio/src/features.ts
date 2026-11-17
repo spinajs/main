@@ -3,6 +3,7 @@ import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { tracingState } from '@spinajs/tracing';
 
+import { rebacOf } from './authz/rebac.js';
 import { TraceStore } from './buffers/trace-store.js';
 import type { StudioFeatures } from './contracts/index.js';
 import { explainMountable } from './guard.js';
@@ -31,6 +32,11 @@ const probes = new Map<StudioFeature, FeatureProbe>([
     const cfg = c.get(Configuration);
     const production = cfg?.get<unknown>('configuration.isProduction');
     return explainMountable({ allowExplainInProduction: cfg?.get<unknown>('studio.allowExplainInProduction'), isProduction: isProduction(typeof production === 'boolean' ? production : undefined) });
+  }],
+  // Booted domains only: the probe never boots one.
+  ['rebac', (c) => {
+    const domains: unknown = c.get(AuthzDomains);
+    return domains instanceof AuthzDomains && domains.names().some((name) => rebacOf(domains, name) !== undefined);
   }],
   ['telemetry', registered('TelemetryStore')],
   ['scheduler', registered('SchedulerService')],
