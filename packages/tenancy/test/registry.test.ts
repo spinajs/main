@@ -16,7 +16,7 @@ async function ids(registry: TenantRegistry, filter?: { states?: TenantState[] }
 class CountingRegistry extends TenantRegistry {
   public calls = 0;
   public readonly memory = new MemoryTenantRegistry();
-  /** While set, `get` reads the record at once and answers only when the gate opens. */
+  /** While set, `get` and `find` read the record at once and answer only when the gate opens. */
   public gate?: Promise<void>;
 
   constructor(private readonly cached = true) {
@@ -34,9 +34,11 @@ class CountingRegistry extends TenantRegistry {
     return record;
   }
 
-  public find(by: { slug?: string; domain?: string }): Promise<TenantRecord | undefined> {
+  public async find(by: { slug?: string; domain?: string }): Promise<TenantRecord | undefined> {
     this.calls += 1;
-    return this.memory.find(by);
+    const record = await this.memory.find(by);
+    await this.gate;
+    return record;
   }
 
   public list(filter?: { states?: TenantState[] }): AsyncIterable<TenantRecord> {
@@ -131,6 +133,19 @@ describe('ConfigTenantRegistry', () => {
     expect(() => registry.get('acme')).to.throw(InvalidOption, 'tenancy.tenants[0].state "disabled" is not a tenant state');
   });
 
+  it('refuses an id, a slug or a domain listed for two tenants', () => {
+    const cases: [unknown[], string][] = [
+      [[{ id: 'acme' }, { id: 'acme', name: 'Acme again' }], 'tenancy.tenants[1].id "acme" is already used by tenancy.tenants[0]'],
+      [[{ id: 'a', slug: 'shop' }, { id: 'b' }, { id: 'c', slug: 'shop' }], 'tenancy.tenants[2].slug "shop" is already used by tenancy.tenants[0]'],
+      [[{ id: 'a', domains: ['Shop.Example'] }, { id: 'b', domains: ['shop.example'] }], 'tenancy.tenants[1].domains "shop.example" is already used by tenancy.tenants[0]'],
+    ];
+    for (const [listed, message] of cases) {
+      const registry = new ConfigTenantRegistry();
+      Object.defineProperty(registry, 'Listed', { value: listed });
+      expect(() => registry.get('acme')).to.throw(InvalidOption, message);
+    }
+  });
+
   it('is empty without the key', async () => {
     app = await tenancyApp();
 
@@ -203,6 +218,23 @@ describe('CachedTenantRegistry', () => {
       open();
       expect((await stale)?.state).to.eq('active');
       expect((await registry.get('acme'))?.state).to.eq('suspended');
+      expect(inner.calls).to.eq(2);
+    }
+  });
+
+  it('keeps nothing a find by slug or by domain found while invalidate(id) ran', async () => {
+    for (const by of [{ slug: 'acme' }, { domain: 'shop.acme.example' }]) {
+      const inner = new CountingRegistry();
+      inner.memory.add({ id: 'acme', domains: ['shop.acme.example'] });
+      let open = (): void => undefined;
+      inner.gate = new Promise((resolve) => (open = resolve));
+      const registry = cached(inner);
+      const stale = registry.find(by);
+      inner.memory.set('acme', { state: 'suspended' });
+      registry.invalidate('acme');
+      open();
+      expect((await stale)?.state).to.eq('active');
+      expect((await registry.find(by))?.state).to.eq('suspended');
       expect(inner.calls).to.eq(2);
     }
   });

@@ -34,27 +34,36 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   let total = 0;
 
   // One pull at a time: an iterator of a registry need not queue concurrent next() calls.
+  // Once a pull or a worker failed, the others answer "done", so no tenant starts after the call is bound to reject.
+  let broken: { error: unknown } | undefined;
   let turn: Promise<unknown> = Promise.resolve();
   const pull = (): Promise<IteratorResult<TenantRecord>> => {
-    const result = turn.then(() => tenants.next());
-    turn = result.catch(() => undefined);
+    const result = turn.then<IteratorResult<TenantRecord>>(() => (broken ? { done: true, value: undefined } : tenants.next()));
+    turn = result.catch((error: unknown) => {
+      broken ??= { error };
+    });
     return result;
   };
 
   const worker = async (): Promise<void> => {
-    for (let next = await pull(); !next.done; next = await pull()) {
-      const tenant = next.value;
-      // A registry that ignores the filter must not get a suspended or deleted tenant visited.
-      if (!states.includes(tenant.state)) continue;
-      total += 1;
-      try {
-        await runInTenant(tenant.id, () => fn(tenant));
-      } catch (error) {
-        failed.push({ tenant: tenant.id, error });
+    try {
+      for (let next = await pull(); !next.done; next = await pull()) {
+        const tenant = next.value;
+        // A registry that ignores the filter must not get a suspended or deleted tenant visited.
+        if (!states.includes(tenant.state)) continue;
+        total += 1;
+        try {
+          await runInTenant(tenant.id, () => fn(tenant));
+        } catch (error) {
+          failed.push({ tenant: tenant.id, error });
+        }
       }
+    } catch (error) {
+      broken ??= { error };
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  await Promise.allSettled(Array.from({ length: concurrency }, () => worker()));
+  if (broken) throw broken.error;
   return { total, succeeded: total - failed.length, failed };
 }
