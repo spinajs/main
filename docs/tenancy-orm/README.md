@@ -130,3 +130,7 @@ must run without it, and the check of each statement still holds then.
 ```json
 { "tenancy": { "orm": { "isolation": "row", "column": "tenant_id", "rls": false } } }
 ```
+
+## See also
+
+- [The tenant table](01-tenant-table.md): `DbTenantRegistry`, the `tenants` table and the tenant states.

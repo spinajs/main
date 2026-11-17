@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { ConcurrencyConflict, InvalidOperation } from '@spinajs/exceptions';
-import { TenantUnavailable } from '@spinajs/tenancy';
+import { TenantUnavailable, tenantRegistry } from '@spinajs/tenancy';
 import type { TenantRecord, TenantState } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
 
@@ -18,6 +18,8 @@ export class TenantStateService {
     // The old state is part of the condition: of two concurrent moves from one state, one changes the row.
     const result = await TenantModel.update({ state: to, updated_at: DateTime.utc() }).where('id', id).where('state', from);
     if (result.RowsAffected !== 1) throw new ConcurrencyConflict(`tenancy-orm: tenant "${id}" left state ${from} while it was moved to ${to}`);
+    // DbTenantRegistry is read through the cache of @spinajs/tenancy; without this the tenant keeps its old state there for tenancy.registryCacheMs.
+    (await tenantRegistry()).invalidate(id);
     return toTenantRecord(await this.current(id));
   }
 
