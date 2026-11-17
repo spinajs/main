@@ -7,7 +7,7 @@ import { DecisionLogTap, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, changeLog 
 import type { AuthzTx, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
 import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, ReplayDeps, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
-import { recordCoverage } from '@spinajs/authz-orm/changelog';
+import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
@@ -287,6 +287,10 @@ describe('RuleSplicer', function () {
         await db?.dispose();
       });
 
+      beforeEach(async () => {
+        for (const table of ['authz_assignment', 'authz_rule_subject', 'authz_rule', CHANGE_LOG_TABLE]) await rawQuery(db.driver, `DELETE FROM ${table}`, [], QueryContext.Delete);
+      });
+
       it('replays an allow faithfully with no rule at T, a threshold rule of another permission, and a rule added after T', async () => {
         await grant('ann', 'a1');
         await inTx((tx) => rules.put({ id: 'view-only', kind: 'threshold', scope: { type: 'project', id: 'a1' }, permissions: ['project:view'], minRole: 'editor' }, user('root'), tx));
@@ -304,7 +308,6 @@ describe('RuleSplicer', function () {
       });
 
       it('leaves an applicable rule opaque, and names a rule whose state at T is a gap', async () => {
-        await inTx((tx) => rules.remove('late', tx));
         await grant('bo', 'b1');
         await inTx((tx) => rules.put({ id: 'narrow', kind: 'restrict', scope: { type: 'project', id: 'b1' }, allow: [user('bo')] }, user('root'), tx));
         await pause(4 * WINDOW);

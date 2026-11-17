@@ -5,12 +5,13 @@ import { DecisionLogTap, FALSE, PermissionRegistryImpl, TRUE, changeLog } from '
 import type { AuthzTx, ChangeLog, DecisionLog, DecisionRecord, PrincipalRef } from '@spinajs/authz';
 import { MemoryChangeLog, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { PolicyIR, ReplayDeps, StoredPlaceholder } from '@spinajs/authz-ir';
-import { recordCoverage } from '@spinajs/authz-orm/changelog';
+import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
+import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { DbPolicyStore, PolicySplicer, abacRelation, abacToIR } from '../src/index.js';
-import { DB_KINDS, bootDb } from './support/db.js';
+import { AUTHZ_POLICY_TABLE, DbPolicyStore, PolicySplicer, abacRelation, abacToIR } from '../src/index.js';
+import { DB_KINDS, bootDb, rawQuery } from './support/db.js';
 import type { TestDb } from './support/db.js';
 
 const expect = chai.expect;
@@ -84,6 +85,20 @@ describe('PolicySplicer', function () {
       expect(spliced.term).to.deep.equal({ union: [{ intersection: [] }, { opaque: 'abac policy doc-open' }] });
       expect(spliced.caveats).to.deep.equal({});
     });
+
+    it('makes a gap or an image that no longer loads unknown on both sides of every permission', () => {
+      const items = [plain, { key: 'drift', state: { known: false, reason: 'a write outside the changelog' } as const }, known({ id: 'broken', permissions: ['doc:read'] })];
+      const unknown = [{ opaque: 'abac policy drift' }, { opaque: 'abac policy broken' }];
+      const splicer = new PolicySplicer();
+      const ir = storedIR(['db']);
+      expect(splicer.splice(placeholder('doc:read', 'permit'), items, ir).term).to.deep.equal({ union: [{ intersection: [] }, ...unknown] });
+      expect(splicer.splice(placeholder('doc:write', 'deny'), items, ir)).to.deep.include({ term: { union: unknown } });
+    });
+
+    it('keeps the placeholder when the stored policies do not compile against the IR', () => {
+      const items = [plain, known({ id: 'stray', effect: 'permit', permissions: ['invoice:read'] })];
+      expect(new PolicySplicer().splice(placeholder('doc:read', 'permit'), items, storedIR(['db']))).to.deep.equal({ term: { opaque: storedPolicyName('abac', 'db') } });
+    });
   });
 
   it('leaves a store without a changelog unreplayable, naming the policy kind', async () => {
@@ -114,6 +129,10 @@ describe('PolicySplicer', function () {
         await db?.dispose();
       });
 
+      beforeEach(async () => {
+        for (const table of [AUTHZ_POLICY_TABLE, CHANGE_LOG_TABLE]) await rawQuery(db.driver, `DELETE FROM ${table}`, [], QueryContext.Delete);
+      });
+
       it('replays a deny faithfully when a permit policy is added after it, and an allow when its policy is removed after it', async () => {
         await write((tx) => store.put({ id: 'readers', effect: 'permit', permissions: ['doc:read'], resourceTypes: ['doc'] }, user('root'), tx));
         await write((tx) => store.put({ id: 'writers', effect: 'permit', permissions: ['doc:write'] }, user('root'), tx));
@@ -138,6 +157,7 @@ describe('PolicySplicer', function () {
       });
 
       it('leaves the replay undecided when a conditional deny policy live at T reads an input the record does not hold', async () => {
+        await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:*'] }, user('root'), tx));
         await write((tx) => store.put({ id: 'locked', effect: 'deny', permissions: ['doc:read'], when: { attr: 'resource.status', eq: 'locked' } }, user('root'), tx));
         await pause(4 * WINDOW);
         const record = await recordOf(ir, 'd3', true);
@@ -145,6 +165,19 @@ describe('PolicySplicer', function () {
         const report = await replayDecision(record, depsOf(ir, changeLog()));
         expect(report.replay).to.equal('unreplayable');
         expect(report.missing.map((m) => m.input)).to.include('resource.status');
+      });
+
+      it('names a policy whose row was changed outside the store', async () => {
+        await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:*'] }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'd4', true);
+        await rawQuery(db.driver, `UPDATE ${AUTHZ_POLICY_TABLE} SET reason = ? WHERE id = ?`, ['edited', 'everyone'], QueryContext.Update);
+        const report = await replayDecision(record, depsOf(ir, changeLog()));
+        expect(report.replay).to.equal('unreplayable');
+        expect(report.missing.map((m) => [m.input, m.key])).to.deep.include.members([
+          ['policy', 'everyone'],
+          ['opaque', 'abac policy everyone'],
+        ]);
       });
     });
   }
