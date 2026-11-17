@@ -62,6 +62,9 @@ export const FILTER_OPERATOR_GROUPS: Record<FilterableOperators, OperatorGroup> 
   like: 'text',
   'b-like': 'text',
   'e-like': 'text',
+  nlike: 'text',
+  'nb-like': 'text',
+  'ne-like': 'text',
   regexp: 'text',
   in: 'list',
   nin: 'list',
@@ -73,6 +76,8 @@ export const FILTER_OPERATOR_GROUPS: Record<FilterableOperators, OperatorGroup> 
   notnull: 'valueless',
   exists: 'valueless',
   'n-exists': 'valueless',
+  empty: 'valueless',
+  nempty: 'valueless',
 };
 
 // Written as what is NOT accepted: a union `type` would make ajv's strict mode warn on every compile, and an `anyOf` of
@@ -215,6 +220,7 @@ export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescripto
     required: ['filters'],
     properties: {
       op: logicalOperator,
+      not: { type: 'boolean' },
       filters: {
         type: 'array',
         items: { type: 'object', anyOf: leaf, ...withRules },

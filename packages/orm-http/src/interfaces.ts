@@ -59,6 +59,8 @@ export interface IFilter {
  */
 export interface IFilterGroup {
   op?: FilterableLogicalOperators;
+  /** Keeps the rows the group does not match. */
+  not?: boolean;
   filters: IFilterEntry[];
 }
 
@@ -141,6 +143,7 @@ export interface FromModelOptions<T extends typeof ModelBase> {
 
 /**
  * `like` matches values containing the filter value, `b-like` values ENDING with it and `e-like` values BEGINNING with
- * it; the value of all three is matched literally.
+ * it; the value of all three is matched literally. `nlike`, `nb-like` and `ne-like` keep the rows the matching operator
+ * leaves out, except rows whose column is null. `empty` matches null or empty text, `nempty` the rest.
  */
-export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set';
+export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set' | 'nlike' | 'nb-like' | 'ne-like' | 'empty' | 'nempty';
