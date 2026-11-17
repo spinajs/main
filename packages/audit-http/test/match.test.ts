@@ -23,7 +23,10 @@ describe('audit.http.rules patterns', () => {
   });
 
   it('takes the first rule that fits and refuses an entry it cannot read', () => {
-    const rules = rulesOf([{ match: 'DELETE /admin/**', action: 'admin.delete' }, { match: '* /admin/**', trail: 'admin' }]);
+    const rules = rulesOf([
+      { match: 'DELETE /admin/**', action: 'admin.delete' },
+      { match: '* /admin/**', trail: 'admin' },
+    ]);
 
     expect(ruleFor(rules, 'DELETE', '/admin/users/:id')?.action).to.eq('admin.delete');
     expect(ruleFor(rules, 'GET', '/admin/users')?.trail).to.eq('admin');

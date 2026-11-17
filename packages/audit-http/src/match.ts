@@ -29,8 +29,7 @@ export function matchesRoute(pattern: string, method: string, path: string): boo
 
 const isName = (value: unknown): boolean => value === undefined || (typeof value === 'string' && value.trim() !== '');
 
-const isRule = (value: unknown): value is IAuditRule =>
-  isPlainObject(value) && typeof value.match === 'string' && value.match.trim().split(/\s+/).length === 2 && isName(value.action) && isName(value.trail);
+const isRule = (value: unknown): value is IAuditRule => isPlainObject(value) && typeof value.match === 'string' && value.match.trim().split(/\s+/).length === 2 && isName(value.action) && isName(value.trail);
 
 /** The `audit.http.rules` value, checked. */
 export function rulesOf(value: unknown): readonly IAuditRule[] {
