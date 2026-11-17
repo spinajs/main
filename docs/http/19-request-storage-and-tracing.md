@@ -22,7 +22,7 @@ Under the server span, each policy of the route runs in a `policy <Policy>` span
 
 ### Errors on spans
 
-A failed request marks the server span ERROR with `error.type` set to the status code, and the `route`, `policy`, `authz.check` and `authn.authenticate` spans with `error.type` set to the error's class; their ERROR status message is that class name. No span carries the error's message or an `exception` event, because an error's text can hold query parameters and payloads. The text is in the log line of the request, which has the same `traceId` and `spanId` (see [`req.storage` fields](#reqstorage-fields)), so a trace leads to it by trace id. To keep the message on a span of your own, pass `markSpanError` from `@spinajs/tracing` as the fourth argument of `withSpan`.
+A request answered with a 5xx marks the server span ERROR with `error.type` set to the status code. A `route`, `policy`, `authz.check` or `authn.authenticate` span whose code throws gets `error.type` set to the error's class. When that span is ERROR (always, except a route error answered with a 4xx), its status message is the same class name. No span carries the error's message or an `exception` event, because an error's text can hold query parameters and payloads. The text is in the log line of the request, which has the same `traceId` and `spanId` (see [`req.storage` fields](#reqstorage-fields)), so a trace leads to it by trace id. To keep the message on a span of your own, pass `markSpanError` from `@spinajs/tracing` as the fourth argument of `withSpan`.
 
 ## Configuration
 
