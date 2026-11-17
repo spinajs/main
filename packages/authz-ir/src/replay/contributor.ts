@@ -35,7 +35,9 @@ export interface HistoryContributor {
   subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined;
   /**
    * The change as `stateAt` reads it: payload and before-image in the shape `current` returns (the column kind logs
-   * `{ old, new }`), or undefined when it does not touch the item. Default: the change as logged.
+   * `{ old, new }`), or undefined when it does not touch the item. Default: the change as logged. The op must follow
+   * the projected states, as `stateAt` links changes by op: a column `put` from `null` becomes an `add`, one to `null`
+   * a `remove` of the old target.
    */
   project?(change: ChangeRecord): ChangeRecord | undefined;
 }

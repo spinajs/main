@@ -17,8 +17,13 @@ export interface ReplayHistoryLimits {
   maxChanges: number;
   maxKeys: number;
   window: ReplayWindow;
-  /** Stored precision of instants inside payloads (`changeLogPrecisionMs`); default 1. */
+  /**
+   * One precision for every key of the history: that of the coarsest store column any contributor's images take
+   * instants from; default 1 ms. `changeLogPrecisionMs` serves while every such column keeps the changelog's precision.
+   */
   precisionMs?: number;
+  /** The reader's clock, which catch-up passes overlap from; default `Date.now`. */
+  now?: () => number;
 }
 
 const PAGE = 10_000;
@@ -88,7 +93,7 @@ export class ReplayHistory {
    * clock skew earlier than that pass (R7).
    */
   async catchUp(): Promise<void> {
-    const started = Date.now();
+    const started = (this.limits.now ?? Date.now)();
     // afterInstant is strict and the window inclusive: a change exactly on the edge must still be scanned.
     const edge = this.at.getTime() - this.limits.window.beforeMs - 1;
     const from = new Date(this.lastPass === undefined ? edge : Math.max(edge, this.lastPass - this.limits.window.beforeMs));
@@ -113,9 +118,14 @@ export class ReplayHistory {
    * first lookup of a key, so the keys count against `maxKeys` here. @throws ReplayBudgetExceeded past `maxKeys`
    */
   headOf(kind: ChangeKind, keys: readonly string[]): Promise<ReadonlyMap<string, ChangeRecord>> {
+    this.reserve(kind, keys);
+    return this.latest(kind, keys);
+  }
+
+  /** Counts keys against `maxKeys` before anything is read for them. @throws ReplayBudgetExceeded past `maxKeys` */
+  reserve(kind: ChangeKind, keys: readonly string[]): void {
     for (const k of keys) this.resolved.add(slot(kind, k));
     if (this.resolved.size > this.limits.maxKeys) throw new ReplayBudgetExceeded('maxKeys', this.resolved.size);
-    return this.latest(kind, keys);
   }
 
   /** Not memoised: coverage only moves forward, and it must be read after the history it vouches for (a prune deletes rows and moves it in one commit). */

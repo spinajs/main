@@ -10,7 +10,10 @@ import { docsIR } from '../fixtures/docs.js';
 const T = new Date('2026-11-17T12:00:00.000Z');
 const ms = (offset: number): Date => new Date(T.getTime() + offset);
 const MIN = 60_000;
-const limits = { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: 6_000, afterMs: 1_000 } };
+// The reader's clock: an hour after T, so a change logged "during the replay" carries an instant just before it.
+const NOW = ms(60 * MIN);
+const duringReplay = (): Date => new Date(NOW.getTime() - 1_000);
+const limits = { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: 6_000, afterMs: 1_000 }, now: () => NOW.getTime() };
 
 const user = (id: string) => ({ type: 'user', id });
 const doc = (id: string) => ({ type: 'doc', id });
@@ -110,7 +113,10 @@ class Columns implements HistoryContributor {
 
   project(c: ChangeRecord): ChangeRecord | undefined {
     const p = c.payload as ColumnChange;
-    return p.column === 'folder_id' ? { ...c, payload: p.new ?? undefined, before: p.old ?? undefined } : undefined;
+    if (p.column !== 'folder_id') return undefined;
+    if (p.old === null) return { ...c, op: 'add', payload: p.new, before: null };
+    if (p.new === null) return { ...c, op: 'remove', payload: p.old, before: p.old };
+    return { ...c, payload: p.new, before: p.old };
   }
 
   subjectAt(image: unknown): TupleSubjectRef {
@@ -219,6 +225,17 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf(s.column('Doc', 'folder_id', doc('d1')))).message).to.match(/history starts/);
   });
 
+  it('rebuilds a column whose history passes through null without a gap', async () => {
+    const { log, columns } = await setup();
+    await columns.set(doc('d1'), folder('f1'), ms(-30 * MIN));
+    await columns.set(doc('d1'), null, ms(-20 * MIN));
+    await columns.set(doc('d1'), folder('f2'), ms(-10 * MIN));
+    await columns.set(doc('d1'), null, ms(10 * MIN));
+    await columns.set(doc('d1'), folder('f3'), ms(20 * MIN));
+    const s = await source(log, [columns]);
+    expect(await s.column('Doc', 'folder_id', doc('d1'))).to.deep.equal(folder('f2'));
+  });
+
   it('checks the window on a change the projection hides', async () => {
     const { log, columns } = await setup();
     await columns.set(doc('d1'), folder('f1'), ms(-30 * MIN));
@@ -276,7 +293,7 @@ describe('HistoricalTupleSource', () => {
     it('sees a removal logged after the scan', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);
-      await tuples.remove(editor('u2'), new Date());
+      await tuples.remove(editor('u2'), duringReplay());
       expect(await subjects(s, doc('d1'), 'editor')).to.deep.equal(['user:u1', 'user:u2']);
     });
 
@@ -287,7 +304,7 @@ describe('HistoricalTupleSource', () => {
       tuples.onCurrent = () => {
         tuples.onCurrent = undefined;
         tuples.rows.set(tupleKey(editor('u3')), editor('u3'));
-        pending = log.appendPending([{ kind: 'tuple', op: 'add', key: tupleKey(editor('u3')), payload: editor('u3'), at: new Date() }]);
+        pending = log.appendPending([{ kind: 'tuple', op: 'add', key: tupleKey(editor('u3')), payload: editor('u3'), at: duringReplay() }]);
       };
       log.beforeRead = (m) => {
         if (m === 'latest' && pending.length > 0) log.commit(pending);
@@ -323,8 +340,8 @@ describe('HistoricalTupleSource', () => {
 
     it('finds a removal of a key present at T that committed late below the scan cursor', async () => {
       const { log, tuples } = await setup();
-      const late = log.appendPending([{ kind: 'tuple', op: 'remove', key: tupleKey(editor('u2')), payload: editor('u2'), at: new Date() }]);
-      await tuples.add(editor('u5', 'd9'), new Date(Date.now() + 1));
+      const late = log.appendPending([{ kind: 'tuple', op: 'remove', key: tupleKey(editor('u2')), payload: editor('u2'), at: new Date(NOW.getTime() - 2_000) }]);
+      await tuples.add(editor('u5', 'd9'), duringReplay());
       const s = await source(log, [tuples]);
       tuples.rows.delete(tupleKey(editor('u2')));
       log.commit(late);

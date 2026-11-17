@@ -55,7 +55,18 @@ export class HistoricalTupleSource implements TupleSource {
       (e) => (e.relation === relation && e.object.type === objectType && sameSubject(e.subject, subject) ? e.object : undefined),
       c.coverageType({ type: objectType, id: '*' }),
       // A key that points at another subject now (a moved column) is not absent: read its row where it points.
-      async (key, object) => (await c.current(object, relation, source)).find((i) => i.key === key)?.image,
+      async (missing) => {
+        const byObject = new Map<string, { object: ObjectRef; keys: Set<string> }>();
+        for (const [key, object] of missing) {
+          const group = byObject.get(objectLabel(object)) ?? { object, keys: new Set<string>() };
+          group.keys.add(key);
+          byObject.set(objectLabel(object), group);
+        }
+        const images = new Map<string, unknown>();
+        // One read per object: a contributor reads current rows per object.
+        for (const { object, keys } of byObject.values()) for (const i of await c.current(object, relation, source)) if (keys.has(i.key)) images.set(i.key, i.image);
+        return images;
+      },
     );
     const objects = r.present.filter((p) => this.liveSubject(c, p.value, subject)).map((p) => p.carrier);
     if (r.gaps.length > 0) throw new TupleSourceGap([], r.gaps);
@@ -105,7 +116,7 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order (3.2). */
-  private async resolve<T>(c: HistoryContributor, label: string, current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (key: string, carrier: T) => Promise<unknown>): Promise<Resolved<T>> {
+  private async resolve<T>(c: HistoryContributor, label: string, current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<Resolved<T>> {
     for (let attempt = 0; ; attempt++) {
       const now = await current();
       await this.history.catchUp();
@@ -114,8 +125,8 @@ export class HistoricalTupleSource implements TupleSource {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
-      if (elsewhere !== undefined) for (const [key, cand] of candidates) cand.image = await elsewhere(key, cand.carrier);
       for (const item of now) candidates.set(item.key, { image: item.image, carrier: item.subject });
+      if (elsewhere !== undefined) await this.fillElsewhere(c, candidates, new Set(now.map((i) => i.key)), elsewhere);
       const keys = [...candidates.keys()];
       const heads = await this.history.headOf(c.kind, keys);
       const befores = await this.history.beforeOf(c.kind, keys);
@@ -134,6 +145,14 @@ export class HistoricalTupleSource implements TupleSource {
       if (moved.length > 0 && attempt === 0) continue;
       return this.settle(c, candidates, befores, since, new Set(moved));
     }
+  }
+
+  private async fillElsewhere<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, current: ReadonlySet<string>, elsewhere: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<void> {
+    const missing = new Map([...candidates].filter(([k]) => !current.has(k)).map(([k, cand]): [string, T] => [k, cand.carrier]));
+    if (missing.size === 0) return;
+    this.history.reserve(c.kind, [...missing.keys()]);
+    const images = await elsewhere(missing);
+    for (const [k, cand] of candidates) if (images.has(k)) cand.image = images.get(k);
   }
 
   private settle<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
