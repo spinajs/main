@@ -1,8 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { audit } from '@spinajs/audit';
+import { AuditConfigError, AuditStore, audit } from '@spinajs/audit';
 import type { StoredAuditEvent } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
+import { Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { BaseController, BasePath, BasePolicy, Body, Del, Get, Middleware, Ok, Param, Policy, Post, REDACTED, RouteMiddleware } from '@spinajs/http';
 import type { IMiddlewareContext, MiddlewareStage } from '@spinajs/http';
@@ -32,6 +33,13 @@ class SignIn extends RouteMiddleware {
   }
 }
 
+@Injectable(AuditStore)
+class MisconfiguredAuditStore extends MemoryAuditStore {
+  public override append(): Promise<void> {
+    return Promise.reject(new AuditConfigError('audit: table audit_event does not exist'));
+  }
+}
+
 @BasePath('vault')
 @Middleware(SignIn)
 class VaultController extends BaseController {
@@ -40,6 +48,13 @@ class VaultController extends BaseController {
   public open(@Body() _data: object) {
     seen.ran++;
     seen.beforeAction = MemoryAuditStore.events('restricted').map((e) => e.outcome);
+    return new Ok({ ok: true });
+  }
+
+  @Post()
+  @Middleware(Audit, { trail: 'misconfigured' })
+  public misconfigured() {
+    seen.ran++;
     return new Ok({ ok: true });
   }
 
@@ -72,6 +87,7 @@ const TRAILS = {
   default: { store: 'MemoryAuditStore' },
   reports: { store: 'MemoryAuditStore' },
   restricted: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
+  misconfigured: { store: MisconfiguredAuditStore.name, onFailure: 'reject', retry: { attempts: 1 } },
 };
 
 const dataOf = (event: StoredAuditEvent) => event.data as Record<string, unknown>;
@@ -130,6 +146,13 @@ describe('Audit on a reject trail', function () {
     await settle();
     await audit().flush();
     expect(MemoryAuditStore.events('restricted')).to.have.length(0);
+  });
+
+  it('answers 500, not 503, when the trail refuses the attempt as misconfigured: no retry helps', async () => {
+    const res = await req().post('vault/misconfigured').send({});
+
+    expect(res.status).to.eq(500);
+    expect(seen.ran).to.eq(0);
   });
 
   it('records a policy refusal as an attempt and a denial', async () => {
