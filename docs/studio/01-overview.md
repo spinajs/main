@@ -1,6 +1,6 @@
 # Overview
 
-Spina Studio is a guarded HTTP API, mounted inside your app, over what one process knows about itself: its recent traces and log lines, the DI graph, routes and the authz model. Use it on a developer machine or a staging server.
+Spina Studio is a guarded HTTP API, mounted inside your app, over what one process knows about itself: its recent traces and log lines, the DI graph, routes and the authz model. It also serves the Studio UI, a browser app over that API (see [The UI](#the-ui)). Use it on a developer machine or a staging server.
 
 It is **not** an APM. Nothing is persisted: every buffer lives in process memory and is lost on restart. Several instances of an app each show only their own data.
 
@@ -53,6 +53,25 @@ The configuration fragment of `@spinajs/studio` declares both permissions and tw
 | `true`, with `studio.allowProduction` | `true` | Registered; `explain` is `true`. |
 
 Registered, the route still needs `studio:explain` and `authz:explain`; `studio.auth.skipInDevelopment` skips only the first. The explain route of `@spinajs/authz-http` (`GET /authz/explain`) is never registered in production.
+
+## The UI
+
+Studio serves the prebuilt Studio UI, the package `@spinajs/studio-ui`, under `studio.path`: open `/_studio/` in a browser. Every UI path is guarded by the slot `studio.auth.policies.ui`, which checks `studio:read` by default, like the API.
+
+The UI is not a dependency of `@spinajs/studio`. Either:
+
+- install `@spinajs/studio-ui` from the coderush GitLab registry. Map the `@spinajs` scope to the coderush group endpoint in `.npmrc`, with a token that may read the group's packages, then install it as usual:
+
+  ```
+  @spinajs:registry=https://<gitlab host>/api/v4/groups/<coderush group id>/-/packages/npm/
+  //<gitlab host>/api/v4/groups/<coderush group id>/-/packages/npm/:_authToken=${GITLAB_TOKEN}
+  ```
+
+  The mapping sends every `@spinajs/*` package to that endpoint, not only the UI. It works only while the GitLab instance forwards packages it does not hold to npmjs (GitLab's npm package forwarding, an instance setting); without it, `@spinajs/http`, `@spinajs/di` and every other package stop installing.
+
+- or set `studio.ui.path` to an unpacked `dist/`: a directory holding the UI's `index.html` and its files.
+
+Without the UI the API keeps working, and every UI path answers `404` with the install hint. A disabled Studio, or one refused in production, serves no UI file either: it registers no route at all.
 
 ## Traces
 
