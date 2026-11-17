@@ -5,7 +5,7 @@ import { OrmDriver } from '@spinajs/orm';
 
 import { auditConnection } from '../rows.js';
 import { blankBuffered, bufferEvents } from './outbox.js';
-import { namedService } from './services.js';
+import { distinctConnections, namedService } from './services.js';
 import { AUDIT_OUTBOX_TABLE, AUDIT_TRAIL_WIDTH } from './table.js';
 
 const quoted = (v: string): string => JSON.stringify(v);
@@ -14,7 +14,8 @@ const isDriver = (v: unknown): v is OrmDriver => v instanceof OrmDriver;
 
 /**
  * Reads a shipping trail where its sink put it. Events still in the buffer are not merged in: a read sees an event
- * once it was shipped. An erasure also blanks what is still buffered.
+ * once it was shipped. An erasure also blanks what is still buffered: on `source`, or without one on every connection that
+ * buffers, because transactional events are buffered on the connection of each audited write.
  */
 export class ShippedAuditReader extends AuditReader {
   constructor(private readonly shipped: AuditReader) {
@@ -26,7 +27,10 @@ export class ShippedAuditReader extends AuditReader {
   }
 
   async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
-    const pending = await blankBuffered(auditConnection(source ?? trail.connection), trail.name, subject);
+    let pending = 0;
+    for (const driver of source === undefined ? distinctConnections() : [auditConnection(source)]) {
+      if (await driver.schema().tableExists(AUDIT_OUTBOX_TABLE)) pending += await blankBuffered(driver, trail.name, subject);
+    }
     return pending + (await this.shipped.redact(trail, subject, source));
   }
 

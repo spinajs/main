@@ -33,7 +33,7 @@ export const AUDIT_SHIP_SCHEDULE = 'audit.ship';
 export class AuditShipError extends Error {}
 
 /** Ships buffered audit events every 10 seconds on the leader; a `scheduler.schedules` entry of the same name overrides the timing. */
-@Schedule(AUDIT_SHIP_SCHEDULE, { every: '10s', runOn: 'leader', overlap: 'skip', misfire: 'run-once' })
+@Schedule(AUDIT_SHIP_SCHEDULE, { every: '10s', runOn: 'leader', overlap: 'skip', misfire: 'run-once', timeout: '10m' })
 export class AuditShipTask extends ScheduledTask {
   public async execute(ctx: Pick<RunContext, 'result'>): Promise<ShipResult> {
     const out = await shipAudit();

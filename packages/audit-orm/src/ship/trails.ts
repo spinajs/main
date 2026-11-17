@@ -10,10 +10,13 @@ export async function shippingTrails(only?: string): Promise<TrailConfig[]> {
   const trails: TrailConfig[] = [];
   for (const name of trailNames()) {
     if (only !== undefined && name !== only) continue;
-    const trail = trailConfig(name);
-    // auditStore throws for a store nobody registered here, and one such trail must not stop the shipper.
-    if (!registered.includes(trail.store)) continue;
-    if ((await auditStore(trail)) instanceof OutboxAuditStore) trails.push(trail);
+    try {
+      const trail = trailConfig(name);
+      // auditStore throws for a store nobody registered here.
+      if (registered.includes(trail.store) && (await auditStore(trail)) instanceof OutboxAuditStore) trails.push(trail);
+    } catch {
+      // An invalid trail fails where it is written, not in the shipper of every other trail.
+    }
   }
   return trails;
 }

@@ -15,3 +15,9 @@ Whether a confirmed event survives the rollback of a transaction open on the con
 A joined write is tried once, without the trail's retries and without a deadline, inside a savepoint; joined writes of one transaction run one after another. When one fails, the caller's transaction stays usable, a `reject` trail throws `AuditWriteFailed` for the caller to decide, and a `continue` trail logs the loss. The caller must await `record` inside its transaction: a joined write left running may land after the transaction has ended.
 
 A confirmed write that is not joined and cannot finish fails at `audit.confirmTimeoutMs` (default 10000 ms): `AuditWriteFailed` on a `reject` trail, a logged loss on a `continue` trail. That is the case for connections that share one PGlite instance (`Options.Shared`): they are not detected as one connection, so a confirmed write to one of them while another holds a transaction waits for it and fails at the deadline.
+
+## Shipping
+
+A trail with `store: 'OutboxAuditStore'` buffers its events in `audit_outbox` (declare `AuditOutboxTableMigration` on every connection that buffers); `shipAudit()` hands them to the trail's `sink`, at least once, and `auditBacklog()` reports what is pending. Events of one trail are shipped in `seq` order among the rows the shipper can see, not in commit order.
+
+`AuditShipTask` runs every 10 seconds on the leader once `@spinajs/audit-orm/scheduler` is imported; `scheduler.schedules['audit.ship'].enabled: false` turns it off. A delivery that takes longer than `audit.ship.deliverTimeoutMs` (default 30000) fails and its events stay buffered. One failing sink or connection fails the whole run, so `pauseAfterFailures` on `audit.ship` pauses shipping for every trail.

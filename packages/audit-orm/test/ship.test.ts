@@ -4,7 +4,8 @@ import 'mocha';
 import { AuditConfigError, AuditEventSink, AuditNotSupported, AuditReader, AuditWriteFailed, audit, trailConfig } from '@spinajs/audit';
 import type { AuditBatch, AuditInput, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
-import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, shipAudit } from '../src/index.js';
+import type { OrmDriver } from '@spinajs/orm';
+import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, insertRows, shipAudit } from '../src/index.js';
 import { AuditShipError, AuditShipTask } from '../src/scheduler.js';
 import { TestDb } from '../src/testing.js';
 import { TRACE, config, event, setTrail, tableRows } from './support/events.js';
@@ -15,9 +16,12 @@ const expect = chai.expect;
 class RecordingSink extends AuditEventSink {
   static batches: AuditBatch[] = [];
   static failNext = 0;
+  static calls = 0;
+  static failOnCall = 0;
   deliver(batch: AuditBatch): Promise<void> {
-    if (RecordingSink.failNext > 0) {
-      RecordingSink.failNext -= 1;
+    RecordingSink.calls += 1;
+    if (RecordingSink.failNext > 0 || RecordingSink.calls === RecordingSink.failOnCall) {
+      RecordingSink.failNext = Math.max(0, RecordingSink.failNext - 1);
       return Promise.reject(new Error('sink down'));
     }
     RecordingSink.batches.push(batch);
@@ -30,6 +34,36 @@ class DownSink extends AuditEventSink {
     return Promise.reject(new Error('always down'));
   }
 }
+
+class HangSink extends AuditEventSink {
+  deliver(): Promise<void> {
+    return new Promise(() => undefined);
+  }
+}
+
+// Holds a delivery open until the test lets it go.
+class GateSink extends AuditEventSink {
+  static entered: () => void = () => undefined;
+  static release: Promise<void> = Promise.resolve();
+  async deliver(batch: AuditBatch): Promise<void> {
+    GateSink.entered();
+    await GateSink.release;
+    RecordingSink.batches.push(batch);
+  }
+}
+
+// Delivers, then takes the buffer table away, so the delete after the delivery fails.
+class DropSink extends AuditEventSink {
+  static driver: OrmDriver;
+  static saved: Record<string, unknown>[] = [];
+  async deliver(batch: AuditBatch): Promise<void> {
+    RecordingSink.batches.push(batch);
+    DropSink.saved = (await tableRows(DropSink.driver, 'audit_outbox')).map(({ seq: _seq, ...row }) => row);
+    await new AuditOutboxTableMigration().down(DropSink.driver);
+  }
+}
+
+const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink];
 
 class RecordingReader extends AuditReader {
   static redacted: AuditSubject[] = [];
@@ -51,12 +85,13 @@ describe('audit shipping', function () {
 
   before(async () => {
     db = await TestDb.open();
-    DI.register(RecordingSink).as(AuditEventSink);
-    DI.register(DownSink).as(AuditEventSink);
+    SINKS.forEach((sink) => DI.register(sink).as(AuditEventSink));
     DI.register(RecordingReader).as(AuditReader);
   });
 
   after(async () => {
+    SINKS.forEach((sink) => DI.unregister(AuditEventSink, sink));
+    DI.unregister(AuditReader, RecordingReader);
     await db?.close();
   });
 
@@ -250,8 +285,129 @@ describe('audit shipping', function () {
     });
   }
 
+  describe('failures and erasures, on sqlite', () => {
+    const sqlite = () => db.driver('sqlite');
+    const trail = (sink: string, extra: Record<string, unknown> = {}): TrailConfig => {
+      setTrail('shipped', { store: 'OutboxAuditStore', sink, reader: 'RecordingReader', connection: 'sqlite', ...extra });
+      return trailConfig('shipped');
+    };
+    const store = (): OutboxAuditStore => DI.resolve(OutboxAuditStore);
+    const ids = (...n: number[]): string[] => n.map((i) => event(i).id);
+    const delivered = (): string[] => RecordingSink.batches.flatMap((b) => b.events.map((e) => e.id));
+    const failure = [{ trail: 'shipped', connection: 'sqlite' }];
+
+    beforeEach(async () => {
+      RecordingSink.batches = [];
+      RecordingSink.calls = 0;
+      RecordingSink.failOnCall = 0;
+      RecordingReader.redacted = [];
+      for (const d of [sqlite(), db.driver('pglite')]) await new AuditOutboxTableMigration().up(d);
+    });
+
+    afterEach(async () => {
+      setTrail('shipped', undefined);
+      config().set(['audit', 'ship'], undefined);
+      for (const d of [sqlite(), db.driver('pglite')]) await new AuditOutboxTableMigration().down(d);
+    });
+
+    it('keeps the count of what shipped before a delivery failed', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1 });
+      RecordingSink.failOnCall = 2;
+      await store().append({ trail: trail('RecordingSink'), events: [event(1), event(2), event(3)] });
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: failure });
+    });
+
+    it('gives up on a delivery at its deadline and keeps the events', async () => {
+      config().set(['audit', 'ship'], { deliverTimeoutMs: 50 });
+      await store().append({ trail: trail('HangSink'), events: [event(1)] });
+      expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: failure });
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(1);
+    });
+
+    it('redelivers the same events when the delete after a delivery failed', async () => {
+      DropSink.driver = sqlite();
+      await store().append({ trail: trail('DropSink'), events: [event(1), event(2)] });
+      expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: failure });
+      await new AuditOutboxTableMigration().up(sqlite());
+      await insertRows(sqlite(), 'audit_outbox', DropSink.saved);
+      trail('RecordingSink');
+      expect((await shipAudit()).shipped).to.eq(2);
+      expect(delivered()).to.deep.eq(ids(1, 2, 1, 2));
+    });
+
+    it('ships each event at least once when two runs race', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1 });
+      await store().append({ trail: trail('RecordingSink'), events: [event(1), event(2), event(3)] });
+      const runs = await Promise.all([shipAudit(), shipAudit()]);
+      expect(runs.flatMap((r) => r.failed)).to.deep.eq([]);
+      expect([...new Set(delivered())].sort()).to.deep.eq(ids(1, 2, 3));
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('blanks an erased subject on every buffer, or on the source it names', async () => {
+      const shippedTrail = trail('RecordingSink');
+      const c1 = { type: 'contract', id: 'c1' };
+      await store().append({ trail: shippedTrail, events: [event(1, { subject: c1 })] });
+      await store().append({ trail: shippedTrail, events: [event(2, { subject: c1 })], connection: 'pglite' });
+      const reader = await store().reader(shippedTrail);
+      const payloads = async (d: OrmDriver): Promise<unknown[]> => (await tableRows(d, 'audit_outbox')).map((r) => r.data);
+      expect(await reader?.redact(shippedTrail, c1)).to.eq(2 + 3);
+      await store().append({ trail: shippedTrail, events: [event(3, { subject: c1 })], connection: 'pglite' });
+      await store().append({ trail: shippedTrail, events: [event(4, { subject: c1 })] });
+      expect(await reader?.redact(shippedTrail, c1, 'pglite')).to.eq(1 + 3);
+      expect(await payloads(db.driver('pglite'))).to.deep.eq(['', '']);
+      expect(await payloads(sqlite())).to.deep.eq(['', '{"version":4}']);
+    });
+
+    it('redacts the destination when a subject is erased while its events are delivered', async () => {
+      const entered = new Promise<void>((resolve) => (GateSink.entered = resolve));
+      let release = (): void => undefined;
+      GateSink.release = new Promise<void>((resolve) => (release = resolve));
+      const gated = trail('GateSink');
+      await store().append({ trail: gated, events: [event(1)] });
+
+      const run = shipAudit();
+      await entered;
+      await (await store().reader(gated))?.redact(gated, { type: 'contract', id: 'c1' });
+      release();
+      expect(await run).to.deep.eq({ shipped: 1, failed: [] });
+      expect(RecordingReader.redacted).to.deep.eq([
+        { type: 'contract', id: 'c1' },
+        { type: 'contract', id: 'c1' },
+      ]);
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+  });
+
   it('does nothing without a shipping trail', async () => {
     expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: [] });
     expect(await auditBacklog()).to.deep.eq([]);
+  });
+});
+
+describe('audit shipping with a connection that cannot answer', function () {
+  this.timeout(60000);
+  let db: TestDb;
+
+  before(async () => {
+    db = await TestDb.open({ trails: { shipped: { store: 'OutboxAuditStore', sink: 'RecordingSink', connection: 'sqlite' } } }, { connections: [{ Driver: 'orm-driver-sqlite', Name: 'gone', Filename: ':memory:' }] });
+    DI.register(RecordingSink).as(AuditEventSink);
+    await new AuditOutboxTableMigration().up(db.driver('sqlite'));
+    await db.driver('gone').disconnect();
+  });
+
+  after(async () => {
+    DI.unregister(AuditEventSink, RecordingSink);
+    await db?.close();
+  });
+
+  it('ships the other connections, and reports it in the run and in the backlog', async () => {
+    await DI.resolve(OutboxAuditStore).append({ trail: trailConfig('shipped'), events: [event(1)] });
+    expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [{ trail: 'shipped', connection: 'gone' }] });
+    const backlog = await auditBacklog();
+    expect(backlog.map((b) => [b.connection, b.pending])).to.deep.eq([
+      ['gone', null],
+      ['sqlite', 0],
+    ]);
   });
 });
