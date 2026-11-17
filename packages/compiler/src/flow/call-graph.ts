@@ -27,6 +27,9 @@ const INJECT_DECORATORS = ['Autoinject', 'Inject'];
 const FUNCTION_MEMBERS = new Set(['call', 'apply', 'bind']);
 const CHOICE_OPERATORS = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken]);
 
+/** The parameters a call hands arguments to: a TypeScript `this` parameter takes none. */
+export const parametersOf = (fn: ts.SignatureDeclaration): readonly ts.ParameterDeclaration[] => fn.parameters.filter((p) => !(ts.isIdentifier(p.name) && p.name.text === 'this'));
+
 export const isFunctionLike = (d: ts.Node | undefined): d is FunctionLike =>
   d !== undefined && (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d) || ts.isFunctionExpression(d) || ts.isArrowFunction(d) || ts.isGetAccessorDeclaration(d) || ts.isConstructorDeclaration(d));
 const hasModifier = (d: ts.Declaration, flag: ts.ModifierFlags): boolean => (ts.getCombinedModifierFlags(d) & flag) !== 0;

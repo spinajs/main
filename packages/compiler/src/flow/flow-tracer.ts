@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { builderOf, buildersOf, staticKind } from './authz-effects.js';
 import type { BuilderKind, BuilderVariant, FunctionSummary, ReturnedBuilder } from './authz-effects.js';
+import { parametersOf } from './call-graph.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
 import { QueryTracer, chainOf, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
@@ -93,7 +94,7 @@ export class FlowTracer extends QueryTracer {
   }
 
   seedParameters(fn: FunctionLike): void {
-    fn.parameters.forEach((parameter, index) => {
+    parametersOf(fn).forEach((parameter, index) => {
       const symbol = this.checker.getSymbolAtLocation(parameter.name);
       const value = symbol === undefined ? undefined : this.typed(parameter, this.checker.getTypeAtLocation(parameter), index);
       if (symbol !== undefined && value !== undefined) this.builders.set(symbol, value);
@@ -135,6 +136,8 @@ export class FlowTracer extends QueryTracer {
       this.bind(name, traced);
       return;
     }
+    // `var q` declared again writes `q` as an assignment does.
+    if ((symbol.declarations?.length ?? 0) > 1) this.rewritten.add(symbol);
     const held = this.builders.get(symbol);
     // Observed again (a loop body, the fixed point of a summary), the variable holds any value it was given.
     this.builders.set(symbol, held === undefined ? value : this.join([held, value]));

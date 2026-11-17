@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import { EXECUTING_MEMBERS, builderOf, effectKey, isSystemRunAs, literalReason, runKey } from './authz-effects.js';
 import type { AuthzEffect, BuilderKind, EffectScope, FunctionSummary, PathStep, ReturnedBuilder, SystemRun } from './authz-effects.js';
-import { isFunctionLike } from './call-graph.js';
+import { isFunctionLike, parametersOf } from './call-graph.js';
 import type { CallGraph, CallTarget, FunctionLike } from './call-graph.js';
 import { FlowTracer, alternatives } from './flow-tracer.js';
 import { chainOf, modelShape, unwrap } from './query-values.js';
@@ -70,7 +70,7 @@ class FunctionAnalysis {
     private readonly checker: ts.TypeChecker,
     private readonly fn: FunctionLike,
     private readonly summaries: ReadonlyMap<FunctionLike, FunctionSummary>,
-    /** An entry point runs `fn`: what it returns goes to the framework, which runs it, and its parameters come from there. */
+    /** An entry point or a caller the pass does not see runs `fn`: what it returns is run there, and its parameters come from there. */
     private readonly root: boolean,
   ) {
     this.tracer = new FlowTracer(checker, graph, summaries);
@@ -190,7 +190,7 @@ class FunctionAnalysis {
 
   /** Whether the callee's summary sees what it is handed at `index`: a builder-typed parameter, not rest or destructured. */
   private seeded(fn: FunctionLike, index: number): boolean {
-    const parameter = fn.parameters.at(index);
+    const parameter = parametersOf(fn).at(index);
     return parameter !== undefined && parameter.dotDotDotToken === undefined && ts.isIdentifier(parameter.name) && builderOf(this.checker, this.checker.getTypeAtLocation(parameter)) !== undefined;
   }
 
@@ -289,6 +289,8 @@ class FunctionAnalysis {
 
 interface Reach {
   readonly order: FunctionLike[];
+  /** Functions passed by name: what runs them hands them values and takes what they return, out of the pass's sight. */
+  readonly byName: ReadonlySet<FunctionLike>;
   readonly opaque: number;
   readonly external: number;
 }
@@ -298,6 +300,7 @@ function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
   const found = new Set<FunctionLike>(roots);
   const counted = new Set<ts.Node>();
   const callees = new Map<FunctionLike, FunctionLike[]>();
+  const byName = new Set<FunctionLike>();
   let opaque = 0;
   let external = 0;
   let here: FunctionLike[] = [];
@@ -308,6 +311,7 @@ function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
     }
     if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !counted.has(node)) {
       counted.add(node);
+      for (const handed of graph.handedTo(node)) for (const target of graph.referenced(handed)) byName.add(target.fn);
       // The call itself, then every function value it is handed: an unknown one runs unknown code just the same.
       for (const resolved of [graph.resolve(node), ...graph.handedTo(node).map((e) => graph.handed(e))]) {
         if (resolved.opaque) opaque++;
@@ -322,7 +326,7 @@ function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
     [...defaults(fn), ...(fn.body === undefined ? [] : [fn.body])].forEach(walk);
     callees.set(fn, here);
   }
-  return { order: postOrder(roots, callees), opaque, external };
+  return { order: postOrder(roots, callees), byName, opaque, external };
 }
 
 /** Callees before their callers (a depth-first post-order), so a call graph without cycles settles in two rounds. */
@@ -349,8 +353,8 @@ const fingerprint = (s: FunctionSummary): string => JSON.stringify([s.effects.ma
 
 /** Per-function authz effects reachable from `roots`, computed to a fixed point over the call graph. */
 export function summarize(graph: CallGraph, checker: ts.TypeChecker, roots: readonly FunctionLike[]): FlowSummaries {
-  const { order, opaque, external } = reach(graph, roots);
-  const entered = new Set(roots);
+  const { order, byName, opaque, external } = reach(graph, roots);
+  const entered = new Set([...roots, ...byName]);
   const summaries = new Map<FunctionLike, FunctionSummary>();
   let unsettled = order.length;
   for (let round = 0; round < MAX_ROUNDS && unsettled > 0; round++) {
