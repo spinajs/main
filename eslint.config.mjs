@@ -65,7 +65,7 @@ export default defineConfig(
   },
   {
     // The O6 strict packages. typed-sql checks only files with an app.manifest.json between them and their package.json, which a library has not, so this is inert until one is built (A15).
-    files: ['packages/{scheduler,authz-rbac,authn-orm,upload,users,users-http,teams,authn-token,session-provider-db,authz-orm,authz-rebac,authn-webauthn,email-verification-orm,orm-http,orm-threading}/src/**/*.ts'],
+    files: ['packages/{scheduler,authz-rbac,authn-orm,upload,users,users-http,teams,authn-token,session-provider-db,authz-orm,authz-rebac,authn-webauthn,email-verification-orm,orm-http,orm-threading,audit-orm}/src/**/*.ts'],
     plugins: { '@spinajs/orm': orm },
     rules: { '@spinajs/orm/typed-sql': 'error' },
   },

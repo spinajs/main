@@ -1,0 +1,5 @@
+---
+"@spinajs/audit-orm": minor
+---
+
+New package `@spinajs/audit-orm`: `TableAuditStore` keeps a trail in a table (`audit_event` by default; migration `AuditEvent_2026_11_16_00_00_00` on `default`, `AuditTrailTableMigration` for other tables and connections). An event written `transactional` is inserted on the audited write's connection, inside its transaction; every other event on the connection the write names (`AuditWriteOptions.connection`), else on the trail's `connection`. Each row stores its payload as canonical JSON and the SHA-256 of that text in `data_hash` (`payloadHash` of `@spinajs/audit`). `TableAuditReader` lists by actor, subject, trace and `seq`, blanks the payload of a subject and prunes by age. For a store or reader over another table the package exports `auditEventColumns`, the row helpers (`storedColumns`, `toStored`, `insertRows`, `rowsOf`) and the protected members `driver`, `table` and `hasSourceColumn` of `TableAuditReader`. `@spinajs/audit-orm/testing` exports `TestDb`, the multi-dialect test database of the package's own suites, for the suites of other packages; the drivers and test packages it imports are optional peers.

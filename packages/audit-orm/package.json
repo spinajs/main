@@ -1,0 +1,95 @@
+{
+  "name": "@spinajs/audit-orm",
+  "version": "3.0.23",
+  "description": "Table store, reader, retention and model entry points of the SpinaJS audit trail",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing.d.ts",
+      "import": "./lib/testing.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/audit-orm"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "audit",
+    "orm"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/audit": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/orm": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23",
+    "@spinajs/testing-orm": "3.0.23"
+  },
+  "peerDependencies": {
+    "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/testing": "3.0.23",
+    "@spinajs/testing-orm": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/log": {
+      "optional": true
+    },
+    "@spinajs/orm-mysql": {
+      "optional": true
+    },
+    "@spinajs/orm-postgres": {
+      "optional": true
+    },
+    "@spinajs/orm-sqlite": {
+      "optional": true
+    },
+    "@spinajs/testing": {
+      "optional": true
+    },
+    "@spinajs/testing-orm": {
+      "optional": true
+    }
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}
