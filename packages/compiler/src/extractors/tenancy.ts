@@ -6,7 +6,7 @@ import { decoratorsOf, findDecorator, identifierName, literalValue, type Decorat
 import { baseClassOf } from '../schema/framework-members.js';
 import { classesBySource } from './access-options.js';
 import { routeEntryId, sourceKey } from './authz.js';
-import { decoratorOrigin } from './decorator-origin.js';
+import { decoratorOrigin, programDeclares } from './decorator-origin.js';
 import { ignoreCommentsIn } from './ignore-comments.js';
 import { optionOf } from './model-sql.js';
 import { literalText } from './string-arg.js';
@@ -114,7 +114,7 @@ function scheduleDeclarations(schedules: ScheduleEntry[]): Map<string, Declarati
 /** Every entry point the authz section lists, with what it declares. A fragment cannot see a global mount, so an undeclared one is `none`. */
 function entryPointsOf(inputs: TenancyInputs, files: readonly ts.SourceFile[], ctx: ExtractorContext): TenancyEntryPoint[] {
   const classes = classesBySource(files, ctx, sourceKey);
-  const routes = routeDeclarations(inputs.controllers, classes, ctx);
+  const routes = programDeclares(ctx.program, TENANCY_HTTP) ? routeDeclarations(inputs.controllers, classes, ctx) : new Map<string, Declaration>();
   const schedules = scheduleDeclarations(inputs.schedules);
   const declarationOf = (entry: EntryPoint): Declaration | undefined => {
     if (entry.kind === 'route') return routes.get(entry.id);

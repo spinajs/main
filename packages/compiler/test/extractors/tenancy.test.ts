@@ -1,6 +1,10 @@
 import { expect } from 'chai';
 import { mergeFragments, type ControllerEntry, type Manifest, type ManifestFragment, type MiddlewareRef, type RouteEntry } from '@spinajs/manifest';
-import { analyzePackage } from '../../src/index.js';
+import type ts from 'typescript';
+import { analyzePackage, createContext, createProgramFromTsconfig } from '../../src/index.js';
+import { escapesIn } from '../../src/extractors/tenancy-escapes.js';
+import { tenantModelsOf } from '../../src/extractors/tenant-models.js';
+import { tenancySectionOf } from '../../src/extractors/tenancy.js';
 
 const analyzed = new Map<string, Promise<ManifestFragment>>();
 
@@ -213,5 +217,28 @@ describe('tenancy escapes and ignores', () => {
 
   it('records spinajs-tenancy-ignore comments', () => {
     expect(tenancy.ignores).to.deep.equal([{ code: 'TEN002', reason: 'the usage export reads every tenant on purpose', source: { file: 'src/ignored.ts', line: 1, col: 1, package: 'tenancy-pkg' } }]);
+  });
+});
+
+describe('tenancy walks of a program without a tenancy package', () => {
+  const lookups = async (name: string): Promise<number> => {
+    const { controllers, authz } = await fixture(name);
+    const loaded = createProgramFromTsconfig(`test/fixtures/${name}/tsconfig.json`);
+    const ctx = createContext(loaded, name, `test/fixtures/${name}`);
+    let count = 0;
+    const getSymbolAtLocation = (node: ts.Node): ts.Symbol | undefined => {
+      count++;
+      return ctx.checker.getSymbolAtLocation(node);
+    };
+    const spied = { ...ctx, checker: { ...ctx.checker, getSymbolAtLocation } };
+    escapesIn(loaded.sourceFiles, spied);
+    tenantModelsOf(spied, loaded.sourceFiles, []);
+    tenancySectionOf(spied, loaded.sourceFiles, { controllers, schedules: [], authz, models: [] });
+    return count;
+  };
+
+  it('resolve no call, decorator or registration', async () => {
+    expect(await lookups('authz-pkg')).to.equal(0);
+    expect(await lookups('tenancy-pkg')).to.be.greaterThan(0);
   });
 });

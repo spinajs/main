@@ -3,7 +3,7 @@ import type { TenancyEscape } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { QueryTracer } from '../flow/query-values.js';
 import { isDeclaredIn } from '../schema/framework-members.js';
-import { isFunctionOf } from './decorator-origin.js';
+import { isFunctionOf, programDeclares } from './decorator-origin.js';
 import { literalText } from './string-arg.js';
 import { TENANCY_ORM } from './tenant-models.js';
 
@@ -44,5 +44,6 @@ function escapesInFile(file: ts.SourceFile, ctx: ExtractorContext): TenancyEscap
 
 /** Every `.acrossTenants(reason)` on a query builder and every `runAcrossTenants(reason, fn)` call of the package, in source order. */
 export function escapesIn(files: readonly ts.SourceFile[], ctx: ExtractorContext): TenancyEscape[] {
+  if (!programDeclares(ctx.program, TENANCY_ORM) && !programDeclares(ctx.program, TENANCY)) return [];
   return files.flatMap((file) => escapesInFile(file, ctx));
 }

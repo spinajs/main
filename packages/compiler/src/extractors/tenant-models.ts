@@ -7,7 +7,7 @@ import { literalValue } from '../decorators.js';
 import { owningPackage, type OwningPackage } from '../owning-package.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classSymbolOf, modelIdOf } from './access-resources.js';
-import { declaredDecorator, isFunctionOf } from './decorator-origin.js';
+import { declaredDecorator, isFunctionOf, programDeclares } from './decorator-origin.js';
 import { modelDeclarationOf } from './models.js';
 
 export const TENANCY_ORM = '@spinajs/tenancy-orm';
@@ -105,7 +105,7 @@ function nearestTenant(symbol: ts.Symbol, registrations: Map<ts.Symbol, Registra
  * entries `extractModels` returned: a copy has lost its class declaration.
  */
 export function tenantModelsOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], models: ModelEntry[]): TenancyModel[] {
-  const registrations = registrationsIn(files, ctx);
+  const registrations = programDeclares(ctx.program, TENANCY_ORM) ? registrationsIn(files, ctx) : new Map<ts.Symbol, Registration>();
   const dependency = dependencyTenants();
   const covered = new Set<ts.Symbol>();
   const rows: TenancyModel[] = [];

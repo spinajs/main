@@ -17,6 +17,18 @@ function packageNameOf(dir: string): string | undefined {
   return name;
 }
 
+const programPackages = new WeakMap<ts.Program, Set<string | undefined>>();
+
+/** A file of the program belongs to `packageName`. Without one, no symbol can resolve to that package, under any alias or re-export. */
+export function programDeclares(program: ts.Program, packageName: string): boolean {
+  let names = programPackages.get(program);
+  if (!names) {
+    names = new Set(program.getSourceFiles().map((f) => packageNameOf(dirname(f.fileName))));
+    programPackages.set(program, names);
+  }
+  return names.has(packageName);
+}
+
 /** The declared name of the function a decorator calls, whatever name it is imported under, and the package that declares it. */
 export function decoratorOrigin(decorator: DecoratorInfo, ctx: ExtractorContext): { name: string; package?: string } | undefined {
   const expr = decorator.node.expression;
