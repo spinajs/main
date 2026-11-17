@@ -150,7 +150,22 @@ export class SlowQueryCollector extends SlowQuerySink {
 - Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
 - `OrmDriver.explain()` runs outside the ambient transaction. On a driver without concurrent transactions (sqlite without a read pool, PGlite) it waits for an open transaction to end: never await it inside one. A capture made while the transaction is still open on PGlite ends with `planError`.
 - Streams, direct `executeOnDb()` calls and transaction control statements are not recorded.
-- No driver implements `explain()` yet, so every record of a select carries `planError: driver <token> cannot explain`.
+- SQLite plans its selects (below); postgres and MySQL follow. Until then a record of a select on those drivers carries `planError: driver <token> cannot explain`.
+
+#### Plans: sqlite
+
+`SqliteOrmDriver.explain(sql, bindings)` runs `EXPLAIN QUERY PLAN`, which plans the statement and never executes it, and returns a `QueryPlan` whose tree `normalizeSqlitePlan` builds from the rows: each row hangs under its `parent`, and a `SCAN t` or `SEARCH t` row keeps the table in `label` and moves the access path to `detail`. For a join with a subquery:
+
+```text
+QUERY PLAN
+├── SEARCH u           USING INTEGER PRIMARY KEY (rowid=?)
+├── LIST SUBQUERY 1
+│   └── SCAN explain_order
+└── SEARCH o           USING INDEX explain_order_user (UserId=?)
+```
+
+- It accepts a single `SELECT` or `WITH` statement and rejects anything else with `InvalidArgument`; the values are bound as parameters, never spliced into the statement.
+- It runs outside the transaction in scope, on a connection of its own (`SqlDriver.runExplain`). SQLite without a read pool has one writer handle, so the EXPLAIN waits until an open transaction ends: never await `explain()` inside a transaction.
 
 ## Configuration
 

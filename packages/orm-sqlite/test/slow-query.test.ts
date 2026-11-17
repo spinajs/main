@@ -77,7 +77,10 @@ describe('orm-sqlite slow-query capture', () => {
     expect(record.connection).to.equal('sqlite');
     expect(record).to.not.have.property('bindings');
     expect(JSON.stringify(record)).to.not.contain('secret-binding-42');
-    expect(record.planError).to.equal('driver orm-driver-sqlite cannot explain');
+    expect(record).to.not.have.property('planError');
+    expect(record.plan?.dialect).to.equal('sqlite');
+    expect(record.plan?.raw).to.equal(null);
+    expect(record.plan?.root.children.map((c) => c.label)).to.deep.equal(['SCAN explain_user']);
   });
 
   it('attempts a plan for a builder select whose quoted table name holds a #', async () => {
