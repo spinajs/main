@@ -101,7 +101,8 @@ export class FlowTracer extends QueryTracer {
     const e = unwrap(expr);
     const operands = alternatives(e);
     if (operands !== undefined) return this.either(e, operands);
-    return (ts.isCallExpression(e) ? this.fromCallee(e) : undefined) ?? super.traced(expr) ?? this.byType(e);
+    // `x as Q` with `x: any`: the cast, not the operand, has the builder type.
+    return (ts.isCallExpression(e) ? this.fromCallee(e) : undefined) ?? super.traced(expr) ?? this.byType(e) ?? (e === expr ? undefined : this.byType(expr));
   }
 
   protected override query(chain: Chain, e: ts.Expression): Traced | undefined {
@@ -122,7 +123,7 @@ export class FlowTracer extends QueryTracer {
     for (const operand of operands) {
       const traced = this.traced(operand);
       if (traced?.pending === true) pending.push(traced.value);
-      else if (traced === undefined) untyped ||= (this.checker.getTypeAtLocation(operand).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
+      else if (traced === undefined) untyped ||= (this.checker.getTypeAtLocation(unwrap(operand)).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
     }
     const [first] = pending;
     if (first === undefined) return undefined;

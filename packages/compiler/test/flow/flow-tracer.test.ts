@@ -155,4 +155,10 @@ describe('flow: effects and the tracer across calls', () => {
   it('a builder read from its type is scoped only by calls made on a builder', () => {
     expect(returnedScope('HelperShapes.chained')).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a builder cast from any or unknown is a builder, and a choice with it is unscoped', () => {
+    expect(returnedScope('CastShapes.castFromAny')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('CastShapes.castFromUnknown')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('CastShapes.castChoiceFromAny')).to.deep.equal([true, UNSCOPED]);
+  });
 });

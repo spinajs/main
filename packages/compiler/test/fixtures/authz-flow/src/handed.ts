@@ -126,3 +126,17 @@ export class HelperShapes {
     return h.accessible().builder();
   }
 }
+
+export class CastShapes {
+  public castFromAny(x: any) {
+    return x as Selected;
+  }
+
+  public castFromUnknown(x: unknown) {
+    return x as Selected;
+  }
+
+  public castChoiceFromAny(x: any) {
+    return (x as Selected) ?? Invoice.query().accessible('invoice:read');
+  }
+}
