@@ -73,7 +73,8 @@ function withTupleContext(context: CaveatContext, tuple: Readonly<Record<string,
   const out = structuredClone(context) as Record<string, unknown>;
   for (const [path, value] of Object.entries(tuple)) {
     const segments = path.split('.');
-    if (segments.some((s) => UNSAFE.has(s))) continue;
+    // The clock is the evaluation instant; a stored tuple cannot fix it (as RebacCaveats in @spinajs/authz-rebac).
+    if (path === 'env.now' || segments.some((s) => UNSAFE.has(s))) continue;
     let at = out;
     for (const s of segments.slice(0, -1)) {
       if (!isRecord(at[s])) at[s] = {};
