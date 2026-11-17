@@ -1,6 +1,6 @@
 # `@spinajs/authn-orm`
 
-SQL storage for `@spinajs/authn`: the login throttle, single-use secrets, external identity links, nonces, MFA enrolments with recovery codes, and the audit trail. Every store reads and writes through an ORM model on the `default` connection. The package ships the migration that creates the seven `authn_*` tables.
+SQL storage for `@spinajs/authn`: the login throttle, single-use secrets, external identity links, nonces, and MFA enrolments with recovery codes. Every store reads and writes through an ORM model on the `default` connection. The package ships the migration that creates the six `authn_*` tables.
 
 It does **not** verify credentials, issue sessions or decide MFA policy: `@spinajs/authn` and the strategy packages do that and call these stores. It ships no config file; the `authn.*` keys it reads belong to the `@spinajs/authn` schema.
 
@@ -21,8 +21,8 @@ Add one ORM driver, for example `@spinajs/orm-sqlite` or `@spinajs/orm-postgres`
 | [Identity links](03-identity-links.md) | `DbIdentityLinkStore`: external subjects (OIDC, JWT issuers) linked to identities in `authn_identity` |
 | [Nonce store](04-nonce-store.md) | `DbNonceStore`, and the re-exported `NonceStore` and `MemoryNonceStore` of `@spinajs/authn`: values claimed exactly once until they expire, in `authn_nonce` |
 | [MFA store](05-mfa-store.md) | `DbMfaStore`, `DbMfaEnrolments` and the MFA cipher: encrypted MFA secrets, replay-safe time steps and recovery codes in `authn_mfa` and `authn_recovery_code` |
-| [Audit sink](06-audit-sink.md) | `DbAuthnAuditSink`: one `authn_audit` row per authentication event |
-| [Models and schema](07-models-and-schema.md) | The seven models, their tables and columns, the migration, the `default` connection, identity keys, datetimes and driver support |
+| [Login history](06-audit-sink.md) | No store here: a login history is a table trail of `@spinajs/audit-authn`; what became of the 3.x `authn_audit` table |
+| [Models and schema](07-models-and-schema.md) | The six models, their tables and columns, the migration, the `default` connection, identity keys, datetimes and driver support |
 
 ## Where the stores run in the authn flow
 
@@ -36,7 +36,6 @@ Each store implements a port of `@spinajs/authn` or of a strategy package. The s
 | `DbNonceStore` | `NonceStore` | Login step 3 of an OIDC callback: the `state` is claimed once | [`@spinajs/authn-oidc`](../authn-oidc/README.md) |
 | `DbMfaStore` | none (used by `DbMfaSecretStore`) | Login step 7 and `completeMfa`: TOTP codes and recovery codes; TOTP enrolment | [`@spinajs/authn-totp`](../authn-totp/README.md) |
 | `DbMfaEnrolments` | `MfaEnrolments` | Login step 6: `DefaultMfaPolicy` looks for confirmed enrolments in unlisted steps | [`@spinajs/authn`](../authn/README.md) |
-| `DbAuthnAuditSink` | `AuthnEventSink` | Every step that publishes an event | every authn package |
 
 ## Quick start
 
@@ -78,7 +77,7 @@ export async function issueResetSecret(userUuid: string): Promise<string> {
 }
 ```
 
-Importing `@spinajs/authn-orm` registers the stores, the seven models and the migration `AuthnInitial_2026_10_02_00_00_00`. `db.DefaultConnection` creates the `default` connection the models and the migration use. With `Migration.OnStartup`, resolving the `Orm` creates the tables, also when a store resolves it. With `authn.throttle.service` unset, the authn core picks `DbAuthnThrottle`, the only registered throttle besides `MemoryAuthnThrottle`.
+Importing `@spinajs/authn-orm` registers the stores, the six models and the migration `AuthnInitial_2026_10_02_00_00_00`. `db.DefaultConnection` creates the `default` connection the models and the migration use. With `Migration.OnStartup`, resolving the `Orm` creates the tables, also when a store resolves it. With `authn.throttle.service` unset, the authn core picks `DbAuthnThrottle`, the only registered throttle besides `MemoryAuthnThrottle`.
 
 ## Supported databases
 

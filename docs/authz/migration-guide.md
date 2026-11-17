@@ -1210,20 +1210,20 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
 
 ### N4: authn-orm
 
-- Tables: `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
-  `authn_recovery_code`, `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm
-  migration. No migration carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)).
+- Tables: `authn_identity`, `authn_throttle`, `authn_secret`, `authn_mfa`, `authn_recovery_code`,
+  `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm migration. No migration
+  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)). 4.0 no longer creates `authn_audit`
+  ([upgrade note](../upgrading/4.0.md#removed-the-authn_audit-table-of-spinajsauthn-orm)).
 - Throttle keys are an HMAC under `authn.audit.hashKey.secret`. Time always comes from Node, never SQL
   `now()`.
-- The audit sink never fails on event content. An identity that does not fit goes into `data`.
 - Reads check identity, step, purpose, provider and subject for exact equality in Node, because MySQL
   and MSSQL collations ignore case.
 - Recovery codes are unsalted SHA-256, so codes need at least 80 bits.
 - `DbSecretStore.redeem` costs the same for an unknown identity as for a wrong secret.
 - The stores work through the package's models (`AuthnIdentity`, `AuthnSecret`, `AuthnNonce`,
-  `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`) on the `default` connection. Their
+  `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`) on the `default` connection. Their
   3.0 alpha constructors took a driver and `StoreOptions`; now `new DbSecretStore()`,
-  `new DbIdentityLinkStore()`, `new DbNonceStore()`, `new DbMfaStore()` and `new DbAuthnAuditSink()`
+  `new DbIdentityLinkStore()`, `new DbNonceStore()` and `new DbMfaStore()`
   take no arguments, `StoreOptions` is gone, and `DbAuthnThrottle` takes `(params?, options?)`:
   without `params`, or with `options.container`, it reads `authn.throttle` and the hash key from the
   configuration. `DbThrottleStoreOptions` has no `driver`.
@@ -1615,11 +1615,11 @@ upgrades.**
 | SR-08 | A reset revokes API tokens. Minting a token needs fresh auth and an expiry of at most `authn.token.maxTtlDays` (90). |
 | SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest, and recovery codes are SHA-256 only. |
 | SR-10 | `TotpService.adminReset` and `authn:mfa-reset` return no secret. The credential admin routes (`/authn/admin/users/:uuid/*`) need `users:credentials`, a target the caller covers, no protected role on the target, and fresh auth. |
-| SR-11 | Every authentication event reaches every `AuthnEventListener`. Recording them needs `@spinajs/audit-authn`, which writes to the `security` trail by default; without it nothing is recorded. `DbAuthnAuditSink`, when registered, stores raw subject refs, IP and user agent. |
+| SR-11 | Every authentication event reaches every `AuthnEventListener`. Recording them needs `@spinajs/audit-authn`, which writes to the `security` trail by default; without it nothing is recorded. |
 | SR-12 | The CSRF origin guard checks every cookie request with an unsafe method, and CORS with an empty list allows nothing (step 8). |
 | SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once, and an older time step is refused (`TotpMfaStep`, SR-15). |
 | SR-16 | Cookie flags and secret checks follow the app env, not `NODE_ENV=production` alone, and a missing env counts as production. |
-| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. The `security` trail of `@spinajs/audit-authn` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
+| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. The `security` trail of `@spinajs/audit-authn` logs keyed hashes of identifiers. Re-authentication counts into the throttle. |
 
 ## 11. Open items in 3.0.0-rc.1
 

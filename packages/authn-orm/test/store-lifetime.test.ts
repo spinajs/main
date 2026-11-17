@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import 'mocha';
 
-import { DbAuthnAuditSink, DbAuthnThrottle, DbIdentityLinkStore, DbMfaEnrolments, DbMfaStore, DbNonceStore, DbSecretStore } from '../src/index.js';
+import { DbAuthnThrottle, DbIdentityLinkStore, DbMfaEnrolments, DbMfaStore, DbNonceStore, DbSecretStore } from '../src/index.js';
 import { TestDb, bootDb } from './support/db.js';
 
 describe('authn-orm stores per child container', function () {
@@ -21,7 +21,7 @@ describe('authn-orm stores per child container', function () {
   });
 
   it('gives each container its own instance and keeps it', async () => {
-    for (const type of [DbAuthnAuditSink, DbIdentityLinkStore, DbMfaStore, DbNonceStore, DbSecretStore, DbAuthnThrottle, DbMfaEnrolments]) {
+    for (const type of [DbIdentityLinkStore, DbMfaStore, DbNonceStore, DbSecretStore, DbAuthnThrottle, DbMfaEnrolments]) {
       const inA = await a.container.resolve<object>(type);
       expect(inA, type.name).to.not.eq(await b.container.resolve<object>(type));
       expect(inA, type.name).to.eq(await a.container.resolve<object>(type));

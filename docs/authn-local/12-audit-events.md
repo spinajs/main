@@ -53,7 +53,7 @@ No key of this package. Sinks are registered, not configured; `authn.audit.liste
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports: `DbAuthnAuditSink` ([`@spinajs/authn-orm`](../authn-orm/06-audit-sink.md)), the `@spinajs/users` sinks | your sink | Add one with `@Injectable(AuthnEventSink)`. |
+| Event sink | `AuthnEventSink`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports: `AuthnAuditRecorder` ([`@spinajs/audit-authn`](../../packages/audit-authn/README.md)), the `@spinajs/users` sinks | your sink | Add one with `@Injectable(AuthnEventSink)`. |
 
 ### Event sink: custom implementation
 
@@ -96,5 +96,5 @@ export class ResetAlertSink extends AuthnEventSink {
 ## Related
 
 - [Change and set](05-change-and-set.md), [Reset and invite](06-reset-and-invite.md), [Password expiry](08-password-expiry.md): the flows behind each event.
-- [`@spinajs/authn-orm`](../authn-orm/06-audit-sink.md): the `authn_audit` table sink.
+- [`@spinajs/audit-authn`](../../packages/audit-authn/README.md): records the events in the audit trail; a [login history](../authn-orm/06-audit-sink.md) is a table trail.
 - [`@spinajs/users`](../users/08-authn-event-sinks.md): the users sinks of authn events. `PasswordSetAt` and invite activation follow the [action hooks](16-action-hooks.md) instead, through [`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state).

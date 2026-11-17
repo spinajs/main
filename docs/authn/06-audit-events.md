@@ -129,7 +129,6 @@ Listeners shipped with SpinaJS:
 | Listener | Package | What it does |
 | --- | --- | --- |
 | `AuthnAuditRecorder` | `@spinajs/audit-authn` | Records every event in the audit trail; blocking when its trail rejects |
-| `DbAuthnAuditSink` | `@spinajs/authn-orm` | One `authn_audit` row per event |
 | `WebhookAuthnEventSink` | `@spinajs/authn-http` | POSTs each event, signed, to `authn.webhooks` |
 | `SseSessionEndSink` | `@spinajs/authz-http` | Ends a session's event streams on logout, revoke and impersonation |
 | `QueueAuthnEventSink` | `@spinajs/users` | Re-emits user queue events such as `UserLogged` and `UserLoginFailed` |
@@ -226,5 +225,5 @@ class LoginCounter extends AuthnEventListener {
 
 - [Authentication flow](01-authentication-flow.md): the events of a login.
 - [`@spinajs/audit-authn`](../../packages/audit-authn/README.md): the recorder and its trail.
-- [`@spinajs/authn-orm`](../authn-orm/README.md): `DbAuthnAuditSink` and the `authn_audit` table.
+- [Login history](../authn-orm/06-audit-sink.md): what became of the 3.x `authn_audit` table of `@spinajs/authn-orm`.
 - [`@spinajs/users`](../users/README.md): the listener that re-emits authn events as user queue events.

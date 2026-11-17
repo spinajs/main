@@ -54,7 +54,7 @@ export interface LanePart {
   close?(c: PartCase): Promise<void>;
 }
 
-// authn-orm's root registers DbAuthnThrottle and DbAuthnAuditSink over N8a's throttle and sink: files are loaded one by one.
+// authn-orm's root registers DbAuthnThrottle over N8a's throttle: files are loaded one by one.
 const ORM_LIB = new URL('../../../../authn-orm/lib/', import.meta.url);
 const ormModule = async <T>(file: string): Promise<T> => (await import(new URL(file, ORM_LIB).href)) as T;
 

@@ -1,6 +1,6 @@
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
-const TABLES = ['authn_identity', 'authn_throttle', 'authn_audit', 'authn_secret', 'authn_mfa', 'authn_recovery_code', 'authn_nonce'];
+const TABLES = ['authn_identity', 'authn_throttle', 'authn_secret', 'authn_mfa', 'authn_recovery_code', 'authn_nonce'];
 
 /**
  * The authn-orm tables of design §22.16, plus `authn_recovery_code_owner`. The schema builder has no `char`
@@ -31,23 +31,6 @@ export class AuthnInitial_2026_10_02_00_00_00 extends OrmMigration {
       table.dateTime('next_allowed_at').notNull();
       table.dateTime('updated_at').notNull();
     });
-
-    await connection.schema().createTable('authn_audit', (table) => {
-      table.string('id', 36).notNull().primaryKey();
-      table.dateTime('at').notNull();
-      table.string('type', 32).notNull();
-      table.string('outcome', 8).notNull();
-      table.string('identity', 100);
-      table.string('actor', 100);
-      table.string('strategy', 64);
-      table.string('reason', 64);
-      table.string('ip', 64);
-      table.string('user_agent', 255);
-      table.string('session', 64);
-      table.text('data');
-    });
-    await connection.index().table('authn_audit').name('authn_audit_at').columns(['at']);
-    await connection.index().table('authn_audit').name('authn_audit_identity').columns(['identity', 'at']);
 
     await connection.schema().createTable('authn_secret', (table) => {
       table.string('id', 36).notNull().primaryKey();

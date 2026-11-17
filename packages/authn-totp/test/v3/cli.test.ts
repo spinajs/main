@@ -6,7 +6,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Orm } from '@spinajs/orm';
-import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
+import { DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, CLI_ACTOR, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
@@ -170,7 +170,6 @@ describe('v3 cli: authn:mfa-reset', () => {
     before(async () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
-      DI.unregister(DbAuthnAuditSink);
       DI.unregister(DbAuthnThrottle);
       DI.register(KitSink).as(AuthnEventSink);
       DI.register(KitIdentities).as(IdentityStore);
@@ -186,7 +185,6 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.unregister(KitIdentities);
       DI.unregister(KitTotp);
       DI.unregister(KitOrm);
-      DI.register(DbAuthnAuditSink).as(AuthnEventSink);
       DI.register(DbAuthnThrottle).as(AuthnThrottle);
       DI.clearCache();
     });

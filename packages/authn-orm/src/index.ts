@@ -6,4 +6,3 @@ export * from './secrets/index.js';
 export * from './links/index.js';
 export * from './nonces/index.js';
 export * from './mfa/index.js';
-export * from './audit/index.js';

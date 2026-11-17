@@ -1,4 +1,3 @@
-export * from './AuthnAudit.js';
 export * from './AuthnIdentity.js';
 export * from './AuthnMfa.js';
 export * from './AuthnNonce.js';

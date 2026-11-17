@@ -1,10 +1,10 @@
 # Models and schema
 
-Every store of the package reads and writes through one of seven ORM models. Each model names its table and the `default` connection, so the stores take no driver. The package ships one migration on the same connection, which creates the tables.
+Every store of the package reads and writes through one of six ORM models. Each model names its table and the `default` connection, so the stores take no driver. The package ships one migration on the same connection, which creates the tables.
 
 ## How it works
 
-1. Importing `@spinajs/authn-orm` defines the seven models (`@Model`, `@Connection('default')`) and the migration `AuthnInitial_2026_10_02_00_00_00` (`@Migration('default')`).
+1. Importing `@spinajs/authn-orm` defines the six models (`@Model`, `@Connection('default')`) and the migration `AuthnInitial_2026_10_02_00_00_00` (`@Migration('default')`).
 2. `Orm.resolve()` binds each model to the driver stored under `default`, which `db.DefaultConnection` creates. With `Migration.OnStartup` on that connection, resolving the `Orm` runs the migration.
 3. Every store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store resolves the `Orm` and binds the models; a CLI command or a worker needs no explicit `DI.resolve(Orm)`.
 4. Reads hydrate each `@DT()` column into a luxon `DateTime` through the ORM datetime converter. Writes pass `DateTime` values in UTC, computed in Node.
@@ -31,9 +31,6 @@ The models use these `@spinajs/orm` decorators:
 | `AuthnNonce` | `authn_nonce` | `k` | [`DbNonceStore`](04-nonce-store.md) |
 | `AuthnMfa` | `authn_mfa` | `(identity, step)` | [`DbMfaStore`](05-mfa-store.md), and through it `DbMfaEnrolments` |
 | `AuthnRecoveryCode` | `authn_recovery_code` | `id` | [`DbMfaStore`](05-mfa-store.md) |
-| `AuthnAudit` | `authn_audit` | `id` | [`DbAuthnAuditSink`](06-audit-sink.md) |
-
-The model `AuthnAudit` shares its name with the audit fan-out service of `@spinajs/authn`. Import the model from `@spinajs/authn-orm`.
 
 ## Configuration
 
@@ -41,7 +38,7 @@ The model `AuthnAudit` shares its name with the audit fan-out service of `@spina
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Creates the `default` connection every model and the migration use. Required. |
 | `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the migration when the `Orm` resolves, when set on the default connection. |
-| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fails `Orm.resolve()` when one of the seven tables is missing. |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fails `Orm.resolve()` when one of the six tables is missing. |
 
 The `db.*` keys are owned by `@spinajs/orm`; see [Connections](../orm/01-connections.md#configuration).
 
@@ -128,26 +125,11 @@ Unique index `authn_identity_subject`: `(provider, subject)`. Index `authn_ident
 
 Index `authn_recovery_code_owner`: `identity`.
 
-### `authn_audit`
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `id` | `varchar(36)`, primary key; `string` | Random UUID. |
-| `at` | `datetime`; `DateTime` | Time of the event. |
-| `type` | `varchar(32)`; `string` | Event type. |
-| `outcome` | `varchar(8)`; `string` | `success` or `failure`. |
-| `identity`, `actor` | `varchar(100)`, nullable; `string \| null` | `<type>:<id>` refs. |
-| `strategy`, `reason`, `ip`, `session` | `varchar(64)`, nullable; `string \| null` | Event fields, cut to the column. |
-| `user_agent` | `varchar(255)`, nullable; `string \| null` | Client user agent. |
-| `data` | `text`, nullable; `string \| null` | JSON text. |
-
-Indexes `authn_audit_at`: `at`; `authn_audit_identity`: `(identity, at)`.
-
 ## Migrations
 
 | Migration | Connection | `up()` | `down()` |
 | --- | --- | --- | --- |
-| `AuthnInitial_2026_10_02_00_00_00` | `default` | Creates the seven tables and their indexes. | Drops the seven tables in reverse order. |
+| `AuthnInitial_2026_10_02_00_00_00` | `default` | Creates the six tables and their indexes. | Drops the six tables in reverse order. |
 
 `@spinajs/authn-keys` ships no migration or model for `authn_nonce`: its strategies claim through `DbNonceStore` into the table this migration creates.
 
@@ -169,7 +151,7 @@ No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, inv
 - A store call made inside your own `transaction()` on the `default` driver joins that transaction and rolls back with it, as every model statement does. See [`@spinajs/orm` Transactions](../orm/08-transactions.md).
 - Time comes from Node: `ctx.now`, or `Date` at call time. Every claim, expiry and compare-and-set compares in SQL against a bound value; SQL `now()` is never used.
 - Datetimes are written as UTC, as ISO-8601 text on SQLite. A `Date` outside the years 1000 to 9999 throws `InvalidArgument` before any statement, because SQLite compares those columns as text.
-- With `db.StrictTableCheck` on (the default), importing the package makes all seven tables required on the `default` connection, whether the app uses every store or not.
+- With `db.StrictTableCheck` on (the default), importing the package makes all six tables required on the `default` connection, whether the app uses every store or not.
 - Secrets are never stored in clear: single-use secrets and recovery codes as SHA-256, MFA secrets as cipher text, throttle keys as an HMAC under `authn.audit.hashKey.secret`.
 
 ### Drivers and known gaps
@@ -196,28 +178,6 @@ db: { DefaultConnection: 'main', Connections: [{ Name: 'main', Driver: 'orm-driv
 ```
 
 ## Examples
-
-### Count failed sign-ins of the last hour for a dashboard
-
-```ts sample
-import { AuthnAudit } from '@spinajs/authn-orm';
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
-import { DateTime } from 'luxon';
-
-@Injectable()
-export class SignInDashboard {
-  // Resolving the service resolves the Orm, which binds AuthnAudit.
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
-  public async failedLastHour(): Promise<number> {
-    const since = DateTime.utc().minus({ hours: 1 });
-    const rows = await AuthnAudit.query().columns(['id']).where('type', 'login').where('outcome', 'failure').where('at', '>=', since);
-    return rows.length;
-  }
-}
-```
 
 ### List the users with a confirmed authenticator
 

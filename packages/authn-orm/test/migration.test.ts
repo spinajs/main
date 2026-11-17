@@ -1,17 +1,21 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { randomBytes } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { OrmDriver } from '@spinajs/orm';
+import { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { AuthnInitial_2026_10_02_00_00_00, readInstant } from '../src/index.js';
-import { bootDb, DB_KINDS, DbKind, rawQuery, TestDb } from './support/db.js';
+import { bootDb, createPgDatabase, DB_KINDS, DbKind, dropPgDatabase, rawQuery, requirePostgres, TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const MIGRATION = 'AuthnInitial_2026_10_02_00_00_00';
-const TABLES = ['authn_identity', 'authn_throttle', 'authn_audit', 'authn_secret', 'authn_mfa', 'authn_recovery_code', 'authn_nonce'];
+const TABLES = ['authn_identity', 'authn_throttle', 'authn_secret', 'authn_mfa', 'authn_recovery_code', 'authn_nonce'];
 
 type ColumnKind = 'string' | 'text' | 'int' | 'bigint' | 'boolean' | 'datetime';
 
@@ -37,20 +41,6 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['last_attempt_at', 'datetime', null, false],
     ['next_allowed_at', 'datetime', null, false],
     ['updated_at', 'datetime', null, false],
-  ],
-  authn_audit: [
-    ['id', 'string', 36, false],
-    ['at', 'datetime', null, false],
-    ['type', 'string', 32, false],
-    ['outcome', 'string', 8, false],
-    ['identity', 'string', 100, true],
-    ['actor', 'string', 100, true],
-    ['strategy', 'string', 64, true],
-    ['reason', 'string', 64, true],
-    ['ip', 'string', 64, true],
-    ['user_agent', 'string', 255, true],
-    ['session', 'string', 64, true],
-    ['data', 'text', null, true],
   ],
   authn_secret: [
     ['id', 'string', 36, false],
@@ -86,7 +76,6 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
 const PRIMARY_KEYS: Record<string, string[]> = {
   authn_identity: ['id'],
   authn_throttle: ['k'],
-  authn_audit: ['id'],
   authn_secret: ['id'],
   authn_mfa: ['identity', 'step'],
   authn_recovery_code: ['id'],
@@ -151,6 +140,29 @@ const secret = (over: Record<string, unknown> = {}) => ({ id: 's1', identity: 'u
 const mfa = (over: Record<string, unknown> = {}) => ({ identity: 'user:u1', step: 'totp', secret_enc: 'v1.x.y.z', secret_hash: 'h'.repeat(64), key_id: 'k1', created_at: NOW, ...over });
 const throttle = (over: Record<string, unknown> = {}) => ({ k: 'key-1', attempts: 1, last_attempt_at: NOW, next_allowed_at: NOW, updated_at: NOW, ...over });
 
+/** `authn_audit` with its two indexes, as the released 3.x version of the migration created it. */
+async function createReleasedAuditTable(driver: OrmDriver): Promise<void> {
+  await driver.schema().createTable('authn_audit', (table) => {
+    table.string('id', 36).notNull().primaryKey();
+    table.dateTime('at').notNull();
+    table.string('type', 32).notNull();
+    table.string('outcome', 8).notNull();
+    table.string('identity', 100);
+    table.string('actor', 100);
+    table.string('strategy', 64);
+    table.string('reason', 64);
+    table.string('ip', 64);
+    table.string('user_agent', 255);
+    table.string('session', 64);
+    table.text('data');
+  });
+  await driver.index().table('authn_audit').name('authn_audit_at').columns(['at']);
+  await driver.index().table('authn_audit').name('authn_audit_identity').columns(['identity', 'at']);
+}
+
+const auditIds = async (driver: OrmDriver) => ((await select(driver, 'SELECT id FROM authn_audit ORDER BY id')) as Array<{ id: string }>).map((r) => r.id);
+const indexNames = async (db: TestDb, table: string) => (await indexes(db, table)).map((i) => i.name).filter((n) => n.startsWith('authn_audit_')).sort();
+
 for (const kind of DB_KINDS) {
   describe(`${MIGRATION} (${kind})`, function () {
     this.timeout(60000);
@@ -176,6 +188,7 @@ for (const kind of DB_KINDS) {
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);
       }
+      expect(await db.driver.schema().tableExists('authn_audit'), 'authn_audit').to.eq(false);
     });
 
     for (const [table, columns] of Object.entries(SCHEMA)) {
@@ -203,8 +216,6 @@ for (const kind of DB_KINDS) {
 
       expect(await find('authn_identity', 'authn_identity_subject')).to.deep.eq({ name: 'authn_identity_subject', unique: true, columns: ['provider', 'subject'] });
       expect(await find('authn_identity', 'authn_identity_owner')).to.deep.eq({ name: 'authn_identity_owner', unique: false, columns: ['identity_type', 'identity_id'] });
-      expect(await find('authn_audit', 'authn_audit_at')).to.deep.eq({ name: 'authn_audit_at', unique: false, columns: ['at'] });
-      expect(await find('authn_audit', 'authn_audit_identity')).to.deep.eq({ name: 'authn_audit_identity', unique: false, columns: ['identity', 'at'] });
       expect(await find('authn_secret', 'authn_secret_hash')).to.deep.eq({ name: 'authn_secret_hash', unique: true, columns: ['secret_hash'] });
       expect(await find('authn_secret', 'authn_secret_owner')).to.deep.eq({ name: 'authn_secret_owner', unique: false, columns: ['identity', 'purpose'] });
       expect(await find('authn_recovery_code', 'authn_recovery_code_owner')).to.deep.eq({ name: 'authn_recovery_code_owner', unique: false, columns: ['identity'] });
@@ -286,7 +297,7 @@ for (const kind of DB_KINDS) {
       }
     });
 
-    it('down() drops all seven tables, and up() restores them', async () => {
+    it('down() drops all six tables, and up() restores them', async () => {
       const undone = await db.migrator.Runner.down(MIGRATION);
       expect(undone.map((m) => m.constructor)).to.deep.eq([AuthnInitial_2026_10_02_00_00_00]);
 
@@ -295,6 +306,76 @@ for (const kind of DB_KINDS) {
       }
 
       await db.migrator.Runner.up(MIGRATION);
+      for (const table of TABLES) {
+        expect(await db.driver.schema().tableExists(table), table).to.eq(true);
+      }
+    });
+  });
+
+  describe(`${MIGRATION} on a database that 3.x left with authn_audit rows (${kind})`, function () {
+    this.timeout(60000);
+
+    let database: string;
+    let db: TestDb;
+
+    before(async function () {
+      if (kind === 'postgres') {
+        await requirePostgres(this);
+        database = await createPgDatabase('released');
+      } else {
+        database = join(tmpdir(), `authn-orm-released-${randomBytes(4).toString('hex')}.sqlite`);
+      }
+
+      // What a 3.x app left: the migration recorded as applied and its seven tables, authn_audit with rows.
+      const released = await bootDb(this, kind, 'released', { database });
+      try {
+        await createReleasedAuditTable(released.driver);
+        await insert(released.driver, 'authn_audit', { id: 'a1', at: NOW, type: 'login', outcome: 'success', identity: 'user:u1', ip: '10.0.0.1' });
+        await insert(released.driver, 'authn_audit', { id: 'a2', at: NOW, type: 'login', outcome: 'failure', reason: 'bad_credentials' });
+      } finally {
+        await released.dispose();
+      }
+
+      db = await bootDb(this, kind, 'upgraded', { database });
+    });
+
+    after(async () => {
+      await db?.dispose();
+      if (kind === 'postgres') {
+        if (database) await dropPgDatabase(database);
+      } else if (database) {
+        await rm(database, { force: true });
+      }
+    });
+
+    it('boots without running the migration again and leaves authn_audit, its rows and its indexes in place', async () => {
+      const status = (await db.migrator.Runner.status()).filter((s) => s.name === MIGRATION);
+      expect(status.map((s) => [s.pending, s.failed])).to.deep.eq([[false, false]]);
+
+      for (const table of TABLES) {
+        expect(await db.driver.schema().tableExists(table), table).to.eq(true);
+      }
+      expect(await auditIds(db.driver)).to.deep.eq(['a1', 'a2']);
+      expect(await indexNames(db, 'authn_audit')).to.include.members(['authn_audit_at', 'authn_audit_identity']);
+    });
+
+    it('down() drops the six tables the migration owns and leaves authn_audit with its rows', async () => {
+      await db.migrator.Runner.down(MIGRATION);
+
+      for (const table of TABLES) {
+        expect(await db.driver.schema().tableExists(table), table).to.eq(false);
+      }
+      expect(await auditIds(db.driver)).to.deep.eq(['a1', 'a2']);
+
+      await db.migrator.Runner.up(MIGRATION);
+      expect(await auditIds(db.driver)).to.deep.eq(['a1', 'a2']);
+    });
+
+    it("the upgrade note's DROP statement removes authn_audit and its indexes", async () => {
+      await rawQuery(db.driver, 'DROP TABLE IF EXISTS "authn_audit"', [], QueryContext.Schema);
+
+      expect(await db.driver.schema().tableExists('authn_audit')).to.eq(false);
+      expect(await indexNames(db, 'authn_audit')).to.deep.eq([]);
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);
       }
