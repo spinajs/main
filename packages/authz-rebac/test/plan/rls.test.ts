@@ -119,6 +119,13 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
     expect(rendering({ arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' }, sql: '1 = 1' } })).to.throw(/arrow\.sql is not a known key/);
     expect(rendering({ any: [{ tuples: 'viewer' }, { tuples: 7 }] })).to.throw(/any\[1\]\.tuples must be a non-empty string/);
     expect(rendering({ none: [] })).to.throw(/none is not a known key/);
+    expect(rendering({ any: new Array<unknown>(1) })).to.throw(/any\[0\] must be an object/);
+    const hole = new Array<unknown>(3);
+    hole[0] = { tuples: 'viewer' };
+    hole[2] = { tuples: 'owner' };
+    expect(rendering({ all: hole })).to.throw(/all\[1\] must be an object/);
+    hole.length = 2;
+    expect(rendering({ all: hole })).to.throw(/all\[1\] must be an object/);
     const expr = rebacRlsExpr(world.model.schema(), 'doc', 'read', 2);
     expect(parseRebacRlsExpr(expr)).to.deep.equal(expr);
   });

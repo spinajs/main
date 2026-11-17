@@ -74,7 +74,8 @@ function fields(v: unknown, keys: readonly string[], path: string): Record<strin
 function list(v: unknown, path: string): RebacRlsExpr[] {
   if (!Array.isArray(v)) refuse(path, 'must be an array');
   const items: unknown[] = v;
-  return items.map((item, i) => parseRebacRlsExpr(item, `${path}[${i}]`));
+  // Array.from visits holes, which map skips and render would join as empty SQL.
+  return Array.from(items, (item, i) => parseRebacRlsExpr(item, `${path}[${i}]`));
 }
 
 /**
