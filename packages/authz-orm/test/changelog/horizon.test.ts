@@ -9,7 +9,7 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../../src/contributor.js';
-import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Owner, Parent, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
+import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Owner, Parent, pruneChangeLog, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -130,9 +130,36 @@ describe('changelog horizon', function () {
         await log.lost('policy', undefined, 'test');
         expect((await log.coveredSince('policy'))!.getTime()).to.be.within(before, Date.now());
         const error = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
+        const warn = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
         await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
-        await log.lost('policy', undefined, 'test');
-        expect(error.callCount).to.equal(1);
+        const fresh = new DbChangeLog();
+        await fresh.lost('policy', undefined, 'test');
+        await driver.transaction(() => fresh.lost('policy', undefined, 'test'));
+        // Before the migration ran: one warning per process, not an error per escaped write.
+        expect([error.callCount, warn.getCalls().filter((c) => String(c.args[1]).includes(HORIZON_TABLE)).length]).to.deep.equal([0, 1]);
+      });
+
+      it('retention prunes and moves the horizon together, and deletes nothing without the horizon table', async () => {
+        const now = new Date('2026-11-06T00:00:00Z');
+        const old = new Date('2025-01-02T00:00:00Z');
+        await recordCoverage(['tuple'], [], [], new Date('2025-01-01T00:00:00Z'));
+        await driver.transaction(() => log.append([{ kind: 'tuple', op: 'add', key: 'old', at: old }, { kind: 'tuple', op: 'add', key: 'new', at: new Date('2026-11-01T00:00:00Z') }]));
+        expect(await pruneChangeLog(400, now)).to.equal(1);
+        expect((await log.coveredSince('tuple'))!.toISOString()).to.equal('2025-10-02T00:00:00.000Z');
+        await driver.transaction(() => log.append([{ kind: 'tuple', op: 'add', key: 'old2', at: old }]));
+        await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
+        await rejection(pruneChangeLog(400, now));
+        expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['new', 'old2']);
+      });
+
+      it('two boots racing past the select leave one row per kind and type', async () => {
+        const boot = (at: Date) => recordCoverage(['rule'], [{ type: 'doc', fingerprint: 'a' }], [], at);
+        await Promise.all([boot(T1), boot(T2), boot(T3)]);
+        const rows = await HorizonRecord.all();
+        expect(rows.map((r) => [r.kind, r.resource_type]).sort()).to.deep.equal([
+          ['column', 'doc'],
+          ['rule', ''],
+        ]);
       });
 
       it('lost() inside a transaction moves the horizon with the write, so a failed restart after the commit still leaves it moved', async () => {

@@ -9,7 +9,7 @@ import { recordDriver, selectFrom } from '../records.js';
 import { classesOf, entryOf, registeredTypes } from '../registry.js';
 import { HorizonRecord, columnFingerprint, horizonType, recordCoverage, restartCoverage } from './horizon.js';
 import { ChangeLogRecord } from './record.js';
-import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS } from './table.js';
+import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS, HORIZON_TABLE } from './table.js';
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 10000;
@@ -30,6 +30,15 @@ export function columnChangesRecorded(): void {
 function columnsCovered(type: ResourceType): boolean {
   const models = classesOf(type);
   return models.length > 0 && models.every((m) => entryOf(m)?.changelog !== false);
+}
+
+async function horizonMissing(): Promise<boolean> {
+  try {
+    const driver = recordDriver(HorizonRecord);
+    return (await driver.tableInfo(HORIZON_TABLE, driver.Options.Database)) === null;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -87,6 +96,7 @@ function limitOf(q: ChangeQuery | undefined): number {
 export class DbChangeLog extends ChangeLog {
   private readonly tracked = new Set<ChangeKind>();
   private coverageWarned = false;
+  private lostWarned = false;
 
   covers(kind: ChangeKind, resourceType?: ResourceType): boolean {
     if (kind === 'column') return columnHook && (resourceType === undefined || columnsCovered(resourceType));
@@ -164,12 +174,20 @@ export class DbChangeLog extends ChangeLog {
    */
   async lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void> {
     const fields = { kind, resourceType: resourceType ?? '*', reason: reason ?? 'unknown' };
-    const fail = (e: unknown) => ormLog().error({ ...fields, error: thrownError(e) }, 'authz-orm: a ${kind} write of ${resourceType} escaped the changelog (${reason}) and its coverage could not be restarted; replays before now may read a wrong state');
+    const fail = async (e: unknown): Promise<void> => {
+      // Before the migration ran there is no coverage to restart: say so once, not on every escaped write.
+      if (await horizonMissing()) {
+        if (!this.lostWarned) ormLog().warn(fields, 'authz-orm: authz_change_log_horizon does not exist, so a ${kind} write that escaped the changelog cannot restart its coverage; run the authz migrations');
+        this.lostWarned = true;
+        return;
+      }
+      ormLog().error({ ...fields, error: thrownError(e) }, 'authz-orm: a ${kind} write of ${resourceType} escaped the changelog (${reason}) and its coverage could not be restarted; replays before now may read a wrong state');
+    };
     const restart = async (): Promise<void> => {
       try {
         await restartCoverage(kind, resourceType, new Date());
       } catch (e) {
-        fail(e);
+        await fail(e);
       }
     };
     try {
@@ -178,12 +196,12 @@ export class DbChangeLog extends ChangeLog {
         try {
           await driver.transaction(() => restartCoverage(kind, resourceType, new Date()));
         } catch (e) {
-          fail(e);
+          await fail(e);
         }
       }
       await driver.afterCommit(restart);
     } catch (e) {
-      fail(e);
+      await fail(e);
     }
   }
 
