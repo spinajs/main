@@ -61,7 +61,9 @@ export class DbPolicyStore extends PolicyStore {
       if (!(err instanceof UniqueViolation)) throw err;
       throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote policy ${JSON.stringify(checked.id)} meanwhile; retry`, undefined, { cause: err });
     }
-    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload: checked, ...(before ? { before } : {}), ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
+    // Logged as a read of the row gives it (no `expiresAt: null`, no bare `$global` scope): replay compares the two.
+    const payload = recordToPolicy(policyToRecord(checked, actor, now));
+    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload, ...(before ? { before } : {}), ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
     return { affected: 1, tags: policyTags(checked.id) };
   }
 
@@ -135,7 +137,7 @@ function fits(p: Policy): void {
 const versionKey = (r: PolicyFields): unknown[] => [r.id, r.effect, r.permissions, r.resource_types, r.principal_types, r.actor_types, r.scope_type, r.scope_id, r.condition, r.fields, r.reason, r.priority, r.expires_at?.toMillis() ?? null, r.created_at.toMillis()];
 
 /** The `authz_policy` values of a policy `loadPolicy` checked. */
-export function policyToRecord(p: Policy, actor: PrincipalRef | undefined, now: Date): PolicyValues {
+export function policyToRecord(p: Policy, actor: PrincipalRef | undefined, now: Date): Required<PolicyValues> {
   const scope = p.scope ?? GLOBAL;
   return {
     id: p.id,

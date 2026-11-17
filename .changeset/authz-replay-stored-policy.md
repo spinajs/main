@@ -9,3 +9,5 @@ Decision replay splices DB-stored rules and policies into the config policy as t
 New exports: `rbacDenyRelation` and `abacRelation` (the relations the placeholders sit in), `DB_RULE_STORE_NAME`, `DB_POLICY_STORE_NAME`, and `rowToRule` (the rule an `authz_rule` row and its subject rows hold).
 
 `@spinajs/authz-ir`: `StoreUnreadable`. A `StoredPolicySplicer.current` that rejects with it makes its store a gap (`<kind>:<store>`) instead of failing the replay; `PolicySplicer` does so when an `authz_policy` row no longer parses.
+
+`@spinajs/authz-abac`: `DbPolicyStore.put` logs the policy as a read of its row gives it (`recordToPolicy(policyToRecord(...))`), so a policy put with `expiresAt: null` or a bare `$global` scope no longer makes its changelog key look written outside the changelog. Changes logged before this keep the old payload shape. `policyToRecord` returns every column (`Required<PolicyValues>`).
