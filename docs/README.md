@@ -63,6 +63,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/orm-http`](orm-http/README.md) | Route arguments that load models |
 | [`@spinajs/orm-threading`](orm-threading/README.md) | Database-backed mutex |
 | [`@spinajs/intl-orm`](intl-orm/README.md) | Per-language column values |
+| [`@spinajs/tenancy-orm`](tenancy-orm/README.md) | Confine the rows of a tenant in the ORM |
 | [`configuration-db-source`](configuration-db-source/README.md), [`configuration-http`](configuration-http/README.md) | Database-stored configuration and its HTTP API |
 | [`@spinajs/fs`](fs/README.md), [`fs-s3`](fs-s3/README.md), [`fs-ftp`](fs-ftp/README.md), [`fs-onedrive`](fs-onedrive/README.md) | File system abstraction and providers |
 | [`configuration-fs-protocol`](configuration-fs-protocol/README.md), [`configuration-aws-secretmanager-protocol`](configuration-aws-secretmanager-protocol/README.md) | Configuration value protocols |
