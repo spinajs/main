@@ -2,9 +2,9 @@
 
 The database side of `@spinajs/audit`:
 
-- `TableAuditStore`: a trail in a table (`audit_event` by default), written inside the audited transaction or on the trail's connection.
+- `TableAuditStore`: a trail in a table (`audit_event` by default), written inside the audited transaction or on the trail's connection. Each trail owns its table: two trails of a table store that resolve to the same table on the same connection are refused with `AuditConfigError`, so a trail you add needs its own `table`.
 - `AuditTrailTableMigration`: creates a trail table; the package migrates `audit_event` on the default connection. For another table or connection, extend it, override `table()` and add `@Migration(connection)`.
-- `TableAuditReader`, `pruneAudit()` and `@spinajs/audit-orm/scheduler` (`AuditRetentionTask`).
+- `TableAuditReader`, `pruneAudit()` and `@spinajs/audit-orm/scheduler` (`AuditRetentionTask`). Retention applies per trail, to the trail's own table; a trail or connection that fails is reported after the others were pruned.
 - `Model.audit()` and `row.audit()`.
 - `@spinajs/audit-orm/testing`: `TestDb`, one ORM over sqlite, PGlite and the Postgres and MySQL servers that answer, for suites that write to trail tables.
 

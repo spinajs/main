@@ -4,6 +4,8 @@ import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
+import { assertOwnTables } from './table-store.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 // A table of the trail's name that lacks these is not a trail table, and retention leaves it alone.
 const TRAIL_COLUMNS = ['seq', 'at', 'data_hash'];
@@ -78,6 +80,8 @@ async function pruneTrail(trail: TrailConfig, reader: AuditReader, before: Date,
  */
 export async function pruneAudit(options: PruneAuditOptions = {}): Promise<number> {
   const now = options.now ?? new Date();
+  // Before any delete: a table shared by two trails would be pruned at the shorter retention.
+  await assertOwnTables();
   const run: Run = { deleted: 0, failed: [] };
   for (const name of options.trail === undefined ? trailNames() : [options.trail]) {
     try {
