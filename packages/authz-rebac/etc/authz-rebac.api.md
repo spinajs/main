@@ -43,6 +43,8 @@ export interface TupleSubjectsAdminQuery {
     readonly scope: ResourceRef;
     readonly relation: string;
     readonly subjectType: string;
+    /** The request env caveats read; holders under a caveat it cannot decide come back with `conditional: true`. */
+    readonly env?: Readonly<Record<string, unknown>>;
 }
 declare module "@spinajs/authz" {
     interface AuthzCommandMap {
