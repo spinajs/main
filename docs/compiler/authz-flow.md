@@ -129,6 +129,12 @@ const rows = await Invoice.where('Status', 'paid');
 
 The reason after the colon is required. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
 
+## In `spinajs doctor`
+
+Three doctor rules report the findings, one per code: `AUTHZ001` (`flowUnscopedRead`), `AUTHZ002` (`flowUnscopedWrite`) and `AUTHZ006` (`flowSystemWithoutReason`), all warnings ([doctor](doctor.md#rules)). They read `authz.findings` of the app manifest and report the findings of the app's own package only: a dependency's fragment carries findings for its own entry points, and they are its maintainers' to fix. An ignore comment silences its code at its own line and the line below, nothing else; the silenced finding stays in the manifest.
+
+`spinajs doctor --fail-on warning` makes the findings fail a CI run.
+
 ## Relation to `require-accessible`
 
 Lint is the fast path: it runs in the editor and sees one file. The compiler follows calls across files, injected services, overrides and `DI.resolve`, at build time. Keep both.

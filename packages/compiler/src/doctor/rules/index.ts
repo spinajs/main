@@ -23,6 +23,7 @@ import { unknownPermission } from './unknown-permission.js';
 import { resourceMismatch } from './resource-mismatch.js';
 import { fieldsWithoutFilter } from './fields-without-filter.js';
 import { systemWithoutReason } from './system-without-reason.js';
+import { flowSystemWithoutReason, flowUnscopedRead, flowUnscopedWrite } from './flow-findings.js';
 import { workflowDuplicateVersion } from './workflow-duplicate-version.js';
 import { workflowSignalWithoutAuthorizer } from './workflow-signal-without-authorizer.js';
 import { workflowTooManyVersions } from './workflow-too-many-versions.js';
@@ -53,6 +54,9 @@ export const DEFAULT_RULES: DoctorRule[] = [
   resourceMismatch,
   fieldsWithoutFilter,
   systemWithoutReason,
+  flowUnscopedRead,
+  flowUnscopedWrite,
+  flowSystemWithoutReason,
   workflowDuplicateVersion,
   workflowSignalWithoutAuthorizer,
   workflowTooManyVersions,
@@ -91,6 +95,9 @@ export {
   resourceMismatch,
   fieldsWithoutFilter,
   systemWithoutReason,
+  flowUnscopedRead,
+  flowUnscopedWrite,
+  flowSystemWithoutReason,
   workflowDuplicateVersion,
   workflowSignalWithoutAuthorizer,
   workflowTooManyVersions,
