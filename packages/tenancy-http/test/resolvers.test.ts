@@ -1,12 +1,14 @@
 import 'mocha';
+import type { IncomingHttpHeaders } from 'node:http';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { Injectable } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
+import { parseTrustProxy } from '@spinajs/http';
 import { TenantResolver, TenantUnavailable } from '@spinajs/tenancy';
 import type { TenantProposal } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
-import { hostOf, hostPlace, principalOf, resolveTenant, tenantResolvers } from '../src/index.js';
+import { hostOf, hostPlace, principalOf, requestHost, resolveTenant, tenantResolvers } from '../src/index.js';
 import type { TenantRequestSource } from '../src/index.js';
 import { anonymous, seedTenants, source, tenancyHttpApp, user } from './support/source.js';
 
@@ -32,6 +34,9 @@ describe('host helpers', () => {
     expect(hostOf('[::1]:3000')).to.eq('[::1]');
     expect(hostOf(undefined)).to.eq(undefined);
     expect(hostOf('')).to.eq(undefined);
+    expect(hostOf('shop.acme.example.:443')).to.eq('shop.acme.example');
+    expect(hostOf('[::1')).to.eq(undefined);
+    expect(hostOf('Shop.Acme.Example, proxy.internal')).to.eq('shop.acme.example');
   });
 
   it('places a host against the base domains', () => {
@@ -40,10 +45,34 @@ describe('host helpers', () => {
     expect(hostPlace('app.example.com', bases)).to.eq('base');
     expect(hostPlace('www.app.example.com', bases)).to.eq('base');
     expect(hostPlace('acme.app.example.com', bases)).to.deep.eq({ label: 'acme' });
+    expect(hostPlace('ACME.App.Example.com', bases)).to.deep.eq({ label: 'acme' });
     expect(hostPlace('acme.www.app.example.com', bases)).to.deep.eq({ label: 'acme' });
+    expect(hostPlace('.app.example.com', bases)).to.eq('other');
     expect(hostPlace('a.b.app.example.com', bases)).to.eq('other');
+    expect(hostPlace('evilapp.example.com', bases)).to.eq('other');
     expect(hostPlace('shop.acme.example', bases)).to.eq('other');
     expect(hostPlace('shop.acme.example', [])).to.eq('other');
+  });
+
+  describe('requestHost', () => {
+    const request = (remoteAddress: string, headers: IncomingHttpHeaders) => ({ headers, socket: { remoteAddress } });
+    const forwarded = { host: 'upstream.internal:8080', 'x-forwarded-host': 'Shop.Acme.Example, edge.cdn.example' };
+    const proxies = parseTrustProxy('10.0.0.0/8', 'http.trustProxy');
+
+    it('reads X-Forwarded-Host only from a peer http.trustProxy trusts, and then its first value', () => {
+      expect(requestHost(request('10.0.0.5', forwarded), proxies)).to.eq('shop.acme.example');
+      expect(requestHost(request('203.0.113.7', forwarded), { hops: 1 })).to.eq('shop.acme.example');
+    });
+
+    it('takes the Host header from any other peer', () => {
+      expect(requestHost(request('203.0.113.7', forwarded), proxies)).to.eq('upstream.internal');
+      expect(requestHost(request('10.0.0.5', forwarded), { hops: 0 })).to.eq('upstream.internal');
+      expect(requestHost({ headers: forwarded }, { hops: 1 })).to.eq('upstream.internal');
+    });
+
+    it('falls back to the Host header when a trusted peer sends no forwarded host', () => {
+      expect(requestHost(request('10.0.0.5', { host: 'shop.acme.example' }), proxies)).to.eq('shop.acme.example');
+    });
   });
 });
 
@@ -63,6 +92,14 @@ describe('tenant resolvers', () => {
   let app: TestApp;
 
   const propose = async (name: string, from: Partial<TenantRequestSource>): Promise<TenantProposal | undefined> => (await tenantResolvers([name], app.container))[0].resolve(source(from));
+
+  const resolve = async (from: Partial<TenantRequestSource>): Promise<string | undefined> => (await resolveTenant(await tenantResolvers(DEFAULT_CHAIN, app.container), source(from), app.container))?.id;
+
+  const reasonOf = (work: Promise<unknown>): Promise<string> =>
+    work.then(
+      () => 'resolved',
+      (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
+    );
 
   afterEach(async () => {
     await app?.dispose();
@@ -143,17 +180,32 @@ describe('tenant resolvers', () => {
       expect((await tenantResolvers(['region'], app.container))[0]).to.be.instanceOf(RegionTenantResolver);
       await expect(tenantResolvers(['domain', 'nope'], app.container)).to.be.rejectedWith(InvalidOption, 'no TenantResolver is registered as NopeTenantResolver');
     });
+
+    it('refuses a registration that does not give a TenantResolver', async () => {
+      const BrokenTenantResolver = (): unknown => ({ trusted: true });
+      app.container.register(BrokenTenantResolver).as(TenantResolver);
+
+      await expect(tenantResolvers(['broken'], app.container)).to.be.rejectedWith(InvalidOption, 'tenancy.http.resolvers "broken": BrokenTenantResolver is not a TenantResolver');
+    });
+  });
+
+  describe('resolveTenant on hosts', () => {
+    beforeEach(async () => {
+      app = await tenancyHttpApp({ http: { baseDomains: ['app.example.com'] } });
+      await seedTenants();
+    });
+
+    it('finds a tenant by its own domain and by its subdomain', async () => {
+      expect(await resolve({ host: 'shop.acme.example' })).to.eq('acme');
+      expect(await resolve({ host: 'acme-inc.app.example.com' })).to.eq('acme');
+    });
+
+    it('refuses an unknown custom host without falling through to the path', async () => {
+      expect(await reasonOf(resolve({ host: 'evilapp.example.com', params: { tenant: 'acme-inc' } }))).to.eq('unknown');
+    });
   });
 
   describe('resolveTenant', () => {
-    const reasonOf = (work: Promise<unknown>): Promise<string> =>
-      work.then(
-        () => 'resolved',
-        (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
-      );
-
-    const resolve = async (from: Partial<TenantRequestSource>): Promise<string | undefined> => (await resolveTenant(await tenantResolvers(DEFAULT_CHAIN, app.container), source(from), app.container))?.id;
-
     beforeEach(async () => {
       app = await tenancyHttpApp();
       await seedTenants();

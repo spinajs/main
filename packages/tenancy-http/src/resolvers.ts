@@ -1,4 +1,4 @@
-import { Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -11,12 +11,13 @@ const textOf = (value: unknown): string | undefined => (typeof value === 'string
 
 /** Where `host` stands to the application's own domains: one of them, one label below one of them, or neither. */
 export function hostPlace(host: string, baseDomains: readonly string[]): 'base' | 'other' | { readonly label: string } {
+  const name = host.toLowerCase();
   const bases = baseDomains.map((domain) => domain.toLowerCase());
   // Every base is checked for an exact match first: one base may be a subdomain of another (`www.app` under `app`).
-  if (bases.includes(host)) return 'base';
+  if (bases.includes(name)) return 'base';
   for (const base of bases) {
-    const label = host.endsWith(`.${base}`) ? host.slice(0, -(base.length + 1)) : undefined;
-    if (label !== undefined && !label.includes('.')) return { label };
+    const label = name.endsWith(`.${base}`) ? name.slice(0, -(base.length + 1)) : '';
+    if (label !== '' && !label.includes('.')) return { label };
   }
   return 'other';
 }
@@ -106,7 +107,7 @@ export class SessionTenantResolver extends RequestTenantResolver {
 }
 
 /** The resolvers `names` lists, in that order: the entry `x` is the TenantResolver registered as `XTenantResolver`. */
-export async function tenantResolvers(names: readonly string[], container: IContainer): Promise<TenantResolver[]> {
+export async function tenantResolvers(names: readonly string[], container: IContainer = DI.RootContainer): Promise<TenantResolver[]> {
   const registered = container.getRegisteredNames(TenantResolver);
   const chain: TenantResolver[] = [];
   for (const name of names) {
@@ -114,7 +115,12 @@ export async function tenantResolvers(names: readonly string[], container: ICont
     if (!registered.includes(service)) {
       throw new InvalidOption(`tenancy.http.resolvers "${name}": no TenantResolver is registered as ${service} (registered: ${registered.join(', ') || 'none'})`);
     }
-    chain.push(await container.resolveNamed(TenantResolver, service));
+    // A factory registration is returned as is; a wrong one must fail here, not on every request.
+    const resolver: unknown = await container.resolveNamed(TenantResolver, service);
+    if (!(resolver instanceof TenantResolver)) {
+      throw new InvalidOption(`tenancy.http.resolvers "${name}": ${service} is not a TenantResolver`);
+    }
+    chain.push(resolver);
   }
   return chain;
 }
