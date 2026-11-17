@@ -35,6 +35,7 @@ The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the query midd
 | [The ancestor table](06-ancestor-table.md) | `AncestorMiddleware`, `reparent()` and the `authz:ancestors-verify` / `authz:ancestors-rebuild` commands keep the closure table right. |
 | [The runtime guard](07-runtime-guard.md) | `AccessGuardMiddleware` flags a multi-row select of a resource without `.accessible()`, `.unscoped()` or `SYSTEM`. |
 | [Database audit](08-database-audit.md) | `DbDecisionAudit` writes the audit trail to `authz_audit`. |
+| [Policy versions](09-policy-versions.md) | The policy hash decision records cite, its `authz_policy_version` row, `authz.changelog.policyVersion` and `spinajs authz:compile`. |
 
 New to the package: read [Declaring access resources](04-access-resources.md), then [Single-object checks](05-single-object-checks.md) and [Access lists](01-access-lists.md).
 
