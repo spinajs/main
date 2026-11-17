@@ -84,7 +84,7 @@ export class RunExecutor {
       if (!ac.signal.aborted) ac.abort(reason);
     };
     const job = def.emit;
-    const work = job ? this.traced(run, () => this.dispatchEmit(run, def, job, ac.signal)) : this.execute(run, def, ac, abort);
+    const work = job ? this.traced(run, (span) => this.dispatchEmit(run, def, job, ac.signal, span)) : this.execute(run, def, ac, abort);
     const done = work.catch((err) => this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`));
     return { runId: run.Id, schedule: run.Schedule, done, abort };
   }
@@ -221,6 +221,7 @@ export class RunExecutor {
     def: ScheduleDefinition,
     job: NonNullable<ScheduleDefinition['emit']>,
     signal: AbortSignal,
+    span?: Span,
   ): Promise<void> {
     const startedAt = this.Clock.now();
     const jobId = runJobId(run);
@@ -264,6 +265,8 @@ export class RunExecutor {
         `job ${job.name} (${jobId})`,
       );
       if (sent.kind !== 'ok') {
+        // a failed or timed-out emit settles as an outcome, it does not throw into traced()
+        if (sent.kind === 'error' && span) markSpanErrorType(span, sent.error);
         const ctx = await this.createContext(run, def, new AbortController().signal, cfg);
         await this.complete(run, def, ctx, sent);
         return;

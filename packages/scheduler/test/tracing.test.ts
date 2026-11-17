@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+import { Job, QueueJob, SystemTask } from '@spinajs/queue';
 import { withSpan } from '@spinajs/tracing';
 import { resetTracing, useInMemorySpans } from '@spinajs/tracing/testing';
 import type { InMemorySpans } from '@spinajs/tracing/testing';
@@ -9,6 +10,7 @@ import type { InMemorySpans } from '@spinajs/tracing/testing';
 import { defineSchedule, FakeClock, RunAttemptModel, RunContext, RunModel, Scheduler, Scheduler_2026_11_16_00_00_00, SchedulerService, ScheduledTask, undefineSchedule } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 import { getRun, queuedRun } from './support/fixtures.js';
+import { InMemoryQueueClient, queueConfig } from './support/queue.js';
 
 class BodyFailed extends Error {}
 
@@ -129,5 +131,48 @@ describe('scheduler spans', () => {
     expect(await columns()).to.include('TraceParent');
     await DI.resolve(Scheduler_2026_11_16_00_00_00).down(driver);
     expect(await columns()).to.not.include('TraceParent');
+  });
+});
+
+@Job()
+@SystemTask('a test job that only has to be emitted')
+class TracedEmitJob extends QueueJob {
+  public execute() {
+    return Promise.resolve();
+  }
+}
+class TracedEmitTask extends ScheduledTask {}
+
+describe('scheduler spans in emit mode', () => {
+  let spans: InMemorySpans;
+
+  beforeEach(async () => {
+    InMemoryQueueClient.reset();
+    spans = useInMemorySpans();
+    defineSchedule(TracedEmitTask, 'emit-traced', { manual: true, emit: TracedEmitJob });
+    await bootTestEnv({ now: '2026-01-05T10:00:00Z', extra: queueConfig() });
+  });
+
+  afterEach(async () => {
+    undefineSchedule('emit-traced');
+    await spans.detach();
+  });
+
+  after(() => resetTracing());
+
+  it('marks the run span by the error class when the emit fails', async () => {
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    InMemoryQueueClient.failNext = true;
+    const run = await queuedRun('emit-traced', Date.parse('2026-01-05T10:00:00Z'));
+    await s.tickOnce();
+    await s.idle();
+
+    expect((await getRun(run.Id)).Status).to.eq('failed');
+    const [span] = spans.byName('run emit-traced');
+    expect(span.parentSpanContext).to.equal(undefined);
+    expect(span.status).to.deep.equal({ code: SpanStatusCode.ERROR, message: 'Error' });
+    expect(span.attributes['error.type']).to.equal('Error');
+    expect(span.events).to.deep.equal([]);
+    expect(JSON.stringify([span.status, span.attributes])).to.not.contain('broker unavailable');
   });
 });
