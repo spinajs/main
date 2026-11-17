@@ -5,7 +5,7 @@ import { GLOBAL_OBJECT, GLOBAL_TYPE } from '../ir.js';
 import type { ObjectRef, PermissionBinding, PolicyIR, PrincipalFacts, RelationName, TupleSubjectRef, TypeName } from '../ir.js';
 import { CaveatEvaluator } from './caveats.js';
 import type { CaveatContext } from './caveats.js';
-import { IRLimitExceeded, Walker, objectLabel, subjectsOf } from './check.js';
+import { IRLimitExceeded, Walker, objectLabel, readSubjects } from './check.js';
 import { expandUserset } from './expand.js';
 import type { UsersetTree } from './expand.js';
 import { objectCandidates, subjectCandidates } from './list.js';
@@ -120,16 +120,19 @@ export class IREvaluator {
     const label = `${p.type}:${p.id} ${input.permission} ${objectLabel(input.resource)}`;
     const at = input.at ?? new Date();
     const children: ExplainNode[] = [];
+    let bound: Truth = 'allow';
     if (this.ir.principal.ceiling && ceilings.some((c) => c !== undefined)) {
       const ceiling = await this.ceiling(ceilings, input.permission, input.resource, at);
       children.push(ceiling);
       if (ceiling.truth === 'deny') return { truth: 'deny', tree: explainNode(label, 'deny', `permissions.${input.permission}`, children) };
+      bound = ceiling.truth;
     }
     const walker = new Walker({ ir: this.ir, tuples: this.tuples, caveats: this.caveats, input: { principal: p, permission: input.permission, resource: input.resource, context: input.context, at }, maxDepth: this.maxDepth, maxCalls: this.maxCalls, blocked: this.blockedRoles(ceilings) });
     try {
       const step = await walker.node(input.resource, binding.relation, 0);
       children.push(step.node);
-      return { truth: step.truth, tree: explainNode(label, step.truth, `permissions.${input.permission}`, children) };
+      const truth = and3(bound, step.truth);
+      return { truth, tree: explainNode(label, truth, `permissions.${input.permission}`, children) };
     } catch (e) {
       if (!(e instanceof IRLimitExceeded)) throw e;
       children.push(explainNode(e.message, 'unknown', 'limit'));
@@ -139,22 +142,25 @@ export class IREvaluator {
 
   /** The engine's ceiling rules (`authz/src/engine/ceiling.ts`): permission globs, expiry, and resources covering the object or an ancestor. */
   private async ceiling(ceilings: ReadonlyArray<PrincipalFacts['ceiling']>, permission: Permission, resource: ObjectRef, at: Date): Promise<ExplainNode> {
-    let nodes: ObjectRef[] | undefined;
+    let walk: { nodes: ObjectRef[]; gaps: ExplainNode[] } | undefined;
+    let unknown: ExplainNode | undefined;
     for (const c of ceilings) {
       if (c === undefined) continue;
       if (c.permissions !== undefined && !c.permissions.some((g) => isPermissionGlob(g) && compilePermissionGlob(g)(permission))) return explainNode(`${permission} is outside the ceiling`, 'deny', 'principal.ceiling');
       if (c.expiresAt !== undefined && !(at.getTime() < Date.parse(c.expiresAt))) return explainNode(`the ceiling expired at ${c.expiresAt}`, 'deny', 'principal.ceiling');
-      if (c.resources !== undefined) {
-        nodes ??= [resource, ...(await this.ancestors(resource))];
-        if (!c.resources.some((e) => nodes!.some((n) => e.type === n.type && (e.id === undefined || e.id === n.id)))) return explainNode(`${objectLabel(resource)} is outside the ceiling resources`, 'deny', 'principal.ceiling');
-      }
+      if (c.resources === undefined) continue;
+      const w = (walk ??= await this.ancestors(resource));
+      if (c.resources.some((e) => [resource, ...w.nodes].some((n) => e.type === n.type && (e.id === undefined || e.id === n.id)))) continue;
+      if (w.gaps.length === 0) return explainNode(`${objectLabel(resource)} is outside the ceiling resources`, 'deny', 'principal.ceiling');
+      unknown ??= explainNode(`${objectLabel(resource)} is outside the ceiling resources as far as the ancestors are known`, 'unknown', 'principal.ceiling', w.gaps);
     }
-    return explainNode('within the ceiling', 'allow', 'principal.ceiling');
+    return unknown ?? explainNode('within the ceiling', 'allow', 'principal.ceiling');
   }
 
-  /** Every object up the `ancestry` relation, nearest first. */
-  protected async ancestors(object: ObjectRef): Promise<ObjectRef[]> {
+  /** Every object up the `ancestry` relation, nearest first, and the partial reads on the way. */
+  protected async ancestors(object: ObjectRef): Promise<{ nodes: ObjectRef[]; gaps: ExplainNode[] }> {
     const out: ObjectRef[] = [];
+    const gaps: ExplainNode[] = [];
     const seen = new Set([objectLabel(object)]);
     let frontier = [object];
     for (let depth = 0; depth < this.maxDepth && frontier.length > 0; depth++) {
@@ -162,7 +168,9 @@ export class IREvaluator {
       for (const o of frontier) {
         const rel = own(this.ir.types, o.type) ? this.ir.types[o.type].relations[this.ir.principal.ancestry] : undefined;
         if (rel === undefined) continue;
-        for (const s of await subjectsOf(this.tuples, o, this.ir.principal.ancestry, rel)) {
+        const read = await readSubjects(this.tuples, o, this.ir.principal.ancestry, rel);
+        if (read.gap) gaps.push(explainNode(read.gap.message, 'unknown', 'gap'));
+        for (const s of read.subjects) {
           const ref = { type: s.type, id: s.id };
           if (s.relation !== undefined || seen.has(objectLabel(ref))) continue;
           seen.add(objectLabel(ref));
@@ -172,7 +180,7 @@ export class IREvaluator {
       }
       frontier = next;
     }
-    return out;
+    return { nodes: out, gaps };
   }
 
   private blockedRoles(ceilings: ReadonlyArray<PrincipalFacts['ceiling']>): Set<string> {
