@@ -18,9 +18,6 @@
       "path": "../authz-http/tsconfig.build.json"
     },
     {
-      "path": "../configuration/tsconfig.build.json"
-    },
-    {
       "path": "../di/tsconfig.build.json"
     },
     {
@@ -28,6 +25,9 @@
     },
     {
       "path": "../http/tsconfig.build.json"
+    },
+    {
+      "path": "../principal/tsconfig.build.json"
     },
     {
       "path": "../workflow/tsconfig.build.json"

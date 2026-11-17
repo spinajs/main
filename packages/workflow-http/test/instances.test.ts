@@ -1,8 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { WorkflowStepView } from '@spinajs/workflow';
+import { WorkflowNotRegistered, WorkflowNotRetryable, type WorkflowStepView } from '@spinajs/workflow';
 
-import { asRole, bootHttp, req, stopHttp } from './common.js';
+import { asRole, bootHttp, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeWorkflowService, INSTANCE_ID, makeInstance } from './fakes/fake-workflow.js';
 
 describe('workflow-http: instances', function () {
@@ -73,6 +73,73 @@ describe('workflow-http: instances', function () {
       expect(await req().get(`workflow/instances/${INSTANCE_ID}/payload`).set(asRole('workflow-admin'))).to.have.status(403);
       expect(await req().get('workflow/instances/nope/payload').set(asRole('workflow-auditor'))).to.have.status(404);
       expect(fake.callsTo('details')).to.deep.equal([['nope']]);
+    });
+  });
+
+  describe('POST /workflow/instances', () => {
+    it('starts an instance: 201 when created, 200 when the id existed', async () => {
+      const created = await req().post('workflow/instances').set(asRole('workflow-admin')).send({ workflow: 'order', input: { order: 'A-1' }, id: 'wf-9' });
+      expect(created).to.have.status(201);
+      expect(created.body).to.deep.equal({ id: 'wf-9', created: true });
+      expect(fake.callsTo('start')[0]).to.deep.equal(['order', { order: 'A-1' }, { id: 'wf-9' }]);
+      fake.created = false;
+      expect(await req().post('workflow/instances').set(asRole('workflow-admin')).send({ workflow: 'order', id: 'wf-9' })).to.have.status(200);
+    });
+
+    it('answers 400 for an unknown workflow and 403 without workflow:manage', async () => {
+      fake.failWith = new WorkflowNotRegistered('nope');
+      expect(await req().post('workflow/instances').set(asRole('workflow-admin')).send({ workflow: 'nope' })).to.have.status(400);
+      expect(await req().post('workflow/instances').set(asRole('workflow-signaler')).send({ workflow: 'order' })).to.have.status(403);
+    });
+
+    it('answers 400 to a body with unknown fields', async () => {
+      const res = await req().post('workflow/instances').set(asRole('workflow-admin')).send({ workflow: 'order', input: { order: 'A-1' }, extra: 1 });
+      expect(res).to.have.status(400);
+      expect(JSON.stringify(res.body)).to.not.include('A-1');
+      expect(fake.callsTo('start')).to.deep.equal([]);
+    });
+  });
+
+  describe('POST /workflow/instances/:id/signals/:name', () => {
+    it('stores the signal with the caller as principal and answers 202', async () => {
+      const res = await req().post(`workflow/instances/${INSTANCE_ID}/signals/approved`).set(asRole('workflow-signaler')).send({ payload: { ok: true }, dedupKey: 'k-1' });
+      expect(res).to.have.status(202);
+      expect(res.body).to.deep.equal({ accepted: true });
+      expect(fake.callsTo('signal')[0]).to.deep.equal([INSTANCE_ID, 'approved', { ok: true }, { principal: `user:${TEST_USER_UUID}`, dedupKey: 'k-1' }]);
+    });
+
+    it('refuses a restricted credential with 403 and a name with # with 400', async () => {
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/signals/approved`).set(asRole('workflow-signaler', { 'x-test-scoped': '1' })).send({})).to.have.status(403);
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/signals/a%23b`).set(asRole('workflow-signaler')).send({})).to.have.status(400);
+      expect(fake.callsTo('signal')).to.deep.equal([]);
+    });
+
+    it('answers 403 without workflow:signal and 404 for an unknown instance', async () => {
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/signals/approved`).set(asRole('workflow-reader')).send({})).to.have.status(403);
+      expect(await req().post('workflow/instances/nope/signals/approved').set(asRole('workflow-signaler')).send({})).to.have.status(404);
+    });
+  });
+
+  describe('cancel and retry', () => {
+    it('cancels with a reason and answers 202 with the instance', async () => {
+      const res = await req().post(`workflow/instances/${INSTANCE_ID}/cancel`).set(asRole('workflow-admin')).send({ reason: 'customer left' });
+      expect(res).to.have.status(202);
+      expect(res.body).to.containSubset({ id: INSTANCE_ID });
+      expect(res.body).to.not.have.any.keys('input', 'result');
+      expect(fake.callsTo('cancel')[0]).to.deep.equal([INSTANCE_ID, 'customer left']);
+    });
+
+    it('retries and answers 409 when the instance is not retryable', async () => {
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/retry`).set(asRole('workflow-admin'))).to.have.status(202);
+      fake.failWith = new WorkflowNotRetryable("workflow instance 'wf-1' is waiting; only a failed instance can be retried");
+      const refused = await req().post(`workflow/instances/${INSTANCE_ID}/retry`).set(asRole('workflow-admin'));
+      expect(refused).to.have.status(409);
+      expect(refused.body).to.not.have.any.keys('stack', 'details');
+    });
+
+    it('answers 404 to a cancel of an unknown instance and 403 without workflow:manage', async () => {
+      expect(await req().post('workflow/instances/nope/cancel').set(asRole('workflow-admin')).send({})).to.have.status(404);
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/cancel`).set(asRole('workflow-signaler')).send({})).to.have.status(403);
     });
   });
 });
