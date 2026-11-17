@@ -4,10 +4,11 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { AuditConfigError, AuditStore, AuditWriteFailed, audit } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
-import { BelongsTo, Connection, Model, ModelBase, Orm, Primary, QueryMiddleware, SortOrder, extractModelDescriptor } from '@spinajs/orm';
-import type { SingleRelation } from '@spinajs/orm';
+// Relation is imported as a value: the decorators read the property's emitted design type.
+import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
+import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
-import { AuditReads, ReadAuditMiddleware, registerAuditReads } from '../../src/index.js';
+import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, registerAuditReads } from '../../src/index.js';
 import { DIALECTS, TestDb } from '../../src/testing.js';
 import type { Dialect } from '../../src/testing.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
@@ -109,28 +110,96 @@ class Keyless extends ModelBase<Keyless> {
   public Name: string;
 }
 
+// A rule on a base class applies to the subclass, directly and where another model joins it.
+@AuditReads({ trail: 'restricted', columns: ['Code'] })
+class Charted<M> extends ModelBase<M> {
+  @Primary()
+  public Id: number;
+
+  public Code: string;
+}
+
+@Connection('sqlite')
+@Model('ward')
+class Ward extends Charted<Ward> {
+  @HasMany(Patient, { foreignKey: 'Ward', primaryKey: 'Id' })
+  public Patients: Relation<Patient, Ward>;
+}
+
+@Connection('sqlite')
+@Model('doctor_ward')
+class DoctorWard extends ModelBase<DoctorWard> {
+  @Primary()
+  public Id: number;
+
+  public doctor_id: number;
+
+  public ward_id: number;
+}
+
+@Connection('sqlite')
+@Model('doctor')
+class Doctor extends ModelBase<Doctor> {
+  @Primary()
+  public Id: number;
+
+  @HasManyToMany(DoctorWard, Ward, { junctionModelSourcePk: 'doctor_id', junctionModelTargetPk: 'ward_id' })
+  public Wards: Relation<Ward, Doctor>;
+}
+
+@Connection('sqlite')
+@Model('badge')
+@AuditReads({ trail: 'restricted' })
+class Badge extends ModelBase<Badge> {
+  @Primary()
+  public Id: Buffer;
+
+  public Holder: string;
+}
+
+// On a connection of its own: the pinned save() leaves its transaction open there for good.
+@Connection('wedge')
+@Model('chart')
+@AuditReads({ trail: 'wedge', mode: 'query' })
+class Chart extends ModelBase<Chart> {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 const RETRY = { attempts: 2, delay: '1ms' };
 const AUDIT = {
   trails: {
     restricted: { store: 'TestAuditStore', onFailure: 'reject', retry: RETRY },
     ...Object.fromEntries(DIALECTS.map((d) => [searches(d), { connection: d, table: SEARCH_TABLE, retry: RETRY }])),
+    wedge: { connection: 'wedge', onFailure: 'reject', retry: RETRY },
   },
 };
+const WEDGE = { Driver: 'orm-driver-sqlite', Name: 'wedge', Filename: ':memory:' };
+
+async function createTables(driver: OrmDriver, tables: Record<string, (table: TableQueryBuilder) => void>): Promise<void> {
+  for (const [name, columns] of Object.entries(tables)) {
+    await driver.schema().dropTable(name).ifExists();
+    await driver.schema().createTable(name, columns);
+  }
+}
 
 async function seed(db: TestDb, dialect: Dialect, models: Models): Promise<void> {
-  const schema = db.driver(dialect).schema();
-  await schema.dropTable('visit').ifExists();
-  await schema.dropTable('patient').ifExists();
-  await schema.createTable('patient', (table) => {
-    table.int('Id').primaryKey().autoIncrement();
-    table.string('Name');
-    table.string('Ssn');
-    table.int('Ward');
-  });
-  await schema.createTable('visit', (table) => {
-    table.int('Id').primaryKey().autoIncrement();
-    table.string('Reason');
-    table.int('patient_id');
+  await createTables(db.driver(dialect), {
+    patient: (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('Name');
+      t.string('Ssn');
+      t.int('Ward');
+    },
+    visit: (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('Reason');
+      t.int('patient_id');
+    },
   });
   await (await DI.resolve(Orm)).reloadTableInfo({ models: [models.Patient, models.Visit] });
 
@@ -149,7 +218,7 @@ describe('read auditing', function () {
 
   before(async () => {
     DI.register(TestAuditStore).as(AuditStore);
-    db = await TestDb.open(AUDIT);
+    db = await TestDb.open(AUDIT, { connections: [WEDGE] });
   });
 
   after(async () => {
@@ -259,6 +328,38 @@ describe('read auditing', function () {
         expect(events[0].data).to.deep.eq({ columns: ['Ssn'] });
       });
 
+      it('audits an own column under an alias of its own', async () => {
+        await Patient.query().select('Id').select('Ssn', 'x').where('Id', 1).asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([['1', { columns: ['Ssn'] }]]);
+      });
+
+      it('matches column names without regard to case', async () => {
+        // This package types columns strictly; a package that does not can write the other spelling.
+        const query = Patient.query();
+        Reflect.apply(query.columns.bind(query), undefined, [['Id', 'ssn']]);
+        const read = query.asRaw();
+        if (dialect === 'postgres' || dialect === 'pglite') {
+          // Every identifier is quoted, and a quoted Postgres identifier keeps its case: "ssn" is no column there.
+          await expect(read).to.be.rejectedWith(/ssn/);
+          return;
+        }
+
+        await read;
+        expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([
+          ['1', { columns: ['Ssn'] }],
+          ['2', { columns: ['Ssn'] }],
+          ['3', { columns: ['Ssn'] }],
+        ]);
+      });
+
+      it('audits an aggregate over an audited column as one statement, and none over other columns', async () => {
+        await Patient.query().select('Id').max('Ssn', 'S').groupBy('Id').asRaw();
+        await Patient.query().max('Ward', 'W').asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.subject, e.data])).to.deep.eq([[undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+      });
+
       it('records a streamed select batch by batch, before the batch is yielded', async () => {
         const seen: number[] = [];
         for await (const patient of Patient.query().order('Id', SortOrder.ASC).stream({ batchSize: 2 })) {
@@ -306,7 +407,7 @@ describe('read auditing', function () {
       });
 
       it("keeps the read record when the caller's transaction rolls back", async function () {
-        // One physical connection: there the record cannot leave the caller's transaction.
+        // On one physical connection the record waits for the transaction instead (pinned below).
         if (dialect === 'sqlite' || dialect === 'pglite') this.skip();
         const failing = db.driver(dialect).transaction(async () => {
           await Visit.query().where('Id', 1);
@@ -323,7 +424,7 @@ describe('read auditing', function () {
         let pending: Promise<unknown> = Promise.resolve();
         await db.driver(dialect).transaction(async () => {
           pending = Promise.resolve(Visit.query().where('Id', 1)).finally(() => (settled = true));
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await pause(300);
           expect(settled).to.eq(false);
         });
 
@@ -332,4 +433,90 @@ describe('read auditing', function () {
       });
     });
   }
+
+  describe('relations, keys and limits (sqlite)', () => {
+    before(async () => {
+      const driver = db.driver('sqlite');
+      await seed(db, 'sqlite', MODELS.sqlite);
+      await createTables(driver, {
+        ward: (t) => {
+          t.int('Id').primaryKey();
+          t.string('Code');
+        },
+        doctor: (t) => t.int('Id').primaryKey(),
+        doctor_ward: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.int('doctor_id');
+          t.int('ward_id');
+        },
+        badge: (t) => {
+          t.binary('Id', 2).primaryKey();
+          t.string('Holder');
+        },
+      });
+      await createTables(db.driver('wedge'), {
+        chart: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.string('Name');
+        },
+      });
+      await db.migrate('sqlite', SEARCH_TABLE);
+      await new AuditTrailTableMigration().up(db.driver('wedge'));
+      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart] });
+
+      await Ward.insert({ Id: 4, Code: 'W4' });
+      await Ward.insert({ Id: 5, Code: 'W5' });
+      await Doctor.insert({ Id: 1 });
+      await DoctorWard.insert({ doctor_id: 1, ward_id: 4 });
+      await Badge.insert({ Id: Buffer.from('ab01', 'hex'), Holder: 'Ada' });
+      await Chart.insert({ Name: 'x' });
+    });
+
+    const of = async (type: string) => (await recorded('restricted')).filter((e) => e.subject?.type === type || (e.subject === undefined && e.action === `${type}.read`));
+
+    it('audits the rows of a hasMany populate', async () => {
+      await Ward.query().populate('Patients');
+
+      expect((await of('patient')).map((e) => e.subject?.id).sort()).to.deep.eq(['1', '2', '3']);
+    });
+
+    it('audits the targets of a many-to-many populate, by a rule its base class declares', async () => {
+      await Doctor.query().populate('Wards');
+
+      expect((await of('ward')).map((e) => [e.subject?.id, e.data])).to.deep.eq([['4', { columns: ['Code'] }]]);
+    });
+
+    it('audits relations loaded through their accessors', async () => {
+      const visit = await MODELS.sqlite.Visit.get(1);
+      const ward = await Ward.get(4);
+      resetTrail();
+
+      await visit.Patient.populate();
+      await ward.Patients.populate();
+
+      expect((await of('patient')).map((e) => e.subject?.id)).to.deep.eq(['1', '1', '2']);
+    });
+
+    it('names a row by a binary key as hex', async () => {
+      await Badge.all();
+
+      expect((await of('badge')).map((e) => e.subject?.id)).to.deep.eq(['ab01']);
+    });
+
+    it('pins a known limitation: save({ reload: true }) waits for the transaction it opens itself on a single-connection driver', async () => {
+      const chart = await Chart.get(1);
+      chart.Name = 'y';
+      let settled = false;
+      void Promise.allSettled([chart.save({ reload: true })]).then(() => (settled = true));
+
+      await pause(300);
+      expect(settled).to.eq(false);
+    });
+
+    it('fails the first audited select of a rule that names a column the table lacks', async () => {
+      registerAuditReads(Doctor, { trail: 'restricted', mode: 'query', columns: ['Nope'] });
+
+      await expect(Doctor.all()).to.be.rejectedWith(AuditConfigError, '@AuditReads on Doctor: doctor has no column Nope');
+    });
+  });
 });

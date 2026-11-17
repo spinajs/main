@@ -25,24 +25,35 @@ the rows are returned; when it cannot be written after the trail's retries the s
 unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
 the same for a model of another package.
 
-What it sees: every select through a query builder that carries the model, hydrated or `asRaw()`, streamed (one write
-per batch, before the batch is yielded), and the model's columns when a `populate()` loads it for another model.
+What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
+per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
+type, or through a relation's accessor) brings into a select of another model. A rule applies to the model's
+subclasses. Column names match without regard to case, as sqlite and MySQL resolve them; the ORM quotes every
+identifier, so Postgres only knows the declared spelling.
+
+A raw or `CASE` select expression counts as every audited column. An aggregate over an audited column (`min`, `max`,
+`sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row can be
+named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement in the
+query-mode shape with `keyless: true`. A binary key is written as hex.
 
 What it does not see:
 
-- raw SQL (`driver.execute()`, `RawQuery`) and `driver.select()` without a model;
-- aggregates that return no row of the model (`count`, `sum`, `min`, `max`, `avg`);
+- raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
+- a column that a `join()` query callback selects, or that a `populate()` callback selects under an alias of its own:
+  it is counted for the queried model, not for the joined one;
 - the junction rows of a many-to-many relation;
+- what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
+  condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
 - data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
 
-A raw select expression on an audited model counts as returning every audited column. A select whose rows carry no
-primary key (`columns()` without it, `distinct`, `groupBy`) is recorded as one event without a subject (`keyless: true`).
+`paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
 
 Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one
 event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
 
 A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
 stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
-connection, an audited read awaited inside a transaction does not complete until the transaction ends: the record
-waits for the one connection the transaction holds. This is a known limitation pending a decision; until then read
-audited models outside a transaction there, or put the trail on another connection.
+connection, an audited select inside a transaction does not complete until the transaction ends, as the record waits
+for the connection the transaction holds. That includes selects the ORM runs in a transaction it opened itself (the
+reload of `save({ reload: true })`, relations loaded there, authz-orm's update and delete checks), which never end.
+This is a known limitation pending a decision; until then keep such a trail on another connection.

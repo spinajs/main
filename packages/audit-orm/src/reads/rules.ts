@@ -68,8 +68,6 @@ export function AuditReads(options: AuditReadsOptions = {}): ClassDecorator {
 
 export const hasAuditReads = (): boolean => rules.size !== 0;
 
-export const auditReadsOfName = (model: string): ReadRule | undefined => rules.get(model);
-
 /** The rule of the model or of its nearest ancestor that has one: a discrimination map shares its table. */
 export function auditReadsOf(model: Constructor<ModelBase> | undefined): ReadRule | undefined {
   for (let type: unknown = model; typeof type === 'function' && type.name !== ''; type = Object.getPrototypeOf(type)) {
