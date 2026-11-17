@@ -189,6 +189,9 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
+  @Logger('authn-audit')
+  protected AuditLog: Log;
+
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -788,10 +791,18 @@ export class DefaultAuthnService extends AuthnService {
    * the session is revoked before the failure goes on: no session outlives a login that could not be announced.
    */
   private async announce(ctx: AuthnContext, session: SessionHandle, ...events: AuthnEventBody[]): Promise<void> {
+    let told = 0;
     try {
-      for (const e of events) await this.Auditor.publishIn(ctx, e);
+      for (const e of events) {
+        told++;
+        await this.Auditor.publishIn(ctx, e);
+      }
     } catch (err) {
-      await this.Sessions.revoke(session);
+      // A failed revocation must not replace the 503: no client holds the session, which lives until it expires.
+      await this.Sessions.revoke(session).catch((revokeErr: unknown) => this.AuditLog.warn({ errorClass: errorClass(revokeErr) }, 'authn: a session whose announcement was stopped could not be revoked (${errorClass})'));
+      // Each event up to the stopped one again, as a failure: a listener that took an earlier one as a success learns
+      // that it did not stand, and the refusal is recorded. A failure event is never stopped.
+      for (const e of events.slice(0, told)) await this.Auditor.publishIn(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
       throw err;
     }
   }

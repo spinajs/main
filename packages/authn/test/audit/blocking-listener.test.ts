@@ -3,8 +3,11 @@ import 'mocha';
 import sinon from 'sinon';
 import { FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 
-import { AuthnAudit, AuthnEventListener, AuthnListenerFailed } from '../../src/index.js';
+import type { IContainer } from '@spinajs/di';
+
+import { AuthnAudit, AuthnEventListener, AuthnImpersonationService, AuthnListenerFailed } from '../../src/index.js';
 import type { AuthnContext, AuthnEvent, Credentials, IdentityRef, SessionHandle, StrategyOutcome } from '../../src/index.js';
+import { TestLog } from './test-log.js';
 import { bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
 
@@ -25,6 +28,8 @@ const failureOf = (work: Promise<unknown>): Promise<unknown> =>
 class Gate extends AuthnEventListener {
   readonly seen: AuthnEvent[] = [];
   down = false;
+  /** Fails only on a success event of this type. */
+  failOn: string | undefined;
 
   constructor(
     private readonly blocks: boolean,
@@ -39,7 +44,7 @@ class Gate extends AuthnEventListener {
 
   async on(e: AuthnEvent): Promise<void> {
     this.seen.push(e);
-    if (this.down) throw new TypeError('store down');
+    if (this.down || (e.type === this.failOn && e.outcome === 'success')) throw new TypeError('store down');
     await this.answer();
   }
 }
@@ -58,10 +63,14 @@ describe('blocking listeners', function () {
   });
 
   /** The real service over one interactive strategy that accepts the password `right`, with `gate` registered. */
-  async function boot(gate: Gate): Promise<CoreParts> {
+  async function boot(gate: Gate, observer?: Gate): Promise<CoreParts> {
     const verify = (c: Credentials): StrategyOutcome => ((c as { password?: unknown }).password === 'right' ? { ok: true, identity: OWNER, method: 'password' } : { ok: false, reason: 'invalid_credentials' });
     const strategy = new FakeStrategy({ name: 'kit-form', kinds: ['password'], interactive: true, keys: () => [{ kind: 'account', value: 'acct-blocking' }], verify });
-    parts = await buildCore({}, { strategies: [{ name: 'kit-form', service: 'Svc_form', instance: strategy, listed: true }], register: (c) => bind(c, AuthnEventListener, 'Gate', gate) });
+    const register = (c: IContainer): void => {
+      bind(c, AuthnEventListener, 'Gate', gate);
+      if (observer) bind(c, AuthnEventListener, 'Observer', observer);
+    };
+    parts = await buildCore({}, { strategies: [{ name: 'kit-form', service: 'Svc_form', instance: strategy, listed: true }], register });
     parts.identities.add({ id: OWNER.id, login: 'owner-blocking@example.test' });
     return parts;
   }
@@ -127,7 +136,8 @@ describe('blocking listeners', function () {
 
   it('a detached event is never stopped: the operation has already returned', async () => {
     const gate = new Gate(true);
-    const { child } = await boot(gate);
+    const observer = new Gate(false);
+    const { child } = await boot(gate, observer);
     const audit = await child.resolve(AuthnAudit);
     gate.down = true;
 
@@ -135,9 +145,64 @@ describe('blocking listeners', function () {
     await audit.settled();
 
     assert.deepStrictEqual(
-      gate.seen.map((e) => e.type),
-      ['token.use'],
+      [gate.seen.map((e) => e.type), observer.seen.map((e) => e.type)],
+      [['token.use'], ['token.use']],
     );
+  });
+
+  it('a blocking getter that throws counts as a blocking listener that failed', async () => {
+    const broken = new (class Broken extends Gate {
+      public override get blocking(): boolean {
+        throw new TypeError('no configuration');
+      }
+    })(true);
+    const other = new Gate(false);
+
+    const failure = await failureOf(AuthnAudit.over([other, broken]).publish(event('success')));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.deepStrictEqual([failure.listener, failure.inner instanceof TypeError], ['Broken', true]);
+    assert.deepStrictEqual([broken.seen.length, other.seen.length], [0, 0]);
+  });
+
+  it('answers 503 without naming the listener or the event to the client: both are fields for the log', () => {
+    const failure = new AuthnListenerFailed('LedgerListener', 'login', new TypeError('store down'));
+
+    assert.strictEqual(failure.message, 'an authentication event could not be recorded; try again later');
+    assert.deepStrictEqual([failure.status, failure.code, failure.listener, failure.eventType, failure.details], [503, 'authn_listener_failed', 'LedgerListener', 'login', undefined]);
+  });
+
+  it('a login stopped on its second event is announced again as refused, and leaves no session', async () => {
+    const gate = new Gate(true);
+    gate.failOn = 'session.issue';
+    const observer = new Gate(false);
+    const p = await boot(gate, observer);
+
+    const failure = await failureOf(p.service.authenticate(RIGHT, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.strictEqual(failure.eventType, 'session.issue');
+    assert.deepStrictEqual(
+      observer.seen.map((e) => [e.type, e.outcome, e.reason]),
+      [
+        ['login', 'success', undefined],
+        ['login', 'failure', 'listener_failed'],
+        ['session.issue', 'failure', 'listener_failed'],
+      ],
+    );
+    assert.strictEqual((await p.sessions.list(OWNER)).length, 0);
+  });
+
+  it('a revocation that fails after a stopped announcement is logged, and the 503 stands', async () => {
+    const gate = new Gate(true);
+    const p = await boot(gate);
+    sinon.stub(p.sessions, 'revoke').rejects(new RangeError('store gone'));
+    gate.down = true;
+
+    const failure = await failureOf(p.service.authenticate(RIGHT, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.ok(TestLog.of('authn-audit').some((e) => e.message.includes('could not be revoked (RangeError)')));
   });
 
   it('a login the blocking listener takes succeeds and keeps its session', async () => {
@@ -210,5 +275,52 @@ describe('blocking listeners', function () {
 
     assert.ok(failure instanceof AuthnListenerFailed);
     assert.deepStrictEqual(await p.sessions.list(id), []);
+  });
+
+  /** An admin and a target user, with `gate` registered next to the kit's impersonation guard and start hook. */
+  async function bootImpersonation(gate: Gate): Promise<{ p: CoreParts; svc: AuthnImpersonationService; admin: SessionHandle; target: IdentityRef }> {
+    parts = await buildCore({}, { register: (c) => bind(c, AuthnEventListener, 'Gate', gate) });
+    const adminId = parts.identities.add({ login: 'admin-blocking@example.test' });
+    const target = parts.identities.add({ login: 'target-blocking@example.test' });
+    const admin = await parts.sessions.issue(adminId, { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['fake'], authenticatedAt: AT });
+    return { p: parts, svc: await parts.child.resolve(AuthnImpersonationService), admin, target };
+  }
+
+  it('an impersonation start that cannot be announced answers 503, records the refusal and leaves no impersonation', async () => {
+    const gate = new Gate(true);
+    gate.failOn = 'impersonation.start';
+    const { p, svc, admin, target } = await bootImpersonation(gate);
+
+    const failure = await failureOf(svc.start(admin, target, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.deepStrictEqual(await p.sessions.list(target), []);
+    assert.deepStrictEqual(
+      gate.seen.map((e) => [e.type, e.outcome, e.reason]),
+      [
+        ['impersonation.start', 'success', undefined],
+        ['impersonation.start', 'failure', 'listener_failed'],
+      ],
+    );
+  });
+
+  it('an impersonation end that cannot be announced answers 503 and issues the impersonator no session', async () => {
+    const gate = new Gate(true);
+    const { p, svc, admin, target } = await bootImpersonation(gate);
+    const started = await svc.start(admin, target, ctx());
+    assert.ok(started.ok, 'impersonation starts');
+    gate.failOn = 'impersonation.end';
+
+    const failure = await failureOf(svc.stop(started.session, ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.deepStrictEqual(
+      gate.seen.filter((e) => e.type === 'impersonation.end').map((e) => [e.outcome, e.reason]),
+      [
+        ['success', undefined],
+        ['failure', 'listener_failed'],
+      ],
+    );
+    assert.strictEqual(await p.sessions.restore(started.session.id), null);
   });
 });

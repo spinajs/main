@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Hooks } from '@spinajs/hooks';
 import { TimeSpan, isFiniteNumber, isNonEmptyString, isPlainObject, isValidDate } from '@spinajs/util';
 
+import { AuthnListenerFailed } from '../contracts/audit.js';
 import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
@@ -175,6 +176,7 @@ export class AuthnImpersonationService extends AsyncService {
       const stopped = hookRefusalOf(err, 'authn.impersonation.start');
       if (stopped) return this.refuseStart(ctx, stopped.reason, about, stopped.data);
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
+      if (err instanceof AuthnListenerFailed) return this.stopped(ctx, 'impersonation.start', about, err);
       return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
   }
@@ -212,6 +214,7 @@ export class AuthnImpersonationService extends AsyncService {
       return await this.Hooks.run('authn.impersonation.stop', { session: hookView(session), ctx: hookView(ctx) }, swap, { mutable: [], refusable: false });
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
+      if (err instanceof AuthnListenerFailed) return this.stopped(ctx, 'impersonation.end', about, err);
       return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
   }
@@ -306,6 +309,12 @@ export class AuthnImpersonationService extends AsyncService {
   private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
     await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
     return { ok: false };
+  }
+
+  /** A blocking listener stopped the swap: the refusal is recorded, and the caller answers 503 rather than an ended session. */
+  private async stopped(ctx: AuthnContext, type: 'impersonation.start' | 'impersonation.end', about: About, err: AuthnListenerFailed): Promise<never> {
+    await this.Auditor.publishIn(ctx, { type, outcome: 'failure', reason: 'listener_failed', ...about });
+    throw err;
   }
 
   private async refuseStop(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<null> {

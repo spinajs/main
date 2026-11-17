@@ -26,6 +26,28 @@ export interface AuthnAuditOverOptions {
 
 const stamped = (ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): AuthnEvent => ({ ...body, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
 
+/** A blocking listener and how it takes a stoppable event. */
+interface Gate {
+  readonly listener: AuthnEventListener;
+  readonly take: () => Promise<void>;
+}
+
+// A `blocking` getter that throws cannot say the listener may be skipped: it counts as a blocking listener that failed.
+function gateOf(listener: AuthnEventListener, event: AuthnEvent): Gate[] {
+  try {
+    return listener.blocking ? [{ listener, take: () => listener.on(event) }] : [];
+  } catch (err) {
+    return [
+      {
+        listener,
+        take: () => {
+          throw err;
+        },
+      },
+    ];
+  }
+}
+
 class ListenerDelivery implements AuthnAuditor {
   private readonly pipeline: ResiliencePipeline<void>;
   private readonly detached = new Set<Promise<void>>();
@@ -64,15 +86,16 @@ class ListenerDelivery implements AuthnAuditor {
    * else is told and the failure goes to the emitter. Every other delivery is concurrent, bounded and only logged.
    */
   private async deliverAll(event: AuthnEvent, stoppable: boolean): Promise<void> {
-    const first = stoppable && event.outcome === 'success' ? this.listeners.filter((listener) => listener.blocking) : [];
-    await Promise.all(first.map((listener) => this.required(listener, event)));
+    const gates = stoppable && event.outcome === 'success' ? this.listeners.flatMap((listener) => gateOf(listener, event)) : [];
+    await Promise.all(gates.map((gate) => this.required(gate, event)));
+    const first = gates.map((gate) => gate.listener);
     await Promise.allSettled(this.listeners.filter((listener) => !first.includes(listener)).map((listener) => this.deliver(listener, event)));
   }
 
   // Running out of time counts as a failure: a blocking listener that does not answer has not taken the event.
-  private async required(listener: AuthnEventListener, event: AuthnEvent): Promise<void> {
+  private async required({ listener, take }: Gate, event: AuthnEvent): Promise<void> {
     try {
-      await this.pipeline.execute(() => Promise.resolve().then(() => listener.on(event)));
+      await this.pipeline.execute(() => Promise.resolve().then(take));
     } catch (err) {
       const name = listener.constructor.name;
       this.log().warn({ listener: name, eventType: event.type, errorClass: errorClass(err) }, 'AuthnAudit: blocking listener ${listener} stopped a ${eventType} event (${errorClass})');

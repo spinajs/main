@@ -50,7 +50,8 @@ export abstract class AuthnEventListener {
 /**
  * A blocking listener did not take a success event, so the operation that raised it stops. `@spinajs/http` answers it
  * 503 with the code `authn_listener_failed`: the caller is not at fault and may try again. Not an InvalidOperation,
- * which the session routes of authn-http read as an ended session.
+ * which the session routes of authn-http read as an ended session. The message is the problem document's `detail`, so it
+ * names neither the listener nor the event: those are fields for the log.
  */
 export class AuthnListenerFailed extends CodedHttpException<'authn_listener_failed'> {
   constructor(
@@ -58,7 +59,7 @@ export class AuthnListenerFailed extends CodedHttpException<'authn_listener_fail
     public readonly eventType: string,
     inner: unknown,
   ) {
-    super(503, 'authn_listener_failed', `the ${eventType} event was not taken by ${listener}, which must take it before the operation goes on`, undefined, inner);
+    super(503, 'authn_listener_failed', 'an authentication event could not be recorded; try again later', undefined, inner);
   }
 }
 
