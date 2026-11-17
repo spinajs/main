@@ -60,9 +60,15 @@ test('readTargets rejects a malformed or duplicated target and a missing toleran
   });
 });
 
-test('readBaseline: a missing file is empty, a score outside 0-100 is an error', () => {
+test('readBaseline: a missing file, malformed JSON and a score outside 0-100 are errors', () => {
   withDir((dir) => {
-    assert.deepEqual(readBaseline(join(dir, 'none.json')), { measuredOn: null, targets: {} });
+    assert.throws(() => readBaseline(join(dir, 'none.json')), /none\.json is missing/);
+    writeFileSync(join(dir, 'bad.json'), '{ "measuredOn": null, ');
+    assert.throws(() => readBaseline(join(dir, 'bad.json')), /bad\.json is not valid JSON/);
+    writeFileSync(join(dir, 'list.json'), JSON.stringify({ measuredOn: null, targets: [] }));
+    assert.throws(() => readBaseline(join(dir, 'list.json')), /targets must be an object/);
+    writeFileSync(join(dir, 'empty.json'), JSON.stringify({ measuredOn: null, targets: {} }));
+    assert.deepEqual(readBaseline(join(dir, 'empty.json')), { measuredOn: null, targets: {} });
     writeFileSync(join(dir, 'b.json'), JSON.stringify({ measuredOn: { ci: 'github-actions' }, targets: { 'authz-engine': { score: 101 } } }));
     assert.throws(() => readBaseline(join(dir, 'b.json')), /score from 0 to 100/);
   });
@@ -92,12 +98,11 @@ test('survivorsOf lists Survived and NoCoverage mutants of the focus files only,
   );
 });
 
-test('verdicts: no report, an unfinished run and no valid mutant fail; no baseline passes; the tolerance is inclusive', () => {
+test('verdicts: no report, an unfinished run and no valid mutant fail; the tolerance is inclusive', () => {
   const tenths = (killed) => reportOf({ 'src/a.ts': statuses(...Array(killed).fill('Killed'), ...Array(1000 - killed).fill('Survived')) });
   assert.match(verdictOf(engine, undefined, undefined, 2).reason, /no report/);
   assert.equal(verdictOf(engine, reportOf({ 'src/a.ts': statuses('Killed', 'Pending') }), undefined, 2).pass, false);
   assert.match(verdictOf(engine, reportOf({ 'src/a.ts': statuses('Ignored') }), undefined, 2).reason, /no valid mutants/);
-  assert.equal(verdictOf(engine, tenths(700), undefined, 2).pass, true);
   assert.equal(verdictOf(engine, tenths(700), { score: 72 }, 2).pass, true);
   const failed = verdictOf(engine, tenths(699), { score: 72 }, 2);
   assert.equal(failed.pass, false);
@@ -106,10 +111,20 @@ test('verdicts: no report, an unfinished run and no valid mutant fail; no baseli
   assert.equal(verdictOf(engine, tenths(800), { score: 72 }, 2).delta, 8);
 });
 
+test('a target without a baseline entry is not gated while the baseline is empty, and fails once it holds scores', () => {
+  const report = reportOf({ 'src/a.ts': statuses('Killed', 'Survived') });
+  const bootstrap = verdictOf(engine, report, undefined, 2, { baselineEmpty: true });
+  assert.deepEqual([bootstrap.pass, bootstrap.gated, bootstrap.score], [true, false, 50]);
+  const unknown = verdictOf(engine, report, undefined, 2);
+  assert.deepEqual([unknown.pass, unknown.score], [false, 50]);
+  assert.match(unknown.reason, /no baseline entry.*update-baseline\.mjs/);
+  assert.equal(verdictOf(engine, report, { score: 50 }, 2, { baselineEmpty: true }).gated, true);
+});
+
 test('the summary has one row per target, says when nothing is gated, and lists focus survivors', () => {
-  const v = verdictOf(engine, reportOf({ 'src/engine/combinators.ts': [mutant('Killed', 1), mutant('Survived', 50)] }), undefined, 2);
+  const v = verdictOf(engine, reportOf({ 'src/engine/combinators.ts': [mutant('Killed', 1), mutant('Survived', 50)] }), undefined, 2, { baselineEmpty: true });
   const text = summaryOf([v, verdictOf({ ...engine, name: 'authz-ir-eval' }, undefined, undefined, 2)], { tolerance: 2, measuredOn: null });
-  assert.match(text, /\| authz-engine \| 2 \| 1 \| 0 \| 1 \| 0 \| 0 \| 0 \| 50\.00 \| no baseline \| - \| pass \|/);
+  assert.match(text, /\| authz-engine \| 2 \| 1 \| 0 \| 1 \| 0 \| 0 \| 0 \| 50\.00 \| no baseline \| - \| not gated: no baseline yet \|/);
   assert.match(text, /\| authz-ir-eval \|.*\*\*failed\*\*: no report/);
   assert.match(text, /holds no scores yet/);
   assert.match(text, /Survivors in authz-engine/);
@@ -151,8 +166,9 @@ test('the CLI exits 1 below the tolerance, 0 within it, and writes the candidate
     writeFileSync(targets, JSON.stringify({ tolerance: 2, targets: [engine] }));
     mkdirSync(join(dir, 'reports', 'mutation-authz-engine'), { recursive: true });
     writeFileSync(join(dir, 'reports', 'mutation-authz-engine', 'mutation.json'), JSON.stringify(reportOf({ 'src/a.ts': statuses('Killed', 'Killed', 'Killed', 'Survived') })));
-    const run = (score) => {
-      writeFileSync(join(dir, 'baseline.json'), JSON.stringify({ measuredOn: { ci: 'github-actions' }, targets: { 'authz-engine': { score, valid: 4 } } }));
+    const run = (score, baselineTargets = { 'authz-engine': { score, valid: 4 } }) => {
+      if (baselineTargets === null) rmSync(join(dir, 'baseline.json'), { force: true });
+      else writeFileSync(join(dir, 'baseline.json'), JSON.stringify({ measuredOn: { ci: 'github-actions' }, targets: baselineTargets }));
       const env = { ...process.env };
       delete env.GITHUB_STEP_SUMMARY;
       delete env.GITHUB_ACTIONS;
@@ -161,5 +177,14 @@ test('the CLI exits 1 below the tolerance, 0 within it, and writes the candidate
     assert.equal(run(77).status, 0);
     assert.equal(run(77.01).status, 1);
     assert.equal(JSON.parse(readFileSync(join(dir, 'out', CANDIDATE_FILE), 'utf8')).targets['authz-engine'].score, 75);
+    const empty = run(0, {});
+    assert.equal(empty.status, 0);
+    assert.match(empty.stdout, /\| authz-engine \|.*\| not gated: no baseline yet \|/);
+    const other = run(0, { 'authz-ir-eval': { score: 50, valid: 4 } });
+    assert.equal(other.status, 1);
+    assert.match(other.stderr, /authz-engine: no baseline entry/);
+    const missing = run(0, null);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /baseline\.json is missing/);
   });
 });

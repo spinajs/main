@@ -32,14 +32,20 @@ export function readTargets(file) {
   return { tolerance: config.tolerance, targets: config.targets };
 }
 
-/** A missing file reads as an empty baseline. */
+/** The file must exist: before the first CI score it holds { "measuredOn": null, "targets": {} }. */
 export function readBaseline(file) {
-  if (!existsSync(file)) return { measuredOn: null, targets: {} };
-  const baseline = JSON.parse(readFileSync(file, 'utf8'));
-  for (const [name, entry] of Object.entries(baseline.targets ?? {})) {
+  if (!existsSync(file)) throw new Error(`${file} is missing: the gate needs it; before the first CI score it holds {"measuredOn": null, "targets": {}}`);
+  let baseline;
+  try {
+    baseline = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new Error(`${file} is not valid JSON: ${err instanceof Error ? err.message : err}`);
+  }
+  if (baseline === null || typeof baseline.targets !== 'object' || baseline.targets === null || Array.isArray(baseline.targets)) throw new Error(`${file}: targets must be an object of { score, valid } entries`);
+  for (const [name, entry] of Object.entries(baseline.targets)) {
     if (!(typeof entry?.score === 'number' && entry.score >= 0 && entry.score <= 100)) throw new Error(`${file}: target ${name} needs a score from 0 to 100`);
   }
-  return { measuredOn: baseline.measuredOn ?? null, targets: baseline.targets ?? {} };
+  return { measuredOn: baseline.measuredOn ?? null, targets: baseline.targets };
 }
 
 export function countsOf(report) {
@@ -73,7 +79,11 @@ export function survivorsOf(report, focus) {
   return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column);
 }
 
-export function verdictOf(target, report, baselineEntry, tolerance) {
+/**
+ * `baselineEmpty`: no target has a score yet (before the first recorded baseline), so nothing is gated. Once the
+ * baseline holds scores, a target without an entry fails: a new or split target is recorded from its first CI run.
+ */
+export function verdictOf(target, report, baselineEntry, tolerance, { baselineEmpty = false } = {}) {
   const name = target.name;
   if (report === undefined) return { name, pass: false, reason: 'no report: the mutation job of this target failed or timed out' };
   const counts = countsOf(report);
@@ -81,11 +91,14 @@ export function verdictOf(target, report, baselineEntry, tolerance) {
   const score = scoreOf(counts);
   if (score === undefined) return { name, counts, pass: false, reason: 'no valid mutants: check the mutate globs of the config' };
   const survivors = survivorsOf(report, target.focus);
-  if (baselineEntry === undefined) return { name, counts, score, survivors, pass: true };
+  if (baselineEntry === undefined && baselineEmpty) return { name, counts, score, survivors, pass: true, gated: false };
+  if (baselineEntry === undefined) {
+    return { name, counts, score, survivors, pass: false, reason: 'no baseline entry while baseline.json scores other targets: record its first CI score with update-baseline.mjs --run <id> (scripts/mutation/README.md, "The baseline")' };
+  }
   const delta = Math.round((score - baselineEntry.score) * 100) / 100;
   const pass = delta >= -tolerance;
   const reason = pass ? undefined : `${fixed(-delta)} points below the baseline ${fixed(baselineEntry.score)}, more than the ${tolerance} allowed`;
-  return { name, counts, score, survivors, baseline: baselineEntry.score, delta, pass, ...(reason ? { reason } : {}) };
+  return { name, counts, score, survivors, baseline: baselineEntry.score, delta, pass, gated: true, ...(reason ? { reason } : {}) };
 }
 
 function rowOf(v) {
@@ -93,7 +106,7 @@ function rowOf(v) {
   const cells = c ? [validOf(c), c.Killed, c.Timeout, c.Survived, c.NoCoverage, c.Ignored, c.CompileError + c.RuntimeError] : Array(7).fill('-');
   const baseline = v.baseline !== undefined ? fixed(v.baseline) : v.score !== undefined ? 'no baseline' : '-';
   const change = v.delta === undefined ? '-' : `${v.delta >= 0 ? '+' : ''}${fixed(v.delta)}`;
-  return `| ${v.name} | ${cells.join(' | ')} | ${fixed(v.score)} | ${baseline} | ${change} | ${v.pass ? 'pass' : `**failed**: ${v.reason}`} |`;
+  return `| ${v.name} | ${cells.join(' | ')} | ${fixed(v.score)} | ${baseline} | ${change} | ${v.pass ? (v.gated === false ? 'not gated: no baseline yet' : 'pass') : `**failed**: ${v.reason}`} |`;
 }
 
 function survivorLines(v) {
@@ -178,7 +191,8 @@ function main() {
   if (o.matrix) return void process.stdout.write(JSON.stringify(matrixOf(config)));
   const baseline = readBaseline(o.baseline);
   const reports = reportsOf(config.targets, o);
-  const verdicts = config.targets.filter((t) => reports.has(t.name)).map((t) => verdictOf(t, reports.get(t.name), baseline.targets[t.name], config.tolerance));
+  const baselineEmpty = Object.keys(baseline.targets).length === 0;
+  const verdicts = config.targets.filter((t) => reports.has(t.name)).map((t) => verdictOf(t, reports.get(t.name), baseline.targets[t.name], config.tolerance, { baselineEmpty }));
   report(summaryOf(verdicts, { tolerance: config.tolerance, measuredOn: baseline.measuredOn }));
   mkdirSync(o.outDir, { recursive: true });
   writeFileSync(join(o.outDir, CANDIDATE_FILE), JSON.stringify(baselineCandidate(verdicts, process.env, new Date()), null, 2) + '\n');
