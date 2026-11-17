@@ -333,13 +333,18 @@ describe('audit(): confirmed deadline', function () {
     const failed: unknown = await audit()
       .record(actions('a'), { trail: 'slowStrict' })
       .catch((e: unknown) => e);
-    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slowStrict" could not record 1 event(s) after 3 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slowStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
     await audit().record(actions('b'), { trail: 'slow', mode: 'confirmed' });
     expect(lines.map((l) => [l.level, l.fields.trail, l.message.includes('not confirmed in time')])).to.deep.eq([['error', 'slow', true]]);
 
     for (const held of SlowStore.held) held.release();
     await pause(20);
-    expect(lines.slice(1).map((l) => l.message)).to.deep.eq(['audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}', 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}']);
+    // The caller of a reject trail was told the write failed: its late landing is an error.
+    const stored = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
+    expect(lines.slice(1).map((l) => [l.level, l.fields.trail, l.fields.mode, l.fields.onFailure, l.message])).to.deep.eq([
+      ['error', 'slowStrict', 'confirmed', 'reject', stored],
+      ['warn', 'slow', 'confirmed', 'continue', stored],
+    ]);
     expect(SlowStore.calls).to.eq(2);
   });
 

@@ -35,6 +35,13 @@ interface Way {
   readonly onFailure: 'continue' | 'reject';
 }
 
+interface Flight {
+  appending: boolean;
+  tries: number;
+}
+
+const DEFERRED: Way = { mode: 'deferred', onFailure: 'continue' };
+
 const isList = (input: AuditInput | readonly AuditInput[]): input is readonly AuditInput[] => Array.isArray(input);
 
 function sized(name: string, value: string | undefined, max: number): void {
@@ -252,7 +259,7 @@ export class DefaultAuditService extends AuditService {
       this.report('error', { trail: trail.name, connection, blockedMs: Date.now() - since }, UNORDERED);
     }
     const limit = deadline(timeoutMs);
-    const flight = { appending: false };
+    const flight = { appending: false, tries: 0 };
     let work: Promise<void> | undefined;
     try {
       await Promise.race([this.late.get(key), limit.expired]);
@@ -276,7 +283,7 @@ export class DefaultAuditService extends AuditService {
   }
 
   private wait(key: string, work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[]): void {
-    const settled: Promise<void> = this.watch(work, trail, events, () => {
+    const settled: Promise<void> = this.watch(work, trail, events, DEFERRED, () => {
       // Released at the ceiling, the target may already be blocked again behind a newer append.
       if (this.late.get(key) === settled) {
         this.late.delete(key);
@@ -286,11 +293,13 @@ export class DefaultAuditService extends AuditService {
     this.late.set(key, settled);
   }
 
-  // Logs once how an append given up on settled; never rejects.
-  private watch(work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[], before?: () => void): Promise<void> {
+  // Logs once how an append given up on settled; never rejects. The caller of a reject trail was told the write failed,
+  // so a landing it may have retried or rolled back around is an error.
+  private watch(work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[], way: Way, before?: () => void): Promise<void> {
     const settle = (stored: boolean, error?: unknown): void => {
       before?.();
-      this.report(stored ? 'warn' : 'error', { error, trail: trail.name, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
+      const level = stored && way.onFailure === 'continue' ? 'warn' : 'error';
+      this.report(level, { error, trail: trail.name, mode: way.mode, onFailure: way.onFailure, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
     };
     return work.then(
       () => settle(true),
@@ -323,26 +332,27 @@ export class DefaultAuditService extends AuditService {
 
   private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined): Promise<void> {
     const limit = deadline(confirmTimeoutMs(this.Container), 'confirmed');
-    const flight = { appending: false };
+    const flight = { appending: false, tries: 0 };
     const work = DETACHED.runInAsyncScope(() => this.attempt(store, trail, events, connection, limit.signal, flight));
     try {
       await Promise.race([work, limit.expired]);
     } catch (err) {
       const late = limit.signal.aborted && flight.appending;
-      if (late) void this.watch(work, trail, events);
+      if (late) void this.watch(work, trail, events, { mode: 'confirmed', onFailure });
       if (err instanceof AuditConfigError) throw err;
       if (onFailure === 'continue') return this.lost(trail, events, err, late ? UNCONFIRMED : LOST);
-      throw new AuditWriteFailed(`audit: trail ${quoted(trail.name)} could not record ${events.length} event(s) after ${trail.retry.attempts} attempt(s)`, err);
+      throw new AuditWriteFailed(`audit: trail ${quoted(trail.name)} could not record ${events.length} event(s) after ${flight.tries} attempt(s)`, err);
     } finally {
       limit.clear();
     }
   }
 
   // `retry.attempts` counts every try, the first included. A configuration error would fail every try alike.
-  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined, signal?: AbortSignal, flight = { appending: false }): Promise<void> {
+  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined, signal?: AbortSignal, flight: Flight = { appending: false, tries: 0 }): Promise<void> {
     for (let tries = 1; ; tries++) {
       try {
         flight.appending = true;
+        flight.tries = tries;
         return await store.append({ trail, events, connection });
       } catch (err) {
         flight.appending = false;
