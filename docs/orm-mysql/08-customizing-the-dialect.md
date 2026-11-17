@@ -47,7 +47,7 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 | `CreateViewCompiler` | `MySqlCreateViewCompiler` | yes | [Schema](06-schema-views-and-events.md) |
 | `ColumnQueryCompiler` | `MySqlColumnQueryCompiler`: `SqlColumnQueryCompiler` that writes `NULL` on a nullable `TIMESTAMP` | yes | [Schema](06-schema-views-and-events.md#nullable-timestamp-columns) |
 | `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
-| `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
+| `TableCloneQueryCompiler`, `TruncateTableQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
 | `SqlExpressions` | `MySqlSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |

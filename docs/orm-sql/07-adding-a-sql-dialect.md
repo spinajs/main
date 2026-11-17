@@ -83,7 +83,7 @@ Register when the engine supports the feature; leave out otherwise, so the featu
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | SQLite uses `DELETE FROM`. |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `CURRENT_DATE()` is MySQL. |
-| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTableHistoryQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`, triggers). |
+| `TableCloneQueryCompiler` | `SqlTableCloneQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`). |
 
 Override shared registrations the engine cannot run: `InsertQueryCompiler` (`RETURNING`, `OUTPUT`, `INSERT IGNORE`), `OrderByQueryCompiler`, `TableAliasCompiler` (schema prefix), `CreateDatabaseCompiler` / `DropDatabaseCompiler`, `InSetStatement`, `JoinStatement`, `DatetimeValueConverter`, `TextWrapper` (when `TEXT` is no `CAST` target).
 
@@ -113,7 +113,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `TableAliasCompiler` | (SqlDriver) | (SqlDriver) | `MsSqlTableAliasCompiler` | `PostgresTableAliasCompiler` |
 | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | shared | shared | shared |
 | `RecursiveQueryCompiler` | shared | shared | — | shared |
-| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | — | shared | — | — |
+| `TableCloneQueryCompiler` | — | shared | — | — |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `Unsupported*` | shared | `Unsupported*` | `Unsupported*` |
 | `CreateViewCompiler` | `SqliteCreateViewCompiler` | `MySqlCreateViewCompiler` | `MsSqlCreateViewCompiler` | `PostgresCreateViewCompiler` |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | (SqlDriver) | `MsSqlCreateDatabaseQueryCompiler` | `PostgresCreateDatabaseQueryCompiler` |

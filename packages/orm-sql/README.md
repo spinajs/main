@@ -15,7 +15,7 @@ You rarely install it directly. It arrives as a dependency of
 - **Statements** — `SqlWhereStatement`, `SqlJoinStatement`, `SqlColumnStatement`,
   `SqlInStatement`, `SqlExistsQueryStatement` and the rest.
 - **Compilers** — one per query shape, from `SqlSelectQueryCompiler` to
-  `SqlTableHistoryQueryCompiler`.
+  `SqlTruncateTableQueryCompiler`.
 - **Converters** — `SqlDatetimeValueConverter`, `SqlBooleanValueConverter`,
   `SqlTimeValueConverter`, `SqlSetConverter`.
 

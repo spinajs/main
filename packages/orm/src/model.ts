@@ -3,7 +3,7 @@ import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
-import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
 import type { LiteralColumn, OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
@@ -1242,13 +1242,6 @@ function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, 
   } else if (description.Timestamps?.UpdatedAt) {
     query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
   }
-}
-
-export abstract class HistoricalModel implements IHistoricalModel {
-  public readonly __action__: 'update' | 'insert' | 'delete';
-  public readonly __revision__: number;
-  public readonly __start__: DateTime;
-  public readonly __end__: DateTime;
 }
 
 

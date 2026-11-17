@@ -48,7 +48,7 @@ Full documentation lives in **[docs/](../../docs/orm/)**.
 | Feature | What it does |
 | --- | --- |
 | [Connections](../../docs/orm/01-connections.md) | Boots `Orm`, opens the configured connections and binds models to them |
-| [Models](../../docs/orm/02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving, hidden and historical columns |
+| [Models](../../docs/orm/02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving and hidden columns |
 | [Model API](../../docs/orm/03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
 | [Converters and hydration](../../docs/orm/04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
 | [Query builder](../../docs/orm/05-query-builder.md) | Builds select, insert, update and delete queries, and hooks query and model middleware |

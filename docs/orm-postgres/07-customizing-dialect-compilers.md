@@ -29,7 +29,7 @@ Every PostgreSQL compiler this package ships is exported, so you can subclass th
 | Database clock | `NowExpression`, resolved by `driver.now()` | `PostgresNowExpression` (`CURRENT_TIMESTAMP`) | | Subclass and override `sql()`. `PostgresDefaultValueBuilder.dateTime()` constructs `PostgresNowExpression` directly, so column defaults keep `CURRENT_TIMESTAMP`. |
 | Drop database, alter table, recursive CTE | `DropDatabaseCompiler`, `AlterTableQueryCompiler`, `RecursiveQueryCompiler` | `SqlDropDatabaseQueryCompiler`, `SqlAlterTableQueryCompiler`, `SqlWithRecursiveCompiler` | | Subclass the shared class and override `compile()`. |
 | Events | `EventQueryCompiler`, `DropEventQueryCompiler`, `@NewInstance()`, `@Inject(Container)`, resolved with `[builder]` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` (throw `MethodNotImplemented`) | | Extend the abstract token and implement `compile()`; also return `events: true` from `supportedFeatures()`. |
-| Table clone, table history | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | not registered | | Implement the abstract token and register it. |
+| Table clone | `TableCloneQueryCompiler` | not registered | | Implement the abstract token and register it. |
 
 ### `PostgresInsertQueryCompiler`
 

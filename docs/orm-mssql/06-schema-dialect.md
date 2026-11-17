@@ -7,11 +7,10 @@ What the schema builder (`driver.schema()`, migrations) produces on SQL Server: 
 `driver.schema().createTable('orders', (table) => { ... })` compiles like this:
 
 1. `TableQueryBuilder.toDB()` resolves `TableQueryCompiler`: `MsSqlTableQueryCompiler`.
-2. `compile()` throws `MethodNotImplemented('orm-driver-mssql has no table history support')` for `trackHistory()`.
-3. `_table()` writes `CREATE TABLE <name>` through `MsSqlTableAliasCompiler`, so the name gets the `[database].[schema].` prefix; see [Query dialect](05-query-dialect.md). With `ifExists()` it writes `IF OBJECT_ID(N'<name>', N'U') IS NULL CREATE TABLE <name>`. `temporary()` throws `NotSupported`: a SQL Server temporary table is one whose name starts with `#`.
-4. `_columns()` compiles each column with `ColumnQueryCompiler` (`MsSqlColumnQueryCompiler`) and appends ` PRIMARY KEY` to primary key columns. A `unique()` column carries an inline `UNIQUE`.
-5. `_foreignKeys()` compiles each foreign key with the shared `ForeignKeyQueryCompiler`.
-6. The result is one statement: `CREATE TABLE [dbo].[orders] (<columns>,<foreign keys>)`.
+2. `_table()` writes `CREATE TABLE <name>` through `MsSqlTableAliasCompiler`, so the name gets the `[database].[schema].` prefix; see [Query dialect](05-query-dialect.md). With `ifExists()` it writes `IF OBJECT_ID(N'<name>', N'U') IS NULL CREATE TABLE <name>`. `temporary()` throws `NotSupported`: a SQL Server temporary table is one whose name starts with `#`.
+3. `_columns()` compiles each column with `ColumnQueryCompiler` (`MsSqlColumnQueryCompiler`) and appends ` PRIMARY KEY` to primary key columns. A `unique()` column carries an inline `UNIQUE`.
+4. `_foreignKeys()` compiles each foreign key with the shared `ForeignKeyQueryCompiler`.
+5. The result is one statement: `CREATE TABLE [dbo].[orders] (<columns>,<foreign keys>)`.
 
 `MsSqlColumnQueryCompiler` is `SqlColumnQueryCompiler` with the T-SQL spelling of `autoIncrement()` (`IDENTITY(1,1)`), `boolean`, `json`, `enum`, `set`, `text` and its variants, `unsigned()`, `charset()`, `comment()`, `collation()` and `exact()`, listed below. `text`, `tinytext`, `mediumtext` and `longtext` write `NVARCHAR(MAX)` because `TEXT` is deprecated and cannot be compared with `=`. SQL Server has no JSON type, so `supportedFeatures().nativeJson` is `false`.
 
@@ -92,7 +91,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor, and override `charsetName()` / `collationName()` to change the character set and collation clauses. |
-| `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
+| `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
 | Column defaults | `DefaultValueBuilder`, new instance | `MsSqlDefaultValueBuilder` | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`, `CURRENT_DATE()` is not T-SQL) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
 | Databases | `CreateDatabaseCompiler`, `DropDatabaseCompiler`, new instance | `MsSqlCreateDatabaseQueryCompiler`, `MsSqlDropDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler`, `SqlDropDatabaseQueryCompiler` (MySQL spelling) | Extend the abstract token, implement `compile()`. |
@@ -101,7 +100,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | Scheduled events | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | | Implement with SQL Server Agent jobs, and override `supportedFeatures()` to return `events: true`. |
 | Table changes | `AlterTableQueryCompiler`, new instance | `MsSqlAlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` (`RENAME TO`) | Extend `SqlAlterTableQueryCompiler`; override `compile()`. The MSSQL class writes `DROP COLUMN`, both `sp_rename` calls and the `ALTER TABLE` prefix for each column change. |
 | Column changes | `AlterColumnQueryCompiler`, new instance | `MsSqlAlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` (`MODIFY`, `RENAME COLUMN`, `AFTER`) | Extend `SqlAlterColumnQueryCompiler`; override `_add()` or `_modify()`. Its `_rename()` throws: the table compiler writes column renames. |
-| Table cloning and history | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | **none** | the shared `Sql*` classes write MySQL syntax | Implement the token in T-SQL and register it. |
+| Table cloning | `TableCloneQueryCompiler` | **none** | the shared `Sql*` class writes MySQL syntax | Implement the token in T-SQL and register it. |
 
 ### Column definition: custom implementation
 
@@ -186,7 +185,6 @@ Then `table.date('Day').default().date()` writes `[Day] DATE DEFAULT CAST(GETDAT
 - **Unregistered schema tokens fail on first use** with a `TypeError`, not at connect: `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
 - **`ALTER COLUMN` changes only type, collation and nullability.** Restate `notNull()`, or the column becomes nullable. SQL Server keeps defaults, identity and keys as constraints, and refuses to alter a column a `PRIMARY KEY` depends on; drop and re-create the constraint with raw statements. Dropping a column that has a default needs its default constraint dropped first.
 - **The `sp_rename` arguments are literals.** The new name is not bracketed, because brackets in it would become part of the name; a `database()` prefix calls `[database].sys.sp_rename`.
-- **`trackHistory()` throws** `MethodNotImplemented`; SQL Server's equivalent is a temporal table, which the driver does not create.
 - **`temporary()` on `createTable` throws** `NotSupported`. Create the table with a `#` name through a `RawQuery` instead.
 - **`enum` and `set` columns do not enforce their values.** They are plain `NVARCHAR(255)` columns.
 - **`tableExists()` ignores `Options.Schema`.** A table of the same name in another schema of the database counts as existing.

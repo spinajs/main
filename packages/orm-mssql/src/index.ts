@@ -183,11 +183,9 @@ export class MsSqlOrmDriver extends SqlDriver {
       /**
        * FALSE. This driver registers `UnsupportedEventQueryCompiler` /
        * `UnsupportedDropEventQueryCompiler`, which throw `MethodNotImplemented` rather than
-       * falling through to the shared ones; it registers no table-history compiler either, and
-       * that abstraction has no shared registration to fall through to (only mysql registers
-       * one), so resolving it here fails in the container instead. Scheduling on this platform
-       * is SQL Server Agent, and history is a temporal table; until this driver implements
-       * them, claiming support only means the failure happens later and further from its cause.
+       * falling through to the shared ones. Scheduling on this platform is SQL Server Agent;
+       * until this driver implements it, claiming support only means the failure happens later
+       * and further from its cause.
        *
        * The dialect contract check is what surfaced this — it saw the shared
        * MySQL event compiler answering for a driver whose dialect is `mssql`.

@@ -89,7 +89,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 **Not** registered, because no spelling is portable. Every driver registers these itself:
 
 - `IdentifierQuoter`, `LiteralQuoter`, `ServerResponseMapper`, `TableExistsCompiler`, `CreateViewCompiler`.
-- `LimitQueryCompiler`, `OnDuplicateQueryCompiler`, `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler`, `TruncateTableQueryCompiler`, `RecursiveQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `EventQueryCompiler`, `DropEventQueryCompiler`, `DefaultValueBuilder`.
+- `LimitQueryCompiler`, `OnDuplicateQueryCompiler`, `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler`, `TruncateTableQueryCompiler`, `RecursiveQueryCompiler`, `TableCloneQueryCompiler`, `EventQueryCompiler`, `DropEventQueryCompiler`, `DefaultValueBuilder`.
 - `NowExpression`: `driver.now()` resolves it, and each engine reads its clock differently (`UTC_TIMESTAMP(3)` on MySQL, `SYSDATETIMEOFFSET()` on MSSQL).
 
 A driver that leaves one of these out makes that feature fail on first use rather than emit another dialect's SQL. The per-driver matrix is in [Adding a new SQL dialect](07-adding-a-sql-dialect.md#what-each-shipped-driver-registers).
@@ -101,7 +101,7 @@ A driver that leaves one of these out makes that feature fail on first use rathe
 - `execute()` is synchronous up to the returned promise: only compile errors land in its `catch`. Map database errors in `executeOnDb()`. The shipped drivers throw `UniqueViolation` for a primary or unique key, `ConstraintViolation` (with `kind` `not_null`, `check`, `foreign_key` or `other`) for another constraint, and `OrmException` for anything else; see `mapSqliteError`, `mapMySqlError`, `mapMsSqlError` and `mapPostgresError` in the driver packages.
 - `UniqueViolation` extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`: a `catch` that tests `instanceof OrmException` does not see a duplicate key.
 - A multi-row insert larger than the driver's `MaxBindings` or `MaxInsertRows` reaches `execute()` as several builders, one per statement. `InsertQueryBuilder.splitByDriverLimits()` cuts them, and the insert runs them in one transaction (or in the caller's), so they commit or roll back together.
-- Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent sequentially in compile order. Outside a transaction a pooled driver may still use a different connection per statement.
+- Multi-statement DDL (`ALTER TABLE` with several changes, table clone) is sent sequentially in compile order. Outside a transaction a pooled driver may still use a different connection per statement.
 - `logQuery()` uses `this.Log?.trace(...)`: a driver used before `resolve()` has no logger and logs nothing instead of failing.
 - `Perf.measure('orm.query')` shares the `perf` logger with other spans. Route query logs by `orm-driver-<Name>`, not by `perf`.
 - The converters `SqlDriver` registers (`SqlDatetimeValueConverter`, `SqlBooleanValueConverter`, ...) are exported from `@spinajs/orm-sql`, together with `IsoDatetimeValueConverter`, which the SQLite, MSSQL and PostgreSQL drivers register instead. See [Value converters and default values](05-value-converters-and-defaults.md).

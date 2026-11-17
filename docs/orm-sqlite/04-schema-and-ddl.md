@@ -6,12 +6,11 @@ The schema builder (`driver.schema()`, migrations) compiles through SQLite's own
 
 1. `driver.schema().createTable(name, cb)` builds a `TableQueryBuilder`. Its `toDB()` resolves `TableQueryCompiler` from the driver container: `SqliteTableQueryCompiler`.
 2. `SqliteTableQueryCompiler.compile()`:
-   1. Throws `NotSupported('sqlite driver does not support history tables, ...')` when `trackHistory()` was called: the shared history compiler emits MySQL triggers.
-   2. With more than one primary-key column, it throws `OrmException('sqlite cannot auto-increment column <col>: it is part of the composite primary key of <table>')` if one of them is auto-increment, otherwise it clears `InlinePrimaryKey` on each.
-   3. Renders `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <table>` (inherited `_table()`).
-   4. Renders each column with `ColumnQueryCompiler`: `SqliteColumnCompiler`.
-   5. Appends `PRIMARY KEY (...)` for a composite key and the foreign keys from `ForeignKeyQueryCompiler`.
-   6. Returns one statement.
+   1. With more than one primary-key column, it throws `OrmException('sqlite cannot auto-increment column <col>: it is part of the composite primary key of <table>')` if one of them is auto-increment, otherwise it clears `InlinePrimaryKey` on each.
+   2. Renders `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <table>` (inherited `_table()`).
+   3. Renders each column with `ColumnQueryCompiler`: `SqliteColumnCompiler`.
+   4. Appends `PRIMARY KEY (...)` for a composite key and the foreign keys from `ForeignKeyQueryCompiler`.
+   5. Returns one statement.
 3. `driver.schema().alterTable(name, cb)` compiles with the shared `SqlAlterTableQueryCompiler`, which resolves `AlterColumnQueryCompiler` per column: `SqliteAlterColumnQueryCompiler`. An `alterTable()` that modifies columns does not compile: `SqliteOrmDriver.execute()` rebuilds the table instead. See [`ALTER TABLE` limitations](#alter-table-limitations).
 4. Every statement runs as `QueryContext.Schema` on the writer handle.
 
@@ -115,7 +114,6 @@ Type, nullability and default come from the builder alone, as with MySQL's `MODI
 | `schema().dropDatabase(d)` | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support DROP DATABASE, delete the database file instead')` |
 | `schema().createEvent()`, `dropEvent()` | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | throw `MethodNotImplemented('orm-driver-sqlite has no native scheduled events')` |
 | `schema().cloneTable()` | `TableCloneQueryCompiler` | not registered | fails to resolve: SQLite has no `CREATE TABLE ... LIKE` |
-| `createTable(...).trackHistory()` | `TableQueryCompiler` | `SqliteTableQueryCompiler` | throws `NotSupported('sqlite driver does not support history tables, ...')` |
 | `driver.index()` | `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | `CREATE [UNIQUE] INDEX ...`; after `drop()`, `` DROP INDEX `name` `` with no table, as index names are schema-wide |
 
 `tableIndexes()` reads `PRAGMA index_list`/`index_info`. An `INTEGER PRIMARY KEY` is the rowid and has no index of its own, so it is reported as an index named `PRIMARY`. `tableForeignKeys()` reads `PRAGMA foreign_key_list`; sqlite keeps no constraint names, so they are reported as `fk_<table>_<id>`.
@@ -344,7 +342,7 @@ The `ATTACH` must be on the handle that runs the check: inside a transaction, or
 - `charset()` and `comment()` are dropped from the DDL.
 - `json` and `bit` columns get no declared type.
 - `truncate()` keeps the `AUTOINCREMENT` counter; new rows continue after the highest key ever used.
-- `trackHistory()` throws `NotSupported`; `cloneTable()` has no SQLite implementation.
+- `cloneTable()` has no SQLite implementation.
 - `.after()` is ignored.
 - `.modify()` rebuilds the whole table: it copies every row and holds the database's write lock until the copy commits. Several modified columns in one `alterTable()` share one rebuild.
 - With foreign keys enforced, a table that another table references cannot be modified. Turn `PRAGMA foreign_keys` off for the migration, or rebuild both tables yourself.

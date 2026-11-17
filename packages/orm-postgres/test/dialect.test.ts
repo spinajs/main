@@ -59,12 +59,11 @@ describe('postgres dialect', function () {
   });
 
   /**
-   * Trigger-based table history and `CREATE TABLE ... LIKE` have no postgres implementation
-   * here. They must stay UNREGISTERED so the failure is a DI error naming the abstraction —
-   * not MySQL syntax reaching the server.
+   * `CREATE TABLE ... LIKE` has no postgres implementation here. It must stay UNREGISTERED so
+   * the failure is a DI error naming the abstraction — not MySQL syntax reaching the server.
    */
   it('leaves unsupported dialect features unregistered', () => {
-    for (const abstraction of ['TableHistoryQueryCompiler', 'TableCloneQueryCompiler']) {
+    for (const abstraction of ['TableCloneQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must NOT be registered - postgres has no implementation for it`).to.eq(false);
     }
   });

@@ -63,7 +63,7 @@ sequenceDiagram
 
 Every other token (`SelectQueryCompiler`, `WhereStatement`, `BooleanValueConverter`, ...) keeps the shared class `SqlDriver.resolve()` registered; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers). `OrmDriver.resolve()` adds `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
 
-Not registered at all: `TableCloneQueryCompiler` (no `CREATE TABLE ... LIKE`) and `TableHistoryQueryCompiler` (`SqliteTableQueryCompiler` refuses `trackHistory()` before it would be resolved).
+Not registered at all: `TableCloneQueryCompiler` (no `CREATE TABLE ... LIKE`).
 
 ## Configuration
 

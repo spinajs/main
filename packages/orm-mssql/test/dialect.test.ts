@@ -253,7 +253,6 @@ describe('mssql statements', function () {
 
   it('refuses table features it has no T-SQL for', () => {
     expect(() => sql(schema().createTable('t', (t) => t.int('Id')).temporary())).to.throw(NotSupported);
-    expect(() => sql(schema().createTable('t', (t) => t.int('Id')).trackHistory())).to.throw(MethodNotImplemented);
     expect(() => sql(schema().createTable('t', (t) => t.string('Name').charset('utf8')))).to.throw(NotSupported);
   });
 

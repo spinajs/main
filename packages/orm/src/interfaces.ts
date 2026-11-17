@@ -11,7 +11,6 @@ import { NewInstance, Singleton } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -1706,11 +1705,6 @@ export abstract class TableQueryCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
-export abstract class TableHistoryQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
-}
-
-@NewInstance()
 export abstract class TruncateTableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
@@ -1969,13 +1963,6 @@ export interface IUniversalConverterOptions {
  * base class for select & where builder for defining scopes
  */
 export abstract class QueryScope { }
-
-export interface IHistoricalModel {
-  readonly __action__: 'insert' | 'update' | 'delete';
-  readonly __revision__: number;
-  readonly __start__: DateTime;
-  readonly __end__: DateTime;
-}
 
 export abstract class ModelToSqlConverter {
   public abstract toSql(model: ModelBase<unknown>): unknown;

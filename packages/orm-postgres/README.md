@@ -58,7 +58,7 @@ import { Configuration } from '@spinajs/configuration';
 | `UNSIGNED`, per-column `CHARACTER SET`, inline `COMMENT` | supported | dropped (no postgres spelling) |
 | `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE / SET / DROP` actions, MODIFY semantics kept (omitted NOT NULL / DEFAULT is dropped) |
 | `CREATE DATABASE IF NOT EXISTS` | supported | refused — postgres has no such clause |
-| `CREATE EVENT`, table history triggers, `CREATE TABLE ... LIKE` | MySQL syntax | unregistered — fail with a DI error naming the abstraction |
+| `CREATE EVENT`, `CREATE TABLE ... LIKE` | MySQL syntax | unregistered — fail with a DI error naming the abstraction |
 | `DECIMAL` / `NUMERIC` / `BIGINT` in responses | driver-dependent | strings (node-postgres refuses to lose precision above 2^53); `ResponseSchemaTypes` says so |
 | `dateTime` / `timestamp` columns | `DATETIME` | `TIMESTAMPTZ(3)`; the driver writes and reads UTC instants (milliseconds; microseconds truncated), a `DateTime` read back is in the UTC zone, and every pooled session runs with `TimeZone = UTC`. `TIMESTAMP` (without time zone) columns are read as UTC |
 | `DATE` columns | calendar day | calendar day; a model writes the day of the value in its own zone, and a raw query returns it as a `Date` at UTC midnight (pg-types alone would use the process zone) |

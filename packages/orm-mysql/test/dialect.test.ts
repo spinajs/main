@@ -35,7 +35,7 @@ describe('mysql dialect', function () {
    * class names — `FIND_IN_SET` reaching SQLite is how that was found.
    */
   it('registers its own dialect classes', () => {
-    for (const abstraction of ['OnDuplicateQueryCompiler', 'ColumnQueryCompiler', 'AlterColumnQueryCompiler', 'EventQueryCompiler', 'TableHistoryQueryCompiler', 'LimitQueryCompiler', 'TableCloneQueryCompiler']) {
+    for (const abstraction of ['OnDuplicateQueryCompiler', 'ColumnQueryCompiler', 'AlterColumnQueryCompiler', 'EventQueryCompiler', 'LimitQueryCompiler', 'TableCloneQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must be registered by the mysql driver itself`).to.eq(true);
     }
   });

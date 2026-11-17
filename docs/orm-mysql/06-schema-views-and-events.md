@@ -1,6 +1,6 @@
 # Schema, views and events
 
-`MySqlOrmDriver` registers the MySQL DDL compilers: column types, `ALTER TABLE`, `TRUNCATE`, table clones, history tables, views and scheduled events. The schema builder API is in [Schema builder](../orm/09-schema-builder.md); this page is what MySQL emits and what it cannot do.
+`MySqlOrmDriver` registers the MySQL DDL compilers: column types, `ALTER TABLE`, `TRUNCATE`, table clones, views and scheduled events. The schema builder API is in [Schema builder](../orm/09-schema-builder.md); this page is what MySQL emits and what it cannot do.
 
 ## How it works
 
@@ -18,7 +18,6 @@
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP(3)`, the precision of a `DATETIME(3)` column; `value(v)`; `raw(q)`. Both read the session clock, which the driver pins to UTC. |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <table>` |
 | `TableCloneQueryCompiler` | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE t LIKE src`, then for a deep clone `INSERT INTO t SELECT ...` |
-| `TableHistoryQueryCompiler` | `SqlTableHistoryQueryCompiler` | `<table>__history` and triggers, for `table.trackHistory()` |
 | `CreateViewCompiler` | `MySqlCreateViewCompiler` | `CREATE [OR REPLACE] [ALGORITHM=...] [SQL SECURITY ...] VIEW ... AS ... [WITH [CASCADED\|LOCAL] CHECK OPTION]` |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | `CREATE EVENT ... ON SCHEDULE ...`, `DROP EVENT [IF EXISTS]` |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | `LIMIT ? [OFFSET ?]` (an offset alone writes `LIMIT 18446744073709551615 OFFSET ?`), `WITH RECURSIVE` |
@@ -111,7 +110,7 @@ Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8
 | Column compiler | `ColumnQueryCompiler`; `@NewInstance()`, constructor `(builder: ColumnQueryBuilder)` | `MySqlColumnQueryCompiler` | `SqlColumnQueryCompiler` (no `NULL` attribute) | Extend `MySqlColumnQueryCompiler`, override `explicitNull()`, `charsetName()`, `collationName()` or `compile()`; register `.as(ColumnQueryCompiler)` after `super.resolve()`. `SqlTableQueryCompiler` and `SqlAlterColumnQueryCompiler` resolve it once per column. |
 | Alter compilers | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | | Extend; `SqlAlterColumnQueryCompiler` has one hook per alteration type. See [Query compilers](../orm-sql/02-query-compilers.md). |
 | Default values | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | Extend and override `date()` / `dateTime()`; register `.as(DefaultValueBuilder)`. |
-| Clone, truncate, history | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | Extend the `Sql*` class, register under its token. |
+| Clone, truncate | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler` | | Extend the `Sql*` class, register under its token. |
 | Event compilers | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | `Unsupported*` classes on the other drivers | Extend, register under its token. |
 
 ### View compiler: custom implementation
@@ -166,8 +165,7 @@ export class InvokerViewsMySqlDriver extends MySqlOrmDriver {
 
 ## Important behaviour
 
-- A multi-statement compile (`alterTable()` with several changes, `cloneTable()` with `deepClone()`, `trackHistory()`) is sent one statement after another, in compile order. Outside a transaction each statement may take a different pooled connection.
-- `trackHistory()` emits `DELIMITER $$`, a `mysql` command-line directive the server does not accept, and its trigger matches rows on a column named `Id`.
+- A multi-statement compile (`alterTable()` with several changes, `cloneTable()` with `deepClone()`) is sent one statement after another, in compile order. Outside a transaction each statement may take a different pooled connection.
 - `TRUNCATE TABLE` resets the auto-increment counter and cannot be rolled back.
 - `onDelete` / `onUpdate` foreign keys need InnoDB tables; MyISAM accepts the syntax and ignores the constraint.
 - A view body has no placeholders: its bindings are inlined by `MySqlLiteralQuoter`, which escapes backslashes (`'it\'s'`).

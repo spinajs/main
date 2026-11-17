@@ -108,7 +108,7 @@ Overridable members:
 | `SqlExpressions` | `PostgresSqlExpressions` | this package | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `EventQueryCompiler` | `UnsupportedEventQueryCompiler` (throws) | shared | [Customizing dialect compilers](07-customizing-dialect-compilers.md#schedule-jobs-with-pg_cron) |
 | `DropEventQueryCompiler` | `UnsupportedDropEventQueryCompiler` (throws) | shared | |
-| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | not registered | | |
+| `TableCloneQueryCompiler` | not registered | | |
 
 Everything else (the other statements, select, update and delete compilers, foreign-key compilers, the other value converters, `DateWrapper` and `TextWrapper`) comes from `SqlDriver.resolve()` unchanged; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers).
 

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument, MethodNotImplemented, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidArgument, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { IdentifierQuoter, InSetStatement, Orm, OrmException, QueryContext, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 
 import { SqliteOrmDriver } from '../src/index.js';
@@ -234,18 +234,6 @@ describe('sqlite dialect', function () {
       await connection.executeOnDb(`INSERT INTO notes DEFAULT VALUES`, [], QueryContext.Insert);
 
       expect((await rows('SELECT Body FROM notes'))[0].Body).to.eq("it's");
-    });
-
-    it('refuses history tracking instead of ignoring it', () => {
-      expect(() =>
-        connection
-          .schema()
-          .createTable('tracked', (table) => {
-            table.int('Id').primaryKey();
-            table.trackHistory();
-          })
-          .toDB(),
-      ).to.throw(NotSupported);
     });
 
     it('runs every statement of a multi-statement raw schema query', async () => {

@@ -232,10 +232,6 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
 @NewInstance()
 export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
   public compile(): ICompilerOutput[] {
-    if (this.builder.TrackHistory) {
-      throw new MethodNotImplemented('orm-driver-mssql has no table history support');
-    }
-
     const _table = this._table();
     const _columns = this._columns();
     // a unique column already carries an inline UNIQUE from the column compiler

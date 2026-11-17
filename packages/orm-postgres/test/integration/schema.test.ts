@@ -176,18 +176,6 @@ describe('postgres integration - schema builder and migrations', function () {
     expect(await suite.raw('SELECT one FROM "pg_view_one"')).to.deep.equal([{ one: 1 }]);
   });
 
-  it('refuses MySQL-only DDL before it reaches the server', async () => {
-    const err = await failure(
-      suite.driver.schema().createTable('pg_history', (t) => {
-        t.int('Id').primaryKey().autoIncrement();
-        t.trackHistory();
-      }),
-    );
-
-    expect(err).to.be.instanceOf(Error);
-    expect(await suite.driver.schema().tableExists('pg_history__history')).to.equal(false);
-  });
-
   it('rolls a migration down and up again', async () => {
     expect(await suite.driver.schema().tableExists('pg_down_probe')).to.equal(true);
 
