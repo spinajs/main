@@ -88,7 +88,8 @@ describe('AuthzSignalAuthorizer', () => {
     expect(await authorizer.authorize('user:approver', 'orders:approve', { kind: 'orders' }, CTX)).to.equal(false);
     expect(await authorizer.authorize('user:approver', 'orders:approve', { type: 'orders', id: 7 }, CTX)).to.equal(false);
     expect(await authorizer.authorize('user:approver', 'approve', undefined, CTX)).to.equal(false);
-    expect([authorizer.checked, authorizer.refusals]).to.deep.equal([[], 3]);
+    expect(await authorizer.authorize('user:approver', 'orders:approve', null, CTX)).to.equal(false);
+    expect([authorizer.checked, authorizer.refusals]).to.deep.equal([[], 4]);
   });
 });
 

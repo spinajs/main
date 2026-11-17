@@ -9,8 +9,10 @@ import { SignalPrincipalFactory } from './principal.js';
 // A conditional allow on one row cannot be settled here, as no row is loaded: only a definite one, or a type-level one, passes.
 const passes = (d: Decision): boolean => d.allowed && (d.residual.op === 'true' || d.resource.id === undefined);
 
-function resourceOf(permission: string, resource: Record<string, unknown> | undefined): ResourceRef | undefined {
+function resourceOf(permission: string, resource: Record<string, unknown> | null | undefined): ResourceRef | undefined {
   if (resource === undefined) return { type: parsePermission(permission).resource };
+  // the wait's resource is read back from journal JSON, where a JS workflow or an untyped input can leave null or an array
+  if (resource === null || typeof resource !== 'object' || Array.isArray(resource)) return undefined;
   const { type, id } = resource;
   if (typeof type !== 'string' || type === '' || (id !== undefined && typeof id !== 'string')) return undefined;
   return id === undefined ? { type } : { type, id };
@@ -33,7 +35,7 @@ export class AuthzSignalAuthorizer extends SignalAuthorizer {
 
   protected Log: AuthzLog = engineLog('authz-workflow');
 
-  public async authorize(principal: string | undefined, permission: string, resource: Record<string, unknown> | undefined, ctx: { instanceId: string; workflow: string; event: string }): Promise<boolean> {
+  public async authorize(principal: string | undefined, permission: string, resource: Record<string, unknown> | null | undefined, ctx: { instanceId: string; workflow: string; event: string }): Promise<boolean> {
     const ref = principal === undefined ? undefined : parsePrincipalKey(principal);
     if (!ref) return false;
     // a wait may name any non-empty string; one that is not a permission can never be granted, and parsePermission would throw on it
