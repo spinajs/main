@@ -61,6 +61,21 @@ describe('Swagger: orm-http list parameters and response', function () {
     expect(amount.properties!.fn.enum).to.have.members(['sum', 'avg']);
   });
 
+  it('documents the limits the server validates the aggregate with', () => {
+    const schema = parameter('aggregate').schema as Schema & Record<string, unknown>;
+    const property = (name: string) => schema.properties![name] as Schema & Record<string, unknown>;
+    const measures = property('measures').items!.anyOf! as (Schema & Record<string, unknown>)[];
+    const order = property('order').items! as Schema & Record<string, unknown>;
+
+    expect(schema.additionalProperties).to.equal(false);
+    expect(property('groupBy')).to.include({ maxItems: 8, uniqueItems: true });
+    expect(property('measures')).to.include({ minItems: 1, maxItems: 16 });
+    expect(measures.every((measure) => measure.additionalProperties === false)).to.equal(true);
+    expect(property('order').maxItems).to.equal(24);
+    expect(order.additionalProperties).to.equal(false);
+    expect(order.properties!.order.enum).to.have.members(['ASC', 'DESC', 'asc', 'desc']);
+  });
+
   it('documents include as a query parameter listing the includable relations', () => {
     const include = parameter('include');
     expect(include.in).to.equal('query');

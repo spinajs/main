@@ -108,6 +108,14 @@ describe('Swagger custom route-arg types (registerOpenApiParamType)', function (
       expect(op.parameters![1]).to.deep.equal({ name: 'page', in: 'query', required: false, schema: { type: 'integer' } });
     });
 
+    it('documents a query value sent as one encoded text under content, when the registration names its media type', () => {
+      registerOpenApiParamType('TestJsonQueryArg', () => ({ in: 'query', contentType: 'application/json', schema: { type: 'object', properties: { a: { type: 'string' } } } }));
+
+      const op = operation({ params: [param(0, 'TestJsonQueryArg', 'spec')] });
+
+      expect(op.parameters).to.deep.equal([{ name: 'spec', in: 'query', required: false, content: { 'application/json': { schema: { type: 'object', properties: { a: { type: 'string' } } } } } }]);
+    });
+
     it("calls describe for every argument, with that argument's options", () => {
       const op = operation({ params: [param(0, 'TestOptionsArg', 'a', { required: true }), param(1, 'TestOptionsArg', 'b')] });
 

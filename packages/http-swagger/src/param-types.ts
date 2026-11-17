@@ -1,7 +1,15 @@
 import type { IRouteParameter } from '@spinajs/http';
 
 export type OpenApiParamDescription =
-  | { in: 'header' | 'query' | 'path' | 'cookie'; name?: string; required?: boolean; description?: string; schema: object }
+  | {
+      in: 'header' | 'query' | 'path' | 'cookie';
+      name?: string;
+      required?: boolean;
+      description?: string;
+      schema: object;
+      /** The media type of a value sent as one encoded text, e.g. JSON in a query string; documents it under `content`. */
+      contentType?: string;
+    }
   | { in: 'body'; contentType: string; required?: boolean; description?: string; schema: object };
 
 const PARAM_TYPES = new Map<string, (param: IRouteParameter) => OpenApiParamDescription | OpenApiParamDescription[]>();
@@ -52,22 +60,32 @@ type ListDescriptor = {
 const listDescriptorOf = (param: IRouteParameter): ListDescriptor =>
   (typeof param.Options === 'function' ? (Reflect.getMetadata(Symbol.for('MODEL_DESCRIPTOR'), param.Options) as ListDescriptor | undefined) : undefined) ?? {};
 
+// orm-http's aggregateSchemaFor() and limits (aggregate.ts), which the server validates with.
 const MEASURE_NAME = '^[A-Za-z_][A-Za-z0-9_]{0,62}$';
+const MAX_MEASURES = 16;
+const MAX_GROUP_COLUMNS = 8;
 
 registerOpenApiParamType('AggregateModelRouteArg', (param) => {
   const descriptor = listDescriptorOf(param);
   const groupable = [...(descriptor.GroupableColumns ?? [])];
   const aggregatable = [...(descriptor.AggregatableColumns ?? [])];
+  const countable = [...new Set([...groupable, ...aggregatable.map(([column]) => column)])];
 
   const measured = aggregatable.map(([column, functions]) => ({
     type: 'object',
+    additionalProperties: false,
     required: ['name', 'fn', 'column'],
     properties: { name: { type: 'string', pattern: MEASURE_NAME }, fn: { type: 'string', enum: functions }, column: { type: 'string', enum: [column] } },
   }));
   const counted = {
     type: 'object',
+    additionalProperties: false,
     required: ['name', 'fn'],
-    properties: { name: { type: 'string', pattern: MEASURE_NAME }, fn: { type: 'string', enum: ['count'] }, column: { type: 'string' } },
+    properties: {
+      name: { type: 'string', pattern: MEASURE_NAME },
+      fn: { type: 'string', enum: ['count'] },
+      ...(countable.length > 0 ? { column: { type: 'string', enum: countable } } : {}),
+    },
   };
 
   return {
@@ -75,13 +93,20 @@ registerOpenApiParamType('AggregateModelRouteArg', (param) => {
     required: false,
     schema: {
       type: 'object',
+      additionalProperties: false,
       required: ['measures'],
       properties: {
-        groupBy: { type: 'array', items: groupable.length > 0 ? { type: 'string', enum: groupable } : { type: 'string' } },
-        measures: { type: 'array', minItems: 1, items: { anyOf: [...measured, counted] } },
+        groupBy: { type: 'array', maxItems: MAX_GROUP_COLUMNS, uniqueItems: true, items: groupable.length > 0 ? { type: 'string', enum: groupable } : { not: {} } },
+        measures: { type: 'array', minItems: 1, maxItems: MAX_MEASURES, items: { anyOf: [...measured, counted] } },
         order: {
           type: 'array',
-          items: { type: 'object', required: ['column'], properties: { column: { type: 'string' }, order: { type: 'string', enum: ['ASC', 'DESC'] } } },
+          maxItems: MAX_GROUP_COLUMNS + MAX_MEASURES,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['column'],
+            properties: { column: { type: 'string', maxLength: 128 }, order: { type: 'string', enum: ['ASC', 'DESC', 'asc', 'desc'] } },
+          },
         },
         limit: { type: 'integer', minimum: 1 },
       },
