@@ -165,7 +165,8 @@ describe('GET /authz/decisions/:id/explain', function () {
     const hidden = await get(URL, 'bob');
     expect(hidden.status).to.eq(404);
     expect(hidden.body).to.deep.eq(unknown.body);
-    expect(running.domains[0].audit.of('deny')).to.deep.eq([{ kind: 'deny', principal: { type: 'user', id: 'bob' }, permission: 'file:read', resource: { type: 'file', id: 'f1' }, reason: `replay ${ID} refused: domain ${OTHER}` }]);
+    // The refused call is authz:replay in the record's domain, not the record's own permission.
+    expect(running.domains[0].audit.of('deny')).to.deep.eq([{ kind: 'deny', principal: { type: 'user', id: 'bob' }, permission: 'authz:replay', resource: { type: 'authz' }, reason: `replay ${ID} refused: domain ${OTHER}` }]);
     expect(running.domains[0].audit.of('explain'), 'an unknown id names no record').to.have.length(0);
     expect((await get(URL, 'erin')).status, 'held in both domains').to.eq(200);
 

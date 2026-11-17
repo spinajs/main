@@ -231,7 +231,8 @@ export class DefaultAuthzService extends AuthzService {
       this.log.warn({ domain: this.name, entryKind: entry.kind }, 'Authz domain ${domain}: a ${entryKind} audit entry is dropped, the service is not resolved or is disposed');
       return;
     }
-    if (s.audit) this.record(s, entry);
+    const off = (entry.kind === 'deny' && !s.cfg.audit.denials) || (entry.kind === 'runAs' && !s.cfg.audit.runAs) || (entry.kind === 'unscoped' && !s.cfg.audit.unscoped);
+    if (s.audit && !off) this.record(s, entry);
   }
 
   async preload(principal: Principal): Promise<void> {

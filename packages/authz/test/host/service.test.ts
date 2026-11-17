@@ -480,6 +480,17 @@ describe('DefaultAuthzService', function () {
       expect(() => thr.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
     });
 
+    it('audit() drops the kinds the domain turns off, as the engine does (authz.audit.denials, runAs, unscoped)', async () => {
+      setConfig(['authz', 'domains', 'nodeny', 'audit'], { denials: false });
+      const quiet = new RecordingAudit();
+      const d = await domains();
+      d.create('nodeny').register(instance(quiet)).as(DecisionAudit);
+      const s = await d.service('nodeny');
+      s.audit!({ kind: 'deny', principal: { type: 'user', id: 'alice' }, permission: 'authz:replay', reason: 'replay x refused: domain y' });
+      s.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' }, reason: 'replay x' });
+      expect(quiet.entries.map((e) => e.kind)).to.deep.equal(['explain']);
+    });
+
     it('audit() never throws: a sink that rejects is logged, a disposed service records nothing', async () => {
       let calls = 0;
       class Rejecting extends DecisionAudit {
