@@ -84,6 +84,10 @@ describe('authz-rbac: rbacToIR', () => {
     const source = world(ir).add({ type: 'project', id: 'p1' }, 'frozen', user('ann'));
     expect(await truth(ir, 'ann', 'invoice:read', source)).to.equal('deny');
     expect(await truth(ir, 'ann', 'invoice:approve', source)).to.equal('allow');
+    const narrowed = async (roles: string[]): Promise<Truth> => (await new IREvaluator(ir, source).check({ principal: { ...user('ann'), ceiling: { roles } }, permission: 'invoice:read', resource: i1 })).truth;
+    expect(await narrowed(['accountant'])).to.equal('deny');
+    expect(await narrowed(['accountant', 'frozen'])).to.equal('deny');
+    expect(await narrowed(['frozen'])).to.equal('deny');
   });
 
   it('makes what it cannot express opaque, so the answer is unknown instead of a guess', async () => {
