@@ -1,5 +1,5 @@
 import { GLOBAL_TYPE, parseSubjectTypeRef } from '../ir.js';
-import type { CaveatDef, ParsedSubjectType, PolicyIR, Rewrite } from '../ir.js';
+import type { CaveatDef, ParsedSubjectType, PolicyIR, Rewrite, SubjectTypeRef } from '../ir.js';
 import { validateCaveats } from '../validate.js';
 import { OPENFGA_GLOBAL } from './openfga-write.js';
 
@@ -31,25 +31,11 @@ const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 export function irToRebacConfig(ir: PolicyIR): RebacConfig {
   const problems: string[] = [];
   const out: RebacConfig = { namespaces: {}, permissions: {}, caveats: heldCaveats(ir, problems), problems };
-  const name = (t: string): string => (t === GLOBAL_TYPE ? OPENFGA_GLOBAL : t);
   const narrowed = new Set<string>();
   for (const [type, def] of Object.entries(ir.types)) {
     const ns: RebacConfig['namespaces'][string] = {};
     for (const [rel, r] of Object.entries(def.relations)) {
-      if (own(def.permissions, rel)) continue;
-      const allowed: string[] = [];
-      for (const a of r.allowed) {
-        const s = parseSubjectTypeRef(a);
-        const why = unheld(s, JSON.stringify(a), ir, out.caveats);
-        if (why !== undefined) {
-          problems.push(`${type}#${rel}: ${why}`);
-          narrowed.add(`${type}#${rel}`);
-          continue;
-        }
-        const shape = `${name(s.type)}${s.relation === undefined ? '' : `#${s.relation}`}`;
-        allowed.push(s.caveat === undefined ? shape : `${shape} with ${s.caveat}`);
-      }
-      (ns.relations ??= {})[rel] = allowed;
+      if (!own(def.permissions, rel)) (ns.relations ??= {})[rel] = allowedOf(`${type}#${rel}`, r.allowed, ir, out, narrowed);
     }
     out.namespaces[name(type)] = ns;
   }
@@ -68,6 +54,25 @@ export function irToRebacConfig(ir: PolicyIR): RebacConfig {
   }
   for (const [p, b] of Object.entries(ir.permissions)) out.permissions[p] = `${name(b.type)}#${b.relation}`;
   return out;
+}
+
+const name = (t: string): string => (t === GLOBAL_TYPE ? OPENFGA_GLOBAL : t);
+
+/** The subject types of `key` in the `with` spelling; one that cannot be held is a problem and narrows `key`. */
+function allowedOf(key: string, refs: readonly SubjectTypeRef[], ir: PolicyIR, out: RebacConfig, narrowed: Set<string>): string[] {
+  const allowed: string[] = [];
+  for (const a of refs) {
+    const s = parseSubjectTypeRef(a);
+    const why = unheld(s, JSON.stringify(a), ir, out.caveats);
+    if (why !== undefined) {
+      out.problems.push(`${key}: ${why}`);
+      narrowed.add(key);
+      continue;
+    }
+    const shape = `${name(s.type)}${s.relation === undefined ? '' : `#${s.relation}`}`;
+    allowed.push(s.caveat === undefined ? shape : `${shape} with ${s.caveat}`);
+  }
+  return allowed;
 }
 
 function heldCaveats(ir: PolicyIR, problems: string[]): Record<string, CaveatDef> {

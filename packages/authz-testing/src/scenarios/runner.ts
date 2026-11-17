@@ -57,7 +57,7 @@ const parseRef = (text: unknown, where: string): ObjectRef => {
   return { type: m[1], id: m[2] };
 };
 
-/** OpenFGA parameter identifier -> IR parameter path, from the model's caveats (`conditionParam` is the export's mapping). */
+/** OpenFGA parameter identifier to IR parameter path, from the model's caveats (`conditionParam` is the export's mapping). */
 function paramPaths(ir: PolicyIR): Map<string, string> {
   const out = new Map<string, string>();
   for (const c of Object.values(ir.caveats)) {
@@ -113,7 +113,7 @@ function parseTuples(list: unknown, where: string, at: Contexts): ScenarioTuple[
 
 const parseContext = (raw: unknown, where: string, at: Contexts): { context?: CaveatContext } => {
   if (!raw) return {};
-  return { context: at.paths ? nest(toPaths(raw as Raw, at.paths, where)) : (raw as CaveatContext) };
+  return { context: at.paths ? nest(toPaths(raw as Raw, at.paths, where)) : raw };
 };
 
 function parseAssertions(test: Raw, where: string, at: Contexts): ScenarioAssertion[] {
