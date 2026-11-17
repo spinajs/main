@@ -106,6 +106,7 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
   const caveats: CaveatConfig = {
     unbanned: { params: { 'principal.attributes.bannedAt': 'timestamp' }, expr: { attr: 'principal.attributes.bannedAt', null: true } },
     unflagged: { params: { 'principal.attributes.flag': 'string' }, expr: { attr: 'principal.attributes.flag', null: true } },
+    first_empty: { params: { 'principal.attributes.list.0': 'string' }, expr: { attr: 'principal.attributes.list.0', null: true } },
   };
   let model: RebacModel;
   let authz: Authorizer;
@@ -114,6 +115,7 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
     model = await rebac(caveats, [
       { ...tuple(doc('d1'), 'viewer', user('bob')), caveat: { name: 'unbanned' } },
       { ...tuple(doc('d2'), 'viewer', user('bob')), caveat: { name: 'unflagged' } },
+      { ...tuple(doc('d3'), 'viewer', user('bob')), caveat: { name: 'first_empty' } },
     ]);
     authz = new Authorizer({ domain: 'root', registry: new FakePermissionRegistry(INPUTS), models: [model], nativeFilters: [model.nativeFilter], conditions, clock: () => NOW });
   });
@@ -134,5 +136,42 @@ describe('authz-rebac: a parameter-only caveat in the residual', () => {
     // An undefined-valued key and a class instance: the vote copy drops or refuses both, and a null test would hold.
     expect(await paths({ ...userPrincipal('bob'), attributes: { bannedAt: undefined } }, doc('d1'))).to.deep.equal({ check: true, residual: false });
     expect(await paths({ ...userPrincipal('bob'), attributes: { flag: new Flag(NOW) } }, doc('d2'))).to.deep.include({ residual: false });
+  });
+
+  it('reads a parameter through an array element as the compiler does', async () => {
+    expect(await paths({ ...userPrincipal('bob'), attributes: { list: ['x'] } }, doc('d3'))).to.deep.equal({ check: false, residual: false });
+    expect(await paths({ ...userPrincipal('bob'), attributes: { list: [] } }, doc('d3'))).to.deep.equal({ check: true, residual: true });
+  });
+
+  it('leaves a caveat undecided when reading its parameter throws, without an error vote', async () => {
+    const attributes = Object.defineProperty({}, 'bannedAt', {
+      enumerable: true,
+      get: () => {
+        throw new Error('no');
+      },
+    });
+    expect(await paths({ ...userPrincipal('bob'), attributes }, doc('d1'))).to.deep.include({ residual: false });
+  });
+});
+
+describe('authz-rebac: a residual over many large parameter values', () => {
+  const NAMES = Array.from({ length: 12 }, (_, i) => `l${i}`);
+  const caveats: CaveatConfig = Object.fromEntries(NAMES.map((n) => [n, { params: { 'env.tag': 'string', [`principal.attributes.${n}`]: 'list<string>' }, expr: { attr: 'env.tag', in: { ref: `principal.attributes.${n}` } } }]));
+  const list = Array.from({ length: 900 }, (_, i) => `t${i}`);
+  const who: Principal = { ...userPrincipal('bob'), attributes: Object.fromEntries(NAMES.map((n) => [n, list])) };
+
+  it('decides as many caveats as fit under the vote limit and leaves the others undecided', async () => {
+    const model = await rebac(caveats, NAMES.map((name, i): Tuple => ({ ...tuple(doc(`d${i}`), 'viewer', user('bob')), caveat: { name } })));
+    const authz = new Authorizer({ domain: 'root', registry: new FakePermissionRegistry(INPUTS), models: [model], nativeFilters: [model.nativeFilter], conditions, clock: () => NOW });
+    const typeLevel = await authz.check({ principal: who, permission: 'doc:read', resource: { type: 'doc' }, env: { tag: 't1' } }, { cache: new Map() });
+    expect(typeLevel.reason?.code).to.not.equal('model_error');
+    const rows: string[] = [];
+    for (const i of NAMES.keys()) {
+      const row = doc(`d${i}`);
+      if ((await listed(model, typeLevel.residual, who, row)) !== true) continue;
+      expect((await authz.check({ principal: who, permission: 'doc:read', resource: row, env: { tag: 't1' } }, { cache: new Map() })).allowed, row.id).to.equal(true);
+      rows.push(row.id!);
+    }
+    expect(rows.length).to.be.greaterThan(0).and.lessThan(NAMES.length);
   });
 });

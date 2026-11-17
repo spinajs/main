@@ -39,7 +39,7 @@ A caveat reads only the request, so a list plan decides each distinct `(caveat, 
 { tuples: { relation, subjects, conditional?: [{ caveat: caveatKey, subjects }] } }
 ```
 
-`subjects` match unconditional tuples (`caveat_key IS NULL`); each group matches the tuples of one caveat key that evaluated to `allow`. `unknown` and `deny` keep nothing. A plan that evaluated a caveat has `validUntil` set to the evaluation instant, so it is never reused. The type-level residual of a permission that can reach a caveat is not cacheable and carries the values of the caveats' parameters (`caveatInput`). It lists no row granted only through a caveat that calls a condition function, or whose parameter values cannot travel in the vote (`undecided`); see [Conditional tuples](06-conditional-tuples.md#caching-lists-and-row-level-security).
+`subjects` match unconditional tuples (`caveat_key IS NULL`); each group matches the tuples of one caveat key that evaluated to `allow`. `unknown` and `deny` keep nothing. A plan that evaluated a caveat has `validUntil` set to the evaluation instant, so it is never reused. The type-level residual of a permission that can reach a caveat is not cacheable and carries the values of the caveats' parameters (`caveatInput`). It lists no row granted only through a caveat that calls a condition function, or whose parameter values cannot travel in the vote: it names the caveats it decides (`decided`), any other is `unknown` at its rows; see [Conditional tuples](06-conditional-tuples.md#caching-lists-and-row-level-security).
 
 ### Row-level security
 

@@ -45,7 +45,7 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
   it('the type-level residual carries the request values of the reachable caveat parameters', async () => {
     const v = await vote('bob', { type: 'doc' }, { ip: '10.0.0.1', ua: 'x' });
     const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
-    expect(permit.args).to.deep.equal({ relation: 'read', principal: { type: 'user', id: 'bob' }, caveatInput: { 'env.ip': '10.0.0.1' } });
+    expect(permit.args).to.deep.equal({ relation: 'read', principal: { type: 'user', id: 'bob' }, caveatInput: { 'env.ip': '10.0.0.1' }, decided: ['not_expired', 'office_ip'] });
     expect(v.cacheable).to.equal(false);
     expect(await model.nativeFilter.matches(permit.args, {}, d1, ctx())).to.equal(true);
     expect(await model.nativeFilter.matches({ ...(permit.args as object), caveatInput: { 'env.ip': '10.0.0.2' } }, {}, d1, ctx())).to.equal(false);
@@ -58,7 +58,7 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
     const at = (iso: string) => fakeEvaluationContext({ conditions: new DefaultConditionCompiler(), permissions: INPUTS, nativeFilters: [m.nativeFilter], now: new Date(iso) });
     const v = await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: {} }, at('2026-11-17T10:00:00Z'));
     const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
-    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {}, undecided: ['hours'] });
+    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {}, decided: [] });
     expect(v.cacheable).to.equal(false);
     expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T10:00:00Z'))).to.equal(false);
     expect((await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: d1, env: {} }, at('2026-11-17T10:00:00Z'))).permitWhen).to.equal(TRUE);

@@ -12,8 +12,8 @@ export interface CaveatRequest {
   readonly permission: Permission;
   readonly resource: ResourceRef;
   readonly env: Readonly<Record<string, unknown>>;
-  /** Caveats a type-level residual could not carry what it needs for: they are `unknown` at its rows. */
-  readonly undecided?: readonly string[];
+  /** Set by a type-level residual: the only caveats it may decide at its rows; any other is `unknown` there. */
+  readonly decided?: readonly string[];
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
@@ -43,55 +43,66 @@ export function overlayContext(req: Pick<CaveatRequest, 'principal' | 'env'>, va
   return { principal: { ...req.principal, ...principal, type, id, authenticated, source }, env };
 }
 
-/** The request values of `paths` (`env.*` but `env.now`, `principal.*`), for a residual that is evaluated later. */
-export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const roots: Record<string, unknown> = { principal: req.principal, env: req.env };
-  for (const path of paths) {
-    if (path === 'env.now') continue;
-    let at: unknown = roots;
-    for (const s of path.split('.')) at = isRecord(at) && Object.hasOwn(at, s) ? at[s] : undefined;
-    if (at !== undefined) out[path] = at;
+const ABSENT = Symbol('absent');
+const THREW = Symbol('threw');
+
+/**
+ * The request value at a parameter path, read as the condition compiler's `readOwn` reads it: own properties only,
+ * through arrays and class instances alike. ABSENT where the compiler finds nothing; THREW where a getter throws (the
+ * compiler then finds nothing too, but the vote copy would fail on it).
+ */
+function readParam(req: Pick<CaveatRequest, 'principal' | 'env'>, path: string): unknown {
+  const [root, ...rest] = path.split('.');
+  let at: unknown = root === 'principal' ? req.principal : root === 'env' ? req.env : undefined;
+  try {
+    for (const s of rest) {
+      if (UNSAFE.has(s) || at === null || typeof at !== 'object' || !Object.hasOwn(at, s)) return ABSENT;
+      at = Reflect.get(at, s);
+    }
+  } catch {
+    return THREW;
   }
-  return out;
+  return at;
 }
 
-// Per parameter value, so a residual's caveatInput stays far under the engine's 10 000 values per vote.
-const MAX_PARAM_VALUES = 1_000;
+/** The request values of `paths` (`env.*` but `env.now`, `principal.*`), for a residual that is evaluated later. */
+export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): Record<string, unknown> {
+  const out = new Map<string, unknown>();
+  for (const path of paths) {
+    const v = path === 'env.now' ? ABSENT : readParam(req, path);
+    if (v !== ABSENT && v !== THREW && v !== undefined) out.set(path, v);
+  }
+  return Object.fromEntries(out);
+}
+
+// What a residual's caveatInput may hold, so the vote stays under the engine's 10 000 values (`MAX_DATA_VALUES`).
+const RESIDUAL_VALUES = 8_000;
 
 const isPlain = (v: object): boolean => {
   const proto: unknown = Object.getPrototypeOf(v);
   return proto === Object.prototype || proto === null;
 };
 
-/** Data the engine's strict vote copy keeps as it is: no class instance, function, bigint, invalid Date, cycle or undefined. */
-function plainData(v: unknown, left: { n: number }, seen: Set<object>): boolean {
-  if (--left.n < 0) return false;
-  if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true;
-  if (typeof v !== 'object' || seen.has(v)) return false;
-  if (v instanceof Date) return !Number.isNaN(v.getTime());
-  if (!Array.isArray(v) && !isPlain(v)) return false;
-  seen.add(v);
-  try {
-    return (Array.isArray(v) ? (v as unknown[]) : Object.values(v)).every((x) => plainData(x, left, seen));
-  } finally {
-    seen.delete(v);
-  }
-}
-
 /**
- * Whether the request value at a parameter path can travel in a residual's vote unchanged. An absent value travels as
- * absent; an undefined-valued key or a value that is not plain data would arrive as missing, which a `null` test reads
- * differently, so the caveat stays undecided in the residual.
+ * How many values the engine's strict vote copy counts for `v`, or undefined when it would not keep `v` as it is (a
+ * class instance, function, bigint, invalid Date, cycle or undefined) or `v` holds more than `limit`.
  */
-export function travels(path: string, req: Pick<CaveatRequest, 'principal' | 'env'>): boolean {
-  if (path === 'env.now') return true;
-  let at: unknown = { principal: req.principal, env: req.env };
-  for (const s of path.split('.')) {
-    if (!isRecord(at) || !Object.hasOwn(at, s)) return true;
-    at = Reflect.get(at, s);
-  }
-  return at !== undefined && plainData(at, { n: MAX_PARAM_VALUES }, new Set());
+function plainSize(v: unknown, limit: number): number | undefined {
+  let n = 0;
+  const walk = (x: unknown, seen: Set<object>): boolean => {
+    if (++n > limit) return false;
+    if (x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') return true;
+    if (typeof x !== 'object' || seen.has(x)) return false;
+    if (x instanceof Date) return !Number.isNaN(x.getTime());
+    if (!Array.isArray(x) && !isPlain(x)) return false;
+    seen.add(x);
+    try {
+      return (Array.isArray(x) ? (x as unknown[]) : Object.values(x)).every((i) => walk(i, seen));
+    } finally {
+      seen.delete(x);
+    }
+  };
+  return walk(v, new Set()) ? n : undefined;
 }
 
 function callsFunction(c: unknown): boolean {
@@ -120,10 +131,41 @@ export class RebacCaveats {
     return false;
   }
 
+  /**
+   * What a type-level residual carries for `names`: the caveats it can decide at its rows, and their parameter values.
+   * A caveat that calls a condition function (which may read anything of the request), or whose parameter values
+   * cannot travel in the vote unchanged or no longer fit in it, is left out, so it is `unknown` at the rows.
+   */
+  residualInput(names: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): { decided: string[]; caveatInput: Record<string, unknown> } {
+    const input = new Map<string, unknown>();
+    const decided: string[] = [];
+    let left = RESIDUAL_VALUES;
+    for (const name of names) {
+      const def = this.defs.get(name);
+      if (def === undefined || callsFunction(def.expr)) continue;
+      const picked = new Map<string, unknown>();
+      let cost = 0;
+      const fits = Object.keys(def.params).every((path) => {
+        const v = path === 'env.now' || input.has(path) ? ABSENT : readParam(req, path);
+        if (v === ABSENT) return true;
+        const size = v === THREW || v === undefined ? undefined : plainSize(v, left - cost);
+        if (size === undefined) return false;
+        picked.set(path, v);
+        cost += size;
+        return true;
+      });
+      if (!fits) continue;
+      for (const [path, v] of picked) input.set(path, v);
+      left -= cost;
+      decided.push(name);
+    }
+    return { decided, caveatInput: Object.fromEntries(input) };
+  }
+
   async evaluate(caveat: TupleCaveat, req: CaveatRequest, ctx: EvaluationContext): Promise<{ truth: CaveatTruth; cacheable: boolean }> {
     const def = this.defs.get(caveat.name);
     if (def === undefined) return { truth: 'unknown', cacheable: true };
-    if (req.undecided?.includes(caveat.name) === true) return { truth: 'unknown', cacheable: false };
+    if (req.decided !== undefined && !req.decided.includes(caveat.name)) return { truth: 'unknown', cacheable: false };
     // A stored context cannot move the clock, whatever store it came from.
     const context = Object.fromEntries(Object.entries(caveat.context ?? {}).filter(([path]) => path !== 'env.now'));
     const { principal, env } = overlayContext(req, context);
