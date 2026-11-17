@@ -5,11 +5,12 @@ import { policyHash } from '../canonical.js';
 import { IREvaluator } from '../eval/evaluator.js';
 import type { ExplainNode, Truth } from '../eval/explain.js';
 import type { PolicyIR } from '../ir.js';
-import type { HistoryContributor } from './contributor.js';
+import type { HistoryContributor, StoredPolicySplicer } from './contributor.js';
 import { conditionReads, instantOf, policyProblems, recordProblems, replayContext, replayWindow } from './context.js';
 import type { ReplayContext } from './context.js';
 import { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
 import { HistoricalTupleSource } from './source.js';
+import { spliceStoredPolicy } from './splice.js';
 import { replayVerdict } from './verdict.js';
 import type { VerdictInput } from './verdict.js';
 
@@ -30,6 +31,7 @@ export interface ReplayDeps {
   /** The canonical IR text stored under the hash, or undefined. */
   loadPolicy(policyHash: string): Promise<string | undefined>;
   contributors: readonly HistoryContributor[];
+  splicers: readonly StoredPolicySplicer[];
   limits: ReplayLimits;
   /** `PolicyHashSource.policyHash(domain)`, for `ReplayReport.currentPolicy`. */
   currentPolicyHash?(domain: string): string | undefined;
@@ -108,18 +110,20 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
 
   const t = instantOf(record);
   const limits = deps.limits;
-  const kinds = [...new Set(deps.contributors.map((c) => c.kind))];
+  const kinds = [...new Set([...deps.contributors.map((c) => c.kind), ...deps.splicers.map((s) => s.kind)])];
   const historyLimits = { maxChanges: o.maxChanges, maxKeys: limits.maxKeys, window: replayWindow(record, limits), ...(limits.precisionMs === undefined ? {} : { precisionMs: limits.precisionMs }), ...(deps.now === undefined ? {} : { now: deps.now }) };
   const history = (run.history = await ReplayHistory.load(deps.log, t, kinds, historyLimits, o.signal));
-  const source = new HistoricalTupleSource(ir, t, deps.contributors, history);
+  const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history);
+  run.reads.push(...spliced.reads);
+  const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history);
   const ctx = replayContext(record);
   let result;
   try {
-    result = await new IREvaluator(ir, source, { maxDepth: limits.maxDepth, maxCalls: limits.maxCalls }).check({ principal: ctx.principal, permission: record.permission, resource: record.resource.id == null ? { type: record.resource.type } : { type: record.resource.type, id: record.resource.id }, context: ctx.context, at: ctx.at });
+    result = await new IREvaluator(spliced.ir, source, { maxDepth: limits.maxDepth, maxCalls: limits.maxCalls }).check({ principal: ctx.principal, permission: record.permission, resource: record.resource.id == null ? { type: record.resource.type } : { type: record.resource.type, id: record.resource.id }, context: ctx.context, at: ctx.at });
   } finally {
     run.reads.push(...source.reads);
   }
-  const unheld = unheldReads(result.tree, ir, ctx);
+  const unheld = unheldReads(result.tree, spliced.ir, ctx);
   let truth: Truth = unheld.length > 0 ? 'unknown' : result.truth;
   const unknowns = [...unheld, ...unknownsOf(result.tree, run.reads)];
   // Without facts the companions are unknown, and they can grant or deny.

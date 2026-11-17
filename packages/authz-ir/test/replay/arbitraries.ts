@@ -59,13 +59,13 @@ const user = (id: string): ObjectRef => ({ type: 'user', id });
 const members = (id: string): TupleSubjectRef => ({ type: 'group', id, relation: 'member' });
 const D1: ObjectRef = { type: 'doc', id: 'd1' };
 
-interface Tuple {
+export interface Tuple {
   object: ObjectRef;
   relation: string;
   subject: TupleSubjectRef;
 }
 
-const CANDIDATES: readonly Tuple[] = [
+export const CANDIDATES: readonly Tuple[] = [
   ...['u1', 'u2'].map((u) => ({ object: D1, relation: 'editor', subject: user(u) })),
   { object: D1, relation: 'editor', subject: members('g1') },
   ...['u1', 'u2'].map((u) => ({ object: D1, relation: 'banned', subject: user(u) })),
