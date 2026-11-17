@@ -6,7 +6,7 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 
 1. A core service (`DefaultAuthnService`, `AuthnImpersonationService`, `AccountLinkService`) or another authn package (`authn-local`, `authn-token`, `authn-keys`, `authn-totp`) injects `AuthnAudit` and calls `publish(event)`, or `publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent` from the `AuthnContext`. Every emitter goes through `AuthnAudit`; `@spinajs/authn/audit` exports it without registering anything.
 2. `AuthnAudit` makes one deep-frozen copy of the event (`frozenCopy`).
-3. It delivers the copy to every sink concurrently, each call bounded by `authn.audit.sinkTimeoutMs`.
+3. It delivers the copy to every sink concurrently, each call bounded by `authn.audit.listenerTimeoutMs`.
 4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink.
 5. `publish` resolves when every sink has settled or timed out. A login waits for the slowest sink, not for the sum.
 
@@ -17,13 +17,13 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 | `publish(event)`, `publishIn(ctx, body)` | A promise that resolves when every sink has settled or timed out | Every failure event, and every event of a login, an MFA step, a session or an admin action |
 | `publishDetached(ctx, body)` | Nothing, at once | The success `token.use` and `key.use` events of `DefaultAuthnService` |
 
-A detached delivery runs the same way: every sink gets the same frozen copy, each bounded by `sinkTimeoutMs`, and a failure or timeout is logged the same way. Only the caller does not wait, so a slow sink never adds latency to a request authenticated by a token or a key. A failed token or key use is still awaited: the request that failed waits for its audit event.
+A detached delivery runs the same way: every sink gets the same frozen copy, each bounded by `listenerTimeoutMs`, and a failure or timeout is logged the same way. Only the caller does not wait, so a slow sink never adds latency to a request authenticated by a token or a key. A failed token or key use is still awaited: the request that failed waits for its audit event.
 
 `settled()` resolves when every detached delivery started so far has settled or timed out. Tests await it before they read a sink; `AuthnAudit.dispose()` awaits it, so disposing the container on shutdown does not drop the events still in flight. An event still in flight when the process dies without that dispose is lost.
 
 The sinks are every `AuthnEventSink` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no sink, boot logs a warning.
 
-A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(sinks, { sinkTimeoutMs, log })` gives the same delivery over explicit sinks, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
+A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
 
 ## The event
 
@@ -62,13 +62,13 @@ The reasons the core writes are listed in [Authentication flow](01-authenticatio
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authn.audit.sinkTimeoutMs` | `integer` | `2000` | 1 to 60000 | How long one sink may take per event |
+| `authn.audit.listenerTimeoutMs` | `integer` | `2000` | 1 to 60000 | How long one sink may take per event |
 | `authn.audit.hashIdentifiers` | `boolean` | `true` | `true`, `false` | `LogAuthnAuditSink` writes identifiers as keyed hashes. Only `false` writes them raw |
 | `authn.audit.hashKey.secret` | `string \| null` | unset | At least 32 characters | HMAC key of `LogAuthnAuditSink` and of `DbAuthnThrottle`. Unset: a random key per process, which `DbAuthnThrottle` refuses outside development and test |
 
 ```ts
 authn: {
-  audit: { hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: '<32+ characters, from a secret reference>' } },
+  audit: { hashIdentifiers: true, listenerTimeoutMs: 2000, hashKey: { secret: '<32+ characters, from a secret reference>' } },
 }
 ```
 
@@ -120,7 +120,7 @@ Import the module before the app boots: `AuthnAudit` lists the sinks when it res
 
 ## Best practices
 
-- Keep a sink fast or hand the event to a queue: the login waits up to `sinkTimeoutMs` for it. Token and key successes do not wait, but each one still holds a delivery open until the sink settles.
+- Keep a sink fast or hand the event to a queue: the login waits up to `listenerTimeoutMs` for it. Token and key successes do not wait, but each one still holds a delivery open until the sink settles.
 - In a test that reads a sink after a token or key success, `await audit.settled()` first.
 - Set `authn.audit.hashKey.secret` in production, so hashed identifiers stay comparable across restarts and instances.
 - Read `reason` only in sinks. Never send it to the client.

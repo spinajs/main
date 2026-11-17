@@ -1369,7 +1369,7 @@ describe('DbTokenService', function () {
     });
 
     it('holds a create or a revoke no longer than the audit timeout when a sink hangs', async () => {
-      tokens = await build({ auditor: AuthnAudit.over([new HangingTokenSink(), sink], { sinkTimeoutMs: 50 }) });
+      tokens = await build({ auditor: AuthnAudit.over([new HangingTokenSink(), sink], { listenerTimeoutMs: 50 }) });
       const a = await owner();
       const started = Date.now();
 

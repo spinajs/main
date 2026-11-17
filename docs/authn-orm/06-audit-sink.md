@@ -19,7 +19,7 @@ The strategy packages resolve `Array.ofType(AuthnEventSink)` themselves or go th
 ## How it works
 
 1. Importing `@spinajs/authn-orm` runs `@PerChildInstance()` and `@Injectable(AuthnEventSink)` on `DbAuthnAuditSink`. It is registered under `AuthnEventSink` and as itself.
-2. The `AuthnAudit` service of `@spinajs/authn` (not the model of the same name in this package) resolves every registered `AuthnEventSink` and calls `publish(e)` on each, concurrently, each bounded by `authn.audit.sinkTimeoutMs`.
+2. The `AuthnAudit` service of `@spinajs/authn` (not the model of the same name in this package) resolves every registered `AuthnEventSink` and calls `publish(e)` on each, concurrently, each bounded by `authn.audit.listenerTimeoutMs`.
 3. `DbAuthnAuditSink.publish(e)` turns `e.identity` and `e.actor` into `<type>:<id>` keys with `identityKey()`. A ref that does not fit the 100-character column leaves the column `NULL` and goes whole into `data` as `identityRef` or `actorRef`.
 4. It cuts free text to its column, by code points: `type` 32, `outcome` 8, `strategy` 64, `reason` 64, `ip` 64, `user_agent` 255, `session` 64.
 5. It serialises `e.data` plus the refs of step 3 to JSON. A `bigint` is written as a string; a value that does not serialise is written as `{"unserialisable":true}`. No data and no refs leaves `data` `NULL`.
@@ -33,7 +33,7 @@ A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authn.audit.sinkTimeoutMs` | `number` | `2000` | integer 1 to 60000 | How long `AuthnAudit` waits for one sink, this one included. |
+| `authn.audit.listenerTimeoutMs` | `number` | `2000` | integer 1 to 60000 | How long `AuthnAudit` waits for one sink, this one included. |
 | `authn.audit.hashIdentifiers` | `boolean` | `true` | `true`, `false` | Read by `LogAuthnAuditSink`. `DbAuthnAuditSink` never hashes. |
 | `authn.audit.retentionDays` | `number` or `null` | unset | integer 1 or more | Age in days after which `AuthnAuditRetention` deletes a row. Unset or `null` keeps every row. |
 | `authn.audit.purgeInterval` | `number` or `null` | unset | integer 1 or more, milliseconds | Period of the purge timer. Unset or `null` runs none. |

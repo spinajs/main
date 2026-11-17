@@ -6,7 +6,7 @@
 
 1. A flow builds the event body and calls `LocalPasswordService.audit(ctx, body)`.
 2. `audit()` calls `AuthnAudit.publishIn(ctx, body)`, which stamps `at` (`ctx.now`), `ip` and `userAgent` from the context. A service built with `deps` publishes through `AuthnAudit.over(deps.sinks)` instead.
-3. `AuthnAudit` delivers a frozen copy to every `AuthnEventSink` concurrently, each call bounded by `authn.audit.sinkTimeoutMs`, and waits for all of them. A sink that throws or times out is logged with its class name, the event type and the error class; the flow goes on. See [Audit and events](../authn/06-audit-events.md).
+3. `AuthnAudit` delivers a frozen copy to every `AuthnEventSink` concurrently, each call bounded by `authn.audit.listenerTimeoutMs`, and waits for all of them. A sink that throws or times out is logged with its class name, the event type and the error class; the flow goes on. See [Audit and events](../authn/06-audit-events.md).
 
 ## Events
 
@@ -47,7 +47,7 @@ Not audited: a policy violation in `set()` or `redeemReset()`.
 
 ## Configuration
 
-No key of this package. Sinks are registered, not configured; `authn.audit.sinkTimeoutMs` (default `2000`) of the [authn core](../authn/06-audit-events.md) bounds each sink call.
+No key of this package. Sinks are registered, not configured; `authn.audit.listenerTimeoutMs` (default `2000`) of the [authn core](../authn/06-audit-events.md) bounds each sink call.
 
 ## Services and extension points
 
@@ -82,7 +82,7 @@ export class ResetAlertSink extends AuthnEventSink {
 
 ## Important behaviour
 
-- **Sinks run concurrently and are awaited.** A slow sink slows the password flow that published the event, by at most `authn.audit.sinkTimeoutMs`.
+- **Sinks run concurrently and are awaited.** A slow sink slows the password flow that published the event, by at most `authn.audit.listenerTimeoutMs`.
 - **A failing sink never fails the flow.** Its error is logged by class only, never by message, which may echo the event.
 - **Register sinks before the first event.** `AuthnAudit` collects the sinks once per container, when it is resolved.
 - **Reset request events are deferred.** They are published after `requestReset()` has answered.

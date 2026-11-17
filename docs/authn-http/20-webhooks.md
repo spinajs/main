@@ -13,7 +13,7 @@
 
 The body is the `AuthnEvent` as it is: `type`, `at`, `outcome` and the optional `identity`, `actor`, `strategy`, `reason`, `ip`, `userAgent`, `session` and `data`. The sink adds no field. Events never hold passwords, tokens or secrets (see [Audit events](../authn/06-audit-events.md)); the `session` field is the hashed handle, not the session id.
 
-The sink waits for the answer, so a slow endpoint delays the call that published the event by at most `timeoutMs` (the auditor's own `authn.audit.sinkTimeoutMs` also applies). Keep `timeoutMs` low and let the receiver queue its work.
+The sink waits for the answer, so a slow endpoint delays the call that published the event by at most `timeoutMs` (the auditor's own `authn.audit.listenerTimeoutMs` also applies). Keep `timeoutMs` low and let the receiver queue its work.
 
 ## Examples
 

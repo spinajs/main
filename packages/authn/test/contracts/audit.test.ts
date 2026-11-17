@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { AuthnEventSink } from '../../src/contracts/audit.js';
+import { AuthnEventListener, AuthnEventSink } from '../../src/contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../../src/contracts/audit.js';
 import { ImpersonationGuard } from '../../src/contracts/impersonation.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
@@ -27,9 +27,9 @@ const SRC_DIR = join(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'
 const alice: IdentityRef = { type: 'user', id: 'alice' };
 const admin: Principal = { type: 'user', id: 'admin', authenticated: true, source: 'session', attributes: {} };
 
-class ListSink extends AuthnEventSink {
+class ListListener extends AuthnEventListener {
   readonly events: AuthnEvent[] = [];
-  async publish(e: AuthnEvent): Promise<void> {
+  async on(e: AuthnEvent): Promise<void> {
     this.events.push(e);
   }
 }
@@ -110,23 +110,37 @@ const shape = (c: Record<string, ClassShape>) => Object.fromEntries(Object.entri
 
 describe('audit and impersonation guard contracts', () => {
   describe('runtime', () => {
-    it('exports AuthnEventSink and ImpersonationGuard from the contracts index as plain abstract classes', () => {
-      expect(index.AuthnEventSink).to.eq(AuthnEventSink);
+    it('exports AuthnEventListener and ImpersonationGuard from the contracts index as plain abstract classes', () => {
+      expect(index.AuthnEventListener).to.eq(AuthnEventListener);
       expect(index.ImpersonationGuard).to.eq(ImpersonationGuard);
-      for (const c of [AuthnEventSink, ImpersonationGuard]) {
+      for (const c of [AuthnEventListener, ImpersonationGuard]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
     });
 
-    it('every sink gets every event', async () => {
-      const sinks: AuthnEventSink[] = [new ListSink(), new ListSink()];
+    it('exports the deprecated AuthnEventSink as a listener whose on() calls publish()', async () => {
+      expect(index.AuthnEventSink).to.eq(AuthnEventSink);
+      expect(Object.getPrototypeOf(AuthnEventSink)).to.eq(AuthnEventListener);
+      const seen: AuthnEvent[] = [];
+      const sink = new (class extends AuthnEventSink {
+        async publish(e: AuthnEvent): Promise<void> {
+          seen.push(e);
+        }
+      })();
+      const e: AuthnEvent = { type: 'logout', at: new Date(0), outcome: 'success' };
+      await sink.on(e);
+      expect(seen).to.deep.eq([e]);
+    });
+
+    it('every listener gets every event', async () => {
+      const listeners: AuthnEventListener[] = [new ListListener(), new ListListener()];
       const events: AuthnEvent[] = [
         { type: 'login', at: new Date(0), outcome: 'success', identity: alice, strategy: 'local', session: 'h(s1)' },
         { type: 'throttle.block', at: new Date(1), outcome: 'failure', reason: 'throttled', ip: '10.0.0.1', data: { flow: 'login' } },
       ];
-      for (const e of events) await Promise.all(sinks.map((s) => s.publish(e)));
-      for (const s of sinks) expect((s as ListSink).events).to.deep.eq(events);
+      for (const e of events) await Promise.all(listeners.map((l) => l.on(e)));
+      for (const l of listeners) expect((l as ListListener).events).to.deep.eq(events);
     });
 
     it('a concrete guard answers with every code', async () => {
@@ -139,9 +153,23 @@ describe('audit and impersonation guard contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('audit.ts holds AuthnEventSink with publish', () => {
+    it('audit.ts holds AuthnEventListener with on, ready and flush, and the AuthnEventSink bridge', () => {
       expect(shape(classMembers('audit.ts'))).to.deep.eq({
-        AuthnEventSink: { base: null, members: [{ name: 'publish', modifiers: ['abstract'], optional: false, params: ['e'] }] },
+        AuthnEventListener: {
+          base: null,
+          members: [
+            { name: 'on', modifiers: ['abstract'], optional: false, params: ['e'] },
+            { name: 'ready', modifiers: [], optional: true, params: [] },
+            { name: 'flush', modifiers: [], optional: true, params: [] },
+          ],
+        },
+        AuthnEventSink: {
+          base: 'AuthnEventListener',
+          members: [
+            { name: 'publish', modifiers: ['abstract'], optional: false, params: ['e'] },
+            { name: 'on', modifiers: ['public'], optional: false, params: ['e'] },
+          ],
+        },
       });
     });
 
@@ -163,13 +191,13 @@ describe('audit and impersonation guard contracts', () => {
       expect(ev.data).to.contain('Never');
       expect(ev.data).to.contain('secrets');
       expect(ev.reason).to.contain('A02');
-      const sink = classMembers('audit.ts').AuthnEventSink;
-      expect(sink.doc).to.contain('Array.ofType');
-      expect(sink.doc).to.contain('every sink gets every event');
-      expect(sink.doc).to.contain('A21');
-      expect(sink.doc).to.contain('Log sinks write identifiers (login strings, emails) as keyed hashes');
-      expect(sink.doc).to.contain('SR-19');
-      expect(sink.doc).to.contain('the audit stream keeps the identity id');
+      const listener = classMembers('audit.ts').AuthnEventListener;
+      expect(listener.doc).to.contain('every registered listener gets every event (A21)');
+      expect(listener.doc).to.contain('authn.audit.listenerTimeoutMs');
+      expect(listener.doc).to.contain('never fails the publish');
+      expect(listener.members.find((m) => m.name === 'ready')?.doc).to.contain('a throw fails the boot');
+      expect(listener.members.find((m) => m.name === 'flush')?.doc).to.contain('AuthnAudit.settled()');
+      expect(classMembers('audit.ts').AuthnEventSink.doc).to.contain('@deprecated');
       const guard = classMembers('impersonation.ts').ImpersonationGuard;
       expect(guard.doc).to.contain('users');
       expect(guard.doc).to.contain('D26');
@@ -181,6 +209,7 @@ describe('audit and impersonation guard contracts', () => {
     it('re-exports every type from the contracts index', () => {
       same<index.AuthnEvent, AuthnEvent>(true);
       same<index.AuthnEventType, AuthnEventType>(true);
+      same<index.AuthnEventListener, AuthnEventListener>(true);
       same<index.AuthnEventSink, AuthnEventSink>(true);
       same<index.ImpersonationGuard, ImpersonationGuard>(true);
     });
@@ -218,7 +247,11 @@ describe('audit and impersonation guard contracts', () => {
       expect([a, b, c]).to.have.length(3);
     });
 
-    it('AuthnEventSink and ImpersonationGuard members have the design types', () => {
+    it('AuthnEventListener, AuthnEventSink and ImpersonationGuard members have the design types', () => {
+      same<Parameters<AuthnEventListener['on']>, [AuthnEvent]>(true);
+      same<ReturnType<AuthnEventListener['on']>, Promise<void>>(true);
+      same<AuthnEventListener['ready'], (() => void | Promise<void>) | undefined>(true);
+      same<AuthnEventListener['flush'], (() => Promise<void>) | undefined>(true);
       same<Parameters<AuthnEventSink['publish']>, [AuthnEvent]>(true);
       same<ReturnType<AuthnEventSink['publish']>, Promise<void>>(true);
       same<Parameters<ImpersonationGuard['allowed']>, [Principal, IdentityRef]>(true);
@@ -236,13 +269,15 @@ describe('audit and impersonation guard contracts', () => {
 
     it('wrong shapes do not compile', () => {
       // @ts-expect-error abstract
+      const l = (): unknown => new AuthnEventListener();
+      // @ts-expect-error abstract
       const a = () => new AuthnEventSink();
       // @ts-expect-error abstract
       const b = () => new ImpersonationGuard();
       const g: ImpersonationGuard = new RoleGuard();
       // @ts-expect-error the actor is a Principal, not an IdentityRef
       const c = () => g.allowed(alice, alice);
-      expect([a, b, c]).to.have.length(3);
+      expect([l, a, b, c]).to.have.length(4);
     });
 
     it('a guard with an unknown code does not compile', () => {

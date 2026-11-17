@@ -27,12 +27,24 @@ export interface AuthnEvent {
 }
 export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "token.rotate" | "token.update" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify" | "code.request" | "identity.register" | "role.switch" | "request.refuse";
 /**
- * Registered with Array.ofType: every sink gets every event (A21).
- * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
- * the audit stream keeps the identity id.
+ * Reacts to authentication events in the process that raised them: every registered listener gets every event (A21).
+ * AuthnAudit calls the listeners concurrently, each bounded by `authn.audit.listenerTimeoutMs`; a listener that throws
+ * or runs out of time is logged and never fails the publish. Recording is a listener too: `@spinajs/audit-authn`.
  */
-export declare abstract class AuthnEventSink {
+export declare abstract class AuthnEventListener {
+    abstract on(e: AuthnEvent): Promise<void>;
+    /** Awaited once when AuthnAudit resolves; a throw fails the boot. For a setting that must be right before the first event. */
+    ready?(): void | Promise<void>;
+    /** Awaited by `AuthnAudit.settled()`: writes out what `on` buffered. */
+    flush?(): Promise<void>;
+}
+/**
+ * @deprecated Extend AuthnEventListener and rename `publish` to `on`. Kept only while the packages of this repository
+ * move over; it is removed before 4.0 is released.
+ */
+export declare abstract class AuthnEventSink extends AuthnEventListener {
     abstract publish(e: AuthnEvent): Promise<void>;
+    on(e: AuthnEvent): Promise<void>;
 }
 ```
 
@@ -1302,11 +1314,14 @@ export interface ThrottleParams {
 export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
 /** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
 export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
-/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
-export declare const ipv6PrefixOf: (configured: unknown) => number;
+/**
+ * The IPv6 prefix of the ip keys: `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix` (the prefix `@RateLimit`
+ * and `http.throttle` count), else 64. Each is taken as a config read delivers it: only a number counts.
+ */
+export declare const ipv6PrefixOf: (configured: unknown, httpPrefix?: unknown) => number;
 /**
  * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
- * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ * ({@link ipv6PrefixOf}), so its addresses share one row (L3).
  */
 export declare function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null;
 /**
