@@ -116,6 +116,14 @@ describe('buildAppManifest', () => {
     expect(manifest.diagnostics.filter((d) => d.code.startsWith('AUTHZ01'))).to.deep.equal([{ code: 'AUTHZ011', severity: 'warning', message: 'authz.ir.json is not in the manifest: not valid JSON' }]);
   });
 
+  it('names the policy file the build was pointed at in AUTHZ010 and AUTHZ011', async () => {
+    const policyFile = 'policies/prod.ir.json';
+    const missing = (await buildAppManifest({ ...APP, policyFile })).manifest;
+    expect(missing.diagnostics.filter((d) => d.code.startsWith('AUTHZ01'))).to.deep.equal([{ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest: run `spinajs authz:compile` and commit policies/prod.ir.json' }]);
+    const unusable = (await buildAppManifest({ ...APP, policyFile, policy: { problem: 'not a policy IR' } })).manifest;
+    expect(unusable.diagnostics.filter((d) => d.code.startsWith('AUTHZ01'))).to.deep.equal([{ code: 'AUTHZ011', severity: 'warning', message: 'policies/prod.ir.json is not in the manifest: not a policy IR' }]);
+  });
+
   it('records the compiler version that built it, outside the hash', async () => {
     const { manifest } = await buildAppManifest(APP);
     const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };

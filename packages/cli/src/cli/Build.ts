@@ -33,6 +33,28 @@ const dirOf = (dir: string): string => (resolve(dir).split(sep).includes('node_m
 
 const entriesOf = (m: Manifest): number => m.controllers.length + m.socketControllers.length + m.schedules.length + m.commands.length + m.migrations.length;
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const hasExactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []): boolean => required.every((k) => Object.hasOwn(value, k)) && Object.keys(value).every((k) => required.includes(k) || optional.includes(k));
+
+const COMBINE_ALGORITHMS = ['deny-overrides', 'permit-overrides', 'first-applicable'];
+
+function isCombineEntry(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['algorithm'], ['models'])) return false;
+  const { algorithm, models } = value;
+  const known = (typeof algorithm === 'string' && COMBINE_ALGORITHMS.includes(algorithm)) || (isRecord(algorithm) && hasExactKeys(algorithm, ['opaque']) && typeof algorithm.opaque === 'string');
+  return known && (models === undefined || (Array.isArray(models) && models.every((m) => typeof m === 'string')));
+}
+
+const isCombine = (value: unknown): boolean => isRecord(value) && hasExactKeys(value, ['default'], ['types']) && isCombineEntry(value.default) && (value.types === undefined || (isRecord(value.types) && Object.values(value.types).every(isCombineEntry)));
+
+const isPrincipal = (value: unknown): boolean => isRecord(value) && hasExactKeys(value, ['ceiling', 'delegation', 'ancestry', 'roles']) && typeof value.ceiling === 'boolean' && typeof value.delegation === 'boolean' && typeof value.ancestry === 'string' && isRecord(value.roles);
+
+/** The top level of `PolicyIR`, which `validateIR` assumes: it checks references only, so an extra key or a wrong `version` would be hashed and recorded. */
+function isPolicyIRShape(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['version', 'types', 'permissions', 'caveats', 'combine', 'principal', 'opaque'])) return false;
+  return value.version === 1 && isRecord(value.types) && isRecord(value.permissions) && isRecord(value.caveats) && Array.isArray(value.opaque) && isCombine(value.combine) && isPrincipal(value.principal);
+}
+
 type Compiler = typeof import('@spinajs/compiler');
 type AppDirs = import('@spinajs/compiler').AppDirs;
 type ManifestPolicy = import('@spinajs/compiler').ManifestPolicy;
@@ -64,6 +86,15 @@ export class Build extends CliCommand {
     return loadIr();
   }
 
+  private async loadIrForBuild(): Promise<AuthzIrModule> {
+    try {
+      return await this.importIr();
+    } catch (e) {
+      if (e instanceof Error && isRecord(e.cause) && e.cause.code === 'ERR_MODULE_NOT_FOUND') throw new Error('install @spinajs/authz-ir so that spinajs build can record the policy IR', { cause: e });
+      throw e;
+    }
+  }
+
   private async loadCompiler(): Promise<Compiler> {
     try {
       return await this.importCompiler();
@@ -82,10 +113,12 @@ export class Build extends CliCommand {
     const tsconfig = physical(resolve(options.tsconfig));
     const appRoot = dirname(tsconfig);
     const cwdWarnings = this.cwdWarnings(appRoot);
-    const policy = await this.policy(resolve(appRoot, options.authzIr ?? 'authz.ir.json'));
+    const policyPath = resolve(appRoot, options.authzIr ?? 'authz.ir.json');
+    const policy = await this.policy(policyPath);
+    const policyFile = relative(appRoot, policyPath).replaceAll(sep, '/');
     let built: Awaited<ReturnType<Compiler['buildAppManifest']>>;
     try {
-      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options), ...(policy ? { policy } : {}) });
+      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options), ...(policy ? { policy } : {}), policyFile });
     } catch (e) {
       if (!(e instanceof NoAppDirs)) throw e;
       this.write([...cwdWarnings, `error CMP007 - ${e.message}. ${NO_DIRS_FIX}`, ''].join('\n'));
@@ -115,9 +148,10 @@ export class Build extends CliCommand {
   private async policy(file: string): Promise<ManifestPolicy | undefined> {
     if (!existsSync(file)) return undefined;
     try {
-      const ir = await this.importIr();
       const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
-      // validateIR expects schema-valid input and throws on anything else; the catch reports that too.
+      if (!isPolicyIRShape(parsed)) return { problem: 'not a policy IR' };
+      const ir = await this.loadIrForBuild();
+      // Below the top level validateIR still expects schema-valid input: a malformed type or binding throws, and the catch reports it.
       const invalid = ir.validateIR(parsed);
       if (invalid.length > 0) return { problem: `invalid IR: ${invalid.map((d) => d.code).join(', ')}` };
       return { ir: ir.canonicalize(parsed), policyHash: ir.policyHash(parsed) };

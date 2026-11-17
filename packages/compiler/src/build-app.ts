@@ -25,6 +25,8 @@ export interface BuildAppOptions extends Partial<AppDirs> {
   globalRouteMiddlewares?: unknown;
   /** From `authz.ir.json` (`spinajs authz:compile`). The caller canonicalizes it: the compiler does not depend on the IR package. */
   policy?: ManifestPolicy;
+  /** The policy file as the diagnostics name it, relative to the app root. Defaults to `authz.ir.json`. */
+  policyFile?: string;
 }
 
 export async function buildAppManifest(options: BuildAppOptions): Promise<{ manifest: Manifest; written: string }> {
@@ -46,9 +48,9 @@ export async function buildAppManifest(options: BuildAppOptions): Promise<{ mani
     compilerVersion: COMPILER_VERSION,
   });
   if (merged.authz) {
-    const policy = options.policy;
-    if (policy === undefined) merged.diagnostics.push({ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest: run `spinajs authz:compile` and commit authz.ir.json' });
-    else if ('problem' in policy) merged.diagnostics.push({ code: 'AUTHZ011', severity: 'warning', message: `authz.ir.json is not in the manifest: ${policy.problem}` });
+    const { policy, policyFile = 'authz.ir.json' } = options;
+    if (policy === undefined) merged.diagnostics.push({ code: 'AUTHZ010', severity: 'info', message: `policy IR not in manifest: run \`spinajs authz:compile\` and commit ${policyFile}` });
+    else if ('problem' in policy) merged.diagnostics.push({ code: 'AUTHZ011', severity: 'warning', message: `${policyFile} is not in the manifest: ${policy.problem}` });
     else merged.authz = { ...merged.authz, ir: policy.ir, policyHash: policy.policyHash };
   }
   const manifest: Manifest = { ...merged, hash: hashManifest(merged) };
