@@ -492,6 +492,13 @@ the `<table>__history` table and its triggers; see [Schema builder](09-schema-bu
 `Model.audit(trail?)` and `row.audit(trail?)` return what the audit trail recorded about a model's rows (`of(id)`,
 `since(seq)`, `entries()`). They need `@spinajs/audit-orm`; without it they throw.
 
+Without a trail name they read the `default` trail. A trail keeps transactional events on the connection of the audited
+write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
+are read and merged by time; a connection that has no table of the trail adds nothing. `query.source` reads one
+connection only, and `since(seq)` with a `seq` above 0 needs it, because `seq` counts per connection. These are
+server-side reads with no authorization scoping of their own: an application that exposes them decides who may call them.
+Retention applies per trail, and each trail owns its table.
+
 ## Column SQL specs, indexes and partial models
 
 A plain class field is a column. `@Column(spec)` adds what the SQL type is, for the manifest and `migrate-diff`;
