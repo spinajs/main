@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { STUDIO_CSP, appBase, assetFile, uiSegments, withStudioBase } from '../src/ui/ui.js';
+import { STUDIO_CSP, appBase, assetFile, locateUi, uiSegments, withStudioBase } from '../src/ui/ui.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -115,6 +115,29 @@ describe('uiSegments and assetFile', () => {
     // Found on disk, so answered like a missing file: a 404 here would tell the caller the file exists.
     expect(assetFile(fixture.dist, 'linked/secret.txt')).to.eq(undefined);
     expect(assetFile(fixture.dist, 'server.sh')).to.eq(undefined);
+  });
+});
+
+describe('locateUi and assetFile where the native real path fails', () => {
+  let fixture: Fixture;
+  const native = realpathSync.native;
+  before(() => {
+    fixture = fixtureDist();
+    // Node documents that the native call fails on some virtual and RAM drives where the JS one works.
+    realpathSync.native = () => {
+      throw Object.assign(new Error('EISDIR: native realpath unsupported'), { code: 'EISDIR' });
+    };
+  });
+  after(() => {
+    realpathSync.native = native;
+    rmSync(fixture.parent, { recursive: true, force: true });
+  });
+
+  it('falls back to the JS real path', () => {
+    const root = locateUi(fixture.dist);
+    expect(root).to.eq(realpathSync(fixture.dist));
+    expect(assetFile(root ?? '', 'assets/app-3f9a1c.js')).to.eq(realpathSync(join(fixture.dist, 'assets', 'app-3f9a1c.js')));
+    expect(assetFile(root ?? '', 'linked/secret.txt')).to.eq(undefined);
   });
 });
 

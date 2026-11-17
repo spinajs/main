@@ -104,7 +104,14 @@ export function uiSegments(raw: string): string[] | undefined {
  * Links followed, and on Windows 8.3 short names expanded, letter case corrected and an `::$DATA` stream suffix
  * dropped: the JS `realpathSync` does none of the last three, so `SECRET~1.JS` would pass as a name without a dot.
  */
-const realPath = (path: string): string => realpathSync.native(path);
+function realPath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    // Node documents that the native call fails on some virtual and RAM drives; short names stay unexpanded there.
+    return realpathSync(path);
+  }
+}
 
 /**
  * The file of dist/ that `path` (decoded, `/`-separated) names, as {@link realPath} gives it.
