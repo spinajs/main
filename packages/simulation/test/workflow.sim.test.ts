@@ -4,9 +4,10 @@ import { InvariantViolation, runSuite } from '../src/index.js';
 import { workflowSuite, type WorkflowTamper } from '../suites/workflow.sim.js';
 
 /** Each entry breaks one thing behind the engine's back; the named invariant must be the one that reports it. */
-const SELF_TESTS: Array<{ tamper: WorkflowTamper; invariant: string; failRate: number }> = [
+const SELF_TESTS: Array<{ tamper: WorkflowTamper; invariant: string; failRate: number; message?: RegExp }> = [
   { tamper: 'result', invariant: 'step-results-never-overwritten', failRate: 0.3 },
-  { tamper: 'call', invariant: 'journal-branches-consistent', failRate: 0.3 },
+  { tamper: 'call', invariant: 'journal-branches-consistent', failRate: 0.3, message: /is recorded as call 9 of its branch/ },
+  { tamper: 'swap', invariant: 'journal-branches-consistent', failRate: 0.3, message: /holds "packed [ab]", its branch's result is 'packed [ab]'/ },
   { tamper: 'drift', invariant: 'no-instance-failed', failRate: 0.3 },
   { tamper: 'compensation-order', invariant: 'compensations-newest-first', failRate: 1 },
   { tamper: 'compensation-effect', invariant: 'compensation-effects-at-least-once', failRate: 1 },
@@ -46,6 +47,8 @@ describe('workflow suite', function () {
       expect(report.failure?.invariant).to.equal(t.invariant);
       // the invariant's own check fired, not an error thrown while it read the tables
       expect(report.failure?.error).to.be.instanceOf(InvariantViolation);
+      // two checks share journal-branches-consistent: the message names the one that fired
+      if (t.message && report.failure?.error instanceof InvariantViolation) expect(report.failure.error.message).to.match(t.message);
     });
   }
 });

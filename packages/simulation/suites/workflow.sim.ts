@@ -14,13 +14,21 @@ const EXPECTED = new Map<string, string[]>([
   [P1, [`step:pack#1@${P1}`]],
   [P2, [`step:pack#1@${P2}`, `sleep:cool-off#1@${P2}`, `wait:approve#1@${P2}`, `step:charge#1@${P2}`, `step:ship#1@${P2}`]],
 ]);
+/** What the fan-out rows must hold: a replay that hands a branch its sibling's result keeps every key in its slot. */
+const FAN_OUT_RESULTS = new Map<string, string>([
+  ['step:pick#1', 'a'],
+  ['step:pick#2', 'b'],
+  [`step:pack#1@${P1}`, 'packed a'],
+  [`step:pack#1@${P2}`, 'packed b'],
+]);
+const OTHER_PART: Record<string, string> = { a: 'b', b: 'a' };
 const CHARGE = `step:charge#1@${P2}`;
 const COMPENSABLE = new Set(['step:reserve#1', CHARGE]);
 const TRANSACTIONAL = new Set([CHARGE, `step:ship#1@${P2}`]);
 const TERMINAL = ['completed', 'failed', 'compensated', 'cancelled'];
 
 /** What a self-test breaks behind the engine's back; each kind is caught by one invariant (test/workflow.sim.test.ts). */
-export type WorkflowTamper = 'result' | 'call' | 'drift' | 'compensation-order' | 'compensation-effect' | 'effect' | 'consume' | 'stall' | 'status';
+export type WorkflowTamper = 'result' | 'call' | 'swap' | 'drift' | 'compensation-order' | 'compensation-effect' | 'effect' | 'consume' | 'stall' | 'status';
 
 export interface WorkflowSuiteOptions {
   tamper?: WorkflowTamper;
@@ -62,6 +70,8 @@ interface Seed {
   env: SimEnv;
   /** Self-test `drift`: an instance asks for another step name from its second activation on. */
   drift: boolean;
+  /** Self-test `swap`: each branch packs the other branch's part, as a replay that hands it the other's result would. */
+  swap: boolean;
   activated: Set<string>;
 }
 
@@ -86,7 +96,7 @@ const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(reso
 @Workflow('sim-order', { version: 1, retry: { attempts: 3, backoff: 'fixed', delay: 1_000 } })
 export class SimOrderWorkflow extends WorkflowDefinition<{ fail: boolean }, string> {
   public async run(ctx: WorkflowContext<{ fail: boolean }>): Promise<string> {
-    const { drift, activated } = seed();
+    const { drift, swap, activated } = seed();
     const pack = drift && activated.has(ctx.instanceId) ? 'wrap' : 'pack';
     activated.add(ctx.instanceId);
     await ctx.step('reserve', () => effect('sim_wf_effect', ctx.instanceId, 'reserve'), {
@@ -99,7 +109,7 @@ export class SimOrderWorkflow extends WorkflowDefinition<{ fail: boolean }, stri
         await ctx.step('pick', () => part);
         // a non-durable await between same-name steps of concurrent branches: the case branch-lineage keys exist for
         await nextTurn();
-        await ctx.step(pack, () => `packed ${part}`);
+        await ctx.step(pack, () => `packed ${swap ? OTHER_PART[part] : part}`);
       }),
     );
     await ctx.sleep('5s', 'cool-off');
@@ -120,7 +130,10 @@ export const WORKFLOW_FAULTS: FaultRule[] = [
   { point: 'workflow.after-step-fn', when: { probability: 0.03 }, effect: 'crash' },
   { point: 'workflow.after-step-fn', when: { probability: 0.03 }, effect: 'delay', delayMs: LEASE_TTL + 5_000 },
   { point: 'workflow.before-journal', when: { probability: 0.03 }, effect: 'crash' },
+  // the lease expires before an update of a row the new owner already wrote (a wait consuming a signal): only the epoch fence refuses it
+  { point: 'workflow.before-journal', when: { probability: 0.03 }, effect: 'delay', delayMs: LEASE_TTL + 5_000 },
   { point: 'workflow.after-journal', when: { probability: 0.03 }, effect: 'crash' },
+  // not reached yet: a paused replica's heartbeat does not fire, and after the thaw it marks the lease lost without renew()
   { point: 'workflow.lease-renew', when: { probability: 0.05 }, effect: 'crash' },
 ];
 
@@ -141,7 +154,7 @@ function byInstance(rows: StepRow[]): Map<string, StepRow[]> {
   return out;
 }
 
-/** The self-test actor: one way of breaking the data per kind. `drift` changes the workflow's code instead, so it does nothing here. */
+/** The self-test actor: one way of breaking the data per kind. `drift` and `swap` change the workflow's code instead, so they do nothing here. */
 function tamperActor(env: SimEnv, kind: WorkflowTamper, steps: () => Promise<StepRow[]>): SimActor {
   const db = env.database;
   let done = false;
@@ -160,6 +173,7 @@ function tamperActor(env: SimEnv, kind: WorkflowTamper, steps: () => Promise<Ste
         await db.execute('UPDATE __workflow_step SET Meta = ? WHERE InstanceId = ? AND "Key" = ?', [JSON.stringify({ ...metaOf(victim), call: 9 }), victim.InstanceId, victim.Key]);
         return true;
       }),
+    swap: () => Promise.resolve(),
     drift: () => Promise.resolve(),
     'compensation-order': () =>
       once(async () => {
@@ -203,7 +217,7 @@ function tamperActor(env: SimEnv, kind: WorkflowTamper, steps: () => Promise<Ste
 }
 
 async function buildWorkflow(env: SimEnv, o: WorkflowSuiteOptions): Promise<SimSystem> {
-  current = { env, drift: o.tamper === 'drift', activated: new Set() };
+  current = { env, drift: o.tamper === 'drift', swap: o.tamper === 'swap', activated: new Set() };
   await env.boot({
     template: 'workflow',
     aliases: ['workflow', 'queue'],
@@ -278,6 +292,8 @@ async function buildWorkflow(env: SimEnv, o: WorkflowSuiteOptions): Promise<SimS
             const call = metaOf(r).call;
             const expected = call === undefined ? undefined : EXPECTED.get(branchOfKey(r.Key))?.[call - 1];
             ensure(expected === r.Key, `${id}: '${r.Key}' is recorded as call ${call} of its branch, which must hold '${expected}'`);
+            const result = FAN_OUT_RESULTS.get(r.Key);
+            if (result !== undefined && r.Status === 'succeeded') ensure(r.Result === JSON.stringify(result), `${id}: '${r.Key}' holds ${r.Result}, its branch's result is '${result}'`);
           }
         }
       }),
