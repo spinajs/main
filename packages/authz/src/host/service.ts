@@ -140,12 +140,12 @@ export class DefaultAuthzService extends AuthzService {
     this.bootSubscription = undefined;
     const pending = this.buffered;
     this.buffered = undefined;
+    await this.preparePolicy(state);
     if (this.disposed) {
       await this.dispose();
       throw new AuthzConfigError(`AuthzService of domain ${q(this.name)} was disposed while it booted`);
     }
     if (pending !== undefined && pending.length > 0) this.invalidate([...new Set(pending.flat())]);
-    await this.preparePolicy(state);
     await super.resolve();
   }
 

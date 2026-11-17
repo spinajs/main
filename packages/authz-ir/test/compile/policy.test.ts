@@ -85,4 +85,8 @@ describe('stored policy names', () => {
     expect(parseStoredPolicyName(name)).to.deep.equal({ model: 'abac', store: 'db:main' });
     expect(parseStoredPolicyName('rbac rule r1')).to.equal(undefined);
   });
+
+  it('a malformed escape is not a stored policy name', () => {
+    expect(parseStoredPolicyName('stored:a:%E0')).to.equal(undefined);
+  });
 });

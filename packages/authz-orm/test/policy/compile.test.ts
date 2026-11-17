@@ -34,10 +34,11 @@ describe('compileDomainPolicy', function () {
 
   it('sorts the ORM fragments by model name, so registration order does not change the hash', async () => {
     await db.define({ name: 'Note', columns: { author_id: 'TEXT' }, decorate: (c, p) => (AccessResource('note')(c), Owner()(p, 'author_id')) });
+    const combine = { default: { algorithm: 'permit-overrides' } };
+    testHost.config().set(['authz', 'combine'], combine);
     const service: PolicyService = { models: () => [] };
     const a = await compileDomainPolicy('root', service);
     const fragments = ormToIR();
-    const combine = { default: { algorithm: 'permit-overrides' } };
     const b = await compilePolicy(service, { combine, extra: [...fragments].reverse(), stored: 'opaque' });
     const c = await compilePolicy(service, { combine, extra: [...fragments].sort((x, y) => (x.model < y.model ? -1 : 1)), stored: 'opaque' });
     expect(a.hash).to.equal(c.hash);

@@ -8,5 +8,10 @@ export function storedPolicyName(model: string, store: string): string {
 export function parseStoredPolicyName(name: string): { model: string; store: string } | undefined {
   if (!name.startsWith(STORED_POLICY_PREFIX)) return undefined;
   const parts = name.slice(STORED_POLICY_PREFIX.length).split(':');
-  return parts.length === 2 ? { model: decodeURIComponent(parts[0]), store: decodeURIComponent(parts[1]) } : undefined;
+  if (parts.length !== 2) return undefined;
+  try {
+    return { model: decodeURIComponent(parts[0]), store: decodeURIComponent(parts[1]) };
+  } catch {
+    return undefined;
+  }
 }
