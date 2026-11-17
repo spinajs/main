@@ -22,6 +22,7 @@ The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the query midd
 | `@spinajs/authz-orm/plan` | `PlanTermCompiler`, `PlanRow` and the relation ops; loads nothing else of the adapter. |
 | `@spinajs/authz-orm/audit` | `DbDecisionAudit`, `AuthzAuditEntry` and the `authz_audit` migration. |
 | `@spinajs/authz-orm/scope-attributes` | `DbScopeAttributeStore`, its records and migration. |
+| `@spinajs/authz-orm/replay` | `DbDecisionReplay`, the history contributors and the `authz.replay` schema. |
 
 ## Features
 
@@ -36,6 +37,7 @@ The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the query midd
 | [The runtime guard](07-runtime-guard.md) | `AccessGuardMiddleware` flags a multi-row select of a resource without `.accessible()`, `.unscoped()` or `SYSTEM`. |
 | [Database audit](08-database-audit.md) | `DbDecisionAudit` writes the audit trail to `authz_audit`. |
 | [Policy versions](09-policy-versions.md) | The policy hash decision records cite, its `authz_policy_version` row, `authz.changelog.policyVersion` and `spinajs authz:compile`. |
+| [Decision replay](10-decision-replay.md) | `@spinajs/authz-orm/replay` and `spinajs authz:replay`: a logged decision replayed at its instant, `faithful`, `divergent` or `unreplayable`. |
 
 New to the package: read [Declaring access resources](04-access-resources.md), then [Single-object checks](05-single-object-checks.md) and [Access lists](01-access-lists.md).
 

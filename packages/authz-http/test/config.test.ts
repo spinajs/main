@@ -29,13 +29,14 @@ describe('authz.http through @Config and its schema', () => {
     expect(configuration.get('authz.http')).to.deep.equal({
       services: [],
       explainRoute: { enabled: false, permission: 'authz:explain' },
+      decisionsRoute: { enabled: false, permission: 'authz:replay' },
       links: { query: 'link', header: 'X-Authz-Link', cookie: null },
       access: { domain: 'root' },
       admin: { domain: 'root' },
       events: { maxStreamsPerPrincipal: 5 },
       unguardedRoutes: 'warn',
       webhooks: [],
-      rateLimit: { checks: { limit: 120, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' }, explain: { limit: 30, windowSeconds: 60, by: 'principal' } },
+      rateLimit: { checks: { limit: 120, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' }, explain: { limit: 30, windowSeconds: 60, by: 'principal' }, decisions: { limit: 30, windowSeconds: 60, by: 'principal' } },
     });
   });
 
@@ -58,6 +59,8 @@ describe('authz.http through @Config and its schema', () => {
       [{ services: 'x' }, 'authz.http.services'],
       [{ explainRoute: { enabled: 'yes' } }, 'authz.http.explainRoute.enabled'],
       [{ explainRoute: { permission: '' } }, 'authz.http.explainRoute.permission'],
+      [{ decisionsRoute: { enabled: 'yes' } }, 'authz.http.decisionsRoute.enabled'],
+      [{ decisionsRoute: { permission: '' } }, 'authz.http.decisionsRoute.permission'],
       [{ access: { domain: '' } }, 'authz.http.access.domain'],
       [{ events: { maxStreamsPerPrincipal: 0 } }, 'authz.http.events.maxStreamsPerPrincipal'],
       [{ events: { maxStreamsPerPrincipal: 1.5 } }, 'authz.http.events.maxStreamsPerPrincipal'],

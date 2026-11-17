@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-http": minor
+---
+
+`GET /authz/decisions/:id/explain?format=report|tree` replays a logged decision through the registered `DecisionReplay` (`@spinajs/authz-orm/replay`) and answers its `ReplayReport` (`ReplayReportDto` in OpenAPI), or the report's tree. `DecisionsControllerSource` mounts it when `authz.http.decisionsRoute.enabled` (default `false`), in production too; enabled without a `DecisionReplay`, the boot fails. `DecisionsPolicy` requires `authz.http.decisionsRoute.permission` (default `authz:replay`), held unconditionally, in the access domain and in the record's domain, where a caller without it gets the 404 of an unknown id. Every answered call writes an `explain` audit entry naming the replayed decision. The route is limited by `authz.http.rateLimit.decisions` (30 per minute per principal), answers 429 with `Retry-After: 5` while `authz.replay.concurrency` replays run, and 500 `{ error: 'replay_refused' }` when the replay refuses with an `AuthzConfigError`.

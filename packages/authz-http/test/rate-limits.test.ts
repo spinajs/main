@@ -6,7 +6,7 @@ import type { IController, IControllerDescriptor, IRateLimitOptions, IRoute, Res
 import { createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { DataValidator } from '@spinajs/validation';
 
-import { AUTHZ_HTTP_CONFIGURATION_SCHEMA, AUTHZ_HTTP_RATE_LIMITS, AccessController, ExplainController } from '../src/index.js';
+import { AUTHZ_HTTP_CONFIGURATION_SCHEMA, AUTHZ_HTTP_RATE_LIMITS, AccessController, DecisionsController, ExplainController } from '../src/index.js';
 
 const SCHEMAS = [AUTHZ_HTTP_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const DEFAULTS = AUTHZ_HTTP_RATE_LIMITS;
@@ -80,6 +80,7 @@ const ROUTES: [Ctor, string, Name][] = [
   [AccessController, 'checks', 'checks'],
   [AccessController, 'events', 'events'],
   [ExplainController, 'explain', 'explain'],
+  [DecisionsController, 'explain', 'decisions'],
 ];
 
 const UNLIMITED: [Ctor, string][] = [
@@ -91,6 +92,7 @@ const GROUPS: [Ctor, string, Name][] = [
   [AccessController, 'checks', 'checks'],
   [AccessController, 'events', 'events'],
   [ExplainController, 'explain', 'explain'],
+  [DecisionsController, 'explain', 'decisions'],
 ];
 
 describe('authz-http: the limits of checks, events and explain', function () {
@@ -107,7 +109,7 @@ describe('authz-http: the limits of checks, events and explain', function () {
   });
 
   it('the shipped defaults', () => {
-    expect(DEFAULTS).to.deep.eq({ checks: { limit: 120, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' }, explain: { limit: 30, windowSeconds: 60, by: 'principal' } });
+    expect(DEFAULTS).to.deep.eq({ checks: { limit: 120, windowSeconds: 60, by: 'principal' }, events: { limit: 10, windowSeconds: 60, by: 'principal' }, explain: { limit: 30, windowSeconds: 60, by: 'principal' }, decisions: { limit: 30, windowSeconds: 60, by: 'principal' } });
   });
 
   it('routes the adoption report leaves unlimited carry no @RateLimit', () => {

@@ -34,6 +34,8 @@ export interface LinksConfig {
 export interface AuthzHttpConfig {
   readonly services: readonly ServiceEntry[];
   readonly explainRoute: { readonly enabled: boolean; readonly permission: string };
+  /** `GET /authz/decisions/:id/explain`; allowed in production. */
+  readonly decisionsRoute: { readonly enabled: boolean; readonly permission: string };
   readonly links: LinksConfig;
   /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
   readonly access: { readonly domain: string };
@@ -45,7 +47,7 @@ export interface AuthzHttpConfig {
   readonly unguardedRoutes: 'warn' | 'throw' | 'off';
   /** Targets of WebhookChangeSink; empty: it posts nothing. */
   readonly webhooks: readonly { readonly url: string; readonly secret: { readonly secret: string }; readonly timeoutMs: number }[];
-  /** The @RateLimit settings of the checks, events and explain routes; false: no limit. */
+  /** The @RateLimit settings of the checks, events, explain and decisions routes; false: no limit. */
   readonly rateLimit: Readonly<Record<keyof typeof AUTHZ_HTTP_RATE_LIMITS, Readonly<Partial<IRateLimitSettings>> | false>>;
 }
 
@@ -79,6 +81,11 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: { enabled: { type: 'boolean', default: false }, permission: { ...nonEmpty, default: 'authz:explain' } },
+    },
+    decisionsRoute: {
+      type: 'object',
+      default: {},
+      properties: { enabled: { type: 'boolean', default: false }, permission: { ...nonEmpty, default: 'authz:replay' } },
     },
     links: {
       type: 'object',

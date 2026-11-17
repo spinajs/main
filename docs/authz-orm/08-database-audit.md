@@ -56,6 +56,21 @@ Migration `AuthzAudit_2026_10_01_00_00_00`, model `AuthzAuditEntry`. Index `auth
 | `reason` | varchar(255), null | The deny reason or the `runAs` / `unscoped` reason. |
 | `trace` | text, null | The trace as JSON; the command for an `admin` record. |
 
+### `authz_decision_log`
+
+`DbDecisionLog` (registered by the app as the `DecisionLog`) writes one row per `DecisionRecord`, append-only, on the `authz-audit` connection: migrations `AuthzDecisionLog_2026_11_04_00_00_00` and `AuthzDecisionLogFacts_2026_11_06_00_00_00`, model `AuthzDecisionLogEntry`, indexes on `at` and on `principal, at`. [Decision replay](10-decision-replay.md) reads it back.
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `id` | varchar(36), PK | The decision's UUIDv7, the `decisionId` of its 403. |
+| `at`, `trace_id`, `span_id`, `domain`, `principal`, `actor`, `permission`, `resource`, `allowed`, `reason`, `cached`, `policy_hash`, `model_versions`, `inputs_hash` | | The record's fields. `principal` and `actor` are cut to 100 characters, `resource` to 255; a cut key is not replayed. |
+| `inputs` | text, null | The captured inputs as JSON, only with `authz.decisionLog.captureInputs`. |
+| `facts` | text, null | The principal facts as JSON: type, id, ceiling, `onBehalfOf` chain, delegation, companion keys; never attributes or authn. |
+| `logged_at` | datetime, null | When the tap recorded; `at` may be a caller's `env.now`. The instant a replay rebuilds state at. |
+| `duration_ms` | int, null | How long the decision took: how far before `logged_at` its reads may have happened. |
+
+`facts`, `logged_at` and `duration_ms` are null on rows logged before `AuthzDecisionLogFacts_2026_11_06_00_00_00`.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
