@@ -4,6 +4,7 @@ import 'mocha';
 import { AuditNotSupported, AuditReader, AuditStore, audit, payloadHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { instantFromDb } from '@spinajs/orm';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, TableAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import { TestDb } from '../src/testing.js';
 import { event, setTrail, tableRows } from './support/events.js';
@@ -174,11 +175,14 @@ describe('audit verification', function () {
       it('names the seal whose time or events hash was changed', async () => {
         await append(event(1), event(2));
         await sealNow();
-        await driver()
-          .update()
-          .in('audit_seal')
-          .update({ sealed_at: new Date('2020-01-01T00:00:00Z') })
-          .where('from_seq', 1);
+        const [seal] = await seals();
+        const editSeal = (values: Record<string, unknown>) => driver().update().in('audit_seal').update(values).where('from_seq', 1);
+        await editSeal({ sealed_at: new Date('2020-01-01T00:00:00Z') });
+        expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
+
+        await editSeal({ sealed_at: instantFromDb(seal.sealed_at)?.toJSDate() });
+        expect((await verify()).tampered).to.eq(undefined);
+        await editSeal({ events_hash: '2'.repeat(64) });
         expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
       });
 
