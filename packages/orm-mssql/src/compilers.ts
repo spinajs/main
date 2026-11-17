@@ -95,13 +95,14 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
       throw new OrmException('mssql insert or ignore takes one row per statement: a duplicate would refuse the other rows too');
     }
 
-    // 2627 / 2601: duplicate key under a unique constraint / a unique index. The batch reports its own count: the
-    // driver's rowsAffected[0] would be the count of the DECLARE's assignment, not of the INSERT.
+    // 2627 / 2601: duplicate key under a unique constraint / a unique index. ERROR_PROCEDURE() is set when a trigger of
+    // the table raised it, which refused the row for another reason than a duplicate of it. The batch reports its own
+    // count: the driver's rowsAffected[0] would be the count of the DECLARE's assignment, not of the INSERT.
     return {
       bindings,
       expression:
         `DECLARE @spinajs_inserted INT = 0; BEGIN TRY ${insert}; SET @spinajs_inserted = @@ROWCOUNT; END TRY ` +
-        `BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) BEGIN; THROW; END; END CATCH; ` +
+        `BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) OR ERROR_PROCEDURE() IS NOT NULL BEGIN; THROW; END; END CATCH; ` +
         `SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;`,
     };
   }

@@ -30,6 +30,7 @@ describe('MsSql insert or ignore', function () {
   this.timeout(60000);
 
   const table = `insert_ignore_${randomUUID().slice(0, 8)}`;
+  const audit = `${table}_audit`;
   let driver: MsSqlOrmDriver;
 
   const rows = async (): Promise<Row[]> => driver.select<Row[]>().from(table).columns(['Code', 'Label']).orderBy('Id');
@@ -40,12 +41,12 @@ describe('MsSql insert or ignore', function () {
   });
 
   beforeEach(async () => {
-    await driver.executeOnDb(`DROP TABLE IF EXISTS [${table}]`, [], QueryContext.Schema);
+    await driver.executeOnDb(`DROP TABLE IF EXISTS [${table}], [${audit}]`, [], QueryContext.Schema);
     await driver.executeOnDb(`CREATE TABLE [${table}] ([Id] INT IDENTITY(1,1) PRIMARY KEY, [Code] NVARCHAR(32) NOT NULL UNIQUE, [Label] NVARCHAR(32) NOT NULL)`, [], QueryContext.Schema);
   });
 
   after(async () => {
-    await driver?.executeOnDb(`DROP TABLE IF EXISTS [${table}]`, [], QueryContext.Schema);
+    await driver?.executeOnDb(`DROP TABLE IF EXISTS [${table}], [${audit}]`, [], QueryContext.Schema);
     await driver?.disconnect();
   });
 
@@ -72,6 +73,15 @@ describe('MsSql insert or ignore', function () {
 
     expect(result.RowsAffected).to.eq(0);
     expect(await rows()).to.deep.eq([{ Code: 'a', Label: 'first' }]);
+  });
+
+  it('rethrows a duplicate key that a trigger of the table raises in another table', async () => {
+    await driver.executeOnDb(`CREATE TABLE [${audit}] ([Code] NVARCHAR(32) NOT NULL UNIQUE)`, [], QueryContext.Schema);
+    await driver.executeOnDb(`CREATE TRIGGER [${table}_trg] ON [${table}] AFTER INSERT AS INSERT INTO [${audit}] ([Code]) SELECT [Code] FROM inserted`, [], QueryContext.Schema);
+    await driver.insert().into(audit).values({ Code: 'a' });
+
+    await expect(driver.insert().into(table).values({ Code: 'a', Label: 'first' }).orIgnore()).to.be.rejectedWith(UniqueViolation);
+    expect(await rows()).to.deep.eq([]);
   });
 
   it('keeps the surrounding transaction usable after an ignored duplicate', async () => {

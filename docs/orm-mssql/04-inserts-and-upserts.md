@@ -9,12 +9,12 @@ On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY(
 1. `driver.insert().into('orders').values({...})` builds an `InsertQueryBuilder` with `QueryContext.Insert`.
 2. `MsSqlInsertQueryCompiler.compile()` throws `OrmException('mssql insert or replace is not supported')` when `orReplace()` was called.
 3. Otherwise it emits `INSERT INTO <table> (<columns>) VALUES (...)` and appends `; SELECT SCOPE_IDENTITY() as ID;`.
-4. With `orIgnore()` the insert is wrapped in `BEGIN TRY … END TRY BEGIN CATCH … END CATCH`. The catch swallows errors 2627 (unique constraint) and 2601 (unique index) and rethrows every other error with `THROW`. The batch then selects `ID` and `INSERTED`:
+4. With `orIgnore()` the insert is wrapped in `BEGIN TRY … END TRY BEGIN CATCH … END CATCH`. The catch swallows errors 2627 (unique constraint) and 2601 (unique index) raised by the insert itself, and rethrows with `THROW` every other error and a duplicate key that a trigger of the table raised. The batch then selects `ID` and `INSERTED`:
 
 ```sql
 DECLARE @spinajs_inserted INT = 0;
 BEGIN TRY INSERT INTO [shop].[dbo].[subscribers] ([Email]) VALUES (?); SET @spinajs_inserted = @@ROWCOUNT; END TRY
-BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) BEGIN; THROW; END; END CATCH;
+BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) OR ERROR_PROCEDURE() IS NOT NULL BEGIN; THROW; END; END CATCH;
 SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;
 ```
 
@@ -133,9 +133,9 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 - **`SCOPE_IDENTITY()` is the last identity of the batch.** A multi-row insert reports the last generated key, so `insertIdIsFirstOfBatch` is `false` and the ORM does not backfill keys of a batch.
 - **`RETURNING` is not supported.** `insertReturning` is `false`; `InsertQueryBuilder.returning()` throws `NotSupported`.
 - **`orIgnore()` takes one row per statement.** A duplicate in a multi-row `VALUES` would refuse every row of it, where the other dialects skip only the duplicate, so several rows with `orIgnore()` throw `OrmException` at compile time.
-- **An ignored duplicate leaves the transaction usable** with the default `XACT_ABORT OFF`: the error ends the statement only. Under `SET XACT_ABORT ON` the same error dooms the transaction, and its `COMMIT` fails.
+- **An ignored duplicate leaves the transaction usable.** orm-mssql runs with `XACT_ABORT OFF`: tedious sets it at login, and a `SET XACT_ABORT ON` sent through the driver ends with its own statement. On a connection that does run with `XACT_ABORT ON`, the duplicate dooms the transaction: the insert fails with error 3998 and the transaction is already rolled back.
 - **`orIgnore()` with `onDuplicate()` compiles the `MERGE`.** The upsert decides what a conflict does, and `orIgnore()` has no effect.
-- **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index is ignored, not only the one the caller had in mind. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored gets `0` as its key.
+- **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index of the table is ignored, not only the one the caller had in mind. A duplicate key that a trigger raises in another table is not ignored: the insert fails. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored gets `0` as its key.
 - **`InsertBehaviour.InsertOrReplace` throws** `OrmException('mssql insert or replace is not supported')` at compile time. Use `InsertBehaviour.InsertOrUpdate`.
 - **`MERGE` matches on every unique column**, joined with `AND`, against the inserted values. It works on a builder query without a model: `driver.insert().into('t').values({...}).onDuplicate('Email').update(['Name'])`.
 - **`SCOPE_IDENTITY()` is `NULL` after an update.** When `MERGE` updates, the identity row holds `ID: null`, and `MsSqlServerResponseMapper` reports `LastInsertId: 0`.
