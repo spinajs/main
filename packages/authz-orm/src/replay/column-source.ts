@@ -89,7 +89,10 @@ export class ColumnHistoryContributor extends HistoryContributors {
     const c = source.kind === 'column' ? columnOf(source.model, source.column) : undefined;
     const id = c === undefined ? undefined : idLookup(c.model, c.entry.idColumn, object.id);
     if (c === undefined || id === undefined) return [];
-    return this.items(c, await this.rows(c, c.entry.idColumn, id), (target) => target);
+    const items = this.items(c, await this.rows(c, c.entry.idColumn, id), (target) => target);
+    // The key is known without a row: a row deleted or a column cleared outside the log is then checked against its
+    // last logged change, where a set read could not even name the key. Its subject is never read while it is absent.
+    return items.length > 0 ? items : [{ key: `${resourceKey(object)}#${c.column.relation}`, image: undefined, subject: { type: c.column.type ?? '', id: '' } }];
   }
 
   async currentReverse(subject: TupleSubjectRef, _relation: RelationName, objectType: TypeName, source: Source): Promise<CurrentItem<ObjectRef>[]> {

@@ -53,6 +53,6 @@ export async function recordPolicyVersion(policyHash: string, irJson: string, no
 
 export async function readPolicyVersion(policyHash: string): Promise<PolicyVersion | undefined> {
   checkHash(policyHash, 'readPolicyVersion');
-  const row = (await selectFrom(PolicyVersionRecord).where('policy_hash', policyHash).first()) as PolicyVersionRecord | undefined;
+  const row = (await selectFrom(PolicyVersionRecord).onPrimary().where('policy_hash', policyHash).first()) as PolicyVersionRecord | undefined;
   return row ? { policyHash: row.policy_hash, ir: row.ir, firstSeenAt: row.first_seen_at.toJSDate() } : undefined;
 }
