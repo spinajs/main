@@ -169,7 +169,7 @@ The `tenancy` section compares the manifest `tenancy` sections (see [Tenancy fac
 | An entry point that declares its tenancy appears | `<kind> <id>` | no | `declares tenancy all (operator console)` |
 | An escape is added or removed | `acrossTenants <package>:<file> on <Model>`, `runAcrossTenants <package>:<file>` | no | `reason: nightly dunning report`, or `no literal reason` |
 
-An escape is matched by its file, its model and its reason, not by its line: moving code inside a file is not a change, and a reworded reason is a removal plus an addition. `all` is always shown with its reason. An entry point that disappears is reported by its own section (`routes`, `socket`, `commands`). A change that weakens isolation (a model that stops being a tenant model, a new escape, a route that goes from `required` to `none` or `all`) is listed and never fails `--fail-on breaking`.
+An escape is matched by its file, its model and its reason, not by its line: moving code inside a file is not a change, and a reworded reason is a removal plus an addition. Identical escapes in one file are counted: adding or removing more than one gives a single row with `(<n> call sites)` after the reason. `all` is always shown with its reason. An entry point that disappears is reported by its own section (`routes`, `socket`, `commands`). A change that weakens isolation (a model that stops being a tenant model, a new escape, a route that goes from `required` to `none` or `all`) is listed and never fails `--fail-on breaking`.
 
 ## Exit codes
 

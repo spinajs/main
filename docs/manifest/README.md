@@ -160,7 +160,7 @@ The `tenancy` section holds what a build can read about tenants. A fragment has 
 | --- | --- |
 | `models` | Each tenant model by `ModelEntry.id`, with what `@Tenant(options)` or `registerTenantModel(Model, options)` states: `isolation` (`row` or `schema`), `column` (the name of the model's tenant column, or `false` for none) and `rls`. An absent member is the `tenancy.orm.*` default of the application. The same object is `ModelEntry.tenant`. The column itself is a property of the model and is listed with its other columns |
 | `entryPoints` | Every route, socket command and event, queue handler, schedule and CLI command, under the `id` it has in `authz.entryPoints`, with its `tenancy`, what it `declared` and, for `@AllTenants(reason)`, the `reason` |
-| `escapes` | Every `.acrossTenants(reason)` on a query builder and every `runAcrossTenants(reason, fn)` call, with the `reason` and, for a builder, the class name of its `model` |
+| `escapes` | Every `.acrossTenants(reason)` on a query builder and every `runAcrossTenants(reason, fn)` call, with the `reason` and, for a builder, the class name of its `model` when the function shows which model the builder is rooted at |
 | `ignores` | Every `// spinajs-tenancy-ignore TENxxx: <reason>` comment |
 
 `tenancy` is the tenant scope the handler starts in:
@@ -177,6 +177,8 @@ The `tenancy` section holds what a build can read about tenants. A fragment has 
 The decorators decide; the `TenantMiddleware` reference they leave in a route's `middlewares` is a record of the mount and is not read back. A hand-written `@Middleware(TenantMiddleware, { tenancy: 'none' })` is therefore not a declaration. Under the global mount such a route, or a route of a controller that mounts it so, stays `none` rather than `required`: its own mount replaces the global entry at run time, and the build does not read which declaration it carries.
 
 `mergeFragments` concatenates the sections, dependencies first. Once one package has a section, or the global mount is there, the merged one lists the entry points of every package: a fragment without a section contributes those of its `authz.entryPoints`, as entry points that declare nothing. A model another package registers (`registerTenantModel(JobModel)`) gets `ModelEntry.tenant` in the merged manifest unless it states its own.
+
+A tool that reads the section uses the same rules the merge does: `entryTenancies(manifest)` returns the entry points of a manifest, those of `authz.entryPoints` as undeclared when it has no section (`defaultEntryPoints`); `undeclaredTenancy(kind, globalMount)` is the tenancy of an entry point that declares nothing, and the merge passes `false` for a route that mounts `TenantMiddleware` itself or through its controller; `mountsTenantMiddleware(manifest.globalRouteMiddlewares)` tells whether the global mount is there, by the name `TENANT_MIDDLEWARE`.
 
 ### Route pagination
 
