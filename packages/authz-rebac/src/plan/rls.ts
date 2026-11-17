@@ -54,6 +54,56 @@ export function rebacRlsExpr(schema: NamespaceSchema, t: ResourceType, name: str
   return named(t, name, budget);
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function refuse(path: string, what: string): never {
+  throw new AuthzConfigError(`${REBAC_RLS_PLAN_OP}: ${path} ${what}`);
+}
+
+function text(v: unknown, path: string): string {
+  if (typeof v !== 'string' || v === '') refuse(path, 'must be a non-empty string');
+  return v;
+}
+
+function fields(v: unknown, keys: readonly string[], path: string): Record<string, unknown> {
+  if (!isRecord(v)) refuse(path, 'must be an object');
+  for (const k of Object.keys(v)) if (!keys.includes(k)) refuse(`${path}.${k}`, 'is not a known key');
+  return v;
+}
+
+function list(v: unknown, path: string): RebacRlsExpr[] {
+  if (!Array.isArray(v)) refuse(path, 'must be an array');
+  const items: unknown[] = v;
+  return items.map((item, i) => parseRebacRlsExpr(item, `${path}[${i}]`));
+}
+
+/**
+ * The term as `rebacRlsExpr` builds it, checked node by node: a plan hands its args over as `unknown`.
+ * @throws AuthzConfigError naming the path of the first malformed node (`any[1].tuples`)
+ */
+export function parseRebacRlsExpr(args: unknown, path = ''): RebacRlsExpr {
+  const here = path === '' ? 'args' : path;
+  const at = (key: string): string => (path === '' ? key : `${path}.${key}`);
+  if (!isRecord(args)) refuse(here, 'must be an object');
+  const entries = Object.entries(args);
+  if (entries.length !== 1) refuse(here, 'must have exactly one of tuples, arrow, any, all');
+  const [[kind, value]] = entries;
+  switch (kind) {
+    case 'tuples':
+      return { tuples: text(value, at('tuples')) };
+    case 'any':
+      return { any: list(value, at('any')) };
+    case 'all':
+      return { all: list(value, at('all')) };
+    case 'arrow': {
+      const { tupleset, type, expr } = fields(value, ['tupleset', 'type', 'expr'], at('arrow'));
+      return { arrow: { tupleset: text(tupleset, at('arrow.tupleset')), type: text(type, at('arrow.type')), expr: parseRebacRlsExpr(expr, at('arrow.expr')) } };
+    }
+    default:
+      return refuse(at(kind), 'is not a known key');
+  }
+}
+
 function render(e: RebacRlsExpr, ns: string, id: string, ctx: RlsSqlContext, next: () => number): string {
   if ('tuples' in e) {
     const a = `rt${next()}`;
@@ -80,7 +130,7 @@ export class RebacRlsTerm extends PlanTermCompiler {
 
   renderSql(args: unknown, ctx: RlsSqlContext): string {
     let n = 0;
-    return render(args as RebacRlsExpr, ctx.literal(ctx.type), ctx.id, ctx, () => n++);
+    return render(parseRebacRlsExpr(args), ctx.literal(ctx.type), ctx.id, ctx, () => n++);
   }
 }
 

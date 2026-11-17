@@ -1,3 +1,4 @@
+import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthorizationModel, PermissionDef } from '@spinajs/authz';
 import type { PlanRow, RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { userPrincipal } from '@spinajs/authz-testing';
@@ -6,7 +7,7 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, rebacRlsExpr } from '../../src/index.js';
+import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, parseRebacRlsExpr, rebacRlsExpr } from '../../src/index.js';
 import type { RebacRlsExpr } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -106,5 +107,19 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
 
   it('refuses the query-builder form: .accessible() plans never hold it', () => {
     expect(() => new RebacRlsTerm().apply()).to.throw(/row level security term/);
+  });
+
+  it('parses the term before rendering it and names the first malformed node', () => {
+    const term = new RebacRlsTerm();
+    const rendering = (args: unknown) => () => term.renderSql(args, ctxFor([]));
+    expect(rendering('viewer')).to.throw(AuthzConfigError, /rebac\.rls: args must be an object/);
+    expect(rendering({ tuples: 'viewer', all: [] })).to.throw(/args must have exactly one of/);
+    expect(rendering({ tuples: '' })).to.throw(/tuples must be a non-empty string/);
+    expect(rendering({ arrow: { tupleset: 'parent' } })).to.throw(/arrow\.type must be a non-empty string/);
+    expect(rendering({ arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' }, sql: '1 = 1' } })).to.throw(/arrow\.sql is not a known key/);
+    expect(rendering({ any: [{ tuples: 'viewer' }, { tuples: 7 }] })).to.throw(/any\[1\]\.tuples must be a non-empty string/);
+    expect(rendering({ none: [] })).to.throw(/none is not a known key/);
+    const expr = rebacRlsExpr(world.model.schema(), 'doc', 'read', 2);
+    expect(parseRebacRlsExpr(expr)).to.deep.equal(expr);
   });
 });
