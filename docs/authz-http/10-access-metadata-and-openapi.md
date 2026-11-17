@@ -36,7 +36,7 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Access descriptor | metadata `ACCESS_DESCRIPTOR` on the controller prototype; no DI | written by the decorators | `TelemetryAccessPolicy` (`@spinajs/telemetry`) builds one by hand for a rule read from configuration | Write a descriptor on a holder object with `Reflect.defineMetadata(ACCESS_DESCRIPTOR, descriptor, holder)` and pass the holder to `AccessPolicy.execute()` as the controller. |
+| Access descriptor | metadata `ACCESS_DESCRIPTOR` on the controller prototype; no DI | written by the decorators | `SlotAccessPolicy` ([Slot access policies](12-slot-access-policy.md)), inherited by `TelemetryAccessPolicy` and `StudioAccessPolicy`, builds one by hand for a rule read from configuration | Write a descriptor on a holder object with `Reflect.defineMetadata(ACCESS_DESCRIPTOR, descriptor, holder)` and pass the holder to `AccessPolicy.execute()` as the controller. |
 | `swaggerAccess(controller, method)` | exported function | | http-swagger's own reader | Call it to build your own API listings. |
 
 ## Important behaviour

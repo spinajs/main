@@ -21,7 +21,7 @@ The slot is read once, when http registers the route, from the Configuration of 
 
 An `'AccessPolicy'` slot lets every request through only when all three hold:
 
-1. `<module>.auth.skipInDevelopment` is exactly `true`;
+1. `<module>.auth.skipInDevelopment` is `true` as the policy reads it, which is after configuration validation: a module whose schema types the flag `boolean`, as Studio's and telemetry's do, has `'true'` and `1` coerced to `true` at boot, so those values turn the skip on too, and any other value fails validation. Without such a schema the value must be exactly `true`;
 2. `configuration.isProduction` is not `true`;
 3. the env names development: the env the configuration loaded (`--env`, else `APP_ENV`), else `APP_ENV`, else `NODE_ENV`, normalized to `'dev'`. A missing env counts as production.
 
