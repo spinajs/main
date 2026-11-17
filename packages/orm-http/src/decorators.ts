@@ -83,6 +83,18 @@ export function Aggregatable(functions: AggregateFunction[]): PropertyDecorator 
   });
 }
 
+/** Lets a request load this relation through `include`. */
+export function Includable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.IncludableRelations ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** The relations the request asks to load (`?include=A,B`), each checked against the model's `@Includable` relations. */
+export function Include(model: Constructor<ModelBase> | string[]) {
+  return Route(Parameter('IncludeModelRouteArg', null, model));
+}
+
 /** The request's `aggregate` value (query string or body), validated against what the model lets a request group and measure. */
 export function Aggregate(model: Constructor<ModelBase> | IAggregateColumns) {
   return Route(Parameter('AggregateModelRouteArg', null, model));

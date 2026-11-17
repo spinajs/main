@@ -1,5 +1,6 @@
-import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
-import { Aggregate } from '../../src/decorators.js';
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { Aggregate, Include } from '../../src/decorators.js';
+import { FromModel } from '../../src/index.js';
 import { IAggregateRequest } from '../../src/interfaces.js';
 import { readAggregateRows } from '../../src/aggregate.js';
 import { Order } from '../list-fixture.js';
@@ -13,5 +14,21 @@ export class ListQueries extends BaseController {
     }
     const rows = await Order.query().aggregate(aggregate).asRaw<Record<string, unknown>[]>();
     return new Ok({ aggregates: readAggregateRows(rows, aggregate) });
+  }
+
+  @Get('orders')
+  public async orders(@Include(Order) include: string[]) {
+    const query = Order.query().order('Id');
+    if (include.length > 0) {
+      query.populate(include);
+    }
+    const rows = await query;
+    return new Ok(rows.map((row) => row.dehydrateWithRelations()));
+  }
+
+  // `_include` hands @FromModel the request's `include`, as in Simple.testInclude.
+  @Get('orders/:order')
+  public one(@FromModel() order: Order, @Query() _include: string) {
+    return new Ok(order.dehydrateWithRelations());
   }
 }

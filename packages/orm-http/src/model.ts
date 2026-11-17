@@ -75,6 +75,10 @@ export const MODEL_STATIC_MIXINS = staticMixins({
   aggregateSchema() {
     return aggregateSchemaFor(aggregateColumnsOf(descriptorOf(this)));
   },
+
+  includableRelations(): string[] {
+    return [...(descriptorOf(this).IncludableRelations ?? [])];
+  },
 });
 
 type FilterColumn = Pick<IColumnFilter<unknown>, 'column' | 'operators' | 'query' | 'value'>;

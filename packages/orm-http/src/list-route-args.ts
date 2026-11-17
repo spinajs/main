@@ -5,6 +5,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import express from 'express';
 import { aggregateColumnsOf, aggregateSchemaFor } from './aggregate.js';
 import { AggregateDTO } from './dto.js';
+import { readInclude } from './include.js';
 import { IAggregateColumns } from './interfaces.js';
 
 function parseJson(value: unknown, name: string): unknown {
@@ -57,5 +58,23 @@ export class AggregateModelRouteArg extends RouteArgs {
     const typed = { ...param, Schema: aggregateSchemaOf(param.Options), RuntimeType: AggregateDTO };
     const result: unknown = await this.tryHydrateParam(parseJson(raw, param.Name), typed, route);
     return { CallData: callData, Args: result };
+  }
+}
+
+@Injectable()
+export class IncludeModelRouteArg extends RouteArgs {
+  async resolve(): Promise<void> {}
+
+  public get SupportedType(): ParameterType | string {
+    return 'IncludeModelRouteArg';
+  }
+
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Constructor<ModelBase> | string[]>, req: express.Request) {
+    const options = param.Options;
+    const includable = Array.isArray(options) ? options : [...(extractModelDescriptor(options)?.IncludableRelations ?? [])];
+    // `_include` is the alias @FromModel already reads.
+    const raw = requestValue(req, param.Name) ?? req.query[`_${param.Name}`];
+
+    return { CallData: callData, Args: readInclude(raw, includable) };
   }
 }

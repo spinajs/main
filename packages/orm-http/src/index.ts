@@ -4,6 +4,7 @@ import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from 
 import { Log, Logger } from '@spinajs/log';
 import { MODEL_STATIC_MIXINS } from './model.js';
 import { FromModelOptions } from './interfaces.js';
+import { readInclude } from './include.js';
 import { BadRequest, InvalidArgument } from '@spinajs/exceptions';
 
 export * from './interfaces.js';
@@ -14,6 +15,7 @@ export * from './route-arg.js';
 export * from './list-route-args.js';
 export * from './builders.js';
 export * from './aggregate.js';
+export * from './include.js';
 export * from './dto.js';
 export * from './paging.js';
 export * from './dto-relation.js';
@@ -221,7 +223,10 @@ export class FromDbModel extends RouteArgs {
      * Checks include field
      */
     if (callData.Payload?.Query?.Args?.include || callData.Payload?.Query?.Args?._include) {
-      query.populate(callData.Payload.Query.Args.include ?? callData.Payload.Query.Args._include);
+      const requested: unknown = callData.Payload.Query.Args.include ?? callData.Payload.Query.Args._include;
+      // A model that marks relations with @Includable restricts the request to them; one that marks none keeps accepting any relation.
+      const includable = descriptor!.IncludableRelations;
+      query.populate((includable && includable.size > 0 ? readInclude(requested, [...includable]) : requested) as string[]);
     }
 
     return query.firstOrThrow(new OrmNotFoundException('Resource not found'));
