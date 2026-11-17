@@ -35,7 +35,9 @@ class StrictAppConfiguration extends FrameworkConfiguration {
 }
 
 function bind(child: IContainer, base: Class<unknown>, name: string, value: unknown): void {
-  const factory = { [name]: () => value }[name];
+  const factory = (): unknown => value;
+  // DI keys a registration by its function name.
+  Object.defineProperty(factory, 'name', { value: name });
   child.register(factory).as(base);
 }
 

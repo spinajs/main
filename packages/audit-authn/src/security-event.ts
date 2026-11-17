@@ -30,8 +30,10 @@ export function securityInput(e: AuthnEvent, options: SecurityInputOptions = { s
     ['actor', refOf(e.actor)],
     ['detail', e.data],
   ];
+  const named = options.subject && identity !== undefined && fits(identity);
+  // Tells a reader of the trail why `of(identity)` does not find this event.
+  if (identity !== undefined && !named) fields.push(['subjectOmitted', true]);
   const data = Object.fromEntries(fields.filter(([, value]) => value !== undefined));
 
-  const named = options.subject && identity !== undefined && fits(identity);
   return { kind: 'security', action: noEmail(e.type), outcome: OUTCOME[e.outcome], at: e.at, ...(named ? { subject: identity } : {}), data };
 }

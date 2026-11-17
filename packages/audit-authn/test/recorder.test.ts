@@ -35,6 +35,13 @@ const TRAILS = {
   security: { store: 'MemoryAuditStore' },
   logins: { store: 'MemoryAuditStore', retry: { attempts: 1 } },
   strict: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
+  omitted: { store: 'MemoryAuditStore', omit: ['data.identity'] },
+  masked: { store: 'MemoryAuditStore', mask: ['data.identity'] },
+  idHashed: { store: 'MemoryAuditStore', hash: ['data.identity.id'] },
+  allHashed: { store: 'MemoryAuditStore', hash: ['data.*'] },
+  ipHashed: { store: 'MemoryAuditStore', hash: ['data.ip'] },
+  plainLog: { store: 'LogAuditStore', hash: [] },
+  unstored: { store: 'NoSuchAuditStore' },
 };
 
 const appWith = (authn?: Record<string, unknown>): Promise<TestApp> => createTestApp({ bootstrap: false, config: { audit: { trails: TRAILS, ...(authn ? { authn } : {}) } } });
@@ -63,6 +70,8 @@ describe('securityInput', () => {
   it('leaves out what the event does not carry, never writes free text that holds an @, and names no subject when asked not to', () => {
     assert.deepStrictEqual(securityInput({ type: 'logout', outcome: 'success', at: AT, strategy: 'ada@example.test' }), { kind: 'security', action: 'logout', outcome: 'ok', at: AT, data: { strategy: '?' } });
     assert.strictEqual(securityInput(event(), { subject: false }).subject, undefined);
+    assert.strictEqual((securityInput(event(), { subject: false }).data as { subjectOmitted?: unknown }).subjectOmitted, true);
+    assert.strictEqual((securityInput(event()).data as { subjectOmitted?: unknown }).subjectOmitted, undefined);
     assert.strictEqual((securityInput(event({ userAgent: 'x'.repeat(400) })).data as { userAgent: string }).userAgent.length, 255);
   });
 
@@ -71,6 +80,7 @@ describe('securityInput', () => {
 
     assert.strictEqual(securityInput(long).subject, undefined);
     assert.deepStrictEqual((securityInput(long).data as { identity?: unknown }).identity, { type: 'user', id: 'x'.repeat(256) });
+    assert.strictEqual((securityInput(long).data as { subjectOmitted?: unknown }).subjectOmitted, true);
   });
 
   it('for a log, hashes an identity or actor that may be an email and omits what the log never carried', () => {
@@ -94,11 +104,11 @@ describe('AuthnAuditRecorder on the built-in security trail', function () {
 
   beforeEach(() => MemoryAuditStore.clear());
 
-  it('is registered as an AuthnEventListener and finds its trail', () => {
+  it('is registered as an AuthnEventListener and finds its trail', async () => {
     assert.ok((DI.getRegisteredTypes(AuthnEventListener) ?? []).includes(AuthnAuditRecorder));
     assert.deepStrictEqual(trailConfig('security').hash, SECURITY_HASH_PATHS);
     assert.deepStrictEqual(SECURITY_HASH_PATHS, ['actor', 'onBehalfOf', 'origin', 'data.identity', 'data.actor', 'data.ip', 'data.session']);
-    recorder.ready();
+    await recorder.ready();
   });
 
   it('records a security event with every identifier hashed and no subject', async () => {
@@ -107,6 +117,7 @@ describe('AuthnAuditRecorder on the built-in security trail', function () {
 
     const [stored] = MemoryAuditStore.events('security');
     assert.deepStrictEqual([stored.kind, stored.action, stored.outcome, stored.subject], ['security', 'login', 'failed', undefined]);
+    assert.strictEqual((stored.data as { subjectOmitted?: unknown }).subjectOmitted, true);
     assert.strictEqual(stored.at.getTime(), AT.getTime());
     const data = stored.data as Record<string, unknown>;
     assert.strictEqual(typeof data.identity, 'string');
@@ -150,7 +161,63 @@ describe('AuthnAuditRecorder on audit.authn.trail', function () {
     assert.deepStrictEqual(stored.subject, { type: 'user', id: 'u-1' });
     assert.deepStrictEqual((stored.data as { identity?: unknown; ip?: unknown }).identity, { type: 'user', id: 'u-1' });
     assert.strictEqual((stored.data as { ip?: unknown }).ip, '203.0.113.7');
+    assert.strictEqual((stored.data as { subjectOmitted?: unknown }).subjectOmitted, undefined);
     assert.deepStrictEqual(MemoryAuditStore.events('security'), []);
+  });
+
+  for (const trail of ['omitted', 'masked', 'idHashed', 'allHashed']) {
+    it(`names no subject on a trail that drops the identity (${trail}), so the id is nowhere in clear`, async () => {
+      app = await appWith({ trail });
+      const recorder = await app.resolve(AuthnAuditRecorder);
+
+      await recorder.on(event());
+      await recorder.flush();
+
+      const [stored] = MemoryAuditStore.events(trail);
+      assert.strictEqual(stored.subject, undefined);
+      assert.ok(!JSON.stringify(stored).includes('u-1'));
+    });
+  }
+
+  it('keeps the subject on a trail whose rules leave the identity alone', async () => {
+    app = await appWith({ trail: 'ipHashed' });
+    const recorder = await app.resolve(AuthnAuditRecorder);
+
+    await recorder.on(event());
+    await recorder.flush();
+
+    const [stored] = MemoryAuditStore.events('ipHashed');
+    assert.deepStrictEqual(stored.subject, IDENTITY);
+    assert.strictEqual((stored.data as { subjectOmitted?: unknown }).subjectOmitted, undefined);
+  });
+
+  it('on a log trail with no hash list, still hashes an identity that may be an email and leaves out what the log never carried', async () => {
+    app = await appWith({ trail: 'plainLog' });
+    const lines: Record<string, unknown>[] = [];
+    const capture = (fields: Record<string, unknown>): void => void lines.push(fields);
+    app.container.register(() => ({ info: capture, warn: capture })).as(Log);
+    const recorder = await app.resolve(AuthnAuditRecorder);
+
+    await recorder.on(event({ identity: { type: 'user', id: 'ada@example.test' } }));
+    await recorder.on(event());
+    await recorder.flush();
+
+    assert.strictEqual(lines.length, 2);
+    const [email, plain] = lines;
+    assert.ok(!JSON.stringify(email).includes('ada@example.test'));
+    assert.strictEqual(email.subject, undefined);
+    assert.strictEqual(plain.subject, 'user:u-1');
+    for (const line of lines) {
+      const data = JSON.parse(String(line.data)) as Record<string, unknown>;
+      assert.deepStrictEqual([data.userAgent, data.detail], [undefined, undefined]);
+    }
+  });
+
+  it('ready() refuses a trail whose store is not registered, so the boot fails and not every login', async () => {
+    app = await appWith({ trail: 'unstored' });
+    const recorder = await app.resolve(AuthnAuditRecorder);
+
+    await assert.rejects(Promise.resolve().then(() => recorder.ready()), AuditConfigError);
   });
 
   it('a continue trail never blocks: with its store down the event is lost, logged by the audit service, and the publish resolves', async () => {
@@ -173,7 +240,7 @@ describe('AuthnAuditRecorder on audit.authn.trail', function () {
     app = await appWith({ trail: 'nope' });
     const recorder = await app.resolve(AuthnAuditRecorder);
 
-    assert.throws(() => recorder.ready(), AuditConfigError);
+    await assert.rejects(Promise.resolve().then(() => recorder.ready()), AuditConfigError);
     assert.strictEqual(recorder.blocking, true);
     const failure = await AuthnAudit.over([recorder])
       .publish(event({ outcome: 'success' }))

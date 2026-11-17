@@ -1,7 +1,7 @@
 import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { audit, trailConfig } from '@spinajs/audit';
+import { audit, auditStore, trailConfig } from '@spinajs/audit';
 import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
 
@@ -11,6 +11,12 @@ const LOG_STORE = 'LogAuditStore';
 const SECURITY_TRAIL = 'security';
 // What the authentication log never carried.
 const LOG_OMIT: readonly string[] = ['data.userAgent', 'data.detail'];
+
+// As the audit core matches paths: `*` is any one segment, so `data.*` and `data.*.id` reach the identity as well.
+const reachesIdentity = (path: string): boolean => {
+  const [root, field] = path.split('.');
+  return root === 'data' && (field === 'identity' || field === '*');
+};
 
 const holdsEmail = (ref: { readonly id: unknown } | undefined): boolean => ref !== undefined && String(ref.id).includes('@');
 
@@ -45,15 +51,16 @@ export class AuthnAuditRecorder extends AuthnEventListener {
     }
   }
 
-  /** An unknown trail throws AuditConfigError here, when AuthnAudit resolves: the boot fails, not the first login. */
-  public ready(): void {
-    trailConfig(this.Trail, this.Container);
+  /** An unknown trail, or one whose store is not registered, throws AuditConfigError here, when AuthnAudit resolves: the boot fails, not every login. */
+  public async ready(): Promise<void> {
+    await auditStore(trailConfig(this.Trail, this.Container), this.Container);
   }
 
   public async on(e: AuthnEvent): Promise<void> {
     const trail = trailConfig(this.Trail, this.Container);
     const redaction = trail.store === LOG_STORE ? logRedaction(e) : { hash: [], omit: [] };
-    const subject = !trail.hash.includes('data.identity') && !redaction.hash.includes('data.identity');
+    // The subject column cannot be masked: a trail that drops or masks any part of the identity gets none.
+    const subject = ![...trail.omit, ...trail.mask, ...trail.hash, ...redaction.hash, ...redaction.omit].some(reachesIdentity);
     await audit(this.Container).record(securityInput(e, { subject }), { trail: trail.name, hash: redaction.hash, omit: redaction.omit });
   }
 
