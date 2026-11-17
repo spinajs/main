@@ -89,7 +89,8 @@ export class ReplayHistory {
    */
   async catchUp(): Promise<void> {
     const started = Date.now();
-    const edge = this.at.getTime() - this.limits.window.beforeMs;
+    // afterInstant is strict and the window inclusive: a change exactly on the edge must still be scanned.
+    const edge = this.at.getTime() - this.limits.window.beforeMs - 1;
     const from = new Date(this.lastPass === undefined ? edge : Math.max(edge, this.lastPass - this.limits.window.beforeMs));
     let cursor: number | undefined;
     for (;;) {

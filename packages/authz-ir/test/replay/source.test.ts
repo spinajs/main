@@ -236,6 +236,13 @@ describe('HistoricalTupleSource', () => {
     expect(gap.known.map((x) => x.id)).to.deep.equal(['u1']);
   });
 
+  it('sees a removal exactly at the backward edge of the window', async () => {
+    const { log, tuples } = await setup();
+    await tuples.remove(editor('u2'), ms(-limits.window.beforeMs));
+    const s = await source(log, [tuples]);
+    expect((await gapOf(subjects(s, doc('d1'), 'editor'))).message).to.match(/ambiguity window/);
+  });
+
   it('refuses a contributor whose kind the history did not scan', async () => {
     const { log, tuples } = await setup();
     const history = await ReplayHistory.load(log, T, ['column'], limits);
