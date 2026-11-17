@@ -16,7 +16,7 @@ npm install @spinajs/orm-threading
 | --- | --- |
 | [Database mutex](01-database-mutex.md) | `OrmMutex`: acquire, renew, release, wait for, create, delete and read named locks stored in the database, with optional expiry on the database clock |
 | [Custom mutex backends](02-custom-mutex-backends.md) | The `Mutex` DI token: register `OrmMutex`, extend it (default holder, clock) or replace it |
-| [Mutex table and migration](03-mutex-table-and-migration.md) | The `__mutex__` model and table, the shipped migration, widening columns, reading and cleaning locks |
+| [Mutex table and migration](03-mutex-table-and-migration.md) | The `__mutex__` model and table, the shipped migrations, widening columns, reading and cleaning locks |
 
 ## Quick start
 

@@ -1,6 +1,6 @@
 # Mutex table and migration
 
-Every `OrmMutex` lock is a row of the `__mutex__` table, read and written through the exported `__mutex__` model. The package ships the migration that creates the table. Use the model to list or clean up locks, and your own migration to change the table.
+Every `OrmMutex` lock is a row of the `__mutex__` table, read and written through the exported `__mutex__` model. The package ships the migrations that create the table and name its holder column. Use the model to list or clean up locks, and your own migration to change the table.
 
 ## How it works
 
@@ -17,7 +17,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | The connection stored as `default`; the table and the model live there. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migrations when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
 
 See [Connections](../orm/01-connections.md#configuration) and [Migrations](../orm/10-migrations.md) for the rest of these sections.
 
