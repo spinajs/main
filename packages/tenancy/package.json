@@ -45,12 +45,14 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/principal": "3.0.23"
   },
   "devDependencies": {
-    "@spinajs/authz": "3.0.23"
+    "@spinajs/authz": "3.0.23",
+    "@spinajs/testing": "3.0.23"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"
