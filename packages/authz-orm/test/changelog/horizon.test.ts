@@ -147,6 +147,23 @@ describe('changelog horizon', function () {
         expect(await log.coveredSince('tuple')).to.equal(undefined);
       });
 
+      it('a prune between the two coverage reads cannot hide a marker newer than the old horizon', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        await LostRecord.insert({ kind: 'policy', resource_type: '', at: DateTime.fromJSDate(T2) });
+        let reads = 0;
+        const prune = (): Promise<unknown> => (++reads === 2 ? pruneChangeLog(1, new Date(T3.getTime() + 24 * 60 * 60 * 1000)) : Promise.resolve());
+        const delayed = <Q extends PromiseLike<unknown>>(q: Q): Q => {
+          const then = q.then.bind(q);
+          return Object.assign(q, { then: (ok?: (v: unknown) => unknown, ko?: (e: unknown) => unknown) => prune().then(() => then(ok, ko)) });
+        };
+        const horizon = HorizonRecord.query.bind(HorizonRecord);
+        const markers = LostRecord.query.bind(LostRecord);
+        sinon.stub(HorizonRecord, 'query').callsFake(() => delayed(horizon()));
+        sinon.stub(LostRecord, 'query').callsFake(() => delayed(markers()));
+        expect(await log.coveredSince('policy')).to.deep.equal(T3);
+        expect(reads).to.be.at.least(2);
+      });
+
       it('before the migration, lost() warns once, inserts nothing and leaves the write alone', async () => {
         const error = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
         const warn = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');

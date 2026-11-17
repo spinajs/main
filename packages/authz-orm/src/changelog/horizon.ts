@@ -129,10 +129,10 @@ async function refingerprint(type: ResourceType, fingerprint: string, now: DateT
 /** The later of the horizon's `since` and the last lost-write marker of the kind and type; undefined without a horizon row. */
 export async function coverageStart(kind: ChangeKind, resourceType: ResourceType | undefined): Promise<Date | undefined> {
   const type = horizonType(kind, resourceType);
-  const row = (await selectFrom(HorizonRecord).onPrimary().where('kind', kind).where('resource_type', type).first()) as HorizonRecord | undefined;
-  if (row === undefined) return undefined;
   const types = kind === 'column' && type !== '' ? [type, ''] : [''];
   const marker = (await selectFrom(LostRecord).onPrimary().where('kind', kind).whereIn('resource_type', types).orderByDescending('at').first()) as LostRecord | undefined;
+  const row = (await selectFrom(HorizonRecord).onPrimary().where('kind', kind).where('resource_type', type).first()) as HorizonRecord | undefined;
+  if (row === undefined) return undefined;
   const since = row.since.toJSDate();
   return marker !== undefined && marker.at.toMillis() > since.getTime() ? marker.at.toJSDate() : since;
 }
