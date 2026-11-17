@@ -80,8 +80,11 @@ describe('TenantScopeMiddleware, shapes it refuses or must not miss', function (
     await expect(inTenant('t1', () => Folder.where('name', 'a').populate('Parent'))).to.be.rejectedWith(NotSupported, 'populates the to-one relation Parent');
   });
 
-  it('refuses a model that is no tenant model on a tenant table', async () => {
+  it('refuses a model that is no tenant model on a tenant table, for every verb', async () => {
     await expect(inTenant('t1', () => InvoiceView.query())).to.be.rejectedWith(NotSupported, notOwned('select', 'invoice', 'Invoice'));
+    await expect(inTenant('t1', () => InvoiceView.insert({ code: 'V-1' }))).to.be.rejectedWith(NotSupported, notOwned('insert', 'invoice', 'Invoice'));
+    await expect(inTenant('t1', () => InvoiceView.update({ code: 'V-2' }).where('Id', '>', 0))).to.be.rejectedWith(NotSupported, notOwned('update', 'invoice', 'Invoice'));
+    await expect(inTenant('t1', () => InvoiceView.destroy().where('Id', '>', 0))).to.be.rejectedWith(NotSupported, notOwned('delete', 'invoice', 'Invoice'));
     expect(await everywhere(() => InvoiceView.query())).to.have.length(2);
   });
 
