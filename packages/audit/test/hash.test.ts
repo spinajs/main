@@ -25,6 +25,10 @@ describe('payload hashing', () => {
   it('writes what JSON.stringify writes for values, and refuses a cycle', () => {
     const shared = { x: [1, undefined, () => 1] };
     expect(canonicalJson({ u: undefined, f: () => 1, s: shared, t: shared, n: -0, e: 1e21, i: Infinity, d: '\u2028"\\' })).to.eq(`{"d":${JSON.stringify('\u2028"\\')},"e":1e+21,"i":null,"n":0,"s":{"x":[1,null,null]},"t":{"x":[1,null,null]}}`);
+    const sparse: number[] = [];
+    sparse[0] = 1;
+    sparse[2] = 3;
+    expect(canonicalJson({ a: sparse, b: new Array<number>(2) })).to.eq('{"a":[1,null,3],"b":[null,null]}');
     const circular: Record<string, unknown> = { a: [] };
     circular.a = [circular];
     expect(() => canonicalJson(circular)).to.throw(TypeError);

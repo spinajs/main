@@ -19,7 +19,8 @@ function jsonOf(raw: unknown, key: string, path: object[]): string | undefined {
   if (path.includes(value)) throw new TypeError('canonicalJson: a circular structure cannot be written as JSON');
   path.push(value);
   try {
-    if (Array.isArray(value)) return `[${value.map((item: unknown, i) => jsonOf(item, String(i), path) ?? 'null').join(',')}]`;
+    // Array.from visits holes, which map skips: a sparse array is written with null, as JSON.stringify does.
+    if (Array.isArray(value)) return `[${Array.from(value, (item: unknown, i) => jsonOf(item, String(i), path) ?? 'null').join(',')}]`;
     const members = Object.entries(value)
       .sort(byKey)
       .flatMap(([k, item]) => {
@@ -32,7 +33,10 @@ function jsonOf(raw: unknown, key: string, path: object[]): string | undefined {
   }
 }
 
-/** JSON with the members of every object in RFC 8785 order (by UTF-16 code units) and a bigint as its decimal text: equal payloads give equal text wherever they were serialised. */
+/**
+ * JSON with the members of every object in RFC 8785 order (by UTF-16 code units): equal payloads give equal text wherever they were serialised.
+ * Unlike RFC 8785, a non-finite number is written as `null`, a bigint as a string of its decimal digits and a `Date` as its ISO text, so distinct values can share one text.
+ */
 export function canonicalJson(value: unknown): string {
   return jsonOf(value, '', []) ?? 'null';
 }

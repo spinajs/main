@@ -1,6 +1,7 @@
 import { AsyncResource } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { inspect } from 'node:util';
 import { Autoinject, Container, DI, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
@@ -82,9 +83,25 @@ function stamped(inputs: readonly AuditInput[], container: IContainer): AuditEve
 const LOST = 'audit: trail ${trail} lost ${count} event(s): ${ids}';
 const UNCONFIRMED = 'audit: trail ${trail} gave up ${count} event(s) not confirmed in time; an append already under way may still store them: ${ids}';
 const MISCONFIGURED = 'audit: trail ${trail} is misconfigured; dropped ${count} event(s): ${ids}';
+const BLOCKED = 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it does';
+const STORED_LATE = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
+const FAILED_LATE = 'audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}';
 
 const warn = (text: string): void => process.emitWarning(text, 'AuditWarning');
-const errorText = (_key: string, value: unknown): unknown => (value instanceof Error ? value.message : value);
+const idsOf = (events: readonly AuditEvent[]): string =>
+  events
+    .slice(0, 20)
+    .map((e) => e.id)
+    .join(',');
+
+// Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString.
+function fallbackText(message: string, fields: Record<string, unknown>, err: unknown): string {
+  try {
+    return `audit: the logger "audit-pipeline" failed (${inspect(err)}): ${message} ${inspect(fields, { breakLength: Infinity })}`;
+  } catch {
+    return `audit: the logger "audit-pipeline" failed: ${message}`;
+  }
+}
 
 interface Deadline {
   readonly signal: AbortSignal;
@@ -112,10 +129,14 @@ export class DefaultAuditService extends AuditService {
   private readonly buffer: Pending[] = [];
   // Per trail and connection: an append given up on that may still store its batch.
   private readonly late = new Map<string, Promise<void>>();
+  // Targets whose late append outlived a later batch's deadline: their batches are dropped unsent until it settles.
+  private readonly blocked = new Set<string>();
   private timer: NodeJS.Timeout | undefined;
   private draining: Promise<void> | undefined;
-  private logger: Log | undefined;
-  private overflowing = false;
+  // An error once resolving the logger failed: it is not resolved again on every line.
+  private logger: Log | Error | undefined;
+  // Events dropped in the current overflow of the buffer.
+  private dropped = 0;
   private disposed = false;
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
@@ -163,10 +184,11 @@ export class DefaultAuditService extends AuditService {
   private defer(trail: TrailConfig, store: AuditStore, events: readonly AuditEvent[], connection: string | undefined): Promise<void> {
     const { flushMs, maxBuffered } = deferredConfig(this.Container);
     const accepted = events.slice(0, Math.max(0, maxBuffered - this.buffer.length));
-    if (accepted.length < events.length && !this.overflowing) {
-      this.report('warn', { trail: trail.name, dropped: events.length - accepted.length }, 'audit: the deferred buffer is full; dropped ${dropped} event(s) of trail ${trail}');
+    const dropped = events.length - accepted.length;
+    if (dropped > 0 && this.dropped === 0) {
+      this.report('warn', { trail: trail.name, dropped }, 'audit: the deferred buffer is full; dropped ${dropped} event(s) of trail ${trail}');
     }
-    this.overflowing = accepted.length < events.length || this.overflowing;
+    this.dropped += dropped;
     for (const event of accepted) this.buffer.push({ trail, store, event, connection });
     // No timer may outlive the service: once disposed, an event is written before record() returns.
     if (this.disposed) return this.flush();
@@ -180,7 +202,8 @@ export class DefaultAuditService extends AuditService {
     try {
       while (this.buffer.length > 0) {
         const batch = this.buffer.splice(0, deferredConfig(this.Container).maxBatch);
-        this.overflowing = false;
+        if (this.dropped > 0) this.report('warn', { dropped: this.dropped }, 'audit: the deferred buffer has room again; ${dropped} event(s) were dropped while it was full');
+        this.dropped = 0;
         await this.write(batch);
       }
     } finally {
@@ -202,29 +225,43 @@ export class DefaultAuditService extends AuditService {
 
   // The deadline stops the retries of a batch it gave up on. The append under way cannot be recalled, so the next
   // append to the same target first waits for it, within its own deadline: a call split at maxBatch keeps its order.
+  // A late append that outlives that wait blocks the target until it settles, so later batches cost no deadline each.
   private async send(key: string, group: readonly Pending[]): Promise<void> {
     const { trail, store, connection } = group[0];
     const events = group.map((p) => p.event);
+    if (this.blocked.has(key)) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
     const limit = deadline(deferredConfig(this.Container).timeoutMs);
+    const flight = { appending: false };
     let work: Promise<void> | undefined;
     try {
       await Promise.race([this.late.get(key), limit.expired]);
-      work = this.attempt(store, trail, events, connection, limit.signal);
+      work = this.attempt(store, trail, events, connection, limit.signal, flight);
       await Promise.race([work, limit.expired]);
     } catch (err) {
-      if (work !== undefined && limit.signal.aborted) this.wait(key, work);
-      this.lost(trail, events, err, limit.signal.aborted ? UNCONFIRMED : LOST);
+      if (work === undefined && limit.signal.aborted) this.block(key, trail, connection);
+      if (work === undefined || !flight.appending) return this.lost(trail, events, err);
+      this.wait(key, work, trail, events);
+      this.lost(trail, events, err, UNCONFIRMED);
     } finally {
       limit.clear();
     }
   }
 
-  private wait(key: string, work: Promise<void>): void {
-    const settled: Promise<void> = work
-      .catch(() => undefined)
-      .finally(() => {
-        if (this.late.get(key) === settled) this.late.delete(key);
-      });
+  private block(key: string, trail: TrailConfig, connection: string | undefined): void {
+    this.blocked.add(key);
+    this.report('warn', { trail: trail.name, connection }, BLOCKED);
+  }
+
+  private wait(key: string, work: Promise<void>, trail: TrailConfig, events: readonly AuditEvent[]): void {
+    const settle = (stored: boolean, error?: unknown): void => {
+      if (this.late.get(key) === settled) this.late.delete(key);
+      this.blocked.delete(key);
+      this.report(stored ? 'warn' : 'error', { error, trail: trail.name, count: events.length, ids: idsOf(events) }, stored ? STORED_LATE : FAILED_LATE);
+    };
+    const settled: Promise<void> = work.then(
+      () => settle(true),
+      (err: unknown) => settle(false, err),
+    );
     this.late.set(key, settled);
   }
 
@@ -239,11 +276,13 @@ export class DefaultAuditService extends AuditService {
   }
 
   // `retry.attempts` counts every try, the first included. A configuration error would fail every try alike.
-  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined, signal?: AbortSignal): Promise<void> {
+  private async attempt(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], connection: string | undefined, signal?: AbortSignal, flight = { appending: false }): Promise<void> {
     for (let tries = 1; ; tries++) {
       try {
+        flight.appending = true;
         return await store.append({ trail, events, connection });
       } catch (err) {
+        flight.appending = false;
         if (err instanceof AuditConfigError || tries >= trail.retry.attempts || signal?.aborted === true) throw err;
         await sleep(trail.retry.delayMs, undefined, { signal });
       }
@@ -251,25 +290,31 @@ export class DefaultAuditService extends AuditService {
   }
 
   private lost(trail: TrailConfig, events: readonly AuditEvent[], err: unknown, message = LOST): void {
-    const ids = events
-      .slice(0, 20)
-      .map((e) => e.id)
-      .join(',');
-    this.report('error', { error: err, trail: trail.name, count: events.length, ids }, err instanceof AuditConfigError ? MISCONFIGURED : message);
+    this.report('error', { error: err, trail: trail.name, count: events.length, ids: idsOf(events) }, err instanceof AuditConfigError ? MISCONFIGURED : message);
   }
 
   // A log line must not change the outcome of a write: without a working logger the line becomes a process warning.
   private report(level: 'warn' | 'error', fields: Record<string, unknown>, message: string): void {
     try {
-      if (level === 'warn') this.log().warn(fields, message);
-      else this.log().error(fields, message);
+      const log = this.log();
+      if (level === 'warn') log.warn(fields, message);
+      else log.error(fields, message);
     } catch (err) {
-      warn(`audit: the logger "audit-pipeline" failed (${String(err)}): ${message} ${JSON.stringify(fields, errorText)}`);
+      warn(fallbackText(message, fields, err));
     }
   }
 
   private log(): Log {
-    return (this.logger ??= this.Container.resolve(Log, ['audit-pipeline']));
+    if (this.logger instanceof Error) throw this.logger;
+    if (this.logger !== undefined) return this.logger;
+    try {
+      const log = this.Container.resolve(Log, ['audit-pipeline']);
+      this.logger = log;
+      return log;
+    } catch (err) {
+      this.logger = err instanceof Error ? err : new Error('audit: the logger "audit-pipeline" cannot be resolved');
+      throw err;
+    }
   }
 }
 
