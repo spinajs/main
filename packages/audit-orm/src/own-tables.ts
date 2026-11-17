@@ -34,7 +34,6 @@ function refusalsOf(registered: readonly unknown[], tableStore: Class<AuditStore
       continue;
     }
     const message = `audit: trails ${JSON.stringify(owner)} and ${JSON.stringify(name)} both use table ${JSON.stringify(trail.table)}; give each trail its own table`;
-    if (!refusals.has(owner)) refusals.set(owner, message);
     refusals.set(name, message);
   }
   return refusals;

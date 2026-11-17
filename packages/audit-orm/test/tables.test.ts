@@ -53,7 +53,7 @@ describe('one table per trail', function () {
       await audit().record({ kind: 'custom', action: 'own' }, { trail: 'own', mode: 'confirmed' });
 
       await expect(audit().record({ kind: 'custom', action: 'x' }, { trail: 'reads', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, SHARED);
-      await expect(audit().record({ kind: 'custom', action: 'x' }, { mode: 'confirmed', onFailure: 'reject' })).to.be.rejectedWith(AuditConfigError, SHARED);
+      await audit().record({ kind: 'custom', action: 'x' }, { mode: 'confirmed', onFailure: 'reject' });
       await expect(audit().trail('reads').since(0)).to.be.rejectedWith(AuditConfigError, SHARED);
 
       const err: unknown = await pruneAudit().then(
@@ -62,14 +62,14 @@ describe('one table per trail', function () {
       );
       expect(err).to.be.instanceOf(AuditPruneFailed);
       expect(err instanceof AuditPruneFailed ? [err.deleted, err.failed.map((f) => f.trail)] : undefined).to.deep.eq([1, ['reads']]);
-      expect((await db.rows('sqlite', 'audit_event')).map((r) => r.action)).to.deep.eq(['kept']);
+      expect((await db.rows('sqlite', 'audit_event')).map((r) => r.action)).to.deep.eq(['kept', 'x']);
       expect((await db.rows('sqlite', 'audit_own')).map((r) => r.action)).to.deep.eq(['own']);
     });
 
     it('catches a trail added at run time on the next write', async () => {
       const config = DI.get(Configuration);
       config?.set(['audit', 'trails', 'late'], { table: 'audit_own' });
-      await expect(audit().record({ kind: 'custom', action: 'x' }, { trail: 'own', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: trails "own" and "late" both use table "audit_own"; give each trail its own table');
+      await expect(audit().record({ kind: 'custom', action: 'x' }, { trail: 'late', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: trails "own" and "late" both use table "audit_own"; give each trail its own table');
       config?.set(['audit', 'trails', 'late', 'table'], 'audit_late');
       await audit().record({ kind: 'custom', action: 'again' }, { trail: 'own', mode: 'confirmed' });
     });
