@@ -110,6 +110,15 @@ describe('tenancy entry points', () => {
     expect(entry('GET /guarded/scoped')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
   });
 
+  it("stops at a subclass's hand-written mount, on the class or on a redeclared method, before its base's decorator", () => {
+    for (const id of ['GET /unscoped/kept', 'GET /redeclared/method']) {
+      expect(entry(id), id).to.deep.include({ tenancy: 'none' });
+      expect(entry(id), id).to.not.have.property('declared');
+    }
+    expect(entry('GET /unscoped/method'), 'a base method decorator is nearer than a subclass class mount').to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+    expect(entry('GET /redeclared/kept')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+  });
+
   it('gives an entry point that declares nothing no scope, whatever its kind', () => {
     const undeclared = [
       ['GET /invoices/:id', 'route'],
@@ -152,7 +161,7 @@ describe('tenancy entry points', () => {
   it('lists every entry point of the package under the kind, id and source the authz section gives it', () => {
     const key = (e: { kind: string; id: string; source: { file: string; line: number } }): string => `${e.kind} ${e.id} ${e.source.file}:${e.source.line}`;
     expect(tenancy.entryPoints.map(key)).to.deep.equal(fragment.authz!.entryPoints.map(key));
-    expect(tenancy.entryPoints).to.have.length(27);
+    expect(tenancy.entryPoints).to.have.length(31);
   });
 
   it('writes no section for a package that declares no tenancy', async () => {
@@ -174,12 +183,14 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
   const scope = (id: string): string | undefined => merged.tenancy!.entryPoints.find((e) => e.id === id)?.tenancy;
 
   it('pairs every route whose nearest TenantMiddleware mount a decorator made with a declared entry, which the merge keeps', () => {
-    // The route's own mounts come before its controller's. A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator does not.
-    const nearest = (c: ControllerEntry, r: RouteEntry): MiddlewareRef | undefined => [...r.middlewares, ...c.middlewares].find((m) => m.type === 'TenantMiddleware');
+    // The route's own mounts come before its controller's, and a subclass's after its base's; no fixture node carries two.
+    // A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator does not.
+    const isTenant = (m: MiddlewareRef): boolean => m.type === 'TenantMiddleware';
+    const nearest = (c: ControllerEntry, r: RouteEntry): MiddlewareRef | undefined => r.middlewares.findLast(isTenant) ?? c.middlewares.findLast(isTenant);
     const byDecorator = (m: MiddlewareRef | undefined): boolean => m !== undefined && !('options' in m);
     const mounting = fragment.controllers.flatMap((c) => c.routes.filter((r) => byDecorator(nearest(c, r))));
     const ids = mounting.map((r) => `${r.method.toUpperCase()} ${r.fullPath}`);
-    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health', 'GET /guarded/scoped', 'GET /resolved/scoped', 'GET /resolved/all']);
+    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health', 'GET /guarded/scoped', 'GET /resolved/scoped', 'GET /resolved/all', 'GET /unscoped/method', 'GET /redeclared/kept']);
     expect(ids.map((id) => fragment.tenancy!.entryPoints.find((e) => e.id === id)?.declared)).to.not.include(undefined);
     expect(ids.map((id) => [id, scope(id)])).to.have.deep.members([
       ['GET /invoices/mine', 'required'],
@@ -193,12 +204,14 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
       ['GET /guarded/scoped', 'required'],
       ['GET /resolved/scoped', 'required'],
       ['GET /resolved/all', 'all'],
+      ['GET /unscoped/method', 'required'],
+      ['GET /redeclared/kept', 'required'],
     ]);
   });
 
   it('requires a tenant on a plain undeclared route and keeps one with a closer hand-written TenantMiddleware mount at none', () => {
     expect(fragment.controllers.find((c) => c.className === 'OpsController')!.middlewares).to.deep.equal([{ type: 'TenantMiddleware', options: [{ tenancy: 'none' }] }]);
-    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats', 'GET /guarded/open'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none', 'none']);
+    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats', 'GET /guarded/open', 'GET /unscoped/kept', 'GET /redeclared/method'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none', 'none', 'none', 'none']);
   });
 });
 

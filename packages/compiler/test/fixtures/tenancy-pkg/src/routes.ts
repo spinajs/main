@@ -68,3 +68,23 @@ export class GuardedController extends BaseController {
   @Get('scoped')
   public async scoped(): Promise<void> {}
 }
+
+@TenantRoute()
+export abstract class ScopedBaseController extends BaseController {
+  @Get('kept')
+  public async kept(): Promise<void> {}
+
+  @Get('method')
+  @TenantRoute()
+  public async method(): Promise<void> {}
+}
+
+@BasePath('unscoped')
+@Middleware(TenantMiddleware, { tenancy: 'none' })
+export class UnscopedController extends ScopedBaseController {}
+
+@BasePath('redeclared')
+export class RedeclaredController extends ScopedBaseController {
+  @Middleware(TenantMiddleware, { tenancy: 'none' })
+  public override async method(): Promise<void> {}
+}
