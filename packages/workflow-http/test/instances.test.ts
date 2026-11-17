@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { WorkflowNotRegistered, WorkflowNotRetryable, type WorkflowStepView } from '@spinajs/workflow';
+import { WorkflowIdConflict, WorkflowNotRegistered, WorkflowNotRetryable, WorkflowStartConflict, type WorkflowStepView } from '@spinajs/workflow';
 
 import { asRole, bootHttp, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeWorkflowService, INSTANCE_ID, makeInstance } from './fakes/fake-workflow.js';
@@ -98,6 +98,21 @@ describe('workflow-http: instances', function () {
       expect(JSON.stringify(res.body)).to.not.include('A-1');
       expect(fake.callsTo('start')).to.deep.equal([]);
     });
+
+    it('answers 400 to a start without a body', async () => {
+      expect(await req().post('workflow/instances').set(asRole('workflow-admin'))).to.have.status(400);
+      expect(fake.callsTo('start')).to.deep.equal([]);
+    });
+
+    it('answers 409 when the id belongs to another workflow or a concurrent start holds it, without the input', async () => {
+      for (const conflict of [new WorkflowIdConflict('wf-9', 'refund', 'order'), new WorkflowStartConflict('wf-9')]) {
+        fake.failWith = conflict;
+        const res = await req().post('workflow/instances').set(asRole('workflow-admin')).send({ workflow: 'order', input: { order: 'A-1' }, id: 'wf-9' });
+        expect(res).to.have.status(409);
+        expect(res.body).to.not.have.any.keys('stack', 'details', 'input');
+        expect(JSON.stringify(res.body)).to.not.include('A-1');
+      }
+    });
   });
 
   describe('POST /workflow/instances/:id/signals/:name', () => {
@@ -106,6 +121,11 @@ describe('workflow-http: instances', function () {
       expect(res).to.have.status(202);
       expect(res.body).to.deep.equal({ accepted: true });
       expect(fake.callsTo('signal')[0]).to.deep.equal([INSTANCE_ID, 'approved', { ok: true }, { principal: `user:${TEST_USER_UUID}`, dedupKey: 'k-1' }]);
+    });
+
+    it('takes a signal without a body as one without a payload', async () => {
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/signals/approved`).set(asRole('workflow-signaler'))).to.have.status(202);
+      expect(fake.callsTo('signal')[0]).to.deep.equal([INSTANCE_ID, 'approved', null, { principal: `user:${TEST_USER_UUID}` }]);
     });
 
     it('refuses a restricted credential with 403 and a name with # with 400', async () => {
@@ -127,6 +147,11 @@ describe('workflow-http: instances', function () {
       expect(res.body).to.containSubset({ id: INSTANCE_ID });
       expect(res.body).to.not.have.any.keys('input', 'result');
       expect(fake.callsTo('cancel')[0]).to.deep.equal([INSTANCE_ID, 'customer left']);
+    });
+
+    it('cancels without a body with the service default reason', async () => {
+      expect(await req().post(`workflow/instances/${INSTANCE_ID}/cancel`).set(asRole('workflow-admin'))).to.have.status(202);
+      expect(fake.callsTo('cancel')[0]).to.deep.equal([INSTANCE_ID, undefined]);
     });
 
     it('retries and answers 409 when the instance is not retryable', async () => {

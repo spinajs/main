@@ -98,7 +98,7 @@ export class WorkflowInstancesController extends BaseController {
    */
   @Post('/')
   @Access(WORKFLOW_MANAGE)
-  public async start(@Body() body: StartWorkflowDto) {
+  public async start(@Body({ required: true }) body: StartWorkflowDto) {
     const started = await this.Workflows.start(body.workflow, body.input ?? null, { ...(body.id !== undefined ? { id: body.id } : {}), ...(body.version !== undefined ? { version: body.version } : {}) });
     return new Ok(started, { StatusCode: started.created ? HTTP_STATUS_CODE.CREATED : HTTP_STATUS_CODE.OK });
   }
@@ -117,7 +117,7 @@ export class WorkflowInstancesController extends BaseController {
    */
   @Post(':id/signals/:name')
   @Access(WORKFLOW_SIGNAL)
-  public async signal(@Param(INSTANCE_ID_SCHEMA) id: string, @Param(SIGNAL_NAME_SCHEMA) name: string, @Body() body: SignalDto) {
+  public async signal(@Param(INSTANCE_ID_SCHEMA) id: string, @Param(SIGNAL_NAME_SCHEMA) name: string, @Body() body?: SignalDto) {
     const dto = body ?? new SignalDto();
     const principal = signalPrincipal(this._actionLocalStorage.getStore()?.Principal);
     const result = await this.Workflows.signal(id, name, dto.payload ?? null, { principal, ...(dto.dedupKey !== undefined ? { dedupKey: dto.dedupKey } : {}) });
@@ -135,7 +135,7 @@ export class WorkflowInstancesController extends BaseController {
    */
   @Post(':id/cancel')
   @Access(WORKFLOW_MANAGE)
-  public async cancel(@Param(INSTANCE_ID_SCHEMA) id: string, @Body() body: CancelDto) {
+  public async cancel(@Param(INSTANCE_ID_SCHEMA) id: string, @Body() body?: CancelDto) {
     await this.Workflows.cancel(id, body?.reason);
     return new Ok(await this.summary(id), { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
   }
