@@ -8,6 +8,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./socket": {
+      "types": "./lib/socket.d.ts",
+      "import": "./lib/socket.js"
     }
   },
   "type": "module",
@@ -50,12 +54,23 @@
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/http": "3.0.23",
+    "@spinajs/log": "3.0.23",
     "@spinajs/principal": "3.0.23",
     "@spinajs/tenancy": "3.0.23"
   },
+  "peerDependencies": {
+    "@spinajs/http-socket": "3.0.23"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/http-socket": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/fs": "3.0.23",
-    "@spinajs/testing": "3.0.23"
+    "@spinajs/http-socket": "3.0.23",
+    "@spinajs/testing": "3.0.23",
+    "socket.io-client": "^4.8.1"
   },
   "spinajs": {
     "manifest": "lib/manifest.fragment.json"

@@ -14,3 +14,7 @@ Finds the tenant of an HTTP request or a socket handshake of a SpinaJS applicati
 - List `TenantMiddleware` first in `http.routes.middlewares`: a `beforePolicy` middleware that answers before it does so without a tenant scope.
 - An `@AllTenants` route runs for any caller, anonymous included: guard it with its own policy.
 - A request that names no tenant, or one that is unknown, not active or closed to the principal, is answered 404 (`tenancy.http.unknownTenant: 403` for 403) with the code `tenant.unavailable` and the same body in every case.
+
+## Sockets
+
+`import '@spinajs/tenancy-http/socket'` (needs `@spinajs/http-socket`) gives a socket connection one tenant for its life. It is resolved once, in the handshake, with the same resolvers; a browser names its tenant with `io(url, { auth: { tenant } })`, which counts as the header. A handshake that names no tenant connects with no tenant scope; one that names a tenant it may not have is refused. The tenant is not checked again while the connection lives: suspending a tenant refuses its new connections, not the open ones.
