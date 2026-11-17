@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
 import { MemoryChangeLog, canonicalize, policyHash, replayDecision } from '../../src/index.js';
-import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
-import { TupleStore } from '../fixtures/history-store.js';
+import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
+import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
 
 const T = new Date('2026-11-17T12:00:00.000Z');
@@ -34,8 +34,8 @@ class Rules implements StoredPolicySplicer {
   current(): Promise<Array<{ key: string; image: unknown }>> {
     return Promise.resolve(this.items);
   }
-  edge(c: ChangeRecord): string {
-    return c.key;
+  edge(c: ChangeRecord): StoredEdge {
+    return { store: 'db', key: c.key };
   }
   splice(_at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>): { term: Rewrite } {
     const gaps = items.filter((i) => !i.state.known).map((i): Rewrite => ({ opaque: `rbac rule ${i.key}` }));
@@ -54,7 +54,7 @@ interface World {
 
 async function world(ir = irOf(), at = T): Promise<World> {
   const since = new Date(at.getTime() - 2 * HOUR);
-  const log = new MemoryChangeLog().cover('tuple', since).cover('rule', since);
+  const log = new MemoryChangeLog().cover('tuple', since).cover('rule', since).cover('policy', since);
   const tuples = new TupleStore(log);
   await tuples.add(editor('u1'), new Date(at.getTime() - HOUR));
   const rules = new Rules();
@@ -160,6 +160,44 @@ describe('replayDecision', function () {
     const report = await replayDecision(w.record(), w.deps);
     expect(report.replay).to.equal('unreplayable');
     expect(report.missing.map((m) => m.input)).to.include('resource.status');
+  });
+
+  describe('stored switches', () => {
+    const u9 = { principal: 'user:u9', facts: { principal: { type: 'user', id: 'u9' } } };
+    async function switched(): Promise<World & { switches: Switches }> {
+      const ir = irOf({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] });
+      ir.types.doc.permissions.other = { opaque: 'stored:abac:c' };
+      ir.permissions['doc:other'] = { type: 'doc', relation: 'other', list: false, source: { origin: 'test' } };
+      const w = await world(ir);
+      const switches = new Switches(w.log);
+      w.deps = { ...w.deps, splicers: [switches] };
+      return { ...w, switches };
+    }
+
+    it('a store takes only its own items, whatever other stores of the kind held at T', async () => {
+      const w = await switched();
+      await w.switches.set('rb', { store: 'b', open: true }, ms(-HOUR));
+      await w.switches.set('rb', undefined, ms(HOUR / 2));
+      const report = await replayDecision(w.record({ ...u9, allowed: false }), w.deps);
+      expect(report).to.deep.include({ replay: 'faithful', outcome: { recorded: 'deny', replayed: 'deny' } });
+    });
+
+    it('splices an item as it was at T, not as a later write left it', async () => {
+      const w = await switched();
+      await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
+      await w.switches.set('ra', { store: 'a', open: false }, ms(HOUR / 2));
+      const report = await replayDecision(w.record(u9), w.deps);
+      expect(report).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+      expect(report.reads).to.deep.include({ kind: 'policy', key: 'ra', origin: 'history', seq: 3 });
+    });
+
+    it('splices only the placeholders the decision can reach', async () => {
+      const w = await switched();
+      await w.switches.set('rc', { store: 'c', open: true }, ms(-HOUR));
+      const report = await replayDecision(w.record({ ...u9, allowed: false }), w.deps);
+      expect(report.replay).to.equal('faithful');
+      expect(report.reads.map((r) => r.key)).to.not.include('rc');
+    });
   });
 
   it('splices stored items: none at T replays an allow faithfully, a gap item stays opaque and is named', async () => {

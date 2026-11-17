@@ -49,14 +49,20 @@ export interface StoredPlaceholder {
   side: 'permit' | 'deny';
 }
 
+/** A stored item a change touches: the store that holds it, and its changelog key. */
+export interface StoredEdge {
+  store: string;
+  key: string;
+}
+
 /** Replaces a `stored:<model>:<store>` placeholder of the config IR with the stored items live at T. */
 export interface StoredPolicySplicer {
   readonly kind: 'rule' | 'policy';
   /** The placeholder at `type#relation`, from `parseStoredPolicyName(opaqueName)` and the IR's bindings; undefined when not this splicer's. */
   locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined;
   current(store: string): Promise<Array<{ key: string; image: unknown }>>;
-  /** The item key a change touches. */
-  edge(change: ChangeRecord): string | undefined;
+  /** The item a change touches; a kind's changes come from every store of it, and a store's items are only its own. */
+  edge(change: ChangeRecord): StoredEdge | undefined;
   splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
 }
 
@@ -76,6 +82,6 @@ export abstract class StoredPolicySplicers implements StoredPolicySplicer {
   abstract readonly kind: 'rule' | 'policy';
   abstract locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined;
   abstract current(store: string): Promise<Array<{ key: string; image: unknown }>>;
-  abstract edge(change: ChangeRecord): string | undefined;
+  abstract edge(change: ChangeRecord): StoredEdge | undefined;
   abstract splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
 }

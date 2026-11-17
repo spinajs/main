@@ -113,7 +113,8 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
   const kinds = [...new Set([...deps.contributors.map((c) => c.kind), ...deps.splicers.map((s) => s.kind)])];
   const historyLimits = { maxChanges: o.maxChanges, maxKeys: limits.maxKeys, window: replayWindow(record, limits), ...(limits.precisionMs === undefined ? {} : { precisionMs: limits.precisionMs }), ...(deps.now === undefined ? {} : { now: deps.now }) };
   const history = (run.history = await ReplayHistory.load(deps.log, t, kinds, historyLimits, o.signal));
-  const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history);
+  const binding = Object.entries(ir.permissions).find(([p]) => p === record.permission)?.[1];
+  const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history, binding);
   run.reads.push(...spliced.reads);
   const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history);
   const ctx = replayContext(record);
