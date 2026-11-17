@@ -17,6 +17,8 @@ const MAX_BATCH = 500;
 const DEFAULT_MAX_BATCHES = 50;
 const DEFAULT_DELIVER_TIMEOUT_MS = 30000;
 const DEFAULT_RUN_BUDGET_MS = 300000;
+// The timeout of the audit.ship schedule (scheduler.ts), which this module cannot import: the scheduler is an optional peer.
+const SCHEDULE_TIMEOUT_MS = 600000;
 
 export interface ShipFailure {
   readonly trail: string;
@@ -26,6 +28,8 @@ export interface ShipFailure {
 export interface ShipResult {
   readonly shipped: number;
   readonly failed: readonly ShipFailure[];
+  /** Present when audit.ship.runBudgetMs ended the run while events were left buffered. */
+  readonly stoppedEarly?: true;
 }
 
 export interface ShipOptions {
@@ -37,6 +41,7 @@ interface ShipLimits {
   readonly batchSize: number;
   readonly maxBatches: number;
   readonly deliverTimeoutMs: number;
+  readonly budgetMs: number;
   readonly stopAt: number;
 }
 
@@ -47,7 +52,10 @@ const log = (): Log => DI.resolve(Log, ['audit-ship']);
 function shipLimits(): ShipLimits {
   const raw: unknown = DI.get(Configuration)?.get<unknown>(['audit', 'ship']);
   const cfg = isRecord(raw) ? raw : {};
-  return { batchSize: Math.min(positive(cfg.batchSize, DEFAULT_BATCH), MAX_BATCH), maxBatches: positive(cfg.maxBatches, DEFAULT_MAX_BATCHES), deliverTimeoutMs: positive(cfg.deliverTimeoutMs, DEFAULT_DELIVER_TIMEOUT_MS), stopAt: Date.now() + positive(cfg.runBudgetMs, DEFAULT_RUN_BUDGET_MS) };
+  const deliverTimeoutMs = positive(cfg.deliverTimeoutMs, DEFAULT_DELIVER_TIMEOUT_MS);
+  const budgetMs = positive(cfg.runBudgetMs, DEFAULT_RUN_BUDGET_MS);
+  if (budgetMs + deliverTimeoutMs > SCHEDULE_TIMEOUT_MS) throw new AuditConfigError(`audit: audit.ship.runBudgetMs (${budgetMs}) plus audit.ship.deliverTimeoutMs (${deliverTimeoutMs}) is over the ${SCHEDULE_TIMEOUT_MS} ms timeout of the audit.ship schedule; lower one of them`);
+  return { batchSize: Math.min(positive(cfg.batchSize, DEFAULT_BATCH), MAX_BATCH), maxBatches: positive(cfg.maxBatches, DEFAULT_MAX_BATCHES), deliverTimeoutMs, budgetMs, stopAt: Date.now() + budgetMs };
 }
 
 /** The connections that hold audit_outbox; `only` narrows to one name. A connection that cannot answer is handed to `unreachable`, or, without it, fails the call. */
@@ -87,7 +95,7 @@ async function deliverBy(sink: AuditEventSink, batch: AuditBatch, ms: number): P
 async function redactShipped(trail: TrailConfig, source: string, subjects: readonly AuditSubject[]): Promise<void> {
   const unique = [...new Map(subjects.map((s) => [JSON.stringify([s.type, s.id]), s])).values()];
   if (trail.reader === undefined) {
-    log().error({ trail: trail.name, connection: source, subjects: unique.map((s) => `${s.type}:${s.id}`).join(', ') }, 'audit: trail ${trail} shipped events from ${connection} that were erased during the delivery, and has no reader to redact them: the destination may hold an erased payload of ${subjects}');
+    log().error({ trail: trail.name, connection: source, subjects: unique.map((s) => `${s.type}:${s.id}`).join(', ') }, 'audit: trail ${trail} shipped events from ${connection} that were erased before their delivery returned, and has no reader to redact them: the destination may hold an erased payload of ${subjects}');
     return;
   }
   const reader = await namedService(AuditReader, trail.reader, `audit.trails.${trail.name}.reader`);
@@ -110,13 +118,15 @@ async function redactBlank(driver: OrmDriver, trail: TrailConfig, blank: readonl
   await removeBlank(driver, blank);
 }
 
-async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, progress: { shipped: number }): Promise<void> {
+/** True when the run budget ended it with events of the trail left on this connection. */
+async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, progress: { shipped: number }): Promise<boolean> {
   const sink = await sinkOf(trail);
   const source = driver.Options.Name;
   // spinajs-orm-ignore ORM102: deliberate batching, one SELECT, one delivery and one DELETE per batch
-  for (let i = 0; i < limits.maxBatches && Date.now() < limits.stopAt; i += 1) {
+  for (let i = 0; i < limits.maxBatches; i += 1) {
     const batch = await oldestBuffered(driver, trail.name, limits.batchSize);
     if (batch.length === 0) break;
+    if (Date.now() >= limits.stopAt) return true;
     await deliverBy(sink, { trail: trail.name, source, events: batch.map((b) => b.event) }, limits.deliverTimeoutMs);
     // Deleted only after the sink returned: a crash in between redelivers these events, which sinks deduplicate on event.id.
     const blank = await removeBuffered(driver, batch);
@@ -125,6 +135,15 @@ async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, 
     progress.shipped += blank.length;
     if (batch.length < limits.batchSize) break;
   }
+  return false;
+}
+
+// The trail the last run's budget stopped on: the next run starts after it, so a slow trail cannot take every run's budget.
+let stoppedOn: string | undefined;
+
+function rotated(trails: readonly TrailConfig[]): TrailConfig[] {
+  const start = trails.findIndex((t) => t.name === stoppedOn) + 1;
+  return [...trails.slice(start), ...trails.slice(0, start)];
 }
 
 /** Moves buffered events to each shipping trail's sink; a trail whose delivery fails on a connection, or a connection that cannot be searched, keeps its rows there and is named in `failed`. */
@@ -138,15 +157,23 @@ export async function shipAudit(options: ShipOptions = {}): Promise<ShipResult> 
   });
   const limits = shipLimits();
   const progress = { shipped: 0 };
-  for (const trail of trails) {
+  const left: TrailConfig[] = [];
+  const leftOn: string[] = [];
+  for (const trail of rotated(trails)) {
     for (const driver of drivers) {
       try {
-        await drain(driver, trail, limits, progress);
+        if (await drain(driver, trail, limits, progress)) {
+          left.push(trail);
+          leftOn.push(`${trail.name}@${driver.Options.Name}`);
+        }
       } catch (err) {
         failed.push({ trail: trail.name, connection: driver.Options.Name });
         log().error({ error: err, trail: trail.name, connection: driver.Options.Name }, 'audit: shipping trail ${trail} from connection ${connection} failed, its events stay buffered');
       }
     }
   }
-  return { shipped: progress.shipped, failed };
+  stoppedOn = left[0]?.name;
+  if (left.length === 0) return { shipped: progress.shipped, failed };
+  log().warn({ budget: limits.budgetMs, left: leftOn.join(', ') }, 'audit: the shipping run stopped at audit.ship.runBudgetMs (${budget} ms); left buffered for the next run: ${left}');
+  return { shipped: progress.shipped, failed, stoppedEarly: true };
 }

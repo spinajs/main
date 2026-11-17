@@ -4,6 +4,7 @@ import 'mocha';
 import { AuditConfigError, AuditEventSink, AuditNotSupported, AuditReader, AuditWriteFailed, audit, trailConfig } from '@spinajs/audit';
 import type { AuditBatch, AuditInput, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { FrameworkLogger } from '@spinajs/log';
 import type { OrmDriver } from '@spinajs/orm';
 import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, insertRows, shipAudit } from '../src/index.js';
 import { AuditShipError, AuditShipTask } from '../src/scheduler.js';
@@ -89,6 +90,19 @@ class RecordingReader extends AuditReader {
   prune(): Promise<number> {
     return Promise.resolve(0);
   }
+}
+
+// The audit warn lines written while `run` runs, as [fields, message].
+async function auditWarnings(run: () => Promise<void>): Promise<unknown[][]> {
+  const lines: unknown[][] = [];
+  const own = Object.getOwnPropertyDescriptor(FrameworkLogger.prototype, 'warn');
+  Object.defineProperty(FrameworkLogger.prototype, 'warn', { value: (...args: unknown[]) => void lines.push(args), configurable: true, writable: true });
+  try {
+    await run();
+  } finally {
+    if (own) Object.defineProperty(FrameworkLogger.prototype, 'warn', own);
+  }
+  return lines.filter(([, message]) => typeof message === 'string' && message.startsWith('audit:'));
 }
 
 describe('audit shipping', function () {
@@ -412,11 +426,39 @@ describe('audit shipping', function () {
       expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
     });
 
-    it('starts no batch once the run budget is used up', async () => {
+    it('starts no batch once the run budget is used up, and says what it left', async () => {
       config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
       await store().append({ trail: trail('SlowSink'), events: [event(1), event(2)] });
+      const results: unknown[] = [];
+      const warnings = await auditWarnings(async () => {
+        expect(await new AuditShipTask().execute({ result: (data: unknown): void => void results.push(data) })).to.deep.eq({ shipped: 1, failed: [], stoppedEarly: true });
+      });
+      expect(results).to.deep.eq([{ shipped: 1, failed: [], stoppedEarly: true }]);
+      expect(warnings).to.deep.eq([[{ budget: 200, left: 'shipped@sqlite' }, 'audit: the shipping run stopped at audit.ship.runBudgetMs (${budget} ms); left buffered for the next run: ${left}']]);
       expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
-      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+    });
+
+    it('starts the run after the trail the budget stopped the last run on', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      setTrail('other', { store: 'OutboxAuditStore', sink: 'SlowSink', connection: 'sqlite' });
+      try {
+        await store().append({ trail: trail('SlowSink'), events: [event(1), event(2)] });
+        await store().append({ trail: trailConfig('other'), events: [event(3), event(4)] });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        // Each trail's first event: without the rotation the second run would ship the same trail again.
+        expect([...delivered()].sort()).to.deep.eq(ids(1, 3));
+      } finally {
+        setTrail('other', undefined);
+      }
+    });
+
+    it('refuses a delivery deadline over two minutes, and limits that outlast the schedule timeout', async () => {
+      expect(() => config().set(['audit', 'ship'], { deliverTimeoutMs: 120001 })).to.throw();
+      config().set(['audit', 'ship'], { deliverTimeoutMs: 30000, runBudgetMs: 570001 });
+      await store().append({ trail: trail('RecordingSink'), events: [event(1)] });
+      await expect(shipAudit()).to.be.rejectedWith(AuditConfigError, 'audit: audit.ship.runBudgetMs (570001) plus audit.ship.deliverTimeoutMs (30000) is over the 600000 ms timeout of the audit.ship schedule; lower one of them');
+      expect(delivered()).to.deep.eq([]);
     });
 
     it('erases inside an open transaction: a rollback restores the buffer, not the destination', async () => {
