@@ -30,7 +30,6 @@ export class DbTenantRegistry extends TenantRegistry {
 
   public async *list(filter?: { states?: TenantState[] }): AsyncIterable<TenantRecord> {
     const states = filter?.states;
-    if (states?.length === 0) return;
     let after = '';
     // spinajs-orm-ignore ORM102: deliberate paging, one query per pageSize tenants
     for (;;) {
