@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { DI, Injectable } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
-import { QueueMessageHook, isPermanentJobFailure } from '@spinajs/queue';
+import { QueueMessageHook, isJob, isPermanentJobFailure } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 
 import { AUDIT_WIDTHS, audit, auditStore, trailConfig } from '../index.js';
@@ -45,7 +45,8 @@ const isLongId = (id: string | undefined): id is string => id !== undefined && i
 function details(message: IQueueMessage, rule: MessageRule): Record<string, unknown> {
   const fields = Object.fromEntries((rule.fields ?? []).map((field): [string, unknown] => [field, Reflect.get(message, field)]));
   const initiator = message.Initiator ? `${message.Initiator.type}:${message.Initiator.id}` : undefined;
-  const jobId = 'JobId' in message && typeof message.JobId === 'string' ? message.JobId : undefined;
+  // On a publish emit() has not derived the JobId yet; it will take the MessageId, as here.
+  const jobId = 'JobId' in message && typeof message.JobId === 'string' ? message.JobId : isJob(message) ? message.MessageId : undefined;
 
   return {
     message: message.Name,
@@ -126,7 +127,11 @@ export class QueueAuditHook extends QueueMessageHook {
     try {
       await audit().record(event, options);
     } catch (error) {
-      this.log().error({ error, messageName: message.Name, messageId: message.MessageId, outcome: event.outcome }, 'audit: the ${outcome} event of message ${messageName} ${messageId} was not recorded');
+      try {
+        this.log().error({ error, messageName: message.Name, messageId: message.MessageId, outcome: event.outcome }, 'audit: the ${outcome} event of message ${messageName} ${messageId} was not recorded');
+      } catch {
+        // A logger that fails must not fail the job either: the queue would run it again.
+      }
     }
   }
 }

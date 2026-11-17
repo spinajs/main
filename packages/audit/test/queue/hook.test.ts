@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import type { Log } from '@spinajs/log-common';
-import { Job, PermanentJobFailure, QueueJob, QueueMessageHook, SystemTask } from '@spinajs/queue';
+import { Job, PermanentJobFailure, QueueJob, QueueMessageHook, QueueService, SystemTask } from '@spinajs/queue';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
@@ -82,6 +82,22 @@ class RecordingHook extends QueueAuditHook {
   }
 }
 
+class BrokenLogHook extends QueueAuditHook {
+  protected override log(): Pick<Log, 'error'> {
+    throw new Error('no logger');
+  }
+}
+
+function twin() {
+  @SystemTask('a fixture of the audit hook suite')
+  class Twin extends QueueJob {
+    public async execute() {
+      return 1;
+    }
+  }
+  return Twin;
+}
+
 const shape = (e: AuditEvent) => [e.kind, e.action, e.outcome];
 const dataOf = (e: AuditEvent) => e.data as Record<string, unknown>;
 const stored = (trail: string): readonly AuditEvent[] => MemoryAuditStore.events(trail);
@@ -114,6 +130,7 @@ describe('QueueAuditHook', function () {
       bootstrap: false,
       config: {
         logger: SILENT,
+        queue: { default: 'nowhere', routing: {}, connections: [{ name: 'nowhere', service: 'BlackHoleQueueClient' }] },
         audit: {
           trails: {
             actions: { store: 'MemoryAuditStore' },
@@ -156,6 +173,29 @@ describe('QueueAuditHook', function () {
 
       MemoryAuditStore.failNext(2);
       await expect(hook.beforeEmit(new RunPayout())).to.be.rejectedWith(AuditWriteFailed);
+    });
+
+    it('records a publish made with QueueJob.emit(), with the job id emit() derives', async () => {
+      const jobId = await SendReport.emit({ ReportId: 9 });
+
+      const events = await recorded('actions');
+      expect(events.map(shape)).to.deep.eq([['action', 'queue.publish', 'attempt']]);
+      expect(events[0].subject).to.deep.eq({ type: 'SendReport', id: jobId });
+      expect(events[0].data).to.deep.include({ message: 'SendReport', jobId, fields: { ReportId: 9 } });
+    });
+
+    it('refuses a publish made with QueueJob.emit() on a reject trail whose write fails', async () => {
+      MemoryAuditStore.failNext(2);
+
+      await expect(RunPayout.emit({})).to.be.rejectedWith(AuditWriteFailed);
+    });
+
+    it('records a publish of a message instance through QueueService.emit() once', async () => {
+      const queue = await DI.resolve(QueueService);
+
+      await queue.emit(new SendReport());
+
+      expect((await recorded('actions')).map(shape)).to.deep.eq([['action', 'queue.publish', 'attempt']]);
     });
   });
 
@@ -306,6 +346,15 @@ describe('QueueAuditHook', function () {
       expect(hook.errors).to.have.length(1);
     });
 
+    it('keeps the result of a job when even the logger fails', async () => {
+      const restore = refuse('ok');
+      try {
+        expect(await new BrokenLogHook().aroundHandle(Object.assign(new RunPayout(), { MessageId: 'm-14' }), async () => 'paid')).to.eq('paid');
+      } finally {
+        restore();
+      }
+    });
+
     it('keeps the result of a job on a continue trail whose store fails', async () => {
       MemoryAuditStore.failNext(10);
 
@@ -320,6 +369,12 @@ describe('QueueAuditHook', function () {
     it('refuses an action longer than the action column at decoration', () => {
       expect(() => Audited('a'.repeat(129))).to.throw(AuditConfigError, '@Audited action must be at most 128 characters');
       expect(() => Audited('a'.repeat(128))).to.not.throw();
+    });
+
+    it('refuses a second audited class of the same name, which the queue could not tell apart', () => {
+      Audited('twin.run')(twin());
+
+      expect(() => Audited('twin.run')(twin())).to.throw(AuditConfigError, 'another class named "Twin" is already audited');
     });
 
     it('refuses a mask path outside data at decoration', () => {
