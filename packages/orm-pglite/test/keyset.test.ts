@@ -1,10 +1,11 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { Connection, InvalidCursor, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, DataException, InvalidCursor, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import sinon from 'sinon';
 import { PgliteOrmDriver } from '../src/index.js';
 
 const expect = chai.expect;
@@ -31,6 +32,27 @@ class PglKeyset extends ModelBase {
   public Name: string;
 }
 
+@Connection('pglite')
+@Model('pgl_keyset_mood')
+class PglMood extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Mood: string;
+}
+
+async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (err) {
+    if (err instanceof Error) {
+      return err;
+    }
+    throw err;
+  }
+  throw new Error('expected a rejection');
+}
+
 function withFirstValue(cursor: string, value: unknown): string {
   const payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { h: string; v: unknown[] };
   payload.v[0] = value;
@@ -50,6 +72,9 @@ describe('paginate() on PGlite', function () {
     const driver = orm.Connections.get('pglite') as PgliteOrmDriver;
     await driver.executeOnDb('CREATE TABLE pgl_keyset ("Id" int PRIMARY KEY, "Score" int NOT NULL, "Name" text NOT NULL)', [], QueryContext.Schema);
     await driver.executeOnDb(`INSERT INTO pgl_keyset ("Id", "Score", "Name") SELECT g, g % 4, 'n' || (g % 3) FROM generate_series(1, 10) g`, [], QueryContext.Insert);
+    await driver.executeOnDb(`CREATE TYPE pgl_mood AS ENUM ('calm', 'busy')`, [], QueryContext.Schema);
+    await driver.executeOnDb('CREATE TABLE pgl_keyset_mood ("Id" int PRIMARY KEY, "Mood" pgl_mood NOT NULL)', [], QueryContext.Schema);
+    await driver.executeOnDb(`INSERT INTO pgl_keyset_mood ("Id", "Mood") VALUES (1, 'calm'), (2, 'busy'), (3, 'calm')`, [], QueryContext.Insert);
     await orm.reloadTableInfo();
   });
 
@@ -100,5 +125,49 @@ describe('paginate() on PGlite', function () {
     const ids = await walk((after) => PglKeyset.query().select('Id').paginate({ orderBy: [['Score', 'desc']], limit: 3, after }));
 
     expect(ids).to.deep.equal(await sortedIds('Score'));
+  });
+
+  it('turns a cursor value the column refuses into InvalidCursor', async () => {
+    const { next } = await PglMood.select().paginate({ orderBy: [['Mood', 'asc']], limit: 1 });
+
+    // a string fits the enum family, but the postgres enum has no such label: SQLSTATE 22P02, for the page and for the probe
+    const err = await rejectionOf(PglMood.select().paginate({ orderBy: [['Mood', 'asc']], limit: 1, after: withFirstValue(next!, 'sleepy') }));
+
+    expect(err).to.be.instanceOf(InvalidCursor);
+    expect(err.message).to.not.contain('sleepy');
+    expect(err.cause).to.be.instanceOf(DataException);
+  });
+
+  it('keeps a data error of the query itself, with a valid cursor as without one', async () => {
+    const { next } = await PglMood.select().paginate({ orderBy: [['Id', 'asc']], limit: 1 });
+
+    // the filter value is refused (22P02), the cursor is fine: the same error on the first page and on the next
+    await expect(PglMood.where('Mood', 'sleepy').paginate({ orderBy: [['Id', 'asc']], limit: 1 })).to.be.rejectedWith(DataException);
+    await expect(PglMood.where('Mood', 'sleepy').paginate({ orderBy: [['Id', 'asc']], limit: 1, after: next! })).to.be.rejectedWith(DataException);
+  });
+
+  it('asks the database about the cursor alone before it blames the cursor', async () => {
+    const driver = orm!.Connections.get('pglite')!;
+    const { next } = await PglKeyset.select().paginate({ orderBy: [['Score', 'asc']], limit: 1 });
+    const execute = sinon.stub(driver, 'execute').callThrough();
+    execute.onFirstCall().rejects(new DataException('value out of range'));
+    try {
+      // the page fails, the probe of the keyset predicate runs for real and is accepted
+      await expect(PglKeyset.select().paginate({ orderBy: [['Score', 'asc']], limit: 1, after: next! })).to.be.rejectedWith(DataException);
+      expect(execute.callCount).to.eq(2);
+    } finally {
+      execute.restore();
+    }
+  });
+
+  it('keeps a data error of a page without a cursor as it is, without a probe', async () => {
+    const driver = orm!.Connections.get('pglite')!;
+    const execute = sinon.stub(driver, 'execute').rejects(new DataException('value out of range'));
+    try {
+      await expect(PglKeyset.select().paginate({ orderBy: [['Score', 'asc']], limit: 1 })).to.be.rejectedWith(DataException);
+      expect(execute.callCount).to.eq(1);
+    } finally {
+      execute.restore();
+    }
   });
 });

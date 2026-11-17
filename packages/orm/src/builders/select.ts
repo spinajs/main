@@ -15,7 +15,7 @@ import type { IOrmRelation } from '../relations.js';
 import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
-import { StreamNotSupported } from '../exceptions.js';
+import { DataException, InvalidCursor, StreamNotSupported } from '../exceptions.js';
 import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetFamilies, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
 import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
@@ -755,17 +755,53 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
     const backward = options.before !== undefined;
     const cursor = options.before ?? options.after;
+    const side = backward ? 'before' : 'after';
 
     this._orderByKeyset(columns, backward);
     this._selectKeysetColumns(columns, descriptor);
+    let cursorValues: unknown[] | undefined;
     if (cursor !== undefined) {
       const families = keysetFamilies(columns, descriptor, sqlDialectOf(this._driver.constructor as abstract new (...args: never[]) => unknown));
-      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor, families), backward ? 'before' : 'after');
+      cursorValues = decodeCursor(columns, cursor, families);
+      applyKeysetPredicate(this, columns, cursorValues, side);
     }
     this.take(options.limit + 1);
 
-    const rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    let rows: Array<Unbox<T>>;
+    try {
+      rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    } catch (err) {
+      // the family check passes values the column still refuses: a label outside a postgres enum, a NUL in text
+      if (cursorValues !== undefined && err instanceof DataException && (await this._cursorRefused(columns, cursorValues, side))) {
+        throw new InvalidCursor('cursor value does not fit the column', side, undefined, err);
+      }
+      throw err;
+    }
     return keysetPage(columns, rows, options.limit, { cursor, backward });
+  }
+
+  /**
+   * Whether the database refuses the keyset predicate on its own. Only then did the cursor carry the refused value:
+   * the same data error can come from the query's own conditions or from a relation load.
+   */
+  private async _cursorRefused(columns: KeysetColumn[], values: unknown[], side: 'after' | 'before'): Promise<boolean> {
+    const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model, undefined, false);
+    // no row of the probe reaches the caller, so the query middlewares (row filters, translation) have nothing to guard
+    probe._queryMiddlewares = [];
+    probe.setTable(this._table);
+    if (this._database) {
+      probe.database(this._database);
+    }
+    applyKeysetPredicate(probe, columns, values, side);
+    // one row, not none: mysql and mssql evaluate the comparison only against a row
+    probe.take(1);
+
+    try {
+      await probe.asRaw();
+      return false;
+    } catch (err) {
+      return err instanceof DataException;
+    }
   }
 
   private _orderByKeyset(columns: KeysetColumn[], backward: boolean): void {
