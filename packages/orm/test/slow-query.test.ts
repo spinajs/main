@@ -394,11 +394,12 @@ describe('SlowQueryMiddleware', () => {
     expect(records()).to.have.length(1);
   });
 
-  it('keeps recording when a sink never settles: the other sinks get every record, the hanging one times out', async () => {
+  it('keeps recording when a sink never settles: the other sinks get every record, the hanging one times out and is capped', async () => {
     enable();
-    sinon.stub(StallableSink.prototype, 'record').returns(new Promise<void>(() => undefined));
+    const stalled = sinon.stub(StallableSink.prototype, 'record').returns(new Promise<void>(() => undefined));
     const warn = sinon.stub(new MiddlewareLog().logger(), 'warn');
     const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const warned = (text: string) => warn.args.some((args) => JSON.stringify(args).includes(text));
 
     const settle = async (): Promise<void> => {
       for (let i = 0; i < 5; i++) await turn();
@@ -406,18 +407,22 @@ describe('SlowQueryMiddleware', () => {
       await middleware().idle();
     };
 
-    for (let i = 0; i <= MAX_PENDING_SLOW_QUERY_CAPTURES; i++) await run();
+    for (let i = 0; i < MAX_PENDING_SLOW_QUERY_CAPTURES; i++) await run();
     for (let i = 0; i < 5; i++) await turn();
     expect(records()).to.have.length(MAX_PENDING_SLOW_QUERY_CAPTURES);
-    await settle();
-
+    // every pending capture is already publishing, so only a capture that ends can report this drop
     await run();
     await settle();
+    expect(warned('timed out')).to.equal(true);
+    expect(warned('"dropped":1')).to.equal(true);
 
-    expect(records()).to.have.length(MAX_PENDING_SLOW_QUERY_CAPTURES + 1);
-    const lines = warn.args.map((args) => JSON.stringify(args));
-    expect(lines.some((l) => l.includes('timed out'))).to.equal(true);
-    expect(lines.some((l) => l.includes('"dropped":1'))).to.equal(true);
+    for (let i = 0; i < MAX_PENDING_SLOW_QUERY_CAPTURES; i++) await run();
+    await settle();
+
+    expect(records()).to.have.length(2 * MAX_PENDING_SLOW_QUERY_CAPTURES);
+    expect(stalled.callCount).to.equal(MAX_PENDING_SLOW_QUERY_CAPTURES);
+    const skipped = warn.args.reduce((sum, [fields]: unknown[]) => sum + (typeof fields === 'object' && fields !== null && 'skipped' in fields && typeof fields.skipped === 'number' ? fields.skipped : 0), 0);
+    expect(skipped).to.equal(MAX_PENDING_SLOW_QUERY_CAPTURES);
   });
 
   it('writes no bound value to the log line with CaptureBindings', async () => {
@@ -434,5 +439,24 @@ describe('SlowQueryMiddleware', () => {
     expect(logged).to.contain('Name=?');
     expect(logged).to.contain('"planError":"TypeError"');
     expect(logged).to.not.match(/ann|10000000000/);
+  });
+
+  it('keeps a double-quoted name in the log line of a postgres plan only', async () => {
+    enable({ CaptureBindings: true });
+    const warn = sinon.stub(logSink().logger(), 'warn');
+    const plan = (dialect: QueryPlan['dialect'], detail: string): QueryPlan => ({ dialect, root: { label: 'Seq Scan', detail, children: [] }, raw: [] });
+    sinon.stub(ExplainingDriver.prototype, 'explain')
+      .onFirstCall()
+      .resolves(plan('postgres', `("Name" = 'ann'::text)`))
+      .onSecondCall()
+      .resolves(plan('mysql', '(Name = "ann")'));
+
+    await slowSelect('SELECT * FROM a WHERE Id = ?');
+    await slowSelect('SELECT * FROM b WHERE Id = ?');
+
+    const logged = warn.args.map((args) => JSON.stringify(args));
+    expect(logged.some((l) => l.includes('(\\"Name\\" = ?::text)'))).to.equal(true);
+    expect(logged.some((l) => l.includes('(Name = ?)'))).to.equal(true);
+    expect(logged.join()).to.not.contain('ann');
   });
 });

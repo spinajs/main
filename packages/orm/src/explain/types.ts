@@ -37,7 +37,11 @@ export interface ExplainOptions {
   CaptureBindings: boolean;
 }
 
-/** Every registered sink receives every slow-query record. */
+/**
+ * Every registered sink receives every slow-query record. A call that has not settled after
+ * `SLOW_QUERY_SINK_TIMEOUT_MS` is not waited for but not cancelled either, so a sink bounds its own work;
+ * a sink with `MAX_PENDING_SLOW_QUERY_CAPTURES` calls unsettled is skipped.
+ */
 export abstract class SlowQuerySink {
   public abstract record(entry: SlowQueryRecord): void | Promise<void>;
 }

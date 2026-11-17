@@ -111,9 +111,16 @@ describe('orm-sqlite explain', () => {
       });
 
       let planned: Promise<QueryPlan> | undefined;
+      let settledInside = false;
       await d.transaction(async () => {
         await d.executeOnDb("INSERT INTO explain_user (Id, Name) VALUES (2, 'bob')", [], QueryContext.Insert);
         planned = d.explain('SELECT * FROM explain_user', []);
+        void planned.then(
+          () => (settledInside = true),
+          () => undefined,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(settledInside).to.equal(false);
       });
       await planned;
 

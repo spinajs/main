@@ -111,7 +111,7 @@ Every statement a builder executes through `SqlDriver.execute` produces one Open
 | `plan` | The `QueryPlan` from `OrmDriver.explain()`, for a single select only. |
 | `planError` | Why a planned statement has no plan: `explain rate limit reached`, `driver <token> cannot explain`, or the class name of the EXPLAIN error (followed by its message only with `CaptureBindings`). |
 
-`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Its line never carries plan values or error text, also with `CaptureBindings` on: it redacts the plan as described below and writes only the class name of an EXPLAIN error. Register your own sink next to it; every sink receives every record at the same time, and a sink that throws, or has not settled after 5 s (`SLOW_QUERY_SINK_TIMEOUT_MS`), is logged and does not hold up the others or the capture:
+`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Its line never carries plan values or error text, also with `CaptureBindings` on: it redacts the plan as described below and writes only the class name of an EXPLAIN error. Register your own sink next to it; every sink receives every record at the same time, and a sink that throws, or has not settled after 5 s (`SLOW_QUERY_SINK_TIMEOUT_MS`), is logged and does not hold up the others or the capture. A call that timed out is not cancelled, so a sink should bound its own work (a pool acquire timeout, a bounded queue); a sink with 100 calls unsettled gets no further records until one settles, and the number it missed is logged with the dropped count:
 
 ```ts
 import { Injectable } from '@spinajs/di';

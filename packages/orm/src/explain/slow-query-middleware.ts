@@ -59,6 +59,9 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   private readonly captures = new TaskTracker((err) => this.Log.warn({ error: err }, 'slow query capture failed'));
   private rateWindow = { start: Number.NEGATIVE_INFINITY, count: 0 };
   private dropped = 0;
+  /** A timed-out call is not cancelled, so a stalled sink would otherwise collect one unsettled call per slow statement. */
+  private readonly unsettled = new WeakMap<SlowQuerySink, number>();
+  private skipped = 0;
   private options: ExplainOptions | undefined;
 
   public afterQueryCreation(): void {}
@@ -141,6 +144,11 @@ export class SlowQueryMiddleware extends QueryMiddleware {
       this.Log.warn({ dropped: this.dropped, limit: MAX_PENDING_SLOW_QUERY_CAPTURES }, '${dropped} slow queries were not recorded: more than ${limit} captures were pending');
       this.dropped = 0;
     }
+
+    if (this.skipped > 0) {
+      this.Log.warn({ skipped: this.skipped, limit: MAX_PENDING_SLOW_QUERY_CAPTURES }, '${skipped} slow query records were not given to a sink that had ${limit} calls unsettled');
+      this.skipped = 0;
+    }
   }
 
   private planFor(driver: OrmDriver, key: string, statement: ExecutedStatement, options: ExplainOptions): Promise<PlanOutcome> {
@@ -189,7 +197,17 @@ export class SlowQueryMiddleware extends QueryMiddleware {
 
   /** A sink that never settles would hold its capture's pending slot for good, and past the limit stop every capture. */
   private async deliver(sink: SlowQuerySink, record: SlowQueryRecord): Promise<void> {
-    const delivered = await settleWithin(Promise.resolve().then(() => sink.record(record)), SLOW_QUERY_SINK_TIMEOUT_MS);
+    const inFlight = this.unsettled.get(sink) ?? 0;
+    if (inFlight >= MAX_PENDING_SLOW_QUERY_CAPTURES) {
+      this.skipped++;
+      return;
+    }
+    this.unsettled.set(sink, inFlight + 1);
+
+    const call = Promise.resolve()
+      .then(() => sink.record(record))
+      .finally(() => this.unsettled.set(sink, (this.unsettled.get(sink) ?? 1) - 1));
+    const delivered = await settleWithin(call, SLOW_QUERY_SINK_TIMEOUT_MS);
     if (delivered.status === 'timeout') {
       this.Log.warn({ sink: sink.constructor.name, timeoutMs: SLOW_QUERY_SINK_TIMEOUT_MS }, 'slow query sink ${sink} timed out after ${timeoutMs} ms');
     } else if (delivered.status === 'rejected') {
