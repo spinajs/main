@@ -5,7 +5,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
-import { verifyTable } from './seal/verify.js';
+import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
 
 const DELETE_CHUNK = 500;
 
@@ -83,6 +83,6 @@ export class TableAuditReader extends AuditReader {
 
   /** The chain of an archive table spans its sources, so `source` does not narrow it there. */
   async verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
-    return { trail: trail.name, ...(await verifyTable(this.driver(trail, source), this.table(trail), pinned)) };
+    return { trail: trail.name, ...(await verifyTable(this.driver(trail, source), this.table(trail), { pinned, retentionDays: trail.retentionDays, clockSkewMs: this.hasSourceColumn() ? ARCHIVE_CLOCK_SKEW_MS : undefined })) };
   }
 }

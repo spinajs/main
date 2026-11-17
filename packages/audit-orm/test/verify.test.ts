@@ -6,6 +6,7 @@ import type { AuditEvent, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, TableAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
+import { archiveEvents } from '../src/ship/archive-sink.js';
 import { TestDb } from '../src/testing.js';
 import { event, setTrail, tableRows } from './support/events.js';
 
@@ -97,11 +98,15 @@ describe('audit verification', function () {
       it('reports sealed events as intact and counts the tail', async () => {
         await append(event(1), event(2));
         await sealNow();
-        await append(event(3));
+        await append(event(3, { at: new Date() }));
 
         const report = await verify();
-        expect(report).to.deep.include({ trail: 'sealed', connection: connection(), table: TABLE, seals: 1, intact: 2, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 1, uncovered: [], unexplainedRedactions: [] });
+        expect(report).to.deep.include({ trail: 'sealed', connection: connection(), table: TABLE, seals: 1, intact: 2, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 1, staleUnsealed: 0, uncovered: [], unexplainedRedactions: [], earlyPrunes: [] });
         expect(report.head).to.deep.eq({ toSeq: 2, hash: (await seals())[0].hash });
+
+        // A sealer that stopped, or seals that were deleted, leave rows older than the sealing window.
+        await append(event(4));
+        expect(await verify()).to.deep.include({ unsealed: 2, staleUnsealed: 1 });
       });
 
       it('reports an erased payload as redacted, and a payload blanked outside forget as unexplained', async () => {
@@ -112,6 +117,28 @@ describe('audit verification', function () {
 
         await edit(3, { data: '' });
         expect(await verify()).to.deep.include({ intact: 0, redacted: 3, tampered: undefined, unexplainedRedactions: [3] });
+      });
+
+      it('counts an erasure record only where it is sealed, or fresh in the tail', async () => {
+        const erasure = (n: number, at: Date): AuditEvent => event(n, { action: 'erasure', subject: { type: 'contract', id: 'c1' }, at, data: { redacted: 1 } });
+        await append(event(1), event(2), event(3));
+        await driver().del().from(TABLE).where('seq', 2);
+        await sealNow();
+        await edit(1, { data: '' });
+        // In a gap of a sealed range: not covered by the seal, so it explains nothing.
+        await insertAt(2, erasure(5, new Date(Date.UTC(2026, 10, 16, 10, 0, 9))));
+        expect(await verify()).to.deep.include({ uncovered: [{ seq: 2, reason: 'late', fromSeq: 1, toSeq: 3 }], unexplainedRedactions: [1] });
+
+        // In the tail, older than a sealing window: the sealer would have sealed a genuine one by now.
+        await append(erasure(6, new Date(Date.UTC(2026, 10, 16, 11))));
+        expect((await verify()).unexplainedRedactions).to.deep.eq([1]);
+
+        await append(erasure(7, new Date()));
+        expect((await verify()).unexplainedRedactions).to.deep.eq([]);
+      });
+
+      it('refuses to run inside an open transaction', async () => {
+        await expect(driver().transaction(() => verify())).to.be.rejectedWith(`audit: verifying "${TABLE}" on connection "${connection()}" needs a transaction of its own; run it outside an open transaction`);
       });
 
       it('names the event whose payload was edited', async () => {
@@ -158,6 +185,16 @@ describe('audit verification', function () {
         await insertAt(2, event(5));
 
         expect(await verify()).to.deep.include({ seals: 1, intact: 2, tampered: undefined, uncovered: [{ seq: 2, reason: 'late', fromSeq: 1, toSeq: 3 }] });
+      });
+
+      it('names the seal when a row in its range was written after it was sealed', async () => {
+        await append(event(1), event(2), event(3));
+        await driver().del().from(TABLE).where('seq', 2);
+        await sealAudit({ settleMs: 0, now: new Date('2026-11-16T10:00:10Z') });
+        // Stamped later than the seal: no commit of a row recorded before the seal can carry it.
+        await insertAt(2, event(5, { at: new Date('2026-11-16T10:00:20Z') }));
+
+        expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'count', fromSeq: 1, toSeq: 3 });
       });
 
       it('names the seal whose hash was changed', async () => {
@@ -225,6 +262,7 @@ describe('audit verification', function () {
       });
 
       it('keeps the chain across a pruned range, and reports a row written into it', async () => {
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
         await append(event(1), event(2));
         await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
         await append(event(3));
@@ -235,6 +273,68 @@ describe('audit verification', function () {
 
         await insertAt(1, event(9));
         expect(await verify()).to.deep.include({ tampered: undefined, uncovered: [{ seq: 1, reason: 'pruned', fromSeq: 1, toSeq: 2 }] });
+      });
+
+      it('names a seal marked pruned out of order or in the future, and doubts one retention here does not explain', async () => {
+        const prune = (fromSeq: number) => driver().update().in('audit_seal').update({ pruned_at: new Date() }).where('from_seq', fromSeq);
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
+        await append(event(1));
+        await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
+        await append(event(2));
+        await sealNow();
+        await append(event(3));
+        await sealNow();
+
+        // After a seal that is not pruned.
+        await prune(3);
+        expect((await verify()).tampered).to.deep.eq({ seq: 3, reason: 'count', fromSeq: 3, toSeq: 3 });
+        // Younger than retentionDays when pruned: lawful after retentionDays was raised or a direct prune, so only doubted.
+        await prune(1);
+        await prune(2);
+        expect(await verify()).to.deep.include({
+          tampered: undefined,
+          prunedSeals: 3,
+          earlyPrunes: [
+            { fromSeq: 2, toSeq: 2 },
+            { fromSeq: 3, toSeq: 3 },
+          ],
+        });
+        // A trail without retention here explains no prune.
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed' });
+        expect((await verify()).earlyPrunes).to.have.length(3);
+        // Stamped in the future.
+        await driver()
+          .update()
+          .in('audit_seal')
+          .update({ pruned_at: new Date(Date.now() + 86400000) })
+          .where('from_seq', 1);
+        expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'count', fromSeq: 1, toSeq: 1 });
+      });
+
+      it('takes a seal that retention pruned during the walk as pruned', async () => {
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
+        await append(event(1), event(2));
+        await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
+        const reader = await DI.resolve(TableAuditStore).reader(sealedTrail());
+        // The first select of the walk reads the seal page; retention runs once it has resolved, before the range is read.
+        const select = Reflect.get(driver(), 'select');
+        Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
+          Reflect.deleteProperty(driver(), 'select');
+          const page: unknown = Reflect.apply(select, driver(), args);
+          const then: unknown = typeof page === 'object' && page !== null ? Reflect.get(page, 'then') : undefined;
+          if (typeof page !== 'object' || page === null || typeof then !== 'function') return page;
+          Reflect.set(page, 'then', (done: (rows: unknown) => unknown, failed: (err: unknown) => unknown): unknown => {
+            const pruneFirst = async (rows: unknown): Promise<unknown> => {
+              await reader?.prune(sealedTrail(), new Date('2021-01-01T00:00:00Z'));
+              return done(rows);
+            };
+            const chained: unknown = Reflect.apply(then, page, [pruneFirst, failed]);
+            return chained;
+          });
+          return page;
+        });
+
+        expect(await verify()).to.deep.include({ tampered: undefined, prunedSeals: 1, intact: 0, earlyPrunes: [] });
       });
 
       it('verifies a shipping trail at its archive', async () => {
@@ -253,6 +353,22 @@ describe('audit verification', function () {
           expect((await audit().trail('shipped').verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
         } finally {
           await new AuditOutboxTableMigration().down(driver());
+          await new ShippedArchiveMigration().down(driver());
+        }
+      });
+
+      it('allows an archive row the clock skew the queue consumer allows', async () => {
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', table: ARCHIVE, connection: connection(), archiveConnection: connection(), integrity: 'sealed' });
+        await new ShippedArchiveMigration().down(driver());
+        await new ShippedArchiveMigration().up(driver());
+        try {
+          await archiveEvents(driver(), ARCHIVE, 'orders', [event(1), event(2), event(3)]);
+          await driver().del().from(ARCHIVE).where('seq', 2);
+          await sealAudit({ settleMs: 0, now: new Date('2026-11-16T10:00:10Z') });
+          // Stamped by a shipping application whose clock runs a minute ahead.
+          await insertRows(driver(), ARCHIVE, [{ seq: 2, source: 'orders', ...storedColumns(event(5, { at: new Date('2026-11-16T10:01:10Z') })) }]);
+          expect(await audit().trail('shipped').verify()).to.deep.include({ tampered: undefined, uncovered: [{ seq: 2, reason: 'late', fromSeq: 1, toSeq: 3 }] });
+        } finally {
           await new ShippedArchiveMigration().down(driver());
         }
       });

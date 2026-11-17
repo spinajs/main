@@ -142,7 +142,7 @@ interface SealRun {
 
 const positive = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : fallback);
 
-function sealConfig(): { settleMs: number; batchSize: number; maxSeals: number } {
+export function sealConfig(): { settleMs: number; batchSize: number; maxSeals: number } {
   const cfg = DI.get(Configuration)?.get<{ settleSeconds?: unknown; batchSize?: unknown; maxSeals?: unknown } | undefined>(['audit', 'seal']);
   const settle = typeof cfg?.settleSeconds === 'number' && cfg.settleSeconds >= 0 ? cfg.settleSeconds : DEFAULT_SETTLE_SECONDS;
   return { settleMs: settle * 1000, batchSize: Math.min(positive(cfg?.batchSize, DEFAULT_SEAL_BATCH), MAX_SEAL_BATCH), maxSeals: positive(cfg?.maxSeals, DEFAULT_MAX_SEALS) };

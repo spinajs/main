@@ -136,7 +136,11 @@ export interface AuditFilter {
 export interface AuditTamper {
   /** The event whose payload no longer matches its data_hash; for every other reason the first seq of the seal's range. */
   readonly seq: number;
-  /** payload: an event's payload was changed. seal: a sealed field or a hash was changed. count: a sealed event is gone or one was inserted. chain: a seal is gone or was replaced. */
+  /**
+   * payload: an event's payload was changed. seal: a sealed field or a hash was changed. count: a sealed event is gone
+   * (deleted, or its seal marked pruned out of chain order or in the future), or a row stamped after the seal was written into its
+   * range. chain: a seal is gone or was replaced.
+   */
   readonly reason: 'payload' | 'seal' | 'count' | 'chain';
   readonly fromSeq: number;
   readonly toSeq: number;
@@ -147,14 +151,16 @@ export interface AuditUncoveredRow {
   readonly seq: number;
   /**
    * late: committed after its range was sealed (a transaction that outlived audit.seal.settleSeconds), or inserted into
-   * the range later: the two look alike. pruned: present in a range retention removed, written after it or after a seq reset.
+   * the range later with an earlier `at`: the two look alike. One such row per seal is always recognised, two or more only
+   * in small seals; otherwise the seal is reported as `count`. pruned: present in a range retention removed, written after
+   * it or after a seq reset.
    */
   readonly reason: 'late' | 'pruned';
   readonly fromSeq: number;
   readonly toSeq: number;
 }
 
-/** A seal's end and hash kept outside the database, for example from the sealer's log. */
+/** A seal's end and hash kept outside the database, for example from the sealer's log; it protects the chain up to its `toSeq` only. */
 export interface AuditPinnedHead {
   readonly toSeq: number;
   readonly hash: string;
@@ -177,12 +183,19 @@ export interface AuditVerifyReport {
   readonly tampered: AuditTamper | undefined;
   /** Events after the last seal, not covered yet. */
   readonly unsealed: number;
+  /** Of those, events older than the sealing window: a sealer that stopped, a backlog, or deleted seals. */
+  readonly staleUnsealed: number;
   /** The last seal that verified; a copy of its hash kept outside the database pins the chain. */
   readonly head: { readonly toSeq: number; readonly hash: string } | undefined;
   /** Rows in sealed ranges that their seal does not cover, up to where verification stopped; not tampering by themselves. */
   readonly uncovered: readonly AuditUncoveredRow[];
   /** Seqs of sealed events whose payload is erased with no `erasure` record of their subject at or after them: blanked outside `forget`. */
   readonly unexplainedRedactions: readonly number[];
+  /**
+   * Seals marked pruned that the trail's retention here does not explain (younger than retentionDays when pruned, or no
+   * retentionDays): lawful after a retention change or a direct prune, else events deleted under a forged prune.
+   */
+  readonly earlyPrunes: readonly { readonly fromSeq: number; readonly toSeq: number }[];
 }
 
 export abstract class AuditReader {

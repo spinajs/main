@@ -20,7 +20,7 @@ const patient = { type: 'patient', id: '17' };
 // Stands in for a reader that can verify, which arrives with the seals of the integrity branches.
 class VerifyingReader extends MemoryAuditReader {
   verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
-    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 0, head: pinned, uncovered: [], unexplainedRedactions: [] });
+    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 0, staleUnsealed: 0, head: pinned, uncovered: [], unexplainedRedactions: [], earlyPrunes: [] });
   }
 }
 
