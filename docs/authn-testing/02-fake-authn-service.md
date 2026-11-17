@@ -20,7 +20,7 @@ It is a test double. It is **not** the `AuthnService` that `@spinajs/authn` regi
 6. Checks `IdentityStore.status()`. An unknown, deleted, banned or inactive identity publishes a failure with that reason and answers `invalid_credentials`.
 7. For an interactive login, with `hooks` given, runs the rest of the login (steps 8 to 10) through `authn.login.identified`, as the core does: the input carries `identity`, `strategy`, `method`, `external` (an external login only), `attributes` and `ctx`, and only `attributes` is mutable. A refusal publishes a `login` failure with reason `hook:<code>`, a hook that throws or times out one with `hook_error` and `data: { hook, failure }` (authn's `hookRefusalOf`); both answer `invalid_credentials`. Hooks get frozen copies of the identity, the external subject and the context. The fake runs no other action.
 8. Calls `throttle.succeed(keys, 'login')`.
-9. Per-request strategy: publishes `token.use` and answers success with no session, carrying the outcome's `ceiling`, `delegation` and `attributes`.
+9. Per-request strategy: publishes `token.use` detached, as the core does (no listener can stop or hold the request; `await service.settled()` before asserting on it), and answers success with no session, carrying the outcome's `ceiling`, `delegation` and `attributes`.
 10. Interactive strategy: asks `MfaPolicy.required()`. Steps required: issues a pending session, publishes `mfa.challenge` and answers `mfa_required` with `pending` and `steps`. Otherwise: issues a session, publishes `login` and `session.issue`, and answers success with `session` and `facts.sessionHandle`.
 
 `completeMfa(pending, step, response, ctx)` restores the pending session, finds the step (or every step with `verifyRecovery` when `step` is `'recovery'`), counts in the `mfa` flow, verifies, then elevates the session to `aal2` with `mfa: [step]`. A wrong code, an unknown step or a session that is not pending answers `invalid_credentials`.
@@ -68,6 +68,7 @@ sequenceDiagram
 | `listeners` | `readonly AuthnEventListener[]` | required | `RecordingEventSink`, your own | Every event goes to every listener once, through `AuthnAudit.over`; the array is read at publish time |
 | `principals` | `PrincipalFactory` | required | `RecordingPrincipalFactory`, your own | Builds the `Principal` |
 | `hooks` | `Hooks` (`@spinajs/hooks`) | none | a `DefaultHooks` over your `ActionHook`s | Runs `authn.login.identified` for interactive logins; without it no hook runs |
+| `log` | `Pick<Log, 'warn'>` | none | a logger, a recording stub | Gets a warning for a listener that fails or times out, and for a session whose revocation failed after a stopped announcement; without it they are dropped silently |
 
 ## Services and extension points
 

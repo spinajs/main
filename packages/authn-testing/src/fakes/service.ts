@@ -1,4 +1,5 @@
 import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditOverOptions } from '@spinajs/authn/audit';
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
 import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
@@ -24,6 +25,8 @@ export interface FakeAuthnServiceDeps {
   readonly hooks?: Hooks;
   /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
   readonly requireVerifiedAddress?: boolean;
+  /** Where a failing listener and a failed revocation are reported, as the core's `authn-audit` log; default none. */
+  readonly log?: AuthnAuditOverOptions['log'];
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -66,10 +69,28 @@ export class FakeAuthnService extends AuthnService {
     return null;
   }
 
+  private readonly detached = new Set<Promise<void>>();
+
   /** Delivered as AuthnAudit delivers: blocking listeners first, and a listener resolved under two ports gets it once. */
   protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    await AuthnAudit.over([...new Set(this.d.listeners)]).publish(event);
+    await this.delivery().publishIn(ctx, e);
+  }
+
+  /** As the core publishes a non-interactive success: returns at once, and no listener can stop it. */
+  protected auditDetached(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): void {
+    const delivery = this.delivery();
+    delivery.publishDetached(ctx, e);
+    const settled: Promise<void> = delivery.settled().finally(() => this.detached.delete(settled));
+    this.detached.add(settled);
+  }
+
+  /** Resolves when every detached event published so far has been delivered, as `AuthnAudit.settled()`. */
+  async settled(): Promise<void> {
+    await Promise.all([...this.detached]);
+  }
+
+  private delivery() {
+    return AuthnAudit.over([...new Set(this.d.listeners)], this.d.log ? { log: this.d.log } : {});
   }
 
   /** As the core: a session whose announcement a blocking listener stopped is revoked, and the told events go out again as failures. */
@@ -81,7 +102,7 @@ export class FakeAuthnService extends AuthnService {
         await this.audit(ctx, e);
       }
     } catch (err) {
-      await this.d.sessions.revoke(session);
+      await this.d.sessions.revoke(session).catch((revokeErr: unknown) => this.d.log?.warn({ errorClass: revokeErr instanceof Error ? revokeErr.name : typeof revokeErr }, 'authn: a session whose announcement was stopped could not be revoked (${errorClass})'));
       for (const e of events.slice(0, told)) await this.audit(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
       throw err;
     }
@@ -201,7 +222,7 @@ export class FakeAuthnService extends AuthnService {
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
     const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes && (r.attributes || Object.keys(attributes).length > 0) ? { attributes } : {}) };
     if (!s.interactive) {
-      await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
+      this.auditDetached(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
     const steps = await this.d.policy.required(id, facts);
