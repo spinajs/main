@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import { CreateQueueCommand, DeleteMessageCommand, DeleteQueueCommand, GetQueueAttributesCommand, ReceiveMessageCommand, SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { SqsQueueClient } from '../src/connection.js';
+import { SqsQueueClient } from '../../src/connection.js';
 import { TestConfiguration, SQS_ENDPOINT, SQS_REGION, SQS_CREDENTIALS } from './common.js';
 
 // raw SDK client used by the test harness ( NOT the transport under test ) to

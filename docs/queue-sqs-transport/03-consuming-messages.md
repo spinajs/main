@@ -7,14 +7,16 @@
 1. **Caller.** `QueueService.consume(ResizeImageJob)` (from `@spinajs/queue`) calls `subscribe(ResizeImageJob, callback)` on each connection routed for that message. You can also call `subscribe('<queue URL>', callback)` on a client directly.
 2. **Queue URLs.** A string argument is the URL. A message class goes through `getChannelForMessage()`, as on [publish](02-publishing-messages.md#how-it-works).
 3. **One loop per URL.** An empty or `undefined` URL (no routing entry and no default channel) makes `subscribe()` throw `InvalidArgument` before any loop starts. For each URL, `subscribe()` stores a descriptor in `this.Subscriptions` and starts `pollLoop(desc)` without awaiting it. A URL that already has a loop gets the new callback added to that loop instead, keyed by the message class name (or by the URL for a string subscribe); the same key twice is skipped with a `SQS queue <url> already subscribed !` warning. `subscribe()` resolves at once.
-4. **Receive.** `pollLoop()` sends `ReceiveMessageCommand({ QueueUrl, WaitTimeSeconds, MaxNumberOfMessages, VisibilityTimeout })` with the descriptor's abort signal. The call waits up to `waitTimeSeconds` for messages.
-5. **Handle, one at a time.** For each message in the batch, in order, `handleMessage(desc, m)`:
+4. **Receive.** `pollLoop()` sends `ReceiveMessageCommand({ QueueUrl, WaitTimeSeconds, MaxNumberOfMessages, VisibilityTimeout, MessageAttributeNames: ['All'], MessageSystemAttributeNames: ['ApproximateReceiveCount', 'MessageGroupId'] })` with the descriptor's abort signal. The call waits up to `waitTimeSeconds` for messages. The system attributes arrive in `Message.Attributes`.
+5. **Handle, one at a time.** For each message in the batch, in order, `handleMessage(desc, m)`, where `m` is an `SqsReceived` (`Body`, `ReceiptHandle`, `MessageId`, `MessageAttributes`, `Attributes`):
    1. `JSON.parse(m.Body)`. Unparseable body: log `Unparseable SQS message`, leave it on the queue.
    2. A non-object result (`null`, number, string, boolean): log `Non-object SQS message body`, leave it on the queue.
    3. A string `CreatedAt` becomes a luxon `DateTime` (`DateTime.fromISO`).
-   4. `await desc.callback(message)`, which runs every callback subscribed on the URL in turn.
-   5. A callback throws: log `Handler failed for <Name>`, leave the message (nack).
-   6. All callbacks succeed: `DeleteMessageCommand({ QueueUrl, ReceiptHandle })` (ack). A failed delete is logged as `ack/delete failed ... it will redeliver`.
+   4. `readMessageAttributes(m.MessageAttributes)`. A body without `MessageId` takes it from `x-spinajs-message-id`. The standard headers among the attributes are merged into `Headers`, the attributes winning; other attributes are not.
+   5. On a standard queue, an `x-spinajs-not-before` still in the future: the message is [sent again and deleted](#delayed-messages), and the callback does not run.
+   6. `await desc.callback(message)`, which runs every callback subscribed on the URL in turn.
+   7. A callback throws: log `Handler failed for <Name>`, leave the message (nack).
+   8. All callbacks succeed: `deleteMessage(url, receiptHandle)`, a `DeleteMessageCommand` (ack). A failed delete is logged as `ack/delete failed ... it will redeliver`.
 6. **Loop.** Back to step 4 until the descriptor stops running.
 7. **Stop.** `unsubscribe()` or `dispose()` clears `desc.running` and aborts the in-flight receive; the loop exits after the message it is handling and sets `desc.exited = true`. `dispose()` waits for every loop to exit before it destroys the `SQSClient`.
 
@@ -65,6 +67,18 @@ With the defaults the sleeps go 500, 1000, 2000, 4000, 8000, 10000, 10000 ms and
 | Body is not JSON, or JSON but not an object | logs an error | Same as a throw: redelivery, then DLQ. |
 | No redrive policy on the queue | | The message is redelivered until the queue's retention period ends. |
 
+### Delayed messages
+
+A producer that emits with a `ScheduleDelay` above 900 s sends the message with the SQS maximum of 900 s and an `x-spinajs-not-before` attribute (epoch milliseconds); see [Publishing messages](02-publishing-messages.md#delays). When this consumer receives it from a standard queue before that moment, `handleMessage()`:
+
+1. sends it again through `sendParams(url, message, { notBefore })`: `DelaySeconds` is the time left, at most 900, and the attribute is kept;
+2. deletes the received copy;
+3. returns without running the callback.
+
+This is the one send the consume side makes, so the consumer needs `sqs:SendMessage` on the queue it consumes. Without it the send fails, `pollLoop()` logs the error, and the message comes back after each visibility timeout until it is due. Each of those rounds is a receive, so a small `maxReceiveCount` can move it to the dead-letter queue first.
+
+A FIFO queue takes no per-message delay, so the attribute is never sent there and is ignored on receipt.
+
 For a `QueueJob` consumed through `QueueService`, a failed attempt marks the `queue_jobs` row `retrying` or, after `RetryCount` retries, `dead`, then rethrows. With `queue.deduplicate` on (the default), the next delivery of a `dead` job finds a terminal row, returns without running, and the transport deletes it. So a job runs at most `RetryCount + 1` times, or fewer if the queue's `maxReceiveCount` is lower.
 
 ## Configuration
@@ -78,6 +92,14 @@ For a `QueueJob` consumed through `QueueService`, a failed attempt marks the `qu
 | `queue.connections[].options.receiveErrorBackoffMaxMs` | `number` | `10000` | `>= receiveErrorBackoffMs` | Cap of the doubling sleep. |
 
 Set on the SQS queue itself, not in SpinaJS: the redrive policy (`deadLetterTargetArn`, `maxReceiveCount`), the default visibility timeout, the message retention period and the delivery delay.
+
+### IAM actions
+
+| Action | On | Needed for |
+| --- | --- | --- |
+| `sqs:ReceiveMessage`, `sqs:DeleteMessage` | every queue the service consumes | receiving and acking |
+| `sqs:SendMessage` | every queue the service sends to | `emit()` |
+| `sqs:SendMessage` | a consumed queue whose messages can carry `x-spinajs-not-before` (a producer's `ScheduleDelay` above 900 s) | the [re-send of a message not yet due](#delayed-messages) |
 
 ```ts
 // config/queue.ts
@@ -105,11 +127,11 @@ export default {
 | --- | --- | --- | --- | --- |
 | Subscribe | `public async subscribe(channelOrMessage, callback)` | one detached `pollLoop()` per URL, shared by every callback on it | | Override to validate URLs or add per-subscription setup, then call `super.subscribe()` |
 | Poll loop | `protected async pollLoop(desc)` | sequential receive, handle, backoff | | Override to process a batch in parallel; keep the "never reject" guard |
-| Message handler | `protected async handleMessage(desc, m)` | parse, rehydrate `CreatedAt`, callback, delete | SNS unwrapping in [Extending the SQS client](04-extending-the-sqs-client.md#consume-messages-fanned-out-from-sns) | Override, change `m.Body` or wrap the callback, call `super.handleMessage(desc, m)` |
+| Message handler | `protected async handleMessage(desc, m: SqsReceived)` | parse, rehydrate `CreatedAt`, read the attributes, re-send a message not yet due, callback, delete | SNS unwrapping in [Extending the SQS client](04-extending-the-sqs-client.md#consume-messages-fanned-out-from-sns) | Override, change `m.Body` or wrap the callback, call `super.handleMessage(desc, m)` |
 | Error sleep | `protected backoffSleep(ms, signal)` | abortable `setTimeout` | | Override to add jitter |
 | Stop | `protected stop(desc)`, `public unsubscribe()`, `public async dispose()` | clear `running`, abort the receive; `dispose()` also waits for the loops | | Override `dispose()`, call `super.dispose()` |
 
-`desc` is the subscription descriptor: `url`, `callback`, `handlers` (the subscribed callbacks by key), `running`, `controller` (`AbortController`) and `exited`. Its interface is not exported; type it in a subclass as `Parameters<SqsQueueClient['handleMessage']>[0]`.
+`desc` is the subscription descriptor, the exported `ISqsSubscriptionDescriptor`: `url`, `callback`, `handlers` (the subscribed callbacks by key), `running`, `controller` (`AbortController`) and `exited`.
 
 ## Important behaviour
 
@@ -120,6 +142,7 @@ export default {
 - **The loop never rejects.** Every error is caught and logged on the `queue` logger; nothing reaches `unhandledRejection`. Watch the `queue` logs for receive errors.
 - **A missing URL fails fast, a wrong one loops forever.** `subscribe()` throws `InvalidArgument` when a message has no URL (no routing entry and no default channel). A URL that is set but wrong keeps failing receives with backoff up to the cap.
 - **Poison messages are kept, not deleted.** An unparseable or non-object body stays until the redrive policy moves it, so producer bugs leave evidence in the DLQ.
+- **Subscribing to a FIFO queue needs no `groupBy`.** Only sending to one does. A message received from a FIFO queue is handled like any other.
 - **`subscriptionId` and `durable` are ignored.** SQS has no durable subscriptions; the queue itself is durable.
 - **`unsubscribe()` does not wait, `dispose()` does.** Both abort the receive. A handler that is already running finishes; `dispose()` waits for it and its delete before destroying the `SQSClient`, so a slow handler delays shutdown.
 - **`unsubscribe(MessageClass)` removes only that class's callback.** The loop of a URL stops when no callback is left. `unsubscribe('<queue URL>')` stops the loop and drops every callback on it.
