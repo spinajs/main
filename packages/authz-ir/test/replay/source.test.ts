@@ -269,7 +269,7 @@ describe('HistoricalTupleSource', () => {
     it('sees a removal logged after the scan', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);
-      await tuples.remove(editor('u2'), ms(30 * MIN));
+      await tuples.remove(editor('u2'), new Date());
       expect(await subjects(s, doc('d1'), 'editor')).to.deep.equal(['user:u1', 'user:u2']);
     });
 
@@ -280,7 +280,7 @@ describe('HistoricalTupleSource', () => {
       tuples.onCurrent = () => {
         tuples.onCurrent = undefined;
         tuples.rows.set(tupleKey(editor('u3')), editor('u3'));
-        pending = log.appendPending([{ kind: 'tuple', op: 'add', key: tupleKey(editor('u3')), payload: editor('u3'), at: ms(30 * MIN) }]);
+        pending = log.appendPending([{ kind: 'tuple', op: 'add', key: tupleKey(editor('u3')), payload: editor('u3'), at: new Date() }]);
       };
       log.beforeRead = (m) => {
         if (m === 'latest' && pending.length > 0) log.commit(pending);

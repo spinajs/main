@@ -54,6 +54,8 @@ export class HistoricalTupleSource implements TupleSource {
       () => c.currentReverse(subject, relation, objectType, source),
       (e) => (e.relation === relation && e.object.type === objectType && sameSubject(e.subject, subject) ? e.object : undefined),
       c.coverageType({ type: objectType, id: '*' }),
+      // A key that points at another subject now (a moved column) is not absent: read its row where it points.
+      async (key, object) => (await c.current(object, relation, source)).find((i) => i.key === key)?.image,
     );
     const objects = r.present.filter((p) => this.liveSubject(c, p.value, subject)).map((p) => p.carrier);
     if (r.gaps.length > 0) throw new TupleSourceGap([], r.gaps);
@@ -103,7 +105,7 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order (3.2). */
-  private async resolve<T>(c: HistoryContributor, label: string, current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined): Promise<Resolved<T>> {
+  private async resolve<T>(c: HistoryContributor, label: string, current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (key: string, carrier: T) => Promise<unknown>): Promise<Resolved<T>> {
     for (let attempt = 0; ; attempt++) {
       const now = await current();
       await this.history.catchUp();
@@ -112,6 +114,7 @@ export class HistoricalTupleSource implements TupleSource {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
+      if (elsewhere !== undefined) for (const [key, cand] of candidates) cand.image = await elsewhere(key, cand.carrier);
       for (const item of now) candidates.set(item.key, { image: item.image, carrier: item.subject });
       const keys = [...candidates.keys()];
       const heads = await this.history.headOf(c.kind, keys);
