@@ -116,7 +116,7 @@ Type, nullability and default come from the builder alone, as with MySQL's `MODI
 | `schema().cloneTable()` | `TableCloneQueryCompiler` | not registered | fails to resolve: SQLite has no `CREATE TABLE ... LIKE` |
 | `driver.index()` | `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | `CREATE [UNIQUE] INDEX ...`; after `drop()`, `` DROP INDEX `name` `` with no table, as index names are schema-wide |
 
-`tableIndexes()` reads `PRAGMA index_list`/`index_info`. An `INTEGER PRIMARY KEY` is the rowid and has no index of its own, so it is reported as an index named `PRIMARY`. `tableForeignKeys()` reads `PRAGMA foreign_key_list`; sqlite keeps no constraint names, so they are reported as `fk_<table>_<id>`.
+`tableIndexes()` reads `PRAGMA index_list`/`index_info`. An `INTEGER PRIMARY KEY` is the rowid and has no index of its own, so it is reported as an index named `PRIMARY`. An expression part is listed as a `null` column and marks the index `inexact`. `tableForeignKeys()` reads `PRAGMA foreign_key_list`; sqlite keeps no constraint names, so they are reported as `fk_<table>_<id>`.
 
 ## Configuration
 

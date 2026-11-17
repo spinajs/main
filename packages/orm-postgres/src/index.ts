@@ -595,7 +595,7 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
-    // An expression column of an index has attnum 0, no pg_attribute row, and drops out of the join.
+    // An expression column of an index has attnum 0 and no pg_attribute row: it comes back with a null column.
     const rows = (await this.executeOnDb(
       `SELECT i.relname AS name, a.attname AS col, ix.indisunique AS is_unique, ix.indisprimary AS is_primary
        FROM pg_index ix
@@ -603,12 +603,12 @@ export class PostgresOrmDriver extends SqlDriver {
        JOIN pg_namespace ns ON ns.oid = t.relnamespace
        JOIN pg_class i ON i.oid = ix.indexrelid
        CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
-       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+       LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum AND k.attnum > 0
        WHERE t.relname = ? AND ns.nspname = ?
        ORDER BY i.relname, k.ord`,
       [name, this.schemaOf(schema)],
       QueryContext.Select,
-    )) as Array<{ name: string; col: string; is_unique: boolean; is_primary: boolean }>;
+    )) as Array<{ name: string; col: string | null; is_unique: boolean; is_primary: boolean }>;
 
     return groupIndexColumns(rows.map((r) => ({ name: r.name, column: r.col, unique: r.is_unique, primary: r.is_primary })));
   }

@@ -424,6 +424,49 @@ describe('write capture on sqlite', function () {
       expect(fixture.writes[0].rows).to.deep.eq([]);
     });
 
+    it('reports an upsert that may conflict through an expression index as unknown', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_lower ON cap_member (lower(Email))');
+
+      await CapMember.insert({ Id: 5, Email: 'X', Name: 'new' }, InsertBehaviour.InsertOrReplace);
+
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
+      expect((await rows<{ Id: number }>('cap_member')).map((r) => r.Id)).to.deep.eq([1, 5]);
+    });
+
+    it('reads an upsert by its ON CONFLICT target alone, whatever other unique indexes the table has', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_pair ON cap_member (Name, Email)');
+      const { query } = createQuery(CapMember, InsertQueryBuilder);
+      query.values({ Id: 5, Email: 'x', Name: 'new' }).onDuplicate('Email').update(['Name']);
+      await query;
+
+      expect(fixture.writes[0].unknownKeys).to.eq(false);
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x', Name: 'new' } }]);
+    });
+
+    it('reads an upserted row again by its key when the statement changed its conflict value', async () => {
+      await db().Connections.get('sqlite')!.schema().raw("CREATE TRIGGER cap_member_mark AFTER UPDATE OF Name ON cap_member BEGIN UPDATE cap_member SET Email = NEW.Email || '!' WHERE Id = NEW.Id; END");
+
+      await CapMember.insert({ Id: 5, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x!', Name: 'new' } }]);
+    });
+
+    it('reads the index list of a table once until the ORM reloads it', async () => {
+      const driver = db().Connections.get('sqlite')!;
+      const spy = sinon.spy(driver, 'tableIndexes');
+      try {
+        await CapMember.insert({ Email: 'p', Name: 'p' }, InsertBehaviour.InsertOrIgnore);
+        await CapMember.insert({ Email: 'q', Name: 'q' }, InsertBehaviour.InsertOrIgnore);
+        await db().reloadTableInfo();
+        await CapMember.insert({ Email: 'r', Name: 'r' }, InsertBehaviour.InsertOrIgnore);
+      } finally {
+        spy.restore();
+      }
+
+      expect(spy.callCount).to.eq(2);
+    });
+
     it('bounds the rows an upsert reads by db.WriteCapture.MaxRows', async () => {
       const config = await DI.resolve(Configuration);
       config.set('db.WriteCapture.MaxRows', 1);

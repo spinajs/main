@@ -602,16 +602,16 @@ export class MySqlOrmDriver extends SqlDriver {
 
   public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
     const rows = (await this.executeOnDb(
-      `SELECT INDEX_NAME AS name, COLUMN_NAME AS col, NON_UNIQUE AS non_unique
+      `SELECT INDEX_NAME AS name, COLUMN_NAME AS col, NON_UNIQUE AS non_unique, SUB_PART AS sub_part
        FROM INFORMATION_SCHEMA.STATISTICS
        WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?
        ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
       [name, this.introspectedSchema(schema)],
       QueryContext.Select,
-    )) as Array<{ name: string; col: string | null; non_unique: number | string }>;
+    )) as Array<{ name: string; col: string | null; non_unique: number | string; sub_part: number | string | null }>;
 
-    // A functional index part has no column name.
-    return groupIndexColumns(rows.flatMap((r) => (r.col === null ? [] : [{ name: r.name, column: r.col, unique: Number(r.non_unique) === 0, primary: r.name === 'PRIMARY' }])));
+    // A functional index part has no column name; SUB_PART is the length of a prefix part.
+    return groupIndexColumns(rows.map((r) => ({ name: r.name, column: r.col, unique: Number(r.non_unique) === 0, primary: r.name === 'PRIMARY', prefix: r.sub_part !== null })));
   }
 
   public async tableForeignKeys(name: string, schema?: string): Promise<LiveForeignKey[]> {

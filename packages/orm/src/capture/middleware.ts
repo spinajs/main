@@ -6,9 +6,11 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
 import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
+import type { LiveIndex } from '../introspection.js';
 import { WriteCaptureLimitExceeded } from '../exceptions.js';
 import { QueryMiddleware } from '../interfaces.js';
 import type { ModelBase } from '../model.js';
+import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CaptureKind, CapturedRow, RowChange } from './contracts.js';
 import { captureKeyText, insertedKeys, lockedReads, upsertKeys, writeTargetKeys } from './keys.js';
@@ -86,22 +88,54 @@ function changesOf(before: ReadonlyMap<string, CapturedRow>, after: ReadonlyMap<
 
 const isUpsert = (query: InsertQueryBuilder): boolean => query.Ignore === true || query.Replace || query.Update;
 
-// The column flag Unique cannot be used: PostgreSQL and MySQL set it on every member of a composite unique index.
-async function uniqueKeys(query: InsertQueryBuilder, plan: Plan): Promise<string[][]> {
-  const live = await query.Driver.tableIndexes?.(plan.table);
-  if (live) return live.filter((i) => i.unique && !i.primary).map((i) => i.columns);
-  return [...(extractModelDescriptor(plan.model)?.Indexes?.values() ?? [])].filter((i) => i.unique).map((i) => i.columns);
+// Keyed by the model's column list, which the ORM replaces whenever it reloads the table (a migration that touched it).
+const indexCache = new WeakMap<object, Promise<LiveIndex[] | undefined>>();
+
+function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] | undefined> {
+  const read = async () => query.Driver.tableIndexes?.(plan.table);
+  const key = extractModelDescriptor(plan.model)?.Columns;
+  if (!key) return read();
+  const cached =
+    indexCache.get(key) ??
+    read().catch((e: unknown) => {
+      indexCache.delete(key);
+      throw e;
+    });
+  indexCache.set(key, cached);
+  return cached;
+}
+
+/**
+ * The column flag Unique cannot be used: PostgreSQL and MySQL set it on every member of a composite unique index.
+ * Undefined when a unique index has an expression or prefix part, which no column read can match.
+ */
+async function uniqueKeys(query: InsertQueryBuilder, plan: Plan): Promise<string[][] | undefined> {
+  const live = await indexesOf(query, plan);
+  if (!live) return [...(extractModelDescriptor(plan.model)?.Indexes?.values() ?? [])].filter((i) => i.unique).map((i) => i.columns);
+  const unique = live.filter((i) => i.unique && !i.primary);
+  return unique.some((i) => i.inexact === true) ? undefined : unique.map((i) => i.columns);
 }
 
 const searchable = (query: InsertQueryBuilder, column: string): boolean => query.getColumnValues(column).every((v) => v === null || v === undefined || captureKeyText(v) !== undefined);
 
+// ON CONFLICT (target) conflicts on its target only, any other unique key fails the statement; MySQL's ON DUPLICATE KEY
+// UPDATE compiles no target and conflicts on every unique key.
+const ARBITER_DIALECTS = new Set(['postgresql', 'sqlite']);
+
+const dialectOf = (query: InsertQueryBuilder): string | undefined => sqlDialectOf(query.Driver.constructor as abstract new (...args: never[]) => unknown)?.name;
+
+const arbiterOnly = (query: InsertQueryBuilder, target: readonly string[]): boolean => target.length > 0 && !query.Replace && query.Ignore !== true && ARBITER_DIALECTS.has(dialectOf(query) ?? '');
+
 /**
  * What an upsert may conflict on: the primary key, every single-column unique index and its own conflict target.
- * Undefined when it may conflict on a key over several columns, or supplies a value no key text holds (a date, bytes).
+ * Undefined when it may conflict on a key over several columns or with an expression or prefix part, or supplies a
+ * value no key text holds (a date, bytes).
  */
 async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<string[] | undefined> {
-  const target = query.Update ? query.DuplicateQueryBuilder.getColumn() : [];
-  const keys = [[plan.pk], ...(await uniqueKeys(query, plan)), ...(target.length > 0 ? [target] : [])];
+  const target = query.Update && dialectOf(query) !== 'mysql' ? query.DuplicateQueryBuilder.getColumn() : [];
+  const unique = arbiterOnly(query, target) ? [] : await uniqueKeys(query, plan);
+  if (unique === undefined) return undefined;
+  const keys = [[plan.pk], ...unique, ...(target.length > 0 ? [target] : [])];
   if (keys.some((k) => k.length !== 1)) return undefined;
   const columns = [...new Set(keys.map(([c]) => c))];
   return columns.every((c) => searchable(query, c)) ? columns : undefined;

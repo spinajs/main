@@ -30,7 +30,7 @@
 | `Comment` | always `''` |
 | `ForeignKeyDescription`, `Converter` | always `null` |
 
-`tableIndexes()` reads `INFORMATION_SCHEMA.STATISTICS` (the primary key is the index named `PRIMARY`; functional parts are left out) and `tableForeignKeys()` reads `KEY_COLUMN_USAGE` with `REFERENTIAL_CONSTRAINTS`. MySQL creates an index for every foreign key column, so it reports indexes the other dialects do not.
+`tableIndexes()` reads `INFORMATION_SCHEMA.STATISTICS` (the primary key is the index named `PRIMARY`; functional parts are left out and, like prefix parts (`SUB_PART`), mark the index `inexact`) and `tableForeignKeys()` reads `KEY_COLUMN_USAGE` with `REFERENTIAL_CONSTRAINTS`. MySQL creates an index for every foreign key column, so it reports indexes the other dialects do not.
 
 ### `parseColumnDefault(raw, dataType)`
 
