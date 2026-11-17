@@ -1,6 +1,7 @@
 import { AuditWriteFailed, auditStore, trailConfig, trailNames } from '@spinajs/audit';
 import type { AuditReader, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -21,13 +22,17 @@ export interface PruneFailure {
   readonly trail: string;
   /** Undefined when the trail failed before a connection was chosen, or for the single prune of a trail with an archive. */
   readonly connection: string | undefined;
+  /** The message of `error`. */
+  readonly reason: string;
   readonly error: unknown;
 }
+
+const where = (f: PruneFailure): string => (f.connection === undefined ? f.trail : `${f.trail}@${f.connection}`);
 
 /** Thrown by `pruneAudit` after it pruned every trail and connection it could; `deleted` counts those. */
 export class AuditPruneFailed extends AuditWriteFailed {
   constructor(public readonly deleted: number, public readonly failed: readonly PruneFailure[]) {
-    super(`audit: retention failed for ${failed.map((f) => (f.connection === undefined ? f.trail : `${f.trail}@${f.connection}`)).join(', ')}; the other trails were pruned`, failed[0]?.error);
+    super(`audit: retention deleted ${deleted} event(s) and failed for ${failed.map((f) => `${where(f)} (${f.reason})`).join('; ')}`, failed[0]?.error);
   }
 }
 
@@ -47,6 +52,14 @@ interface Run {
   readonly failed: PruneFailure[];
 }
 
+const log = (): Log => DI.resolve(Log, ['audit-retention']);
+
+function fail(run: Run, trail: string, connection: string | undefined, error: unknown): void {
+  const failure = { trail, connection, reason: error instanceof Error ? error.message : String(error), error };
+  run.failed.push(failure);
+  log().error({ error, trail, connection, reason: failure.reason }, 'audit: retention of trail ${trail} failed on ${connection}: ${reason}');
+}
+
 // Transactional events sit beside the data they describe, so a trail's table can exist on any connection.
 async function sourcesOf(trail: TrailConfig, run: Run): Promise<string[]> {
   const drivers = new Set<OrmDriver>(DI.get(Orm)?.Connections.values() ?? []);
@@ -55,8 +68,9 @@ async function sourcesOf(trail: TrailConfig, run: Run): Promise<string[]> {
     try {
       const names = columnNames(await driver.tableInfo(trail.table));
       if (TRAIL_COLUMNS.every((c) => names.includes(c))) sources.push(driver.Options.Name);
+      else if (names.length > 0) log().warn({ trail: trail.name, table: trail.table, connection: driver.Options.Name }, 'audit: retention of trail ${trail} skips table ${table} on ${connection}: it has no trail columns seq, at and data_hash');
     } catch (error) {
-      run.failed.push({ trail: trail.name, connection: driver.Options.Name, error });
+      fail(run, trail.name, driver.Options.Name, error);
     }
   }
   return sources;
@@ -69,7 +83,7 @@ async function pruneTrail(trail: TrailConfig, reader: AuditReader, before: Date,
     try {
       run.deleted += await reader.prune(trail, before, source);
     } catch (error) {
-      run.failed.push({ trail: trail.name, connection: source, error });
+      fail(run, trail.name, source, error);
     }
   }
 }
@@ -92,7 +106,7 @@ export async function pruneAudit(options: PruneAuditOptions = {}): Promise<numbe
       if (!reader) continue;
       await pruneTrail(trail, reader, new Date(now.getTime() - trail.retentionDays * DAY_MS), run);
     } catch (error) {
-      run.failed.push({ trail: name, connection: undefined, error });
+      fail(run, name, undefined, error);
     }
   }
   if (run.failed.length > 0) throw new AuditPruneFailed(run.deleted, run.failed);

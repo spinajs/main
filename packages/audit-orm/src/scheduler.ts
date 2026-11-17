@@ -7,7 +7,7 @@ export const AUDIT_RETENTION_SCHEDULE = 'audit.retention';
 
 export interface AuditRetentionResult {
   readonly deleted: number;
-  readonly failed: readonly { readonly trail: string; readonly connection: string | undefined }[];
+  readonly failed: readonly { readonly trail: string; readonly connection: string | undefined; readonly reason: string }[];
 }
 
 /** Prunes every trail that has `retentionDays`, daily; a `scheduler.schedules` entry of the same name overrides the timing. */
@@ -19,8 +19,8 @@ export class AuditRetentionTask extends ScheduledTask {
       ctx.result(out);
       return out;
     } catch (err) {
-      // The run fails, and its result still records what was pruned and where it failed.
-      if (err instanceof AuditPruneFailed) ctx.result({ deleted: err.deleted, failed: err.failed.map(({ trail, connection }) => ({ trail, connection })) });
+      // The scheduler keeps the result of a successful run only: the error message carries the count and the failures.
+      if (err instanceof AuditPruneFailed) ctx.result({ deleted: err.deleted, failed: err.failed.map(({ trail, connection, reason }) => ({ trail, connection, reason })) });
       throw err;
     }
   }

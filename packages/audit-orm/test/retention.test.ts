@@ -4,6 +4,7 @@ import 'mocha';
 import { AuditReader, AuditStore, audit } from '@spinajs/audit';
 import type { StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
 import { AuditPruneFailed, pruneAudit } from '../src/index.js';
 import { AUDIT_RETENTION_SCHEDULE, AuditRetentionTask } from '../src/scheduler.js';
 import { TestDb } from '../src/testing.js';
@@ -13,6 +14,16 @@ const expect = chai.expect;
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-11-16T00:00:00.000Z');
+type Line = { level: string; fields: Record<string, unknown>; message: string };
+
+// Answers every Log resolved from now on and records its lines.
+function captureLog(): Line[] {
+  const lines: Line[] = [];
+  const logger = Object.fromEntries(['trace', 'debug', 'info', 'warn', 'error'].map((level) => [level, (fields: Record<string, unknown>, message: string) => lines.push({ level, fields, message })]));
+  DI.register(() => logger).as(Log);
+  return lines;
+}
+
 const ago = (days: number, from: Date = NOW): Date => new Date(from.getTime() - days * DAY);
 const TRAILS = {
   short: { connection: 'sqlite', table: 'audit_short', retentionDays: 30, onFailure: 'reject' },
@@ -123,6 +134,14 @@ describe('audit retention', function () {
   });
 
   it('prunes the other trails when one trail or connection fails, then reports both', async () => {
+    const lines = captureLog();
+    // Not a trail table: retention passes over it with a warning.
+    await db
+      .driver('pglite')
+      .schema()
+      .createTable('audit_short', (table) => {
+        table.string('id', 36);
+      });
     await audit().record({ kind: 'action', action: 'old', at: ago(31) }, { trail: 'short' });
     ProbeReader.fail = true;
 
@@ -132,25 +151,31 @@ describe('audit retention', function () {
     );
     expect(err).to.be.instanceOf(AuditPruneFailed);
     const failed = err instanceof AuditPruneFailed ? err : undefined;
-    expect(failed?.message).to.eq('audit: retention failed for probed@sqlite, archived; the other trails were pruned');
+    expect(failed?.message).to.eq('audit: retention deleted 1 event(s) and failed for probed@sqlite (prune refused); archived (prune refused)');
     expect(failed?.deleted).to.eq(1);
-    expect(failed?.failed.map((f) => [f.trail, f.connection])).to.deep.eq([
-      ['probed', 'sqlite'],
-      ['archived', undefined],
+    expect(failed?.failed.map((f) => [f.trail, f.connection, f.reason])).to.deep.eq([
+      ['probed', 'sqlite', 'prune refused'],
+      ['archived', undefined, 'prune refused'],
     ]);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.fields.connection])).to.deep.eq([
+      ['warn', 'short', 'pglite'],
+      ['error', 'probed', 'sqlite'],
+      ['error', 'archived', undefined],
+    ]);
+    await db.driver('pglite').schema().dropTable('audit_short').ifExists();
     expect(await db.rows('sqlite', 'audit_short')).to.have.length(0);
 
     ProbeReader.fail = false;
     ProbeStore.fail = true;
     await audit().record({ kind: 'action', action: 'old', at: ago(31, new Date()) }, { trail: 'short' });
     const results: unknown[] = [];
-    await expect(new AuditRetentionTask().execute({ result: (data: unknown): void => void results.push(data) })).to.be.rejectedWith(AuditPruneFailed, 'audit: retention failed for probed, archived; the other trails were pruned');
+    await expect(new AuditRetentionTask().execute({ result: (data: unknown): void => void results.push(data) })).to.be.rejectedWith(AuditPruneFailed, 'audit: retention deleted 1 event(s) and failed for probed (no reader); archived (no reader)');
     expect(results).to.deep.eq([
       {
         deleted: 1,
         failed: [
-          { trail: 'probed', connection: undefined },
-          { trail: 'archived', connection: undefined },
+          { trail: 'probed', connection: undefined, reason: 'no reader' },
+          { trail: 'archived', connection: undefined, reason: 'no reader' },
         ],
       },
     ]);
