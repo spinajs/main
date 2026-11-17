@@ -14,7 +14,7 @@ const SQLITE = { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlit
 /** One ORM over sqlite `:memory:`, migrated on startup. `tenancy` is the suite's `tenancy` configuration. */
 export function bootApp(tenancy?: Record<string, unknown>): Promise<TestApp> {
   return createTestApp({
-    config: { logger: SILENT, db: { DefaultConnection: 'sqlite', Connections: [SQLITE] }, ...(tenancy ? { tenancy } : {}) },
+    config: { logger: SILENT, db: { DefaultConnection: 'sqlite', Connections: [SQLITE], Aliases: { tenancy: 'default' } }, ...(tenancy ? { tenancy } : {}) },
     resolve: [Orm],
   });
 }
