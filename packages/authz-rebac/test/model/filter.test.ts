@@ -118,6 +118,11 @@ describe('authz-rebac: list plans with conditional tuples', () => {
     expect(await plan('dora', { day: 25 })).to.deep.equal({ ...terms(leaf('viewer', ['user:dora'])), validUntil: NOW });
   });
 
+  it('a plan that evaluated a caveat without an instant is valid until the epoch, so never reused', async () => {
+    const p = await rebacListPlan({ schema: model.schema(), store: model.store(), principal: user('bob'), permission: 'doc:read', type: 'doc', maxDepth: 8, caveat: () => Promise.resolve('allow') });
+    expect(p).to.deep.include({ validUntil: new Date(0) });
+  });
+
   it('a plan that evaluated no caveat stays reusable, and every rewrite but exclusion can still be planned', async () => {
     expect(await plan('erin', { ip: '10.0.0.1' })).to.deep.equal(terms(leaf('viewer', ['user:erin'])));
     expect(model.listSupport({ name: 'doc:read' } as PermissionDef, 'doc')).to.equal(true);

@@ -23,8 +23,9 @@ describe('authz-rebac/http: command schemas', () => {
   it('takes a closed caveat { name, context? } on tuple.write and tuple.delete', () => {
     type Caveat = { additionalProperties: boolean; required: string[]; properties: { name: unknown; context: { type: string; additionalProperties: { oneOf: { type: unknown }[] } } } };
     const schemas = new RebacCommandSchemas().schemas() as Record<string, { properties: { tuple: { required: string[]; properties: { caveat: Caveat } } } }>;
-    for (const kind of ['tuple.write', 'tuple.delete']) {
-      const { tuple } = schemas[kind].properties;
+    expect(Object.keys(schemas).sort()).to.deep.equal(['tuple.delete', 'tuple.write']);
+    for (const [kind, { properties }] of Object.entries(schemas)) {
+      const { tuple } = properties;
       const caveat = tuple.properties.caveat;
       expect(tuple.required, kind).to.not.include('caveat');
       expect(caveat.additionalProperties, kind).to.equal(false);

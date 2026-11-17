@@ -23,22 +23,35 @@ const USERS = ['u1', 'u2', 'u3'];
 const CAVEATS: CaveatConfig = {
   c_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: 'a' } },
   c_lvl: { params: { 'env.lvl': 'int', 'env.min': 'int' }, expr: { attr: 'env.lvl', gte: { ref: 'env.min' } } },
+  // A tuple context naming principal.id must not change who is asking.
+  c_who: { params: { 'principal.id': 'string' }, expr: { attr: 'principal.id', eq: 'u1' } },
 };
 /** Each env decides some caveats and leaves others unknown. */
 const ENVS = [{}, { ip: 'a' }, { ip: 'b' }, { lvl: 1 }, { lvl: 3, ip: 'a' }];
 const NAMESPACES: NamespaceConfig = {
   user: {},
-  group: { relations: { member: ['user', 'user with c_ip', 'group#member with c_lvl'] } },
+  group: { relations: { member: ['user', 'user with c_ip', 'user with c_who', 'group#member with c_lvl'] } },
   folder: { relations: { viewer: ['user', 'group#member', 'user with c_lvl'] }, permissions: { view: 'viewer' } },
   doc: {
-    relations: { owner: ['user'], viewer: ['user', 'user with c_ip', 'group#member', 'group#member with c_lvl'], parent: ['folder', 'folder with c_ip'] },
-    permissions: { read: { union: ['owner', 'viewer', 'parent->view'] } },
+    relations: { owner: ['user'], viewer: ['user', 'user with c_ip', 'user with c_who', 'group#member', 'group#member with c_lvl'], parent: ['folder', 'folder with c_ip'] },
+    permissions: { read: { union: ['owner', 'viewer', 'parent->view'] }, shared: { intersection: ['viewer', 'parent->view'] } },
   },
 };
-const INPUTS = [{ name: 'doc:read', types: ['doc'], list: true }];
-const SCHEMA = NamespaceSchema.compile(NAMESPACES, { 'doc:read': 'doc#read' }, CAVEATS);
+const INPUTS = [
+  { name: 'doc:read', types: ['doc'], list: true },
+  { name: 'doc:shared', types: ['doc'], list: true },
+];
+const PERMISSIONS = { 'doc:read': 'doc#read', 'doc:shared': 'doc#shared' };
+const SCHEMA = NamespaceSchema.compile(NAMESPACES, PERMISSIONS, CAVEATS);
 
-const caveat: fc.Arbitrary<TupleCaveat | undefined> = fc.option(fc.oneof(fc.constant({ name: 'c_ip' }), fc.integer({ min: 0, max: 3 }).map((min) => ({ name: 'c_lvl', context: { 'env.min': min } }))), { nil: undefined });
+const caveat: fc.Arbitrary<TupleCaveat | undefined> = fc.option(
+  fc.oneof(
+    fc.constant({ name: 'c_ip' }),
+    fc.integer({ min: 0, max: 3 }).map((min) => ({ name: 'c_lvl', context: { 'env.min': min } })),
+    fc.constantFrom({ name: 'c_who' }, { name: 'c_who', context: { 'principal.id': 'u2' } }),
+  ),
+  { nil: undefined },
+);
 const people = fc.oneof(
   fc.constantFrom(...USERS).map((id): TupleSubject => user(id)),
   fc.constantFrom('g1', 'g2').map((id) => set('group', id, 'member')),
@@ -66,7 +79,7 @@ for (const engine of ['sqlite', 'postgres'] as const) {
 
     before(async function () {
       db = await bootDb('lists_caveats', engine === 'postgres' ? this : undefined);
-      model = new RebacModel({ store: new DbTupleStore(), namespaces: NAMESPACES, permissions: { 'doc:read': 'doc#read' }, caveats: CAVEATS, limit: { maxDepth: 4, maxCalls: 10_000 } });
+      model = new RebacModel({ store: new DbTupleStore(), namespaces: NAMESPACES, permissions: PERMISSIONS, caveats: CAVEATS, limit: { maxDepth: 4, maxCalls: 10_000 } });
       await model.init(fakeModelInitContext({ permissions: INPUTS, model: model.name }));
       await db.driver.schema().createTable(DOCS, (t) => {
         t.string('id', 64).primaryKey();
@@ -81,8 +94,8 @@ for (const engine of ['sqlite', 'postgres'] as const) {
       await db?.dispose();
     });
 
-    async function accessible(who: string, env: Readonly<Record<string, unknown>>): Promise<string[]> {
-      const plan = await model.listPlan({ principal: userPrincipal(who), permission: { name: 'doc:read' } as PermissionDef, type: 'doc', env }, ctx());
+    async function accessible(who: string, permission: string, env: Readonly<Record<string, unknown>>): Promise<string[]> {
+      const plan = await model.listPlan({ principal: userPrincipal(who), permission: { name: permission } as PermissionDef, type: 'doc', env }, ctx());
       if (plan.kind !== 'terms') return [];
       const filter = planFilter({ kind: 'filter', permit: plan.permit, deny: plan.deny }, { type: 'doc', id: Wrapper.Text('id'), relation: () => undefined, ancestorTable: 'authz_resource_ancestor', now: () => db.driver.now(), from: (table, alias) => db.driver.select<unknown>().from(table, alias) }, compilers);
       if (filter.kind !== 'where') return filter.kind === 'all' ? [...DOC_IDS] : [];
@@ -97,9 +110,9 @@ for (const engine of ['sqlite', 'postgres'] as const) {
       return rows.map((r) => String(r.id)).sort();
     }
 
-    async function permitted(who: string, env: Readonly<Record<string, unknown>>): Promise<string[]> {
+    async function permitted(who: string, permission: string, env: Readonly<Record<string, unknown>>): Promise<string[]> {
       const out: string[] = [];
-      for (const id of DOC_IDS) if ((await model.evaluate({ principal: userPrincipal(who), permission: 'doc:read', resource: ref('doc', id), env }, ctx())).permitWhen === TRUE) out.push(id);
+      for (const id of DOC_IDS) if ((await model.evaluate({ principal: userPrincipal(who), permission, resource: ref('doc', id), env }, ctx())).permitWhen === TRUE) out.push(id);
       return out;
     }
 
@@ -109,7 +122,9 @@ for (const engine of ['sqlite', 'postgres'] as const) {
           await rawQuery(db.driver, `DELETE FROM ${AUTHZ_REBAC_TUPLE_TABLE}`);
           await new DbTupleStore().write(world, [], user('admin'));
           model.invalidate(['rebac']);
-          for (const who of USERS) expect(await accessible(who, env), `${who} ${JSON.stringify(env)}`).to.deep.equal(await permitted(who, env));
+          for (const permission of Object.keys(PERMISSIONS)) {
+            for (const who of USERS) expect(await accessible(who, permission, env), `${who} ${permission} ${JSON.stringify(env)}`).to.deep.equal(await permitted(who, permission, env));
+          }
         }),
         { numRuns: Number(process.env.LIST_CAVEATS_RUNS ?? 100) },
       );

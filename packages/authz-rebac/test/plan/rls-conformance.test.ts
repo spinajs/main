@@ -5,6 +5,7 @@ import type { PlanTermCompiler } from '@spinajs/authz-orm';
 import { fakeEvaluationContext, fakeModelInitContext, rlsConformance, userPrincipal } from '@spinajs/authz-testing';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
+import * as chai from 'chai';
 import fc from 'fast-check';
 import 'mocha';
 
@@ -14,6 +15,7 @@ import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { ref, set, tuple, user } from '../support/world.js';
 
+const expect = chai.expect;
 const DOCS = 'rls_conf_doc';
 const CDOCS = 'rls_conf_cdoc';
 const BENCH = 'rls_bench_doc';
@@ -162,6 +164,25 @@ describe('RLS conformance: ReBAC (postgres)', function () {
       expectation: () => 'superset',
       numRuns: Number(process.env.RLS_CONFORMANCE_RUNS ?? 30),
     });
+  });
+
+  it('keeps stale conditional tuples out of a policy that exists and out of the session keys', async () => {
+    const c = { name: 'c_ip' };
+    await load([
+      { ...tuple(ref('doc', 'd1'), 'viewer', user('u1')), caveat: c },
+      tuple(ref('doc', 'd5'), 'owner', user('u1')),
+      { ...tuple(ref('doc', 'd2'), 'parent', { type: 'folder', id: 'f1' }), caveat: c },
+      tuple(ref('doc', 'd6'), 'parent', { type: 'folder', id: 'f1' }),
+      tuple(ref('folder', 'f1'), 'viewer', user('u2')),
+      { ...tuple(ref('folder', 'f2'), 'viewer', user('u2')), caveat: c },
+      tuple(ref('doc', 'd4'), 'parent', { type: 'folder', id: 'f2' }),
+      { ...tuple(ref('group', 'g1'), 'member', user('u3')), caveat: c },
+      tuple(ref('doc', 'd3'), 'viewer', set('group', 'g1', 'member')),
+    ]);
+    expect(await rls(userPrincipal('u1'))).to.deep.equal(['d5']);
+    expect(await rls(userPrincipal('u2'))).to.deep.equal(['d6']);
+    expect(await rls(userPrincipal('u3'))).to.deep.equal([]);
+    expect(await new RebacRlsSubjectKeys().keys(model, userPrincipal('u3'))).to.deep.equal(['user:u3']);
   });
 
   // RLS_BENCH=1: 5000 docs in a binary tree of 300 folders (depth 8), 50 users in 20 nested groups; prints the cost.

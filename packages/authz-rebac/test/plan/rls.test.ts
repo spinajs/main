@@ -2,14 +2,14 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthorizationModel, PermissionDef } from '@spinajs/authz';
 import { generateRls } from '@spinajs/authz-orm';
 import type { PlanRow, RlsSqlContext } from '@spinajs/authz-orm/plan';
-import { userPrincipal } from '@spinajs/authz-testing';
+import { fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, parseRebacRlsExpr, rebacRlsExpr } from '../../src/index.js';
-import type { RebacRlsExpr } from '../../src/index.js';
+import { DbTupleStore, MemoryTupleStore, RebacModel, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, parseRebacRlsExpr, rebacRlsExpr } from '../../src/index.js';
+import type { NamespaceConfig, RebacRlsExpr } from '../../src/index.js';
 import { caveatModel } from '../support/caveat-world.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -22,6 +22,35 @@ const DOCS = 'rls_doc';
 const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const def = (name: string) => ({ name }) as PermissionDef;
 const d4 = ref('doc', 'd4');
+
+/** One permission per route to a conditional relation, and `p_plain`, which reaches none. */
+const ROUTES: NamespaceConfig = {
+  user: {},
+  group: { relations: { member: ['user', 'user with c_ip'] } },
+  folder: { relations: { viewer: ['user'], cviewer: ['user with c_ip'] }, permissions: { view: 'viewer', cview: 'cviewer' } },
+  doc: {
+    relations: { plain: ['user'], direct: ['user with c_ip'], team: ['group#member'], parent: ['folder'], cparent: ['folder with c_ip'] },
+    permissions: {
+      p_plain: { union: ['plain', 'parent->view'] },
+      p_direct: 'direct',
+      p_set: 'team',
+      p_arrow: 'parent->cview',
+      p_tupleset: 'cparent->view',
+      p_union: { union: ['plain', 'direct'] },
+      p_inter: { intersection: ['plain', 'team'] },
+      p_excl: { exclusion: { base: 'plain', subtract: 'direct' } },
+    },
+  },
+};
+const ROUTE_PERMISSIONS = ['p_plain', 'p_direct', 'p_set', 'p_arrow', 'p_tupleset', 'p_union', 'p_inter', 'p_excl'];
+
+async function routesModel(): Promise<RebacModel> {
+  const tuples = [{ ...tuple(ref('group', 'g1'), 'member', user('u3')), caveat: { name: 'c_ip' } }, tuple(ref('group', 'g2'), 'member', user('u3'))];
+  const permissions = Object.fromEntries(ROUTE_PERMISSIONS.map((p) => [`doc:${p}`, `doc#${p}`]));
+  const model = new RebacModel({ store: new MemoryTupleStore(tuples), namespaces: ROUTES, permissions, caveats: { c_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: 'a' } } } });
+  await model.init(fakeModelInitContext({ permissions: ROUTE_PERMISSIONS.map((p) => ({ name: `doc:${p}`, types: ['doc'], list: true })), model: model.name }));
+  return model;
+}
 
 /**
  * rebac.rls rendered against SQLite: `ctx.subjectKeys` is the only Postgres-specific part of the SQL, so a
@@ -133,6 +162,26 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
     const partial = await generate('partial');
     expect(partial.diagnostics.filter((d) => d.permission === 'doc:read').map((d) => d.code)).to.deep.equal(['AUTHZ021']);
     expect(partial.up.find((s) => s.includes('FOR SELECT'))).to.match(/USING \(TRUE\)$/);
+  });
+
+  it('refuses every route to a conditional relation: subject set, arrow, tupleset, union, intersection, exclusion', async () => {
+    const model = await routesModel();
+    expect(new RebacRlsPlanSource().plan(model, def('doc:p_plain'), 'doc').kind).to.equal('terms');
+    const reached: Record<string, RegExp> = {
+      p_direct: /conditional relation doc#direct/,
+      p_set: /conditional relation group#member/,
+      p_arrow: /conditional relation folder#cviewer/,
+      p_tupleset: /conditional relation doc#cparent/,
+      p_union: /conditional relation doc#direct/,
+      p_inter: /conditional relation group#member/,
+      // List support refuses an exclusion before the conditional walk runs.
+      p_excl: /exclusion/,
+    };
+    for (const [p, message] of Object.entries(reached)) expect(() => new RebacRlsPlanSource().plan(model, def(`doc:${p}`), 'doc'), p).to.throw(message);
+  });
+
+  it('gives a conditional membership no session key', async () => {
+    expect([...(await new RebacRlsSubjectKeys().keys(await routesModel(), userPrincipal('u3')))].sort()).to.deep.equal(['group:g2#member', 'user:u3']);
   });
 
   it('refuses the query-builder form: .accessible() plans never hold it', () => {

@@ -31,7 +31,7 @@ export interface RebacListPlanInput {
   readonly maxDepth: number;
   /** A caveat's truth for the request; without it no conditional tuple is held. */
   readonly caveat?: (c: TupleCaveat) => Promise<CaveatTruth>;
-  /** The evaluation instant; a plan that evaluated a caveat is valid until it. */
+  /** The evaluation instant; a plan that evaluated a caveat is valid until it (until the epoch without one). */
   readonly now?: Date;
 }
 
@@ -137,7 +137,7 @@ export function rebacHolders(schema: NamespaceSchema, store: TupleStore, princip
 
   const objectsHolding = async (rel: CompiledRelation, subjects: readonly TupleSubject[], name: string, t: ResourceType): Promise<string[]> => {
     if (subjects.length === 0) return [];
-    // A store without caveats stores only unconditional tuples of admitted shapes; reverseMany spares a store that does not override reverseTuples one read per object.
+    // A store without caveats holds no conditional tuple (RebacModel.init refuses conditional types over it); reverseMany spares a store that does not override reverseTuples one read per object.
     if (!store.caveats) return (await store.reverseMany(subjects, name, t)).map((r) => r.id!);
     const out: string[] = [];
     for (const x of await store.reverseTuples(subjects, name, t)) if (await held(rel, x)) out.push(x.object.id!);
@@ -281,7 +281,7 @@ export async function rebacListPlan(input: RebacListPlanInput): Promise<ModelLis
   const expr = await rowName(target.name);
   if (!expr) return { kind: 'abstain' };
   // validUntil = this instant: a plan that read env is never reused (cachedPlan drops until <= instant).
-  return { kind: 'terms', permit: [{ op: REBAC_TUPLES_PLAN_OP, args: expr }], deny: [], ...(truths.size > 0 && now !== undefined ? { validUntil: now } : {}) };
+  return { kind: 'terms', permit: [{ op: REBAC_TUPLES_PLAN_OP, args: expr }], deny: [], ...(truths.size > 0 ? { validUntil: now ?? new Date(0) } : {}) };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
