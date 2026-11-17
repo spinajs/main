@@ -7,7 +7,7 @@ import { DateTime } from 'luxon';
 import { ormLog } from '../host.js';
 import { recordDriver, selectFrom } from '../records.js';
 import { classesOf, entryOf, registeredTypes } from '../registry.js';
-import { HorizonRecord, horizonType, recordCoverage, restartCoverage } from './horizon.js';
+import { HorizonRecord, columnFingerprint, horizonType, recordCoverage, restartCoverage } from './horizon.js';
 import { ChangeLogRecord } from './record.js';
 import { CHANGE_LOG_TABLE, CHANGE_LOG_WIDTHS } from './table.js';
 
@@ -195,7 +195,7 @@ export class DbChangeLog extends ChangeLog {
    */
   async recordBootCoverage(now: Date = new Date()): Promise<void> {
     const types = registeredTypes();
-    const columns = columnHook ? types.filter(columnsCovered) : [];
+    const columns = columnHook ? types.filter(columnsCovered).map((type) => ({ type, fingerprint: columnFingerprint(type) })) : [];
     const optedOut = types.filter((t) => classesOf(t).some((m) => entryOf(m)?.changelog === false));
     try {
       await recordCoverage([...this.tracked], columns, optedOut, now);

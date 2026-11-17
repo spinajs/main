@@ -9,7 +9,7 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../../src/contributor.js';
-import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Parent, recordCoverage, restartCoverage } from '../../src/index.js';
+import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Owner, Parent, recordCoverage, relationFingerprint, restartCoverage } from '../../src/index.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -48,6 +48,18 @@ describe('changelog horizon', function () {
     expect((AuthzChangeLogHorizon_2026_11_06_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal('authz');
   });
 
+  it('the fingerprint of a type changes with its relation columns, not with their order', () => {
+    const doc = { table: 'doc', columns: [{ relation: 'parent', column: 'folder_id', type: 'folder' }, { relation: 'owner', column: 'owner_id', type: 'user' }] };
+    const note = { table: 'note', columns: [{ relation: 'parent', column: 'doc_id', type: 'doc' }] };
+    const base = relationFingerprint([doc, note]);
+    expect(base).to.match(/^[0-9a-f]{64}$/);
+    expect(relationFingerprint([note, { ...doc, columns: [...doc.columns].reverse() }])).to.equal(base);
+    expect(relationFingerprint([{ ...doc, columns: [...doc.columns, { relation: 'editor', column: 'editor_id', typeColumn: 'editor_type' }] }, note])).to.not.equal(base);
+    expect(relationFingerprint([{ ...doc, columns: doc.columns.slice(1) }, note])).to.not.equal(base);
+    expect(relationFingerprint([doc])).to.not.equal(base);
+    expect(relationFingerprint([{ ...doc, columns: [{ ...doc.columns[0], type: 'org' }, doc.columns[1]] }, note])).to.not.equal(base);
+  });
+
   for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {
     describe(dialect, () => {
       let driver: OrmDriver;
@@ -70,7 +82,7 @@ describe('changelog horizon', function () {
 
       it('the migration creates the horizon and the before column; down drops both', async () => {
         const horizon = await driver.tableInfo(HORIZON_TABLE, driver.Options.Database);
-        expect(horizon.map((c) => c.Name).sort()).to.deep.equal(['kind', 'resource_type', 'since']);
+        expect(horizon.map((c) => c.Name).sort()).to.deep.equal(['fingerprint', 'kind', 'resource_type', 'since']);
         expect(horizon.filter((c) => c.PrimaryKey).map((c) => c.Name).sort()).to.deep.equal(['kind', 'resource_type']);
         const columns = async () => (await driver.tableInfo(CHANGE_LOG_TABLE, driver.Options.Database)).map((c) => c.Name);
         expect(await columns()).to.include('before');
@@ -160,6 +172,33 @@ describe('changelog horizon', function () {
           await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
         });
         expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
+      });
+
+      it('a column row restarts when its relation fingerprint differs, and keeps its since when it is equal', async () => {
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'a' }, 'folder'], [], T1);
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'a' }], [], T2);
+        expect(await log.coveredSince('column', 'doc')).to.deep.equal(T1);
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'b' }, { type: 'folder', fingerprint: 'f' }], [], T2);
+        expect([await log.coveredSince('column', 'doc'), await log.coveredSince('column', 'folder')]).to.deep.equal([T2, T2]);
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'b' }, { type: 'folder', fingerprint: 'f' }], [], T3);
+        expect([await log.coveredSince('column', 'doc'), await log.coveredSince('column', 'folder')]).to.deep.equal([T2, T2]);
+        // A fingerprint change never moves `since` back.
+        await recordCoverage([], [{ type: 'doc', fingerprint: 'c' }], [], T1);
+        expect(await log.coveredSince('column', 'doc')).to.deep.equal(T2);
+        expect((await HorizonRecord.where('resource_type', 'doc')).map((r) => r.fingerprint)).to.deep.equal(['c']);
+      });
+
+      it('the domain boot restarts the coverage of a type that gains a relation column', async () => {
+        await db.define({ name: 'FpDoc', columns: { folder_id: 'TEXT' }, decorate: (c, p) => { AccessResource('hfp')(c); Parent('folder')(p, 'folder_id'); } }, dialect);
+        const contributor = new AuthzOrmContributor();
+        await contributor.contribute('root');
+        const first = (await log.coveredSince('column', 'hfp'))!;
+        await contributor.contribute('root');
+        expect(await log.coveredSince('column', 'hfp')).to.deep.equal(first);
+        await db.define({ name: 'FpNote', columns: { owner_id: 'TEXT' }, decorate: (c, p) => { AccessResource('hfp')(c); Owner()(p, 'owner_id'); } }, dialect);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await contributor.contribute('root');
+        expect((await log.coveredSince('column', 'hfp'))!.getTime()).to.be.greaterThan(first.getTime());
       });
 
       it('the domain boot records the column coverage of each @AccessResource type, and drops an opted-out one', async () => {

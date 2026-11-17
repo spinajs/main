@@ -8,19 +8,10 @@ import { insertedRefs, targetRefs } from '../ancestors/targets.js';
 import { ormLog } from '../host.js';
 import { idLookup, idText, tableOf } from '../ids.js';
 import { requireConnection } from '../records.js';
-import { entryOf, nameOf } from '../registry.js';
-import type { ModelClass, ResourceEntry } from '../registry.js';
+import { changelogColumns, entryOf, nameOf } from '../registry.js';
+import type { ModelClass, RelationColumn, ResourceEntry } from '../registry.js';
 import { columnChangesRecorded } from './db-changelog.js';
 import { ChangeLogRecord } from './record.js';
-
-/** One relation column of a resource: `@Parent` (relation `parent`), `@Owner` or `@Relation`. */
-interface RelationColumn {
-  readonly relation: string;
-  readonly column: string;
-  /** The type of the referenced object, when the column alone says it. */
-  readonly type?: string;
-  readonly typeColumn?: string;
-}
 
 interface Work {
   readonly kind: 'insert' | 'update' | 'delete';
@@ -33,18 +24,11 @@ type Values = ReadonlyMap<string, Readonly<Record<string, unknown>>>;
 
 const IN_CHUNK = 500;
 
-function relationColumns(entry: ResourceEntry): RelationColumn[] {
-  const out: RelationColumn[] = entry.parents.map((p) => ({ relation: 'parent', column: p.column, type: p.type }));
-  if (entry.owner) out.push({ relation: 'owner', column: entry.owner.column, ...(entry.owner.typeColumn ? { typeColumn: entry.owner.typeColumn } : { type: 'user' }) });
-  for (const [relation, c] of Object.entries(entry.relations ?? {})) out.push({ relation, column: c.column, ...(c.typeColumn ? { typeColumn: c.typeColumn } : { type: 'user' }) });
-  return out;
-}
-
 function workOf(query: QueryBuilder): Work | undefined {
   const model = query.Model as ModelClass | undefined;
   const entry = entryOf(model);
   if (!entry || !model || entry.changelog === false) return undefined;
-  const columns = relationColumns(entry);
+  const columns = changelogColumns(entry);
   if (columns.length === 0) return undefined;
   if (query instanceof InsertQueryBuilder) return { kind: 'insert', model, entry, columns };
   if (query instanceof DeleteQueryBuilder) return { kind: 'delete', model, entry, columns };
