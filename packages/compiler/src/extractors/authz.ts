@@ -145,8 +145,9 @@ export interface IgnoreComment {
 
 /**
  * The `//` comments of a file, read as comment ranges so that a marker inside a string or template is none.
- * The comments after a node's end are taken too: those before a closing `}` are no leading trivia of any node.
- * The comment scanner reads JSX text as code, so a range inside it is dropped.
+ * Every comment follows some token, punctuation included (`{ // …`, `, // …`), so the ranges are read after each
+ * token's end: the trailing ones on its line and the leading ones on the lines below. JSDoc nodes sit inside a
+ * comment and are not walked. The comment scanner reads JSX text as code, so a range inside it is dropped.
  */
 function lineComments(file: ts.SourceFile): ts.CommentRange[] {
   const out = new Map<number, ts.CommentRange>();
@@ -155,13 +156,16 @@ function lineComments(file: ts.SourceFile): ts.CommentRange[] {
     for (const r of ranges ?? []) if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) out.set(r.pos, r);
   };
   const visit = (node: ts.Node): void => {
+    if (ts.isJSDoc(node)) return;
     if (ts.isJsxText(node)) jsxText.push(node);
-    add(ts.getLeadingCommentRanges(file.text, node.getFullStart()));
+    const children = node.getChildren(file);
+    children.forEach(visit);
+    if (children.length > 0) return;
     add(ts.getTrailingCommentRanges(file.text, node.getEnd()));
     add(ts.getLeadingCommentRanges(file.text, node.getEnd()));
-    ts.forEachChild(node, visit);
   };
-  ts.forEachChild(file, visit);
+  add(ts.getLeadingCommentRanges(file.text, 0));
+  visit(file);
   return [...out.values()].filter((r) => !jsxText.some((t) => r.pos >= t.pos && r.pos < t.end)).sort((a, b) => a.pos - b.pos);
 }
 

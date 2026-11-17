@@ -137,6 +137,42 @@ describe('spinajs-authz-ignore comments', () => {
     expect(found.crlf).to.deep.equal(expected);
   });
 
+  describe('right after an opening {, ( or [ and after a comma, on the line before the query', () => {
+    const at = (...lines: string[]) => {
+      const found = ignores(...lines);
+      return { lf: found.lf.map((i) => [i.line, i.col, i.reason]), crlf: found.crlf.map((i) => [i.line, i.col, i.reason]) };
+    };
+    const both = (row: (number | string)[]) => ({ lf: [row], crlf: [row] });
+
+    it('after the { of a block', () => {
+      expect(at('if (all) { // spinajs-authz-ignore AUTHZ001: after a brace', `  ${QUERY}`, '}')).to.deep.equal(both([1, 12, 'after a brace']));
+    });
+
+    it('after the { of an arrow body', () => {
+      expect(at('const run = async () => { // spinajs-authz-ignore AUTHZ001: arrow body', `  ${QUERY}`, '};')).to.deep.equal(both([1, 27, 'arrow body']));
+    });
+
+    it('after an array element and its comma', () => {
+      expect(at('await Promise.all([', '  Invoice.all(), // spinajs-authz-ignore AUTHZ001: element', '  Tag.all(),', ']);')).to.deep.equal(both([2, 18, 'element']));
+    });
+
+    it('after the last array element and a trailing comma', () => {
+      expect(at('await Promise.all([', '  Tag.all(),', '  Invoice.all(), // spinajs-authz-ignore AUTHZ001: last element', ']);')).to.deep.equal(both([3, 18, 'last element']));
+    });
+
+    it('after a call argument and its comma', () => {
+      expect(at('send(1, // spinajs-authz-ignore AUTHZ001: argument', '  Invoice.all());')).to.deep.equal(both([1, 9, 'argument']));
+    });
+
+    it('after an object property and its comma', () => {
+      expect(at('const o = { a: 1, // spinajs-authz-ignore AUTHZ001: property', '  b: Invoice.all() };')).to.deep.equal(both([1, 19, 'property']));
+    });
+
+    it('after the ( of a call', () => {
+      expect(at('send( // spinajs-authz-ignore AUTHZ001: after a parenthesis', '  Invoice.all());')).to.deep.equal(both([1, 7, 'after a parenthesis']));
+    });
+  });
+
   it('is no ignore with an empty reason, and the next line never becomes the reason', () => {
     expect(ignores('// spinajs-authz-ignore AUTHZ001:', QUERY)).to.deep.equal({ lf: [], crlf: [] });
   });
@@ -156,6 +192,10 @@ describe('spinajs-authz-ignore comments', () => {
   it('reads no marker inside JSX text', () => {
     const text = ['const view = (', '  <p>', '    // spinajs-authz-ignore AUTHZ001: not a comment', '  </p>', ');'].join('\n');
     expect(ignoreCommentsOf(ts.createSourceFile('view.tsx', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX))).to.deep.equal([]);
+  });
+
+  it('reads no marker inside a JSDoc comment', () => {
+    expect(ignores('/**', ' * @returns {Promise<void>} // spinajs-authz-ignore AUTHZ001: not a line comment', ' */', 'export async function f() {', `  ${QUERY}`, '}')).to.deep.equal({ lf: [], crlf: [] });
   });
 
   it('takes no code from the next line after a bare marker', () => {
