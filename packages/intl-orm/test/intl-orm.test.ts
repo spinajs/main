@@ -252,6 +252,28 @@ describe('ORM intl tests', function () {
     expect(result[1].Text).to.eq('world');
   });
 
+  it('a clone of an executed translated query is translated', async () => {
+    const query = Test.where('Id', '>', 0);
+    query.translate('en_GB');
+    await query;
+
+    const result = await query.clone();
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
+  it('a clone of an executed query translated from async storage is translated', async () => {
+    const store = DI.resolve(AsyncLocalStorage);
+    const result = await store.run({ language: 'en_GB' }, async () => {
+      const query = Test.where('Id', '>', 0);
+      await query;
+      return await query.clone();
+    });
+
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
   it('a clone keeps AllowTranslate', () => {
     const query = Test.query();
     query.AllowTranslate = false;

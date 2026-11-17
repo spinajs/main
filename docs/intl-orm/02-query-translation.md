@@ -78,7 +78,7 @@ The general pattern, with its caveats, is in [Scopes and builder extensions](../
 - Every model in the result gets `setLanguage(lang)` when it has that method. A model with `@Translate` columns that does not extend `Translatable` gets its values but no `Language`.
 - A row without a translation keeps its base-table value. There is no fallback language.
 - The `intl_resources` query runs once per translated builder, after the main query; it is not a join.
-- A `clone()` of a translated select is translated too: it carries the translation relation, `translated` and `AllowTranslate`. A second `translate()` on the clone, or the automatic translation, adds nothing, and a clone of a query that opted out with `AllowTranslate = false` stays untranslated.
+- A `clone()` of a translated select is translated too: it carries the translation relation, `translated` and `AllowTranslate`. A second `translate()` on the clone, or the automatic translation, adds nothing, and a clone of a query that opted out with `AllowTranslate = false` stays untranslated. The clone keeps the source's language; to read another language, clone before `translate()`.
 
 ## Best practices
 

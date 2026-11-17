@@ -31,11 +31,10 @@ declare module '@spinajs/orm' {
     AllowTranslate: boolean;
   }
   interface SelectQueryBuilder<T> {
-    translate(lang: string): SelectQueryBuilder<T>;
     /** Set by translate(): the translations are already part of the query. */
-    translated?: boolean;
+    translated?: ISelectQueryBuilder<T>['translated'];
     /** false: IntlQueryMiddleware leaves the query untranslated. */
-    AllowTranslate?: boolean;
+    AllowTranslate?: ISelectQueryBuilder<T>['AllowTranslate'];
   }
   interface IColumnDescriptor {
     Translate: boolean;
@@ -128,11 +127,13 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     };
 
     if (pks.length !== 0) {
-      this._relationQuery.whereIn('ResourceId', pks);
-      this._relationQuery.where('Resource', this._description.Name);
-      this._relationQuery.where('Lang', this._lang);
-      this._relationQuery.middleware(hydrateMiddleware);
-      return (await this._relationQuery) as SelectQueryBuilder;
+      // a clone of an executed query shares this middleware, and a builder runs only once
+      const query = this._relationQuery.clone();
+      query.whereIn('ResourceId', pks);
+      query.where('Resource', this._description.Name);
+      query.where('Lang', this._lang);
+      query.middleware(hydrateMiddleware);
+      return (await query) as SelectQueryBuilder;
     }
 
     return [];
