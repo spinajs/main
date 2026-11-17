@@ -149,6 +149,46 @@ Nodes are `role` (`role:<name>`, grouped by its ladder, with `assignable` and `d
 
 The authz routes show domain, model, role and permission names, the inheritance between roles, permission descriptions and resource types. They never show an assignment, a principal, a grant's resource pattern, fields or relation, an RBAC rule, or a condition.
 
+## Explain
+
+Endpoint `explain`. Not registered in production unless `studio.allowExplainInProduction: true`; see [Explain in production](01-overview.md#explain-in-production).
+
+### `POST /api/authz/explain`
+
+Explains a decision under the current state: the domain's `AuthzService.explain()` runs the same engine as a real check, evaluates every model, bypasses the decision cache and attaches the trace. It may boot the domain.
+
+The body is a `StudioExplainInput`; any other key is a `400`:
+
+| Key | Value |
+| --- | --- |
+| `principal` | Required. `<type>:<id>`, at most 256 characters. |
+| `permission` | Required. `<resource>:<action>`, at most 256 characters. |
+| `resource` | `<type>[:<id>]`, at most 256 characters; default the permission's resource type. |
+| `domain` | A domain name; default `root`. |
+
+The answer is a `StudioExplainResult`:
+
+- `decision`: a `StudioDecision`, the engine's `Decision` without its trace and with `validUntil` as an ISO string;
+- `trace`: the trace, sent once, beside the decision;
+- `denies`: the deny reasons of every vote, once each, lowest priority first (the first one decides).
+
+Every string in the answer is cut at 2 KiB.
+
+What a caller learns about the principal it names: whether it holds the permission on the resource, the condition left on the decision (`residual`), the fields it may read and write, its effective role per ladder on that resource, and each model's vote with its conditions and deny reasons. Not its other grants, its assignments elsewhere, or its attributes: the explained principal carries none.
+
+The route needs both `studio:explain` (the slot `studio.auth.policies.explain`) and `authz:explain` (`authz.http.explainRoute.permission`, checked in `authz.http.access.domain`). It is rate-limited like `GET /authz/explain`, by `authz.http.rateLimit.explain`: 30 requests a minute per principal by default, counted for this route alone.
+
+Each call records an `explain` entry through the domain's `DecisionAudit`, naming the caller, with the reason `studio explain for <type>:<id>` and the trace. The engine records its own `explain` entry naming the principal asked about, and, when `authz.audit.denials` is on and the answer is a denial, a `deny` entry naming it as well.
+
+| Status | When |
+| --- | --- |
+| `400` | A missing body, an unknown key, a value outside its limits, a `principal` without an id, or an unknown domain. A value that fails the schema is not echoed; an unknown domain name, which matched the name pattern, is. |
+| `401` | No authenticated caller. |
+| `403` | The caller lacks `studio:explain` or `authz:explain`. |
+| `404` | Production without `studio.allowExplainInProduction`. |
+| `500` | A `permission` the domain does not register, or a `resource` type outside the permission's types. Authz refuses both as configuration errors, as for `GET /authz/explain`; outside production the error detail names the value. |
+| `429` | The rate limit is spent. |
+
 ## Typed calls
 
 ```ts sample

@@ -42,6 +42,18 @@ The configuration fragment of `@spinajs/studio` declares both permissions and tw
 
 `studio.auth.skipInDevelopment: true` skips the `'AccessPolicy'` checks while the configured env names development and `configuration.isProduction` is not `true`.
 
+## Explain in production
+
+`POST /api/authz/explain` answers why any principal the caller names is allowed or denied a permission: its effective roles on the resource, the conditions left on the decision and every model's vote. In production that is more than an operator usually needs, so the route has a flag of its own, next to `studio.allowProduction`:
+
+| `configuration.isProduction` | `studio.allowExplainInProduction` | Explain |
+| --- | --- | --- |
+| `false` | any | Registered; the `explain` feature of `GET /api/capabilities` is `true`. |
+| `true`, with `studio.allowProduction` | not `true` | Not registered: the route answers `404`, `explain` is `false`, every other Studio route works. |
+| `true`, with `studio.allowProduction` | `true` | Registered; `explain` is `true`. |
+
+Registered, the route still needs `studio:explain` and `authz:explain`; `studio.auth.skipInDevelopment` skips only the first. The explain route of `@spinajs/authz-http` (`GET /authz/explain`) is never registered in production.
+
 ## Traces
 
 Studio buffers the spans of the last traces in a `TraceStore`. A `StudioSpanProcessor` feeds it; Studio attaches that processor to the `@spinajs/tracing` span processor hub when it mounts.

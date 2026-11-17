@@ -6,6 +6,7 @@ Every Studio key lives under `studio.*`. The schema `spinajs/studio.configuratio
 | --- | --- | --- | --- | --- |
 | `studio.enabled` | `boolean` | `false` | | Mounts Studio. While `false` no Studio route is registered. |
 | `studio.allowProduction` | `boolean` | `false` | | Lets Studio mount when `configuration.isProduction` is `true`. Without it Studio refuses and logs an error. |
+| `studio.allowExplainInProduction` | `boolean` | `false` | | Registers `POST /api/authz/explain` when `configuration.isProduction` is `true`. Without it the route is absent in production (404) while every other Studio route works. See [Explain in production](01-overview.md#explain-in-production). |
 | `studio.path` | `string` | `'/_studio'` | non-empty | Base path of every Studio route, under `http.controllers.route.prefix` when one is set. |
 | `studio.ui.path` | `string` | unset | non-empty | Path of the Studio UI. |
 | `studio.buffers.traces` | `integer` | `1000` | `>= 1` | Traces kept in the trace buffer. |

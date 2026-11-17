@@ -13,6 +13,7 @@ export const STUDIO_CONFIGURATION_SCHEMA = {
   properties: {
     enabled: { type: 'boolean', default: false },
     allowProduction: { type: 'boolean', default: false },
+    allowExplainInProduction: { type: 'boolean', default: false },
     path: { ...name, default: '/_studio' },
     ui: { type: 'object', default: {}, properties: { path: name } },
     buffers: {

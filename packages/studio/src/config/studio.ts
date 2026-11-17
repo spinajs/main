@@ -2,6 +2,8 @@ const config = {
   studio: {
     enabled: false,
     allowProduction: false,
+    /** In production the explain route is mounted only with this, on top of `allowProduction`. */
+    allowExplainInProduction: false,
     path: '/_studio',
     ui: {} as { path?: string },
     buffers: { traces: 1000, spansPerTrace: 2000, traceBytes: 67_108_864, logs: 5000, slowQueries: 200 },
