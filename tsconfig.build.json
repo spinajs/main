@@ -363,6 +363,9 @@
     },
     {
       "path": "packages/simulation/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit/tsconfig.build.json"
     }
   ]
 }
