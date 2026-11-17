@@ -60,12 +60,12 @@ queue: {
 | `options.broker` | `'default'` | Clients that name the same broker share subscribers. `MemoryBroker.drop(name)` forgets one |
 | `options.deferred` | `false` | `false`: an event reaches every subscriber of the broker during `emit()`; a job is only recorded, and `deliver(message)` hands it to this client's subscribers. `true`: `emit()` only queues, `deliverAll()` delivers |
 
-With `deferred: true` the client behaves like a broker that you drive by hand, with no timers:
+With `deferred: true` the client behaves like a broker that you drive by hand. It starts no timers and takes time from the injected `Clock` (`@spinajs/durable`); register a `FakeClock` to move it:
 
-- `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP.
-- `deliverAll()` delivers the queued messages in publish order, by channel. An event goes to every subscription on its channel, a job to the first one. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
+- `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP, and, on a retried copy, the headers of the [delivery decision](11-delivery-contract.md).
+- `deliverAll()` delivers the queued messages that are due, in publish order, by channel. An event goes to every subscription on its channel, except that subscriptions sharing a `subscriptionId` compete for one copy, as consumers of one durable queue do. A job goes to the first subscription. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
 - `wireCopy(message)` returns the copy a broker round trip makes: emit it, or `deliver()` it, to hand the client the same message again.
-- A message is settled only after its callback resolved. One whose callback rejected stays queued for the next `deliverAll()`: an event goes again to the subscriptions that rejected it, a job to whoever consumes its channel by then. Messages published during a `deliverAll()` wait for the next call.
+- A message is settled only after its callback resolved. When the callback rejects, deferred mode executes the delivery decision on the injected `Clock`: a failed event is dropped unless its route says `onEventFailure: 'retry'`, and a failed job is retried `RetryCount` times (or the route's `maxRetries`) and then dead-lettered into `deadLettered`. A retry is due once its delay has passed, and goes to the subscription that failed for an event, to whoever consumes the channel by then for a job. A rejection with `crash: true` leaves the delivery queued as it was. Messages published during a `deliverAll()` wait for the next call.
 
 A transport package proves its semantics by running the conformance cases against its own harness:
 
@@ -81,4 +81,4 @@ describeQueueTransportConformance('MyTransport', async () => ({
 }));
 ```
 
-The suite reads its channels from the client's `defaultQueueChannel` and `defaultTopicChannel`. It covers an ack on success and a `MessageId` and `Headers` round trip. Retry and dead-letter cases are not in the suite yet.
+The suite reads its channels from the client's `defaultQueueChannel`, `defaultTopicChannel` and `defaultQueueDeadLetterChannel`. Besides an ack on success and a `MessageId` and `Headers` round trip, it covers retries, dead letters, delays and dropped events; [Testing a transport](11-delivery-contract.md#testing-a-transport) lists the cases and the routing a harness passes.

@@ -6,6 +6,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { NonRetryableError } from '@spinajs/durable';
 import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, IQueueJob, QueueMessage, IJobFailureContext, PermanentJobFailure, isJob } from './../src/index.js';
+import { MemoryBroker, MemoryQueueClient } from './../src/testing/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -48,6 +49,9 @@ class TestQueueClient extends QueueClient {
  */
 let CONFIG_DEDUP: boolean | undefined = undefined;
 
+/** Set, `queue.default` is a deferred MemoryQueueClient on this broker, a transport that executes the delivery decision. */
+let CONFIG_MEMORY_BROKER: string | undefined = undefined;
+
 class TrackingConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
@@ -69,7 +73,7 @@ class TrackingConnectionConf extends FrameworkConfiguration {
         ],
       },
       queue: {
-        default: 'test-queue',
+        default: CONFIG_MEMORY_BROKER ? 'memory' : 'test-queue',
         routing: {},
         ...(CONFIG_DEDUP !== undefined ? { deduplicate: CONFIG_DEDUP } : {}),
         connections: [
@@ -79,6 +83,7 @@ class TrackingConnectionConf extends FrameworkConfiguration {
             defaultQueueChannel: '/queue/test',
             defaultTopicChannel: '/topic/test',
           },
+          ...(CONFIG_MEMORY_BROKER ? [{ service: 'MemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/memory', defaultTopicChannel: '/topic/memory', defaultQueueDeadLetterChannel: '/queue/memory.dlq', options: { broker: CONFIG_MEMORY_BROKER, deferred: true } }] : []),
         ],
       },
       logger: {
@@ -403,5 +408,46 @@ describe('queue dedup OFF ( queue.deduplicate: false )', function () {
 
     const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
     expect(row.Status).to.equal('success');
+  });
+});
+
+describe('queue tracking on a transport that executes the delivery decision', function () {
+  this.timeout(15000);
+  let brokerSeq = 0;
+
+  beforeEach(async () => {
+    DI.clearCache();
+    CONFIG_DEDUP = undefined;
+    CONFIG_MEMORY_BROKER = `tracking-${++brokerSeq}`;
+    DI.register(TrackingConnectionConf).as(Configuration);
+
+    await DI.resolve(Configuration);
+    await (await DI.resolve(Orm)).Migrator.ready();
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+    const queue = await q();
+    await queue.dispose();
+    if (CONFIG_MEMORY_BROKER) MemoryBroker.drop(CONFIG_MEMORY_BROKER);
+    CONFIG_MEMORY_BROKER = undefined;
+  });
+
+  it('dead-letters a NonRetryableError job on its first failure, and its row ends dead', async () => {
+    const queue = await q();
+    const memory = queue.get('memory');
+    if (!(memory instanceof MemoryQueueClient)) throw new Error('the memory connection is not a MemoryQueueClient');
+    const spy = sinon.spy(GivenUpJob.prototype, 'execute');
+
+    await queue.consume(GivenUpJob);
+    const jobId = await GivenUpJob.emit({});
+    await memory.deliverAll();
+    await memory.deliverAll();
+
+    expect(spy.callCount, 'not retried, although RetryCount is 3').to.equal(1);
+    expect(memory.deadLettered.map((d) => [d.channel, isJob(d.message) ? d.message.JobId : undefined])).to.deep.equal([['/queue/memory.dlq', jobId]]);
+    const row = await JobModel.where({ JobId: jobId }).firstOrFail();
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
   });
 });

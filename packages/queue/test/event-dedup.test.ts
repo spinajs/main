@@ -48,7 +48,11 @@ interface BootOptions {
   deferred?: boolean;
   bootstrap?: boolean;
   store?: string;
+  routing?: Record<string, unknown>;
 }
+
+// the memory transport drops a failed event by default, so a case that expects the failed delivery again routes it to be retried
+const RETRIED = { routing: { PaymentCaptured: { maxRetries: 1, onEventFailure: 'retry' } } };
 
 let brokerSeq = 0;
 let current: BootOptions & { brokerName: string } = { brokerName: '' };
@@ -64,7 +68,7 @@ class DedupConf extends FrameworkConfiguration {
       idempotency: { store: current.store ?? 'OrmIdempotencyStore', lease: '30s' },
       queue: {
         default: 'memory',
-        routing: {},
+        routing: current.routing ?? {},
         ...(current.deduplicate === undefined ? {} : { deduplicate: current.deduplicate }),
         deduplicateEvents: current.deduplicateEvents ?? true,
         deduplicateTtl: current.deduplicateTtl === undefined ? '7d' : current.deduplicateTtl,
@@ -133,7 +137,7 @@ describe('queue: event deduplication by MessageId', function () {
   });
 
   it('releases the key after a handler failure, so the redelivery runs again', async () => {
-    const env = await boot();
+    const env = await boot(RETRIED);
     let calls = 0;
     await env.queue.consume<PaymentCaptured>(
       PaymentCaptured,
@@ -324,7 +328,7 @@ describe('queue: event deduplication by MessageId', function () {
   });
 
   it('redelivers an event whose claim fails, and runs it again after its reply could not be stored', async () => {
-    const env = await boot({ store: FlakyIdempotencyStore.name });
+    const env = await boot({ ...RETRIED, store: FlakyIdempotencyStore.name });
     const handled: string[] = [];
     await env.queue.consume<PaymentCaptured>(PaymentCaptured, async (m) => void handled.push(m.PaymentId), 'ledger');
 
