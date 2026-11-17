@@ -63,7 +63,7 @@ export class ReplayCommand extends AuthzOrmCliCommand {
       try {
         return await replay.replay(id, options);
       } catch (e) {
-        if (e instanceof ReplayInTransaction) throw new Error(`authz:replay: refused: ${e.message}`);
+        if (e instanceof ReplayInTransaction) throw new Error(`authz:replay: refused: ${e.message}`, { cause: e });
         if (!(e instanceof ReplayBusy)) throw e;
         await sleep(this.RetryMs);
       }

@@ -135,6 +135,15 @@ describe('GET /authz/decisions/:id/explain', function () {
     expect(res.status).to.eq(200);
     expect(res.body).to.deep.eq({ label: 'file:f1#file:read', truth: 'deny', source: 'union', children: [] });
     expect((await get(`${URL}?format=xml`, 'bob')).status).to.eq(400);
+
+    const empty = await get(`${URL}?format=`, 'bob');
+    expect(empty.status, 'format= is the report').to.eq(200);
+    expect((empty.body as ReplayReport).replay).to.eq('faithful');
+
+    answer = async () => report({ replay: 'unreplayable', tree: null });
+    const none = await get(`${URL}?format=tree`, 'bob');
+    expect(none.status, 'a report without a tree (an unreadable record)').to.eq(200);
+    expect(none.text, 'http sends no body for a null answer').to.eq('');
   });
 
   it('refuses an anonymous caller (401) and one without authz:replay (403), whatever authz:explain grants', async () => {
@@ -197,7 +206,7 @@ describe('GET /authz/decisions/:id/explain', function () {
     expect(later.entries).to.have.length(0);
   });
 
-  it('fails the boot when enabled with no DecisionReplay registered, naming @spinajs/authz-orm/replay', async () => {
+  it('DecisionsControllerSource refuses to hand over the route when enabled with no DecisionReplay registered, naming @spinajs/authz-orm/replay', async () => {
     const source = new DecisionsControllerSource();
     Object.defineProperty(source, 'Enabled', { value: true });
     expect(await source.getControllers()).to.have.length(1);

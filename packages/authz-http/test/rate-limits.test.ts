@@ -95,7 +95,7 @@ const GROUPS: [Ctor, string, Name][] = [
   [DecisionsController, 'explain', 'decisions'],
 ];
 
-describe('authz-http: the limits of checks, events and explain', function () {
+describe('authz-http: the limits of checks, events, explain and decisions', function () {
   this.timeout(20000);
   afterEach(disposeTestApps);
 

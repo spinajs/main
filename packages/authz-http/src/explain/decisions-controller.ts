@@ -9,8 +9,9 @@ import { Log, Logger } from '@spinajs/log';
 import { AccessDomain } from '../access/domain-arg.js';
 import { resolveAuthzDomain } from '../access/domain-resolver.js';
 import { forbidden, holdsExplain, unauthenticated } from '../access/policy.js';
-import { DecisionIdParam, DecisionsFormatQuery, RequestSignal } from '../dto/replay-report.js';
+import { DecisionIdParam, DecisionsFormatQuery } from '../dto/replay-report.js';
 import { CurrentPrincipal } from '../principals/current-principal.js';
+import { RequestSignal } from '../principals/request-signal.js';
 import { AuthzHttpRateLimit } from '../rate-limit/index.js';
 import '../storage.js';
 
@@ -43,7 +44,7 @@ const BUSY_RETRY_SECONDS = 5;
 
 /**
  * `GET /authz/decisions/:id/explain?format=report|tree`: replays a logged decision through the registered
- * `DecisionReplay` (Bet 6 L3). Mounted by DecisionsControllerSource when `authz.http.decisionsRoute.enabled`, also in
+ * `DecisionReplay`. Mounted by DecisionsControllerSource when `authz.http.decisionsRoute.enabled`, also in
  * production: it replays only decisions that happened. A report names the principal's facts, its captured inputs and
  * the other holders of the relations read, so the route has a permission of its own, held in the record's domain too.
  */

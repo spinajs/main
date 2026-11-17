@@ -1,11 +1,6 @@
 import { fieldSchema } from '@spinajs/authz';
-import { Injectable } from '@spinajs/di';
-import { Param, Parameter, Query, Route, RouteArgs } from '@spinajs/http';
-import type { IRouteCall, IRouteParameter, Req, Request } from '@spinajs/http';
+import { Param, Query } from '@spinajs/http';
 import { Schema } from '@spinajs/validation';
-import type * as express from 'express';
-
-import '../storage.js';
 
 const str = { type: 'string' } as const;
 const truth = { enum: ['allow', 'deny', 'unknown'] } as const;
@@ -48,20 +43,4 @@ export function DecisionIdParam(): ReturnType<typeof Param> {
 /** `format=report|tree` of the decisions route; empty or absent is `report`. */
 export function DecisionsFormatQuery(): ReturnType<typeof Query> {
   return Query({ enum: ['', 'report', 'tree'] });
-}
-
-/** Route arg of `@RequestSignal()`: `req.storage.signal`, set while a deadline applies (`http.deadline`, `@Deadline`). */
-@Injectable()
-export class RequestSignalArg extends RouteArgs {
-  public get SupportedType(): string {
-    return 'RequestSignalArg';
-  }
-
-  public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: express.Request) {
-    return { CallData: callData, Args: (req as Request).storage?.signal };
-  }
-}
-
-export function RequestSignal(): ReturnType<typeof Req> {
-  return Route(Parameter('RequestSignalArg', null));
 }
