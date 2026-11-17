@@ -10,3 +10,5 @@ export { UnscopedMiddleware, UnfilteredInput } from './decorators.js';
 export { AccessContributor } from './contributor.js';
 export { UnguardedRoutesReport, findUnguardedRoutes } from './unguarded.js';
 export type { UnguardedRoutesMode } from './unguarded.js';
+export { ACCESS_SLOT, SlotAccessContributor, SlotAccessPolicy, configuredEnvOf, isExplicitDevelopment, skipsAuthInDevelopment } from './slot-policy.js';
+export type { DevelopmentSkipSettings, EnvLike, SlotSettings } from './slot-policy.js';

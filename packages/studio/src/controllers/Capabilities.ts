@@ -1,5 +1,6 @@
 import { AuthzDomains, isPermission, parsePermission } from '@spinajs/authz';
 import type { Permission, Principal } from '@spinajs/authz';
+import { configuredEnvOf, skipsAuthInDevelopment } from '@spinajs/authz-http';
 import { Config, effectiveManifestOf } from '@spinajs/configuration';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -7,7 +8,6 @@ import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 
 import type { StudioCapabilities } from '../contracts/index.js';
-import { configuredEnvOf, studioSkipsAuth } from '../development.js';
 import { detectFeatures } from '../features.js';
 import { StudioAccess } from '../policies/StudioAccessPolicy.js';
 import { tracingCapability } from '../tracing-capability.js';
@@ -59,7 +59,7 @@ export class StudioCapabilitiesController extends BaseController {
 
   protected async heldPermissions(principal: Principal | undefined): Promise<string[]> {
     const wanted = [...new Set(Object.values(this.Permissions).flatMap((p) => (typeof p === 'string' ? [p] : p)))].filter((p): p is Permission => isPermission(p));
-    if (studioSkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) return wanted;
+    if (skipsAuthInDevelopment({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) return wanted;
     if (!principal) return [];
 
     const authz = await this.Domains.service(this.Domain);

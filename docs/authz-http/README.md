@@ -27,6 +27,7 @@ Importing the package registers its server middlewares, principal sources, field
 | [Explain](09-explain.md) | `GET /authz/explain` and the trace in a 403, outside production only |
 | [Access metadata and OpenAPI](10-access-metadata-and-openapi.md) | `ACCESS_DESCRIPTOR`, `accessDescriptorOf`, `swaggerAccess` and the `x-authz-*` extensions |
 | [Rate limits](11-rate-limits.md) | The shipped `@RateLimit` of `POST /user/access/checks`, `GET /user/access/events` and `GET /authz/explain`, and their `authz.http.rateLimit.*` keys |
+| [Slot access policies](12-slot-access-policy.md) | `SlotAccessPolicy`, `SlotAccessContributor`, `skipsAuthInDevelopment`: endpoints of a package guarded by a configuration slot `<module>.auth.policies.<endpoint>` |
 
 ## Quick start
 

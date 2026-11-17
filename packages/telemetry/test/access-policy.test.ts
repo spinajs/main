@@ -10,8 +10,9 @@ import { Forbidden } from '@spinajs/exceptions';
 import { FrameworkLogger, renderTemplate } from '@spinajs/log';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
+import { isExplicitDevelopment, skipsAuthInDevelopment } from '@spinajs/authz-http';
 
-import { TelemetryAccess, TelemetryAccessPolicy, isExplicitDevelopment, telemetrySkipsAuth } from '../src/index.js';
+import { TelemetryAccess, TelemetryAccessPolicy } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -196,7 +197,7 @@ describe('TelemetryAccessPolicy', function () {
       set('telemetry.auth.skipInDevelopment', true);
       await withEnv({ APP_ENV: 'development' }, async () => {
         const cfg = testHost.config();
-        expect(telemetrySkipsAuth({ skipInDevelopment: cfg.get('telemetry.auth.skipInDevelopment'), isProduction: cfg.get('configuration.isProduction') }), 'the skip is active').to.eq(true);
+        expect(skipsAuthInDevelopment({ skipInDevelopment: cfg.get('telemetry.auth.skipInDevelopment'), isProduction: cfg.get('configuration.isProduction') }), 'the skip is active').to.eq(true);
         refuses('broken', /telemetry\.auth\.permissions\.broken/);
       });
     });
@@ -318,33 +319,33 @@ describe('TelemetryAccessPolicy', function () {
     const ON = { skipInDevelopment: true, isProduction: false };
 
     it('flag on, APP_ENV=development, configuration Env prod: checked', () => {
-      expect(telemetrySkipsAuth({ ...ON, configuredEnv: 'prod' }, { APP_ENV: 'development' })).to.eq(false);
+      expect(skipsAuthInDevelopment({ ...ON, configuredEnv: 'prod' }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag off, development env: checked', () => {
-      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: false }, { APP_ENV: 'development' })).to.eq(false);
-      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: undefined }, { APP_ENV: 'development' })).to.eq(false);
+      expect(skipsAuthInDevelopment({ ...ON, skipInDevelopment: false }, { APP_ENV: 'development' })).to.eq(false);
+      expect(skipsAuthInDevelopment({ ...ON, skipInDevelopment: undefined }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag not exactly true, development env: checked', () => {
-      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: 'true' }, { APP_ENV: 'development' })).to.eq(false);
+      expect(skipsAuthInDevelopment({ ...ON, skipInDevelopment: 'true' }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag on, env missing: checked', () => {
-      expect(telemetrySkipsAuth(ON, {})).to.eq(false);
+      expect(skipsAuthInDevelopment(ON, {})).to.eq(false);
     });
 
     it('flag on, NODE_ENV=production: checked', () => {
-      expect(telemetrySkipsAuth(ON, { NODE_ENV: 'production' })).to.eq(false);
+      expect(skipsAuthInDevelopment(ON, { NODE_ENV: 'production' })).to.eq(false);
     });
 
     it('flag on, APP_ENV=development: skipped', () => {
-      expect(telemetrySkipsAuth(ON, { APP_ENV: 'development' })).to.eq(true);
-      expect(telemetrySkipsAuth({ ...ON, isProduction: undefined }, { APP_ENV: 'development' })).to.eq(true);
+      expect(skipsAuthInDevelopment(ON, { APP_ENV: 'development' })).to.eq(true);
+      expect(skipsAuthInDevelopment({ ...ON, isProduction: undefined }, { APP_ENV: 'development' })).to.eq(true);
     });
 
     it('flag on, development env, configuration.isProduction true: checked', () => {
-      expect(telemetrySkipsAuth({ ...ON, isProduction: true }, { APP_ENV: 'development' })).to.eq(false);
+      expect(skipsAuthInDevelopment({ ...ON, isProduction: true }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('is decided when the route registers: such a route skips the check, logs a warning, and named slots still run', async () => {

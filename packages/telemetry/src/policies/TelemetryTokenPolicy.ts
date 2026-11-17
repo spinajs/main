@@ -5,8 +5,7 @@ import { BasePolicy, IController, IRoute, Request, strictHeader } from '@spinajs
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Injectable } from '@spinajs/di';
-
-import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
+import { configuredEnvOf, skipsAuthInDevelopment } from '@spinajs/authz-http';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
 
@@ -22,7 +21,7 @@ const TOKEN_HEADER = { maxLength: 4096 };
  * because stock Prometheus / OTel-collector scrape configs can only send
  * `authorization.credentials` (a Bearer header), not arbitrary headers.
  *
- * Skipped only under the explicit development opt-in (`telemetrySkipsAuth`).
+ * Skipped only under the explicit development opt-in (`skipsAuthInDevelopment`).
  *
  * @deprecated set the slot to `'AccessPolicy'` and give the token to a service principal in `authz.http.services`.
  */
@@ -47,7 +46,7 @@ export class TelemetryTokenPolicy extends BasePolicy {
   }
 
   public async execute(req: Request): Promise<void> {
-    if (telemetrySkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
+    if (skipsAuthInDevelopment({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
       return;
     }
 
