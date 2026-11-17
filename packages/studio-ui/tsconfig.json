@@ -11,7 +11,10 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "node"],
+    // Linked ckit resolves `vite` from the ckit checkout's node_modules; two copies of Vite's types are unrelated
+    // classes, so ckitStyles() would not be a Plugin of this app's Vite. Nested first, then hoisted, as Node looks.
+    "paths": { "vite": ["./node_modules/vite/dist/node/index.d.ts", "../../node_modules/vite/dist/node/index.d.ts"] }
   },
   "include": ["src", "vite.config.ts", "vitest.config.ts"]
 }
