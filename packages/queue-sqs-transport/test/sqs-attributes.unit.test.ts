@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Event, QueueEvent, QueueHeaders, QueueMessageType, type IQueueMessage } from '@spinajs/queue';
@@ -11,7 +10,13 @@ interface OrderPlaced extends IQueueMessage {
   CustomerId?: unknown;
 }
 
-const message = (extra: Partial<OrderPlaced> = {}): OrderPlaced => ({ Name: 'OrderPlaced', Type: QueueMessageType.Event, CreatedAt: DateTime.fromMillis(0), Persistent: true, Priority: 0, MessageId: 'm-1', ...extra });
+@Event()
+class OrderShipped extends QueueEvent {}
+
+// taken from a message instance, so the test needs no luxon import of its own
+const createdAt = new OrderShipped().CreatedAt;
+
+const message = (extra: Partial<OrderPlaced> = {}): OrderPlaced => ({ Name: 'OrderPlaced', Type: QueueMessageType.Event, CreatedAt: createdAt, Persistent: true, Priority: 0, MessageId: 'm-1', ...extra });
 
 const failure = (run: Promise<unknown>): Promise<unknown> => run.then(
   () => undefined,
@@ -19,9 +24,6 @@ const failure = (run: Promise<unknown>): Promise<unknown> => run.then(
 );
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
-
-@Event()
-class OrderShipped extends QueueEvent {}
 
 describe('sqs transport: attributes, FIFO, delays', () => {
   afterEach(() => DI.clearCache());
