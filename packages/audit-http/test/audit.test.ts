@@ -90,6 +90,24 @@ class AuditedController extends BaseController {
   }
 }
 
+@BasePath('audited-options')
+class AuditedOptionsController extends BaseController {
+  @Post()
+  @Middleware(Audit, { trail: 'admin', action: 'user.create' })
+  public named(@Body() _data: object) {
+    return new Ok({ ok: true });
+  }
+}
+
+@BasePath('audited-reports')
+@Middleware(Audit, { trail: 'admin', action: 'reports' })
+class ReportsController extends BaseController {
+  @Get()
+  public list() {
+    return new Ok([]);
+  }
+}
+
 @BasePath('audit-plain')
 class PlainController extends BaseController {
   @Get()
@@ -166,7 +184,7 @@ describe('Audit route middleware', function () {
   let app: TestApp;
 
   before(async () => {
-    app = await auditApp({ audit: { trails: TRAILS }, controllers: [AuditedController] });
+    app = await auditApp({ audit: { trails: TRAILS }, controllers: [AuditedController, AuditedOptionsController, ReportsController] });
   });
 
   after(() => app.dispose());
@@ -281,6 +299,15 @@ describe('Audit route middleware', function () {
     expect(event.outcome).to.eq('failed');
     expect(dataOf(event).aborted).to.eq(true);
     expect(dataOf(event)).to.not.have.property('status');
+  });
+
+  it('writes to the trail and under the action its options name; an action for a whole controller is a prefix', async () => {
+    await req().post('audited-options/named').send({ name: 'x' });
+    await req().get('audited-reports/list');
+
+    expect((await nextEvent('admin', (e) => e.action === 'user.create')).outcome).to.eq('ok');
+    expect((await nextEvent('admin', (e) => e.action === 'reports.list')).outcome).to.eq('ok');
+    expect(MemoryAuditStore.events('default')).to.have.length(0);
   });
 
   it('never fails or delays the request when the event cannot be written', async () => {
