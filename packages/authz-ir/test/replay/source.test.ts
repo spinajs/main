@@ -237,6 +237,12 @@ describe('HistoricalTupleSource', () => {
     expect(gap.known.map((x) => x.id)).to.deep.equal(['u1']);
   });
 
+  it('refuses a contributor whose kind the history did not scan', async () => {
+    const { log, tuples } = await setup();
+    const history = await ReplayHistory.load(log, T, ['column'], limits);
+    expect(() => new HistoricalTupleSource(docsIR(), T, [tuples], history)).to.throw(AuthzConfigError, /tuple/);
+  });
+
   it('lists the objects a subject held at T in reverse', async () => {
     const { log, tuples } = await setup();
     await tuples.add(editor('u1', 'd2'), ms(30 * MIN));

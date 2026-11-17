@@ -1,3 +1,4 @@
+import { AuthzConfigError } from '@spinajs/authz';
 import type { ChangeRecord, ResourceType } from '@spinajs/authz';
 
 import { objectLabel, subjectLabel } from '../eval/check.js';
@@ -35,7 +36,10 @@ export class HistoricalTupleSource implements TupleSource {
     private readonly at: Date,
     private readonly contributors: readonly HistoryContributor[],
     private readonly history: ReplayHistory,
-  ) {}
+  ) {
+    const unscanned = contributors.find((c) => !history.kinds.includes(c.kind));
+    if (unscanned !== undefined) throw new AuthzConfigError(`HistoricalTupleSource: the history was loaded without the ${unscanned.kind} changes a contributor reads`);
+  }
 
   async *read(object: ObjectRef, relation: RelationName): AsyncIterable<TupleSubjectRef> {
     for (const s of await this.subjects(object, relation, this.relationDef(object.type, relation))) yield s;
