@@ -8,6 +8,8 @@ export { sendReply } from './reply-pipeline.js';
 export type { ErrorReplier, IErrorReply, ISendReplyOptions } from './reply-pipeline.js';
 export * from './errors/on-error.js';
 export { answeredAsServerError } from './error.js';
+export { REDACTED, redactFields, sensitiveKeyMatcher } from './util/redact.js';
+export { redactUrl, urlPath } from './util/redact-url.js';
 export * from './tokens.js';
 export * from './responses.js';
 export * from './problem.js';
