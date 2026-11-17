@@ -322,7 +322,7 @@ describe('audit sealing', function () {
     });
   }
 
-  it('writes a data_hash on every row it stores, so a redacted row still verifies', () => {
+  it('storedColumns and bufferRows write the payload hash as data_hash', () => {
     for (const data of [{}, { version: 1 }, { nested: { list: [1, null, 'x'] } }]) {
       expect([storedColumns(event(1, { data })), bufferRows('t', [event(1, { data })])[0]].map((row) => row.data_hash)).to.deep.eq([payloadHash(data), payloadHash(data)]);
     }
