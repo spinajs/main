@@ -3,7 +3,7 @@ import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-// registers the configuration schema of tenancy.orm before the boot
+// registers the configuration schema and the query middleware before the Orm resolves
 import '../../src/index.js';
 import './models.js';
 
