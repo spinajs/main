@@ -21,7 +21,7 @@ import {
   tenantRecord,
   tenantRegistry,
 } from '../src/index.js';
-import type { TenantRecord } from '../src/index.js';
+import type { TenantRecord, TenantState } from '../src/index.js';
 import { tenancyApp } from './support/app.js';
 
 chai.use(chaiAsPromised);
@@ -61,7 +61,22 @@ class FailingTenantRegistry extends MemoryTenantRegistry {
   }
 }
 
-const reasonOf =(work: Promise<unknown>): Promise<string> =>
+/** Lists its tenants, then one record whose state cannot be read. */
+class UnreadableTenantRegistry extends MemoryTenantRegistry {
+  public static readonly failure = new Error('unreadable record');
+
+  public override async *list(): AsyncIterable<TenantRecord> {
+    yield* super.list();
+    yield {
+      ...tenantRecord({ id: 'unreadable' }),
+      get state(): TenantState {
+        throw UnreadableTenantRegistry.failure;
+      },
+    };
+  }
+}
+
+const reasonOf = (work: Promise<unknown>): Promise<string> =>
   work.then(
     () => 'admitted',
     (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
@@ -258,6 +273,16 @@ describe('tenancy services', () => {
       await expect(run).to.be.rejectedWith(FailingTenantRegistry.failure);
       expect(finished).to.deep.eq(['a']);
       await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(started).to.deep.eq(['a']);
+    });
+
+    it('rejects when the registry yields a record it cannot read, rather than report a shorter run', async () => {
+      await app.dispose();
+      app = await tenancyApp({ registry: 'UnreadableTenantRegistry' }, (container) => container.register(UnreadableTenantRegistry).as(TenantRegistry));
+      (await memory()).add({ id: 'a' });
+      const started: string[] = [];
+
+      await expect(forEachTenant(async (tenant) => void started.push(tenant.id))).to.be.rejectedWith(UnreadableTenantRegistry.failure);
       expect(started).to.deep.eq(['a']);
     });
 

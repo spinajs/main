@@ -34,7 +34,7 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   let total = 0;
 
   // One pull at a time: an iterator of a registry need not queue concurrent next() calls.
-  // Once a pull failed, the others answer "done", so no tenant starts after the call is bound to reject.
+  // Once a pull or a worker failed, the others answer "done", so no tenant starts after the call is bound to reject.
   let broken: { error: unknown } | undefined;
   let turn: Promise<unknown> = Promise.resolve();
   const pull = (): Promise<IteratorResult<TenantRecord>> => {
@@ -46,16 +46,20 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   };
 
   const worker = async (): Promise<void> => {
-    for (let next = await pull(); !next.done; next = await pull()) {
-      const tenant = next.value;
-      // A registry that ignores the filter must not get a suspended or deleted tenant visited.
-      if (!states.includes(tenant.state)) continue;
-      total += 1;
-      try {
-        await runInTenant(tenant.id, () => fn(tenant));
-      } catch (error) {
-        failed.push({ tenant: tenant.id, error });
+    try {
+      for (let next = await pull(); !next.done; next = await pull()) {
+        const tenant = next.value;
+        // A registry that ignores the filter must not get a suspended or deleted tenant visited.
+        if (!states.includes(tenant.state)) continue;
+        total += 1;
+        try {
+          await runInTenant(tenant.id, () => fn(tenant));
+        } catch (error) {
+          failed.push({ tenant: tenant.id, error });
+        }
       }
+    } catch (error) {
+      broken ??= { error };
     }
   };
 
