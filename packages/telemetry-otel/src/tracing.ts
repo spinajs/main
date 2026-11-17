@@ -7,6 +7,7 @@ import { BatchSpanProcessor, SpanProcessor } from '@opentelemetry/sdk-trace-base
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { markSpanErrorType } from '@spinajs/tracing';
 
 /**
  * Boots a private OTel NodeTracerProvider with an OTLP/HTTP trace exporter.
@@ -83,7 +84,7 @@ export class OtelTracing extends AsyncService {
     return this.provider ? this.provider.getTracer(name) : this.noopProvider.getTracer(name);
   }
 
-  /** Run `fn` inside a span; records exceptions and sets ERROR status on throw. */
+  /** Run `fn` inside a span; on a throw, sets ERROR and `error.type` to the error's class, never its message. */
   public async withSpan<T>(name: string, attrs: Attributes, fn: (span: Span) => Promise<T>): Promise<T> {
     const span = this.tracer('spinajs').startSpan(name, { attributes: attrs });
     try {
@@ -91,8 +92,7 @@ export class OtelTracing extends AsyncService {
       span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
-      span.recordException(err as Error);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+      markSpanErrorType(span, err);
       throw err;
     } finally {
       span.end();

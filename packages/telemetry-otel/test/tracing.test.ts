@@ -41,18 +41,22 @@ describe('OtelTracing', () => {
     await tracing.dispose();
   });
 
-  it('marks the span as error when the callback throws', async () => {
+  it('marks the span ERROR by the error class and keeps the message off the span', async () => {
     const { tracing, exporter } = makeTracing(true);
     try {
       await tracing.withSpan('unit.fail', {}, async () => {
-        throw new Error('boom');
+        throw new TypeError('secret-binding-42');
       });
       expect.fail('should have thrown');
     } catch (err) {
-      expect((err as Error).message).to.eq('boom');
+      expect((err as Error).message).to.eq('secret-binding-42');
     }
     await tracing.flush();
-    expect(exporter.getFinishedSpans()[0].status.code).to.eq(SpanStatusCode.ERROR);
+    const [span] = exporter.getFinishedSpans();
+    expect(span.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'TypeError' });
+    expect(span.attributes['error.type']).to.eq('TypeError');
+    expect(span.events).to.deep.eq([]);
+    expect(JSON.stringify([span.status, span.attributes, span.events])).to.not.contain('secret-binding-42');
     await tracing.dispose();
   });
 

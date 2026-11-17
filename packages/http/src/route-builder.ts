@@ -11,7 +11,7 @@ import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions
 import { Log } from '@spinajs/log';
 import { context, trace } from '@opentelemetry/api';
 import type { Span } from '@opentelemetry/api';
-import { SpinaAttr, markSpanError, tracer, withSpan } from '@spinajs/tracing';
+import { SpinaAttr, errorTypeOf, markSpanErrorType, tracer, withSpan } from '@spinajs/tracing';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
@@ -353,9 +353,9 @@ function endFailedRouteSpan(span: Span, err: unknown): void {
   const status = (err as { status?: unknown } | null)?.status;
   const serverError = typeof status === 'number' && Number.isInteger(status) ? status >= 500 : answeredAsServerError(err);
   if (serverError) {
-    markSpanError(span, err);
+    markSpanErrorType(span, err);
   } else {
-    span.recordException(err instanceof Error ? err : new Error(String(err)));
+    span.setAttribute('error.type', errorTypeOf(err));
   }
   span.end();
 }

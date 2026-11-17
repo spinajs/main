@@ -45,7 +45,7 @@ export function markSpanErrorType(span: Span, error: unknown): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: type });
 }
 
-export async function withSpan<T>(name: string, options: SpanOptions, fn: (span: Span) => T | Promise<T>, recordError: (span: Span, error: unknown) => void = markSpanError): Promise<T> {
+export async function withSpan<T>(name: string, options: SpanOptions, fn: (span: Span) => T | Promise<T>, recordError: (span: Span, error: unknown) => void = markSpanErrorType): Promise<T> {
   const span = tracer().startSpan(name, options);
   try {
     return await context.with(trace.setSpan(context.active(), span), fn, undefined, span);

@@ -91,6 +91,26 @@ describe('LongSpanRegistry', () => {
     expect(exporter.getFinishedSpans()).to.have.length(1);
   });
 
+  it('childSpan marks a failure by the error class and keeps the message off the span', async () => {
+    const { registry, exporter } = makeRegistry();
+    registry.open('txn-1', 'payment.transaction');
+    let thrown: unknown;
+    try {
+      await registry.childSpan('txn-1', 'tcp.command', { command: 'refill' }, async () => {
+        throw new RangeError('secret-binding-42');
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    registry.close('txn-1', 'ok');
+    expect((thrown as Error).message).to.eq('secret-binding-42');
+    const span = exporter.getFinishedSpans().find((s) => s.name === 'tcp.command');
+    expect(span?.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'RangeError' });
+    expect(span?.attributes['error.type']).to.eq('RangeError');
+    expect(span?.events).to.deep.eq([]);
+    expect(JSON.stringify([span?.status, span?.attributes, span?.events])).to.not.contain('secret-binding-42');
+  });
+
   it('dispose closes all remaining spans', async () => {
     const { registry, exporter } = makeRegistry();
     registry.open('txn-1', 'payment.transaction');
