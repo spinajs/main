@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf, type DecoratorInfo } from '../decorators.js';
-import { isDeclaredIn } from '../schema/framework-members.js';
+import { declaringPackage, isDeclaredIn } from '../schema/framework-members.js';
 
 const packageNames = new Map<string, string | undefined>();
 
@@ -19,11 +19,14 @@ function packageNameOf(dir: string): string | undefined {
 
 const programPackages = new WeakMap<ts.Program, Set<string | undefined>>();
 
-/** A file of the program belongs to `packageName`. Without one, no symbol can resolve to that package, under any alias or re-export. */
+/**
+ * A file of the program belongs to `packageName`. Without one, no symbol can resolve to that package, under any alias or
+ * re-export. Both resolvers count, so the gate is never stricter than the `isDeclaredIn` checks it guards.
+ */
 export function programDeclares(program: ts.Program, packageName: string): boolean {
   let names = programPackages.get(program);
   if (!names) {
-    names = new Set(program.getSourceFiles().map((f) => packageNameOf(dirname(f.fileName))));
+    names = new Set(program.getSourceFiles().flatMap((f) => [packageNameOf(dirname(f.fileName)), declaringPackage(f)]));
     programPackages.set(program, names);
   }
   return names.has(packageName);

@@ -1,7 +1,9 @@
 import { expect } from 'chai';
 import { mergeFragments, type ControllerEntry, type Manifest, type ManifestFragment, type MiddlewareRef, type RouteEntry } from '@spinajs/manifest';
-import type ts from 'typescript';
+import ts from 'typescript';
 import { analyzePackage, createContext, createProgramFromTsconfig } from '../../src/index.js';
+import { programDeclares } from '../../src/extractors/decorator-origin.js';
+import { isDeclaredIn } from '../../src/schema/framework-members.js';
 import { escapesIn } from '../../src/extractors/tenancy-escapes.js';
 import { tenantModelsOf } from '../../src/extractors/tenant-models.js';
 import { tenancySectionOf } from '../../src/extractors/tenancy.js';
@@ -273,5 +275,12 @@ describe('tenancy walks of a program without a tenancy package', () => {
   it('resolve no call, decorator or registration', async () => {
     expect(await lookups('authz-pkg')).to.equal(0);
     expect(await lookups('tenancy-pkg')).to.be.greaterThan(0);
+  });
+
+  it('count a package whose files sit under a nameless nested package.json, as isDeclaredIn does', () => {
+    const program = ts.createProgram(['test/fixtures/nested-marker/esm/index.d.ts'], { noLib: true, types: [] });
+    const [file] = program.getSourceFiles();
+    expect(isDeclaredIn(file, '@spinajs/tenancy-http')).to.equal(true);
+    expect(programDeclares(program, '@spinajs/tenancy-http')).to.equal(true);
   });
 });
