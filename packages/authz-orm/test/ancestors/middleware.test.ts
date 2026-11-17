@@ -134,6 +134,27 @@ describe('AncestorObserver', function () {
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
       });
 
+      it('an upsert the capture cannot key still rebuilds the rows it names', async () => {
+        const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT', kind: 'TEXT', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        await db.raw(`CREATE UNIQUE INDEX "ux_${db.table(Item)}" ON "${db.table(Item)}" ("code", "kind")`, [], dialect);
+        await Item.insert({ id: 'i1', code: 'k', kind: 'a', project_id: 'p1' });
+        // A target of two columns: the capture cannot read its rows and reports unknown keys.
+        const { query } = createQuery(Item, InsertQueryBuilder);
+        query.values({ id: 'i1', code: 'k', kind: 'a', project_id: 'p2' }).onDuplicate(['code', 'kind']).update(['project_id']);
+        await query;
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
+      });
+
+      it('a replace that deletes a row through a unique column forgets it as a delete does', async function () {
+        if (dialect !== 'sqlite') this.skip();
+        const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT UNIQUE', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        await Item.insert({ id: 'i1', code: 'k', project_id: 'p1' });
+        await Item.insert({ id: 'i2', code: 'k', project_id: 'p2' }, InsertBehaviour.InsertOrReplace);
+        await ticks();
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i2>org:o2@2', 'item:i2>project:p2@1']);
+        expect(forgetter.calls).to.deep.equal([{ scope: { type: 'item', id: 'i1' }, reason: 'resource-deleted', ormTx: false }]);
+      });
+
       it('a delete runs one key select, which the column changelog shares', async () => {
         await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
         const spied = driver as unknown as { execute: (this: unknown, ...args: unknown[]) => Promise<unknown> };

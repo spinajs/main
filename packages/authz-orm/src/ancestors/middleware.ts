@@ -1,7 +1,7 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, WriteObserver } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, WriteObserver, upsertKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
@@ -59,15 +59,22 @@ export class AncestorObserver extends WriteObserver {
   async observe(write: CapturedWrite): Promise<void> {
     const work = this.workOf(write.query);
     if (!work) return;
-    if (write.unknownKeys) return this.insertWithoutIds(work);
-    const refsOf = (rows: CapturedWrite['rows']): ResourceRef[] => rows.map((r) => ({ type: work.entry.type, id: r.id }));
-    if (work.kind !== 'delete') {
-      await rebuildFrom(write.driver, refsOf(write.rows));
+    const refsOf = (ids: readonly string[]): ResourceRef[] => ids.map((id) => ({ type: work.entry.type, id }));
+    if (write.unknownKeys) {
+      this.insertWithoutIds(work);
+      // An upsert still names the keys of rows it may have moved under another parent; access must not keep the old one.
+      if (write.query instanceof InsertQueryBuilder) await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
       return;
     }
-    const deleted = refsOf(write.rows.filter((r) => r.after === undefined));
-    await removeNodes(write.driver, deleted);
-    await cleanupDeleted(write.driver, deleted);
+    if (work.kind === 'update') {
+      await rebuildFrom(write.driver, refsOf(write.rows.map((r) => r.id)));
+      return;
+    }
+    if (work.kind === 'insert') await rebuildFrom(write.driver, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
+    // A delete, or the rows a replace deleted through a unique column.
+    const gone = refsOf(write.rows.filter((r) => r.after === undefined).map((r) => r.id));
+    await removeNodes(write.driver, gone);
+    await cleanupDeleted(write.driver, gone);
   }
 
   private workOf(query: QueryBuilder): Work | undefined {
@@ -75,10 +82,10 @@ export class AncestorObserver extends WriteObserver {
     return this.work.get(query) ?? undefined;
   }
 
-  /** An insert whose ids the driver did not report: its new rows cannot be placed in the table. */
+  /** An insert whose ids the driver did not report, or an upsert whose rows the capture could not find. */
   private insertWithoutIds(work: Work): void {
     if (this.warned.has(work.model)) return;
     this.warned.add(work.model);
-    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the ids it wrote, so their authz_resource_ancestor rows are missing (access only narrows); insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${resourceType}');
+    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the rows it wrote, so authz_resource_ancestor may miss them, or keep the old parent of a row an upsert moved without naming its key; insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${resourceType}');
   }
 }
