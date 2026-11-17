@@ -7,9 +7,10 @@ import { StudioDiController } from './Di.js';
 import { StudioExplainController } from './Explain.js';
 import { StudioLogsController } from './Logs.js';
 import { StudioRebacController } from './Rebac.js';
+import { StudioRoutesController } from './Routes.js';
 import { StudioTracesController } from './Traces.js';
 
 /** Mount order is route order: the UI catch-all (sv-08) stays last, after every API route. */
-export const STUDIO_CONTROLLERS: Class<BaseController>[] = [StudioCapabilitiesController, StudioTracesController, StudioLogsController, StudioDiController, StudioAuthzController, StudioExplainController, StudioRebacController];
+export const STUDIO_CONTROLLERS: Class<BaseController>[] = [StudioCapabilitiesController, StudioTracesController, StudioLogsController, StudioDiController, StudioAuthzController, StudioExplainController, StudioRebacController, StudioRoutesController];
 
-export { StudioAuthzController, StudioCapabilitiesController, StudioDiController, StudioExplainController, StudioLogsController, StudioRebacController, StudioTracesController };
+export { StudioAuthzController, StudioCapabilitiesController, StudioDiController, StudioExplainController, StudioLogsController, StudioRebacController, StudioRoutesController, StudioTracesController };

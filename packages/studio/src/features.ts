@@ -26,6 +26,7 @@ const probes = new Map<StudioFeature, FeatureProbe>([
     return Array.isArray(targets) && targets.some((t: unknown) => typeof t === 'object' && t !== null && 'type' in t && t.type === 'StudioLogTarget');
   }],
   ['di', () => true],
+  ['routes', () => true],
   ['authz', (c) => c.hasRegistered(AuthzDomains)],
   // The keys and functions StudioControllerSource reads, so the feature says whether the route is mounted.
   ['explain', (c) => {
