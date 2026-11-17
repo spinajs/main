@@ -18,9 +18,9 @@ import { auditStore } from './stores.js';
 import { StoreAuditTrail } from './trail.js';
 import { deferredConfig, trailConfig } from './trails.js';
 
-// Confirmed and deferred writes run in this scope, outside the caller's async context, unless the store joins the
-// caller (AuditStore.joinsCaller) on a confirmed write. Joined to the caller's
-// transaction they would roll back with it, and a flush timer would inherit the transaction of whoever buffered first.
+// Confirmed and deferred writes run in this scope, outside the caller's async context: there they would roll back with
+// the caller's transaction, and a flush timer would inherit the transaction of whoever buffered first. A store that
+// answers AuditStore.joinsCaller true for a confirmed write accepts that rollback as the cost of joining.
 const DETACHED = new AsyncResource('spinajs.audit');
 
 interface Pending {
@@ -89,6 +89,7 @@ const BLOCKED = 'audit: trail ${trail} is blocked behind an append that has not 
 const UNORDERED = 'audit: trail ${trail} was blocked for ${blockedMs} ms and writes again; its events may now be stored out of order relative to the held append';
 const STORED_LATE = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
 const FAILED_LATE = 'audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}';
+const UNKNOWN_JOIN = 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached';
 
 const warn = (text: string): void => process.emitWarning(text, 'AuditWarning');
 const idsOf = (events: readonly AuditEvent[]): string =>
@@ -147,6 +148,7 @@ export class DefaultAuditService extends AuditService {
   // Events dropped in the current overflow of the buffer.
   private dropped = 0;
   private disposed = false;
+  private joinUnknownLogged = false;
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
     const trail = trailConfig(options.trail, this.Container);
@@ -161,8 +163,8 @@ export class DefaultAuditService extends AuditService {
     if (mode === 'transactional') return this.joined(store, trail, events, options.transaction);
     if (mode === 'deferred') return this.defer(trail, store, events, options.connection);
     // Asked here, still in the caller's async context, which a joined write keeps.
-    const joined = store.joinsCaller?.(trail, options.connection) === true;
-    await this.confirm(store, trail, events, onFailure, options.connection, joined);
+    if (this.joinsCaller(store, trail, options.connection)) return this.withCaller(store, trail, events, onFailure, options.connection);
+    await this.confirm(store, trail, events, onFailure, options.connection);
   }
 
   trail(name?: string): AuditTrail {
@@ -296,11 +298,33 @@ export class DefaultAuditService extends AuditService {
     );
   }
 
-  private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined, joined: boolean): Promise<void> {
+  private joinsCaller(store: AuditStore, trail: TrailConfig, connection: string | undefined): boolean {
+    try {
+      return store.joinsCaller?.(trail, connection) === true;
+    } catch (err) {
+      if (err instanceof AuditConfigError) throw err;
+      if (!this.joinUnknownLogged) this.report('warn', { error: err, trail: trail.name }, UNKNOWN_JOIN);
+      this.joinUnknownLogged = true;
+      return false;
+    }
+  }
+
+  // A statement of the caller's transaction: it settles with it, so no deadline may abandon it to land later, and it is
+  // tried once, as after a failure on Postgres no second statement in that transaction could succeed.
+  private async withCaller(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined): Promise<void> {
+    try {
+      await store.append({ trail, events, connection });
+    } catch (err) {
+      if (err instanceof AuditConfigError) throw err;
+      if (onFailure === 'continue') return this.lost(trail, events, err);
+      throw new AuditWriteFailed(`audit: trail ${quoted(trail.name)} could not record ${events.length} event(s) after 1 attempt(s)`, err);
+    }
+  }
+
+  private async confirm(store: AuditStore, trail: TrailConfig, events: readonly AuditEvent[], onFailure: 'continue' | 'reject', connection: string | undefined): Promise<void> {
     const limit = deadline(confirmTimeoutMs(this.Container), 'confirmed');
     const flight = { appending: false };
-    const run = (): Promise<void> => this.attempt(store, trail, events, connection, limit.signal, flight);
-    const work = joined ? run() : DETACHED.runInAsyncScope(run);
+    const work = DETACHED.runInAsyncScope(() => this.attempt(store, trail, events, connection, limit.signal, flight));
     try {
       await Promise.race([work, limit.expired]);
     } catch (err) {

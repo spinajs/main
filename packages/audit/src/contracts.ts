@@ -99,8 +99,11 @@ export abstract class AuditStore {
   /** True when an append that is handed a transaction commits and rolls back with it; a transactional write is refused on a store without it. */
   readonly joinsTransaction?: boolean;
   /**
-   * Asked synchronously in the caller's async context before a confirmed write; true appends there instead of detached.
-   * The cost of joining: the record then commits or rolls back with the caller's open transaction.
+   * Asked synchronously in the caller's async context before a confirmed write; true appends there instead of detached,
+   * once, without retries and without `audit.confirmTimeoutMs`. The cost of joining: the record then commits or rolls back
+   * with the caller's open transaction. A store answering true must leave that transaction usable when its append fails
+   * (a savepoint where the driver aborts a transaction on error, as Postgres does), or answer false there. Throwing an
+   * `AuditConfigError` fails the write; any other throw reads as false.
    */
   joinsCaller?(trail: TrailConfig, connection: string | undefined): boolean;
   /** Throwing fails the write; the service applies retry and onFailure around it. */

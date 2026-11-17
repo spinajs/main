@@ -61,6 +61,13 @@ class SlowStore extends MemoryAuditStore {
   }
 }
 
+class AskFailsStore extends MemoryAuditStore {
+  static failure: unknown = new Error('cannot tell');
+  override joinsCaller(): boolean {
+    throw AskFailsStore.failure;
+  }
+}
+
 class MisconfiguredStore extends MemoryAuditStore {
   static calls = 0;
   override append(): Promise<void> {
@@ -79,6 +86,7 @@ const TRAILS = {
   misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
   misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
+  askFails: { store: 'AskFailsStore' },
   orphan: { store: 'NoSuchStore' },
 };
 
@@ -103,7 +111,7 @@ const boot = (deferred: Record<string, unknown> = {}, audit: Record<string, unkn
   createTestApp({
     config: { logger: SILENT, audit: { deferred: { flushMs: 20, ...deferred }, trails: TRAILS, ...audit } },
     register: (container) => {
-      for (const store of [ProbeStore, FlakyStore, SlowStore, MisconfiguredStore]) container.register(store).as(AuditStore);
+      for (const store of [ProbeStore, FlakyStore, SlowStore, MisconfiguredStore, AskFailsStore]) container.register(store).as(AuditStore);
     },
   });
 
@@ -266,6 +274,27 @@ describe('audit().record', function () {
     expect(ProbeStore.asked).to.eq(2);
   });
 
+  it('tries a write that joins the caller once: a reject trail rejects, a continue trail logs the loss', async () => {
+    const lines = pipelineLog(app.container);
+    MemoryAuditStore.joinCaller(true);
+    FlakyStore.down = true;
+    await expect(audit().record(actions('a'), { trail: 'twice' })).to.be.rejectedWith(AuditWriteFailed, 'audit: trail "twice" could not record 1 event(s) after 1 attempt(s)');
+    await audit().record(actions('b'), { trail: 'flaky', mode: 'confirmed' });
+    expect(FlakyStore.calls).to.eq(2);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'flaky', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
+  });
+
+  it('writes detached when joinsCaller throws, and says so once; a configuration error it raises fails the write', async () => {
+    const lines = pipelineLog(app.container);
+    await audit().record(actions('a'), { trail: 'askFails', mode: 'confirmed' });
+    await audit().record(actions('b'), { trail: 'askFails', mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b']);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['warn', 'askFails', 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached']]);
+    AskFailsStore.failure = new AuditConfigError('audit: no ORM connection "nope"');
+    await expect(audit().record(actions('c'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    AskFailsStore.failure = new Error('cannot tell');
+  });
+
   it('refuses a misconfiguration at the call', async () => {
     const input = { kind: 'action', action: 'x' } as const;
     await expect(audit().record(input, { trail: 'nope' })).to.be.rejectedWith(AuditConfigError, 'audit: no trail named "nope"');
@@ -312,6 +341,23 @@ describe('audit(): confirmed deadline', function () {
     await pause(20);
     expect(lines.slice(1).map((l) => l.message)).to.deep.eq(['audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}', 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}']);
     expect(SlowStore.calls).to.eq(2);
+  });
+
+  it('gives a write that joins the caller no deadline: it settles with the caller', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    MemoryAuditStore.joinCaller(true);
+    SlowStore.holds = 1;
+    let settled = false;
+    const write = audit()
+      .record(actions('a'), { trail: 'slowStrict' })
+      .finally(() => (settled = true));
+    await pause(100);
+    expect(settled).to.eq(false);
+    SlowStore.held[0].release();
+    await write;
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a']);
+    expect(lines).to.deep.eq([]);
   });
 });
 
