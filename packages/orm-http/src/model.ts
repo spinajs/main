@@ -5,6 +5,14 @@ import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOp
 /** Bound to each model class by the orm, so `this` is the class. */
 const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
 
+function descriptorOf(model: typeof ModelBase): IModelDescriptor {
+  const descriptor = model.getModelDescriptor();
+  if (!descriptor) {
+    throw new OrmException(`Model ${model.name} has no descriptor`);
+  }
+  return descriptor;
+}
+
 export const MODEL_STATIC_MIXINS = staticMixins({
   async filter(filterRequest?: IFilterRequest) {
     const { query } = createQuery(this, SelectQueryBuilder);
@@ -44,6 +52,19 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     }
 
     return modelFilterSchema(modelDescriptor);
+  },
+
+  sortableColumns(): string[] {
+    const modelDescriptor = descriptorOf(this);
+
+    if (modelDescriptor.SortableColumns && modelDescriptor.SortableColumns.size > 0) {
+      return [...modelDescriptor.SortableColumns];
+    }
+
+    return [...(modelDescriptor.FilterableColumns?.keys() ?? [])].filter((name) => {
+      const column = modelDescriptor.Columns.find((c) => c.Name === name);
+      return !name.includes('.') && !!column && !column.Virtual && !modelDescriptor.Relations?.has(name);
+    });
   },
 });
 

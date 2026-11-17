@@ -6,6 +6,9 @@ declare module '@spinajs/orm' {
      * If set column is fitlerable by this operators
      */
     FilterableColumns?: Map<string, IColumnFilter<unknown>>;
+
+    /** Columns a list may be sorted by; absent means the filterable table columns. */
+    SortableColumns?: Set<string>;
   }
 
   export interface ISelectQueryBuilder {
@@ -30,6 +33,9 @@ declare module '@spinajs/orm' {
     export function filterSchema(): any;
 
     export function filterColumns(): IColumnFilter<unknown>[];
+
+    /** Columns a request may sort a list of this model by. */
+    export function sortableColumns(): string[];
 
     /**
      *
