@@ -70,6 +70,11 @@ export interface WorkflowEvent<T = unknown> {
   receivedAt: number;
 }
 
+export interface WorkflowAllOptions {
+  /** How many branches run at a time; all of them when absent. An item keeps the branch of its index either way. */
+  concurrency?: number;
+}
+
 export interface WorkflowContext<TInput = unknown> {
   readonly instanceId: string;
   readonly workflow: string;
@@ -83,6 +88,14 @@ export interface WorkflowContext<TInput = unknown> {
   /** Consumes the oldest pending event of `name` in insert order; `undefined` on timeout. */
   waitForEvent<T = unknown>(name: string, opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined>;
   emit(name: string, message: QueueEvent | QueueJob): Promise<void>;
+  /** Runs `fn` in a branch of its own, named by `name`: its durable calls are counted apart, whatever `fn` awaits first. Writes no journal row. */
+  branch<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * One branch per item, named by its index, with the results in item order. Use it instead of
+   * `Promise.all(items.map(...))` when a branch may await non-durable work before its first durable call, and
+   * instead of a concurrency limiter.
+   */
+  all<T, R>(items: readonly T[], fn: (item: T, index: number) => Promise<R> | R, opts?: WorkflowAllOptions): Promise<R[]>;
   now(): number;
   uuid(): string;
   random(): number;

@@ -5,7 +5,7 @@ import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/except
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 import { v5 as uuidv5 } from 'uuid';
-import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
+import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowAllOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowCompensationTimeout, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
@@ -237,6 +237,37 @@ export class ActivationContext implements WorkflowContext {
 
   public emit(_name: string, _message: QueueEvent | QueueJob): Promise<void> {
     return Promise.reject(new NotSupported('ctx.emit()'));
+  }
+
+  public branch<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
+    const problem = identifierProblem(name, MAX_NAME);
+    if (problem) return Promise.reject(new InvalidArgument(`branch name ${problem}, got ${JSON.stringify(name.slice(0, 40))}`));
+    // async, so a synchronous throw of fn rejects like any other failure of the branch
+    return this.lineage.fork(name, async (): Promise<T> => fn());
+  }
+
+  public all<T, R>(items: readonly T[], fn: (item: T, index: number) => Promise<R> | R, opts: WorkflowAllOptions = {}): Promise<R[]> {
+    const { concurrency } = opts;
+    if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1)) return Promise.reject(new InvalidArgument(`ctx.all concurrency must be an integer >= 1, got ${String(concurrency)}`));
+    // Named now, in the caller's turn: a branch started later runs where another branch has just finished.
+    const branches = items.map((_, index) => this.lineage.open(`all:${index}`));
+    const results = new Array<R>(items.length);
+    let started = 0;
+    let failed = false;
+    const worker = async (): Promise<void> => {
+      while (!failed && started < items.length) {
+        const index = started++;
+        try {
+          await this.lineage.within(branches[index], async (): Promise<void> => {
+            results[index] = await fn(items[index], index);
+          });
+        } catch (err) {
+          failed = true;
+          throw err;
+        }
+      }
+    };
+    return Promise.all(Array.from({ length: Math.min(concurrency ?? items.length, items.length) }, worker)).then(() => results);
   }
 
   public now(): number {
