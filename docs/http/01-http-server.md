@@ -72,7 +72,6 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.maintenance.*` | object | `enabled: false`, `retryAfter: 60`, `allow: []` | | 503 answers during maintenance; see [Maintenance mode](27-maintenance-mode.md). |
 | `http.concurrency.*` | object | `enabled: false`, `max: 500`, `retryAfter: 1` | | Load shedding over a cap of requests in flight; see [Concurrency limit](28-concurrency-limit.md). |
 | `http.deadline.*` | object | `enabled: false`, `ms: 30000` | | A deadline for every request, 504 when nothing was sent by it; see [Request deadlines](29-request-deadlines.md). |
-| `http.audit.*` | object | `redact: ['password', 'token', 'secret', 'authorization', 'cookie', 'card']`, `includeBody: true`, `maxBodyBytes: 16384` | | The `Audit` route middleware: methods, redacted keys, body; see [Audit](30-audit.md#configuration). |
 
 The default `http.middlewares` hold one handler:
 

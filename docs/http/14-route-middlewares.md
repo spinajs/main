@@ -348,7 +348,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The `Audit` middleware of `@spinajs/audit-http` uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 
@@ -575,12 +575,6 @@ The route documentation says so too:
 
 - The compiler records `@Deprecated` on a route or a controller in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the OpenAPI document `@spinajs/openapi` generates from the manifest marks the operation `deprecated: true`. It does not see a `DeprecationMiddleware` mounted with `@Middleware`, nor the inherited routes of a `@Deprecated` subclass.
 - At runtime both controller metadata providers (`ManifestControllerMetadata` and `CacheControllerMetadata`, which http-swagger reads) mark every route whose own or controller middlewares include a `DeprecationMiddleware`, however it was mounted and inherited ones included, through `withDeprecatedRoutes(controller, documentation)`.
-## Built-in: `Audit`
-
-`Audit` records each request of a route, with its body and query redacted, its status, error, principal and time, and
-writes the record to an `AuditSink` once the response finished; the default sink logs it on the `audit` logger. Mount it
-with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`. See [Audit](30-audit.md).
-
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
@@ -629,7 +623,7 @@ public async onBefore({ req }: IMiddlewareContext) {
 
 ### Audit every write to an admin controller
 
-The shipped [`Audit`](30-audit.md) middleware does this with redaction and a pluggable sink; this hand-written one shows the hooks.
+The `Audit` middleware of `@spinajs/audit-http` does this with redaction and an audit trail; this hand-written one shows the hooks.
 
 ```ts sample
 import { Log, Logger } from '@spinajs/log';
