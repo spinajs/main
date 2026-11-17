@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [scheduler, idempotency]
+        suite: [scheduler, idempotency, outbox]
         shard: [0, 1, 2, 3]
 
     steps:
