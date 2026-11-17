@@ -138,9 +138,14 @@ export function tenantModelOfTable(table: string): TenantModelEntry | undefined 
   return undefined;
 }
 
-/** Every registered tenant model, in registration order. */
+/**
+ * One entry per model of the ORM that is, or descends from, a tenant model, with its own table; an abstract base has
+ * none. Before the Orm has registered its models: the registered classes that map a table.
+ */
 export function tenantModels(): TenantModelEntry[] {
-  return [...registrations.keys()].map((registered) => entryOf(registered));
+  const orm = DI.get(Orm);
+  const models: unknown[] = orm ? orm.Models.map((m): unknown => m.type) : [...registrations.keys()];
+  return models.filter((model) => tableOf(model) !== undefined).flatMap((model) => tenantModelOf(model) ?? []);
 }
 
 /** Test seam: forget a class's registration. */

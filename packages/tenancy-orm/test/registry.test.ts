@@ -33,7 +33,13 @@ describe('tenant model registry', function () {
     expect(tenantModelOfTable('invoice_line')?.model).to.eq(InvoiceLine);
     expect(tenantModelOfTable('carrier')).to.eq(undefined);
     expect(tenantModelOf(Special)?.model).to.eq(Invoice);
-    expect(tenantModels().map((entry) => entry.table)).to.include.members(['invoice', 'invoice_line', 'note']);
+  });
+
+  it('lists the registered classes that map a table before the Orm has registered its models', () => {
+    const tables = tenantModels().map((entry) => entry.table);
+    expect(tables).to.include.members(['invoice', 'invoice_line', 'note']);
+    expect(tables).to.not.include('');
+    expect(tables).to.not.include('ledger');
   });
 
   it('registers a model the package does not own, once', () => {
@@ -113,6 +119,14 @@ describe('tenant model registry', function () {
       expect(tenantModelOfTable('ledger')).to.include({ model: TenantOwned, table: 'ledger', column: 'tenant_id' });
       expect(tenantModelOf(Ledger)?.table).to.eq('ledger');
       expect(tenantModelOf(Special)?.table).to.eq('invoice');
+    });
+
+    it('lists one entry per model of the ORM under a tenant model, each with its own table', () => {
+      const entries = tenantModels();
+      expect(entries.map((entry) => entry.table)).to.not.include('');
+      expect(entries.filter((entry) => entry.model === TenantOwned).map((entry) => entry.table)).to.deep.eq(['ledger']);
+      expect(entries.filter((entry) => entry.model === Note).map((entry) => entry.table).sort()).to.deep.eq(['archived_note', 'note']);
+      expect(entries.find((entry) => entry.table === 'archived_note')).to.include({ column: 'org', rls: false });
     });
 
     it('matches a table name in any letter case', () => {
