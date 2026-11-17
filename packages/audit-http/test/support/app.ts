@@ -25,6 +25,8 @@ export interface AuditAppOptions {
   /** More top-level sections, for example `idempotency`. */
   readonly sections?: Record<string, unknown>;
   readonly controllers: readonly Class<BaseController>[];
+  /** `child` boots the server in a child container of the root. */
+  readonly scope?: 'root' | 'child';
 }
 
 // Replaces the loaded configuration instead of merging into it: every @spinajs package in node_modules ships a config,
@@ -65,8 +67,11 @@ function configurationOf(options: AuditAppOptions): Class<FrameworkConfiguration
 }
 
 /** Boots a server on a free port with `controllers` and the given `audit` section. Dispose it in `after`. */
+let current: TestApp | undefined;
+
 export async function auditApp(options: AuditAppOptions): Promise<TestApp> {
   const app = await createTestApp({
+    scope: options.scope,
     configuration: configurationOf(options),
     register: (container) => {
       for (const controller of options.controllers) container.register(controller).as(BaseController);
@@ -81,11 +86,24 @@ export async function auditApp(options: AuditAppOptions): Promise<TestApp> {
     await app.dispose();
     throw error;
   }
-  return app;
+  return (current = app);
+}
+
+/** The message of the error that stops an app with these options from booting. */
+export async function bootFailure(options: AuditAppOptions): Promise<string> {
+  let app: TestApp | undefined;
+  try {
+    app = await auditApp(options);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  } finally {
+    await app?.dispose();
+  }
+  throw new Error('the app booted');
 }
 
 export function appPort(): number {
-  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  const address = (current?.container ?? DI.RootContainer).get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
   if (!address) throw new Error('no http server listening: call auditApp() first');
   return address.port;
 }
