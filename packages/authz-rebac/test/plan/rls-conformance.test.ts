@@ -1,7 +1,8 @@
+import { DefaultConditionCompiler } from '@spinajs/authz';
 import type { PermissionDef, Principal } from '@spinajs/authz';
 import { generateRls, planFilter } from '@spinajs/authz-orm';
 import type { PlanTermCompiler } from '@spinajs/authz-orm';
-import { fakeModelInitContext, rlsConformance, userPrincipal } from '@spinajs/authz-testing';
+import { fakeEvaluationContext, fakeModelInitContext, rlsConformance, userPrincipal } from '@spinajs/authz-testing';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import fc from 'fast-check';
@@ -14,6 +15,7 @@ import type { TestDb } from '../support/db.js';
 import { ref, set, tuple, user } from '../support/world.js';
 
 const DOCS = 'rls_conf_doc';
+const CDOCS = 'rls_conf_cdoc';
 const BENCH = 'rls_bench_doc';
 const ROLE = `spina_rls_rebac_${process.pid}`;
 
@@ -24,6 +26,9 @@ const NAMESPACES: NamespaceConfig = {
   doc: { relations: { parent: ['folder'], owner: ['user'], viewer: ['user', 'group#member'] }, permissions: { read: { union: ['owner', 'viewer', 'parent->view'] } } },
 };
 const PERMISSIONS = { 'doc:read': 'doc#read' };
+/** doc#viewer also admits `user with c_ip`: RLS cannot evaluate it, so `rls: 'partial'` widens doc:read. */
+const CONDITIONAL: NamespaceConfig = { ...NAMESPACES, doc: { ...NAMESPACES.doc, relations: { ...NAMESPACES.doc.relations, viewer: ['user', 'group#member', 'user with c_ip'] } } };
+const CAVEATS = { c_ip: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: 'a' } } } as const;
 const PERMISSION_INPUTS = [{ name: 'doc:read', types: ['doc'], list: true }];
 const DOC_IDS = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
 const USERS = ['u1', 'u2', 'u3'];
@@ -41,6 +46,7 @@ const tupleArb: fc.Arbitrary<Tuple> = fc.oneof(
   fc.record({ f: fc.constantFrom('f1', 'f2', 'f3'), s: people }).map(({ f, s }) => tuple(ref('folder', f), 'viewer', s)),
   fc.record({ g: fc.constantFrom('g1', 'g2'), s: people }).map(({ g, s }) => tuple(ref('group', g), 'member', s)),
 );
+const conditionalArb: fc.Arbitrary<Tuple> = fc.oneof(tupleArb, fc.record({ d: fc.constantFrom(...DOC_IDS), s: fc.constantFrom(...USERS) }).map(({ d, s }) => ({ ...tuple(ref('doc', d), 'viewer', user(s)), caveat: { name: 'c_ip' } })));
 
 /**
  * R3 for ReBAC on Postgres: the generated `doc#read` policy, under a role RLS applies to and the session keys of
@@ -50,6 +56,7 @@ describe('RLS conformance: ReBAC (postgres)', function () {
   this.timeout(600_000);
   let db: TestDb;
   let model: RebacModel;
+  let conditional: RebacModel;
   const compilers = new Map<string, PlanTermCompiler>([
     ['rebac.tuples', new RebacTuplesTerm()],
     ['rebac.rls', new RebacRlsTerm()],
@@ -60,7 +67,9 @@ describe('RLS conformance: ReBAC (postgres)', function () {
     // maxDepth 4 keeps a world's three policy reads near a second; the RLS_BENCH case measures the default 8.
     model = new RebacModel({ store: new DbTupleStore(), namespaces: NAMESPACES, permissions: PERMISSIONS, limit: { maxDepth: Number(process.env.RLS_MAX_DEPTH ?? 4), maxCalls: 10_000 } });
     await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name }));
-    for (const table of [DOCS, BENCH]) {
+    conditional = new RebacModel({ store: new DbTupleStore(), namespaces: CONDITIONAL, permissions: PERMISSIONS, caveats: CAVEATS, limit: { maxDepth: 4, maxCalls: 10_000 } });
+    await conditional.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: conditional.name }));
+    for (const table of [DOCS, BENCH, CDOCS]) {
       await db.driver.schema().createTable(table, (t) => {
         t.string('id', 64).primaryKey();
       });
@@ -69,18 +78,23 @@ describe('RLS conformance: ReBAC (postgres)', function () {
       .insert()
       .into(DOCS)
       .values(DOC_IDS.map((id) => ({ id })));
+    await db.driver
+      .insert()
+      .into(CDOCS)
+      .values(DOC_IDS.map((id) => ({ id })));
     const registry = { get: (name: string) => (name === 'doc:read' ? ({ name, resource: 'doc', action: 'read', types: ['doc'], list: true, source: 'test' } as PermissionDef) : undefined) };
-    for (const table of [DOCS, BENCH]) {
-      const resource = { type: 'doc', table, idColumn: 'id', relations: () => undefined, ancestorTable: 'authz_resource_ancestor', mode: true as const };
-      const out = await generateRls({ models: [model], permissions: registry, resources: [resource], sources: new Map([['rebac', new RebacRlsPlanSource()]]), compilers });
+    for (const table of [DOCS, BENCH, CDOCS]) {
+      const resource = { type: 'doc', table, idColumn: 'id', relations: () => undefined, ancestorTable: 'authz_resource_ancestor', mode: table === CDOCS ? ('partial' as const) : (true as const) };
+      const out = await generateRls({ models: [table === CDOCS ? conditional : model], permissions: registry, resources: [resource], sources: new Map([['rebac', new RebacRlsPlanSource()]]), compilers });
       // doc:update and doc:delete are not in this fixture: their policies match no row.
-      if (out.diagnostics.some((d) => d.permission === 'doc:read')) throw new Error(JSON.stringify(out.diagnostics));
+      const read = out.diagnostics.filter((d) => d.permission === 'doc:read').map((d) => d.code);
+      if (read.join() !== (table === CDOCS ? 'AUTHZ021' : '')) throw new Error(JSON.stringify(out.diagnostics));
       for (const sql of out.up) await rawQuery(db.driver, sql);
     }
     await rawQuery(db.driver, `DROP ROLE IF EXISTS "${ROLE}"`);
     await rawQuery(db.driver, `CREATE ROLE "${ROLE}" NOLOGIN`);
     await rawQuery(db.driver, `GRANT USAGE ON SCHEMA public TO "${ROLE}"`);
-    await rawQuery(db.driver, `GRANT SELECT ON "${DOCS}", "${BENCH}", "${AUTHZ_REBAC_TUPLE_TABLE}" TO "${ROLE}"`);
+    await rawQuery(db.driver, `GRANT SELECT ON "${DOCS}", "${BENCH}", "${CDOCS}", "${AUTHZ_REBAC_TUPLE_TABLE}" TO "${ROLE}"`);
   });
 
   after(async () => {
@@ -94,19 +108,21 @@ describe('RLS conformance: ReBAC (postgres)', function () {
     await rawQuery(db.driver, `DELETE FROM "${AUTHZ_REBAC_TUPLE_TABLE}"`);
     await new DbTupleStore().write(tuples, [], user('admin'));
     model.invalidate(['rebac']);
+    conditional.invalidate(['rebac']);
   }
 
   const ids = (rows: { id: unknown }[]): string[] => rows.map((r) => String(r.id)).sort();
 
-  async function accessible(principal: Principal): Promise<readonly string[]> {
-    const plan = await model.listPlan({ principal, permission: { name: 'doc:read' } as PermissionDef, type: 'doc' }, {} as never);
+  async function accessible(principal: Principal, m: RebacModel = model, table = DOCS): Promise<readonly string[]> {
+    const ctx = fakeEvaluationContext({ permissions: PERMISSION_INPUTS, conditions: new DefaultConditionCompiler() });
+    const plan = await m.listPlan({ principal, permission: { name: 'doc:read' } as PermissionDef, type: 'doc', env: { ip: 'a' } }, ctx);
     if (plan.kind !== 'terms') return [];
     const filter = planFilter({ kind: 'filter', permit: plan.permit, deny: plan.deny }, { type: 'doc', id: Wrapper.Text('id'), relation: () => undefined, ancestorTable: 'authz_resource_ancestor', now: () => db.driver.now(), from: (table, alias) => db.driver.select<unknown>().from(table, alias) }, compilers);
     if (filter.kind !== 'where') return filter.kind === 'all' ? [...DOC_IDS] : [];
     const rows = await db.driver
       .select()
       .select('id')
-      .from(DOCS)
+      .from(table)
       .where(function (this: IWhereBuilder<unknown>) {
         filter.apply(this);
       })
@@ -114,8 +130,8 @@ describe('RLS conformance: ReBAC (postgres)', function () {
     return ids(rows);
   }
 
-  async function asRole<T>(principal: Principal, sql: string): Promise<T> {
-    const keys = await new RebacRlsSubjectKeys().keys(model, principal);
+  async function asRole<T>(principal: Principal, sql: string, m: RebacModel = model): Promise<T> {
+    const keys = await new RebacRlsSubjectKeys().keys(m, principal);
     return db.driver.transaction(async () => {
       await rawQuery(db.driver, `SET LOCAL ROLE "${ROLE}"`);
       await rawQuery(db.driver, "SELECT set_config('spina.subject_keys', ?, true)", [JSON.stringify(keys)]);
@@ -123,15 +139,27 @@ describe('RLS conformance: ReBAC (postgres)', function () {
     });
   }
 
-  const rls = async (principal: Principal): Promise<readonly string[]> => ids(await asRole<{ id: unknown }[]>(principal, `SELECT id FROM "${DOCS}"`));
+  const rls = async (principal: Principal, m: RebacModel = model, table = DOCS): Promise<readonly string[]> => ids(await asRole<{ id: unknown }[]>(principal, `SELECT id FROM "${table}"`, m));
 
   it('shows each principal the rows .accessible() lists, on random tuples', async () => {
     await rlsConformance<readonly Tuple[]>({
       world: fc.uniqueArray(tupleArb, { maxLength: 14, selector: (t) => JSON.stringify(t) }),
       load,
       comparisons: () => USERS.map((id) => ({ principal: userPrincipal(id), permission: 'doc:read' })),
-      accessible,
-      rls,
+      accessible: (p) => accessible(p),
+      rls: (p) => rls(p),
+      numRuns: Number(process.env.RLS_CONFORMANCE_RUNS ?? 30),
+    });
+  });
+
+  it("widens a permission that reaches a conditional relation to TRUE under rls: 'partial', a superset of .accessible()", async () => {
+    await rlsConformance<readonly Tuple[]>({
+      world: fc.uniqueArray(conditionalArb, { maxLength: 14, selector: (t) => JSON.stringify([t.object, t.relation, t.subject]) }),
+      load,
+      comparisons: () => USERS.map((id) => ({ principal: userPrincipal(id), permission: 'doc:read' })),
+      accessible: (p) => accessible(p, conditional, CDOCS),
+      rls: (p) => rls(p, conditional, CDOCS),
+      expectation: () => 'superset',
       numRuns: Number(process.env.RLS_CONFORMANCE_RUNS ?? 30),
     });
   });

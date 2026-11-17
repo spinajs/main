@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthorizationModel, PermissionDef } from '@spinajs/authz';
+import { generateRls } from '@spinajs/authz-orm';
 import type { PlanRow, RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { userPrincipal } from '@spinajs/authz-testing';
 import { Wrapper } from '@spinajs/orm';
@@ -9,6 +10,7 @@ import 'mocha';
 
 import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, parseRebacRlsExpr, rebacRlsExpr } from '../../src/index.js';
 import type { RebacRlsExpr } from '../../src/index.js';
+import { caveatModel } from '../support/caveat-world.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { TUPLES, ref, setup, tuple, user } from '../support/world.js';
@@ -109,14 +111,28 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
   it('follows no conditional tuple, neither a relation tuple nor an arrow', async () => {
     const sql = new RebacRlsTerm().renderSql({ any: [{ tuples: 'viewer' }, { arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' } } }] }, ctxFor(['user:x']));
     expect(sql.match(/\.caveat_key IS NULL/g)).to.have.length(3);
-    const conditional = [{ ...tuple(d4, 'viewer', user('xavier')), caveat: { name: 'c' } }];
+    const conditional = [{ ...tuple(d4, 'viewer', user('xavier')), caveat: { name: 'c' } }, { ...tuple(d4, 'parent', { type: 'folder', id: 'f1' }), caveat: { name: 'c' } }];
     const store = new DbTupleStore();
     await store.write(conditional, [], user('admin'));
     try {
       expect(await rlsRows('xavier')).to.deep.equal([]);
+      // frank views f1: only the unconditional parent tuple of d2 leads to it.
+      expect(await rlsRows('frank')).to.deep.equal(['d2']);
     } finally {
       await store.write([], conditional, user('admin'));
     }
+  });
+
+  it('refuses a permission that reaches a conditional relation: AUTHZ020, or TRUE under partial', async () => {
+    const conditional = await caveatModel();
+    expect(() => new RebacRlsPlanSource().plan(conditional, def('doc:read'), 'doc')).to.throw(/conditional relation doc#viewer/);
+    const permissions = { get: (name: string) => (name === 'doc:read' ? ({ name, resource: 'doc', action: 'read', types: ['doc'], list: true, source: 'test' } as PermissionDef) : undefined) };
+    const generate = (mode: true | 'partial') => generateRls({ models: [conditional], permissions, resources: [{ type: 'doc', table: DOCS, idColumn: 'id', relations: () => undefined, ancestorTable: 'authz_resource_ancestor', mode }], sources: new Map([['rebac', new RebacRlsPlanSource()]]), compilers: new Map([['rebac.rls', new RebacRlsTerm()]]) });
+    const strict = await generate(true);
+    expect(strict.diagnostics.filter((d) => d.permission === 'doc:read').map((d) => d.code)).to.deep.equal(['AUTHZ020']);
+    const partial = await generate('partial');
+    expect(partial.diagnostics.filter((d) => d.permission === 'doc:read').map((d) => d.code)).to.deep.equal(['AUTHZ021']);
+    expect(partial.up.find((s) => s.includes('FOR SELECT'))).to.match(/USING \(TRUE\)$/);
   });
 
   it('refuses the query-builder form: .accessible() plans never hold it', () => {

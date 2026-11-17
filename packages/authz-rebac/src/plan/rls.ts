@@ -5,7 +5,7 @@ import type { RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { subjectKey } from '../keys.js';
-import { rebacHolders, rebacListSupport } from '../model/filter.js';
+import { reachFind, rebacHolders, rebacListSupport } from '../model/filter.js';
 import { RebacModel } from '../model/model.js';
 import type { CompiledRewrite, NamespaceSchema } from '../namespace/compile.js';
 import { AUTHZ_REBAC_TUPLE_TABLE } from '../stores/db.js';
@@ -152,11 +152,16 @@ export class RebacRlsPlanSource extends RlsPlanSource {
     const support = rebacListSupport(schema, permission.name, type);
     if (support !== true) throw new Error(support.reason);
     const target = schema.targets.get(permission.name)!;
+    const conditional = reachFind(schema, type, target.name, { relation: (rel) => rel.conditional.length > 0 });
+    if (conditional !== undefined) throw new Error(`rebac: ${permission.name} on ${type} reaches the conditional relation ${conditional}, whose caveats read the request; the database has no request to read`);
     return { kind: 'terms', permit: [{ op: REBAC_RLS_PLAN_OP, args: rebacRlsExpr(schema, type, target.name, m.limit().maxDepth) }], deny: [] };
   }
 }
 
-/** ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1 hops. */
+/**
+ * ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1
+ * hops. Without a request no caveat can be decided, so a conditional membership gives no key.
+ */
 @Singleton()
 @Injectable(RlsSubjectKeys)
 export class RebacRlsSubjectKeys extends RlsSubjectKeys {
