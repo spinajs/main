@@ -178,8 +178,9 @@ describe('zod parity with the server', function () {
             let thinnest = Number.POSITIVE_INFINITY;
             let saturated = 0;
             const required = subject.named ?? (variant === 'request' ? generated.ids : []);
-            // A schema the server refuses may go without a variant: it has no verdict to compare (Dunder has no Reply).
-            const absent = required.filter((id) => !zodSchemaOf(generated, id, variant) && serverRefusal(generated, id, options) === undefined);
+            // A schema the server refuses may go without a variant, as it has no verdict to compare (Dunder has no Reply), but not without the diagnostic that says so.
+            const excused = (id: string): boolean => serverRefusal(generated, id, options) !== undefined && diagnosticsFor(generated, id).length > 0;
+            const absent = required.filter((id) => !zodSchemaOf(generated, id, variant) && !excused(id));
             expect(absent, `schemas without a ${variant} export`).to.deep.equal([]);
 
             for (const id of generated.ids) {
