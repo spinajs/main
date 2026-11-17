@@ -15,6 +15,8 @@ import { registerHeaderSource } from './support/principals.js';
 
 const D = 'dec';
 const OTHER = 'dec-other';
+// Declares no authz:replay: a check of it there throws UnknownPermission.
+const BARE = 'dec-bare';
 const ID = '019a8e2c-6c1e-7a51-9f3e-2b1c4d5e6f70';
 const URL = `/authz/decisions/${ID}/explain`;
 const ENABLED = { 'authz.http.decisionsRoute': { enabled: true, permission: 'authz:replay' } };
@@ -27,7 +29,7 @@ const votes =
     if (req.permission === 'authz:explain') return req.principal.id === 'dave' ? { permitWhen: { op: 'true' } } : {};
     if (req.permission !== 'authz:replay') return {};
     if (req.principal.id === 'carol') return { permitWhen: { op: 'cmp', field: 'x', cmp: 'eq', value: 1 } };
-    return holders[domain].includes(req.principal.id) ? { permitWhen: { op: 'true' } } : {};
+    return (holders[domain] ?? []).includes(req.principal.id) ? { permitWhen: { op: 'true' } } : {};
   };
 
 const report = (over: Partial<ReplayReport> = {}, domain = D): ReplayReport => ({
@@ -65,7 +67,11 @@ const unregisterReplay = () => {
 async function boot(config: Record<string, unknown>): Promise<{ app: TestApp; domains: TestDomain[] }> {
   const app = await startApp({ config: { 'authz.http.access': { domain: D }, ...config } });
   const permissions = { 'file:read': {}, 'authz:explain': {}, 'authz:replay': {} };
-  const domains = [await createDomain(D, { permissions, model: { votes: votes(D) } }), await createDomain(OTHER, { permissions, model: { votes: votes(OTHER) } })];
+  const domains = [
+    await createDomain(D, { permissions, model: { votes: votes(D) } }),
+    await createDomain(OTHER, { permissions, model: { votes: votes(OTHER) } }),
+    await createDomain(BARE, { permissions: { 'file:read': {} }, model: { votes: votes(BARE) } }),
+  ];
   return { app, domains };
 }
 
@@ -153,6 +159,11 @@ describe('GET /authz/decisions/:id/explain', function () {
 
     answer = async () => report({}, 'no-such-domain');
     expect((await get(URL, 'erin')).status, 'a domain this node does not run').to.eq(404);
+
+    answer = async () => report({}, BARE);
+    const undeclared = await get(URL, 'erin');
+    expect(undeclared.status, 'a domain that does not declare authz:replay').to.eq(404);
+    expect(undeclared.body).to.deep.eq(unknown.body);
   });
 
   it('refuses an id that is not a UUID with 400, before any replay', async () => {

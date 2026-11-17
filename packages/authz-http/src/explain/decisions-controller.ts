@@ -91,7 +91,9 @@ export class DecisionsController extends BaseController {
   private async mayReplayIn(recordDomain: string, accessDomain: string, principal: Principal): Promise<boolean> {
     if (recordDomain === accessDomain) return true;
     if (!this.Domains.names().includes(recordDomain)) return false;
-    return (await holdsExplain(await this.Domains.service(recordDomain), principal, this.ReplayPermission)).held;
+    // A failing check (the domain does not declare the permission) is not a grant, and a 500 would confirm the id.
+    const held = await holdsExplain(await this.Domains.service(recordDomain), principal, this.ReplayPermission).catch(() => undefined);
+    return held?.held === true;
   }
 
   private async audit(domain: string, principal: Principal, report: ReplayReport): Promise<void> {
