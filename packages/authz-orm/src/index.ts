@@ -25,6 +25,9 @@ export * from './lists/index.js';
 export * from './rls/index.js';
 // `@spinajs/authz-orm/changelog`: registers DbChangeLog as the ChangeLog and the changelog migration.
 export * from './changelog/index.js';
-// Registers ColumnChangeMiddleware as a QueryMiddleware: the relation columns of access resources reach the changelog.
+// Registers ColumnChangeObserver as a WriteObserver: the relation columns of access resources reach the changelog.
 import './changelog/column-hook.js';
-export { ColumnChangeMiddleware } from './changelog/column-hook.js';
+export { ColumnChangeObserver } from './changelog/column-hook.js';
+// Registers SystemCaptureReadScope as the CaptureReadScope: the write capture's key select runs as SYSTEM.
+import './capture-scope.js';
+export { SystemCaptureReadScope } from './capture-scope.js';

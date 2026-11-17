@@ -5,10 +5,10 @@ import { ScopeForgetter, changeLog } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, ChangeRecord, ResourceRef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { QueryMiddleware } from '@spinajs/orm';
+import { WriteObserver } from '@spinajs/orm';
 import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
-import { ColumnChangeMiddleware } from '../../src/changelog/column-hook.js';
+import { ColumnChangeObserver } from '../../src/changelog/column-hook.js';
 import { AccessResource, Owner, Parent, Relation, registerAccessResource } from '../../src/index.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { TestDb } from '../support/db.js';
@@ -29,7 +29,7 @@ const D1 = { id: 'd1', folder_id: 'f1', owner_id: 'u1', editor_id: 'g1', editor_
 
 const summary = (rows: readonly ChangeRecord[]) => rows.map((r) => [r.op, r.key, (r.payload as { old: unknown }).old, (r.payload as { new: unknown }).new]);
 
-describe('ColumnChangeMiddleware', function () {
+describe('ColumnChangeObserver', function () {
   this.timeout(60000);
   let db: TestDb;
   let pg = false;
@@ -54,9 +54,9 @@ describe('ColumnChangeMiddleware', function () {
     await testHost.resetRoot();
   });
 
-  it('is a QueryMiddleware at order 91 and makes the column kind covered', () => {
-    expect(DI.getRegisteredTypes(QueryMiddleware)).to.include(ColumnChangeMiddleware);
-    expect(new ColumnChangeMiddleware().order).to.equal(91);
+  it('is a WriteObserver and makes the column kind covered', async () => {
+    expect(DI.getRegisteredTypes(WriteObserver)).to.include(ColumnChangeObserver);
+    expect(await import('../../src/index.js')).to.not.have.property('ColumnChangeMiddleware');
     expect(changeLog().covers('column')).to.equal(true);
   });
 
