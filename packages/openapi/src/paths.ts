@@ -2,6 +2,7 @@ import { servedPath, withRoutePrefix } from '@spinajs/manifest';
 import type { ControllerEntry, Manifest, ParamEntry, ParamWire, RouteEntry } from '@spinajs/manifest';
 import type { OpenAPIV3_1 } from 'openapi-types';
 import type { ComponentRegistry } from './components.js';
+import { idempotencyParameter } from './idempotency.js';
 import { buildResponses } from './responses.js';
 import { applyAccess } from './security.js';
 
@@ -9,10 +10,11 @@ type Location = 'query' | 'path' | 'header' | 'cookie';
 type Schema = Record<string, unknown>;
 
 // openapi-types' V3_1 object types do not compose with each other (a V3_1 schema is rejected as a V3_1 parameter schema), so the pieces are typed locally.
-interface Parameter {
+export interface Parameter {
   name: string;
   in: Location;
   required: boolean;
+  description?: string;
   schema?: Schema;
   content?: Record<string, { schema: Schema }>;
   style?: 'form';
@@ -180,6 +182,7 @@ function buildRequest(scope: RequestScope): { parameters: Parameter[]; requestBo
       addMultipartParam(multipart, param, wire, scope.registry);
     }
   }
+  if (scope.route.idempotency) addParameters(parameters, [idempotencyParameter(scope.route.idempotency.required)]);
   for (const [, name] of scope.path.matchAll(/\{([^}]+)\}/g)) {
     addParameters(parameters, [{ name, in: 'path', required: true, schema: { type: 'string' } }]);
   }

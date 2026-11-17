@@ -184,6 +184,11 @@ describe('Swagger middleware responses', function () {
     expect(operation.requestBody).to.be.undefined;
   });
 
+  it('adds the request headers a middleware reads as header parameters', () => {
+    const operation = spec.paths['/keyed/create'].post;
+    expect(operation.parameters).to.deep.include({ name: 'X-Key', in: 'header', required: true, description: 'A key', schema: { type: 'string', maxLength: 8 } });
+  });
+
   it('skips a middleware whose documentation() throws, with a warning, and documents the others', () => {
     expect(spec.paths['/misdocumented/throwing'].post.responses['423'].description).to.equal('Locked');
     const warning = warnings.find((w) => w.includes('ThrowingDocMiddleware'));
