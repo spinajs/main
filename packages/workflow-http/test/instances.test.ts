@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import type { WorkflowStepView } from '@spinajs/workflow';
 
 import { asRole, bootHttp, req, stopHttp } from './common.js';
 import { FakeWorkflowService, INSTANCE_ID, makeInstance } from './fakes/fake-workflow.js';
@@ -17,13 +18,13 @@ describe('workflow-http: instances', function () {
 
   describe('GET /workflow/instances', () => {
     it('lists with the default page size and passes the filters', async () => {
-      fake.instances.set('wf-2', makeInstance({ id: 'wf-2' }));
+      fake.instances.set('wf-2', makeInstance({ id: 'wf-2', error: { name: 'CardDeclined', message: 'declined', step: 'charge', stack: 'at charge (secret.ts:1)', details: { card: '4111' } } }));
       const res = await req().get('workflow/instances').query({ workflow: 'order', status: 'running,waiting', limit: 2, after: 'wf-0' }).set(asRole('workflow-reader'));
       expect(res).to.have.status(200);
       expect(fake.callsTo('list')[0][0]).to.deep.equal({ limit: 2, workflow: 'order', status: ['running', 'waiting'], after: 'wf-0' });
-      expect(res.body).to.containSubset({ next: 'wf-2', items: [{ id: INSTANCE_ID, status: 'waiting' }, { id: 'wf-2' }] });
+      expect(res.body).to.containSubset({ next: 'wf-2', items: [{ id: INSTANCE_ID, status: 'waiting' }, { id: 'wf-2', error: { name: 'CardDeclined', message: 'declined', step: 'charge' } }] });
       // the fake's instances carry the input { order: 'A-1' }
-      expect(JSON.stringify(res.body)).to.not.include('A-1');
+      expect(JSON.stringify(res.body)).to.not.match(/A-1|secret\.ts|4111/);
     });
 
     it('answers next: null on the last page', async () => {
@@ -44,11 +45,12 @@ describe('workflow-http: instances', function () {
   });
 
   describe('GET /workflow/instances/:id', () => {
-    it('returns the instance with its steps, without its input, its result and the details of its error', async () => {
-      fake.instances.set(INSTANCE_ID, makeInstance({ result: { total: 42 }, error: { name: 'CardDeclined', message: 'declined', step: 'charge', stack: 'at charge (secret.ts:1)', details: { card: '4111' } } }));
+    it('returns the instance with its steps, without its input, its result and the details of its errors', async () => {
+      const steps: WorkflowStepView[] = [{ seq: 1, key: 'step:charge#1', kind: 'step', status: 'failed', attempt: 3, error: { name: 'StepBroke', message: 'm', stack: 'at step (secret.ts:2)', details: { card: '4111' } }, startedAt: 1, finishedAt: 2 }];
+      fake.instances.set(INSTANCE_ID, makeInstance({ result: { total: 42 }, error: { name: 'CardDeclined', message: 'declined', step: 'charge', stack: 'at charge (secret.ts:1)', details: { card: '4111' } }, steps }));
       const res = await req().get(`workflow/instances/${INSTANCE_ID}`).set(asRole('workflow-reader'));
       expect(res).to.have.status(200);
-      expect(res.body).to.containSubset({ id: INSTANCE_ID, steps: [{ key: 'wait:approved#1' }], error: { name: 'CardDeclined', message: 'declined', step: 'charge' } });
+      expect(res.body).to.containSubset({ id: INSTANCE_ID, steps: [{ key: 'step:charge#1', error: { name: 'StepBroke', message: 'm' } }], error: { name: 'CardDeclined', message: 'declined', step: 'charge' } });
       expect(res.body).to.not.have.any.keys('input', 'result');
       expect(JSON.stringify(res.body)).to.not.match(/A-1|secret\.ts|4111/);
     });
