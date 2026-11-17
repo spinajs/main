@@ -6,7 +6,7 @@ import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import type { Manifest } from '@spinajs/manifest';
 
 import type { StudioGraph } from '../contracts/index.js';
-import { manifestDiGraph, mergeDiGraphs, resolveDiFocus, runtimeDiGraph, serviceDetail, tokenOf } from '../graph/di.js';
+import { manifestDiGraph, mergeDiGraphs, resolveDiFocus, runtimeDiGraph, serviceDetail, svcId, tokenOf } from '../graph/di.js';
 import { DepthQuery, MAX_GRAPH_LIMIT, graphView, viewOf } from '../graph/graph.js';
 import { StudioAccess } from '../policies/StudioAccessPolicy.js';
 import { LimitQuery, TextParam, TextQuery } from '../queries/params.js';
@@ -41,7 +41,7 @@ export class StudioDiController extends BaseController {
   @Get('api/di/services/:id')
   @StudioAccess('di')
   public async service(@TextParam() id: string) {
-    const detail = serviceDetail(tokenOf(id), DI.RootContainer.describe(), this.manifest());
+    const detail = serviceDetail(tokenOf(id), DI.RootContainer.describe(), this.manifest(), { asClass: id.startsWith(svcId('')) });
     if (!detail) throw new ResourceNotFound(`no DI key ${id}`);
     return new Ok(detail);
   }

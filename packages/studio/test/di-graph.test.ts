@@ -166,11 +166,54 @@ describe('DI graph', () => {
     expect(longest(detail)).to.be.within(MAX_ATTRIBUTE_BYTES, MAX_ATTRIBUTE_BYTES + 32);
     expect(JSON.stringify(detail)).to.not.include('extra');
   });
+
+  it('sends a mistyped manifest field as a value of its type', () => {
+    const source = Object.assign(sourceRef('src/Odd.ts', 'fixture'), { line: 'mistyped' });
+    const property = Object.assign({ property: 'p', token: 'Dep', optional: false, array: false }, { optional: 'mistyped' });
+    const odd = testManifest({ services: [Object.assign(service({ className: 'Odd', propertyInjects: [property], source }), { lifetime: { leaked: 'mistyped' }, async: 'mistyped' })] });
+    expect(JSON.stringify(serviceDetail('Odd', { services: [] }, odd))).to.not.include('mistyped');
+    expect(JSON.stringify(manifestDiGraph(odd))).to.not.include('mistyped');
+  });
+
+  it('keeps a key that only one side registers as a token registered', () => {
+    const c = new Container();
+    c.register(Adapter).as('RuntimeKey');
+    const injects = (key: string) => testManifest({ services: [service({ className: 'User', ctorInjects: [key] })] });
+    const fromRuntime = mergeDiGraphs(manifestDiGraph(injects('RuntimeKey')), runtimeDiGraph(c.describe()));
+    expect(node(fromRuntime, tokId('RuntimeKey'))?.attributes).to.deep.eq({ resolving: false, unknownToManifest: true });
+    expect(hasEdge(fromRuntime, svcId('User'), 'ctor', tokId('RuntimeKey'))).to.eq(true);
+    const description: ContainerDescription = {
+      services: [{ token: 'User', resolving: false, implementations: [{ name: 'User', kind: 'class', lifetime: 'singleton', instantiated: false, async: false, injects: [{ token: 'ManifestKey', kind: 'ctor', optional: false, array: false }] }] }],
+    };
+    const fromManifest = mergeDiGraphs(manifestDiGraph(testManifest({ services: [service({ className: 'Impl', registeredAs: ['ManifestKey'] })] })), runtimeDiGraph(description));
+    expect(node(fromManifest, tokId('ManifestKey'))?.attributes.registered).to.eq(undefined);
+    expect(hasEdge(fromManifest, svcId('User'), 'ctor', tokId('ManifestKey'))).to.eq(true);
+  });
+
+  it('describes a class id as the classes of that name, not the key of that name', () => {
+    class Shadowed {}
+    class SubShadowed extends Shadowed {}
+    const c = new Container();
+    c.register(SubShadowed).as(Shadowed);
+    c.register(Shadowed).as('Bar');
+    const names = (asClass: boolean) => serviceDetail('Shadowed', c.describe(), undefined, { asClass })?.implementations.map((i) => i.name);
+    expect([names(true), names(false)]).to.deep.eq([['Shadowed'], ['SubShadowed']]);
+
+    const twin = () => class Twin {};
+    const [TwinA, TwinB] = [twin(), twin()];
+    const t = new Container();
+    t.register(TwinA).as('KeyA');
+    t.register(TwinB).as('KeyB');
+    t.resolve('KeyB');
+    expect(serviceDetail('Twin', t.describe(), undefined, { asClass: true })?.implementations.map((i) => i.instantiated)).to.have.members([false, true]);
+  });
 });
 
 class StudioDiProbe {}
 abstract class StudioDiPort {}
 class StudioDiAdapter extends StudioDiPort {}
+class StudioDiShadowed {}
+class StudioDiSubShadowed extends StudioDiShadowed {}
 @Inject(StudioDiProbe)
 class StudioDiConsumer {
   public constructor(public readonly probe: StudioDiProbe) {}
@@ -188,6 +231,8 @@ describe('GET /_studio/api/di', function () {
     DI.register(StudioDiProbe).asSelf();
     DI.register(StudioDiConsumer).asSelf();
     DI.register(StudioDiAdapter).as(StudioDiPort);
+    DI.register(StudioDiSubShadowed).as(StudioDiShadowed);
+    DI.register(StudioDiShadowed).as('StudioDiBar');
     DI.register({ password: 'studio-di-secret' }).asValue('StudioDiSettings');
     app = await startApp();
   });
@@ -198,6 +243,8 @@ describe('GET /_studio/api/di', function () {
     DI.unregister(StudioDiConsumer);
     DI.unregister(StudioDiProbe);
     DI.unregister(StudioDiAdapter);
+    DI.unregister(StudioDiSubShadowed);
+    DI.unregister(StudioDiShadowed);
     DI.uncache(StudioDiPort);
     unregister();
   });
@@ -241,6 +288,11 @@ describe('GET /_studio/api/di', function () {
     expect(detail).to.deep.include({ token: 'StudioDiProbe', source: 'runtime', injectedBy: [{ token: 'StudioDiConsumer', kind: 'ctor' }], manifest: [] });
     expect((await get(`/_studio/api/di/services/${encodeURIComponent(svcId('StudioDiProbe'))}`)).body).to.deep.eq(detail);
     expect((await get('/_studio/api/di/services/NoSuchService')).status).to.eq(404);
+  });
+
+  it('answers a class node id with that class, a bare key with the key', async () => {
+    const names = async (id: string) => ((await get(`/_studio/api/di/services/${encodeURIComponent(id)}`)).body as DiServiceDetail).implementations.map((i) => i.name);
+    expect([await names(svcId('StudioDiShadowed')), await names('StudioDiShadowed')]).to.deep.eq([['StudioDiShadowed'], ['StudioDiSubShadowed']]);
   });
 
   it('refuses a caller without the di permission on both routes', async () => {
