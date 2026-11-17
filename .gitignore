@@ -119,11 +119,13 @@ graphify-out/
 !/docs/authz-fs/
 !/docs/authz-http/
 !/docs/authz-http-admin/
+!/docs/authz-ir/
 !/docs/authz-orm/
 !/docs/authz-queue/
 !/docs/authz-rbac/
 !/docs/authz-rebac/
 !/docs/authz-testing/
+!/docs/authz-verify/
 !/docs/cli/
 !/docs/client/
 !/docs/codemods/
@@ -195,6 +197,7 @@ graphify-out/
 !/docs/session-provider-dynamodb/
 !/docs/session-provider-redis/
 !/docs/simulation/
+!/docs/studio/
 !/docs/teams/
 !/docs/teams-http/
 !/docs/telemetry/
@@ -209,14 +212,18 @@ graphify-out/
 !/docs/templates-pug/
 !/docs/templates-puppeteer/
 !/docs/templates-xlsx/
+!/docs/tenancy/
+!/docs/tenancy-orm/
 !/docs/testing/
 !/docs/testing-orm/
 !/docs/threading/
+!/docs/tracing/
 !/docs/upload/
 !/docs/users/
 !/docs/users-http/
 !/docs/util/
 !/docs/validation/
+!/docs/workflow/
 # docs-packages-end
 # Release upgrade guides ( not a package docs folder )
 !/docs/upgrading/
