@@ -48,7 +48,7 @@ Studio buffers the spans of the last traces in a `TraceStore`. A `StudioSpanProc
 
 1. `StudioControllerSource.getControllers()` resolves `TraceStore` before it hands out the controllers.
 2. `TraceStore.resolve()` reads the `studio.*` configuration and calls `tracingState().hub.add(new StudioSpanProcessor(...))`.
-3. On every span start and end the processor converts the span (`toStudioSpan()`) and hands it to the store.
+3. When a span starts, the store notes its trace and whether it belongs to a Studio request; when it ends, the processor converts it (`toStudioSpan()`) and hands it to the store.
 4. The store groups spans by trace id and keeps per-trace counters: span count, error count, end time and the first `spina.principal.id`.
 
 What is kept, and what is cut:

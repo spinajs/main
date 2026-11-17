@@ -38,8 +38,9 @@ const DEFAULT_LIMIT = 50;
 // Open spans of Studio's own requests tracked at once; past it a new one is recorded like any other span.
 const OWN_OPEN_CAP = 4096;
 
+// Express matches routes regardless of letter case, and url.path keeps the client's.
 function isUnder(path: unknown, base: string): boolean {
-  return typeof path === 'string' && (base === '/' || path === base || path.startsWith(`${base}/`));
+  return typeof path === 'string' && (base === '/' || path.toLowerCase() === base.toLowerCase() || path.toLowerCase().startsWith(`${base.toLowerCase()}/`));
 }
 
 function spanEndNs(span: StudioSpan): bigint {

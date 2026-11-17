@@ -121,6 +121,10 @@ describe('TraceStore', () => {
     processor.onStart(root, NO_PARENT);
     run(processor, { trace: 's', id: '2', parent: '1' });
     processor.onEnd(root);
+    const upper = fakeSpan({ trace: 'u', id: '3', kind: SpanKind.SERVER, attributes: { 'url.path': '/API/_STUDIO/api/traces' } });
+    processor.onStart(upper, NO_PARENT);
+    run(processor, { trace: 'u', id: '4', parent: '3' });
+    processor.onEnd(upper);
     expect(s.size).to.eq(0);
     expect(s.get(traceIdOf('s'))).to.eq(undefined);
   });
