@@ -4,7 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 
-import { DEFAULT_DOMAIN_LIMIT, MAX_DOMAIN_LIMIT, describeDomains, domainParam } from '../authz/domains.js';
+import { MAX_DOMAIN_LIMIT, describeDomains, domainParam } from '../authz/domains.js';
 import { rbacRolesOf, rolesGraph } from '../authz/roles.js';
 import type { StudioAuthzDomain, StudioPage } from '../contracts/index.js';
 import { DepthQuery, GraphBuilder, MAX_GRAPH_LIMIT, graphView, viewOf } from '../graph/graph.js';
@@ -29,7 +29,7 @@ export class StudioAuthzController extends BaseController {
   public async domains(@LimitQuery(MAX_DOMAIN_LIMIT) limit?: number, @OffsetCursorQuery() cursor?: number) {
     const names = this.Domains.names();
     const offset = cursor ?? 0;
-    const end = offset + (limit ?? DEFAULT_DOMAIN_LIMIT);
+    const end = offset + (limit ?? MAX_DOMAIN_LIMIT);
     const page: StudioPage<StudioAuthzDomain> = { items: describeDomains(this.Domains, this.AuthzTree, names.slice(offset, end)), total: names.length, ...(end < names.length ? { cursor: String(end) } : {}) };
     return new Ok(page);
   }

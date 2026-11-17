@@ -121,8 +121,10 @@ Answers a `StudioPage<StudioAuthzDomain>`, in creation order, root first, with `
 
 | Parameter | Value |
 | --- | --- |
-| `limit` | 1 to 1000; default 100. |
+| `limit` | 1 to 1000; default 1000. |
 | `cursor` | The `cursor` of the previous page. |
+
+Without `limit` and `cursor` the page holds every domain, up to 1000.
 
 Each domain holds:
 

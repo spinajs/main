@@ -93,6 +93,12 @@ describe('Studio authz model', function () {
     expect((await get('/_studio/api/authz/roles', 'alice')).status).to.eq(403);
   });
 
+  it('refuses a domain outside the name pattern without echoing it', async () => {
+    const bad = await get('/_studio/api/authz/roles?domain=zz%2Fqq%3C');
+    expect(bad.status).to.eq(400);
+    expect(bad.text).to.not.include('zz/qq<');
+  });
+
   it('shows a child domain nothing booted without the models and roles of root', async () => {
     testHost.config().set(['authz', 'domains', 'tenant'], { parent: 'root', permissions: {} });
     (await testHost.domains()).create('tenant', 'root');
@@ -102,7 +108,14 @@ describe('Studio authz model', function () {
     expect((await rolesOf('?domain=tenant')).nodes).to.deep.eq([]);
   });
 
-  it('pages the domains by limit and cursor', async () => {
+  it('lists every domain without paging arguments, and pages them by limit and cursor', async () => {
+    const created = await testHost.domains();
+    for (let i = 0; i < 101; i++) created.create(`bulk-${i}`, 'root');
+    const all = await domainsOf();
+    expect(all.total).to.be.greaterThan(101);
+    expect(all.items).to.have.length(all.total ?? 0);
+    expect(all).to.not.have.property('cursor');
+
     const first = await domainsOf('?limit=1');
     expect(first.items.map((d) => d.name)).to.deep.eq(['root']);
     expect(first.total).to.be.greaterThan(1);

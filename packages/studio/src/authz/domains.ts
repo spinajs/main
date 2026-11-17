@@ -5,7 +5,6 @@ import { BadRequest } from '@spinajs/exceptions';
 import type { StudioAuthzDomain, StudioAuthzPermission } from '../contracts/index.js';
 import { truncate } from '../span.js';
 
-export const DEFAULT_DOMAIN_LIMIT = 100;
 export const MAX_DOMAIN_LIMIT = 1000;
 
 export function domainParam(domains: AuthzDomains, raw: unknown): string {
