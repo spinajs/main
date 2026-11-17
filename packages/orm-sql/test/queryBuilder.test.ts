@@ -1494,6 +1494,11 @@ describe('Select query builder', () => {
     expect(result).to.equal('SELECT SUM(`age`) as `a` FROM `users`');
   });
 
+  it('qualifies an aggregate column with the table alias', () => {
+    expect(sqb().from('users', 'u').sum('age').toDB().expression).to.equal('SELECT SUM(`u`.`age`) FROM `users` as `u`');
+    expect(sqb().from('users', 'u').min('age', 'a').toDB().expression).to.equal('SELECT MIN(`u`.`age`) as `a` FROM `users` as `u`');
+  });
+
   it('select avg', () => {
     let result = sqb().avg('age').from('users').toDB().expression;
     expect(result).to.equal('SELECT AVG(`age`) FROM `users`');
