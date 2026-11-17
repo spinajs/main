@@ -4,7 +4,7 @@ import 'mocha';
 import { AuditConfigError, audit } from '@spinajs/audit';
 import { Connection, Migration, Model, ModelBase, OrmMigration, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
-import { AuditTrailTableMigration, auditSubjectType } from '../src/index.js';
+import { AuditTrailTableMigration, auditSubjectId, auditSubjectType } from '../src/index.js';
 import { TestDb } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -134,6 +134,36 @@ describe('Model.audit() and row.audit()', function () {
 
     // books has no audit_acts: it contributes nothing instead of failing.
     expect(actions(await AuditBook.audit('acts').of('b1'))).to.deep.eq(['acted']);
+  });
+
+  it('writes every kind of key as one subject id', () => {
+    expect(['i1', 42, 9007199254740993n].map(auditSubjectId)).to.deep.eq(['i1', '42', '9007199254740993']);
+    expect(auditSubjectId(Buffer.from([0xab, 0x01]))).to.eq('ab01');
+    expect(auditSubjectId(new Uint8Array([0, 255]))).to.eq('00ff');
+    expect(auditSubjectId(['a:b', 7, '10%'])).to.eq('a%3Ab:7:10%25');
+    expect([null, undefined, [], [1, null], [1, undefined], { id: 1 }, Number.NaN, true].map(auditSubjectId)).to.deep.eq(Array(8).fill(undefined));
+
+    const parts = ['x:%3A', '%', '', '12'];
+    const back = (auditSubjectId(parts) ?? '').split(':').map((p) => p.replace(/%3A/g, ':').replace(/%25/g, '%'));
+    expect(back).to.deep.eq(parts);
+  });
+
+  it('reads a row with a composite or binary key through the same subject id', async () => {
+    const keyed = (key: unknown): AuditInvoice => Object.defineProperty(new AuditInvoice(), 'PrimaryKeyValue', { value: key });
+    const composite = ['o:1', 2];
+    const binary = Buffer.from([0xca, 0xfe]);
+    await audit().record(
+      [
+        { kind: 'action', action: 'line.cut', subject: { type: 'audit_invoice', id: auditSubjectId(composite) ?? '' } },
+        { kind: 'action', action: 'blob.read', subject: { type: 'audit_invoice', id: auditSubjectId(binary) ?? '' } },
+      ],
+      { trail: 'acts', mode: 'confirmed' },
+    );
+    expect((await keyed(composite).audit('acts').entries()).map((e) => [e.action, e.subject?.id])).to.deep.eq([['line.cut', 'o%3A1:2']]);
+    expect((await keyed(binary).audit('acts').entries()).map((e) => e.subject?.id)).to.deep.eq(['cafe']);
+
+    expect(() => keyed([1, null]).audit()).to.throw(AuditConfigError, 'audit: this AuditInvoice has no single primary key value yet');
+    expect(() => keyed({ id: 1 }).audit()).to.throw(AuditConfigError, 'audit: the primary key of this AuditInvoice cannot be written as an audit subject id; a key part must be a string, number, bigint, Buffer or typed array');
   });
 
   it('refuses a row that was never saved, a class without a table and an unknown trail', () => {

@@ -33,6 +33,33 @@ export function auditSubjectType(model: Named): string {
   return table;
 }
 
+function keyPart(part: unknown): string | undefined {
+  if (typeof part === 'string') return part;
+  if (typeof part === 'number') return Number.isFinite(part) ? String(part) : undefined;
+  if (typeof part === 'bigint') return part.toString();
+  if (ArrayBuffer.isView(part)) return Buffer.from(part.buffer, part.byteOffset, part.byteLength).toString('hex');
+  return undefined;
+}
+
+/**
+ * The subject id of a row's key, the same on the write side and the read side: a string as is, a number or bigint in
+ * decimal, a Buffer or typed array as lowercase hex; a composite key (an array in key order) as its parts by the same rule,
+ * each with `%` and `:` escaped as `%25` and `%3A`, joined with `:`. Undefined when a part is missing or cannot be written.
+ */
+export function auditSubjectId(key: unknown): string | undefined {
+  if (!Array.isArray(key)) return keyPart(key);
+  const parts: readonly unknown[] = key;
+  const ids = parts.map(keyPart);
+  if (ids.length === 0 || ids.some((id) => id === undefined)) return undefined;
+  return ids.map((id) => (id ?? '').replace(/%/g, '%25').replace(/:/g, '%3A')).join(':');
+}
+
+function missingKey(key: unknown): boolean {
+  if (!Array.isArray(key)) return key === null || key === undefined;
+  const parts: readonly unknown[] = key;
+  return parts.length === 0 || parts.some((part) => part === null || part === undefined);
+}
+
 // Aliases such as `default` name the same driver as its own name.
 const driverName = (connection: string): string => DI.get(Orm)?.Connections.get(connection)?.Options.Name ?? connection;
 
@@ -70,7 +97,7 @@ function modelAudit(model: Named, trail: string | undefined): ModelAudit {
     return listBoth(config, operation, by, query, [own, trails]);
   };
   return {
-    of: (id, query) => read('Model.audit().of', { subject: { type, id: typeof id === 'string' ? id : id.toString() } }, query),
+    of: (id, query) => read('Model.audit().of', { subject: { type, id: auditSubjectId(id) ?? String(id) } }, query),
     since: (seq, query) => read('Model.audit().since', { subjectType: type }, { ...query, afterSeq: Math.max(seq, query?.afterSeq ?? seq) }),
   };
 }
@@ -84,10 +111,10 @@ export class OrmModelAuditSource extends ModelAuditSource {
   ofRow(row: ModelBase, trail?: string): RowAudit {
     const model: Named = row.constructor;
     const key: unknown = row.PrimaryKeyValue;
-    if (typeof key !== 'string' && typeof key !== 'number' && typeof key !== 'bigint') {
-      throw new AuditConfigError(`audit: this ${model.name} has no single primary key value yet, so no event can be about it; save it first`);
-    }
+    if (missingKey(key)) throw new AuditConfigError(`audit: this ${model.name} has no single primary key value yet, so no event can be about it; save it first`);
+    const id = auditSubjectId(key);
+    if (id === undefined) throw new AuditConfigError(`audit: the primary key of this ${model.name} cannot be written as an audit subject id; a key part must be a string, number, bigint, Buffer or typed array`);
     const all = modelAudit(model, trail);
-    return { entries: (query) => all.of(key, query) };
+    return { entries: (query) => all.of(id, query) };
   }
 }
