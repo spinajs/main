@@ -50,6 +50,7 @@ it a case that throws the same error on every target agrees with itself, so a ne
 | `introspection.case.ts` | `tableIndexes()` / `tableForeignKeys()` |
 | `expressions.case.ts`, `ago.case.ts` | epoch milliseconds, `concat`, row locks, relative time cut-offs |
 | `stream.case.ts` | `stream()`: batches, early exit, batched `populate`, empty result, inside a transaction with a write in the loop |
+| `keyset.case.ts` | `paginate()`: forward, backward, mixed directions, a row inserted between pages, a cursor of another order |
 
 ## Divergences
 
