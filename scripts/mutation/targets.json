@@ -1,0 +1,10 @@
+{
+  "tolerance": 2,
+  "targets": [
+    { "name": "authz-engine", "package": "authz", "config": "stryker.config.json", "concurrency": 3, "focus": ["src/engine/combinators.ts"] },
+    { "name": "authz-ir-eval", "package": "authz-ir", "config": "stryker.config.json", "concurrency": 3, "focus": ["src/eval/check.ts"] },
+    { "name": "authz-rbac-model", "package": "authz-rbac", "config": "stryker.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-rebac-model", "package": "authz-rebac", "config": "stryker.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-abac-model", "package": "authz-abac", "config": "stryker.config.json", "concurrency": 3, "focus": [] }
+  ]
+}
