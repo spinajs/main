@@ -85,6 +85,8 @@ class Sources {
    * alias no join names may stand any table of the connection: the column reads every table that has it, `*` all of them.
    */
   public of(tableAlias: string | undefined, column: string): ReadSource[] {
+    // A raw join leaves the queried table without an alias, so an unqualified column may come from the table it joined.
+    if (!tableAlias && this.unnamedJoin) return this.aggregated(tableAlias, column);
     if (!tableAlias || tableAlias === this.query.TableAlias) return [this.own()];
 
     const joined = this.joins.get(tableAlias);
@@ -102,7 +104,7 @@ class Sources {
   public aggregated(tableAlias: string | undefined, column: string): ReadSource[] {
     if (!this.joined) return this.of(tableAlias, column);
 
-    const has = (descriptor: IModelDescriptor): boolean => descriptor.Columns.some((c) => lc(c.Name) === lc(column));
+    const has = (descriptor: IModelDescriptor): boolean => column.trim() === '*' || descriptor.Columns.some((c) => lc(c.Name) === lc(column));
     const known = this.queryTables().filter((source) => has(source.descriptor));
     return this.unnamedJoin ? [...known, ...this.of('?', column)] : known;
   }
@@ -121,6 +123,7 @@ class Sources {
   }
 
   private table(descriptor: IModelDescriptor): ReadSource {
+    if (lc(descriptor.TableName) === lc(this.query.Table)) return this.own();
     return this.at(`?${lc(descriptor.TableName)}`, descriptor, this.modelsOf(descriptor.TableName), false);
   }
 

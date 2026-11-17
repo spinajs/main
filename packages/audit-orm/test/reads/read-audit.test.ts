@@ -455,6 +455,16 @@ describe('read auditing', function () {
         expect(keyless.map((e) => [e.action, (e.data as { columns: string[]; keyless: boolean }).columns])).to.deep.eq([['patient.read', ['Ssn']]]);
       });
 
+      it('reads a plain column next to a raw join from every table that has it', async () => {
+        const id = dialect === 'mysql' ? '`Id`' : '"Id"';
+        const raw = Visit.query().leftJoin(RawQuery.create(`patient ON patient.${id} = visit.patient_id`));
+        // Strict column typing refuses a joined column on Visit's builder; a package without it can write it.
+        Reflect.apply(raw.columns.bind(raw), undefined, [['Reason', 'Ssn']]);
+        await raw.asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([['patient.read', undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+      });
+
       it('counts an aggregate in a query with a join for every table of the query that has the column', async () => {
         const positive = function (this: { where(column: string, operator: string, value: number): unknown }) {
           this.where('Id', '>', 0);
