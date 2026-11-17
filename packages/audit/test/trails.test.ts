@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { createTestApp } from '@spinajs/testing';
+import { configurationViolations, createTestApp } from '@spinajs/testing';
 import { AuditConfigError, SECURITY_HASH_PATHS, deferredConfig, trailConfig, trailNames } from '../src/index.js';
 
 const expect = chai.expect;
@@ -53,11 +53,19 @@ describe('trailConfig', function () {
     }
   });
 
-  it('leaves the sections other packages keep under audit alone, and drops a trail key it does not know', async () => {
+  it('fails the boot on a misspelt trail or retry key, and boots a trail with every accepted key', async () => {
+    const bad = (trail: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit: { trails: { t: trail } } } });
+    expect(await bad({ onFailur: 'reject' })).to.include('audit.trails.t.onFailur');
+    expect(await bad({ retry: { atempts: 2 } })).to.include('audit.trails.t.retry.atempts');
+    const every = { store: 'MemoryAuditStore', table: 'audit_t', connection: 'default', onFailure: 'reject', retry: { attempts: 2, delay: '1s' }, integrity: 'sealed', omit: ['data.a'], mask: ['data.b'], hash: ['origin'], retentionDays: 30, sink: 'ArchiveAuditSink', reader: 'TableAuditReader', archiveConnection: 'audit' };
+    expect(await bad(every)).to.deep.eq([]);
+  });
+
+  it('leaves the sections other packages keep under audit alone', async () => {
     const others = { http: { rules: [{ match: 'DELETE /admin/**', action: 'admin.delete' }] }, data: { rules: [{ models: '*', trail: 'history' }] }, authn: { trail: 'security' }, queue: { maxMessageBytes: 200000 }, seal: { settleSeconds: 30 } };
     // What a package that owns a section registers: its own schema, under the audit root.
     const ship = { $id: 'test/audit.ship.schema.json', $configurationModule: 'audit.ship', type: 'object', properties: { batchSize: { type: 'integer', minimum: 1 }, maxBatches: { type: 'integer', default: 50 } } };
-    const shipped = { store: 'OutboxAuditStore', archiveConnection: 'audit', archiveConection: 'misspelt' };
+    const shipped = { store: 'OutboxAuditStore', archiveConnection: 'audit' };
     const app = await createTestApp({ config: { logger: SILENT, audit: { ...others, ship: { batchSize: 200 }, trails: { shipped } } }, schemas: [ship] });
     try {
       const read = (name: string): unknown => app.config.get<unknown>(['audit', name]);
