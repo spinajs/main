@@ -190,7 +190,7 @@ export class Walker {
   /** First-applicable: entry i decides when its `when` holds and no earlier `when` does, the Kleene form of `FirstApplicable.combine`. */
   private async priority(object: ObjectRef, self: RelationName, entries: ReadonlyArray<{ when: Rewrite; then: 'permit' | 'deny' }>, depth: number): Promise<Step> {
     let result: Truth = 'deny';
-    // Stryker disable next-line StringLiteral: earlierMiss is read only through and3, which treats every value but 'deny' and 'unknown' as 'allow'
+    // Stryker disable next-line StringLiteral: its initial value is read only by and3, which treats every value but 'deny' and 'unknown' as 'allow'
     let earlierMiss: Truth = 'allow';
     let cut = false;
     const children: ExplainNode[] = [];

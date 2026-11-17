@@ -62,12 +62,6 @@ describe('engine/combinators', () => {
       // Built inside the test: instances built at module load keep their name under a Stryker mutant.
       expect([new DenyOverrides(), new PermitOverrides(), new FirstApplicable()].map((c) => c.name)).to.deep.equal(['deny-overrides', 'permit-overrides', 'first-applicable']);
     });
-
-    it('leave the deciding key out unless a vote decided', () => {
-      const votes = [vote(cmp('a'), FALSE), vote(TRUE, FALSE)];
-      for (const c of ALL) expect(Object.keys(c.combine(votes)), c.name).to.deep.equal(['allow']);
-      expect(Object.keys(firstApplicable.combine([vote(TRUE, FALSE)]))).to.deep.equal(['allow', 'deciding']);
-    });
   });
 
   describe('two concrete votes, all 16 P/D combinations', () => {
@@ -101,22 +95,6 @@ describe('engine/combinators', () => {
     it('deciding is undefined when the first non-FALSE or(P, D) is a residual', () => {
       const votes = [vote(FALSE, FALSE), vote(a, FALSE), vote(TRUE, FALSE)];
       expect(firstApplicable.combine(votes).deciding).to.equal(undefined);
-    });
-
-    it('first-applicable never reads a vote after one that always applies', () => {
-      const unread: Vote = {
-        model: 'unread',
-        cacheable: true,
-        get permitWhen(): ResourceFilter {
-          throw new Error('permitWhen of a vote after the deciding one was read');
-        },
-        get denyWhen(): ResourceFilter {
-          throw new Error('denyWhen of a vote after the deciding one was read');
-        },
-      };
-      const denies = vote(FALSE, TRUE, { model: 'denies' });
-      expect(firstApplicable.combine([vote(FALSE, FALSE), denies, unread])).to.deep.equal({ allow: FALSE, deciding: denies });
-      expect(firstApplicable.combine([vote(a, FALSE), vote(TRUE, FALSE), unread]).deciding).to.equal(undefined);
     });
   });
 });

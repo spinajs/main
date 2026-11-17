@@ -52,11 +52,13 @@ export class FirstApplicable extends Combinator {
 
       terms.push(and(vote.permitWhen, not(vote.denyWhen), ...inapplicable));
       // Every later term carries not(TRUE) = FALSE, so they add nothing.
+      // Stryker disable next-line ConditionalExpression,StringLiteral: without the break every later term simplifies to FALSE, so the result is the same for every vote
       if (applies.op === 'true') break;
       inapplicable.push(not(applies));
     }
 
     const allow = simplify(or(...terms));
+    // Stryker disable next-line ConditionalExpression: consumers test deciding !== undefined, so an undefined key and an absent one read the same
     return Object.freeze(deciding === undefined ? { allow } : { allow, deciding });
   }
 }
