@@ -1,8 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DecisionAudit, FALSE, TRUE } from '@spinajs/authz';
-import type { Decision, DecisionRequest, DenyReason } from '@spinajs/authz';
-import { RecordingAudit, testHost } from '@spinajs/authz-testing';
+import { CORE_FILTER_OPS, DecisionAudit, FALSE, NativeFilter, TRUE } from '@spinajs/authz';
+import type { Decision, DecisionRequest, DenyReason, ModelInitContext } from '@spinajs/authz';
+import { RecordingAudit, StaticModel, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
 import { collectDenies, toStudioDecision } from '../src/authz/explain.js';
@@ -14,6 +14,31 @@ import { registerHeaderSource } from './support/principals.js';
 
 const ASK = { principal: 'user:carol', permission: 'studio:read' };
 const LONG = `LONG-${'x'.repeat(5000)}`;
+const LONG_NATIVE = `native:${LONG}` as const;
+
+class LongNativeFilter extends NativeFilter {
+  public readonly op = LONG_NATIVE;
+
+  public matches(): boolean {
+    return false;
+  }
+}
+
+/** Votes a filter with a model-defined native op of 5000 characters, for mallory only. */
+class NativeModel extends StaticModel {
+  public constructor() {
+    super({
+      name: 'm2',
+      capabilities: { residuals: [...CORE_FILTER_OPS, LONG_NATIVE] },
+      votes: (req) => (req.principal.id === 'mallory' ? { permitWhen: { op: LONG_NATIVE, args: { [LONG]: LONG } } } : {}),
+    });
+  }
+
+  public init(ctx: ModelInitContext): void {
+    super.init(ctx);
+    ctx.registerNativeFilter(new LongNativeFilter());
+  }
+}
 
 /** bob and frank hold everything; dave only authz:explain; erin only the Studio permissions; mallory's vote carries 5000-character strings. */
 function explainVotes(req: DecisionRequest): ScriptedVote {
@@ -48,7 +73,7 @@ describe('POST /_studio/api/authz/explain', function () {
     unregister = registerHeaderSource();
     audit = new RecordingAudit();
     testHost.registerInRoot(DecisionAudit, testHost.instance(audit));
-    app = await startApp({ votes: explainVotes });
+    app = await startApp({ votes: explainVotes, models: [new NativeModel()], config: { 'authz.combine.default.models': ['m1', 'm2'] } });
   });
 
   after(async () => {
@@ -89,7 +114,9 @@ describe('POST /_studio/api/authz/explain', function () {
     expect(res.status).to.eq(200);
     const body = res.body as StudioExplainResult;
     expect(body.trace?.votes[0].trace?.[0].note).to.match(/^LONG-x+…$/);
-    expect(longestString(body)).to.be.at.most(MAX_ATTRIBUTE_BYTES + 1);
+    expect(body.trace?.votes.find((v) => v.model === 'm2')?.permitWhen.op).to.match(/^native:LONG-x+…$/);
+    // A native op keeps its `native:` prefix in front of the cut name.
+    expect(longestString(body)).to.be.at.most('native:'.length + MAX_ATTRIBUTE_BYTES + 1);
     expect(res.text).to.not.include(LONG);
   });
 

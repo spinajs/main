@@ -62,7 +62,7 @@ function cutFilter(filter: ResourceFilter): ResourceFilter {
     case 'under':
       return { op: 'under', scopes: filter.scopes.map(cutRef) };
     default:
-      return { op: filter.op, ...(filter.args === undefined ? {} : { args: cutJson(filter.args) }) };
+      return { op: `native:${truncate(filter.op.slice('native:'.length))}`, ...(filter.args === undefined ? {} : { args: cutJson(filter.args) }) };
   }
 }
 

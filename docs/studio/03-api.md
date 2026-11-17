@@ -182,10 +182,11 @@ Each call records an `explain` entry through the domain's `DecisionAudit`, namin
 
 | Status | When |
 | --- | --- |
-| `400` | A missing body, an unknown key, a value outside its limits, a `principal` without an id, or an unknown domain. A refused value is not echoed. |
+| `400` | A missing body, an unknown key, a value outside its limits, a `principal` without an id, or an unknown domain. A value that fails the schema is not echoed; an unknown domain name, which matched the name pattern, is. |
 | `401` | No authenticated caller. |
 | `403` | The caller lacks `studio:explain` or `authz:explain`. |
 | `404` | Production without `studio.allowExplainInProduction`. |
+| `500` | A `permission` the domain does not register, or a `resource` type outside the permission's types. Authz refuses both as configuration errors, as for `GET /authz/explain`; outside production the error detail names the value. |
 | `429` | The rate limit is spent. |
 
 ## Typed calls
