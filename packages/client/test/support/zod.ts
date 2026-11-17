@@ -35,8 +35,8 @@ export function manifestWith(base: Manifest, named: Record<string, unknown>, ext
 const cacheRoot = fileURLToPath(new URL('../../node_modules/.zod-test/', import.meta.url));
 
 export interface ZodLoader {
-  loadZod(contents: string): Promise<Record<string, unknown>>;
-  clearLoaded(): void;
+  loadZod: (contents: string) => Promise<Record<string, unknown>>;
+  clearLoaded: () => void;
 }
 
 /**
