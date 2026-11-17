@@ -11,6 +11,7 @@ export * from './model.js';
 export * from './decorators.js';
 export * from './extension.js';
 export * from './route-arg.js';
+export * from './list-route-args.js';
 export * from './builders.js';
 export * from './aggregate.js';
 export * from './dto.js';
