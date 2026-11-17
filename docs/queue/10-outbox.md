@@ -1,6 +1,6 @@
 # Transactional outbox
 
-The outbox is being built up over several releases of 4.x. What works so far: the `queue.outbox` configuration is validated at boot, and with `queue.outbox.enabled` set to `true` the `queue_outbox` table is created on every database that `queue.outbox.connections` names, and `emit()` inside a transaction writes a row to it instead of publishing ([What `emit()` does](#what-emit-does)), and `OutboxRelay.tick()` publishes the committed rows ([The relay](#the-relay)). Nothing calls `tick()` on a timer yet: the loop that drives it arrives in a later release.
+The outbox is being built up over several releases of 4.x. What works so far: the `queue.outbox` configuration is validated at boot, and with `queue.outbox.enabled` set to `true` the `queue_outbox` table is created on every database that `queue.outbox.connections` names, and `emit()` inside a transaction writes a row to it instead of publishing ([What `emit()` does](#what-emit-does)), and `OutboxRelay.tick()` publishes the committed rows, retries the ones whose publish failed and deletes old published rows ([The relay](#the-relay), [Failures, dead rows and retention](#failures-dead-rows-and-retention)). Nothing calls `tick()` on a timer yet: the loop that drives it arrives in a later release.
 
 ## Configuration
 
@@ -85,7 +85,7 @@ The throw is an ordinary rejection of `emit()`: nothing was written, and on Post
 `OutboxRelay` publishes the rows. One `tick()` makes one pass over every connection in `queue.outbox.connections`, one connection after the other:
 
 1. It reads up to `batchSize` due rows, in `Id` order: `pending`, `AvailableAt` reached, and either unclaimed or with a claim that ended.
-2. It claims each row it read, one statement per row. A claim is a compare-and-set on the row's `ClaimEpoch` as it was read: it sets `ClaimedBy` to the relay's `replicaId`, `ClaimedUntil` to now plus `claimTtl`, and moves the epoch by one. A row that another relay claimed since it was read is lost to this one, even if that relay has let it go again.
+2. It claims each row it read, one statement per row. A claim is a compare-and-set on the row's `ClaimEpoch` as it was read: it sets `ClaimedBy` to the relay's `replicaId`, `ClaimedUntil` to the time of that claim plus `claimTtl`, and moves the epoch by one. A row that another relay claimed since it was read is lost to this one, even if that relay has let it go again.
 3. It publishes each claimed row through `QueueService.publishDirect`, skipping the queue connections in the row's `PublishedTo`, and then marks it `published` with the connections that confirmed it in `PublishedTo`.
 
 Concurrent calls of `tick()` on one relay share the pass in progress. Several relays, in one process (one per `replicaId`, `DI.resolve(OutboxRelay, [{ replicaId }])`) or in several, drain the same table in parallel: each row goes to the relay whose claim won.
@@ -98,17 +98,45 @@ const relay = await DI.resolve(OutboxRelay, [{ replicaId: 'reports-1', autoStart
 await relay.tick();
 ```
 
-**Fenced writes.** The mark, and the release of a row, change the row only while it still carries the relay's `ClaimedBy` and the epoch of its claim. A relay whose claim ended and was taken over by another relay can still finish a publish it had started, but it can no longer mark or release the row: it logs a warning and leaves the row to its new owner.
+**Fenced writes.** The mark, the failure record and the release of a row change the row only while it still carries the relay's `ClaimedBy` and the epoch of its claim. A relay whose claim ended and was taken over by another relay can still finish a publish it had started, but it can no longer mark the row, record its failure or release it: each refused write logs a warning on the `queue` logger, and the row is left to its new owner.
 
-**The stop rule.** Before each publish, the relay checks that the claim still covers it: when now plus `maxPublishMs` is past the claim's end, it releases the rows it has not reached yet, unpublished, and ends the pass on that connection. The next pass claims them again. `maxPublishMs` is an estimate the stop rule uses, not a timeout: a single publish that takes longer than its claim has left is published a second time by another relay once the claim ends. `claimTtl` must therefore exceed the transport's worst confirm time.
+**The stop rule.** Before each publish, the relay checks that the claim still covers it: when now plus `maxPublishMs` is past the claim's end, it releases the rows it has not reached yet, unpublished, and ends the pass on that connection. The next pass claims them again. Each claim runs from its own statement, so a slow read of the due rows does not shorten it; but when the claim statements of one batch together take longer than `claimTtl` minus `maxPublishMs`, the first row fails the check and the whole batch is released. Lower `batchSize` on such a database. `maxPublishMs` is an estimate the stop rule uses, not a timeout: a single publish that takes longer than its claim has left is published a second time by another relay once the claim ends. `claimTtl` must therefore exceed the transport's worst confirm time.
 
-**A failed publish** releases the row, and the pass goes on with the next one; the row is published again by a later pass. A crash (an error with `crash: true`, which stands for a dead process) leaves the pass before anything is written: the row keeps its claim, and another relay takes it over once the claim ends.
+**A failed publish** is recorded on the row, which a later pass retries after the backoff, and the pass goes on with the next row ([Failures, dead rows and retention](#failures-dead-rows-and-retention)). A crash (an error with `crash: true`, which stands for a dead process) leaves the pass before anything is written: the row keeps its claim, and another relay takes it over once the claim ends.
 
 What the relay guarantees, and what it does not:
 
-- **At least once.** A committed row is published at least once. A crash between publish and mark, or a publish that outlives its claim, publishes it again. Consumers must therefore treat a repeat of a `MessageId` as normal: a job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default), and an event handler must tolerate receiving the same event twice.
-- **Fenced writes.** Every mark and release is fenced by `ClaimedBy` and `ClaimEpoch`, so a relay that lost its claim changes nothing.
+- **At least once.** A committed row is published at least once. A crash between publish and mark, or a publish that outlives its claim, publishes it again. A message routed to several queue connections is sent again to the connections that confirmed it only when a failure on another connection could not be recorded: the relay crashed, had lost its claim, or could not write to the database; a recorded failure keeps the confirmed connections in `PublishedTo`, and the retry skips them. Consumers must therefore treat a repeat of a `MessageId` as normal: a job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default), and an event handler must tolerate receiving the same event twice.
+- **Fenced writes.** Every mark, failure record and release is fenced by `ClaimedBy` and `ClaimEpoch`, so a relay that lost its claim changes nothing.
 - **No ordering.** One relay with no failures publishes in `Id` order, but two relays, a failed publish that is retried later, or a second queue connection reorder messages.
+
+## Failures, dead rows and retention
+
+A publish that throws (anything but a crash) is recorded on the row, under the relay's claim:
+
+- `Attempts` goes up by one, and `LastError` holds the error's message (its first 4000 characters).
+- `PublishedTo` holds the queue connections that confirmed the message so far. A retry skips them, so a message routed to several connections reaches each of them once, however often one of the others fails.
+- `AvailableAt` moves forward by the `queue.outbox.backoff` wait for that attempt, and the claim is cleared. A pass before then leaves the row alone.
+
+There is no attempt limit. A row dies by age: the first failure that happens when the row is at least `queue.outbox.maxAge` old (counted from `CreatedAt`, in database time) sets `Status` to `dead` instead of scheduling a retry, and the relay logs an error. Until then the row is retried, so a broker outage shorter than `maxAge` loses nothing. A row that is never attempted, because no relay runs, does not die: it is published when a relay next reaches it, however old it is.
+
+An example with the defaults (`backoff` exponential from `1s` to `5m`, `maxAge` `24h`): RabbitMQ is down for 90 minutes. Every row emitted meanwhile fails, and its waits grow 1 s, 2 s, 4 s and so on until they reach 5 minutes; from then on it is retried every 5 minutes, and published within about 5 minutes of the broker's return. Nothing dies, because no row is 24 hours old. A row still failing after a day is tried about 300 times before it dies.
+
+**Retention.** After each pass over a connection, at most once per `retention / 100` (and at least one second apart), the relay deletes the `published` rows whose `PublishedAt` is more than `retention` ago, `batchSize` rows per statement, until a statement deletes fewer than `batchSize`. A row an operator re-drove between the select and the delete stays. `pending` and `dead` rows are never deleted: dead rows stay until an operator deletes or re-drives them.
+
+Dead rows:
+
+```sql
+SELECT Id, Name, Attempts, LastError FROM queue_outbox WHERE Status = 'dead';
+```
+
+Re-driving one:
+
+```sql
+UPDATE queue_outbox SET Status = 'pending', AvailableAt = 0, CreatedAt = <now in epoch ms> WHERE Id = <id>;
+```
+
+`CreatedAt` must move, or the row dies again at its next failure. The re-driven row keeps its `PublishedTo`, so the connections that confirmed it are not sent to again.
 
 ## What happens at boot
 

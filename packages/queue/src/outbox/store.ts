@@ -9,7 +9,22 @@ export interface OutboxClaim {
   until: number;
 }
 
+export interface OutboxFailure {
+  Status: 'pending' | 'dead';
+  Attempts: number;
+  AvailableAt: number;
+  LastError: string;
+  PublishedTo: readonly string[];
+}
+
+export const OUTBOX_LAST_ERROR_MAX = 4000;
+
 const target = (row: OutboxRow): RowLeaseTarget => ({ table: OUTBOX_TABLE, key: { Id: row.Id } });
+
+const publishedBefore = (before: number) =>
+  function (this: IWhereBuilder<unknown>) {
+    this.where('Status', 'published').where('PublishedAt', '<', before);
+  };
 
 /** Every statement on queue_outbox. Every write after the insert is fenced by the RowLease columns. */
 export class OutboxStore {
@@ -64,5 +79,39 @@ export class OutboxStore {
 
   public release(claim: OutboxClaim): Promise<boolean> {
     return this.lease.release(target(claim.row), claim.owner, claim.epoch);
+  }
+
+  public async markFailed(claim: OutboxClaim, failure: OutboxFailure): Promise<boolean> {
+    const r = await this.driver
+      .update()
+      .in(OUTBOX_TABLE)
+      .update({ ...failure, PublishedTo: JSON.stringify(failure.PublishedTo), LastError: failure.LastError.slice(0, OUTBOX_LAST_ERROR_MAX), ClaimedBy: null, ClaimedUntil: null })
+      .where(this.lease.fenced(target(claim.row), claim.owner, claim.epoch));
+    return rowsAffected(r) === 1;
+  }
+
+  /** Deletes up to `limit` published rows whose PublishedAt is below `before`; answers how many it deleted. */
+  public async purgePublished(before: number, limit: number): Promise<number> {
+    const ids = await this.purgeCandidates(before, limit);
+    if (ids.length === 0) return 0;
+    // the WHERE again: a row an operator re-drove since the select stays
+    const r = await this.driver
+      .del()
+      .from(OUTBOX_TABLE)
+      .whereIn('Id', ids)
+      .where(publishedBefore(before));
+    return rowsAffected(r);
+  }
+
+  protected async purgeCandidates(before: number, limit: number): Promise<number[]> {
+    const rows = await this.driver
+      .select<Array<{ Id: number | string }>>()
+      .from(OUTBOX_TABLE)
+      .columns(['Id'])
+      .where(publishedBefore(before))
+      .orderBy('Id')
+      .take(limit)
+      .onPrimary();
+    return rows.map((row) => Number(row.Id));
   }
 }

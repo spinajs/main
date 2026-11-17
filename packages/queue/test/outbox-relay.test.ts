@@ -2,7 +2,9 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import { OutboxRelay, OutboxStore } from '../src/index.js';
+import type { FakeClock } from '@spinajs/durable/testing';
+import type { OrmDriver } from '@spinajs/orm';
+import { OutboxRelay, OutboxStore, type OutboxClaim, type OutboxRelayOptions, type OutboxRow } from '../src/index.js';
 import { bootOutbox, broker, deferred, disposeOutbox, faultsHit, orderIdOf, OrderPlaced, outboxRows, T0, TestCrash, type OutboxEnv } from './support/outbox-env.js';
 
 chai.use(chaiAsPromised);
@@ -13,6 +15,45 @@ async function emitCommitted(env: OutboxEnv, count: number): Promise<void> {
 }
 
 const relay = (replicaId: string) => DI.resolve(OutboxRelay, [{ replicaId, autoStart: false }]);
+
+interface StoreSwapOptions extends OutboxRelayOptions {
+  store: (driver: OrmDriver) => OutboxStore;
+}
+
+class StoreSwapRelay extends OutboxRelay {
+  constructor(protected readonly swap: StoreSwapOptions) {
+    super(swap);
+  }
+
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    for (const [connection, store] of this.stores) this.stores.set(connection, this.swap.store(store.driver));
+  }
+}
+
+/** A database that takes `readMs` to read the due rows and `claimMs` for each claim. */
+class SlowStore extends OutboxStore {
+  constructor(
+    driver: OrmDriver,
+    protected readonly clock: FakeClock,
+    protected readonly readMs: number,
+    protected readonly claimMs: number,
+  ) {
+    super(driver);
+  }
+
+  public async due(now: number, limit: number): Promise<OutboxRow[]> {
+    const rows = await super.due(now, limit);
+    this.clock.set(this.clock.now() + this.readMs);
+    return rows;
+  }
+
+  public async claim(row: OutboxRow, owner: string, ttlMs: number, now: number): Promise<OutboxClaim | null> {
+    const claim = await super.claim(row, owner, ttlMs, now);
+    this.clock.set(this.clock.now() + this.claimMs);
+    return claim;
+  }
+}
 
 describe('queue outbox: relay claim, publish, mark', function () {
   // every case boots an Orm with three sqlite connections, which takes tens of seconds on a loaded machine
@@ -163,17 +204,58 @@ describe('queue outbox: relay claim, publish, mark', function () {
     expect(row).to.include({ Status: 'pending', ClaimedBy: 'r1', ClaimEpoch: 1 });
   });
 
-  it('releases a row whose publish throws, goes on with the batch, and publishes the row on the next pass', async () => {
-    const env = await bootOutbox();
+  it('lets a row whose publish throws go, goes on with the batch, and publishes the row once its backoff passed', async () => {
+    const env = await bootOutbox({ outbox: { backoff: { backoff: 'fixed', delay: 1000 } } });
     await emitCommitted(env, 2);
     broker.failures.set('bus-a', [new Error('broker unavailable')]);
     const r1 = await relay('r1');
     await r1.tick();
     expect(broker.sent.map((s) => orderIdOf(s.message))).to.deep.equal(['2']);
     const [failed] = await outboxRows(env.orders);
-    expect(failed).to.include({ Status: 'pending', ClaimedBy: null, ClaimedUntil: null, ClaimEpoch: 1, PublishedAt: null });
+    expect(failed).to.include({ Status: 'pending', ClaimedBy: null, ClaimedUntil: null, ClaimEpoch: 1, PublishedAt: null, Attempts: 1 });
+    env.clock.set(T0 + 1000);
     await r1.tick();
     expect(broker.sent.map((s) => orderIdOf(s.message))).to.deep.equal(['2', '1']);
     expect((await outboxRows(env.orders)).map((r) => r.Status)).to.deep.equal(['published', 'published']);
+  });
+
+  it('claims each row from the time of its own claim, so a batch that took longer than claimTtl - maxPublishMs to read and claim still publishes', async () => {
+    const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
+    await emitCommitted(env, 2);
+    // 15 s to read the due rows and 4 s per claim: 23 s in all, past the 20 s margin. From the pass start, both claims
+    // would end at +30 s and the stop rule would release them at +23 s, unpublished, on every pass
+    const r = await DI.resolve(StoreSwapRelay, [{ replicaId: 'r1', autoStart: false, store: (driver: OrmDriver) => new SlowStore(driver, env.clock, 15_000, 4_000) }]);
+    await r.tick();
+    expect((await outboxRows(env.orders)).map((row) => row.Status)).to.deep.equal(['published', 'published']);
+    expect(broker.sent).to.have.length(2);
+  });
+
+  it('a relay that lost its claims cannot release the rows it did not reach', async () => {
+    const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
+    await emitCommitted(env, 2);
+    const staleGate = deferred();
+    const staleReached = deferred();
+    broker.gate = staleGate.promise;
+    broker.onEmit = () => staleReached.resolve();
+    const stale = (await relay('r1')).tick();
+    await staleReached.promise;
+
+    const ownerGate = deferred();
+    const ownerReached = deferred();
+    broker.gate = ownerGate.promise;
+    broker.onEmit = () => ownerReached.resolve();
+    env.clock.set(T0 + 31_000);
+    const owner = (await relay('r2')).tick();
+    await ownerReached.promise;
+
+    // r1 finishes its first row at +31 s; its claim on the second ended at +30 s, so the stop rule releases it, fenced
+    staleGate.resolve();
+    await stale;
+    const [, second] = await outboxRows(env.orders);
+    expect(second).to.include({ Status: 'pending', ClaimedBy: 'r2', ClaimEpoch: 2, ClaimedUntil: T0 + 61_000 });
+
+    ownerGate.resolve();
+    await owner;
+    expect((await outboxRows(env.orders)).map((row) => row.Status)).to.deep.equal(['published', 'published']);
   });
 });
