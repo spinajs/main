@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 import { CachedTenantRegistry, ConfigTenantRegistry, MemoryTenantRegistry, TenantRegistry, tenantRecord } from '../src/index.js';
 import type { TenantRecord, TenantState } from '../src/index.js';
@@ -16,6 +16,8 @@ async function ids(registry: TenantRegistry, filter?: { states?: TenantState[] }
 class CountingRegistry extends TenantRegistry {
   public calls = 0;
   public readonly memory = new MemoryTenantRegistry();
+  /** While set, `get` reads the record at once and answers only when the gate opens. */
+  public gate?: Promise<void>;
 
   constructor(private readonly cached = true) {
     super();
@@ -25,9 +27,11 @@ class CountingRegistry extends TenantRegistry {
     return this.cached;
   }
 
-  public get(id: string): Promise<TenantRecord | undefined> {
+  public async get(id: string): Promise<TenantRecord | undefined> {
     this.calls += 1;
-    return this.memory.get(id);
+    const record = await this.memory.get(id);
+    await this.gate;
+    return record;
   }
 
   public find(by: { slug?: string; domain?: string }): Promise<TenantRecord | undefined> {
@@ -121,6 +125,12 @@ describe('ConfigTenantRegistry', () => {
     expect(registry.cacheable).to.eq(false);
   });
 
+  it('refuses a state the schema would refuse, rather than making the tenant active', () => {
+    const registry = new ConfigTenantRegistry();
+    Object.defineProperty(registry, 'Listed', { value: [{ id: 'acme', state: 'disabled' }] });
+    expect(() => registry.get('acme')).to.throw(InvalidOption, 'tenancy.tenants[0].state "disabled" is not a tenant state');
+  });
+
   it('is empty without the key', async () => {
     app = await tenancyApp();
 
@@ -178,6 +188,38 @@ describe('CachedTenantRegistry', () => {
     inner.memory.set('acme', { state: 'suspended' });
     registry.invalidate('acme');
     expect((await registry.find({ domain: 'shop.acme.example' }))?.state).to.eq('suspended');
+  });
+
+  it('keeps nothing a lookup found while invalidate(id) or invalidate() ran', async () => {
+    for (const forget of [(registry: CachedTenantRegistry) => registry.invalidate('acme'), (registry: CachedTenantRegistry) => registry.invalidate()]) {
+      const inner = new CountingRegistry();
+      inner.memory.add({ id: 'acme' });
+      let open = (): void => undefined;
+      inner.gate = new Promise((resolve) => (open = resolve));
+      const registry = cached(inner);
+      const stale = registry.get('acme');
+      inner.memory.set('acme', { state: 'suspended' });
+      forget(registry);
+      open();
+      expect((await stale)?.state).to.eq('active');
+      expect((await registry.get('acme'))?.state).to.eq('suspended');
+      expect(inner.calls).to.eq(2);
+    }
+  });
+
+  it('counts the ttl from the start of the lookup', async () => {
+    const inner = new CountingRegistry();
+    inner.memory.add({ id: 'acme' });
+    let open = (): void => undefined;
+    inner.gate = new Promise((resolve) => (open = resolve));
+    const registry = cached(inner);
+    const first = registry.get('acme');
+    now += 3_000;
+    open();
+    await first;
+    now += 2_000;
+    await registry.get('acme');
+    expect(inner.calls).to.eq(2);
   });
 
   it('forgets everything on invalidate()', async () => {

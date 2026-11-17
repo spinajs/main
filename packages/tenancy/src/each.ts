@@ -27,8 +27,9 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
     throw new TenantSwitchDenied(`forEachTenant cannot run inside tenant "${scope.tenant.id}"; leave the scope with runAcrossTenants(reason) first`);
   }
 
+  const states = options.states ?? ['active'];
   const registry = await tenantRegistry();
-  const tenants = registry.list({ states: options.states ?? ['active'] })[Symbol.asyncIterator]();
+  const tenants = registry.list({ states })[Symbol.asyncIterator]();
   const failed: TenantRunFailure[] = [];
   let total = 0;
 
@@ -43,6 +44,8 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   const worker = async (): Promise<void> => {
     for (let next = await pull(); !next.done; next = await pull()) {
       const tenant = next.value;
+      // A registry that ignores the filter must not get a suspended or deleted tenant visited.
+      if (!states.includes(tenant.state)) continue;
       total += 1;
       try {
         await runInTenant(tenant.id, () => fn(tenant));

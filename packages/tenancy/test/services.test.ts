@@ -9,6 +9,7 @@ import {
   ConfigTenantRegistry,
   MemoryTenantRegistry,
   PrincipalAttributeTenantAccess,
+  TenantRegistry,
   TenantSwitchDenied,
   TenantUnavailable,
   admitTenant,
@@ -20,6 +21,7 @@ import {
   tenantRecord,
   tenantRegistry,
 } from '../src/index.js';
+import type { TenantRecord } from '../src/index.js';
 import { tenancyApp } from './support/app.js';
 
 chai.use(chaiAsPromised);
@@ -38,6 +40,12 @@ function authzCache(): Map<string, unknown> {
   const cache = requestScope().cache;
   if (cache === undefined) throw new Error('authz gave no request cache');
   return cache;
+}
+
+class UnfilteredTenantRegistry extends MemoryTenantRegistry {
+  public override list(): AsyncIterable<TenantRecord> {
+    return super.list();
+  }
 }
 
 const reasonOf = (work: Promise<unknown>): Promise<string> =>
@@ -84,7 +92,7 @@ describe('tenancy services', () => {
       app = await tenancyApp({ registry: 'MemoryTenantRegistry' });
       const registry = await memory();
       registry.add({ id: 'acme', slug: 'acme-inc', domains: ['shop.acme.example'] });
-      registry.add({ id: 'frozen', state: 'suspended' });
+      for (const state of ['suspended', 'provisioning', 'deleting', 'deleted'] as const) registry.add({ id: state, state });
     });
 
     it('finds the tenant by id, by slug and by domain', async () => {
@@ -99,8 +107,10 @@ describe('tenancy services', () => {
       expect(await reasonOf(admitTenant({ slug: 'nobody' }))).to.eq('unknown');
     });
 
-    it('refuses a tenant that is not active', async () => {
-      expect(await reasonOf(admitTenant('frozen', user('alice', ['frozen'])))).to.eq('inactive');
+    it('refuses a tenant in any state but active', async () => {
+      for (const state of ['suspended', 'provisioning', 'deleting', 'deleted']) {
+        expect(await reasonOf(admitTenant(state, user('alice', [state])))).to.eq('inactive');
+      }
     });
 
     it('asks TenantAccess for an authenticated principal only', async () => {
@@ -156,6 +166,18 @@ describe('tenancy services', () => {
       await forEachTenant(async (tenant) => void seen.push(tenant.id), { states: ['suspended'] });
 
       expect(seen).to.deep.eq(['frozen']);
+    });
+
+    it('visits only the requested states when the registry ignores the filter', async () => {
+      await app.dispose();
+      app = await tenancyApp({ registry: 'UnfilteredTenantRegistry' }, (container) => container.register(UnfilteredTenantRegistry).as(TenantRegistry));
+      const registry = await memory();
+      registry.add({ id: 'a' });
+      registry.add({ id: 'gone', state: 'deleted' });
+      const seen: string[] = [];
+      const report = await forEachTenant(async (tenant) => void seen.push(tenant.id));
+      expect(seen).to.deep.eq(['a']);
+      expect(report.total).to.eq(1);
     });
 
     it('reports a failing tenant and goes on with the others', async () => {

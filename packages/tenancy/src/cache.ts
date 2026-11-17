@@ -20,6 +20,9 @@ export class CachedTenantRegistry extends TenantRegistry {
 
   private readonly lookups = new Map<string, Cached<string | undefined>>();
 
+  // A lookup still running when invalidate() is called must not store what it read before.
+  private generation = 0;
+
   constructor(
     public readonly inner: TenantRegistry,
     private readonly ttlMs: () => number,
@@ -36,11 +39,13 @@ export class CachedTenantRegistry extends TenantRegistry {
     const ttl = this.ttl();
     if (ttl === 0) return this.inner.get(id);
 
+    const started = this.now();
     const hit = this.records.get(id);
-    if (hit && hit.until > this.now()) return hit.value;
+    if (hit && hit.until > started) return hit.value;
 
+    const generation = this.generation;
     const record = await this.inner.get(id);
-    remember(this.records, id, record, this.now() + ttl);
+    if (generation === this.generation) remember(this.records, id, record, started + ttl);
     return record;
   }
 
@@ -49,13 +54,15 @@ export class CachedTenantRegistry extends TenantRegistry {
     if (ttl === 0) return this.inner.find(by);
 
     const key = JSON.stringify([by.slug ?? null, by.domain?.toLowerCase() ?? null]);
+    const started = this.now();
     const hit = this.lookups.get(key);
-    if (hit && hit.until > this.now()) return hit.value === undefined ? undefined : this.get(hit.value);
+    if (hit && hit.until > started) return hit.value === undefined ? undefined : this.get(hit.value);
 
+    const generation = this.generation;
     const record = await this.inner.find(by);
-    const until = this.now() + ttl;
-    remember(this.lookups, key, record?.id, until);
-    if (record) remember(this.records, record.id, record, until);
+    if (generation !== this.generation) return record;
+    remember(this.lookups, key, record?.id, started + ttl);
+    if (record) remember(this.records, record.id, record, started + ttl);
     return record;
   }
 
@@ -65,6 +72,7 @@ export class CachedTenantRegistry extends TenantRegistry {
 
   /** Forgets one tenant and every remembered miss, or everything. Call it after a tenant was created or changed. */
   public invalidate(id?: string): void {
+    this.generation += 1;
     if (id === undefined) {
       this.records.clear();
       this.lookups.clear();

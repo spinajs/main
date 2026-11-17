@@ -79,11 +79,15 @@ function listedTenant(entry: unknown, index: number): TenantRecord {
   if (!isObject(entry) || typeof entry.id !== 'string') {
     throw new InvalidOption(`tenancy.tenants[${index}] needs an id`);
   }
+  const state = stateOf(entry.state);
+  if (entry.state !== undefined && state === undefined) {
+    throw new InvalidOption(`tenancy.tenants[${index}].state ${JSON.stringify(entry.state)} is not a tenant state`);
+  }
   return tenantRecord({
     id: entry.id,
     slug: textOf(entry.slug),
     name: textOf(entry.name),
-    state: stateOf(entry.state),
+    state,
     domains: textsOf(entry.domains),
     placement: placementOf(entry.placement),
     settings: isObject(entry.settings) ? entry.settings : undefined,
