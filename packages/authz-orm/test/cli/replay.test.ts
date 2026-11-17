@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
-import { DecisionReplay, ReplayBusy } from '@spinajs/authz';
+import { DecisionReplay, ReplayBusy, ReplayInTransaction } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 
@@ -122,6 +122,13 @@ describe('authz:replay', () => {
     await run({ failOn: 'sometimes' });
     expect(failed('--fail-on')).to.equal(true);
     expect(replay.options).to.have.length(0);
+  });
+
+  it('names a replay refused inside a transaction', async () => {
+    replay.answers.push(async () => Promise.reject(new ReplayInTransaction()));
+    await run();
+    expect(failed('authz:replay: refused: authz replay: refused inside a transaction')).to.equal(true);
+    expect(process.exitCode).to.equal(1);
   });
 
   it('waits while the replays of the process are busy', async () => {

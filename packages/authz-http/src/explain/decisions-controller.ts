@@ -1,4 +1,4 @@
-import { AuthzConfigError, AuthzDomains, DecisionReplay, ReplayBusy } from '@spinajs/authz';
+import { AuthzDomains, DecisionReplay, ReplayBusy, ReplayInTransaction } from '@spinajs/authz';
 import type { Permission, Principal, ReplayReport } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, NotFound, Ok, Policy, ServerError, TooManyRequests } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -77,7 +77,7 @@ export class DecisionsController extends BaseController {
       report = await this.Replay.replay(id, signal === undefined ? {} : { signal });
     } catch (e) {
       if (e instanceof ReplayBusy) return new TooManyRequests({ error: 'replay_busy', message: e.message }, { retryAfterSeconds: BUSY_RETRY_SECONDS });
-      if (!(e instanceof AuthzConfigError)) throw e;
+      if (!(e instanceof ReplayInTransaction)) throw e;
       // Answered, not thrown: a thrown 500 is redacted in production, and an operator must learn why the replay was refused.
       this.Log.error({ error: e, decisionId: id }, 'authz-http: the replay of decision ${decisionId} was refused');
       return new ServerError({ error: 'replay_refused', message: e.message });

@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { DecisionReplay, ReplayBusy, resourceKey } from '@spinajs/authz';
+import { DecisionReplay, ReplayBusy, ReplayInTransaction, resourceKey } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport, ReplayTreeNode, ReplayVerdict } from '@spinajs/authz';
 import { Argument, Command, Option, SystemTask } from '@spinajs/cli';
 
@@ -63,6 +63,7 @@ export class ReplayCommand extends AuthzOrmCliCommand {
       try {
         return await replay.replay(id, options);
       } catch (e) {
+        if (e instanceof ReplayInTransaction) throw new Error(`authz:replay: refused: ${e.message}`);
         if (!(e instanceof ReplayBusy)) throw e;
         await sleep(this.RetryMs);
       }

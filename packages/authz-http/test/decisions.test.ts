@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AuthzConfigError, DecisionAudit, DecisionReplay, ReplayBusy } from '@spinajs/authz';
+import { AuthzConfigError, DecisionAudit, DecisionReplay, ReplayBusy, ReplayInTransaction } from '@spinajs/authz';
 import type { DecisionRequest, ReplayOptions, ReplayReport } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
@@ -236,13 +236,18 @@ describe('GET /authz/decisions/:id/explain', function () {
     expect(calls[0].options?.signal).to.eq(undefined);
   });
 
-  it('is registered in production when enabled, where a refused replay (an AuthzConfigError, such as one inside a transaction) answers 500 with error replay_refused', async () => {
+  it('is registered in production when enabled, where only a replay refused inside a transaction answers 500 with error replay_refused', async () => {
     running = await boot({ ...ENABLED, 'configuration.isProduction': true });
     expect((await get(URL, 'bob')).status).to.eq(200);
-    answer = async () => Promise.reject(new AuthzConfigError('authz replay: refused inside a transaction open on the authz connection; replay outside it'));
+    answer = async () => Promise.reject(new ReplayInTransaction());
     const res = await get(URL, 'bob');
     expect(res.status).to.eq(500);
     expect(res.body).to.deep.include({ error: 'replay_refused' });
     expect((res.body as { message: string }).message).to.contain('inside a transaction');
+
+    answer = async () => Promise.reject(new AuthzConfigError('authz replay: two history contributors are registered for the tuple changelog kind'));
+    const misconfigured = await get(URL, 'bob');
+    expect(misconfigured.status, 'any other configuration error is an ordinary 500').to.eq(500);
+    expect(JSON.stringify(misconfigured.body)).to.not.contain('replay_refused').and.not.contain('contributors');
   });
 });

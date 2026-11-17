@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { AuthzConfigError, DecisionLogTap, DecisionReplay, ReplayBusy, ScopeForgetter, TRUE, changeLog } from '@spinajs/authz';
+import { AuthzConfigError, DecisionLogTap, DecisionReplay, ReplayBusy, ReplayInTransaction, ScopeForgetter, TRUE, changeLog } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, DecisionRecord, PolicyHashSource, Principal, ReplayReport, ResourceRef } from '@spinajs/authz';
 import { HistoryContributors, canonicalize, policyHash } from '@spinajs/authz-ir';
 import type { ChangeRecord } from '@spinajs/authz';
@@ -269,7 +269,7 @@ describe('DbDecisionReplay', function () {
         await world();
         const id = await decide(true);
         const refused = await driver.transaction(() => new DbDecisionReplay().replay(id).then(() => undefined, (e: unknown) => e));
-        expect(refused).to.be.instanceOf(AuthzConfigError);
+        expect(refused).to.be.instanceOf(ReplayInTransaction).and.instanceOf(AuthzConfigError);
         expect((refused as Error).message).to.match(/inside a transaction/);
         expect((await replay(id)).replay).to.equal('faithful');
       });
