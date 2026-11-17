@@ -4,7 +4,8 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, IQueueJob, QueueMessage, IJobFailureContext, PermanentJobFailure } from './../src/index.js';
+import { NonRetryableError } from '@spinajs/durable';
+import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, IQueueJob, QueueMessage, IJobFailureContext, PermanentJobFailure, isJob } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -136,6 +137,15 @@ class RefusedJob extends QueueJob {
 
   public async execute() {
     throw new PermanentJobFailure('access_denied', 'job RefusedJob needs invoice:send on invoice');
+  }
+}
+
+@Job()
+class GivenUpJob extends QueueJob {
+  public RetryCount = 3;
+
+  public async execute() {
+    throw new NonRetryableError('card expired');
   }
 }
 
@@ -341,6 +351,20 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     expect(row.Status).to.equal('dead');
     expect(row.Attempt).to.equal(1);
     expect(row.LastError).to.equal('access_denied: job RefusedJob needs invoice:send on invoice');
+  });
+
+  it('marks a job dead on its first NonRetryableError, whatever retries are left', async () => {
+    const queue = await q();
+    await queue.consume(GivenUpJob);
+    await GivenUpJob.emit({});
+
+    const c = await client();
+    const emitted = c.Emitted[0];
+    await expect(c.deliver(emitted)).to.be.rejectedWith(NonRetryableError, 'card expired');
+
+    const row = await JobModel.where({ JobId: isJob(emitted) ? emitted.JobId : '' }).firstOrFail();
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
   });
 });
 

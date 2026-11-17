@@ -15,7 +15,7 @@ Every consumed job has one row in the `queue_jobs` table, modelled by `JobModel`
 7. **Failure.**
    1. `Attempt` goes up by one.
    2. The retry limit is `MaxAttempts - 1` from the row (the message's `RetryCount` when `MaxAttempts` is `0`).
-   3. `Status` becomes `dead` (with `FinishedAt: now`) when `Attempt` exceeds the limit, else `retrying`. `LastError` gets the error message, cut to 1024 characters. Row updated.
+   3. `Status` becomes `dead` (with `FinishedAt: now`) when `Attempt` exceeds the limit, or when the error is a `PermanentJobFailure` or a `NonRetryableError` from `@spinajs/durable`, else `retrying`. `LastError` gets the error message, cut to 1024 characters. Row updated.
    4. `onFailed(err, { attempt, maxAttempts, isFinal, jobId })` runs, wrapped by the message hooks. Its errors are logged, never rethrown.
    5. The original error is rethrown, so the transport retries or dead-letters the message.
 
@@ -123,6 +123,7 @@ The column changes are `modify()` calls on every driver. On SQLite each modifyin
 
 - **No row before the first delivery.** `emit()` returns a `JobId` at once, but `JobModel` has no row for it until a consumer receives the job. A status reader must treat a missing row as "queued".
 - **`MaxAttempts` is fixed at first receipt.** A redelivered message with another `RetryCount` does not change the limit.
+- **`NonRetryableError` and `PermanentJobFailure` end a job on its first failure**, whatever retries are left: the row becomes `dead`, `onFailed` sees `isFinal: true`, and the transport dead-letters the message without a retry ([delivery contract](11-delivery-contract.md), rule 5). `NonRetryableError` is matched by its `name`, so a copy from another package instance counts too.
 - **Retries come from the transport.** The queue only records the failure and rethrows; a transport that does not redeliver leaves the job `retrying` forever.
 - **Deduplication relies on the row, not the broker.** A redelivery of a finished job is acknowledged without running; a redelivery of a `retrying` job runs again.
 - **A message whose `Initiator` differs from the row's is dropped silently** (warning log, no error), so a caller cannot run code under another principal's `JobId`.

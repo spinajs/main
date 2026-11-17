@@ -356,7 +356,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    * @returns the dead-letter channel, or undefined if none is configured
    */
   public getDeadLetterChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string | undefined {
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const rOption = this.Routing?.[eName];
 
     // a single route option may carry its own dead-letter channel
@@ -381,7 +381,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    * where a throw would go unhandled.
    */
   public getMaxRetriesForMessage(event: IQueueMessage | Constructor<QueueMessage>): number | undefined {
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const rOption = this.Routing?.[eName];
     const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
 
@@ -402,6 +402,16 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     return value;
   }
 
+  /** The first own routing entry of the message that declares `key`. */
+  public getRouteOption<K extends keyof IMessageRoutingOption>(event: IQueueMessage | Constructor<QueueMessage>, key: K): IMessageRoutingOption[K] | undefined {
+    const rOption = this.Routing?.[this.messageName(event)];
+    const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
+    for (const entry of entries) {
+      if (entry && !_.isString(entry) && entry[key] !== undefined) return entry[key];
+    }
+    return undefined;
+  }
+
   /**
    *
    * Gets event channel from routing table or default if non is set
@@ -410,7 +420,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public getChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const options = Reflect.getMetadata('queue:options', event);
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
     const rOption = this.Routing?.[eName];
 
@@ -444,6 +454,10 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public get RedeliversFailedEvents(): boolean {
     return false;
+  }
+
+  protected messageName(event: IQueueMessage | Constructor<QueueMessage>): string {
+    return (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
   }
 
   /**
@@ -575,6 +589,12 @@ export abstract class JobRetentionService extends AsyncService implements IMappa
   public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
 }
 
+export interface DeliveryBackoff {
+  kind: 'fixed' | 'exponential';
+  delayMs: number;
+  maxDelayMs?: number;
+}
+
 export interface IMessageRoutingOption {
   channel?: string;
   deadLetterChannel?: string;
@@ -583,9 +603,18 @@ export interface IMessageRoutingOption {
   /**
    * Default retry count for jobs routed here that carry no `RetryCount` of their own.
    * An explicit `RetryCount` on the job always wins.
-   * Honoured by the STOMP and AMQP transports; the first routing entry that declares it applies.
+   * Honoured by every transport that executes the delivery decision; the first routing entry that declares it applies.
    */
   maxRetries?: number;
+
+  /** Delay between retries of messages routed here; default exponential on the connection's `retryDelay`. */
+  backoff?: DeliveryBackoff;
+
+  /** What a failed event handler leads to: 'drop' (the default) acks it, 'retry' retries it like a job, into the failing subscriber only. */
+  onEventFailure?: 'drop' | 'retry';
+
+  /** SQS FIFO: the message field whose value is the MessageGroupId. A route to a `.fifo` queue needs it. */
+  groupBy?: string;
 }
 
 export interface IQueueConnectionOptions {

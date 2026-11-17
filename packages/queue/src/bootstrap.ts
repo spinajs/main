@@ -5,6 +5,7 @@ import { QueueService } from './interfaces.js';
 import { outboxConfig, type IQueueOutboxConfig } from './outbox/config.js';
 import { QUEUE_CONFIGURATION_SCHEMA } from './schemas/queue.configuration.js';
 import { QUEUE_OUTBOX_CONFIGURATION_SCHEMA } from './schemas/queue.outbox.configuration.js';
+import { QUEUE_ROUTING_CONFIGURATION_SCHEMA } from './schemas/queue.routing.configuration.js';
 
 /** Resolves the queue service an enabled outbox needs without waiting for a first emit; undefined while the outbox is off. */
 export async function startOutboxService(): Promise<QueueService | undefined> {
@@ -18,6 +19,7 @@ export class QueueBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerConfigurationSchema(QUEUE_OUTBOX_CONFIGURATION_SCHEMA);
     registerConfigurationSchema(QUEUE_CONFIGURATION_SCHEMA);
+    registerConfigurationSchema(QUEUE_ROUTING_CONFIGURATION_SCHEMA);
     // The Orm is cached when this fires, so the queue service can resolve what injects it. A listener has no caller to
     // reject, so a failure is logged; the failures that must stop the boot are thrown by QueueOutboxMigrationSource.
     DI.once('di.resolved.Orm', () => {

@@ -27,6 +27,8 @@ Choosing the channels, in `QueueClient.getChannelForMessage(message)` (called by
 
 Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage(message)`: the route's `deadLetterChannel`, else the first array item of this connection that has one, else the connection's `defaultQueueDeadLetterChannel`, else `undefined`.
 
+Reading any other route option, in `QueueClient.getRouteOption(message, key)`: the value of the first item of this connection that declares `key`, else `undefined`. The delivery options below are read this way; see [Delivery contract](11-delivery-contract.md).
+
 `QueueService.get(name?)` returns the client named `name`, or the `queue.default` client.
 
 ## Configuration
@@ -50,7 +52,12 @@ Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage
 | `queue.routing.<Name>.connection` | `string` | `queue.default` | a connection name | Connection of the message |
 | `queue.routing.<Name>.channel` | `string` | connection's default channel | broker channel | Channel of the message |
 | `queue.routing.<Name>.deadLetterChannel` | `string` | connection's `defaultQueueDeadLetterChannel` | broker channel | Where the transport moves a message it gives up on |
-| `queue.routing.<Name>.maxRetries` | `number` | unset | integer `>= 0` | Retry count for a job emitted without `RetryCount`. An explicit `RetryCount`, `0` included, wins. In an array route, the first item of the connection that declares it applies. An invalid value is ignored with one warning per message name. `QueueService` and the STOMP and AMQP transports read it |
+| `queue.routing.<Name>.maxRetries` | `number` | unset | integer `>= 0` | Retry count for a job emitted without `RetryCount`, and for an event under `onEventFailure: 'retry'`. An explicit `RetryCount`, `0` included, wins. In an array route, the first item of the connection that declares it applies. An invalid value is ignored with one warning per message name. `QueueService` and every transport that executes the [delivery decision](11-delivery-contract.md) read it |
+| `queue.routing.<Name>.backoff` | `{ kind, delayMs, maxDelayMs? }` | `{ kind: 'exponential', delayMs: <connection retryDelay> }` | `kind` `'fixed'` or `'exponential'`; `delayMs` and `maxDelayMs` integers `>= 0` (milliseconds) | Delay before each retry: `delayMs`, or `delayMs * 2^(n-1)` for the n-th retry, capped at `maxDelayMs`. See [Delivery contract](11-delivery-contract.md) |
+| `queue.routing.<Name>.onEventFailure` | `'drop' \| 'retry'` | `'drop'` | | What a failed event handler leads to: `'drop'` acks the event, `'retry'` retries it like a job, into the failing subscriber only, and dead-letters it once `maxRetries` is used up |
+| `queue.routing.<Name>.groupBy` | `string` | unset | a message field name, not empty | SQS FIFO: the field whose value is the `MessageGroupId`. A route to a `.fifo` queue needs it |
+
+`backoff`, `onEventFailure` and `groupBy` are checked twice: at boot by the `queue.routing` configuration schema that `QueueBootstrapper` registers, and by `consume()`, which throws `InvalidArgument` before it subscribes a message whose route holds an invalid one. The schema also states the shape of a route: a string, an object, or an array of those.
 
 Each transport decides which connection keys it reads; check its docs. `IQueueConnectionOptions` also declares optional `transport` and `type`; they are deprecated and nothing reads them.
 

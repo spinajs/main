@@ -8,7 +8,7 @@ import { FakeClock } from '@spinajs/durable/testing';
 import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
-import { Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater } from '../src/index.js';
+import { decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
 import { MemoryBroker, wireCopy } from '../src/testing/index.js';
 import { deferred, memoryClientOf, RecordingFaults, faultsHit, T0 } from './support/outbox-env.js';
 
@@ -174,6 +174,10 @@ describe('queue: event deduplication by MessageId', function () {
     expect(calls).to.equal(1);
     expect(errors).to.have.length(1);
     expect(isRedeliverLater(errors[0])).to.equal(true);
+    // the route has no retries and drops a failed event, and still the duplicate is redelivered, its count unchanged
+    const policy = resolveDeliveryPolicy(env.client, message);
+    expect(policy).to.include({ maxRetries: 0, onEventFailure: 'drop' });
+    expect(decideDelivery(message, 2, errors[0], policy)).to.include({ action: 'retry', attempt: 2, delayMs: 30_000, forced: true });
   });
 
   it('handles once when two consumers of one subscription receive the same MessageId at once', async () => {
@@ -227,6 +231,12 @@ describe('queue: event deduplication by MessageId', function () {
     expect(errors).to.have.length(1);
     expect(errors[0]).to.be.instanceOf(IdempotencyInFlight);
     expect(isRedeliverLater(errors[0])).to.equal(false);
+    // a handler failure: dropped by the default policy, and under retries it is counted and ends in the dead-letter channel
+    const policy = resolveDeliveryPolicy(env.client, message);
+    expect(decideDelivery(message, 0, errors[0], policy)).to.include({ action: 'ack', dropped: true });
+    const retrying = { ...policy, maxRetries: 1, onEventFailure: 'retry' as const };
+    expect(decideDelivery(message, 0, errors[0], retrying)).to.deep.include({ action: 'retry', attempt: 1 }).and.not.have.property('forced');
+    expect(decideDelivery(message, 1, errors[0], retrying)).to.include({ action: 'dead-letter', reason: 'exhausted' });
     // the key was released, so the retry runs the handler again
     await env.client.deliver(wireCopy(message));
     expect(calls).to.equal(2);
