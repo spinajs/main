@@ -63,6 +63,54 @@ Endpoint `logs`. Buffered log lines, newest first, as `StudioPage<StudioLogLine>
 | `level` | A log level name (`trace` to `security`): this level and above. |
 | `limit` | 1 to 1000; default 200. |
 
+## DI graph
+
+Endpoint `di`. Both routes describe the root DI container (`DI.RootContainer.describe()`), merged with the service entries of the loaded manifest. Registrations made in a child container, such as an authz domain or a child-scope app, are not in the graph.
+
+`source` says what the answer is built from: `runtime` when no manifest is loaded, `merged` when one is.
+
+### `GET /api/di/graph`
+
+Answers a `StudioGraph`.
+
+| Parameter | Value |
+| --- | --- |
+| `package` | Only the nodes of this package. Packages are known from the manifest, so without a manifest no node matches. |
+| `focus` | A node id (`svc:Orders`) or a bare DI key (`Orders`). Only the nodes within `depth` hops of it, nearest first. An unknown focus is a `404`. |
+| `depth` | 0 to 10; default 1. Only together with `focus`, otherwise a `400`. |
+| `limit` | 1 to 5000; default 500. |
+
+Nodes:
+
+| `kind` | Id | Node |
+| --- | --- | --- |
+| `service` | `svc:<class>` | A class. |
+| `token` | `tok:<key>` | A key other than the class's own name: an abstract class or a string token. `registered: false` marks a key that is injected but has no registration. |
+| `value` | `val:<key>` | A value registration. Only its key is shown, never the value. |
+| `factory` | `fac:<key>:<index>` | A factory registration, labelled with the function name. |
+
+Edges go from the class that injects or implements to its target. `implements` links a class to a key it is registered as. `ctor`, `property` and `lazy` are injections (a property or lazy edge is labelled with the property name). `imperative` is a `DI.resolve()` call inside a method, labelled `<method>()`; only the manifest knows these.
+
+Node attributes:
+
+- `instantiated`: an instance sits in the root container's cache. A class that only the manifest lists is `false`.
+- `unknownToManifest`: the runtime has the node and the loaded manifest does not.
+- `error`: the runtime could not read the class's injections (a property nothing types). The class is listed without its runtime injection edges.
+- `lifetime`, `async`, `bootstrapper`, `manifestId`, `resolving`.
+
+`truncated` is `true` when `limit` cut nodes. Names, ids and paths longer than 2 KiB are cut.
+
+### `GET /api/di/services/:id`
+
+Answers a `DiServiceDetail` for one DI key. `id` is a node id or a bare key; a key that neither the runtime nor the manifest knows is a `404`. The answer holds:
+
+- `implementations`: each registered implementation with its lifetime, whether it is instantiated, and its injections. When the runtime could not read a class's injections (`error`), they come from its manifest entry.
+- `injectedBy`: the classes that inject this key, with the kind of injection.
+- `manifest`: the manifest's service entries for this key, and `sourceRef`, where the first one is registered.
+- `runtime.resolving`: a resolution of this key is in flight.
+
+The DI routes show class names, DI keys, lifetimes, package names and source file paths. They never show a registered value, a configuration value or an instance's state.
+
 ## Typed calls
 
 ```ts sample
