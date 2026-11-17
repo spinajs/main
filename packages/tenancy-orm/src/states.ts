@@ -11,6 +11,10 @@ import { canTransition } from './state-machine.js';
 /** Moves a tenant from one state to the next; `nextStates` says which steps exist. */
 @Injectable()
 export class TenantStateService {
+  /**
+   * A row the registry cannot read is still moved, so that a broken tenant can be suspended or deleted; the call then
+   * throws `InvalidOperation` when it reads the moved row back.
+   */
   public async transition(id: string, to: TenantState): Promise<TenantRecord> {
     const row = await this.current(id);
     const from = row.state;

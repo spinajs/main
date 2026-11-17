@@ -69,7 +69,9 @@ await states.transition('t1', 'suspended');
 
 `transition` throws `TenantUnavailable` for an unknown tenant, `InvalidOperation` for a step the machine does not have,
 and `ConcurrencyConflict` when the tenant left its state while the call was running: the update names the old state in
-its condition, so of two concurrent moves from one state only one changes the row.
+its condition, so of two concurrent moves from one state only one changes the row. A row the registry cannot read is still moved,
+so that a broken tenant can be suspended or deleted; `transition` then throws `InvalidOperation` when it reads the row
+back, after it dropped the tenant from the cache.
 
 `@spinajs/tenancy` reads `DbTenantRegistry` through a cache (`tenancy.registryCacheMs`, 5000 by default). A successful
 `transition` drops the tenant from that cache, so the replica that made the change sees it at once; other replicas see

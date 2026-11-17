@@ -7,7 +7,15 @@ import { isTenantState } from './state-machine.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const unreadable = (row: TenantModel, column: string, value: unknown): InvalidOperation => new InvalidOperation(`tenancy-orm: tenant "${row.id}" has the unreadable ${column} ${JSON.stringify(value)}`);
+function shapeOf(value: unknown): string {
+  if (value === null || value === undefined) return String(value);
+  if (Array.isArray(value)) return 'an array';
+  if (isRecord(value)) return typeof value.kind === 'string' ? `an object of kind ${JSON.stringify(value.kind)}` : 'an object';
+  return `a ${typeof value}`;
+}
+
+// Names the shape, never the value: settings may hold a secret, a placement connection details.
+const unreadable = (row: TenantModel, column: string, value: unknown): InvalidOperation => new InvalidOperation(`tenancy-orm: tenant "${row.id}" has unreadable ${column} (${shapeOf(value)})`);
 
 // No placement means the default one, so a placement that cannot be read must not pass as none.
 function placementOf(row: TenantModel): TenantPlacement | undefined {

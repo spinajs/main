@@ -102,11 +102,11 @@ describe('tenant table and state machine', function () {
     });
     expect(messages).to.deep.eq([
       'tenancy-orm: the tenant row "T6" has an id that is not a tenant id',
-      'tenancy-orm: tenant "t1" has the unreadable placement {"kind":"other","schema":"t_t1"}',
-      'tenancy-orm: tenant "t2" has the unreadable placement {"kind":"schema","schema":""}',
-      'tenancy-orm: tenant "t3" has the unreadable placement []',
-      'tenancy-orm: tenant "t4" has the unreadable settings ["a"]',
-      'tenancy-orm: tenant "t5" has the unreadable settings null',
+      'tenancy-orm: tenant "t1" has unreadable placement (an object of kind "other")',
+      'tenancy-orm: tenant "t2" has unreadable placement (an object of kind "schema")',
+      'tenancy-orm: tenant "t3" has unreadable placement (an array)',
+      'tenancy-orm: tenant "t4" has unreadable settings (an array)',
+      'tenancy-orm: tenant "t5" has unreadable settings (null)',
     ]);
   });
 

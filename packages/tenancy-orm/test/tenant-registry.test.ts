@@ -95,6 +95,18 @@ describe('DbTenantRegistry', function () {
     expect((await cached.get('t1'))?.name).to.eq('Acme');
   });
 
+  it('still moves a tenant whose row it cannot read, drops it from the cache, then refuses the row', async () => {
+    const cached = await tenantRegistry();
+    expect((await cached.get('t1'))?.state).to.eq('active');
+    await writeRaw('t1', { settings: '[]' });
+
+    const message = 'tenancy-orm: tenant "t1" has unreadable settings (an array)';
+    await expect((await app.resolve(TenantStateService)).transition('t1', 'suspended')).to.be.rejectedWith(InvalidOperation, message);
+    const [row] = await TenantModel.where('id', 't1');
+    expect(row.state).to.eq('suspended');
+    await expect(cached.get('t1')).to.be.rejectedWith(InvalidOperation, message);
+  });
+
   it('gets a tenant by id, with no tenant scope although tenant models are declared', async () => {
     expect(tenantModels().length).to.be.greaterThan(0);
     expect(tenantModels().map((entry) => entry.model)).not.to.include(TenantModel);
@@ -176,7 +188,7 @@ describe('DbTenantRegistry', function () {
   it('never hands out an active tenant whose placement it cannot read, the cache and admitTenant included', async () => {
     await writeRaw('t1', { placement: '{"kind":"other"}' });
     const cached = await tenantRegistry();
-    const message = 'tenancy-orm: tenant "t1" has the unreadable placement {"kind":"other"}';
+    const message = 'tenancy-orm: tenant "t1" has unreadable placement (an object of kind "other")';
     await expect(registry.get('t1')).to.be.rejectedWith(InvalidOperation, message);
     await expect(cached.get('t1')).to.be.rejectedWith(InvalidOperation, message);
     await expect(admitTenant({ domain: 'acme.example' })).to.be.rejectedWith(InvalidOperation, message);
