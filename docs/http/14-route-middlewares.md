@@ -348,7 +348,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The `Audit` middleware of `@spinajs/audit-http` uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The [`Audit`](../audit-http/01-audit.md) middleware of `@spinajs/audit-http` uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 
@@ -623,7 +623,7 @@ public async onBefore({ req }: IMiddlewareContext) {
 
 ### Audit every write to an admin controller
 
-The `Audit` middleware of `@spinajs/audit-http` does this with redaction and an audit trail; this hand-written one shows the hooks.
+The [`Audit`](../audit-http/01-audit.md) middleware of `@spinajs/audit-http` does this with redaction and an audit trail; this hand-written one shows the hooks.
 
 ```ts sample
 import { Log, Logger } from '@spinajs/log';

@@ -156,7 +156,7 @@ Two consequences follow:
 ### Middlewares on an early replay
 
 A replay before the policies is an early answer: only the middlewares entered before the check see it. Those are the
-server middlewares and the route's `'beforePolicy'` middlewares; a recorder mounted there, such as `Audit` of `@spinajs/audit-http`, records it. The
+server middlewares and the route's `'beforePolicy'` middlewares; a recorder mounted there, such as [`Audit`](../audit-http/01-audit.md) of `@spinajs/audit-http`, records it. The
 `'outer'` and `'inner'` route middlewares are not entered, so their `onAfter` does not run and they set no header on
 it. A replay that goes through the claim (an anonymous or restricted caller, a principal signed in inside a policy, a
 route without policies) is seen by the `'outer'` middlewares entered before `@Idempotent`, so one key can be replayed

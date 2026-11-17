@@ -43,6 +43,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | Package | What it covers |
 | --- | --- |
 | [`@spinajs/http`](http/README.md) | HTTP server, controllers, [route arguments](http/04-route-arguments.md), [error handling](http/11-error-handling.md) |
+| [`@spinajs/audit-http`](audit-http/01-audit.md) | The `Audit` route middleware: an audit trail event per request |
 | [`@spinajs/http-swagger`](http-swagger/README.md) | Runtime OpenAPI document and Swagger UI |
 | [`@spinajs/http-bot`](http-bot/README.md) | Bot verification |
 | [`@spinajs/http-lazy-file-uploader`](http-lazy-file-uploader/README.md) | Deferred file copy |
