@@ -1,5 +1,6 @@
 import { GLOBAL_OBJECT, GLOBAL_TYPE, parseSubjectTypeRef } from '../ir.js';
 import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef } from '../ir.js';
+import { tupleContextPaths } from './caveats.js';
 import type { CaveatEvaluator, CaveatInput } from './caveats.js';
 import { and3, explainNode, not3, or3 } from './explain.js';
 import type { ExplainNode, Truth } from './explain.js';
@@ -198,7 +199,8 @@ export class Walker {
       return label === undefined ? r : { ...r, node: explainNode(label, r.truth, 'tuple', [r.node]) };
     }
     const c = await this.o.caveats.evaluate(caveat, this.o.input, tupleContext);
-    const cNode = explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`);
+    const supplied = tupleContextPaths(tupleContext);
+    const cNode: ExplainNode = { ...explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`), ...(supplied.length === 0 ? {} : { tupleContext: supplied }) };
     if (c === 'deny') return { truth: 'deny', cut: false, node: explainNode(label ?? `with ${caveat}`, 'deny', 'caveat', [cNode]) };
     const r = await inner();
     const truth = and3(c, r.truth);

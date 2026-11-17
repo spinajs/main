@@ -166,7 +166,10 @@ function unheldReads(tree: ExplainNode, ir: PolicyIR, ctx: ReplayContext): Repla
     if (!node.source.startsWith('caveats.')) continue;
     const name = node.source.slice('caveats.'.length);
     const def = Object.entries(ir.caveats).find(([n]) => n === name)?.[1];
+    // The tuple's context is part of the tuple, rebuilt at T; a read above a supplied path still merges request values.
+    const supplied = node.tupleContext ?? [];
     for (const path of def === undefined ? [] : conditionReads(def.expr)) {
+      if (supplied.some((p) => path === p || path.startsWith(`${p}.`))) continue;
       const reason = ctx.unheld(path);
       if (reason !== undefined) out.push({ input: path.startsWith('fn.') ? 'condition-function' : path, key: path.startsWith('fn.') ? path.slice(3) : name, reason });
     }

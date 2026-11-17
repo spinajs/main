@@ -111,6 +111,29 @@ describe('replayDecision', function () {
     expect(report.missing).to.deep.include({ input: 'env.hour', key: 'office', reason: 'inputs are captured only with authz.decisionLog.captureInputs' });
   });
 
+  it('a caveat value its conditional tuple supplies is held; a request value beside it is not', async () => {
+    const conditional = (expr: Condition): PolicyIR => {
+      const ir = irOf({ computed: 'editor' }, { draft: { params: {}, expr } });
+      ir.types.doc.relations.editor.allowed = [{ type: 'user', caveat: 'draft' }];
+      return ir;
+    };
+    const tuple = { ...editor('u1'), subject: { type: 'user', id: 'u1', caveat: { name: 'draft', context: { 'resource.status': 'draft' } } } };
+    const conditionalOnly = async (w: World): Promise<void> => {
+      await w.tuples.remove(editor('u1'), ms(-HOUR / 2));
+      await w.tuples.add(tuple, ms(-HOUR / 4));
+    };
+    const held = await world(conditional({ attr: 'resource.status', eq: 'draft' }));
+    await conditionalOnly(held);
+    const faithful = await replayDecision(held.record(), held.deps);
+    expect(faithful).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+
+    const mixed = await world(conditional({ all: [{ attr: 'resource.status', eq: 'draft' }, { attr: 'env.region', eq: 'eu' }] }));
+    await conditionalOnly(mixed);
+    const report = await replayDecision(mixed.record(), mixed.deps);
+    expect(report.replay).to.equal('unreplayable');
+    expect(report.missing.map((m) => m.input)).to.include('env.region').and.not.include('resource.status');
+  });
+
   it('a caveat over a parameter the replay lacks is unknown even where the evaluator would decide it', async () => {
     const w = await world(irOf({ caveat: 'open', of: { computed: 'editor' } }, { open: { params: {}, expr: { not: { attr: 'resource.status', eq: 'frozen' } } } }));
     const report = await replayDecision(w.record(), w.deps);

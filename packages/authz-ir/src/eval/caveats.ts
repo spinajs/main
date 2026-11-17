@@ -68,12 +68,17 @@ function asPrincipal(facts: PrincipalFacts, overlay: unknown): Principal {
   return { ...extra, type: facts.type, id: facts.id, authenticated: true, source: 'authz-ir', attributes };
 }
 
+const safePath = (path: string): boolean => !path.split('.').some((s) => UNSAFE.has(s));
+
+/** The paths of a conditional tuple's context that the caveat sees in place of the request's values. */
+export const tupleContextPaths = (tuple: Readonly<Record<string, unknown>> | undefined): string[] => Object.keys(tuple ?? {}).filter(safePath);
+
 function withTupleContext(context: CaveatContext, tuple: Readonly<Record<string, unknown>> | undefined): CaveatContext {
   if (tuple === undefined) return context;
   const out = structuredClone(context) as Record<string, unknown>;
   for (const [path, value] of Object.entries(tuple)) {
+    if (!safePath(path)) continue;
     const segments = path.split('.');
-    if (segments.some((s) => UNSAFE.has(s))) continue;
     let at = out;
     for (const s of segments.slice(0, -1)) {
       if (!isRecord(at[s])) at[s] = {};
