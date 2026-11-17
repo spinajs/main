@@ -53,7 +53,7 @@ No key of this package. Sinks are registered, not configured; `authn.audit.liste
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports: `AuthnAuditRecorder` ([`@spinajs/audit-authn`](../../packages/audit-authn/README.md)), the `@spinajs/users` sinks | your sink | Add one with `@Injectable(AuthnEventSink)`. |
+| Event sink | `AuthnEventSink`, every registration in the container's lineage, collected by `AuthnAudit` when it is resolved (`Array.chainOf`) | whatever the app imports, such as the `@spinajs/users` sinks; `AuthnAuditRecorder` ([`@spinajs/audit-authn`](../../packages/audit-authn/README.md)) is an `AuthnEventListener` and gets the same events | your sink | Add one with `@Injectable(AuthnEventSink)`. |
 
 ### Event sink: custom implementation
 

@@ -160,6 +160,9 @@ async function createReleasedAuditTable(driver: OrmDriver): Promise<void> {
   await driver.index().table('authn_audit').name('authn_audit_identity').columns(['identity', 'at']);
 }
 
+/** Stands for the checksum 3.x stored: any value other than the checksum of the 4.x class. */
+const RELEASED_CHECKSUM = 'f'.repeat(64);
+
 const auditIds = async (driver: OrmDriver) => ((await select(driver, 'SELECT id FROM authn_audit ORDER BY id')) as Array<{ id: string }>).map((r) => r.id);
 const indexNames = async (db: TestDb, table: string) => (await indexes(db, table)).map((i) => i.name).filter((n) => n.startsWith('authn_audit_')).sort();
 
@@ -184,6 +187,7 @@ for (const kind of DB_KINDS) {
       expect(status, 'status entry').to.not.be.undefined;
       expect(status!.pending).to.eq(false);
       expect(status!.failed).to.eq(false);
+      expect(status!.checksumMismatch).to.eq(false);
 
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);
@@ -326,9 +330,11 @@ for (const kind of DB_KINDS) {
         database = join(tmpdir(), `authn-orm-released-${randomBytes(4).toString('hex')}.sqlite`);
       }
 
-      // What a 3.x app left: the migration recorded as applied and its seven tables, authn_audit with rows.
+      // What a 3.x app left: the migration recorded as applied, with the checksum of its 3.x source, and its seven
+      // tables, authn_audit with rows.
       const released = await bootDb(this, kind, 'released', { database });
       try {
+        await released.driver.update().in('spinajs_migration').update({ Checksum: RELEASED_CHECKSUM }).where({ Migration: MIGRATION });
         await createReleasedAuditTable(released.driver);
         await insert(released.driver, 'authn_audit', { id: 'a1', at: NOW, type: 'login', outcome: 'success', identity: 'user:u1', ip: '10.0.0.1' });
         await insert(released.driver, 'authn_audit', { id: 'a2', at: NOW, type: 'login', outcome: 'failure', reason: 'bad_credentials' });
@@ -348,9 +354,9 @@ for (const kind of DB_KINDS) {
       }
     });
 
-    it('boots without running the migration again and leaves authn_audit, its rows and its indexes in place', async () => {
+    it('boots without running the migration again, reports its changed source, and leaves authn_audit, its rows and its indexes in place', async () => {
       const status = (await db.migrator.Runner.status()).filter((s) => s.name === MIGRATION);
-      expect(status.map((s) => [s.pending, s.failed])).to.deep.eq([[false, false]]);
+      expect(status.map((s) => [s.pending, s.failed, s.checksumMismatch])).to.deep.eq([[false, false, true]]);
 
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);

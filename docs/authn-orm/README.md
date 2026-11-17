@@ -86,7 +86,7 @@ Importing `@spinajs/authn-orm` registers the stores, the six models and the migr
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): the contracts these stores implement (`AuthnThrottle`, `SecretStore`, `IdentityLinkStore`, `MfaEnrolments`, `AuthnEventSink`) and the `authn.*` config schema.
+- [`@spinajs/authn`](../authn/README.md): the contracts these stores implement (`AuthnThrottle`, `SecretStore`, `IdentityLinkStore`, `MfaEnrolments`) and the `authn.*` config schema.
 - [Authentication internals](../authn-orm/07-models-and-schema.md): where each table sits in the login flow.
 - [`@spinajs/authn-local`](../authn-local/README.md): password reset and invite secrets, and the `reset` and `reauth` throttle flows.
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): links external subjects through `authn_identity` and claims each OIDC `state` in `authn_nonce`.
