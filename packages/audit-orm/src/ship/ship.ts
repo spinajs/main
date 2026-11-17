@@ -12,10 +12,11 @@ import { AUDIT_OUTBOX_TABLE } from './table.js';
 import { shippingTrails } from './trails.js';
 
 const DEFAULT_BATCH = 200;
-// Keeps the id list of a sink's dedup select under the bind limit of every driver (SQLite 999, MSSQL 2100).
+// Keeps a batch under the bind limit of every driver: the guarded delete binds the seq and the id of each event (MSSQL 2100; SQLite 32766 since 3.32).
 const MAX_BATCH = 500;
 const DEFAULT_MAX_BATCHES = 50;
 const DEFAULT_DELIVER_TIMEOUT_MS = 30000;
+const DEFAULT_RUN_BUDGET_MS = 300000;
 
 export interface ShipFailure {
   readonly trail: string;
@@ -36,6 +37,7 @@ interface ShipLimits {
   readonly batchSize: number;
   readonly maxBatches: number;
   readonly deliverTimeoutMs: number;
+  readonly stopAt: number;
 }
 
 const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -45,7 +47,7 @@ const log = (): Log => DI.resolve(Log, ['audit-ship']);
 function shipLimits(): ShipLimits {
   const raw: unknown = DI.get(Configuration)?.get<unknown>(['audit', 'ship']);
   const cfg = isRecord(raw) ? raw : {};
-  return { batchSize: Math.min(positive(cfg.batchSize, DEFAULT_BATCH), MAX_BATCH), maxBatches: positive(cfg.maxBatches, DEFAULT_MAX_BATCHES), deliverTimeoutMs: positive(cfg.deliverTimeoutMs, DEFAULT_DELIVER_TIMEOUT_MS) };
+  return { batchSize: Math.min(positive(cfg.batchSize, DEFAULT_BATCH), MAX_BATCH), maxBatches: positive(cfg.maxBatches, DEFAULT_MAX_BATCHES), deliverTimeoutMs: positive(cfg.deliverTimeoutMs, DEFAULT_DELIVER_TIMEOUT_MS), stopAt: Date.now() + positive(cfg.runBudgetMs, DEFAULT_RUN_BUDGET_MS) };
 }
 
 /** The connections that hold audit_outbox; `only` narrows to one name. A connection that cannot answer is handed to `unreachable`, or, without it, fails the call. */
@@ -112,7 +114,7 @@ async function drain(driver: OrmDriver, trail: TrailConfig, limits: ShipLimits, 
   const sink = await sinkOf(trail);
   const source = driver.Options.Name;
   // spinajs-orm-ignore ORM102: deliberate batching, one SELECT, one delivery and one DELETE per batch
-  for (let i = 0; i < limits.maxBatches; i += 1) {
+  for (let i = 0; i < limits.maxBatches && Date.now() < limits.stopAt; i += 1) {
     const batch = await oldestBuffered(driver, trail.name, limits.batchSize);
     if (batch.length === 0) break;
     await deliverBy(sink, { trail: trail.name, source, events: batch.map((b) => b.event) }, limits.deliverTimeoutMs);

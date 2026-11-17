@@ -12,6 +12,8 @@ export const AUDIT_SHIP_CONFIGURATION_SCHEMA = {
     maxBatches: { type: 'integer', minimum: 1, default: 50 },
     // A delivery still pending then counts as failed and its events stay buffered; a late success is a duplicate.
     deliverTimeoutMs: { type: 'integer', minimum: 1, default: 30000 },
+    // No batch starts after it; keep it plus deliverTimeoutMs below the timeout of the audit.ship schedule (10 minutes).
+    runBudgetMs: { type: 'integer', minimum: 1, default: 300000 },
   },
   additionalProperties: false,
 };

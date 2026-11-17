@@ -63,7 +63,14 @@ class DropSink extends AuditEventSink {
   }
 }
 
-const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink];
+class SlowSink extends AuditEventSink {
+  async deliver(batch: AuditBatch): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    RecordingSink.batches.push(batch);
+  }
+}
+
+const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink, SlowSink];
 
 class RecordingReader extends AuditReader {
   static redacted: AuditSubject[] = [];
@@ -403,6 +410,27 @@ describe('audit shipping', function () {
       expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
       expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
       expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('starts no batch once the run budget is used up', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      await store().append({ trail: trail('SlowSink'), events: [event(1), event(2)] });
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+    });
+
+    it('erases inside an open transaction: a rollback restores the buffer, not the destination', async () => {
+      const shippedTrail = trail('RecordingSink');
+      for (const d of [sqlite(), db.driver('pglite')]) {
+        await store().append({ trail: shippedTrail, events: [event(1)], connection: d.Options.Name });
+        const forget = d.transaction(async () => {
+          expect(await audit().trail('shipped').forget(c1, d.Options.Name)).to.eq(1 + 3);
+          throw new Error('caller failed');
+        });
+        await expect(forget).to.be.rejectedWith('caller failed');
+        expect((await tableRows(d, 'audit_outbox')).map((r) => r.data)).to.deep.eq(['{"version":1}']);
+      }
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
     });
 
     it('keeps erased events buffered until the destination was redacted', async () => {
