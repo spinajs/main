@@ -93,11 +93,27 @@ describe('buildAppManifest', () => {
     expect(owners.length).to.be.at.most(1);
   });
 
-  it('merges the authz sections and says the policy IR is not in the manifest', async () => {
+  it('merges the authz sections and says the policy IR is not in the manifest when the build was given none', async () => {
     const { manifest } = await buildAppManifest(APP);
     expect(manifest.authz?.entryPoints.map((e) => e.id)).to.include.members(['GET /health/get', 'GET /users/list']);
     expect(manifest.authz).to.not.have.property('ir');
-    expect(manifest.diagnostics.filter((d) => d.code === 'AUTHZ010')).to.deep.equal([{ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest, run `spinajs authz verify` with config' }]);
+    expect(manifest.diagnostics.filter((d) => d.code === 'AUTHZ010')).to.deep.equal([{ code: 'AUTHZ010', severity: 'info', message: 'policy IR not in manifest: run `spinajs authz:compile` and commit authz.ir.json' }]);
+  });
+
+  it('records the policy IR and its hash in the authz section, under the manifest hash', async () => {
+    const policy = { ir: '{"version":1}', policyHash: 'a'.repeat(64) };
+    const { manifest } = await buildAppManifest({ ...APP, policy });
+    expect(manifest.authz).to.include(policy);
+    expect(manifest.diagnostics.filter((d) => d.code.startsWith('AUTHZ01'))).to.deep.equal([]);
+    expect(manifest.hash).to.equal(hashManifest(manifest));
+    expect(manifest.hash).to.not.equal(hashManifest({ ...manifest, authz: { ...manifest.authz!, policyHash: 'b'.repeat(64) } }));
+  });
+
+  it('reports a policy file it cannot use as AUTHZ011 and leaves the section without it', async () => {
+    const { manifest } = await buildAppManifest({ ...APP, policy: { problem: 'not valid JSON' } });
+    expect(manifest.authz).to.not.have.property('ir');
+    expect(manifest.authz).to.not.have.property('policyHash');
+    expect(manifest.diagnostics.filter((d) => d.code.startsWith('AUTHZ01'))).to.deep.equal([{ code: 'AUTHZ011', severity: 'warning', message: 'authz.ir.json is not in the manifest: not valid JSON' }]);
   });
 
   it('records the compiler version that built it, outside the hash', async () => {

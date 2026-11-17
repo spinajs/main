@@ -1,12 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultMigrationDirs, type Configuration } from '@spinajs/configuration';
 import { hashManifest, type Manifest } from '@spinajs/manifest';
 import { Build } from '../src/cli/Build.js';
+import type { AuthzIrModule } from '../src/cli/AuthzExport.js';
 import { stripFrameworkOptions } from '../src/argv.js';
 
 const fixtures = fileURLToPath(new URL('../../compiler/test/fixtures/', import.meta.url));
@@ -23,7 +25,7 @@ class Captured extends Build {
 
 /** What `system.dirs` holds decides what reaches the compiler; a real configuration is exercised in build-effective-dirs.test.ts. */
 class WithDirs extends Captured {
-  public received?: { effectiveDirs?: Record<string, string[]>; defaultDirs?: Record<string, string[]>; requireAppDirs?: boolean };
+  public received?: { effectiveDirs?: Record<string, string[]>; defaultDirs?: Record<string, string[]>; requireAppDirs?: boolean; policy?: unknown };
 
   public constructor(dirs: unknown) {
     super();
@@ -42,6 +44,19 @@ class WithDirs extends Captured {
     return minimalManifest();
   }
 }
+
+/** `importIr` is the seam: the IR package is an optional peer. */
+class WithIr extends WithDirs {
+  public irLoads = 0;
+  public constructor(private readonly ir: Partial<AuthzIrModule> | Error) {
+    super(undefined);
+  }
+  protected override importIr(): Promise<AuthzIrModule> {
+    this.irLoads++;
+    return this.ir instanceof Error ? Promise.reject(this.ir) : Promise.resolve(this.ir as AuthzIrModule);
+  }
+}
+const fakeIr = (codes: string[] = []): Partial<AuthzIrModule> => ({ validateIR: () => codes.map((code) => ({ code })), canonicalize: () => 'CANON', policyHash: () => 'HASH' });
 
 /** A compiler that writes the manifest it returns, as the real one does. */
 class Writes extends WithDirs {
@@ -199,5 +214,55 @@ describe('build', function () {
     cmd['Config'] = { get: (path: string | string[], fallback: unknown) => values[[path].flat().join('.')] ?? fallback } as unknown as Configuration;
     await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json') });
     expect((cmd.received as { globalRouteMiddlewares?: unknown })?.globalRouteMiddlewares).to.deep.equal(entries);
+  });
+
+  describe('--authz-ir', () => {
+    const file = () => join(dir, 'authz.ir.json');
+
+    it('passes no policy and does not load the IR package when the app has no authz.ir.json', async () => {
+      const cmd = new WithIr(fakeIr());
+      await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json'), authzIr: file() });
+      expect(cmd.received).to.not.have.property('policy');
+      expect(cmd.irLoads).to.equal(0);
+    });
+
+    it('passes the canonical text and its hash, both computed from the file', async () => {
+      writeFileSync(file(), '{ "version": 1 }');
+      const cmd = new WithIr(fakeIr());
+      await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json'), authzIr: file() });
+      expect(cmd.received).to.deep.include({ policy: { ir: 'CANON', policyHash: 'HASH' } });
+    });
+
+    it('reports why a file cannot be used: invalid JSON, an invalid IR, a missing IR package', async () => {
+      const problem = async (cmd: WithIr) => {
+        await cmd.execute({ tsconfig: appBasic, out: join(dir, 'm.json'), authzIr: file() });
+        return (cmd.received as { policy?: { problem?: string } }).policy?.problem;
+      };
+      writeFileSync(file(), '{ not json');
+      expect(await problem(new WithIr(fakeIr()))).to.match(/JSON/);
+      writeFileSync(file(), '{ "version": 1 }');
+      expect(await problem(new WithIr(fakeIr(['IR001', 'IR005'])))).to.equal('invalid IR: IR001, IR005');
+      expect(await problem(new WithIr(new Error('install @spinajs/authz-ir to use the authz commands')))).to.equal('install @spinajs/authz-ir to use the authz commands');
+    });
+
+    it('resolves a relative path against the application root and defaults to authz.ir.json there', async () => {
+      writeFileSync(file(), '{ "version": 1 }');
+      const fromRoot = new WithIr(fakeIr());
+      await fromRoot.execute({ tsconfig: appBasic, out: join(dir, 'm.json'), authzIr: relative(dirname(appBasic), file()) });
+      expect(fromRoot.received).to.deep.include({ policy: { ir: 'CANON', policyHash: 'HASH' } });
+      const byDefault = new WithIr(fakeIr());
+      await byDefault.execute({ tsconfig: appBasic, out: join(dir, 'm.json') });
+      expect(byDefault.received).to.not.have.property('policy'); // the fixture app has no authz.ir.json
+    });
+
+    it('with the real IR package: the hash in the manifest is the sha256 of the recorded text', async () => {
+      const ir = { version: 1, types: {}, permissions: {}, caveats: {}, combine: { default: { algorithm: 'deny-overrides' } }, principal: { ceiling: true, delegation: true, ancestry: 'parent', roles: {} }, opaque: [] };
+      writeFileSync(file(), JSON.stringify(ir, null, 2));
+      const out = join(dir, 'app.manifest.json');
+      await new Captured().execute({ tsconfig: appBasic, out, schemas: false, authzIr: file() });
+      const { authz } = JSON.parse(readFileSync(out, 'utf8')) as Manifest;
+      expect(authz?.policyHash).to.equal(createHash('sha256').update(authz!.ir!).digest('hex'));
+      expect(JSON.parse(authz!.ir!)).to.deep.equal(ir);
+    });
   });
 });

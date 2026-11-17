@@ -341,8 +341,9 @@ export interface AuthzSection {
   /** AUTHZ0xx from the flow pass. */
   findings: Diagnostic[];
   ignores: Array<{ code: string; reason: string; source: SourceRef }>;
-  /** Canonical PolicyIR, when the `authz.*` config is statically readable. */
+  /** Canonical PolicyIR of the app's `authz.ir.json` (`spinajs authz:compile`), as `spinajs build` read it. */
   ir?: string;
+  /** SHA-256 hex of `ir`. */
   policyHash?: string;
 }
 

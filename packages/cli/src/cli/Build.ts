@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { Configuration, defaultMigrationDirs } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
@@ -6,6 +6,8 @@ import { publishedManifest, validateManifest } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { CliCommand, Command, Option } from '../index.js';
+import { loadIr } from './AuthzExport.js';
+import type { AuthzIrModule } from './AuthzExport.js';
 
 interface BuildOptions {
   tsconfig: string;
@@ -13,6 +15,7 @@ interface BuildOptions {
   schemas?: boolean;
   failOnWarning?: boolean;
   allowNoDirs?: boolean;
+  authzIr?: string;
 }
 
 const NO_DIRS_FIX = "Compile the app's config, run the build from the folder the app runs from with the --app, --apppath, --config-path and --env it runs with, or pass --allow-no-dirs for an app that declares no dirs";
@@ -32,6 +35,7 @@ const entriesOf = (m: Manifest): number => m.controllers.length + m.socketContro
 
 type Compiler = typeof import('@spinajs/compiler');
 type AppDirs = import('@spinajs/compiler').AppDirs;
+type ManifestPolicy = import('@spinajs/compiler').ManifestPolicy;
 
 @Command('build', 'Analyze the application and write app.manifest.json')
 @Option('--tsconfig <path>', false, 'tsconfig of the application; its directory is the application root', 'tsconfig.json')
@@ -40,6 +44,7 @@ type AppDirs = import('@spinajs/compiler').AppDirs;
 @Option('--no-schemas', false, 'skip schema derivation')
 @Option('--fail-on-warning', false, 'exit with code 1 when the analyzer reports a warning')
 @Option('--allow-no-dirs', false, 'build an app whose system.dirs name none of its folders: nothing loads from the manifest, its classes run only if something registers them')
+@Option('--authz-ir <path>', false, 'policy IR written by authz:compile, recorded in the authz section of the manifest; relative to the application root', 'authz.ir.json')
 export class Build extends CliCommand {
   /** Absent only for a command built by hand, which filters nothing. */
   @Autoinject(Configuration)
@@ -52,6 +57,11 @@ export class Build extends CliCommand {
   // Optional peer, loaded lazily: the compiler pulls in the TypeScript compiler API.
   protected importCompiler(): Promise<Compiler> {
     return import('@spinajs/compiler');
+  }
+
+  // Optional peer, loaded only when the app has the file.
+  protected importIr(): Promise<AuthzIrModule> {
+    return loadIr();
   }
 
   private async loadCompiler(): Promise<Compiler> {
@@ -72,9 +82,10 @@ export class Build extends CliCommand {
     const tsconfig = physical(resolve(options.tsconfig));
     const appRoot = dirname(tsconfig);
     const cwdWarnings = this.cwdWarnings(appRoot);
+    const policy = await this.policy(resolve(appRoot, options.authzIr ?? 'authz.ir.json'));
     let built: Awaited<ReturnType<Compiler['buildAppManifest']>>;
     try {
-      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options) });
+      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options), ...(policy ? { policy } : {}) });
     } catch (e) {
       if (!(e instanceof NoAppDirs)) throw e;
       this.write([...cwdWarnings, `error CMP007 - ${e.message}. ${NO_DIRS_FIX}`, ''].join('\n'));
@@ -98,6 +109,21 @@ export class Build extends CliCommand {
     this.write([...cwdWarnings, ...lines, ...this.summaryTable(manifest, counts), `manifest written to ${written}`, ''].join('\n'));
 
     if (counts.error > 0 || (options.failOnWarning === true && counts.warning > 0)) process.exitCode = 1;
+  }
+
+  /** `authz.ir.json` as the manifest records it: recomputed from the file, never copied. Undefined when the app has none. */
+  private async policy(file: string): Promise<ManifestPolicy | undefined> {
+    if (!existsSync(file)) return undefined;
+    try {
+      const ir = await this.importIr();
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      // validateIR expects schema-valid input and throws on anything else; the catch reports that too.
+      const invalid = ir.validateIR(parsed);
+      if (invalid.length > 0) return { problem: `invalid IR: ${invalid.map((d) => d.code).join(', ')}` };
+      return { ir: ir.canonicalize(parsed), policyHash: ir.policyHash(parsed) };
+    } catch (e) {
+      return { problem: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   // Not refused: an app that runs from its build folder gets the right dirs here, and only here.
