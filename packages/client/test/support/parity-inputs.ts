@@ -432,9 +432,11 @@ export function drawInputs(manifest: Manifest, id: string, options: InputOptions
   const root: unknown = manifest.schemas[id];
   const properties = isObj(root) && isObj(root.properties) ? Object.entries(root.properties).slice(0, 16) : [];
   const rnd = mulberry32((seed ^ SALT.mutate) >>> 0);
+  const readersOf = (name: string): string[] => properties.filter(([, s]) => isObj(s) && isObj(s.const) && s.const.$data === `1/${name}`).map(([k]) => k);
   let made = 0;
   for (const base of bases) {
     for (const [name, schema] of properties) {
+      const readers = readersOf(name);
       const values: unknown[] = [undefined, gen.valid(rnd, id, schema), ...gen.edges(schema, id, rnd).slice(0, 3), gen.random(rnd, id, options.coerce && rnd() < 0.7, schema)];
       for (const value of values) {
         if (made >= MAX_MUTATIONS) break;
@@ -442,6 +444,11 @@ export function drawInputs(manifest: Manifest, id: string, options: InputOptions
         if (value === undefined) delete mutant[name];
         else own(mutant, name, options.coerce && rnd() < 0.4 ? wired(rnd, value) : value);
         if (add(inputs, mutant)) made++;
+        // A sibling whose const reads the property breaks with it; one that follows lets the property's own keywords decide.
+        if (value === undefined || readers.length === 0 || made >= MAX_MUTATIONS) continue;
+        const paired = clone(mutant);
+        for (const reader of readers) own(paired, reader, clone(paired[name]));
+        if (add(inputs, paired)) made++;
       }
     }
   }
