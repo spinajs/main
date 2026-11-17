@@ -1,15 +1,17 @@
 import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
-import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
+import { Autoinject, Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob, PublishDirectOptions } from './interfaces.js';
 import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 import { isPermanentJobFailure } from './hooks.js';
+import { OutboxWriter } from './outbox/writer.js';
 
 export * from './BlackHoleQueueClient.js';
+export * from './crash.js';
 export { SystemTask, systemTaskOf } from '@spinajs/util';
 export * from './interfaces.js';
 export * from './headers.js';
@@ -60,6 +62,14 @@ export class DefaultQueueService extends QueueService {
   @AutoinjectService('queue.retention', JobRetentionService, { optional: true })
   protected Retention?: JobRetentionService;
 
+  @Autoinject(OutboxWriter)
+  protected Outbox: OutboxWriter;
+
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    await this.Outbox.ready();
+  }
+
   public async dispose() {
     if (this.Retention) {
       try {
@@ -85,24 +95,38 @@ export class DefaultQueueService extends QueueService {
   public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
     await runBeforeEmit(event);
 
-    const connections = this.getConnectionsForMessage(event);
     event.MessageId = event.MessageId ?? uuidv4();
     // generate only; the consumer writes the row
     const jobId = isJob(event) ? (event.JobId = event.JobId ?? event.MessageId) : undefined;
 
-    for (let c of connections) {
-      const connection = this.Connections.get(c);
-      if (!connection) {
-        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before emitting events to this connection.`);
-      }
-
-      await connection.emit(event);
-
-      this.Log.trace({ messageName: event.Name, messageType: event.Type, connection: c }, 'Emitted message ${messageName}, type: ${messageType} to connection ${connection}');
+    // a misrouted message must fail the caller, not wait in the outbox
+    this.connectionsFor(event);
+    if (await this.Outbox.enlistOn(event)) {
+      return jobId;
     }
 
+    await this.publishDirect(event);
     // for jobs this is the id the caller uses to track progress / status
     return jobId;
+  }
+
+  public async publishDirect(event: IQueueMessage, options: PublishDirectOptions = {}): Promise<void> {
+    for (const [name, connection] of this.connectionsFor(event)) {
+      if (options.skip?.includes(name)) continue;
+      await connection.emit(event);
+      options.published?.push(name);
+      this.Log.trace({ messageName: event.Name, messageType: event.Type, connection: name }, 'Emitted message ${messageName}, type: ${messageType} to connection ${connection}');
+    }
+  }
+
+  protected connectionsFor(event: IQueueMessage): Array<[string, QueueClient]> {
+    return this.getConnectionsForMessage(event).map((name): [string, QueueClient] => {
+      const connection = this.Connections.get(name);
+      if (!connection) {
+        throw new ConnectionNotFound(`Queue connection ${name} not found. Please check your configuration before emitting events to this connection.`);
+      }
+      return [name, connection];
+    });
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {

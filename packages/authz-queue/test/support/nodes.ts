@@ -30,6 +30,10 @@ export class PeerQueueService extends QueueService {
     return undefined;
   }
 
+  async publishDirect(event: IQueueMessage): Promise<void> {
+    await this.client.emit(event);
+  }
+
   async consume<T extends QueueMessageBase>(event: new () => QueueMessageBase, callback?: (message: T) => Promise<void>): Promise<void> {
     await this.client.subscribe(event as never, async (m) => {
       if (m.Name !== event.name) return;

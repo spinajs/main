@@ -61,6 +61,13 @@ export interface IQueueJob extends IQueueMessage {
   JobId?: string;
 }
 
+export interface PublishDirectOptions {
+  /** Queue connections that already confirmed this message (an outbox retry). */
+  skip?: readonly string[];
+  /** Receives the name of every connection that confirmed the message in this call. */
+  published?: string[];
+}
+
 export abstract class QueueService extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
@@ -74,6 +81,9 @@ export abstract class QueueService extends AsyncService {
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
+
+  /** Sends to the brokers now, bypassing the outbox; the outbox relay publishes through it. */
+  public abstract publishDirect(message: IQueueMessage, options?: PublishDirectOptions): Promise<void>;
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name);
