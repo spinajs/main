@@ -42,3 +42,6 @@ export class Receipt extends BillingRecord<Receipt> {}
 
 registerTenantModel(Audit, { isolation: 'row' });
 registerTenantModel(JobModel);
+
+export abstract class Stamped<T> extends ModelBase<T> {}
+registerTenantModel(Stamped);

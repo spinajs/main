@@ -18,4 +18,10 @@ export async function scopes(): Promise<void> {
   await everywhere('an alias still counts', async () => undefined);
   await tenancy.runAcrossTenants(`plain template`, async () => undefined);
   await runAcrossTenants(reasonOf(), async () => undefined);
+  const REASON = 'a bound constant';
+  const day = 1;
+  await runAcrossTenants(REASON, async () => undefined);
+  await runAcrossTenants(`rollup ${day}`, async () => undefined);
+  await runAcrossTenants('nightly ' + 'rollup', async () => undefined);
+  await runAcrossTenants('  ', async () => undefined);
 }

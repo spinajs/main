@@ -1,12 +1,12 @@
 import ts from 'typescript';
-import { DECLARED_ENTRY_TENANCY, undeclaredTenancy } from '@spinajs/manifest';
+import { DECLARED_ENTRY_TENANCY, TENANT_MIDDLEWARE, undeclaredTenancy } from '@spinajs/manifest';
 import type { AuthzSection, ControllerEntry, ManifestFragment, ScheduleEntry, TenancyDeclaration, TenancyEntryPoint, TenancyModel, TenancySection } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { findDecorator, literalValue } from '../decorators.js';
+import { decoratorsOf, findDecorator, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classesBySource } from './access-options.js';
 import { routeEntryId, sourceKey } from './authz.js';
-import { declaredDecorator } from './decorator-origin.js';
+import { decoratorOrigin } from './decorator-origin.js';
 import { ignoreCommentsIn } from './ignore-comments.js';
 import { optionOf } from './model-sql.js';
 import { literalText } from './string-arg.js';
@@ -31,11 +31,27 @@ export interface TenancyInputs {
   models: TenancyModel[];
 }
 
-function declarationOn(node: ts.HasDecorators | undefined, ctx: ExtractorContext): Declaration | undefined {
-  const found = node && declaredDecorator(node, TENANCY_HTTP, ROUTE_DECORATORS, ctx);
-  if (!found) return undefined;
-  const reason = found.name === 'AllTenants' ? literalText(found.decorator.args[0]) : undefined;
-  return reason === undefined ? { declared: found.name } : { declared: found.name, reason };
+/** A hand-written `@Middleware(TenantMiddleware, ...)`: it decides the route at run time, but the build reads no declaration from it (M21). */
+const HAND_MOUNTED = 'hand-mounted';
+
+type Mount = Declaration | typeof HAND_MOUNTED;
+
+function mountOf(decorator: DecoratorInfo, ctx: ExtractorContext): Mount | undefined {
+  const origin = decoratorOrigin(decorator, ctx);
+  if (origin?.package === '@spinajs/http' && origin.name === 'Middleware') return identifierName(decorator.args[0]) === TENANT_MIDDLEWARE ? HAND_MOUNTED : undefined;
+  const name = origin?.package === TENANCY_HTTP ? ROUTE_DECORATORS.find((n) => n === origin.name) : undefined;
+  if (name === undefined) return undefined;
+  const reason = name === 'AllTenants' ? literalText(decorator.args[0]) : undefined;
+  return reason === undefined ? { declared: name } : { declared: name, reason };
+}
+
+/** The first `TenantMiddleware` mount on `node` in source order: at run time the last descriptor wins, and that is the decorator written first. */
+function mountOn(node: ts.HasDecorators | undefined, ctx: ExtractorContext): Mount | undefined {
+  for (const decorator of node ? decoratorsOf(node) : []) {
+    const mount = mountOf(decorator, ctx);
+    if (mount) return mount;
+  }
+  return undefined;
 }
 
 /** The controller class and its base classes, nearest first. A base that is only a declaration file is listed and carries no decorator. */
@@ -54,28 +70,28 @@ function classChain(cls: ts.ClassDeclaration | undefined, ctx: ExtractorContext)
 const methodNamed = (cls: ts.ClassDeclaration, name: string): ts.MethodDeclaration | undefined =>
   cls.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === name);
 
-/** The first of `nodes` that carries a declaration. */
-function nearestDeclaration(nodes: Array<ts.HasDecorators | undefined>, ctx: ExtractorContext): Declaration | undefined {
+/** The first of `nodes` that carries a mount. */
+function nearestMount(nodes: Array<ts.HasDecorators | undefined>, ctx: ExtractorContext): Mount | undefined {
   for (const node of nodes) {
-    const found = declarationOn(node, ctx);
+    const found = mountOn(node, ctx);
     if (found) return found;
   }
   return undefined;
 }
 
 /**
- * What TenantMiddleware decides at run time: the nearest declaration on the route method up the class chain, else the
- * nearest on a class. A subclass inherits the descriptors of its bases, so a redeclared method without a decorator keeps
- * the base's.
+ * What TenantMiddleware decides at run time: the nearest mount on the route method up the class chain, else the nearest
+ * on a class. A subclass inherits the descriptors of its bases, so a redeclared method without a decorator keeps the
+ * base's. A route whose deciding mount is hand-written declares nothing.
  */
 function routeDeclarations(controllers: ControllerEntry[], classes: Map<string, ts.ClassDeclaration>, ctx: ExtractorContext): Map<string, Declaration> {
   const out = new Map<string, Declaration>();
   for (const controller of controllers) {
     const chain = classChain(classes.get(sourceKey(controller.source)), ctx);
-    const ofClass = nearestDeclaration(chain, ctx);
+    const ofClass = nearestMount(chain, ctx);
     for (const route of controller.routes) {
-      const declaration = nearestDeclaration(chain.map((cls) => methodNamed(cls, route.handler)), ctx) ?? ofClass;
-      if (declaration) out.set(routeEntryId(route), declaration);
+      const mount = nearestMount(chain.map((cls) => methodNamed(cls, route.handler)), ctx) ?? ofClass;
+      if (mount && mount !== HAND_MOUNTED) out.set(routeEntryId(route), mount);
     }
   }
   return out;

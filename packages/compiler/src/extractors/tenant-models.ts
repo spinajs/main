@@ -84,6 +84,8 @@ function dependencyTenants(): (symbol: ts.Symbol) => ModelTenant | undefined {
   };
 }
 
+const isOfDependency = (symbol: ts.Symbol): boolean => symbol.declarations?.[0]?.getSourceFile().isDeclarationFile === true;
+
 function nearestTenant(symbol: ts.Symbol, registrations: Map<ts.Symbol, Registration>, dependency: (symbol: ts.Symbol) => ModelTenant | undefined, checker: ts.TypeChecker): Found | undefined {
   let current: ts.Type | undefined = checker.getDeclaredTypeOfSymbol(symbol);
   for (let hops = 0; current && hops < 32; hops++) {
@@ -118,7 +120,7 @@ export function tenantModelsOf(ctx: ExtractorContext, files: readonly ts.SourceF
   }
 
   for (const [symbol, registration] of registrations) {
-    if (covered.has(symbol) || ts.isClassDeclaration(registration.node)) continue;
+    if (covered.has(symbol) || !isOfDependency(symbol)) continue;
     rows.push({ model: modelIdOf(symbol, ctx), tenant: registration.tenant, source: ctx.sourceRef(registration.node) });
   }
   return rows;

@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { mergeFragments, type Manifest, type ManifestFragment, type MiddlewareRef } from '@spinajs/manifest';
+import { mergeFragments, type ControllerEntry, type Manifest, type ManifestFragment, type MiddlewareRef, type RouteEntry } from '@spinajs/manifest';
 import { analyzePackage } from '../../src/index.js';
 
 const analyzed = new Map<string, Promise<ManifestFragment>>();
@@ -62,6 +62,7 @@ describe('tenancy entry points', () => {
       ['tenancy-pkg:Receipt', { column: 'org_id' }, 40],
       ['@spinajs/queue:JobModel', {}, 44],
     ]);
+    expect(tenancy.models.map((m) => m.model), 'a registered class of the package that is no model').to.not.include('tenancy-pkg:Stamped');
   });
 
   it('reads TenantRoute, NoTenant and AllTenants on a route, under an import alias too', () => {
@@ -81,6 +82,12 @@ describe('tenancy entry points', () => {
     expect(entry('GET /admin/me')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
     expect(entry('GET /admin/me')).to.not.have.property('reason');
     expect(entry('GET /admin/health')).to.deep.include({ tenancy: 'none', declared: 'NoTenant' });
+  });
+
+  it('stops at a closer hand-written TenantMiddleware mount, which declares nothing, before a class-level decorator', () => {
+    expect(entry('GET /guarded/open')).to.deep.include({ tenancy: 'none' });
+    expect(entry('GET /guarded/open')).to.not.have.property('declared');
+    expect(entry('GET /guarded/scoped')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
   });
 
   it('gives an entry point that declares nothing no scope, whatever its kind', () => {
@@ -123,7 +130,7 @@ describe('tenancy entry points', () => {
   it('lists every entry point of the package under the kind, id and source the authz section gives it', () => {
     const key = (e: { kind: string; id: string; source: { file: string; line: number } }): string => `${e.kind} ${e.id} ${e.source.file}:${e.source.line}`;
     expect(tenancy.entryPoints.map(key)).to.deep.equal(fragment.authz!.entryPoints.map(key));
-    expect(tenancy.entryPoints).to.have.length(21);
+    expect(tenancy.entryPoints).to.have.length(23);
   });
 
   it('writes no section for a package that declares no tenancy', async () => {
@@ -144,12 +151,13 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
 
   const scope = (id: string): string | undefined => merged.tenancy!.entryPoints.find((e) => e.id === id)?.tenancy;
 
-  it('pairs every route a decorator mounts TenantMiddleware on with a declared entry, which the merge keeps', () => {
-    // A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator records `decoratorArgs` or nothing.
-    const byDecorator = (refs: MiddlewareRef[]): boolean => refs.some((m) => m.type === 'TenantMiddleware' && !('options' in m));
-    const mounting = fragment.controllers.flatMap((c) => c.routes.filter((r) => byDecorator(c.middlewares) || byDecorator(r.middlewares)));
+  it('pairs every route whose nearest TenantMiddleware mount a decorator made with a declared entry, which the merge keeps', () => {
+    // The route's own mounts come before its controller's. A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator does not.
+    const nearest = (c: ControllerEntry, r: RouteEntry): MiddlewareRef | undefined => [...r.middlewares, ...c.middlewares].find((m) => m.type === 'TenantMiddleware');
+    const byDecorator = (m: MiddlewareRef | undefined): boolean => m !== undefined && !('options' in m);
+    const mounting = fragment.controllers.flatMap((c) => c.routes.filter((r) => byDecorator(nearest(c, r))));
     const ids = mounting.map((r) => `${r.method.toUpperCase()} ${r.fullPath}`);
-    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health']);
+    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health', 'GET /guarded/scoped']);
     expect(ids.map((id) => fragment.tenancy!.entryPoints.find((e) => e.id === id)?.declared)).to.not.include(undefined);
     expect(ids.map((id) => [id, scope(id)])).to.have.deep.members([
       ['GET /invoices/mine', 'required'],
@@ -160,12 +168,13 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
       ['GET /admin/tenants', 'all'],
       ['GET /admin/me', 'required'],
       ['GET /admin/health', 'none'],
+      ['GET /guarded/scoped', 'required'],
     ]);
   });
 
-  it('requires a tenant on a plain undeclared route and keeps one whose abstract base mounts TenantMiddleware by hand at none', () => {
+  it('requires a tenant on a plain undeclared route and keeps one with a closer hand-written TenantMiddleware mount at none', () => {
     expect(fragment.controllers.find((c) => c.className === 'OpsController')!.middlewares).to.deep.equal([{ type: 'TenantMiddleware', options: [{ tenancy: 'none' }] }]);
-    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none']);
+    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats', 'GET /guarded/open'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none', 'none']);
   });
 });
 
@@ -183,11 +192,15 @@ describe('tenancy escapes and ignores', () => {
       ['runAcrossTenants', 'an alias still counts', undefined],
       ['runAcrossTenants', 'plain template', undefined],
       ['runAcrossTenants', undefined, undefined],
+      ['runAcrossTenants', undefined, undefined],
+      ['runAcrossTenants', undefined, undefined],
+      ['runAcrossTenants', undefined, undefined],
+      ['runAcrossTenants', undefined, undefined],
     ]);
   });
 
-  it('leaves the member out when the reason is no string literal', () => {
-    expect(tenancy.escapes.filter((e) => !('reason' in e)).map((e) => e.kind)).to.deep.equal(['acrossTenants', 'runAcrossTenants']);
+  it('leaves the member out when the reason is a call, a constant, a template with substitutions, a concatenation or blank', () => {
+    expect(tenancy.escapes.filter((e) => !('reason' in e)).map((e) => e.kind)).to.deep.equal(['acrossTenants', ...Array<string>(5).fill('runAcrossTenants')]);
   });
 
   it('skips a method and a function of the same name that the tenancy packages do not declare', () => {

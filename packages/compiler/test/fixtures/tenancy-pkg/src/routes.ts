@@ -57,3 +57,14 @@ export class OpsController extends HandMountedController {
   @Get('stats')
   public async stats(): Promise<void> {}
 }
+
+@BasePath('guarded')
+@TenantRoute()
+export class GuardedController extends BaseController {
+  @Get('open')
+  @Middleware(TenantMiddleware, { tenancy: 'none' })
+  public async open(): Promise<void> {}
+
+  @Get('scoped')
+  public async scoped(): Promise<void> {}
+}
