@@ -410,10 +410,16 @@ export class DefaultQueueService extends QueueService {
       return handle();
     }
     const { service, inFlight, ttlMs } = await this.eventDedup();
+    let started = false;
+    const run = () => {
+      started = true;
+      return handle();
+    };
     try {
-      await service.run({ namespace: `queue:${subscriptionId}` }, message.MessageId, handle, { ttl: ttlMs, toReply: () => ACK_REPLY, fromReply: () => undefined });
+      await service.run({ namespace: `queue:${subscriptionId}` }, message.MessageId, run, { ttl: ttlMs, toReply: () => ACK_REPLY, fromReply: () => undefined });
     } catch (error) {
-      if (error instanceof inFlight) throw new RedeliverLater(error.retryAfterMs, error);
+      // run() rethrows the handler's own errors: only an in-flight claim means another copy holds the key
+      if (!started && error instanceof inFlight) throw new RedeliverLater(error.retryAfterMs, error);
       throw error;
     }
   }
@@ -423,7 +429,7 @@ export class DefaultQueueService extends QueueService {
     if (this.dedup) return this.dedup;
     const loading = this.loadEventDedup();
     this.dedup = loading;
-    // a failed load is not kept: the next subscription or delivery tries again
+    // a failed load is not kept: the next subscription tries again
     loading.catch(() => {
       if (this.dedup === loading) this.dedup = undefined;
     });

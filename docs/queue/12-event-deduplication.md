@@ -37,7 +37,7 @@ export async function startLedger(book: (paymentId: string) => Promise<void>) {
 }
 ```
 
-`consume()` checks the setup when the subscription is made, not at the first delivery. It throws `InvalidOperation` when `@spinajs/idempotency` is not installed, when the Orm resolved before it was imported, when a connection of the event cannot redeliver (below), and when `deduplicateTtl` is zero. An invalid `idempotency.*` value throws `InvalidConfiguration` there too.
+`consume()` checks the setup when the subscription is made, not at the first delivery. It throws `InvalidOperation` when `@spinajs/idempotency` is not installed, when the Orm resolved before it was imported, and when a connection of the event cannot redeliver (below). An invalid `idempotency.*` value throws `InvalidConfiguration` there too. A `deduplicateTtl` of zero is refused at boot with `InvalidConfiguration` by the queue's configuration schema; a process that runs no Bootstrappers gets `InvalidArgument` from `consume()` instead.
 
 ## Why a `subscriptionId` is required
 
@@ -56,7 +56,7 @@ What one subscription is depends on the transport:
 - **First delivery.** The consumer claims the key, runs the handler, and stores the reply. `queue.before-ack` runs, then the transport acks.
 - **Repeat after success.** The key holds a stored reply: the delivery is acked without running the handler, for `deduplicateTtl` after the first one.
 - **Handler failure.** The key is released and the error goes to the transport, which retries as it would without deduplication. The retry runs the handler again.
-- **In-flight duplicate.** A copy that arrives while another consumer holds the key throws `RedeliverLater` (from `@spinajs/queue`, with `delayMs`, the time left on the holder's lease). It is never acked and never run beside the first copy: the transport redelivers it, and by then it is either a repeat after success or, if the first copy failed, a first delivery. `isRedeliverLater(error)` tells it apart from a handler error, also across copies of the package.
+- **In-flight duplicate.** A copy that arrives while another consumer holds the key, and keeps its lease, throws `RedeliverLater` (from `@spinajs/queue`, with `delayMs`, the time left on the holder's lease). It is never acked and never run beside the first copy while that copy's holder keeps renewing its lease: the transport redelivers it, and by then it is either a repeat after success or, if the first copy failed, a first delivery. `isRedeliverLater(error)` tells it apart from a handler error, also across copies of the package. An `IdempotencyInFlight` the handler itself throws (from an idempotent call of its own) is a handler failure, not a `RedeliverLater`.
 - **The claim fails** (the database is unreachable). The delivery fails without running the handler, and the transport redelivers it.
 - **Storing the reply fails.** The handler's work is done, so the delivery is still acked; the failure is logged on the `idempotency` logger and the key is released. A later duplicate runs the handler again.
 - **`queue.before-ack` throws.** It runs after the reply is stored, so the delivery fails, the transport redelivers it, and the redelivery is acked as a repeat. Without deduplication the redelivery runs the handler again.
@@ -78,7 +78,7 @@ The delivery-contract release changes this for two transports: AMQP accepts even
 Handling is at least once, with duplicates suppressed:
 
 - A delivery whose `MessageId` already has a stored reply in this subscription is acked without running the handler, for `deduplicateTtl`.
-- A delivery that arrives while another copy holds the key is redelivered, never acked and never run concurrently.
+- A delivery that arrives while another copy holds the key is redelivered, never acked and never run concurrently, as long as the holder keeps its lease (`idempotency.lease`, renewed while the handler runs).
 - The handler runs a second time in exactly these cases: the consumer dies (or loses its lease for longer than `idempotency.lease`) after the handler's own work is committed and before the reply is stored; the duplicate arrives after `deduplicateTtl`; storing the reply fails.
 
 A handler whose effect must not repeat keys its own write on `MessageId`, for example a unique column, in the same transaction as the effect.

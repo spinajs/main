@@ -5,7 +5,7 @@ import { Configuration, FrameworkConfiguration, InvalidConfiguration, registerCo
 import { Bootstrapper, DI, Injectable, type ContainerSnapshot } from '@spinajs/di';
 import { Clock, DbTimeSource, FaultInjector } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
-import { IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
+import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import { Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater } from '../src/index.js';
@@ -92,7 +92,7 @@ async function boot(options: BootOptions = {}) {
   await DI.resolve(Configuration);
   await (await DI.resolve(Orm)).Migrator.ready();
   const queue = await DI.resolve(QueueService);
-  return { queue, client: memoryClientOf(queue, 'memory'), faults };
+  return { queue, client: memoryClientOf(queue, 'memory'), faults, clock };
 }
 
 async function teardown(): Promise<void> {
@@ -209,6 +209,40 @@ describe('queue: event deduplication by MessageId', function () {
     // the redelivery to the consumer that lost is acked without running the handler
     for (const s of consumers) await s.callback(wireCopy(message));
     expect(handled).to.have.length(1);
+  });
+
+  it('treats an IdempotencyInFlight the handler throws as a handler failure, not a redelivery', async () => {
+    const env = await boot();
+    let calls = 0;
+    const errors: unknown[] = [];
+    await env.queue.consume<PaymentCaptured>(
+      PaymentCaptured,
+      async () => {
+        if (++calls === 1) throw new IdempotencyInFlight(5000);
+      },
+      'ledger',
+    );
+    const message = new PaymentCaptured({ PaymentId: 'p11', MessageId: '11111111-1111-4111-8111-111111111111' });
+    await env.client.deliver(wireCopy(message)).catch((e: unknown) => errors.push(e));
+    expect(errors).to.have.length(1);
+    expect(errors[0]).to.be.instanceOf(IdempotencyInFlight);
+    expect(isRedeliverLater(errors[0])).to.equal(false);
+    // the key was released, so the retry runs the handler again
+    await env.client.deliver(wireCopy(message));
+    expect(calls).to.equal(2);
+  });
+
+  it('sets deduplication up again for a later subscription after the first setup failed', async () => {
+    const env = await boot();
+    env.clock.dbSource.read = () => Promise.reject(new Error('database down'));
+    await expect(env.queue.consume(PaymentCaptured, async () => undefined, 'ledger')).to.be.rejectedWith(/database down/);
+    Reflect.deleteProperty(env.clock.dbSource, 'read');
+    let calls = 0;
+    await env.queue.consume<PaymentCaptured>(PaymentCaptured, async () => void calls++, 'ledger');
+    const message = new PaymentCaptured({ PaymentId: 'p12', MessageId: '12121212-1212-4212-8212-121212121212' });
+    await env.client.deliver(wireCopy(message));
+    await env.client.deliver(wireCopy(message));
+    expect(calls).to.equal(1);
   });
 
   it('does not deduplicate a subscription without a subscriptionId', async () => {
