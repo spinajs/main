@@ -84,7 +84,7 @@ scope around it: inside a tenant, the other tenants' rows come back with empty r
 | in a select of a tenant model, `populate()` of any to-one relation, and a recursive query (`withRecursive()`, a `@Recursive` relation) | `NotSupported` inside a tenant: the ORM merges a to-one relation's conditions into the statement after the middleware ran, and builds the recursive part without them |
 | in a select of a model that is no tenant model, `populate()` of a to-one relation whose target is a tenant model, at any depth of to-one relations | `NotSupported` inside a tenant; load it with a query of its own |
 | an upsert (`onDuplicate()`, `orReplace()`, `InsertOrUpdate`, `InsertOrReplace`) on a tenant model | `NotSupported` inside a tenant |
-| an update that writes or increments the tenant column under any name a database may take for it (letter case, accents, trailing spaces), or sets a key that is no declared column of its model | `InvalidOperation`, in every scope, also when the update does not go through the model |
+| an update that writes or increments the tenant column. On a model: any key that is no declared column of the model is refused too. Without a model: the tenant column in another letter case, with accents or with surrounding spaces | `InvalidOperation`, in every scope, also when the update does not go through the model |
 | an update with no condition | `InvalidOperation` inside a tenant; write `.where(true)` to update every row of the tenant |
 | `@Tenant({ isolation: 'schema' })` | `NotSupported`: schema placements are not available yet |
 
@@ -99,7 +99,8 @@ write yourself (`leftJoin(Model)`) or into a sub-select (`whereExist(query)`, `w
 static `Model.populate(relation, owner)`, which reads through a join the framework builds: put the tenant condition into
 those by hand until they are covered. Such a statement reads the rows of every tenant, with or without a tenant scope,
 and nothing throws. Schema builders are not checked: a view over a tenant table, or a table clone with data, carries
-every tenant's rows.
+every tenant's rows. An update without a model (all-tenants scope only) is checked by the spelling of its keys, so a
+name that only the database's collation treats as the tenant column is not caught there.
 
 ## Transactions
 
@@ -120,8 +121,9 @@ must run without it, and the check of each statement still holds then.
   `NotSupported` inside a tenant.
 - In the all-tenants scope an upsert is not refused: its update half can rewrite the tenant column, and `orReplace()` can
   replace another tenant's row.
-- On sqlite an instance `insert()` needs the tenant column set on the model: the driver checks the not-null columns
-  before the middleware stamps it.
+- Only a plain-object insert (`Model.insert({...})`) gets the tenant column from the middleware. A model instance
+  (`new Model(...).insert()`, `Model.create()`, `getOrCreate()`, `Model.insert(instance)`) needs the tenant column set on
+  it, on every driver: the ORM checks not-null columns when it converts the instance, before the middleware runs.
 
 ## Configuration
 
