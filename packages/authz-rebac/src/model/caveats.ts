@@ -12,6 +12,8 @@ export interface CaveatRequest {
   readonly permission: Permission;
   readonly resource: ResourceRef;
   readonly env: Readonly<Record<string, unknown>>;
+  /** Caveats a type-level residual could not carry what it needs for: they are `unknown` at its rows. */
+  readonly undecided?: readonly string[];
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
@@ -54,6 +56,44 @@ export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatReques
   return out;
 }
 
+// Per parameter value, so a residual's caveatInput stays far under the engine's 10 000 values per vote.
+const MAX_PARAM_VALUES = 1_000;
+
+const isPlain = (v: object): boolean => {
+  const proto: unknown = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
+
+/** Data the engine's strict vote copy keeps as it is: no class instance, function, bigint, invalid Date, cycle or undefined. */
+function plainData(v: unknown, left: { n: number }, seen: Set<object>): boolean {
+  if (--left.n < 0) return false;
+  if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true;
+  if (typeof v !== 'object' || seen.has(v)) return false;
+  if (v instanceof Date) return !Number.isNaN(v.getTime());
+  if (!Array.isArray(v) && !isPlain(v)) return false;
+  seen.add(v);
+  try {
+    return (Array.isArray(v) ? (v as unknown[]) : Object.values(v)).every((x) => plainData(x, left, seen));
+  } finally {
+    seen.delete(v);
+  }
+}
+
+/**
+ * Whether the request value at a parameter path can travel in a residual's vote unchanged. An absent value travels as
+ * absent; an undefined-valued key or a value that is not plain data would arrive as missing, which a `null` test reads
+ * differently, so the caveat stays undecided in the residual.
+ */
+export function travels(path: string, req: Pick<CaveatRequest, 'principal' | 'env'>): boolean {
+  if (path === 'env.now') return true;
+  let at: unknown = { principal: req.principal, env: req.env };
+  for (const s of path.split('.')) {
+    if (!isRecord(at) || !Object.hasOwn(at, s)) return true;
+    at = Reflect.get(at, s);
+  }
+  return at !== undefined && plainData(at, { n: MAX_PARAM_VALUES }, new Set());
+}
+
 function callsFunction(c: unknown): boolean {
   if (!isRecord(c)) return false;
   if (typeof c.fn === 'string') return true;
@@ -83,6 +123,7 @@ export class RebacCaveats {
   async evaluate(caveat: TupleCaveat, req: CaveatRequest, ctx: EvaluationContext): Promise<{ truth: CaveatTruth; cacheable: boolean }> {
     const def = this.defs.get(caveat.name);
     if (def === undefined) return { truth: 'unknown', cacheable: true };
+    if (req.undecided?.includes(caveat.name) === true) return { truth: 'unknown', cacheable: false };
     // A stored context cannot move the clock, whatever store it came from.
     const context = Object.fromEntries(Object.entries(caveat.context ?? {}).filter(([path]) => path !== 'env.now'));
     const { principal, env } = overlayContext(req, context);
