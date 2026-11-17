@@ -12,6 +12,20 @@
     "./testing": {
       "types": "./lib/testing.d.ts",
       "import": "./lib/testing.js"
+    },
+    "./scheduler": {
+      "types": "./lib/scheduler.d.ts",
+      "import": "./lib/scheduler.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "lib/testing.d.ts"
+      ],
+      "scheduler": [
+        "lib/scheduler.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -58,6 +72,7 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@spinajs/testing-orm": "3.0.23"
   },
@@ -66,6 +81,7 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@spinajs/testing-orm": "3.0.23"
   },
@@ -80,6 +96,9 @@
       "optional": true
     },
     "@spinajs/orm-sqlite": {
+      "optional": true
+    },
+    "@spinajs/scheduler": {
       "optional": true
     },
     "@spinajs/testing": {

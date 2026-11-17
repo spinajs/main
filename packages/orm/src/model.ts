@@ -21,6 +21,8 @@ import type { IModelChange, IModelSnapshot } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
+import { modelAuditSource } from './audit-port.js';
+import type { ModelAudit, RowAudit } from './audit-port.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -382,6 +384,11 @@ export class ModelBase<M = unknown> implements IModelBase {
     return driver!;
   }
 
+  /** Audit events about this row; throws as the static does, and when this instance has no primary key value yet. */
+  public audit(trail?: string): RowAudit {
+    return modelAuditSource().ofRow(this, trail);
+  }
+
   /**
    * Recursivelly takes all relation data and returns as single array
    */
@@ -627,6 +634,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>, _options?: ITransactionOptions): Promise<R> {
     throw new Error('Not implemented');
+  }
+
+  /** Audit events about this model's rows in `trail` (default `default`); throws without `@spinajs/audit-orm`. */
+  public static audit<T extends typeof ModelBase>(this: T, trail?: string): ModelAudit {
+    return modelAuditSource().of(this, trail);
   }
 
   constructor(data?: Partial<M>) {
