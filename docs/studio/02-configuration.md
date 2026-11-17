@@ -14,7 +14,7 @@ Every Studio key lives under `studio.*`. The schema `spinajs/studio.configuratio
 | `studio.buffers.logs` | `integer` | `5000` | `>= 1` | Log lines kept in the log buffer. |
 | `studio.buffers.slowQueries` | `integer` | `200` | `>= 1` | Slow queries kept in the slow-query buffer. |
 | `studio.captureBindings` | `boolean` | `false` | | Keeps SQL bindings (`db.query.parameter.*` span attributes). Off, they are dropped before a span is buffered. |
-| `studio.redactAttributes` | `string[]` | `['http.request.header.authorization', 'http.request.header.cookie']` | attribute names | Span and event attributes stored as `[redacted]`. |
+| `studio.redactAttributes` | `string[]` | `['http.request.header.authorization', 'http.request.header.cookie']` | attribute names | Span and event attributes, and log fields, stored as `[redacted]`. |
 | `studio.auth.domain` | `string` | `'root'` | an authz domain | The domain the `'AccessPolicy'` slots check in. |
 | `studio.auth.skipInDevelopment` | `boolean` | `false` | | Skips the `'AccessPolicy'` checks while the configured env names development and `configuration.isProduction` is not `true`. |
 | `studio.auth.policies.<endpoint>` | `string` | `'AccessPolicy'` | `'AccessPolicy'` or a registered `BasePolicy` name | The guard of one endpoint. `'AccessPolicy'` checks `studio.auth.permissions.<endpoint>`. |

@@ -1,6 +1,6 @@
 # Overview
 
-Spina Studio is a guarded HTTP API, mounted inside your app, over what one process knows about itself: its recent traces, the DI graph, routes and the authz model. Use it on a developer machine or a staging server.
+Spina Studio is a guarded HTTP API, mounted inside your app, over what one process knows about itself: its recent traces and log lines, the DI graph, routes and the authz model. Use it on a developer machine or a staging server.
 
 It is **not** an APM. Nothing is persisted: every buffer lives in process memory and is lost on restart. Several instances of an app each show only their own data.
 
@@ -92,7 +92,42 @@ trace.setGlobalTracerProvider(provider);
 
 The processor looks up the resolved `TraceStore` on every span. Spans that end before Studio mounted are dropped.
 
+## Logs
+
+Studio buffers log lines only when the app routes them to the logger target `StudioLogTarget`. Add it to `logger.targets` and route a rule to it:
+
+```ts sample
+const config = {
+  logger: {
+    targets: [
+      { name: 'Console', type: 'ConsoleTarget' },
+      { name: 'Studio', type: 'StudioLogTarget' },
+    ],
+    rules: [
+      { name: '*', level: 'info', target: 'Console' },
+      { name: '*', level: 'debug', target: 'Studio' },
+    ],
+  },
+};
+
+export default config;
+```
+
+The `logs` feature of `GET /api/capabilities` is `true` while a target of type `StudioLogTarget` is configured.
+
+What the target keeps:
+
+- every line that carries a trace id (`traceId`, or the older `trace_id`), and every warning and above without one;
+- never a line written inside a Studio request. A Studio request the sampler did not record is not recognised: its lines with a trace id, and its warnings, are kept. Any caller can cause this by sending an unsampled `traceparent` (ending in `-00`).
+
+Each line keeps its level, logger, message, trace and span ids, and its scalar fields (strings, numbers, booleans); objects are dropped. Fields named in `studio.redactAttributes` are stored as `[redacted]`; redaction goes by field name only. The default list names span attributes only, so it matches no log field, and the message is kept as rendered: a value interpolated into it is not redacted. A logged error becomes the field `error`, `"<name>: <message>"`.
+
+Memory bound: at most `studio.buffers.logs` lines (default 5000). The message and every string field are cut at 2 KiB, and a line keeps at most 8 KiB (`MAX_LOG_LINE_BYTES`) of field data; the fields past it are dropped.
+
+`GET /api/traces/:traceId` answers the lines of that trace with its spans, and `GET /api/logs` lists the buffer. See [API](03-api.md).
+
 ## Related
 
+- [API](03-api.md): every Studio route.
 - [Configuration](02-configuration.md): every `studio.*` key.
 - [`@spinajs/authz-http`](../authz-http/README.md): `AccessPolicy`, which the `'AccessPolicy'` slot uses.
