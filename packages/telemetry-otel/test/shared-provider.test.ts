@@ -169,13 +169,19 @@ describe('OtelTracing export to an OTLP collector', () => {
     OTEL_RESOURCE_ATTRIBUTES: 'host.name=from-env',
   };
 
+  let saved: [string, string | undefined][] = [];
+
   beforeEach(() => {
+    saved = Object.keys(env).map((key) => [key, process.env[key]]);
     Object.assign(process.env, env);
     ensureTracing({ ...DEFAULT_TRACING_OPTIONS, serviceName: 'shared-test', resourceAttributes: { 'deployment.environment.name': 'test' } });
   });
 
   afterEach(async () => {
-    for (const key of Object.keys(env)) Reflect.deleteProperty(process.env, key);
+    for (const [key, value] of saved) {
+      if (value === undefined) Reflect.deleteProperty(process.env, key);
+      else process.env[key] = value;
+    }
     await resetTracing();
   });
 
