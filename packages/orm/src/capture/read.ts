@@ -12,9 +12,10 @@ const IN_CHUNK = 500;
 
 /**
  * The rows whose `by` column (the primary key unless named) holds one of `keys`, keyed by primary key text; read raw,
- * so converters and select middlewares never touch them.
+ * so converters and select middlewares never touch them. With `lock`, a locking read: under MySQL REPEATABLE READ a
+ * plain select would return the transaction's snapshot, not the row the statement overwrites.
  */
-export async function readRows(driver: OrmDriver, model: Constructor<ModelBase>, table: string, pk: string, columns: readonly string[] | '*', keys: readonly string[], by = pk): Promise<Map<string, CapturedRow>> {
+export async function readRows(driver: OrmDriver, model: Constructor<ModelBase>, table: string, pk: string, columns: readonly string[] | '*', keys: readonly string[], by = pk, lock = false): Promise<Map<string, CapturedRow>> {
   const out = new Map<string, CapturedRow>();
   const column = findColumn(extractModelDescriptor(model)?.Columns, by);
   // A key no row can have is left out rather than bound: binding it fails the cast on some databases and matches a coerced key on others.
@@ -24,6 +25,7 @@ export async function readRows(driver: OrmDriver, model: Constructor<ModelBase>,
     // A builder without a model: table, key and columns are run-time names, and it always runs on the primary.
     const select = driver.select<CapturedRow[]>().from(table);
     if (columns !== '*') select.columns([...new Set([pk, ...columns])]);
+    if (lock) select.forUpdate();
     const rows = await select.whereIn(by, values.slice(i, i + IN_CHUNK));
     for (const row of rows) {
       const key = captureKeyText(columnValue(row, pk));

@@ -4,8 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, SqlExpressions, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -270,12 +270,12 @@ describe('write capture on sqlite', function () {
       fixture.inTransaction = [];
     });
 
-    it('locks the rows of the key select inside a transaction, and not without one', async () => {
+    it('locks the rows of the key select and the before read inside a transaction, and not without one', async () => {
       const driver = db().Connections.get('sqlite')!;
       const locks: string[] = [];
       const execute = driver.execute.bind(driver);
       const stub = sinon.stub(driver, 'execute').callsFake((builder) => {
-        if (builder instanceof SelectQueryBuilder && builder.Model === CapMember) locks.push(builder.RowLock ?? 'none');
+        if (builder instanceof SelectQueryBuilder) locks.push(`${builder.Model === CapMember ? 'keys' : 'rows'}:${builder.RowLock ?? 'none'}`);
         return execute(builder);
       });
       try {
@@ -286,9 +286,28 @@ describe('write capture on sqlite', function () {
         stub.restore();
       }
 
-      expect(locks).to.deep.eq(['update', 'none']);
+      // keys, before, after: twice
+      expect(locks).to.deep.eq(['keys:update', 'rows:update', 'rows:none', 'keys:none', 'rows:none', 'rows:none']);
       expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b', 'c']);
       expect(fixture.inTransaction).to.deep.eq([true, false]);
+    });
+
+    it('takes no row lock where the dialect has none, and does not hide another failure of the lookup', async () => {
+      const expressions = db().Connections.get('sqlite')!.Container.resolve(SqlExpressions);
+      const unsupported = sinon.stub(expressions, 'rowLock').throws(new NotSupported('no row lock'));
+      try {
+        await CapMember.update({ Name: 'b' }).where('Id', 1);
+      } finally {
+        unsupported.restore();
+      }
+      const broken = sinon.stub(expressions, 'rowLock').throws(new Error('broken lookup'));
+      try {
+        await expect(CapMember.update({ Name: 'c' }).where('Id', 1)).to.be.rejectedWith('broken lookup');
+      } finally {
+        broken.restore();
+      }
+
+      expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b']);
     });
 
     it('refuses a model with a composite primary key', async () => {

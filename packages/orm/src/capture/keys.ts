@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 
 import { SelectQueryBuilder, createQuery } from '../builders.js';
 import type { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
@@ -34,15 +34,19 @@ const isRow = (value: unknown): value is Record<string, unknown> => typeof value
 /** The value of a column whose name is only known at run time. */
 export const columnValue = (row: Readonly<Record<string, unknown>>, column: string): unknown => Reflect.get(row, column);
 
-// A dialect whose SELECT has no row lock (MSSQL) throws from rowLock(); SQLite answers '' as its writes lock the database.
+// A dialect without a row lock clause (MSSQL) throws NotSupported from rowLock(); SQLite answers '' as its writes lock the database.
 function locksRows(driver: OrmDriver): boolean {
   try {
     driver.Container.resolve(SqlExpressions).rowLock('update');
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    if (e instanceof NotSupported) return false;
+    throw e;
   }
 }
+
+/** Inside a transaction, the capture's reads of an update or delete lock what they read. */
+export const lockedReads = (driver: OrmDriver): boolean => driver.CurrentTransaction !== undefined && locksRows(driver);
 
 /**
  * The keys an update or delete reaches: a select with its where statements, soft-deleted and archived rows included.
@@ -56,7 +60,7 @@ export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | Delet
     const { query: select } = createQuery(model, SelectQueryBuilder);
     // A model select may be routed to a replica; the rows a write is about to change are read where it runs.
     select.withDeleted().withArchived().onPrimary();
-    if (query.Driver.CurrentTransaction !== undefined && locksRows(query.Driver)) select.forUpdate();
+    if (lockedReads(query.Driver)) select.forUpdate();
     const clones = query.Statements.map((s) => {
       const c = s.clone(select);
       c.Boolean = s.Boolean;

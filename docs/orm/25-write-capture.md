@@ -55,9 +55,11 @@ The helpers the middleware uses are exported for observers and tests: `writeTarg
 
 ## Concurrent writers
 
-Inside a transaction (the capture's own or the caller's) the key select of an update or delete locks the rows it finds (`SELECT ... FOR UPDATE` on PostgreSQL and MySQL; SQLite locks the whole database for a write; MSSQL has no row lock on a select and takes none). The before values are therefore what the statement overwrites. Two gaps remain:
+Inside a transaction (the capture's own or the caller's) the key select and the before read of an update or delete are locking reads (`SELECT ... FOR UPDATE` on PostgreSQL and MySQL; SQLite locks the whole database for a write). A locking read returns the latest committed row, also under MySQL `REPEATABLE READ`, where a plain select would return the transaction's older snapshot, so the before values are what the statement overwrites. MSSQL could lock with `WITH (UPDLOCK, ROWLOCK)`, but its dialect offers no row lock clause, so the capture takes none there. The locks have a price and leave gaps:
 
+- The key select takes the row locks the statement would take, earlier and in its own scan order, and holds them until the commit. It can also lock rows the statement never touches (restrictions a middleware after order 91 adds, the `LIMIT` of a delete), and on MySQL the gap locks of its range. Two writers that lock the same rows in another order can deadlock here.
 - A row that starts to match the statement's where clauses after the key select (another transaction inserts it, or changes it so that it matches) is changed by the statement but not reported. Only the `SERIALIZABLE` isolation level closes that window.
+- The reads of an upsert are not locked: a row another transaction inserts with a conflicting value between the before read and the upsert is reported as inserted, though the upsert updated it.
 - Without any transaction (every interested observer asks for none and the caller opened none), the key select, the before read, the statement and the after read are four separate statements, each committed on its own: other writers can change the rows in between, and an observer that throws cannot undo a statement that has already committed.
 
 ## Read replicas

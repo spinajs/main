@@ -11,7 +11,7 @@ import { QueryMiddleware } from '../interfaces.js';
 import type { ModelBase } from '../model.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CaptureKind, CapturedRow, RowChange } from './contracts.js';
-import { captureKeyText, insertedKeys, upsertKeys, writeTargetKeys } from './keys.js';
+import { captureKeyText, insertedKeys, lockedReads, upsertKeys, writeTargetKeys } from './keys.js';
 import { readRows } from './read.js';
 
 interface Watch {
@@ -136,7 +136,7 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
   const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk, max === Infinity ? undefined : max + 1) : [];
   refuseAbove(plan, keys.length, max);
-  return readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys);
+  return readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys, plan.pk, lockedReads(query.Driver));
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
