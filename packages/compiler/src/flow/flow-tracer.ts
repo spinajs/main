@@ -22,9 +22,11 @@ export interface BuilderMeta {
   readonly origin: ts.Node;
   /** The index of the parameter the builder came in through. */
   readonly param?: number;
-  /** Every kind and model the builder may be, when it may be more than one. */
-  readonly variants?: readonly BuilderVariant[];
+  /** Every kind and model the builder may be, when it may be more than one; a joined value keeps where each part was made. */
+  readonly variants?: readonly Named[];
 }
+
+type Named = BuilderVariant & { readonly origin?: ts.Node };
 
 type Scoping = QueryValue['scoped'];
 
@@ -36,9 +38,9 @@ const unscopedBuilder = (node: ts.Node, model: string | undefined): QueryValue =
   shape: 'many',
 });
 
-function distinct(variants: readonly BuilderVariant[]): BuilderVariant[] {
-  const out: BuilderVariant[] = [];
-  for (const v of variants) if (!out.some((o) => o.kind === v.kind && o.model === v.model)) out.push(v);
+function distinct(variants: readonly Named[]): Named[] {
+  const out: Named[] = [];
+  for (const v of variants) if (!out.some((o) => o.kind === v.kind && o.model === v.model && o.origin === v.origin)) out.push(v);
   return out;
 }
 
@@ -50,6 +52,8 @@ function distinct(variants: readonly BuilderVariant[]): BuilderVariant[] {
  */
 export class FlowTracer extends QueryTracer {
   private readonly meta = new WeakMap<QueryValue, BuilderMeta>();
+  /** Variables written after their declaration: a scoping statement on one may not reach what it holds later. */
+  readonly rewritten = new Set<ts.Symbol>();
 
   constructor(
     checker: ts.TypeChecker,
@@ -63,7 +67,7 @@ export class FlowTracer extends QueryTracer {
     return this.meta.get(value) ?? { kind: 'select', origin: value.node };
   }
 
-  variantsOf(value: QueryValue): readonly BuilderVariant[] {
+  variantsOf(value: QueryValue): readonly Named[] {
     const meta = this.metaOf(value);
     return meta.variants ?? [{ kind: meta.kind, model: value.model }];
   }
@@ -79,7 +83,8 @@ export class FlowTracer extends QueryTracer {
     const named = scoped.accessible || open.length === 0 ? values : open;
     const params = values.map((v) => this.metaOf(v).param);
     const param = !untyped && params.every((p) => p === params[0]) ? params[0] : undefined;
-    return this.made(origin ?? this.metaOf(named[0]).origin, distinct(named.flatMap((v) => this.variantsOf(v))), scoped, param);
+    const variants = named.flatMap((v) => this.variantsOf(v).map((n) => (origin === undefined ? { ...n, origin: n.origin ?? this.metaOf(v).origin } : { kind: n.kind, model: n.model })));
+    return this.made(origin ?? this.metaOf(named[0]).origin, distinct(variants), scoped, param);
   }
 
   /** Every builder variable as an unscoped builder. */
@@ -135,12 +140,18 @@ export class FlowTracer extends QueryTracer {
     this.builders.set(symbol, held === undefined ? value : this.join([held, value]));
   }
 
-  /** A parameter with a default holds what a caller passes, read from its type, or the default. */
+  /**
+   * A parameter with a default holds what a caller passes, read from its type, or the default. A seeded parameter
+   * stays the caller's argument, and the default is reported where it stands.
+   */
   private defaulted(name: ts.Identifier, initializer: ts.Expression): void {
     const symbol = this.checker.getSymbolAtLocation(name);
-    if (symbol === undefined) return;
-    const passed = this.builders.has(symbol) ? undefined : this.declaredBuilder(symbol, name);
-    if (passed !== undefined) this.builders.set(symbol, passed);
+    const held = symbol === undefined ? undefined : this.builders.get(symbol);
+    if (symbol === undefined || (held !== undefined && this.metaOf(held).param !== undefined)) return;
+    if (held === undefined) {
+      const passed = this.declaredBuilder(symbol, name);
+      if (passed !== undefined) this.builders.set(symbol, passed);
+    }
     this.reassign(name, this.traced(initializer), initializer);
   }
 
@@ -156,7 +167,7 @@ export class FlowTracer extends QueryTracer {
     return variants.length === 0 ? undefined : this.made(origin, variants, { accessible: false, unscoped: false }, param);
   }
 
-  private made(origin: ts.Node, variants: readonly BuilderVariant[], scoped: Scoping, param?: number): QueryValue {
+  private made(origin: ts.Node, variants: readonly Named[], scoped: Scoping, param?: number): QueryValue {
     const [first] = variants;
     const value = unscopedBuilder(origin, first.model);
     value.scoped.accessible = scoped.accessible;
@@ -179,6 +190,7 @@ export class FlowTracer extends QueryTracer {
     // The name of `{ q }` is the property; the variable it writes is the shorthand's value symbol.
     const symbol = ts.isShorthandPropertyAssignment(name.parent) ? this.checker.getShorthandAssignmentValueSymbol(name.parent) : this.checker.getSymbolAtLocation(name);
     if (symbol === undefined) return;
+    this.rewritten.add(symbol);
     const held = this.builders.get(symbol);
     const next = assigned?.pending === true ? assigned.value : (this.declaredBuilder(symbol, origin) ?? (held === undefined ? undefined : this.join([held], origin, true)));
     if (next !== undefined) this.builders.set(symbol, held === undefined ? next : this.join([held, next]));

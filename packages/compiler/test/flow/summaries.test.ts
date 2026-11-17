@@ -187,6 +187,28 @@ describe('flow: summarize', () => {
     expect(effectsOf('LateShapes.scopedInCallback')).to.deep.equal(UNSCOPED_READ);
   });
 
+  it('a scoping statement does not scope what the variable is given after it, and each unscoped value keeps its site', () => {
+    for (const root of ['WrittenShapes.reassigned', 'WrittenShapes.destructured', 'WrittenShapes.untyped', 'WrittenShapes.nullish']) {
+      expect(effectsOf(root).map((e) => e[2]), root).to.include('none').and.not.include('accessible');
+    }
+    expect(sitesOf('WrittenShapes.reassigned')).to.include("Invoice.where('Status', 'open')");
+    expect(effectsOf('WrittenShapes.cached')).to.deep.equal(UNSCOPED_READ);
+  });
+
+  it('a builder handed to a followed parameter that is not builder-typed runs at the call; one handed to a default stays the caller’s', () => {
+    for (const root of ['WrittenShapes.viaAny', 'WrittenShapes.viaGeneric', 'WrittenShapes.viaThenable']) {
+      expect([effectsOf(root), sitesOf(root)], root).to.deep.equal([UNSCOPED_READ, ["Invoice.where('Status', 'open')"]]);
+    }
+    expect(effectsOf('WrittenShapes.passesUnscoped')).to.deep.equal([['read-many', 'Invoice', 'accessible', null, 'WrittenShapes.withDefault:direct'], ...UNSCOPED_READ]);
+    expect(sitesOf('WrittenShapes.passesUnscoped')[1]).to.equal("Invoice.where('Status', 'passed')");
+  });
+
+  it('a call chain longer than the round cap settles, whatever else the roots reach', () => {
+    const chain = summarize(graph, loaded.checker, [fn('warmChain'), fn('lastOnly')]);
+    expect(chain.summaries.get(fn('lastOnly'))?.effects.map((e) => e.scoped)).to.deep.equal(['none']);
+    expect(chain.opaqueCalls).to.equal(0);
+  });
+
   it('the shapes the tracer reads conservatively stay unscoped where a root runs them', () => {
     // A returned `??` runs operand by operand: the scoped default is an effect of its own.
     for (const root of ['OptionalShapes.nullishOptional', 'CastShapes.castChoiceFromAny']) {

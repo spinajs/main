@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { EXECUTING_MEMBERS, effectKey, isSystemRunAs, literalReason, runKey } from './authz-effects.js';
+import { EXECUTING_MEMBERS, builderOf, effectKey, isSystemRunAs, literalReason, runKey } from './authz-effects.js';
 import type { AuthzEffect, BuilderKind, EffectScope, FunctionSummary, PathStep, ReturnedBuilder, SystemRun } from './authz-effects.js';
 import { isFunctionLike } from './call-graph.js';
 import type { CallGraph, CallTarget, FunctionLike } from './call-graph.js';
@@ -38,9 +38,12 @@ function parts(e: ts.Expression): readonly ts.Expression[] {
 /** What runs when a function runs, apart from its body: the defaults of its parameters. */
 const defaults = (fn: FunctionLike): ts.Expression[] => fn.parameters.flatMap((p) => p.initializer ?? []);
 
-/** `x.p = q`, `x[i] = q`: a builder stored where the pass does not follow it. */
+/** `x.p = q`, `x[i] ??= q`: a builder stored where the pass does not follow it. */
 const isStore = (node: ts.Node): node is ts.BinaryExpression =>
-  ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left));
+  ts.isBinaryExpression(node) &&
+  node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+  node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+  (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left));
 
 function scopeOf(value: QueryValue, system: Scope['system']): { scoped: EffectScope; reason?: string } {
   if (value.scoped.accessible) return { scoped: 'accessible' };
@@ -111,7 +114,10 @@ class FunctionAnalysis {
   /** A function written inside the one being summarised is analysed where it stands, with the same builders in scope. */
   private enter(fn: FunctionLike, scope: Scope): void {
     const inner: Scope = { ...scope, owner: fn };
-    for (const initializer of defaults(fn)) this.visit(initializer, inner);
+    for (const initializer of defaults(fn)) {
+      this.visit(initializer, inner);
+      this.escaped(initializer, inner);
+    }
     const { body } = fn;
     if (body === undefined) return;
     if (!ts.isBlock(body)) this.leaves(body, inner);
@@ -128,11 +134,17 @@ class FunctionAnalysis {
     }
   }
 
-  /** A closure may run late or never, so its `q.accessible(p);` scopes only builders it declares itself. */
+  /**
+   * `q.accessible(p);` scopes the one value `settle` gave `q`, so it applies only to a variable nothing writes after its
+   * declaration. A closure may run late or never, so in one it scopes only builders the closure declares.
+   */
   private scopesHere(node: ts.Node, scope: Scope): boolean {
-    if (scope.owner === this.fn || !ts.isExpressionStatement(node)) return true;
+    if (!ts.isExpressionStatement(node)) return true;
     const root = chainOf(node.expression)?.root;
-    const declaration = root !== undefined && ts.isIdentifier(root) ? this.checker.getSymbolAtLocation(root)?.valueDeclaration : undefined;
+    const symbol = root !== undefined && ts.isIdentifier(root) ? this.checker.getSymbolAtLocation(root) : undefined;
+    if (symbol !== undefined && this.tracer.rewritten.has(symbol)) return false;
+    if (scope.owner === this.fn) return true;
+    const declaration = symbol?.valueDeclaration;
     return declaration !== undefined && declaration.pos >= scope.owner.pos && declaration.end <= scope.owner.end && declaration.getSourceFile() === scope.owner.getSourceFile();
   }
 
@@ -171,8 +183,15 @@ class FunctionAnalysis {
     // A member the pass does not follow may run what it is handed; a followed callee that neither runs nor returns it leaves it unexecuted.
     const unfollowed = resolved.targets.length === 0 || resolved.opaque || resolved.external;
     (node.arguments ?? []).forEach((argument, index) => {
-      if (unfollowed || summaries.some((s) => s.executes.has(index))) this.escaped(argument, scope);
+      const unseen = resolved.targets.some((t) => !this.seeded(t.fn, index));
+      if (unfollowed || unseen || summaries.some((s) => s.executes.has(index))) this.escaped(argument, scope);
     });
+  }
+
+  /** Whether the callee's summary sees what it is handed at `index`: a builder-typed parameter, not rest or destructured. */
+  private seeded(fn: FunctionLike, index: number): boolean {
+    const parameter = fn.parameters.at(index);
+    return parameter !== undefined && parameter.dotDotDotToken === undefined && ts.isIdentifier(parameter.name) && builderOf(this.checker, this.checker.getTypeAtLocation(parameter)) !== undefined;
   }
 
   /** `Model.find(pks)` returns a promise, not a builder: the query runs when it is called. */
@@ -224,13 +243,17 @@ class FunctionAnalysis {
       this.executes.set(meta.param, meta.kind);
       return;
     }
-    const site = meta.param === undefined ? meta.origin : at;
-    for (const variant of this.tracer.variantsOf(value)) this.add({ kind: this.effectKind(variant.kind, at), model: variant.model, ...scoped, site, path: [] });
+    for (const variant of this.tracer.variantsOf(value)) {
+      const site = meta.param === undefined ? (variant.origin ?? meta.origin) : at;
+      this.add({ kind: this.effectKind(variant.kind, at), model: variant.model, ...scoped, site, path: [] });
+    }
   }
 
   private returned(value: QueryValue): ReturnedBuilder {
-    const { kind, param, variants } = this.tracer.metaOf(value);
-    return { kind, model: value.model, scoped: { ...value.scoped }, ...(param === undefined ? {} : { param }), ...(variants === undefined ? {} : { variants }) };
+    const { kind, param } = this.tracer.metaOf(value);
+    // A caller reads the call as the site, so where each part was made stays here.
+    const variants = this.tracer.variantsOf(value).map((v) => ({ kind: v.kind, model: v.model })).filter((v, i, all) => all.findIndex((o) => o.kind === v.kind && o.model === v.model) === i);
+    return { kind, model: value.model, scoped: { ...value.scoped }, ...(param === undefined ? {} : { param }), ...(variants.length > 1 ? { variants } : {}) };
   }
 
   /** The pending builder `expr` runs by calling one of its executing members (`q.first()`). */
@@ -274,10 +297,15 @@ interface Reach {
 function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
   const found = new Set<FunctionLike>(roots);
   const counted = new Set<ts.Node>();
+  const callees = new Map<FunctionLike, FunctionLike[]>();
   let opaque = 0;
   let external = 0;
+  let here: FunctionLike[] = [];
   const walk = (node: ts.Node): void => {
-    for (const target of targetsAt(graph, node)) found.add(target.fn);
+    for (const target of targetsAt(graph, node)) {
+      found.add(target.fn);
+      here.push(target.fn);
+    }
     if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !counted.has(node)) {
       counted.add(node);
       // The call itself, then every function value it is handed: an unknown one runs unknown code just the same.
@@ -289,9 +317,32 @@ function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
     ts.forEachChild(node, walk);
   };
   // A Set iterates the entries added while it is iterated, so it is the worklist; no recursion over the call graph.
-  for (const fn of found) [...defaults(fn), ...(fn.body === undefined ? [] : [fn.body])].forEach(walk);
-  // Found callers first; reversed, most callees are summarised before their callers.
-  return { order: [...found].reverse(), opaque, external };
+  for (const fn of found) {
+    here = [];
+    [...defaults(fn), ...(fn.body === undefined ? [] : [fn.body])].forEach(walk);
+    callees.set(fn, here);
+  }
+  return { order: postOrder(roots, callees), opaque, external };
+}
+
+/** Callees before their callers (a depth-first post-order), so a call graph without cycles settles in two rounds. */
+function postOrder(roots: readonly FunctionLike[], callees: ReadonlyMap<FunctionLike, readonly FunctionLike[]>): FunctionLike[] {
+  const order: FunctionLike[] = [];
+  const seen = new Set<FunctionLike>();
+  for (const root of roots) {
+    if (seen.has(root)) continue;
+    seen.add(root);
+    const stack = [{ fn: root, next: 0 }];
+    for (let top = stack.at(-1); top !== undefined; top = stack.at(-1)) {
+      const callee = callees.get(top.fn)?.at(top.next++);
+      if (callee === undefined) order.push(stack.pop()?.fn ?? top.fn);
+      else if (!seen.has(callee)) {
+        seen.add(callee);
+        stack.push({ fn: callee, next: 0 });
+      }
+    }
+  }
+  return order;
 }
 
 const fingerprint = (s: FunctionSummary): string => JSON.stringify([s.effects.map(effectKey).sort(), s.systemRuns.map(runKey).sort(), s.returns ?? null, [...s.executes].sort()]);
