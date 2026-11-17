@@ -70,7 +70,7 @@ describe('Model.audit() and row.audit()', function () {
   let db: TestDb;
 
   before(async () => {
-    db = await TestDb.open({ trails: { reads: { table: 'audit_reads', onFailure: 'reject' }, acts: { table: 'audit_acts', onFailure: 'reject' } } }, { connections: [BOOKS] });
+    db = await TestDb.open({ trails: { reads: { table: 'audit_reads', onFailure: 'reject' }, acts: { table: 'audit_acts', onFailure: 'reject' }, lost: { table: 'audit_lost', connection: 'nowhere' } } }, { connections: [BOOKS] });
     await db.migrate('sqlite', 'audit_reads');
     await db.migrate('sqlite', 'audit_acts');
     const books = db.driver('books');
@@ -134,6 +134,13 @@ describe('Model.audit() and row.audit()', function () {
 
     // books has no audit_acts: it contributes nothing instead of failing.
     expect(actions(await AuditBook.audit('acts').of('b1'))).to.deep.eq(['acted']);
+  });
+
+  it('cuts the merge by time, and does not hide a connection it cannot reach', async () => {
+    // Written last, so last by seq on its connection, but the earliest event.
+    await audit().record({ kind: 'read', action: 'zeroth', subject: { type: 'audit_book', id: 'b1' }, at: at(0) }, { trail: 'reads', mode: 'confirmed' });
+    expect((await AuditBook.audit('reads').of('b1', { limit: 2 })).map((e) => e.action)).to.deep.eq(['zeroth', 'first']);
+    await expect(AuditBook.audit('lost').of('b1')).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nowhere"');
   });
 
   it('writes every kind of key as one subject id', () => {

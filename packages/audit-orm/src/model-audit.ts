@@ -1,9 +1,12 @@
-import { AuditConfigError, listAudit, trailConfig } from '@spinajs/audit';
+import { AuditConfigError, auditStore, listAudit, trailConfig } from '@spinajs/audit';
 import type { AuditFilter, AuditQuery, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
-import { DI, Injectable } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { ModelAuditSource, Orm, extractModelDescriptor } from '@spinajs/orm';
+import { ModelAuditSource, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelAudit, ModelBase, RowAudit } from '@spinajs/orm';
+
+import { auditConnection, findConnection } from './rows.js';
+import { TableAuditReader } from './table-reader.js';
 
 declare module '@spinajs/orm' {
   interface ModelAudit {
@@ -25,6 +28,7 @@ interface Named {
 type By = Pick<AuditFilter, 'subject' | 'subjectType'>;
 
 const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 1000;
 
 /** The subject type of a model's rows: its table name. */
 export function auditSubjectType(model: Named): string {
@@ -61,17 +65,22 @@ function missingKey(key: unknown): boolean {
 }
 
 // Aliases such as `default` name the same driver as its own name.
-const driverName = (connection: string): string => DI.get(Orm)?.Connections.get(connection)?.Options.Name ?? connection;
+const driverName = (connection: string): string => findConnection(connection)?.Options.Name ?? connection;
 
 async function holdsTable(trail: TrailConfig, connection: string): Promise<boolean> {
   // An archive keeps every source in one table on its own connection; a source that wrote nothing reads as empty.
   if (trail.archiveConnection !== undefined) return true;
-  try {
-    const columns: unknown = await DI.get(Orm)?.Connections.get(connection)?.tableInfo(trail.table);
-    return Array.isArray(columns) && columns.length > 0;
-  } catch {
-    return false;
-  }
+  // A missing table answers null; an unreachable connection throws, so the read fails instead of coming back partial.
+  const columns: unknown = await auditConnection(connection).tableInfo(trail.table);
+  return Array.isArray(columns) && columns.length > 0;
+}
+
+async function listOne(trail: TrailConfig, operation: string, by: By, query: AuditQuery, source: string): Promise<readonly StoredAuditEvent[]> {
+  if (!(await holdsTable(trail, source))) return [];
+  const reader = await (await auditStore(trail)).reader(trail);
+  // Each connection in time order, so the cut after the merge is right; another reader is merged in the seq order it answers.
+  if (reader instanceof TableAuditReader) return reader.list(trail, { ...query, ...by, source, order: query.order === 'desc' ? 'desc' : 'asc', limit: query.limit ?? DEFAULT_LIMIT }, 'at');
+  return listAudit(trail, operation, by, { ...query, source });
 }
 
 /** Transactional events sit on the model's connection, confirmed and deferred ones on the trail's: both are read and merged by time. */
@@ -79,10 +88,12 @@ async function listBoth(trail: TrailConfig, operation: string, by: By, query: Au
   if ((query.afterSeq ?? 0) > 0) {
     throw new AuditConfigError(`audit: afterSeq is a position on one connection, and ${operation} reads trail ${JSON.stringify(trail.name)} on ${connections.map((c) => JSON.stringify(c)).join(' and ')}; pass query.source to page one of them`);
   }
-  const lists = await Promise.all(connections.map(async (source) => ((await holdsTable(trail, source)) ? (await listAudit(trail, operation, by, { ...query, source })).map((event) => ({ event, source })) : [])));
+  const limit = query.limit ?? DEFAULT_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new AuditConfigError(`audit: limit must be an integer from 1 to ${MAX_LIMIT}`);
+  const lists = await Promise.all(connections.map(async (source) => (await listOne(trail, operation, by, query, source)).map((event) => ({ event, source }))));
   const direction = query.order === 'desc' ? -1 : 1;
   const merged = lists.flat().sort((a, b) => direction * (a.event.at.getTime() - b.event.at.getTime() || a.source.localeCompare(b.source) || a.event.seq - b.event.seq));
-  return merged.slice(0, query.limit ?? DEFAULT_LIMIT).map((m) => m.event);
+  return merged.slice(0, limit).map((m) => m.event);
 }
 
 function modelAudit(model: Named, trail: string | undefined): ModelAudit {

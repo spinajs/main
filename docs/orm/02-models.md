@@ -494,8 +494,9 @@ the `<table>__history` table and its triggers; see [Schema builder](09-schema-bu
 
 Without a trail name they read the `default` trail. A trail keeps transactional events on the connection of the audited
 write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
-are read and merged by time; a connection that has no table of the trail adds nothing. `query.source` reads one
-connection only, and `since(seq)` with a `seq` above 0 needs it, because `seq` counts per connection. These are
+are read and merged by time; a connection that has no table of the trail adds nothing, and one that cannot be reached
+fails the read. `query.source` reads one connection only, and `since(seq)` with a `seq` above 0 needs it, because `seq`
+counts per connection: a history longer than `limit` (at most 1000) is paged per connection with `query.source`. These are
 server-side reads with no authorization scoping of their own: an application that exposes them decides who may call them.
 Retention applies per trail, and each trail owns its table.
 
