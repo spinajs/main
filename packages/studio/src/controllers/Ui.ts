@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
 import { Config } from '@spinajs/configuration';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { BaseController, BasePath, Get, Req } from '@spinajs/http';
@@ -53,8 +54,9 @@ export class StudioUiController extends BaseController {
 
     const file = assetFile(ui.root, path);
     if (file === null) throw new ResourceNotFound(NO_FILE);
-    // A case-insensitive file system finds index.html as INDEX.HTML too; it must get the base all the same.
-    if (file === undefined || file === ui.index) return new StudioPageResponse(ui.html);
+    // A case-insensitive file system finds index.html as INDEX.HTML too; it must get the base all the same. The JS
+    // real path keeps the requested case, and `relative` compares case-insensitively on Windows.
+    if (file === undefined || relative(ui.index, file) === '') return new StudioPageResponse(ui.html);
     return new StudioAssetResponse(ui.root, file, segments[0] === 'assets');
   }
 

@@ -99,7 +99,7 @@ describe('uiSegments and assetFile', () => {
   });
 
   it('refuses dot segments, hidden names, separators and NUL bytes, raw or encoded, and a malformed escape', () => {
-    const refused = ['..', '../x', 'a/../b', '%2e%2e/x', '%2E%2e', '.', '.env', 'assets/.x', '..%2fx', 'a%2fb', 'a%2Fb', '..%5cx', 'a%5cb', 'a\\b', '%2fetc%2fpasswd', 'x%00.js', '%E0%A4%A'];
+    const refused = ['..', '../x', 'a/../b', '%2e%2e/x', '%2E%2e', '.', '.env', 'assets/.x', '..%2fx', 'a%2fb', 'a%2Fb', '..%5cx', 'a%5cb', 'a\\b', '%2fetc%2fpasswd', 'x%00.js', '%E0%A4%A', 'a:b', 'server.sh:x.js', 'server.sh%3Ax.js', 'C:secret.txt'];
     expect(refused.filter((path) => uiSegments(path) !== undefined)).to.deep.eq([]);
   });
 
@@ -227,6 +227,10 @@ describe('Studio UI serving', function () {
       '/_studio/assets/app-3f9a1c.js%00.html',
       '/_studio/.env',
       '/_studio/assets/.%2e/.%2e/secret.txt',
+      '/_studio/server.sh:x.js',
+      '/_studio/server.sh%3Ax.js',
+      '/_studio/a:b',
+      '/_studio/C:secret.txt',
     ];
     for (const path of paths) {
       const res = await raw(app.port, path);
@@ -273,6 +277,43 @@ describe('Studio UI serving', function () {
     for (const path of ['/_studio/', '/_studio/assets/app-3f9a1c.js', '/_studio/traces/abc', '/_studio/api/nope', '/_studio/api/capabilities']) {
       expect((await app.request().get(path)).status, path).to.eq(401);
     }
+  });
+});
+
+describe('Studio UI serving where the native real path fails', function () {
+  this.timeout(30000);
+
+  let app: TestApp;
+  let unregister: () => void;
+  let fixture: Fixture;
+  const native = realpathSync.native;
+
+  before(async () => {
+    unregister = registerHeaderSource();
+    fixture = fixtureDist();
+    app = await startApp({ config: { 'studio.ui.path': fixture.dist } });
+    // Stubbed after the boot, so only Studio's first UI request and later ones meet the failing native call.
+    realpathSync.native = () => {
+      throw Object.assign(new Error('EISDIR: native realpath unsupported'), { code: 'EISDIR' });
+    };
+  });
+
+  after(async () => {
+    realpathSync.native = native;
+    await stopApp();
+    rmSync(fixture.parent, { recursive: true, force: true });
+    unregister();
+  });
+
+  it('serves index.html with the base for any spelling the file system resolves to it', async function () {
+    // A case-sensitive file system has no INDEX.HTML.
+    if (!existsSync(join(fixture.dist, 'INDEX.HTML'))) this.skip();
+    for (const path of ['/_studio/INDEX.HTML', '/_studio/Index.html']) {
+      const res = await raw(app.port, path);
+      expect(res.text, path).to.include('<base href="/_studio/">');
+      expect(res.headers['cache-control'], path).to.eq('no-store');
+    }
+    expect((await raw(app.port, '/_studio/assets/app-3f9a1c.js')).text).to.eq('export {};');
   });
 });
 

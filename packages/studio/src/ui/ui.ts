@@ -76,12 +76,13 @@ export function withStudioBase(html: string, base: string, app: string): string 
   return `${html.slice(0, at)}${injected}${html.slice(at)}`;
 }
 
-const unsafeSegment = (segment: string): boolean => segment.startsWith('.') || /[/\\\0]/.test(segment);
+// `:` would name an NTFS stream (`server.sh:x.js`) or a drive-relative path (`C:x`) on Windows.
+const unsafeSegment = (segment: string): boolean => segment.startsWith('.') || /[/\\:\0]/.test(segment);
 
 /**
  * The decoded segments of a request path below the Studio base, passed percent-encoded as `req.path` keeps it. Each
  * segment is decoded on its own, so an encoded `/` or `\` cannot join two of them. Undefined for a path that could
- * leave dist/ or name a hidden file: a dot segment, a name starting with a dot, a separator or NUL byte inside a
+ * leave dist/ or name a hidden file: a dot segment, a name starting with a dot, a separator, `:` or NUL byte inside a
  * segment, or a malformed escape.
  */
 export function uiSegments(raw: string): string[] | undefined {
