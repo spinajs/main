@@ -34,10 +34,14 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   let total = 0;
 
   // One pull at a time: an iterator of a registry need not queue concurrent next() calls.
+  // Once a pull failed, the others answer "done", so no tenant starts after the call is bound to reject.
+  let broken: { error: unknown } | undefined;
   let turn: Promise<unknown> = Promise.resolve();
   const pull = (): Promise<IteratorResult<TenantRecord>> => {
-    const result = turn.then(() => tenants.next());
-    turn = result.catch(() => undefined);
+    const result = turn.then<IteratorResult<TenantRecord>>(() => (broken ? { done: true, value: undefined } : tenants.next()));
+    turn = result.catch((error: unknown) => {
+      broken ??= { error };
+    });
     return result;
   };
 
@@ -55,6 +59,7 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  await Promise.allSettled(Array.from({ length: concurrency }, () => worker()));
+  if (broken) throw broken.error;
   return { total, succeeded: total - failed.length, failed };
 }

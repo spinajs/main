@@ -48,7 +48,20 @@ class UnfilteredTenantRegistry extends MemoryTenantRegistry {
   }
 }
 
-const reasonOf = (work: Promise<unknown>): Promise<string> =>
+/** Fails on the second pull of `list`, then would go on listing. */
+class FailingTenantRegistry extends MemoryTenantRegistry {
+  public static readonly failure = new Error('registry down');
+
+  public override list(): AsyncIterable<TenantRecord> {
+    const tenants = super.list()[Symbol.asyncIterator]();
+    let pulls = 0;
+    return {
+      [Symbol.asyncIterator]: () => ({ next: () => (++pulls === 2 ? Promise.reject(FailingTenantRegistry.failure) : tenants.next()) }),
+    };
+  }
+}
+
+const reasonOf =(work: Promise<unknown>): Promise<string> =>
   work.then(
     () => 'admitted',
     (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
@@ -223,6 +236,29 @@ describe('tenancy services', () => {
 
       expect(most).to.eq(1);
       expect(report.succeeded).to.eq(4);
+    });
+
+    it('starts no tenant after the registry failed, and rejects once the started ones finished', async () => {
+      await app.dispose();
+      app = await tenancyApp({ registry: 'FailingTenantRegistry' }, (container) => container.register(FailingTenantRegistry).as(TenantRegistry));
+      const registry = await memory();
+      for (const id of ['a', 'b', 'c']) registry.add({ id });
+      const started: string[] = [];
+      const finished: string[] = [];
+
+      const run = forEachTenant(
+        async (tenant) => {
+          started.push(tenant.id);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          finished.push(tenant.id);
+        },
+        { concurrency: 2 },
+      );
+
+      await expect(run).to.be.rejectedWith(FailingTenantRegistry.failure);
+      expect(finished).to.deep.eq(['a']);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(started).to.deep.eq(['a']);
     });
 
     it('runs from the cross-tenant scope and refuses to run inside one tenant', async () => {
