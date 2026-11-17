@@ -61,4 +61,4 @@ A replica driver is resolved like its primary, so every registered `ConnectionSe
 
 ## Custom routing
 
-Register your own `ReplicaRouter` (`register`, `replicasOf`, `pick(primary, query)`) to choose replicas by other rules, for example by region or by lag. The builder asks the router of the container that booted the `Orm`.
+Register your own `ReplicaRouter` (`register`, `replicasOf`, `pick(primary, query)`) to choose replicas by other rules, for example by region or by lag. The builder asks the router of the container that booted the `Orm`. The relation loads of a select's rows read the connection the router picked for that select and do not call `pick` again, so a router that decides per query, or overrides `needsPrimary`, is not asked about them; they go back to the router only when that connection is no longer healthy, a transaction is open on the primary, or the read-your-writes scope has written through it.
