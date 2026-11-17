@@ -115,59 +115,81 @@ describe('audit queue sink', function () {
     await archiveAuditBatch(message);
     await archiveAuditBatch(message);
     expect(await archived()).to.have.length(1);
-    await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote' }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
-    await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(2)), { ...wire(event(3)), at: 'yesterday' }] }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
+    await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote' }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message: Source is not a string');
+    await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(2)), { ...wire(event(3)), at: 'yesterday' }] }))).to.be.rejectedWith(`audit: malformed AuditBatchRecorded message: event ${event(3).id}: at is not the toISOString() text of an instant`);
+    await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(2)), 'event'] }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message: event #1: not an object');
     expect(await archived()).to.have.length(1);
   });
 
-  it('refuses an event it cannot store alike on every dialect', async () => {
-    const malformed = async (e: Record<string, unknown>): Promise<void> => {
-      await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [e] }))).to.be.rejectedWith('audit: malformed AuditBatchRecorded message');
+  it('refuses an event it cannot store alike on every dialect, naming the event and the field', async () => {
+    const malformed = async (e: Record<string, unknown>, problem: string): Promise<void> => {
+      await expect(archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [e] }))).to.be.rejectedWith(`audit: malformed AuditBatchRecorded message: event ${event(1).id}: ${problem}`);
     };
-    await malformed({ ...wire(event(1)), at: '2026-11-16 10:00:01' });
-    await malformed({ ...wire(event(1)), at: '2026-11-16T10:00:01Z' });
-    await malformed({ ...wire(event(1)), at: new Date(Date.now() + 6 * 60000).toISOString() });
-    await malformed({ ...wire(event(1)), actor: 'u'.repeat(AUDIT_WIDTHS.actor + 1) });
-    await malformed({ ...wire(event(1)), subject: { type: 'contract', id: 'c'.repeat(AUDIT_WIDTHS.subject_id + 1) } });
-    await malformed({ ...wire(event(1)), traceId: 42 });
-    await malformed({ ...wire(event(1)), tenant: null });
+    const notIso = 'at is not the toISOString() text of an instant';
+    await malformed({ ...wire(event(1)), at: '2026-11-16 10:00:01' }, notIso);
+    await malformed({ ...wire(event(1)), at: '2026-11-16T10:00:01Z' }, notIso);
+    await malformed({ ...wire(event(1)), at: new Date(Date.now() + 6 * 60000).toISOString() }, "at is more than 5 minutes ahead of this service's clock");
+    await malformed({ ...wire(event(1)), actor: 'u'.repeat(AUDIT_WIDTHS.actor + 1) }, `actor is not a string of at most ${AUDIT_WIDTHS.actor} characters`);
+    await malformed({ ...wire(event(1)), subject: { type: 'contract', id: 'c'.repeat(AUDIT_WIDTHS.subject_id + 1) } }, `subject is not a type of at most ${AUDIT_WIDTHS.subject_type} and an id of at most ${AUDIT_WIDTHS.subject_id} characters`);
+    await malformed({ ...wire(event(1)), traceId: 42 }, `traceId is not a string of at most ${AUDIT_WIDTHS.trace_id} characters`);
+    await malformed({ ...wire(event(1)), tenant: null }, `tenant is not a string of at most ${AUDIT_WIDTHS.tenant} characters`);
+    await malformed({ ...wire(event(1)), kind: 'audit' }, 'kind is not one of data, read, action, security, custom');
     expect(await archived()).to.have.length(0);
     await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [{ ...wire(event(1)), at: new Date(Date.now() + 60000).toISOString(), actor: 'u'.repeat(AUDIT_WIDTHS.actor) }] }));
     expect(await archived()).to.have.length(1);
   });
 
-  it('blanks what arrives of a subject erased after the event, with one select per batch', async () => {
+  describe('erasure on arrival', () => {
     const c1 = { type: 'contract', id: 'c1' };
-    await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(event(1))] }));
-    await audit().trail('remote').forget(c1);
-    await shipAudit({ trail: 'remote' });
-    const erasure = (await archived()).find((r) => r.action === 'erasure');
-    expect(erasure?.subject_id).to.eq('c1');
-
-    const late = event(7, { subject: c1 });
-    const after = event(8, { subject: c1, at: new Date(Date.now() + 60000) });
-    const other = event(9);
-    const select = Reflect.get(driver(), 'select');
-    let selects = 0;
-    Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
-      selects += 1;
-      const builder: unknown = Reflect.apply(select, driver(), args);
-      return builder;
-    });
-    try {
-      await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(late), wire(other)] }));
-    } finally {
-      Reflect.deleteProperty(driver(), 'select');
-    }
-    // The sink's dedup select and the erasure lookup.
-    expect(selects).to.eq(2);
     const data = async (id: string): Promise<unknown> => (await archived()).find((r) => r.id === id)?.data;
-    expect(await data(late.id)).to.eq('');
-    expect(await data(other.id)).to.eq('{"version":9}');
+    const arrive = (...events: AuditEvent[]): Promise<void> => archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: events.map(wire) }));
 
-    // An event newer than the erasure keeps its payload when it arrives alone.
-    await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'app', Events: [wire(after)] }));
-    expect(await data(after.id)).to.eq('{"version":8}');
+    it('blanks only the arriving events an archived erasure covers, with one select per batch and source', async () => {
+      await arrive(event(1));
+      await audit().trail('remote').forget(c1);
+      await shipAudit({ trail: 'remote' });
+      const erasure = (await archived()).find((r) => r.action === 'erasure');
+      expect(erasure?.subject_id).to.eq('c1');
+
+      // The newer event arrives first: the late older one must not take its payload with it.
+      const after = event(8, { subject: c1, at: new Date(Date.now() + 60000) });
+      await arrive(after);
+      const late = event(7, { subject: c1 });
+      const other = event(9);
+      const select = Reflect.get(driver(), 'select');
+      let selects = 0;
+      Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
+        selects += 1;
+        const builder: unknown = Reflect.apply(select, driver(), args);
+        return builder;
+      });
+      try {
+        await arrive(late, other);
+      } finally {
+        Reflect.deleteProperty(driver(), 'select');
+      }
+      // The sink's dedup select, the erasure lookup in the archive and the one in this service's buffer.
+      expect(selects).to.eq(3);
+      expect([await data(late.id), await data(other.id), await data(after.id), await data(String(erasure?.id))]).to.deep.eq(['', '{"version":9}', '{"version":8}', '{"redacted":1}']);
+    });
+
+    it('blanks what arrives of a subject whose erasure this service has not shipped yet', async () => {
+      await audit().trail('remote').forget(c1);
+      expect(await archived()).to.have.length(0);
+
+      await arrive(event(7, { subject: c1 }));
+      expect(await data(event(7).id)).to.eq('');
+    });
+
+    it('an arriving erasure blanks what came before it in every source, never an erasure record or a later event', async () => {
+      const erasure = (n: number, at: Date): AuditEvent => event(n, { action: 'erasure', subject: c1, at, data: { redacted: 0 } });
+      await arrive(event(1), event(2, { subject: c1 }), erasure(3, new Date(Date.UTC(2026, 10, 16, 9))));
+      await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'other', Events: [wire(event(4, { subject: c1 }))] }));
+      await arrive(event(30, { subject: c1, at: new Date(Date.UTC(2026, 10, 16, 11)) }));
+
+      await arrive(erasure(20, new Date(Date.UTC(2026, 10, 16, 10, 30))));
+      expect(await Promise.all([1, 2, 4, 30, 3, 20].map((n) => data(event(n).id)))).to.deep.eq(['', '', '', '{"version":30}', '{"redacted":0}', '{"redacted":0}']);
+    });
   });
 
   it('archives a batch published as a plain message through QueueEvent.emit()', async () => {
