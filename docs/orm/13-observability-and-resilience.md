@@ -95,6 +95,48 @@ Every statement a builder executes through `SqlDriver.execute` produces one Open
 - Backslash rule: whether `\'` ends a literal depends on the server and its mode. MySQL compiles `O'Brien` in a `CREATE VIEW` as `'O\'Brien'`, and with `NO_BACKSLASH_ESCAPES` the same text ends at `\'`; postgres reads `\'` as an escape only in an `E''` string. Any guess leaks on some connection, so the text is dropped from the literal that holds the first backslash on: `` SELECT * FROM `users` WHERE `Name` = 'O\'Brien' AND `Ssn` = '123' `` becomes `` SELECT * FROM `users` WHERE `Name` = ? ``.
 - Double-quote rule: `"name"` is kept as an identifier only on a connection whose quoter writes identifiers in double quotes (postgres, `OrmDriver.ansiQuotedIdentifiers()`). On MySQL and SQLite, which quote with backticks, a double-quoted token is a string and becomes `?`.
 
+### Slow queries
+
+`SlowQueryMiddleware`, a `QueryMiddleware` at order 2000 registered by `@spinajs/orm`, turns every builder whose statements took at least `db.Explain.SlowQueryMs` in total into one `SlowQueryRecord` and hands it to every registered `SlowQuerySink`. It is off by default; the keys are listed in [Connections](01-connections.md#configuration).
+
+| Field | Meaning |
+| --- | --- |
+| `fingerprint` | The statement's shape, as `spina.db.fingerprint` on the span. |
+| `sql` | The sanitized statement (literals are `?`, the backslash and double-quote rules above apply). Several statements of one builder (a chunked insert) are joined with `;\n`. |
+| `bindings` | Only with `db.Explain.CaptureBindings`. |
+| `driver`, `connection` | The driver token and `db.Connections[].Name` of the connection that ran the statement (a read replica, when the select ran there). |
+| `durationMs` | The driver's own measurement, summed over the builder's statements. |
+| `at` | When the builder finished. |
+| `traceId`, `spanId` | Of the `db.query` span of the first statement, also in id-only mode. |
+| `plan` | The `QueryPlan` from `OrmDriver.explain()`, for a single select only. |
+| `planError` | Why a planned statement has no plan: `explain rate limit reached`, `driver <token> cannot explain`, or the class name of the EXPLAIN error (followed by its message only with `CaptureBindings`). |
+
+`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Register your own next to it; every sink receives every record, and a sink that throws is logged and does not stop the others:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { SlowQuerySink } from '@spinajs/orm';
+import type { SlowQueryRecord } from '@spinajs/orm';
+
+@Injectable(SlowQuerySink)
+export class SlowQueryCollector extends SlowQuerySink {
+  public readonly records: SlowQueryRecord[] = [];
+
+  public record(entry: SlowQueryRecord): void {
+    this.records.push(entry);
+  }
+}
+```
+
+- Off, the capture costs two boolean checks per statement: the driver keeps no statement, binding or timestamp. `db.Explain` is read once, at the first statement; `SlowQueryMiddleware.reload()` reads it again and forgets every remembered plan.
+- The capture runs after `setImmediate`, once the result has gone back to the caller, and holds no reference to the builder. At most 100 captures (`MAX_PENDING_SLOW_QUERY_CAPTURES`) wait or run at once; a slow statement beyond that is not recorded, and the number dropped is logged with the next record.
+- A plan is attempted only for a builder with one statement in the select context, on the driver that ran it, with the statement's own bindings (databases cannot plan without them; they are not kept). A plan is remembered for 60 s per connection, `CaptureBindings` mode and fingerprint; overlapping captures of one key share one EXPLAIN, and at most `db.Explain.MaxPerMinute` EXPLAIN calls run per minute.
+- An EXPLAIN never runs a second statement. A statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator or an identifier with `$`, `LIKE … ESCAPE '\'`, a select wrapped in parentheses. Builder SQL binds its values and holds none of these.
+- Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
+- `OrmDriver.explain()` runs outside the ambient transaction. On a driver without concurrent transactions (sqlite without a read pool, PGlite) it waits for an open transaction to end: never await it inside one. A capture made while the transaction is still open on PGlite ends with `planError`.
+- Streams, direct `executeOnDb()` calls and transaction control statements are not recorded.
+- No driver implements `explain()` yet, so every record of a select carries `planError: driver <token> cannot explain`.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
