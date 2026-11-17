@@ -366,6 +366,7 @@
     },
     {
       "path": "packages/audit/tsconfig.build.json"
-    }
+    },
+    { "path": "packages/audit-http/tsconfig.build.json" }
   ]
 }
