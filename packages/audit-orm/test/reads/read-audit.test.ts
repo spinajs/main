@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { AuditConfigError, AuditStore, AuditWriteFailed, audit } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 // Relation is imported as a value: the decorators read the property's emitted design type.
-import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
+import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, RawQuery, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
 import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditSubjectType, registerAuditReads } from '../../src/index.js';
@@ -340,6 +340,29 @@ describe('read auditing', function () {
         expect(events[0].data).to.deep.eq({ columns: ['Ssn'] });
       });
 
+      it('attributes a column to the table its alias names, when a join or a populate renames it', async () => {
+        const positiveId = function (this: { where(column: string, operator: string, value: number): unknown }) {
+          this.where('Id', '>', 0);
+        };
+        await Visit.query()
+          .leftJoin('Patient', positiveId, function () {
+            this.select('Ssn', 'PatientSsn');
+          })
+          .asRaw();
+        await Visit.query()
+          .populate('Patient', function () {
+            this.clearColumns();
+            this.select('Ssn', 'x');
+          })
+          .asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([
+          ['patient.read', undefined, keyless],
+          ['patient.read', undefined, keyless],
+        ]);
+      });
+
       it('audits an own column under an alias of its own', async () => {
         await Patient.query().select('Id').select('Ssn', 'x').where('Id', 1).asRaw();
 
@@ -506,6 +529,21 @@ describe('read auditing', function () {
       await Badge.all();
 
       expect((await of('badge')).map((e) => e.subject?.id)).to.deep.eq(['ab01']);
+    });
+
+    it('counts an expression next to a join as reading every audited table of the connection', async () => {
+      await MODELS.sqlite.Visit.query()
+        .leftJoin('Patient', function () {
+          this.where('Id', '>', 0);
+        })
+        .select(RawQuery.create('1 AS one'))
+        .asRaw();
+
+      expect((await recorded('restricted')).map((e) => [e.action, e.data]).sort()).to.deep.eq([
+        ['badge.read', { columns: ['*'], rows: 3, filter: [], keyless: true }],
+        ['patient.read', { columns: ['Ssn'], rows: 3, filter: [], keyless: true }],
+        ['ward.read', { columns: ['Code'], rows: 3, filter: [], keyless: true }],
+      ]);
     });
 
     it('records the reload of save({ reload: true }) in the transaction save() opens', async () => {

@@ -27,21 +27,21 @@ the same for a model of another package.
 
 What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
 per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
-type, or through a relation's accessor) brings into a select of another model. A rule applies to the model's
-subclasses. Column names match without regard to case, as sqlite and MySQL resolve them; the ORM quotes every
-identifier, so Postgres only knows the declared spelling.
+type, or through a relation's accessor) or a `join()` brings into a select of another model. A rule applies to the
+model's subclasses and to every model of its table on its connection. Column names match without regard to case, as
+sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only knows the declared spelling.
 
-A raw or `CASE` select expression counts as every audited column. An aggregate over an audited column (`min`, `max`,
-`sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row can be
-named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement in the
-query-mode shape with `keyless: true`. A binary key is written as hex.
+Each selected column belongs to the table its table alias names: the queried table, a populate path, a joined model.
+What cannot be attributed is read as widely as it could reach: a column under an alias that names no model counts for
+every audited table with a column of that name, and a raw or `CASE` select expression for every audited column of
+every table in the query (of the connection, when the query has a join). An aggregate over an audited column (`min`,
+`max`, `sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row
+can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement
+in the query-mode shape with `keyless: true`. A binary key is written as hex.
 
 What it does not see:
 
 - raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
-- a column that a `join()` query callback selects, or that a `populate()` callback selects under an alias of its own:
-  it is counted for the queried model, not for the joined one;
-- the junction rows of a many-to-many relation;
 - what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
   condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
 - data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
