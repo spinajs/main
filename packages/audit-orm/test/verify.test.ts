@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AuditNotSupported, AuditReader, AuditStore, audit, payloadHash, trailConfig } from '@spinajs/audit';
+import { AuditNotSupported, AuditReader, AuditStore, audit, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
@@ -76,6 +76,27 @@ describe('audit verification', function () {
       const sealNow = () => sealAudit({ settleMs: 0 });
       const edit = (seq: number, values: Record<string, unknown>) => driver().update().in(TABLE).update(values).where('seq', seq);
       const insertAt = (seq: number, e: AuditEvent) => insertRows(driver(), TABLE, [{ seq, ...storedColumns(e) }]);
+
+      // The first select of the walk reads the seal page; `work` runs once it has resolved, before the range is read. The
+      // builder is a thenable that `await` calls once: its own `then` property wraps the resolution.
+      const afterPageRead = (work: () => Promise<unknown>): void => {
+        const select = Reflect.get(driver(), 'select');
+        Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
+          Reflect.deleteProperty(driver(), 'select');
+          const page: unknown = Reflect.apply(select, driver(), args);
+          const then: unknown = typeof page === 'object' && page !== null ? Reflect.get(page, 'then') : undefined;
+          if (typeof page !== 'object' || page === null || typeof then !== 'function') return page;
+          Reflect.set(page, 'then', (done: (rows: unknown) => unknown, failed: (err: unknown) => unknown): unknown => {
+            const workFirst = async (rows: unknown): Promise<unknown> => {
+              await work();
+              return done(rows);
+            };
+            const chained: unknown = Reflect.apply(then, page, [workFirst, failed]);
+            return chained;
+          });
+          return page;
+        });
+      };
 
       before(function () {
         if (!db.has(dialect)) this.skip();
@@ -328,29 +349,59 @@ describe('audit verification', function () {
         expect((await verify()).tampered).to.deep.eq({ seq: 2, reason: 'seal', fromSeq: 2, toSeq: 2 });
       });
 
+      it('names a forged prune with a recomputed hash against a pinned head', async () => {
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
+        await append(event(1));
+        await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
+        await append(event(2));
+        await sealNow();
+        const [first, second] = await seals();
+        const backdated = new Date('2020-06-02T00:00:00Z');
+        await driver().update().in('audit_seal').update({ pruned_at: new Date() }).where('from_seq', 1);
+        await driver()
+          .update()
+          .in('audit_seal')
+          .update({ sealed_at: backdated, pruned_at: new Date(), hash: sealHash(String(first.hash), backdated, String(second.events_hash)) })
+          .where('from_seq', 2);
+        await driver().del().from(TABLE).where('seq', '<=', 2);
+
+        // Without a head kept outside the database, a writer to audit_seal who recomputes the hash is not caught.
+        expect((await verify()).tampered).to.eq(undefined);
+        expect(
+          (
+            await audit()
+              .trail('sealed')
+              .verify(undefined, { toSeq: 2, hash: String(second.hash) })
+          ).tampered,
+        ).to.deep.eq({ seq: 2, reason: 'chain', fromSeq: 2, toSeq: 2 });
+      });
+
+      it('names a seal forged pruned and backdated during the walk, under a pinned head', async () => {
+        setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
+        await append(event(1), event(2));
+        await sealNow();
+        const [seal] = await seals();
+        afterPageRead(async () => {
+          await driver().del().from(TABLE).where('seq', '<=', 2);
+          await driver()
+            .update()
+            .in('audit_seal')
+            .update({ sealed_at: new Date('2020-06-01T00:00:00Z'), pruned_at: new Date() })
+            .where('from_seq', 1);
+        });
+
+        const report = await audit()
+          .trail('sealed')
+          .verify(undefined, { toSeq: 2, hash: String(seal.hash) });
+        expect(report.tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
+      });
+
       it('takes a seal that retention pruned during the walk as pruned', async () => {
         setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: connection(), integrity: 'sealed', retentionDays: 30 });
         await append(event(1), event(2));
         await sealAudit({ settleMs: 0, now: new Date('2020-06-01T00:00:00Z') });
         const reader = await DI.resolve(TableAuditStore).reader(sealedTrail());
-        // The first select of the walk reads the seal page; retention runs once it has resolved, before the range is read.
-        // The builder is a thenable that `await` calls once: its own `then` property wraps the resolution.
-        const select = Reflect.get(driver(), 'select');
-        Reflect.set(driver(), 'select', (...args: unknown[]): unknown => {
-          Reflect.deleteProperty(driver(), 'select');
-          const page: unknown = Reflect.apply(select, driver(), args);
-          const then: unknown = typeof page === 'object' && page !== null ? Reflect.get(page, 'then') : undefined;
-          if (typeof page !== 'object' || page === null || typeof then !== 'function') return page;
-          Reflect.set(page, 'then', (done: (rows: unknown) => unknown, failed: (err: unknown) => unknown): unknown => {
-            const pruneFirst = async (rows: unknown): Promise<unknown> => {
-              await reader?.prune(sealedTrail(), new Date('2021-01-01T00:00:00Z'));
-              return done(rows);
-            };
-            const chained: unknown = Reflect.apply(then, page, [pruneFirst, failed]);
-            return chained;
-          });
-          return page;
-        });
+        afterPageRead(async () => reader?.prune(sealedTrail(), new Date('2021-01-01T00:00:00Z')));
 
         expect(await verify()).to.deep.include({ tampered: undefined, prunedSeals: 1, intact: 0, earlyPrunes: [] });
       });

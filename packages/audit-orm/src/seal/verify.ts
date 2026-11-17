@@ -18,7 +18,7 @@ const CLOCK_SKEW_MS = 5000;
 /** An archive row carries `at` from another application's clock: the queue consumer accepts it up to 5 minutes ahead. */
 export const ARCHIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 // AuditSealTask's default period. A slower `scheduler.schedules` entry for `audit.seal` is not read here: with one, rows
-// in the tail read as stale (suspect) for up to the difference.
+// in the tail read as stale and erasure records there stop explaining their blanked payloads (both suspect) too early.
 const SEAL_PERIOD_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -111,6 +111,15 @@ async function checkPruned(driver: OrmDriver, table: string, seal: AuditSeal, af
   return undefined;
 }
 
+// Retention may have pruned this seal since its page was read. It stamps pruned_at only, so any other change to the row
+// is forged.
+async function rereadPruned(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyTableOptions): Promise<AuditTamper | undefined> {
+  const now = await sealById(driver, seal.id);
+  if (now?.pruned !== true) return tamper(seal, 'count', seal.fromSeq);
+  const same = now.hash === seal.hash && now.previousHash === seal.previousHash && sealHash(now.previousHash, now.sealedAt, now.eventsHash) === now.hash;
+  return same ? checkPruned(driver, table, now, after, walk, options) : tamper(seal, 'seal', seal.fromSeq);
+}
+
 /** Recomputes one seal over its range `(after, to_seq]`; undefined when it still matches. */
 async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyTableOptions): Promise<AuditTamper | undefined> {
   if (seal.fromSeq !== after + 1) return tamper(seal, 'chain', seal.fromSeq);
@@ -124,9 +133,7 @@ async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, afte
     rows.push(checked);
   }
   if (rows.length < seal.count) {
-    // Retention may have pruned this seal since its page was read.
-    const now = await sealById(driver, seal.id);
-    return now?.pruned === true ? checkPruned(driver, table, now, after, walk, options) : tamper(seal, 'count', seal.fromSeq);
+    return rereadPruned(driver, table, seal, after, walk, options);
   }
   const late = rows.length > seal.count ? lateRows(rows, seal) : [];
   // A row's `at` is stamped before its insert: one stamped after the seal was made cannot have been committed late.
