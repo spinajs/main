@@ -47,9 +47,24 @@ export class HistoricalTupleSource implements TupleSource {
   async *reverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName): AsyncIterable<ObjectRef> {
     const label = `${objectType}#${relation}@${subjectLabel(subject)}`;
     const { c, source } = this.served(this.relationDef(objectType, relation), label);
+    const parts = c.parts?.(objectType, relation, source);
+    if (parts !== undefined) {
+      const u = await this.union(
+        parts.map((p) => async () => {
+          const out: ObjectRef[] = [];
+          for await (const o of this.reverse(subject, p, objectType)) out.push(o);
+          return out;
+        }),
+        () => [],
+      );
+      if (u.gaps.length > 0) throw new TupleSourceGap([], u.gaps);
+      for (const o of u.found) yield o;
+      return;
+    }
     const r = await this.resolve(
       c,
       label,
+      source,
       () => c.currentReverse(subject, relation, objectType, source),
       (e) => (e.relation === relation && e.object.type === objectType && sameSubject(e.subject, subject) ? e.object : undefined),
       c.coverageType({ type: objectType, id: '*' }),
@@ -81,9 +96,19 @@ export class HistoricalTupleSource implements TupleSource {
   private async subjects(object: ObjectRef, relation: RelationName, def: RelationDef | undefined): Promise<TupleSubjectRef[]> {
     const label = `${objectLabel(object)}#${relation}`;
     const { c, source } = this.served(def, label);
+    const parts = c.parts?.(object.type, relation, source);
+    if (parts !== undefined) {
+      const u = await this.union(
+        parts.map((p) => () => this.subjects(object, p, this.relationDef(object.type, p))),
+        (e) => e.known,
+      );
+      if (u.gaps.length > 0) throw new TupleSourceGap(u.found, u.gaps);
+      return u.found;
+    }
     const r = await this.resolve(
       c,
       label,
+      source,
       () => c.current(object, relation, source),
       (e) => (e.relation === relation && e.object.type === object.type && e.object.id === object.id ? e.subject : undefined),
       c.coverageType(object),
@@ -91,6 +116,21 @@ export class HistoricalTupleSource implements TupleSource {
     const known = r.present.map((p) => c.subjectAt(p.value, this.at)).filter((s): s is TupleSubjectRef => s !== undefined);
     if (r.gaps.length > 0) throw new TupleSourceGap(known, r.gaps);
     return known;
+  }
+
+  /** Every part read in turn; a part's gap keeps what that part established, and makes the union partial. */
+  private async union<T>(parts: ReadonlyArray<() => Promise<T[]>>, partial: (e: TupleSourceGap) => readonly T[]): Promise<{ found: T[]; gaps: ReplayRead[] }> {
+    const out = { found: [] as T[], gaps: [] as ReplayRead[] };
+    for (const read of parts) {
+      try {
+        out.found.push(...(await read()));
+      } catch (e) {
+        if (!(e instanceof TupleSourceGap)) throw e;
+        out.found.push(...partial(e));
+        out.gaps.push(...e.gaps);
+      }
+    }
+    return out;
   }
 
   private typeDef(type: TypeName): TypeDef | undefined {
@@ -115,7 +155,7 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order (3.2). */
-  private async resolve<T>(c: HistoryContributor, label: string, current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<Resolved<T>> {
+  private async resolve<T>(c: HistoryContributor, label: string, source: RelationDef['source'], current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<Resolved<T>> {
     for (let attempt = 0; ; attempt++) {
       const now = await current();
       await this.history.catchUp();
@@ -129,10 +169,12 @@ export class HistoricalTupleSource implements TupleSource {
       const keys = [...candidates.keys()];
       const heads = await this.history.headOf(c.kind, keys);
       const befores = await this.history.beforeOf(c.kind, keys);
+      // Before `since`: a boot that restarts the type writes its new fingerprint and its new `since` in one statement.
+      const distrusted = await c.coverageGap?.(type);
       const since = await this.history.since(c.kind, type);
-      const uncovered = coverageGap(this.at, c.kind, since, this.history.window);
+      const uncovered = distrusted ?? coverageGap(this.at, c.kind, since, this.history.window);
       if (uncovered !== undefined) {
-        const read: ReplayRead = { kind: c.kind, key: label, origin: 'gap', reason: uncovered };
+        const read: ReplayRead = { kind: c.kind, key: type === undefined ? label : `${c.kind}:${type}`, origin: 'gap', reason: uncovered };
         this.reads.push(read);
         return { present: [], gaps: [read] };
       }
@@ -142,7 +184,7 @@ export class HistoricalTupleSource implements TupleSource {
         return head !== undefined && head.seq > Math.max(after.at(-1)?.seq ?? -Infinity, befores.get(k)?.seq ?? -Infinity);
       });
       if (moved.length > 0 && attempt === 0) continue;
-      return this.settle(c, candidates, befores, since, new Set(moved));
+      return this.settle(c, source, candidates, befores, since, new Set(moved));
     }
   }
 
@@ -154,11 +196,11 @@ export class HistoricalTupleSource implements TupleSource {
     for (const [k, cand] of candidates) if (images.has(k)) cand.image = images.get(k);
   }
 
-  private settle<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
+  private settle<T>(c: HistoryContributor, source: RelationDef['source'], candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
     const out: Resolved<T> = { present: [], gaps: [] };
     // By key, so a replay walks subjects in the same order whatever the order of the writes that led to them.
     for (const [key, cand] of [...candidates].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-      const state = moved.has(key) ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const) : this.stateOf(c, key, cand.image, befores.get(key), since);
+      const state = moved.has(key) ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const) : this.stateOf(c, source, key, cand.image, befores.get(key), since);
       if (!state.known) {
         const read: ReplayRead = { kind: c.kind, key, origin: 'gap', reason: state.reason };
         this.reads.push(read);
@@ -175,12 +217,12 @@ export class HistoricalTupleSource implements TupleSource {
    * The window is checked on the key's last change before T as logged: a projection that drops it (another column of a
    * shared key) would also hide the window from the changes of this item it covers.
    */
-  private stateOf(c: HistoryContributor, key: string, current: unknown, before: ChangeRecord | undefined, since: Date | undefined): KeyState {
+  private stateOf(c: HistoryContributor, source: RelationDef['source'], key: string, current: unknown, before: ChangeRecord | undefined, since: Date | undefined): KeyState {
     const w = this.history.window;
     if (before !== undefined && before.at.getTime() >= this.at.getTime() - w.beforeMs && before.at.getTime() <= this.at.getTime() + w.afterMs) {
       return { known: false, reason: `change seq ${before.seq} at ${before.at.toISOString()} is within the ambiguity window of the decision` };
     }
-    const project = (ch: ChangeRecord | undefined): ChangeRecord | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch));
+    const project = (ch: ChangeRecord | undefined): ChangeRecord | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch, source));
     const after = this.history
       .afterFor(c.kind, key)
       .map(project)

@@ -1,5 +1,7 @@
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
+import '@spinajs/orm-pglite';
+import { MySqlOrmDriver } from '@spinajs/orm-mysql';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 
 import { randomBytes } from 'node:crypto';
@@ -11,12 +13,24 @@ import { testHost } from '@spinajs/authz-testing';
 
 import { unregisterResource } from '../../src/registry.js';
 
-export type Dialect = 'sqlite' | 'postgres';
+export type Dialect = 'sqlite' | 'postgres' | 'pglite' | 'mysql';
 
 /** A connection of the test ORM: a dialect, or `other`, a second SQLite `:memory:` database. */
 export type ConnectionName = Dialect | 'other';
 
 export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
+export const MYSQL = { Host: '127.0.0.1', Port: 13306, User: 'root', Password: 'root' };
+
+/** Runs `sql` on the MySQL test server without a database, to make or drop the one a TestDb uses. */
+async function mysqlAdmin(sql: string): Promise<void> {
+  const admin = await DI.child().resolve<OrmDriver>(MySqlOrmDriver, [{ Name: 'authz-orm-mysql-admin', Driver: 'orm-driver-mysql', ...MYSQL, Pool: { Max: 1 } }]);
+  await admin.connect();
+  try {
+    await adminSql(admin, sql);
+  } finally {
+    await admin.disconnect();
+  }
+}
 
 async function withPostgresAdmin<T>(fn: (admin: OrmDriver) => Promise<T>): Promise<T> {
   const admin = await DI.child().resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'authz-orm-pg-admin', Driver: 'orm-driver-postgres', ...POSTGRES, Database: 'postgres', Pool: { Max: 1 } }]);
@@ -68,13 +82,22 @@ export class TestDb {
   private ownsInstall = false;
   private restoreConfig: () => void = () => undefined;
   private postgresDatabase: string | undefined;
+  private mysqlDatabase: string | undefined;
 
   private constructor(readonly orm: Orm, readonly dialects: readonly Dialect[]) {}
 
-  static async postgresReachable(): Promise<boolean> {
+  static postgresReachable(): Promise<boolean> {
+    return TestDb.reachable(POSTGRES.Host, POSTGRES.Port);
+  }
+
+  static mysqlReachable(): Promise<boolean> {
+    return TestDb.reachable(MYSQL.Host, MYSQL.Port);
+  }
+
+  private static async reachable(host: string, port: number): Promise<boolean> {
     const net = await import('node:net');
     return new Promise((resolve) => {
-      const s = net.createConnection({ host: POSTGRES.Host, port: POSTGRES.Port });
+      const s = net.createConnection({ host, port });
       const done = (ok: boolean) => {
         s.destroy();
         resolve(ok);
@@ -86,7 +109,7 @@ export class TestDb {
   }
 
   /** With `postgres`, the 'postgres' connection is a database of its own, dropped by `close()`. */
-  static async open(opts: { postgres?: boolean; other?: boolean } = {}): Promise<TestDb> {
+  static async open(opts: { postgres?: boolean; other?: boolean; pglite?: boolean; mysql?: boolean } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -101,6 +124,12 @@ export class TestDb {
     // that name on the search path makes the joined and the unqualified spelling one table.
     const database = opts.postgres ? await createPostgresDatabase() : undefined;
     if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
+    if (opts.pglite) connections.push({ Driver: 'orm-driver-pglite', Name: 'pglite', Filename: ':memory:' });
+    const mysqlDatabase = opts.mysql ? `authz_orm_${randomBytes(4).toString('hex')}` : undefined;
+    if (mysqlDatabase !== undefined) {
+      await mysqlAdmin(`CREATE DATABASE ${mysqlDatabase}`);
+      connections.push({ Driver: 'orm-driver-mysql', Name: 'mysql', ...MYSQL, Database: mysqlDatabase });
+    }
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     // Suites create and drop the authz tables per test, after the boot (createAncestorTable, createScopeAttributeTables, define).
@@ -115,10 +144,11 @@ export class TestDb {
     let orm: Orm | undefined;
     try {
       orm = await DI.resolve(Orm);
-      const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
+      const db = new TestDb(orm, ['sqlite', ...(opts.postgres ? ['postgres' as const] : []), ...(opts.pglite ? ['pglite' as const] : []), ...(opts.mysql ? ['mysql' as const] : [])]);
       db.ownsInstall = ownsInstall;
       db.restoreConfig = restoreConfig;
       db.postgresDatabase = database;
+      db.mysqlDatabase = mysqlDatabase;
       if (database !== undefined) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
       return db;
     } catch (e) {
@@ -128,6 +158,7 @@ export class TestDb {
       }
       restoreConfig();
       if (database !== undefined) await dropPostgresDatabase(database).catch(() => undefined);
+      if (mysqlDatabase !== undefined) await mysqlAdmin(`DROP DATABASE IF EXISTS ${mysqlDatabase}`).catch(() => undefined);
       throw e;
     }
   }
@@ -142,6 +173,11 @@ export class TestDb {
   async useAuthz(name: ConnectionName): Promise<void> {
     this.orm.Connections.set(AUTHZ_CONNECTION, this.driver(name));
     await this.orm.reloadTableInfo();
+  }
+
+  /** `name` quoted for `dialect`'s SQL. */
+  static quote(name: string, dialect: Dialect): string {
+    return dialect === 'mysql' ? `\`${name}\`` : `"${name}"`;
   }
 
   raw(sql: string, params: unknown[] = [], dialect: Dialect = 'sqlite'): Promise<any> {
@@ -160,11 +196,12 @@ export class TestDb {
     Connection(dialect)(cls);
     Model(table)(cls);
 
-    const columns = { id: 'TEXT', ...spec.columns };
+    const q = (n: string) => TestDb.quote(n, dialect);
+    const columns = { id: dialect === 'mysql' ? 'VARCHAR(64)' : 'TEXT', ...spec.columns };
     const ddl = Object.entries(columns)
-      .map(([c, t]) => `"${c}" ${t}${c === 'id' ? ' PRIMARY KEY' : ''}`)
+      .map(([c, t]) => `${q(c)} ${t}${c === 'id' ? ' PRIMARY KEY' : ''}`)
       .join(', ');
-    await this.raw(`CREATE TABLE "${table}" (${ddl})`, [], dialect);
+    await this.raw(`CREATE TABLE ${q(table)} (${ddl})`, [], dialect);
     this.models.push({ model: cls, table, dialect });
 
     const orm = this.orm as unknown as { registerModel(m: unknown): void; applyModelMixins(): void; wireRelations(): void };
@@ -182,14 +219,15 @@ export class TestDb {
     const m = this.find(model);
     const keys = Object.keys(row);
     const params = keys.map((k) => row[k]);
-    const marks = m.dialect === 'postgres' ? keys.map((_, i) => `$${i + 1}`) : keys.map(() => '?');
-    await this.raw(`INSERT INTO "${m.table}" (${keys.map((k) => `"${k}"`).join(', ')}) VALUES (${marks.join(', ')})`, params, m.dialect);
+    const q = (n: string) => TestDb.quote(n, m.dialect);
+    const marks = m.dialect === 'postgres' || m.dialect === 'pglite' ? keys.map((_, i) => `$${i + 1}`) : keys.map(() => '?');
+    await this.raw(`INSERT INTO ${q(m.table)} (${keys.map(q).join(', ')}) VALUES (${marks.join(', ')})`, params, m.dialect);
   }
 
   /** The raw table, unscoped. */
   async rows(model: typeof ModelBase): Promise<Record<string, unknown>[]> {
     const m = this.find(model);
-    return (await this.raw(`SELECT * FROM "${m.table}"`, [], m.dialect)) as Record<string, unknown>[];
+    return (await this.raw(`SELECT * FROM ${TestDb.quote(m.table, m.dialect)}`, [], m.dialect)) as Record<string, unknown>[];
   }
 
   table(model: typeof ModelBase): string {
@@ -206,7 +244,7 @@ export class TestDb {
   async clear(): Promise<void> {
     const ormModels = this.orm.Models as { type: unknown }[];
     for (const m of this.models.splice(0).reverse()) {
-      await this.raw(`DROP TABLE IF EXISTS "${m.table}"`, [], m.dialect);
+      await this.raw(`DROP TABLE IF EXISTS ${TestDb.quote(m.table, m.dialect)}`, [], m.dialect);
       const i = ormModels.findIndex((x) => x.type === m.model);
       if (i >= 0) ormModels.splice(i, 1);
       DI.RootContainer.Registry.unregister(m.model);
@@ -222,6 +260,7 @@ export class TestDb {
     } finally {
       this.restoreConfig();
       if (this.postgresDatabase !== undefined) await dropPostgresDatabase(this.postgresDatabase);
+      if (this.mysqlDatabase !== undefined) await mysqlAdmin(`DROP DATABASE IF EXISTS ${this.mysqlDatabase}`);
     }
     if (this.ownsInstall) await testHost.uninstallHost();
   }

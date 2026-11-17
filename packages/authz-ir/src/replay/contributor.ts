@@ -37,9 +37,13 @@ export interface HistoryContributor {
    * The change as `stateAt` reads it: payload and before-image in the shape `current` returns (the column kind logs
    * `{ old, new }`), or undefined when it does not touch the item. Default: the change as logged. The op must follow
    * the projected states, as `stateAt` links changes by op: a column `put` from `null` becomes an `add`, one to `null`
-   * a `remove` of the old target.
+   * a `remove` of the old target. `source` is the read's: one changelog key can hold several columns' changes.
    */
-  project?(change: ChangeRecord): ChangeRecord | undefined;
+  project?(change: ChangeRecord, source: RelationDef['source']): ChangeRecord | undefined;
+  /** The relations of `type` whose union a read of `relation` is, read in its place (the ORM's `parent` over several `@Parent` columns). */
+  parts?(type: TypeName, relation: RelationName, source: RelationDef['source']): readonly RelationName[] | undefined;
+  /** Why the coverage of `type` cannot be trusted although the port claims it (a stored column fingerprint that is not this process's). Read before `coveredSince`. */
+  coverageGap?(type: ResourceType | undefined): Promise<string | undefined>;
 }
 
 export interface StoredPlaceholder {

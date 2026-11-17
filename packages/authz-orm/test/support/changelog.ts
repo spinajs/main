@@ -1,8 +1,9 @@
 import { AuthzChangeLogHorizon_2026_11_06_00_00_00, AuthzChangeLog_2026_11_04_00_00_00, CHANGE_LOG_TABLE, HORIZON_TABLE, LOST_TABLE, POLICY_VERSION_TABLE } from '../../src/changelog/index.js';
-import type { Dialect, TestDb } from './db.js';
+import { TestDb } from './db.js';
+import type { Dialect } from './db.js';
 
 async function dropTables(db: TestDb, dialect: Dialect): Promise<void> {
-  for (const table of [CHANGE_LOG_TABLE, POLICY_VERSION_TABLE, HORIZON_TABLE, LOST_TABLE]) await db.raw(`DROP TABLE IF EXISTS "${table}"`, [], dialect);
+  for (const table of [CHANGE_LOG_TABLE, POLICY_VERSION_TABLE, HORIZON_TABLE, LOST_TABLE]) await db.raw(`DROP TABLE IF EXISTS ${TestDb.quote(table, dialect)}`, [], dialect);
 }
 
 /** Runs the changelog migrations on `dialect` and points the alias `authz` there. */
