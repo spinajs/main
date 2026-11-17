@@ -9,7 +9,7 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../../src/contributor.js';
-import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, Parent, recordCoverage, restartCoverage } from '../../src/index.js';
+import { AccessResource, AuthzChangeLogHorizon_2026_11_06_00_00_00, CHANGE_LOG_TABLE, DbChangeLog, HORIZON_TABLE, HorizonRecord, Parent, recordCoverage, restartCoverage } from '../../src/index.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -121,6 +121,45 @@ describe('changelog horizon', function () {
         await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
         await log.lost('policy', undefined, 'test');
         expect(error.callCount).to.equal(1);
+      });
+
+      it('lost() inside a transaction moves the horizon with the write, so a failed restart after the commit still leaves it moved', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        const update = sinon.stub(HorizonRecord, 'update').callThrough();
+        update.onSecondCall().throws(new Error('connection lost'));
+        const error = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
+        const before = Date.now();
+        let inside = 0;
+        await driver.transaction(async () => {
+          await log.lost('policy', undefined, 'test');
+          inside = Date.now();
+        });
+        expect(update.callCount).to.equal(2);
+        expect(error.callCount).to.equal(1);
+        expect((await log.coveredSince('policy'))!.getTime()).to.be.within(before, inside);
+      });
+
+      it('lost() in a transaction that rolls back leaves the horizon where it was', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        await driver
+          .transaction(async () => {
+            await log.lost('policy', undefined, 'test');
+            throw new Error('roll back');
+          })
+          .catch(() => undefined);
+        expect(await log.coveredSince('policy')).to.deep.equal(T1);
+      });
+
+      it('a restart that fails inside the transaction does not fail the write', async () => {
+        await db.raw(`DROP TABLE "${HORIZON_TABLE}"`, [], dialect);
+        sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'error');
+        sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
+        await driver.transaction(async () => {
+          await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
+          await log.lost('policy', undefined, 'test');
+          await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
+        });
+        expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
       });
 
       it('the domain boot records the column coverage of each @AccessResource type, and drops an opted-out one', async () => {

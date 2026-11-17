@@ -158,8 +158,9 @@ export class DbChangeLog extends ChangeLog {
   }
 
   /**
-   * Inside a transaction the restart waits for the commit: a write that rolls back escaped nothing, and one that
-   * commits becomes visible only then. Never rejects, so the write that escaped does not fail over its signal.
+   * Inside a transaction the restart runs twice: in a savepoint of the write's transaction, so the horizon commits or
+   * rolls back with the write even when the second restart never runs, and after the commit, which moves `since` past
+   * the instant the write became visible. Never rejects, so the write that escaped does not fail over its signal.
    */
   async lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void> {
     const fields = { kind, resourceType: resourceType ?? '*', reason: reason ?? 'unknown' };
@@ -173,8 +174,14 @@ export class DbChangeLog extends ChangeLog {
     };
     try {
       const driver = recordDriver(HorizonRecord);
-      if (driver.CurrentTransaction !== undefined) await driver.afterCommit(restart);
-      else await restart();
+      if (driver.CurrentTransaction !== undefined) {
+        try {
+          await driver.transaction(() => restartCoverage(kind, resourceType, new Date()));
+        } catch (e) {
+          fail(e);
+        }
+      }
+      await driver.afterCommit(restart);
     } catch (e) {
       fail(e);
     }
