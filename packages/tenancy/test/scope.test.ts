@@ -216,12 +216,37 @@ describe('applyTenantScope', () => {
     const store: Store = { Tenant: acme, AuthzCache: cache };
 
     try {
-      expect(() => applyTenantScope(store, globex)).to.throw(TenantSwitchDenied, 'refused');
+      expect(() => applyTenantScope(store, undefined)).to.throw(TenantSwitchDenied, 'refused');
     } finally {
       refuse();
     }
 
     expect(store.Tenant).to.eq(acme);
     expect(store.AuthzCache).to.eq(cache);
+  });
+
+  it('refuses to switch from one tenant to another, as runInTenant does, and leaves the store untouched', () => {
+    const cache = new Map();
+    const store: Store = { Tenant: acme, AuthzCache: cache };
+
+    expect(() => applyTenantScope(store, globex)).to.throw(TenantSwitchDenied, 'cannot switch from tenant "acme" to tenant "globex"; leave the scope with runAcrossTenants(reason) first');
+
+    expect(store.Tenant).to.eq(acme);
+    expect(store.AuthzCache).to.eq(cache);
+    expect(changes).to.deep.eq([]);
+  });
+
+  it('allows leaving a tenant, going across tenants, and entering a tenant from no scope or from across tenants', () => {
+    const all: TenantScope = { kind: 'all', reason: 'billing' };
+    const change = (from: TenantScope | undefined, to: TenantScope | undefined) => {
+      const store: Store = from ? { Tenant: from } : {};
+      applyTenantScope(store, to);
+      return store.Tenant;
+    };
+
+    expect(change(acme, undefined)).to.eq(undefined);
+    expect(change(acme, all)).to.eq(all);
+    expect(change(undefined, globex)).to.eq(globex);
+    expect(change(all, globex)).to.eq(globex);
   });
 });

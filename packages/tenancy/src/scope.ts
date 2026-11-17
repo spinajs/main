@@ -109,13 +109,19 @@ export async function establishTenantScope<T>(scope: TenantScope | undefined, fn
   return als.run(store, async () => fn());
 }
 
+function switchDenied(from: TenantRef, to: TenantRef): TenantSwitchDenied {
+  return new TenantSwitchDenied(`cannot switch from tenant "${from.id}" to tenant "${to.id}"; leave the scope with runAcrossTenants(reason) first`);
+}
+
 /**
  * Changes the scope of a store in place, for entry-point glue that owns the store (an HTTP or socket middleware). A
- * scope equal to the store's is no change; any other is checked by the guards before the store is touched.
+ * scope equal to the store's is no change. A change from one tenant to another throws TenantSwitchDenied, as
+ * runInTenant does; any other change is checked by the guards. Either refusal leaves the store untouched.
  */
 export function applyTenantScope(store: ITenantAsyncStorage, scope: TenantScope | undefined): void {
   const from = isScope(store.Tenant) ? store.Tenant : undefined;
   if (!sameScope(from, scope)) {
+    if (from?.kind === 'tenant' && scope?.kind === 'tenant') throw switchDenied(from.tenant, scope.tenant);
     for (const guard of guards) guard(from, scope);
     leaveScope(store);
   }
@@ -129,7 +135,7 @@ export async function runInTenant<T>(tenant: TenantRef | string, fn: () => Promi
 
   if (current?.kind === 'tenant' && current.tenant.id === target.id) return fn();
   if (current?.kind === 'tenant') {
-    throw new TenantSwitchDenied(`cannot switch from tenant "${current.tenant.id}" to tenant "${target.id}"; leave the scope with runAcrossTenants(reason) first`);
+    throw switchDenied(current.tenant, target);
   }
   return establishTenantScope(tenantScopeOf(target), fn);
 }
