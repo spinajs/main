@@ -1,8 +1,7 @@
 # @spinajs/tenancy-orm
 
-Tenant isolation in the SpinaJS ORM. A model declared with `@Tenant()` is confined to the current tenant of
-`@spinajs/tenancy`: selects, updates and deletes built from the model get the tenant predicate, inserts get the tenant
-column, and a statement with no tenant scope throws. Import `@spinajs/tenancy-orm` in the app entry before the boot, so
-the Orm sees its query middleware.
+Tenant isolation in the SpinaJS ORM. A model declared with `@Tenant()` (or `registerTenantModel()`) is a tenant model
+of `@spinajs/tenancy`; its options default to `tenancy.orm`. This version only declares tenant models: it does not
+filter any statement yet.
 
 See `docs/tenancy-orm/README.md`.

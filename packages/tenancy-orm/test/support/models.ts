@@ -69,7 +69,28 @@ export class Orphan extends ModelBase<Orphan> {
   public label: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan'];
+// A subclass of a tenant model with a table of its own.
+@Connection('default')
+@Model('archived_note')
+export class ArchivedNote extends Note {}
+
+// No table of its own: the tables of its subclasses are tenant tables.
+@Tenant()
+export abstract class TenantOwned<M = unknown> extends ModelBase<M> {
+  @Column({ family: 'text', length: 64 })
+  public tenant_id: string;
+}
+
+@Connection('default')
+@Model('ledger')
+export class Ledger extends TenantOwned<Ledger> {
+  @Primary()
+  public Id: number;
+
+  public entry: string;
+}
+
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -98,6 +119,16 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
     await connection.schema().createTable('orphan', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.string('label', 32).notNull();
+    });
+    await connection.schema().createTable('archived_note', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('org', 64).notNull();
+      table.string('body', 200).notNull();
+    });
+    await connection.schema().createTable('ledger', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('tenant_id', 64).notNull();
+      table.string('entry', 32).notNull();
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);
   }

@@ -1,7 +1,7 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
-import { extractModelDescriptor } from '@spinajs/orm';
+import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
 // Every module of the package reaches the registry, so a second copy fails before it registers anything.
 import './once.js';
@@ -19,6 +19,7 @@ export interface TenantModelOptions {
 export interface TenantModelEntry {
   /** The registered class; for a subclass, its nearest registered ancestor. */
   readonly model: object;
+  /** The table of the class asked about, else of the registered class; '' for an abstract base. */
   readonly table: string;
   readonly isolation: 'row';
   readonly column: string;
@@ -83,12 +84,17 @@ function defaults(): { column: string | false; rls: boolean } {
   };
 }
 
-function entryOf(registered: object): TenantModelEntry {
+function tableOf(model: unknown): string | undefined {
+  const table = extractModelDescriptor(model)?.TableName;
+  return table === undefined || table === '' ? undefined : table;
+}
+
+function entryOf(registered: object, table = tableOf(registered) ?? ''): TenantModelEntry {
   const own = registrations.get(registered) ?? {};
   const base = defaults();
   const column = own.column ?? base.column;
   if (column === false) throw new InvalidArgument(`${nameOf(registered)}: row isolation needs a tenant column; column: false is for isolation 'schema'`);
-  return { model: registered, table: extractModelDescriptor(registered)?.TableName ?? '', isolation: 'row', column, rls: own.rls ?? base.rls };
+  return { model: registered, table, isolation: 'row', column, rls: own.rls ?? base.rls };
 }
 
 export function register(model: unknown, options: unknown, decorator: string): void {
@@ -113,20 +119,28 @@ export function tenantModelOf(model: unknown): TenantModelEntry | undefined {
     registered = chain(model).find((c) => registrations.has(c)) ?? null;
     nearest.set(model, registered);
   }
-  return registered === null ? undefined : entryOf(registered);
+  return registered === null ? undefined : entryOf(registered, tableOf(model));
 }
 
-/** The tenant model that maps `table`, on any connection. */
+/**
+ * The tenant model that maps `table`, on any connection, in any letter case: sqlite, MSSQL and MySQL on some systems
+ * resolve a table name case-insensitively. The ORM's models cover the subclasses of a registered class.
+ */
 export function tenantModelOfTable(table: string): TenantModelEntry | undefined {
-  for (const registered of registrations.keys()) {
-    if (extractModelDescriptor(registered)?.TableName === table) return entryOf(registered);
+  if (registrations.size === 0) return undefined;
+  const wanted = table.toLowerCase();
+  const models: unknown[] = [...registrations.keys(), ...(DI.get(Orm)?.Models.map((m): unknown => m.type) ?? [])];
+  for (const model of models) {
+    if (tableOf(model)?.toLowerCase() !== wanted) continue;
+    const entry = tenantModelOf(model);
+    if (entry !== undefined) return entry;
   }
   return undefined;
 }
 
 /** Every registered tenant model, in registration order. */
 export function tenantModels(): TenantModelEntry[] {
-  return [...registrations.keys()].map(entryOf);
+  return [...registrations.keys()].map((registered) => entryOf(registered));
 }
 
 /** Test seam: forget a class's registration. */

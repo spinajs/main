@@ -8,7 +8,7 @@ import { Tenant, registerTenantModel, tenantModelOf, tenantModelOfTable, tenantM
 import { claimProcess } from '../src/once.js';
 import { register, unregisterTenantModel } from '../src/registry.js';
 import { bootApp } from './support/app.js';
-import { Carrier, Invoice, InvoiceLine, Note } from './support/models.js';
+import { Carrier, Invoice, InvoiceLine, Ledger, Note, TenantOwned } from './support/models.js';
 
 class Plain extends ModelBase<Plain> {}
 class Placed extends ModelBase<Placed> {}
@@ -93,6 +93,31 @@ describe('tenant model registry', function () {
     it('refuses a tenancy.orm value of the wrong type when the application boots', async () => {
       await assert.rejects(bootApp({ orm: { rls: 'sometimes' } }), /tenancy\.orm\.rls must be boolean/);
       await assert.rejects(bootApp({ orm: { column: 'not a column' } }), /tenancy\.orm\.column must match pattern/);
+      await assert.rejects(bootApp({ orm: { column: true } }), /tenancy\.orm\.column/);
+    });
+  });
+
+  describe('tenant tables of the ORM models', () => {
+    let app: TestApp | undefined;
+
+    before(async () => {
+      app = await bootApp();
+    });
+
+    after(async () => {
+      await app?.dispose();
+    });
+
+    it('knows the table of a subclass, under a registered model or an abstract @Tenant() base', () => {
+      expect(tenantModelOfTable('archived_note')).to.include({ model: Note, table: 'archived_note', column: 'org' });
+      expect(tenantModelOfTable('ledger')).to.include({ model: TenantOwned, table: 'ledger', column: 'tenant_id' });
+      expect(tenantModelOf(Ledger)?.table).to.eq('ledger');
+      expect(tenantModelOf(Special)?.table).to.eq('invoice');
+    });
+
+    it('matches a table name in any letter case', () => {
+      expect(tenantModelOfTable('INVOICE')?.model).to.eq(Invoice);
+      expect(tenantModelOfTable('Invoice_Line')?.model).to.eq(InvoiceLine);
     });
   });
 });
