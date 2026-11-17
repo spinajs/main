@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { Config } from '@spinajs/configuration';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { BaseController, BasePath, Get, Req } from '@spinajs/http';
@@ -21,7 +20,7 @@ export class StudioUiController extends BaseController {
   @Config('http.controllers.route.prefix')
   protected Prefix: string | undefined;
 
-  private located?: { root: string; html: string } | null;
+  private located?: { root: string; index: string; html: string } | null;
 
   /** The Studio UI. */
   @Get('/')
@@ -54,14 +53,17 @@ export class StudioUiController extends BaseController {
 
     const file = assetFile(ui.root, path);
     if (file === null) throw new ResourceNotFound(NO_FILE);
-    return file ? new StudioAssetResponse(ui.root, file, segments[0] === 'assets') : new StudioPageResponse(ui.html);
+    // A case-insensitive file system finds index.html as INDEX.HTML too; it must get the base all the same.
+    if (file === undefined || file === ui.index) return new StudioPageResponse(ui.html);
+    return new StudioAssetResponse(ui.root, file, segments[0] === 'assets');
   }
 
   // Read once: dist/ is immutable for the life of the process.
-  protected ui(base: string): { root: string; html: string } | undefined {
+  protected ui(base: string): { root: string; index: string; html: string } | undefined {
     if (this.located === undefined) {
       const root = locateUi(this.UiPath);
-      this.located = root ? { root, html: withStudioBase(readFileSync(join(root, 'index.html'), 'utf8'), base, appBase(this.Prefix)) } : null;
+      const index = root ? assetFile(root, 'index.html') : undefined;
+      this.located = root && index ? { root, index, html: withStudioBase(readFileSync(index, 'utf8'), base, appBase(this.Prefix)) } : null;
     }
     return this.located ?? undefined;
   }

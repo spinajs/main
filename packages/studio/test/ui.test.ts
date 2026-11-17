@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { request as httpRequest } from 'node:http';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,12 +29,28 @@ function fixtureDist(): Fixture {
   writeFileSync(join(dist, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   writeFileSync(join(dist, '.env'), SECRET);
   writeFileSync(join(dist, 'server.sh'), SECRET);
+  writeFileSync(join(dist, '.secret-config.js'), SECRET);
+  mkdirSync(join(dist, '.git'));
+  writeFileSync(join(dist, '.git', 'config.json'), JSON.stringify({ secret: SECRET }));
   writeFileSync(join(parent, 'secret.txt'), SECRET);
   mkdirSync(join(parent, 'outside'));
   writeFileSync(join(parent, 'outside', 'secret.txt'), SECRET);
   // A junction needs no privilege on Windows; elsewhere the type is ignored and a directory symlink is made.
   symlinkSync(join(parent, 'outside'), join(dist, 'linked'), 'junction');
   return { parent, dist };
+}
+
+/**
+ * The Windows 8.3 short names of `dist/.secret-config.js` and `dist/.git/config.json`, or undefined where the volume
+ * makes none: the guess is kept only when the native real path expands it back to the long name.
+ */
+function shortNames(dist: string): string[] | undefined {
+  const names: Array<[string, string]> = [
+    ['SECRET~1.JS', '.secret-config.js'],
+    ['GIT~1/config.json', join('.git', 'config.json')],
+  ];
+  const expands = ([short, long]: [string, string]) => existsSync(join(dist, short)) && realpathSync.native(join(dist, short)) === realpathSync.native(join(dist, long));
+  return process.platform === 'win32' && names.every(expands) ? names.map(([short]) => short) : undefined;
 }
 
 interface RawReply {
@@ -96,8 +112,9 @@ describe('uiSegments and assetFile', () => {
   });
 
   it('refuses a file that a link inside dist leads outside of it, and a file type off the list', () => {
-    expect(assetFile(fixture.dist, 'linked/secret.txt')).to.eq(null);
-    expect(assetFile(fixture.dist, 'server.sh')).to.eq(null);
+    // Found on disk, so answered like a missing file: a 404 here would tell the caller the file exists.
+    expect(assetFile(fixture.dist, 'linked/secret.txt')).to.eq(undefined);
+    expect(assetFile(fixture.dist, 'server.sh')).to.eq(undefined);
   });
 });
 
@@ -178,8 +195,6 @@ describe('Studio UI serving', function () {
       '/_studio/assets/app-3f9a1c.js%00.html',
       '/_studio/.env',
       '/_studio/assets/.%2e/.%2e/secret.txt',
-      '/_studio/linked/secret.txt',
-      '/_studio/server.sh',
     ];
     for (const path of paths) {
       const res = await raw(app.port, path);
@@ -188,6 +203,36 @@ describe('Studio UI serving', function () {
       expect(res.text, path).to.not.include('spina-studio-base');
       expect(res.text, path).to.not.include('@spinajs/studio-ui');
     }
+  });
+
+  it('answers a file it refuses after finding it exactly like a missing one', async () => {
+    for (const [refused, missing] of [
+      ['/_studio/server.sh', '/_studio/nope.sh'],
+      ['/_studio/linked/secret.txt', '/_studio/linked/nope.txt'],
+    ]) {
+      const [a, b] = [await raw(app.port, refused), await raw(app.port, missing)];
+      expect([a.status, a.text], refused).to.deep.eq([b.status, b.text]);
+      expect(a.text, refused).to.not.include(SECRET);
+    }
+  });
+
+  it('never serves a hidden file of dist through its Windows 8.3 short name', async function () {
+    // Short names exist on Windows only, and only on a volume that makes them.
+    const names = shortNames(fixture.dist);
+    if (!names) this.skip();
+    for (const name of names) {
+      const res = await raw(app.port, `/_studio/${name}`);
+      expect(res.text, name).to.not.include(SECRET);
+      expect(res.text, name).to.include('spina-studio-base');
+    }
+  });
+
+  it('serves index.html with the base for any spelling the file system resolves to it', async function () {
+    // A case-sensitive file system has no INDEX.HTML.
+    if (!existsSync(join(fixture.dist, 'INDEX.HTML'))) this.skip();
+    const res = await raw(app.port, '/_studio/INDEX.HTML');
+    expect(res.text).to.include('<base href="/_studio/">');
+    expect(res.headers['cache-control']).to.eq('no-store');
   });
 
   it('checks the ui slot: 401 without a caller, 403 without studio:read, on files, deep links and API paths alike', async () => {

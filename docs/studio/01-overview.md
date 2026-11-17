@@ -60,11 +60,14 @@ Studio serves the prebuilt Studio UI, the package `@spinajs/studio-ui`, under `s
 
 The UI is not a dependency of `@spinajs/studio`. Either:
 
-- install `@spinajs/studio-ui` from the coderush GitLab registry. Map the `@spinajs` scope to the coderush group endpoint in `.npmrc`, then install it as usual:
+- install `@spinajs/studio-ui` from the coderush GitLab registry. Map the `@spinajs` scope to the coderush group endpoint in `.npmrc`, with a token that may read the group's packages, then install it as usual:
 
   ```
   @spinajs:registry=https://<gitlab host>/api/v4/groups/<coderush group id>/-/packages/npm/
+  //<gitlab host>/api/v4/groups/<coderush group id>/-/packages/npm/:_authToken=${GITLAB_TOKEN}
   ```
+
+  The mapping sends every `@spinajs/*` package to that endpoint, not only the UI. It works only while the GitLab instance forwards packages it does not hold to npmjs (GitLab's npm package forwarding, an instance setting); without it, `@spinajs/http`, `@spinajs/di` and every other package stop installing.
 
 - or set `studio.ui.path` to an unpacked `dist/`: a directory holding the UI's `index.html` and its files.
 

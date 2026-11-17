@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { dirname, extname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Response } from '@spinajs/http';
 import { configuredMountPath, withRoutePrefix } from '@spinajs/manifest';
@@ -39,11 +39,14 @@ export const UI_CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
 
 type ExpressResponse = Parameters<Response['execute']>[1];
 
-/** The dist/ directory holding `index.html`, its links resolved, so a served file is compared against the real directory. */
+/**
+ * The dist/ directory holding `index.html`, as {@link realPath} gives it, so a served file is compared against the
+ * real directory.
+ */
 export function locateUi(configured: string | undefined): string | undefined {
-  if (configured) return existsSync(join(configured, 'index.html')) ? realpathSync(resolvePath(configured)) : undefined;
+  if (configured) return existsSync(join(configured, 'index.html')) ? realPath(resolvePath(configured)) : undefined;
   try {
-    return realpathSync(dirname(fileURLToPath(import.meta.resolve(`${UI_PACKAGE}/dist/index.html`))));
+    return realPath(dirname(fileURLToPath(import.meta.resolve(`${UI_PACKAGE}/dist/index.html`))));
   } catch {
     return undefined;
   }
@@ -98,17 +101,27 @@ export function uiSegments(raw: string): string[] | undefined {
 }
 
 /**
- * The file of dist/ that `path` (decoded, `/`-separated) names. Undefined when no such file exists, so the caller may
- * fall back to `index.html`; null when the path or the file must not be served: a segment `uiSegments` refuses, a
- * file whose real path is outside `root` (a link), or a type outside {@link UI_CONTENT_TYPES}.
+ * Links followed, and on Windows 8.3 short names expanded, letter case corrected and an `::$DATA` stream suffix
+ * dropped: the JS `realpathSync` does none of the last three, so `SECRET~1.JS` would pass as a name without a dot.
+ */
+const realPath = (path: string): string => realpathSync.native(path);
+
+/**
+ * The file of dist/ that `path` (decoded, `/`-separated) names, as {@link realPath} gives it.
+ *
+ * Null when the path itself must not be served (a segment `uiSegments` refuses, an absolute path): decided before
+ * the disk is read. Undefined when no file may be served, so the caller falls back to `index.html`: no such file, or
+ * one whose real path is outside `root` (a link), names a hidden file or directory, or has a type outside
+ * {@link UI_CONTENT_TYPES}. Those are answered like a missing file, so the answer never tells that a file exists.
  */
 export function assetFile(root: string, path: string): string | null | undefined {
   if (isAbsolute(path) || path.split('/').some(unsafeSegment)) return null;
   const file = join(root, path);
   if (!inside(root, file)) return null;
   if (!statSync(file, { throwIfNoEntry: false })?.isFile()) return undefined;
-  const real = realpathSync(file);
-  return inside(root, real) && UI_CONTENT_TYPES.has(extname(real).toLowerCase()) ? real : null;
+  const real = realPath(file);
+  const servable = inside(root, real) && !relative(root, real).split(sep).some((segment) => segment.startsWith('.')) && UI_CONTENT_TYPES.has(extname(real).toLowerCase());
+  return servable ? real : undefined;
 }
 
 function inside(root: string, file: string): boolean {

@@ -280,11 +280,11 @@ Below `studio.path`, the path names a file of the UI's `dist/` or a client-side 
 
 | Path | Answer |
 | --- | --- |
-| `/` or `/index.html` | `index.html`, with three elements injected (below). |
-| A file of `dist/` of a listed type | The file. |
-| Anything else | `index.html`, so the UI opens its own route (`/_studio/traces/<id>`). |
+| `/`, `/index.html`, or any spelling the file system resolves to it (`/INDEX.HTML` on Windows or macOS) | `index.html`, with three elements injected (below). |
+| A file of `dist/` of a listed type, not hidden | The file. |
+| Anything else, a file Studio does not serve included | `index.html`, so the UI opens its own route (`/_studio/traces/<id>`). |
 | `api` or `api/...` that no API route matched | `404` (JSON problem). Never `index.html`. |
-| A path that could leave `dist/` or names a hidden file | `404`, without the install hint (below). |
+| A path that could leave `dist/` or names a hidden file as written | `404`, without the install hint (below). |
 | Any path, without the UI installed | `404` with the install hint, naming `@spinajs/studio-ui` and `studio.ui.path`. |
 
 The guard runs before any of this: without a caller the answer is `401`, without `studio:read` `403`, for an unknown `api/` path as well.
@@ -329,9 +329,11 @@ Caching:
 
 `private`, because the files are served behind the access check: a shared cache must not keep them.
 
-Files are served by type, from a fixed list: `.html`, `.js`, `.mjs`, `.css`, `.json`, `.map`, `.webmanifest`, `.txt`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.otf` and `.wasm` (`UI_CONTENT_TYPES`). The `Content-Type` comes from that list. A file of another type answers `404`.
+Files are served by type, from a fixed list: `.html`, `.js`, `.mjs`, `.css`, `.json`, `.map`, `.webmanifest`, `.txt`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.otf` and `.wasm` (`UI_CONTENT_TYPES`). The `Content-Type` comes from that list. A file of another type is answered like a missing one.
 
-The path is decoded one segment at a time. It answers `404` when a segment is `.` or `..`, starts with a dot, or holds a `/`, a `\` or a NUL byte once decoded (`%2e%2e`, `%2f`, `%5c`, `%00`), and when a file's real path, its links followed, is outside `dist/`. An escape that does not decode (`%E0%A4%A`) is refused by the router before Studio sees the path. So a client-side route keeps such values in its query string, not in its path.
+The path is decoded one segment at a time. It answers `404` when a segment is `.` or `..`, starts with a dot, or holds a `/`, a `\` or a NUL byte once decoded (`%2e%2e`, `%2f`, `%5c`, `%00`). That is decided from the path alone, before the disk is read. So a client-side route keeps such values in its query string, not in its path. An escape that does not decode (`%E0%A4%A`) is refused by the router before Studio sees the path.
+
+A file that exists but is not served is answered like a missing one, with `index.html`, so the answer never tells whether a file is there. That is a file whose real path is outside `dist/` (a link leading out), a file of a type off the list, and a file whose real path holds a segment starting with a dot. The real path has its links followed and, on Windows, its 8.3 short names expanded (`SECRET~1.JS` is `.secret-config.js`).
 
 ## Typed calls
 
