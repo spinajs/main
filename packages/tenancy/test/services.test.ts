@@ -210,6 +210,21 @@ describe('tenancy services', () => {
       expect(report.succeeded).to.eq(4);
     });
 
+    it('runs one tenant at a time by default', async () => {
+      let running = 0;
+      let most = 0;
+
+      const report = await forEachTenant(async () => {
+        running += 1;
+        most = Math.max(most, running);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        running -= 1;
+      });
+
+      expect(most).to.eq(1);
+      expect(report.succeeded).to.eq(4);
+    });
+
     it('runs from the cross-tenant scope and refuses to run inside one tenant', async () => {
       const report = await runAcrossTenants('nightly billing', () => forEachTenant(async () => undefined));
       expect(report.total).to.eq(4);
