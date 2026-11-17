@@ -30,6 +30,13 @@ declare module '@spinajs/orm' {
     translated: boolean;
     AllowTranslate: boolean;
   }
+  interface SelectQueryBuilder<T> {
+    translate(lang: string): SelectQueryBuilder<T>;
+    /** Set by translate(): the translations are already part of the query. */
+    translated?: boolean;
+    /** false: IntlQueryMiddleware leaves the query untranslated. */
+    AllowTranslate?: boolean;
+  }
   interface IColumnDescriptor {
     Translate: boolean;
   }
@@ -171,6 +178,13 @@ export function translateQuery(this: QueryBuilder, lang: string): QueryBuilder {
 export class IntlQueryExtension extends SelectQueryExtension {
   public readonly name = 'intl-orm';
   public readonly methods: SelectQueryExtension['methods'] = { translate: translateQuery };
+
+  public onClone(source: QueryBuilder, clone: QueryBuilder): void {
+    if (source instanceof SQB && clone instanceof SQB) {
+      clone.translated = source.translated;
+      clone.AllowTranslate = source.AllowTranslate;
+    }
+  }
 }
 
 function noTranslateInAsyncStore(): boolean {
