@@ -139,7 +139,7 @@ for (const target of TARGETS) {
         ['pending', 1],
         ['published', 0],
       ]);
-      // BIGINT epoch milliseconds come back as numbers through toOutboxRow, on Postgres too
+      // the stored BIGINT epoch milliseconds survive toOutboxRow's Number() exactly, whatever type the driver hands it
       expect(rows[0].AvailableAt).to.equal(T0 + 1000);
       expect(rows[1].PublishedAt).to.equal(T0);
       expect(broker.sent.map((s) => orderIdOf(s.message))).to.deep.equal(['2']);

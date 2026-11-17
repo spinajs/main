@@ -25,6 +25,9 @@ on:
       - '.github/workflows/queue-outbox-db.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   outbox:
     runs-on: ubuntu-latest
