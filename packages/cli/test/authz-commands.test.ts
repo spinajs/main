@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -135,6 +135,7 @@ describe('authz:export and authz:import', function () {
       error = e;
     }
     expect(String(error)).to.contain('authz:import --strict: 2 part(s)');
+    expect(await readdir(dir)).to.deep.equal(['conditional.fga']);
     expect(warned).to.deep.equal(['authz:import: caveat row_open: ReBAC caveats read env.* and principal.* only, not resource.status', 'authz:import: doc#editor: {"type":"user","caveat":"row_open"} needs caveat row_open, which ReBAC cannot hold']);
   });
 });

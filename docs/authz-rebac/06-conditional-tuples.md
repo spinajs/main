@@ -89,9 +89,17 @@ condition office_ip(env_ip: string, env_allowed: list<string>) {
 }
 ```
 
-OpenFGA parameters are identifiers, so a path becomes `env_ip`. The `# spina:caveat` comment carries the definition `readOpenFga` restores; a `condition` without it is refused, since the IR does not read CEL. A condition with no CEL form (a condition function) is exported as the comment alone, with a warning (an error under `--strict`), and its subject types keep `with`.
+OpenFGA parameters are identifiers, so a path becomes `env_ip`. The `# spina:caveat` comment carries the definition `readOpenFga` restores; a `condition` without it is refused, since the IR does not read CEL. A condition with no CEL form (a condition function) is exported as the comment alone, with a warning (an error under `--strict`), and its subject types keep `with`; OpenFGA then rejects the model, since the condition is undefined there.
+
+**Parameters SpinaJS pins are free in OpenFGA.** SpinaJS never lets a tuple context change `principal.type`, `principal.id`, `principal.authenticated`, `principal.source` or `env.now`: the first four always come from the request, and `env.now` from the evaluation instant. In the exported model they are plain condition parameters (`principal_id`, `env_now`), and OpenFGA lets a tuple's context set them. A tuple context `{ "principal.id": "bob" }` on `group:eng#member`, which SpinaJS ignores, grants every member of the group in OpenFGA. So, when you run the exported model in OpenFGA:
+
+- never write tuple contexts that name these parameters (the `tuple.write` command refuses `env.now`, and ignoring identity values is SpinaJS behaviour only);
+- keep SpinaJS the writer of tuples, and do not copy tuples into OpenFGA from another source that may set them;
+- prefer caveats that read principal attributes (`principal.attributes.*`) over identity, which a relation already expresses.
 
 `irToRebacConfig` and `spinajs authz:import` keep conditional subject types and write the caveats to `authz.rebac.caveats`. They never keep a subject type without its caveat: a caveat ReBAC cannot hold (a `resource.*` parameter) or one the model does not define drops every subject type that uses it, and a permission that subtracts such a narrowed relation is dropped too, each with a problem (`--strict` refuses).
+
+Without `--strict`, `authz:import` logs every problem and still writes the file, and it does not compile the result. When a permission is dropped, whatever refers to it is kept: other permissions that compute it, subject types and arrows that name it, and a binding in `authz.rebac.permissions`. Such a config fails at boot (`NamespaceSchema.compile` reports the unknown name) for the whole ReBAC model; it never grants more. Review the problems, or use `--strict`, before you deploy an imported config.
 
 In `.fga.yaml` scenarios, tuple condition contexts and check or list contexts use the OpenFGA parameter names and are mapped to paths through the model's conditions:
 

@@ -90,6 +90,24 @@ type binder
     ]);
   });
 
+  it('drops a permission that subtracts a relation which lost only a wildcard', () => {
+    const config = irToRebacConfig(
+      readOpenFga(`model
+  schema 1.1
+
+type user
+type doc
+  relations
+    define owner: [user]
+    define viewer: [user, user:*]
+    define read: owner but not viewer
+    define seen: owner or viewer
+`),
+    );
+    expect(config.namespaces.doc).to.deep.equal({ relations: { owner: ['user'], viewer: ['user'] }, permissions: { seen: { union: ['owner', 'viewer'] } } });
+    expect(config.problems).to.deep.equal(['doc#viewer: ReBAC holds no wildcard subject "user:*"', 'doc#read: subtracts doc#viewer, which lost subject types: it would grant more than the model']);
+  });
+
   it('a caveat with no OpenFGA condition body stays conditional through export and import', () => {
     const ir: PolicyIR = readOpenFga(MODEL);
     ir.caveats.office_ip = { params: {}, expr: { fn: 'office_network' } };
