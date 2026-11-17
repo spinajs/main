@@ -69,8 +69,8 @@ function actionOf(declared: string | undefined, own: boolean, configured: string
 function outcomeOf(aborted: boolean, error: IAuditError | undefined, res: Res): AuditOutcome {
   if (aborted) return 'failed';
   if (error === undefined) return 'ok';
-  // the policy gate marks its stage before it refuses; a later stage overwrites the mark only when it runs
-  return stageOf(res) === 'policy' ? 'denied' : 'failed';
+  // the policy gate marks its stage before it refuses (a later stage overwrites the mark); its 500 is a crash, not a refusal
+  return stageOf(res) === 'policy' && res.statusCode < 500 ? 'denied' : 'failed';
 }
 
 /**

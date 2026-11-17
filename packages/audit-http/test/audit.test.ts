@@ -31,6 +31,12 @@ class Deny extends BasePolicy {
   }
 }
 
+class Crashes extends Deny {
+  public override async execute(): Promise<void> {
+    throw new Error('the policy store is down');
+  }
+}
+
 class Refuses extends RouteMiddleware {
   public onBefore(): void {
     throw new BadRequest('refused by an inner middleware');
@@ -65,6 +71,12 @@ class AuditedController extends BaseController {
   @Get()
   @Policy(Deny)
   public denied() {
+    return new Ok({ ok: true });
+  }
+
+  @Get()
+  @Policy(Crashes)
+  public crashed() {
     return new Ok({ ok: true });
   }
 
@@ -234,6 +246,11 @@ describe('Audit route middleware', function () {
     expect(event.outcome).to.eq('denied');
     expect(dataOf(event).status).to.eq(403);
     expect(dataOf(event).error).to.deep.eq({ name: 'Forbidden', message: 'not your account' });
+  });
+
+  it('records a policy that crashes as failed, not denied', async () => {
+    expect((await req().get('audited/crashed')).status).to.eq(500);
+    expect((await nextEvent()).outcome).to.eq('failed');
   });
 
   it('records only the name of an error answered as a 500: its message can quote input', async () => {
