@@ -143,10 +143,10 @@ function primitiveItemTypes(items: unknown): string[] | undefined {
   const { type, nullable } = items;
   const types: unknown[] = Array.isArray(type) ? [...type] : type === undefined ? [] : [type];
   if (nullable === true && types.length > 0 && !types.includes('null')) types.push('null');
-  if (types.length === 0 || types.some((t) => typeof t !== 'string' || t === 'object' || t === 'array')) return undefined;
+  if (types.length === 0 || !types.every((t): t is string => typeof t === 'string' && t !== 'object' && t !== 'array')) return undefined;
   // Only a number can be non-finite, which is what the types leave out.
   if (!types.includes('number') && !types.includes('integer')) return undefined;
-  return types as string[];
+  return types;
 }
 
 const ARRAY_KEYWORDS = ['items', 'additionalItems', 'minItems', 'maxItems', 'uniqueItems', 'contains'];

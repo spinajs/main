@@ -73,7 +73,7 @@ function copy(value: unknown): unknown {
   return clone;
 }
 
-function put(container: Record<string, unknown>, key: string, value: unknown): void {
+function put(container: object, key: string, value: unknown): void {
   Object.defineProperty(container, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
@@ -153,35 +153,37 @@ function run(plan: ReplayPlan, state: State, hasSlot: boolean, frames: Frames, s
 }
 
 /** A child is a data location with a parent to assign into; true when it stopped the keyword by being invalid. */
-function visit(child: ReplayPlan, container: Record<string, unknown>, key: string, frames: Frames, short: boolean): boolean {
-  const value = container[key];
+function visit(child: ReplayPlan, container: object, key: string, frames: Frames, short: boolean): boolean {
+  const value: unknown = Reflect.get(container, key);
   const given = short && child.ok ? copy(value) : value;
   const result = run(child, { local: value, slot: value }, true, frames, short);
   put(container, key, result.slot);
   return short && child.ok !== undefined && !child.ok(given);
 }
 
+function isTuple(items: ReplayPlan['items']): items is readonly ReplayPlan[] {
+  return Array.isArray(items);
+}
+
 function array(plan: ReplayPlan, list: unknown[], frames: Frames, short: boolean, open: Open): void {
-  const target = list as unknown as Record<string, unknown>;
-  const tuple = Array.isArray(plan.items) ? (plan.items as readonly ReplayPlan[]) : undefined;
   const each = (stage: ReplayStage, from: number, to: number, planOf: (index: number) => ReplayPlan | undefined): void => {
     if (!open(stage)) return;
     for (let i = from; i < to; i++) {
       const child = planOf(i);
-      if (child && visit(child, target, String(i), frames, short)) return;
+      if (child && visit(child, list, String(i), frames, short)) return;
     }
   };
-  if (tuple) {
-    each('rest', tuple.length, list.length, () => plan.rest);
-    each('items', 0, Math.min(tuple.length, list.length), (i) => tuple[i]);
-  } else if (plan.items) {
-    const items = plan.items as ReplayPlan;
+  const items = plan.items;
+  if (isTuple(items)) {
+    each('rest', items.length, list.length, () => plan.rest);
+    each('items', 0, Math.min(items.length, list.length), (i) => items[i]);
+  } else if (items) {
     each('items', 0, list.length, () => items);
   }
   if (plan.contains && open('contains')) {
     for (let i = 0; i < list.length; i++) {
       const given = copy(list[i]);
-      visit(plan.contains, target, String(i), frames, short);
+      visit(plan.contains, list, String(i), frames, short);
       if (plan.contains.ok?.(given)) break;
     }
   }
