@@ -15,3 +15,34 @@ Whether a confirmed event survives the rollback of a transaction open on the con
 A joined write is tried once, without the trail's retries and without a deadline, inside a savepoint; joined writes of one transaction run one after another. When one fails, the caller's transaction stays usable, a `reject` trail throws `AuditWriteFailed` for the caller to decide, and a `continue` trail logs the loss. The caller must await `record` inside its transaction: a joined write left running may land after the transaction has ended.
 
 A confirmed write that is not joined and cannot finish fails at `audit.confirmTimeoutMs` (default 10000 ms): `AuditWriteFailed` on a `reject` trail, a logged loss on a `continue` trail. That is the case for connections that share one PGlite instance (`Options.Shared`): they are not detected as one connection, so a confirmed write to one of them while another holds a transaction waits for it and fails at the deadline.
+
+## Read auditing
+
+`@AuditReads({ trail, mode, columns, onFailure })` on a model records who read it. `mode: 'row'` (default) writes one
+`read` event per returned row, `mode: 'query'` one per statement with the row count and the filter columns (never
+their values). `columns` limits auditing to selects that return one of them. The record is written, confirmed, before
+the rows are returned; when it cannot be written after the trail's retries the select rejects with `AuditWriteFailed`,
+unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
+the same for a model of another package.
+
+What it sees: every select through a query builder that carries the model, hydrated or `asRaw()`, streamed (one write
+per batch, before the batch is yielded), and the model's columns when a `populate()` loads it for another model.
+
+What it does not see:
+
+- raw SQL (`driver.execute()`, `RawQuery`) and `driver.select()` without a model;
+- aggregates that return no row of the model (`count`, `sum`, `min`, `max`, `avg`);
+- the junction rows of a many-to-many relation;
+- data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
+
+A raw select expression on an audited model counts as returning every audited column. A select whose rows carry no
+primary key (`columns()` without it, `distinct`, `groupBy`) is recorded as one event without a subject (`keyless: true`).
+
+Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one
+event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
+
+A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
+stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
+connection, an audited read awaited inside a transaction does not complete until the transaction ends: the record
+waits for the one connection the transaction holds. This is a known limitation pending a decision; until then read
+audited models outside a transaction there, or put the trail on another connection.
