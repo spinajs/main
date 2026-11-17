@@ -2,7 +2,7 @@
 
 When a handler fails, a transport must choose between retrying the message, moving it to a dead-letter channel and dropping it. `decideDelivery()` makes that choice. It is one pure function, so every transport that executes it behaves the same way and can be tested against the same cases. The transport then carries out the answer with its own broker primitive: a delayed queue, a scheduled republish or a visibility change.
 
-The policy comes from `queue.routing` and from the connection, through `resolveDeliveryPolicy()`. Each transport's docs say whether it executes the decision yet.
+The policy comes from `queue.routing` and from the connection, through `resolveDeliveryPolicy()`. No shipped transport executes the decision yet; until one does, each keeps the retry rules its own docs describe.
 
 ## The decision
 
@@ -14,15 +14,17 @@ The policy comes from `queue.routing` and from the connection, through `resolveD
 | 2 | `isRedeliverLater(error)` | `retry`, `attempt` unchanged, `delayMs` from the error, `forced: true` |
 | 3 | `UnparseableMessageError` (the body could not be parsed) | `dead-letter`, `reason: 'unparseable'` |
 | 4 | an event, and `onEventFailure` is `'drop'` (the default) | `ack`, `dropped: true` |
-| 5 | `PermanentJobFailure`, or an error named `NonRetryableError` | `dead-letter`, `reason: 'non-retryable'` |
+| 5 | `PermanentJobFailure`; a `NonRetryableError` or a subclass; an error named `NonRetryableError` from another copy of `@spinajs/durable` | `dead-letter`, `reason: 'non-retryable'` |
 | 6 | `attempt < maxRetries` | `retry` with `attempt + 1`, after `backoffDelay(backoff, attempt + 1)` |
 | 7 | otherwise | `dead-letter`, `reason: 'exhausted'` |
+
+Every `delayMs` in a decision is a whole number of milliseconds from 0 to 2^31 - 1 (about 24.8 days), the longest a Node timer waits. A `RedeliverLater` delay that is not a number or is below 0 becomes 0, and a longer delay, a `RedeliverLater`'s or a backoff's, is cut to that limit.
 
 Every `retry` and `dead-letter` decision carries these headers. The transport adds `x-original-destination`, because the decision does not know the channel.
 
 | Header | Value |
 | --- | --- |
-| `x-error` | the error's message, or its name when the message is empty, cut at 1024 characters (`DELIVERY_ERROR_MAX_LENGTH`); for an unparseable body it starts with `unparseable message body:` |
+| `x-error` | the error's message, or its name when the message is empty, cut at 1024 characters (`DELIVERY_ERROR_MAX_LENGTH`); for an unparseable body it starts with `unparseable message body:`; `unknown error` for a rejection value that cannot be turned into text |
 | `x-spinajs-message-id` | the message's `MessageId`, when it has one |
 | `x-retry-count` | the next attempt for a retry, the last attempt for a dead letter; absent for an unparseable body |
 
@@ -36,7 +38,7 @@ Every `retry` and `dead-letter` decision carries these headers. The transport ad
 | `backoff` | `{ kind: 'exponential', delayMs: <connection retryDelay or 0> }` | `fixed`: `delayMs` before every retry. `exponential`: `delayMs * 2^(n-1)` before the n-th retry. Either is capped at `maxDelayMs`. Delays are whole milliseconds, with no jitter |
 | `onEventFailure` | `'drop'` | `'retry'` retries a failed event like a job, into the failing subscriber only |
 | `deadLetterChannel` | the connection's `defaultQueueDeadLetterChannel` | Where a dead letter goes; with none, the decision's `channel` is `undefined` and the transport's docs say what it does |
-| `groupBy` | unset | SQS FIFO: the message field whose value is the `MessageGroupId` |
+| `groupBy` | unset | SQS FIFO: the message field whose value is the `MessageGroupId`; a blank name is refused |
 
 In an array route, each option is read from the first item of this connection that declares it (`QueueClient.getRouteOption()`). An invalid `backoff`, `onEventFailure` or `groupBy` fails the boot through the configuration schema, and `consume()` refuses it with `InvalidArgument` before it subscribes. An invalid value never reaches a failure handler.
 
@@ -74,7 +76,7 @@ export class InvoicePaid extends QueueEvent {
 ## Important behaviour
 
 - **A failed event is dropped by default.** Under `onEventFailure: 'retry'`, an event that uses up `maxRetries` goes to the same dead-letter channel a job would.
-- **`NonRetryableError` and `PermanentJobFailure` dead-letter on the first failure** and mark the job row `dead` ([Job tracking](03-job-tracking.md)). `NonRetryableError` is matched by `name`, because a transport may load another copy of `@spinajs/durable`, where `instanceof` fails.
+- **`NonRetryableError` and `PermanentJobFailure` dead-letter on the first failure** and mark the job row `dead` ([Job tracking](03-job-tracking.md)). `NonRetryableError` is matched with `instanceof`, which covers subclasses that rename themselves, and by the name `NonRetryableError`, because a transport may load another copy of `@spinajs/durable`, where `instanceof` fails. `consume()` marks the row `dead` whatever the transport does. A transport that does not execute the decision yet retries the message, and the retried copy is acked without running, so it never reaches the dead-letter channel.
 - **Only a `RedeliverLater` itself bypasses the retry count.** The queue throws one for an in-flight duplicate under [event deduplication](12-event-deduplication.md): it is redelivered whatever the policy says, and its `x-retry-count` stays as it was. A handler's own error is decided by the policy, an `IdempotencyInFlight` from an idempotent call inside the handler included, and so is an error that only carries a `RedeliverLater` as its `cause`.
 - **A crash is never decided.** An error with `crash: true` stands for a dead process. The transport logs an error and leaves the delivery unsettled: no ack, nack, delete or visibility change. The broker redelivers it once the connection drops or the visibility timeout ends. Until then the subscription holds that delivery, which is one prefetch slot; with a prefetch of 1 it receives nothing more until the connection drops. Outside tests only `FaultInjector` produces such an error.
 - **The decision is pure.** It reads no clock, configuration or broker state, so a transport can call it from any failure path and a test can call it directly.

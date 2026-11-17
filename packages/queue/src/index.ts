@@ -199,6 +199,7 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
+    this.assertDeliveryRoutingOf(event, connections);
     const dedupSubscription = await this.dedupSubscriptionOf(event, connections, subscriptionId);
 
     for (let c of connections) {
@@ -207,8 +208,6 @@ export class DefaultQueueService extends QueueService {
       if (!conn) {
         throw new ServiceNotFound(`Queue connection ${c} not found. Please check your configuration before consuming events from this connection.`);
       }
-
-      assertDeliveryRouting(conn, event);
 
       await conn.subscribe(
         event,
@@ -390,6 +389,14 @@ export class DefaultQueueService extends QueueService {
   /** The delivery is done with and what follows is the transport's ack; a crash here leaves it unsettled, so it comes again. */
   protected async beforeAck(message: IQueueMessage, subscriptionId: string | undefined): Promise<void> {
     await this.Faults.point('queue.before-ack', { messageId: message.MessageId, subscriptionId });
+  }
+
+  /** Every connection before the first subscribe: a route invalid on a later connection must not leave an earlier one subscribed. */
+  protected assertDeliveryRoutingOf(event: Constructor<QueueMessage>, connections: string[]): void {
+    for (const c of connections) {
+      const conn = this.Connections.get(c);
+      if (conn) assertDeliveryRouting(conn, event);
+    }
   }
 
   /** The subscription a consumed event is deduplicated under, or undefined when deduplication does not apply to it. */

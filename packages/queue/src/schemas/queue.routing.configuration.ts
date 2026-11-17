@@ -12,7 +12,7 @@ const ROUTE = {
       properties: { kind: { enum: ['fixed', 'exponential'] }, delayMs: milliseconds, maxDelayMs: milliseconds },
     },
     onEventFailure: { enum: ['drop', 'retry'] },
-    groupBy: { type: 'string', minLength: 1 },
+    groupBy: { type: 'string', minLength: 1, pattern: '\\S' },
   },
 };
 

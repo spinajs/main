@@ -42,12 +42,26 @@ export function retryCountOf(headers: Record<string, unknown> | undefined): numb
   return Number.isInteger(n) && n >= 0 ? n : 0;
 }
 
+// setTimeout fires at once past 2^31 - 1 ms (about 24.8 days), so a transport timer cannot wait longer
+const MAX_DELAY_MS = 2 ** 31 - 1;
+
+/** A whole number of milliseconds a timer can wait: NaN and negatives are 0, anything too long is the timer's limit. */
+const toDelay = (ms: number): number => (Number.isNaN(ms) ? 0 : Math.min(Math.max(0, Math.round(ms)), MAX_DELAY_MS));
+
 export function backoffDelay(backoff: DeliveryBackoff, attempt: number): number {
-  const delay = backoff.kind === 'fixed' ? backoff.delayMs : backoff.delayMs * 2 ** (attempt - 1);
-  return backoff.maxDelayMs === undefined ? delay : Math.min(delay, backoff.maxDelayMs);
+  // 0 * 2^1024 is NaN, not 0
+  const delay = backoff.kind === 'fixed' || backoff.delayMs === 0 ? backoff.delayMs : backoff.delayMs * 2 ** (attempt - 1);
+  return toDelay(backoff.maxDelayMs === undefined ? delay : Math.min(delay, backoff.maxDelayMs));
 }
 
-const errorText = (error: unknown): string => (error instanceof Error ? error.message || error.name : String(error)).slice(0, DELIVERY_ERROR_MAX_LENGTH);
+// a rejection value is anything a handler throws; one that cannot be turned into text must not make the decision throw
+const errorText = (error: unknown): string => {
+  try {
+    return (error instanceof Error ? error.message || error.name : String(error)).slice(0, DELIVERY_ERROR_MAX_LENGTH);
+  } catch {
+    return 'unknown error';
+  }
+};
 
 /** `instanceof` for subclasses, which rename themselves; the name for another copy of `@spinajs/durable`, where `instanceof` fails. */
 export const isNonRetryableFailure = (error: unknown): boolean => isPermanentJobFailure(error) || error instanceof NonRetryableError || (error instanceof Error && error.name === 'NonRetryableError');
@@ -70,7 +84,7 @@ export function decideDelivery(message: IQueueMessage, attempt: number, error: u
   });
 
   if (isRedeliverLater(error)) {
-    return { action: 'retry', attempt, delayMs: error.delayMs, headers: headers(attempt), forced: true };
+    return { action: 'retry', attempt, delayMs: toDelay(error.delayMs), headers: headers(attempt), forced: true };
   }
   if (error instanceof UnparseableMessageError) {
     return { action: 'dead-letter', channel: policy.deadLetterChannel, reason: 'unparseable', headers: headers() };
@@ -118,7 +132,7 @@ export function assertDeliveryRouting(client: QueueClient, event: Constructor<Qu
     throw new InvalidArgument(`queue.routing.${event.name}.onEventFailure must be 'drop' or 'retry'`);
   }
   const groupBy: unknown = client.getRouteOption(event, 'groupBy');
-  if (groupBy !== undefined && (typeof groupBy !== 'string' || groupBy === '')) {
+  if (groupBy !== undefined && (typeof groupBy !== 'string' || groupBy.trim() === '')) {
     throw new InvalidArgument(`queue.routing.${event.name}.groupBy must name a message field`);
   }
 }

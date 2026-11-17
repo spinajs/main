@@ -1,8 +1,9 @@
 import 'mocha';
-import { expect } from 'chai';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import { DateTime } from 'luxon';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration, registerConfigurationSchema } from '@spinajs/configuration';
-import { DI, type ContainerSnapshot } from '@spinajs/di';
+import { DI, Injectable, PerInstanceCheck, type Constructor, type ContainerSnapshot } from '@spinajs/di';
 import { NonRetryableError } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { IdempotencyInFlight } from '@spinajs/idempotency';
@@ -14,10 +15,12 @@ import {
   Event,
   isNonRetryableFailure,
   PermanentJobFailure,
+  QueueClient,
   QUEUE_ROUTING_CONFIGURATION_SCHEMA,
   QueueEvent,
   QueueHeaders,
   QueueMessageType,
+  QueueService,
   RedeliverLater,
   resolveDeliveryPolicy,
   retryCountOf,
@@ -27,18 +30,23 @@ import {
   type IQueueConnectionOptions,
   type IQueueJob,
   type IQueueMessage,
+  type QueueMessage,
 } from '../src/index.js';
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 
 @Event()
 class Shipped extends QueueEvent {}
 
 let routing: Record<string, unknown> = {};
+let connections: Record<string, unknown> = { default: 'bh', connections: [] };
 let beforeConfigure: ContainerSnapshot | undefined;
 
 // One class at module level: DI keeps the first class registered under a name.
 class DeliveryConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
-    return { queue: { default: 'bh', routing, connections: [] }, logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] } };
+    return { queue: { ...connections, routing }, logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] } };
   }
 }
 
@@ -51,10 +59,11 @@ async function reset(): Promise<void> {
   DI.clearCache();
 }
 
-async function configure(value: Record<string, unknown>): Promise<Configuration> {
+async function configure(value: Record<string, unknown>, queue: Record<string, unknown> = { default: 'bh', connections: [] }): Promise<Configuration> {
   await reset();
   beforeConfigure = DI.snapshot();
   routing = value;
+  connections = queue;
   DI.register(DeliveryConf).as(Configuration);
   return DI.resolve(Configuration);
 }
@@ -62,6 +71,21 @@ async function configure(value: Record<string, unknown>): Promise<Configuration>
 async function clientWith(value: Record<string, unknown>, options: Partial<IQueueConnectionOptions> = {}): Promise<BlackHoleQueueClient> {
   await configure(value);
   return new BlackHoleQueueClient({ name: 'bh', service: 'BlackHoleQueueClient', ...options });
+}
+
+const subscribed: string[] = [];
+
+@PerInstanceCheck()
+@Injectable(QueueClient)
+class RecordingQueueClient extends QueueClient {
+  public emit(): Promise<void> {
+    return Promise.resolve();
+  }
+  public subscribe(channel: string | Constructor<QueueMessage>): Promise<void> {
+    subscribed.push(`${this.Name}:${typeof channel === 'string' ? channel : channel.name}`);
+    return Promise.resolve();
+  }
+  public unsubscribe(): void {}
 }
 
 const job = (extra: Partial<IQueueMessage> = {}): IQueueMessage => ({ Name: 'SendInvoice', Type: QueueMessageType.Job, CreatedAt: DateTime.fromMillis(0), Persistent: true, Priority: 0, MessageId: 'm-1', ...extra });
@@ -147,6 +171,45 @@ describe('decideDelivery', () => {
     expect(backoffDelay({ kind: 'exponential', delayMs: 0 }, 3)).to.equal(0);
   });
 
+  it('keeps every backoff delay a whole number of milliseconds a timer can wait', () => {
+    const timerLimit = 2 ** 31 - 1;
+    expect(backoffDelay({ kind: 'exponential', delayMs: 0 }, 1025)).to.equal(0);
+    expect(backoffDelay({ kind: 'exponential', delayMs: 0, maxDelayMs: 50 }, 1025)).to.equal(0);
+    expect(backoffDelay({ kind: 'exponential', delayMs: 1000 }, 22)).to.equal(1000 * 2 ** 21);
+    expect(backoffDelay({ kind: 'exponential', delayMs: 1000 }, 23)).to.equal(timerLimit);
+    expect(backoffDelay({ kind: 'exponential', delayMs: 1000 }, 1100)).to.equal(timerLimit);
+    expect(decideDelivery(job(), 1100, new Error('boom'), policy({ maxRetries: 2000, backoff: { kind: 'exponential', delayMs: 0 } }))).to.include({ action: 'retry', delayMs: 0 });
+  });
+
+  it("keeps a RedeliverLater's delay a whole number of milliseconds a timer can wait", () => {
+    const delayOf = (delayMs: number) => {
+      const d = decideDelivery(event(), 0, new RedeliverLater(delayMs), policy());
+      return d.action === 'retry' ? d.delayMs : undefined;
+    };
+    expect(delayOf(Number.NaN)).to.equal(0);
+    expect(delayOf(-5)).to.equal(0);
+    expect(delayOf(12.6)).to.equal(13);
+    expect(delayOf(Number.POSITIVE_INFINITY)).to.equal(2 ** 31 - 1);
+  });
+
+  it('decides a rejection value that cannot be turned into text', () => {
+    const throwingMessage = new Error('hidden');
+    Object.defineProperty(throwingMessage, 'message', {
+      get() {
+        throw new Error('getter');
+      },
+    });
+    const throwingText = {
+      toString() {
+        throw new Error('toString');
+      },
+    };
+    for (const value of [Object.create(null) as unknown, throwingMessage, throwingText]) {
+      const d = decideDelivery(job(), 0, value, policy());
+      expect(d.action === 'retry' && d.headers[QueueHeaders.Error]).to.equal('unknown error');
+    }
+  });
+
   it('reads x-retry-count as a string or a number', () => {
     expect(retryCountOf({ [QueueHeaders.RetryCount]: '3' })).to.equal(3);
     expect(retryCountOf({ [QueueHeaders.RetryCount]: 3 })).to.equal(3);
@@ -208,7 +271,7 @@ describe('delivery routing', function () {
     expect(client.getRouteOption(Shipped, 'backoff')).to.equal(undefined);
   });
 
-  for (const bad of [{ backoff: { kind: 'linear', delayMs: 5 } }, { backoff: { kind: 'fixed', delayMs: -1 } }, { backoff: { kind: 'fixed', delayMs: 5, maxDelayMs: 1.5 } }, { onEventFailure: 'requeue' }, { groupBy: '' }]) {
+  for (const bad of [{ backoff: { kind: 'linear', delayMs: 5 } }, { backoff: { kind: 'fixed', delayMs: -1 } }, { backoff: { kind: 'fixed', delayMs: 5, maxDelayMs: 1.5 } }, { onEventFailure: 'requeue' }, { groupBy: '' }, { groupBy: ' 	' }]) {
     it(`refuses ${JSON.stringify(bad)} when the subscription is made`, async () => {
       const client = await clientWith({ Shipped: bad });
       expect(() => assertDeliveryRouting(client, Shipped)).to.throw(InvalidArgument);
@@ -220,6 +283,23 @@ describe('delivery routing', function () {
     expect(() => registerConfigurationSchema(QUEUE_ROUTING_CONFIGURATION_SCHEMA, DI.RootContainer)).to.throw(InvalidConfiguration);
     await configure({ Shipped: ['/topic/a', { channel: '/topic/b', backoff: { kind: 'fixed', delayMs: 5 } }], Plain: '/queue/plain' });
     expect(() => registerConfigurationSchema(QUEUE_ROUTING_CONFIGURATION_SCHEMA, DI.RootContainer)).to.not.throw();
+  });
+
+  it('refuses a blank groupBy by the schema', async () => {
+    await configure({ Shipped: { groupBy: ' ' } });
+    expect(() => registerConfigurationSchema(QUEUE_ROUTING_CONFIGURATION_SCHEMA, DI.RootContainer)).to.throw(InvalidConfiguration);
+  });
+
+  it('subscribes nothing when the route is invalid on a later connection', async () => {
+    subscribed.length = 0;
+    await configure(
+      { Shipped: [{ channel: '/topic/a', connection: 'a' }, { channel: '/topic/b', connection: 'b', onEventFailure: 'requeue' }] },
+      { default: 'a', connections: [{ service: 'RecordingQueueClient', name: 'a' }, { service: 'RecordingQueueClient', name: 'b' }] },
+    );
+    const queue = await DI.resolve(QueueService);
+    expect(queue.get('b')).to.be.instanceOf(RecordingQueueClient);
+    await expect(queue.consume(Shipped, () => Promise.resolve())).to.be.rejectedWith(InvalidArgument, /onEventFailure/);
+    expect(subscribed).to.deep.equal([]);
   });
 
   // the Configuration's own validator coerces in place, so these check the stored value, not only the verdict
