@@ -18,6 +18,9 @@
       "path": "../di/tsconfig.json"
     },
     {
+      "path": "../durable/tsconfig.json"
+    },
+    {
       "path": "../exceptions/tsconfig.json"
     },
     {

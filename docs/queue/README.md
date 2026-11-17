@@ -31,6 +31,7 @@ Pick a transport:
 | [Tracking hooks](07-tracking-hooks.md) | `QueueTrackingHook`: code that wraps every read and write of the job table |
 | [Job retention](08-job-retention.md) | `JobRetentionService`: periodic purge of old job rows, selected by `queue.retention.service` |
 | [Queue service](09-queue-service.md) | `QueueService` and `DefaultQueueService`: replacing or extending the emit and consume pipeline |
+| [Transactional outbox](10-outbox.md) | `queue.outbox`: the `queue_outbox` table per database and its configuration; off by default, built up over 4.x |
 | [Message ids and headers](13-message-ids-and-headers.md) | `MessageId`, `Headers`, `QueueHeaders`: how each transport carries them; `MemoryQueueClient` and the transport conformance suite in `@spinajs/queue/testing` |
 
 ## Quick start

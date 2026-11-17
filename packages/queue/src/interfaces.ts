@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
 import { Config } from '@spinajs/configuration';
+import type { IQueueOutboxConfig } from './outbox/config.js';
 
 export enum QueueMessageType {
   Job = 'JOB',
@@ -468,6 +469,9 @@ export interface IQueueConfiguration {
    * grow unbounded. Disabled by default - opt in to avoid silently deleting data.
    */
   retention?: IQueueRetentionOptions;
+
+  /** Transactional outbox; off by default in 4.x. See docs/queue/10-outbox.md. */
+  outbox?: Partial<IQueueOutboxConfig>;
 
   /**
    * Throttling of job progress persistence, so a chatty job that reports progress
