@@ -278,10 +278,12 @@ exists in the process; `since(seq)` and `until(at)` read the history in `seq` or
 Writes of `@AccessResource` models add kind `column`: `ColumnChangeObserver` logs every `@Parent`, `@Owner` and
 `@Relation` column an insert, update or delete changed, keyed `type:id#relation` (`parent` for a parent column), with
 the old and new `{ type, id }`, in the statement's transaction. It reads the rows through the ORM write capture
-([docs/orm/25-write-capture.md](../../docs/orm/25-write-capture.md)), whose key select `SystemCaptureReadScope` runs as
-`SYSTEM`. Turn it off for one model with
+([docs/orm/25-write-capture.md](../../docs/orm/25-write-capture.md)). The import registers `SystemCaptureReadScope`,
+which runs the capture's key select as `SYSTEM`, so a row the writer cannot read is still logged; it is meant for that
+select only and is not exported. Turn the log off for one model with
 `@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
-that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`).
+that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`). A model with
+relation columns and a composite primary key must opt out: the domain boot refuses it with an `AuthzConfigError`.
 
 `recordPolicyVersion(policyHash, irJson)` keeps the policy IR an app ran with in `authz_policy_version` (first
 instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Import `@spinajs/authz-orm/scheduler`

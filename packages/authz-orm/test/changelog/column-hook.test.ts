@@ -1,14 +1,16 @@
 import * as chai from 'chai';
 import 'mocha';
+import sinon from 'sinon';
 
-import { ScopeForgetter, changeLog } from '@spinajs/authz';
-import type { AdminContext, AuthzEvent, AuthzTx, ChangeRecord, ResourceRef } from '@spinajs/authz';
+import { SYSTEM, ScopeForgetter, changeLog, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
+import type { AdminContext, AuthzEvent, AuthzTx, ChangeRecord, Principal, ResourceRef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { WriteObserver } from '@spinajs/orm';
-import type { ModelBase, OrmDriver } from '@spinajs/orm';
+import { InsertQueryBuilder, QueryMiddleware, SelectQueryBuilder, WriteObserver, createQuery } from '@spinajs/orm';
+import type { ModelBase, OrmDriver, QueryBuilder } from '@spinajs/orm';
 
 import { ColumnChangeObserver } from '../../src/changelog/column-hook.js';
+import { ormLog } from '../../src/host.js';
 import { AccessResource, Owner, Parent, Relation, registerAccessResource } from '../../src/index.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { TestDb } from '../support/db.js';
@@ -27,7 +29,9 @@ class NoopForgetter extends ScopeForgetter {
 const DOC_COLUMNS = { folder_id: 'TEXT', owner_id: 'TEXT', editor_id: 'TEXT', editor_type: 'TEXT', title: 'TEXT' };
 const D1 = { id: 'd1', folder_id: 'f1', owner_id: 'u1', editor_id: 'g1', editor_type: 'group', title: 'a' };
 
-const summary = (rows: readonly ChangeRecord[]) => rows.map((r) => [r.op, r.key, (r.payload as { old: unknown }).old, (r.payload as { new: unknown }).new]);
+const ALICE: Principal = { type: 'user', id: 'alice', authenticated: true, source: 'test', attributes: {} };
+
+const summary =(rows: readonly ChangeRecord[]) => rows.map((r) => [r.op, r.key, (r.payload as { old: unknown }).old, (r.payload as { new: unknown }).new]);
 
 describe('ColumnChangeObserver', function () {
   this.timeout(60000);
@@ -151,6 +155,69 @@ describe('ColumnChangeObserver', function () {
         expect(changeLog().covers('column', 'legacy')).to.equal(false);
         expect(changeLog().covers('column', 'doc')).to.equal(true);
         expect(changeLog().covers('column', 'unknown')).to.equal(false);
+      });
+
+      it('an upsert through a unique column logs the put of the row it updated, with its old values', async () => {
+        const Coded = (await db.define({ name: 'Coded', columns: { code: 'TEXT UNIQUE', folder_id: 'TEXT' }, decorate: (c, p) => { AccessResource('coded')(c); Parent('folder')(p, 'folder_id'); } }, dialect)) as M;
+        await Coded.insert({ id: 'c1', code: 'k', folder_id: 'f1' });
+        const seq = (await logged()).at(-1)!.seq;
+        // Model.insert(..., InsertOrUpdate) would target every column marked unique, the primary key with them.
+        const { query } = createQuery(Coded, InsertQueryBuilder);
+        query.values({ id: 'c2', code: 'k', folder_id: 'f2' }).onDuplicate('code').update(['folder_id']);
+        await query;
+
+        expect(summary(await changeLog().since(seq))).to.deep.equal([['put', 'coded:c1#parent', { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f2' }]]);
+      });
+
+      it('an insert whose ids the driver did not report logs nothing and warns once', async () => {
+        const Counted = (await db.define({ name: 'Counted', columns: { id: dialect === 'postgres' ? 'SERIAL' : 'INTEGER', folder_id: 'TEXT' }, decorate: (c, p) => { AccessResource('counted')(c); Parent('folder')(p, 'folder_id'); } }, dialect)) as M;
+        const warn = sinon.stub(ormLog(), 'warn');
+        try {
+          // Built without ModelBase.insert, so no RETURNING is added.
+          await createQuery(Counted, InsertQueryBuilder).query.values([{ folder_id: 'f1' }, { folder_id: 'f2' }]);
+          await createQuery(Counted, InsertQueryBuilder).query.values([{ folder_id: 'f3' }, { folder_id: 'f4' }]);
+          // The ancestor table warns about the same inserts.
+          expect(warn.getCalls().filter((c) => String(c.args[1]).includes('the changelog misses their relation columns'))).to.have.length(1);
+        } finally {
+          warn.restore();
+        }
+
+        expect(await logged()).to.deep.equal([]);
+        expect(await db.rows(Counted)).to.have.length(4);
+      });
+
+      it('a bulk update logs every row it moved', async () => {
+        await Doc.insert([D1, { ...D1, id: 'd2' }, { ...D1, id: 'd3', folder_id: 'f3' }]);
+        const seq = (await logged()).at(-1)!.seq;
+        await Doc.update({ folder_id: 'f9' }).where('folder_id', 'f1');
+
+        expect(summary(await changeLog().since(seq)).sort((a, b) => String(a[1]).localeCompare(String(b[1])))).to.deep.equal([
+          ['put', 'doc:d1#parent', { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f9' }],
+          ['put', 'doc:d2#parent', { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f9' }],
+        ]);
+      });
+
+      it('logs the change of a row the writing principal cannot read: the key select runs as SYSTEM', async () => {
+        await Doc.insert(D1);
+        const seq = (await logged()).at(-1)!.seq;
+        const hidden = Doc;
+        class HideDocs extends QueryMiddleware {
+          public order = 50;
+          afterQueryCreation(): void {}
+          async beforeQueryExecution(query: QueryBuilder): Promise<void> {
+            if (query instanceof SelectQueryBuilder && query.Model === hidden && currentPrincipal() !== SYSTEM) query.where('id', '__nobody__');
+          }
+        }
+        DI.register(HideDocs).as(QueryMiddleware);
+        DI.uncache(Array.ofType(QueryMiddleware));
+        try {
+          await runWithPrincipal(ALICE, () => Doc.update({ folder_id: 'f2' }).where('id', 'd1'));
+        } finally {
+          DI.unregister(HideDocs);
+          DI.uncache(Array.ofType(QueryMiddleware));
+        }
+
+        expect(summary(await changeLog().since(seq))).to.deep.equal([['put', 'doc:d1#parent', { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f2' }]]);
       });
     });
   }

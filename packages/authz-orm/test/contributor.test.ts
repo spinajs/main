@@ -5,11 +5,12 @@ import sinon from 'sinon';
 import { AuthzConfigError, AuthzContributor } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { ModelBase, Orm, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor, checkResourceConnections } from '../src/contributor.js';
 import { AccessResource, Parent } from '../src/index.js';
+import { unregisterResource } from '../src/registry.js';
 import { TestDb } from './support/db.js';
 
 const expect = chai.expect;
@@ -50,6 +51,27 @@ describe('authz-orm resource connection check', function () {
     expect(out.listTypes).to.include('task');
     await (await testHost.domains()).service('root');
     await testHost.resetRoot();
+  });
+
+  it('refuses at domain boot a composite-key resource with relation columns, unless it opted out of the changelog', () => {
+    const define = (type: string, changelog?: false) => {
+      class Pair extends ModelBase {
+        @Primary() public a: number;
+        @Primary() public b: number;
+        @Parent('project') public project_id: string;
+      }
+      AccessResource(type, changelog === false ? { changelog } : {})(Pair);
+      return Pair;
+    };
+    const quiet = define('quietpair', false);
+    expect(() => new AuthzOrmContributor().contribute('root')).to.not.throw();
+    const pair = define('pair');
+    try {
+      expect(() => new AuthzOrmContributor().contribute('root')).to.throw(AuthzConfigError, "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b), and the column changelog of its relation columns needs a single-column primary key; give it one, or opt out with @AccessResource('pair', { changelog: false })");
+    } finally {
+      unregisterResource(pair);
+      unregisterResource(quiet);
+    }
   });
 
   it('gives listTypes even when the ORM is not resolved at domain boot, skipping only the connection check', async () => {

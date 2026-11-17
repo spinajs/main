@@ -30,4 +30,3 @@ import './changelog/column-hook.js';
 export { ColumnChangeObserver } from './changelog/column-hook.js';
 // Registers SystemCaptureReadScope as the CaptureReadScope: the write capture's key select runs as SYSTEM.
 import './capture-scope.js';
-export { SystemCaptureReadScope } from './capture-scope.js';
