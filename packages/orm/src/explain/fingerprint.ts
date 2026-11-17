@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-const LITERAL_OR_QUOTED = /'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\b\d+(?:\.\d+)?\b/g;
+const LITERAL_OR_QUOTED = /'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\b(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/g;
 const PLACEHOLDER_LIST = /\(\s*\?(?:\s*,\s*\?)*\s*\)/g;
 const ROW_LIST = /\(\?\)(?:\s*,\s*\(\?\))+/g;
 
