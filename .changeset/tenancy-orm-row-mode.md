@@ -1,0 +1,5 @@
+---
+"@spinajs/tenancy-orm": minor
+---
+
+New package `@spinajs/tenancy-orm`: row-mode tenant isolation in the ORM. `@Tenant(options)` and `registerTenantModel(model, options)` declare a tenant model; the model declares the tenant column itself (default `tenant_id`, renamed with `column`). `TenantScopeMiddleware` (a query middleware, order 80) confines a select, update or delete built from a tenant model to the current tenant of `@spinajs/tenancy` and forces the tenant column on every inserted row. A statement on a tenant table with no tenant scope throws `TenantRequired`; an insert that carries another tenant throws `TenantMismatch`; in the all-tenants scope nothing is added and an insert must name its tenant. A query builder that does not go through the tenant model (no model, or another table) is refused with `NotSupported` inside a tenant. `isolation: 'schema'` is refused with `NotSupported` until schema placements land. `tenancy.orm.isolation`, `tenancy.orm.column` and `tenancy.orm.rls` are the defaults of every tenant model; the package registers the configuration schema of `tenancy.orm`.
