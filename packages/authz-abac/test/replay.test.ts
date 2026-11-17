@@ -4,7 +4,7 @@ import 'mocha';
 import { DecisionLogTap, FALSE, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
 import type { AuthzTx, ChangeLog, DecisionLog, DecisionRecord, PrincipalRef } from '@spinajs/authz';
 import { MemoryChangeLog, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
-import type { PolicyIR, ReplayDeps } from '@spinajs/authz-ir';
+import type { PolicyIR, ReplayDeps, StoredPlaceholder } from '@spinajs/authz-ir';
 import { recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
@@ -62,6 +62,28 @@ describe('PolicySplicer', function () {
     }
     expect(new PolicySplicer().locate(name, 'doc', 'perm_doc_read', ir)).to.equal(undefined);
     expect(new PolicySplicer().locate('abac scope of policy p', 'doc', abacRelation('permit', 'doc:read'), ir)).to.equal(undefined);
+  });
+
+  describe('splice', () => {
+    const placeholder = (permission: string, side: 'permit' | 'deny'): StoredPlaceholder => ({ model: 'abac', store: 'db', permission, side });
+    const known = (value: Record<string, unknown>) => ({ key: String(value.id), state: { known: true, value, origin: 'current' } as const });
+    const readOpen = known({ id: 'doc-open', effect: 'permit', permissions: ['doc:read'], when: { attr: 'resource.status', eq: 'open' } });
+    const writeAdmin = known({ id: 'doc_open', effect: 'permit', permissions: ['doc:write'], principalTypes: ['admin'] });
+    const plain = known({ id: 'plain', effect: 'permit', permissions: ['doc:read'] });
+
+    it('makes policies whose caveat names collide unknown, never one standing in for the other', () => {
+      const spliced = new PolicySplicer().splice(placeholder('doc:read', 'permit'), [readOpen, writeAdmin, plain], storedIR(['db']));
+      expect(spliced.term).to.deep.equal({ union: [{ intersection: [] }, { opaque: 'abac policy doc-open' }, { opaque: 'abac policy doc_open' }] });
+      expect(spliced.caveats).to.not.have.property('abac_doc_open');
+    });
+
+    it('makes a policy unknown when its caveat name means something else in the stored IR', () => {
+      const ir = storedIR(['db']);
+      ir.caveats.abac_doc_open = { params: { 'env.region': 'string' }, expr: { attr: 'env.region', eq: 'eu' } };
+      const spliced = new PolicySplicer().splice(placeholder('doc:read', 'permit'), [readOpen, plain], ir);
+      expect(spliced.term).to.deep.equal({ union: [{ intersection: [] }, { opaque: 'abac policy doc-open' }] });
+      expect(spliced.caveats).to.deep.equal({});
+    });
   });
 
   it('leaves a store without a changelog unreplayable, naming the policy kind', async () => {

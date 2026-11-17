@@ -29,6 +29,9 @@ const safe = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
 /** The relation that holds a permission's permit or deny policies on its resource type (`abac_permit_<P>`). */
 export const abacRelation = (side: 'permit' | 'deny', permission: Permission): string => `abac_${side}_${safe(permission)}`;
 
+/** The caveat a policy with targets or a `when` compiles to; ids that differ only in characters `safe` replaces share it. */
+export const abacCaveatName = (policyId: string): string => `abac_${safe(policyId)}`;
+
 /**
  * Policies become caveated union members of `abac_permit_<P>` (permit) or `abac_deny_<P>` (deny) on the permission's
  * resource type (G4). Principal and actor types join the policy's `when` in its caveat. A non-global `scope` and an
@@ -101,7 +104,7 @@ function policyCaveat(p: LoadedPolicy, caveats: Record<string, CaveatDef>, opaqu
     for (const fn of p.when.facts.functions) if (!opaque.some((o) => o.name === fn)) opaque.push({ kind: 'condition-function', name: fn });
   }
   if (conditions.length === 0) return EVERYONE;
-  const name = `abac_${safe(p.policy.id)}`;
+  const name = abacCaveatName(p.policy.id);
   caveats[name] = { params, expr: conditions.length === 1 ? conditions[0] : { all: conditions } };
   return { caveat: name, of: EVERYONE };
 }

@@ -1,10 +1,10 @@
 import { AuthzConfigError, PermissionRegistryImpl, parseCondition } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
-import { StoredPolicySplicers, parseStoredPolicyName, storedPolicyName } from '@spinajs/authz-ir';
+import { StoredPolicySplicers, parseStoredPolicyName, stableStringify, storedPolicyName } from '@spinajs/authz-ir';
 import type { CaveatDef, KeyState, OpaqueRef, PolicyIR, RelationName, Rewrite, StoredEdge, StoredPlaceholder, TypeName } from '@spinajs/authz-ir';
 import { Injectable, Singleton } from '@spinajs/di';
 
-import { abacPolicyTerms, abacRelation } from './ir.js';
+import { abacCaveatName, abacPolicyTerms, abacRelation } from './ir.js';
 import type { AbacPolicyTerms } from './ir.js';
 import { loadPolicy } from './model/policies.js';
 import type { LoadedPolicy } from './model/policies.js';
@@ -43,6 +43,22 @@ function load(image: unknown, order: number): LoadedPolicy | undefined {
     if (e instanceof AuthzConfigError) return undefined;
     throw e;
   }
+}
+
+/** The policies present at T, and the keys of those unknown there: a gap, an image that no longer loads, a caveat name another policy shares. */
+function loadAt(items: Items): { loaded: Map<string, LoadedPolicy>; unknown: Set<string> } {
+  const loaded = new Map<string, LoadedPolicy>();
+  const unknown = new Set<string>();
+  for (const { key, state } of items) {
+    if (state.known && state.value === undefined) continue;
+    const policy = state.known ? load(state.value, loaded.size) : undefined;
+    if (policy === undefined) unknown.add(key);
+    else loaded.set(key, policy);
+  }
+  const holders = new Map<string, string[]>();
+  for (const [key, p] of loaded) holders.set(abacCaveatName(p.policy.id), [...(holders.get(abacCaveatName(p.policy.id)) ?? []), key]);
+  for (const keys of holders.values()) if (keys.length > 1) keys.forEach((k) => unknown.add(k));
+  return { loaded, unknown };
 }
 
 /**
@@ -85,25 +101,39 @@ export class PolicySplicer extends StoredPolicySplicers {
     return { term: anyOf([...own, ...compiled.unknown]), caveats: compiled.caveats, opaque: compiled.opaque };
   }
 
-  /** Undefined when the policies do not compile together (a permission the IR does not bind). */
+  /**
+   * Undefined when the policies do not compile together (a permission the IR does not bind). A policy whose caveat name
+   * another policy shares, or that the stored IR holds with another meaning, is unknown: one caveat would stand for both.
+   */
   private compile(items: Items, ir: PolicyIR): Compiled | undefined {
     if (this.compiled.has(items)) return this.compiled.get(items);
-    const loaded: LoadedPolicy[] = [];
-    const unknown: string[] = [];
-    for (const { key, state } of items) {
-      if (state.known && state.value === undefined) continue;
-      const policy = state.known ? load(state.value, loaded.length) : undefined;
-      if (policy === undefined) unknown.push(`abac policy ${key}`);
-      else loaded.push(policy);
-    }
+    const { loaded, unknown } = loadAt(items);
     let compiled: Compiled | undefined;
     try {
-      const terms = abacPolicyTerms(loaded, registryOf(ir));
-      compiled = { ...terms, unknown: unknown.map((name) => ({ opaque: name })), opaque: [...terms.opaque, ...unknown.map((name): OpaqueRef => ({ kind: 'rewrite', name }))] };
+      let terms = this.terms(loaded, unknown, ir);
+      const clashing = new Set(
+        Object.entries(terms.caveats).flatMap(([name, def]) => {
+          const held = Object.entries(ir.caveats).find(([n]) => n === name)?.[1];
+          return held !== undefined && stableStringify(held) !== stableStringify(def) ? [name] : [];
+        }),
+      );
+      if (clashing.size > 0) {
+        for (const [key, p] of loaded) if (clashing.has(abacCaveatName(p.policy.id))) unknown.add(key);
+        terms = this.terms(loaded, unknown, ir);
+      }
+      const names = items.filter((i) => unknown.has(i.key)).map((i) => `abac policy ${i.key}`);
+      compiled = { ...terms, unknown: names.map((name) => ({ opaque: name })), opaque: [...terms.opaque, ...names.map((name): OpaqueRef => ({ kind: 'rewrite', name }))] };
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
     }
     this.compiled.set(items, compiled);
     return compiled;
+  }
+
+  private terms(loaded: ReadonlyMap<string, LoadedPolicy>, unknown: ReadonlySet<string>, ir: PolicyIR): AbacPolicyTerms {
+    return abacPolicyTerms(
+      [...loaded].flatMap(([key, p]) => (unknown.has(key) ? [] : [p])),
+      registryOf(ir),
+    );
   }
 }
