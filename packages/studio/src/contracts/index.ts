@@ -116,3 +116,6 @@ export type { DenyReason, ResourceFilter, Trace } from '@spinajs/authz';
 export type StudioDecision = Omit<Decision, 'validUntil' | 'trace'> & { validUntil?: string };
 export interface StudioExplainInput { domain?: string; principal: string; permission: string; resource?: string }
 export interface StudioExplainResult { decision: StudioDecision; trace?: Trace; denies: DenyReason[] }
+
+export interface StudioTupleRef { type: string; id: string; relation?: string }
+export interface StudioTuple { object: StudioTupleRef; relation: string; subject: StudioTupleRef }

@@ -147,7 +147,43 @@ Answers the RBAC role graph of a domain as a `StudioGraph` with `source: 'runtim
 
 Nodes are `role` (`role:<name>`, grouped by its ladder, with `assignable` and `deny`) and `permission` (`perm:<name>`). Edges go from a role: `grants` to a permission it grants, `inherits` to a role it extends, and `ladder` to the role right below it on its ladder, labelled with the ladder name.
 
-The authz routes show domain, model, role and permission names, the inheritance between roles, permission descriptions and resource types. They never show an assignment, a principal, a grant's resource pattern, fields or relation, an RBAC rule, or a condition.
+The domains and roles routes show domain, model, role and permission names, the inheritance between roles, permission descriptions and resource types. They never show an assignment, a principal, a grant's resource pattern, fields or relation, an RBAC rule, or a condition.
+
+## ReBAC
+
+Endpoint `authz`. These routes read the ReBAC model (`@spinajs/authz-rebac`) of a booted domain: its compiled namespaces and its tuple store. Each takes `domain` (a domain name, default `root`; an unknown one is a `400`) and answers `404` when the domain is not booted or has no ReBAC model. The `rebac` feature is true when a booted domain has one.
+
+### `GET /api/authz/namespaces`
+
+Answers the schema as a `StudioGraph` with `source: 'runtime'`. `limit` is 1 to 5000, default 500; past it the graph is `truncated`.
+
+Nodes are `namespace` (`ns:<type>`), `relation` and `permission` (`rel:<type>#<name>`, grouped by type). Edges: `has` from a namespace to its relations and permissions; `subject` from a relation to a namespace it admits as a direct subject; `subject-set` from a relation to a subject set it admits (`group#member`); `computed` from a permission to the relation or permission its rewrite names; `tupleset` from a permission to the relation a tuple-to-userset follows, labelled `-><computed>`.
+
+### `GET /api/authz/tuples`
+
+Answers a `StudioPage<StudioTuple>` in the store's order, with `total`, the number of matching tuples.
+
+| Parameter | Value |
+| --- | --- |
+| `object` | `type` (the whole namespace) or `type:id`. |
+| `relation` | A relation name. |
+| `subject` | `type:id`, or `type:id#relation` for a subject set; matched exactly. |
+| `limit` | 1 to 500; default 50. |
+| `cursor` | The `cursor` of the previous page; opaque. |
+
+### `GET /api/authz/relations/graph`
+
+Walks the stored tuples breadth-first from `focus`, in both directions, and answers a `StudioGraph` with `source: 'runtime'`.
+
+| Parameter | Value |
+| --- | --- |
+| `focus` | Required. `type:id`, or `type:id#relation` for a userset. Anything else is a `400`. |
+| `depth` | 0 to 10; default 2. |
+| `limit` | 1 to 5000 nodes; default 500. |
+
+Node ids are in the focus syntax: `object` nodes (`document:42`) and `userset` nodes (`group:eng#member`), grouped by type. An edge's `kind` and `label` are the relation name, from the object holding the tuple to its subject. An object reads every relation of its namespace and the tuples that name it as a direct subject; a userset reads its one relation. Each read is one store call; the walk stops at `limit` nodes, at 20 000 edges or after 2000 store calls, and the graph is then `truncated`. The edge cap bounds the reply on dense tuples, where every store call can link up to `limit` nodes that are already in the graph.
+
+The ReBAC routes show namespace, relation and permission names and rewrites, and each tuple's object, relation and subject: principal ids, object ids and subject sets. That is data about principals: whoever holds the `authz` endpoint's permission (`studio:read` by default) reads it. Nothing else a store keeps beside a tuple (who wrote it, when) is sent, and neither is the permission map or the check limits. Every id and name is cut at 2 KiB.
 
 ## Explain
 
