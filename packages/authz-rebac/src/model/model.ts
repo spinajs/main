@@ -129,9 +129,10 @@ export class RebacModel extends AuthorizationModel {
     const principal: PrincipalRef = { type: req.principal.type, id: req.principal.id };
     const request: CaveatRequest = { principal: req.principal, permission: req.permission, resource: req.resource, env: req.env ?? {} };
     if (req.resource.id == null) {
-      const paths = new RebacCaveats(this.schema().caveats).paramsOf(this.schema().caveatsReachable(target.type, target.name));
-      const args = paths.length === 0 ? { relation: target.name, principal } : { relation: target.name, principal, caveatInput: pickCaveatInput(paths, request) };
-      return this.vote({ op: REBAC_CHECK_OP, args }, paths.length === 0);
+      const reachable = this.schema().caveatsReachable(target.type, target.name);
+      const paths = new RebacCaveats(this.schema().caveats).paramsOf(reachable);
+      const args = reachable.length === 0 ? { relation: target.name, principal } : { relation: target.name, principal, caveatInput: pickCaveatInput(paths, request) };
+      return this.vote({ op: REBAC_CHECK_OP, args }, reachable.length === 0);
     }
     try {
       const { membership, tooDeep, cacheable, undecided } = await this.walk(req.resource, target.name, principal, ctx, request);

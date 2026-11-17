@@ -26,8 +26,9 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
     const no = await vote(who, resource, deny);
     expect(no.permitWhen, `${who} deny`).to.equal(FALSE);
     expect(no.reason?.code).to.equal('no_access');
+    expect(no.cacheable).to.equal(false);
     const unknown = await vote(who, resource, {});
-    expect(unknown).to.deep.include({ permitWhen: FALSE, reason: { code: 'caveat_unknown', model: 'rebac', caveats: [caveat] } });
+    expect(unknown).to.deep.include({ permitWhen: FALSE, reason: { code: 'caveat_unknown', model: 'rebac', caveats: [caveat] }, cacheable: false });
     expect(unknown.error).to.equal(undefined);
   }
 
@@ -48,6 +49,19 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
     expect(v.cacheable).to.equal(false);
     expect(await model.nativeFilter.matches(permit.args, {}, d1, ctx())).to.equal(true);
     expect(await model.nativeFilter.matches({ ...(permit.args as object), caveatInput: { 'env.ip': '10.0.0.2' } }, {}, d1, ctx())).to.equal(false);
+  });
+
+  it('the type-level residual of a caveat without parameters is decided per row, not dropped', async () => {
+    const hours = { params: {}, expr: { fn: 'time.between', args: { from: '09:00', to: '17:00' } } };
+    const m = new RebacModel({ store: new MemoryTupleStore([{ ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'hours' } }]), namespaces: { user: {}, doc: { relations: { viewer: ['user with hours'] } } }, permissions: { 'doc:read': 'doc#viewer' }, caveats: { hours } });
+    await m.init(fakeModelInitContext({ permissions: INPUTS, model: m.name }));
+    const at = (iso: string) => fakeEvaluationContext({ conditions: new DefaultConditionCompiler(), permissions: INPUTS, nativeFilters: [m.nativeFilter], now: new Date(iso) });
+    const v = await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: {} }, at('2026-11-17T10:00:00Z'));
+    const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
+    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {} });
+    expect(v.cacheable).to.equal(false);
+    expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T10:00:00Z'))).to.equal(true);
+    expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T20:00:00Z'))).to.equal(false);
   });
 
   describe('a caveat over the principal identity', () => {
