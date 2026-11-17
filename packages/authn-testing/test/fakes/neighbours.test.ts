@@ -5,7 +5,7 @@ import { ActionHook } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, AfterContext, BeforeContext, FailedContext } from '@spinajs/hooks';
 import { RecordingActionHook, refusingHook } from '@spinajs/hooks/testing';
 import * as fakes from '../../src/fakes/index.js';
-import { FakeClock, FakeImpersonationGuard, FakeRoleSource, MemoryLinkStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle } from '../../src/fakes/index.js';
+import { FakeClock, FakeImpersonationGuard, FakeRoleSource, MemoryLinkStore, RecordingEventListener, RecordingPrincipalFactory, RecordingThrottle } from '../../src/fakes/index.js';
 import { KitActionHooks } from '../../src/harness/index.js';
 
 const A = { type: 'user', id: 'a' };
@@ -40,11 +40,11 @@ describe('MemoryLinkStore', () => {
   });
 });
 
-describe('RecordingEventSink', () => {
+describe('RecordingEventListener', () => {
   const ev = (type: AuthnEvent['type']): AuthnEvent => ({ type, at: new Date(), outcome: 'success' });
 
   it('records frozen copies, filters by type and clears', async () => {
-    const s = new RecordingEventSink();
+    const s = new RecordingEventListener();
     const e = ev('login');
     await s.on(e);
     await s.on(ev('logout'));

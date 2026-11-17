@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { ActionRefused } from '@spinajs/hooks';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnContext, IdentityRef, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingEventSink, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
+import { FakeIdentityStore, RecordingEventListener, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
 
 import '../src/generator.js';
 import { DbTokenService, NoTokenProfilesPolicy } from '../src/service/index.js';
@@ -47,7 +47,7 @@ describe('DbTokenService action hooks', function () {
     hook = new ScriptedActionHook();
     warnings = [];
     const hooks = await kitHooks([hook], { log: { warn: (...args: unknown[]) => void warnings.push(args) } });
-    tokens = await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([new RecordingEventSink()]), hooks });
+    tokens = await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([new RecordingEventListener()]), hooks });
   });
 
   async function owner(): Promise<IdentityRef> {

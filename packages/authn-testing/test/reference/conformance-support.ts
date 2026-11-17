@@ -1,7 +1,7 @@
 import type { AuthenticationStrategy, Credentials } from '@spinajs/authn/contracts';
 import type { BddApi, TestThis } from '../../src/behaviour/types.js';
 import type { StrategySubject, StrategySubjectFactory } from '../../src/conformance/strategy.js';
-import { FakeIdentityStore, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, fakeSeedPort } from '../../src/fakes/index.js';
+import { FakeIdentityStore, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventListener, fakeSeedPort } from '../../src/fakes/index.js';
 
 export type CaseStatus = 'passed' | 'failed' | 'pending';
 export interface CaseOutcome {
@@ -58,12 +58,12 @@ export const CASE = {
 } as const;
 
 export interface SubjectEnv {
-  readonly events: RecordingEventSink;
+  readonly events: RecordingEventListener;
   readonly sessions: { n: number; count(): Promise<number> };
 }
 
 const newEnv = (): SubjectEnv => {
-  const env: SubjectEnv = { events: new RecordingEventSink(), sessions: { n: 0, count: async () => env.sessions.n } };
+  const env: SubjectEnv = { events: new RecordingEventListener(), sessions: { n: 0, count: async () => env.sessions.n } };
   return env;
 };
 

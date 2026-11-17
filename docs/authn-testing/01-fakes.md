@@ -29,7 +29,7 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `FakeStrategy` | `AuthenticationStrategy` | A strategy from two functions, plus `password`, `bearer` and `external` presets | `verifyCalls`, `keyCalls` |
 | `RecordingThrottle` | `AuthnThrottle` | Allows everything except the refusals you script | `attempts`, `succeeds` |
 | `FakeBackoffThrottle` | `AuthnThrottle` | Per-key exponential backoff, never a lock, with an atomic `peek` | protected `rows` |
-| `RecordingEventSink` | `AuthnEventSink` | Keeps every published event, frozen | `all()`, `ofType()`, `clear()` |
+| `RecordingEventListener` | `AuthnEventSink` | Keeps every published event, frozen | `all()`, `ofType()`, `clear()` |
 | `RecordingPrincipalFactory` | `PrincipalFactory` | Builds a `Principal` from the identity, facts and extras | `calls` |
 | `FakeImpersonationGuard` | `ImpersonationGuard` | Allows every impersonation until you deny one target or all | `calls` |
 | `FakeImpersonationStartHook(() => guard)` | `ActionHook` on `authn.impersonation.start` | The start check as users registers it: asks the guard about `input.actor` and `input.target` and refuses with its code. Register it beside the guard, or every start is refused (`no_guard`) | none |
@@ -176,7 +176,7 @@ Swap the fakes per test by making the factory answer with the current instance, 
 - The fakes keep their state in the instance. Build new instances per test; nothing is shared between two `FakeIdentityStore` objects.
 - `MemorySessionIssuer`, `MemorySecretStore` and `MemoryLinkStore` read `Date.now()`. A `FakeClock` that is not installed does not move their time.
 - `FakeClock.install()` fakes the global `Date` for the whole process. Always pair it with `uninstall()` in a `finally` or an `after` hook.
-- `RecordingEventSink.all()` returns a copy; events published later do not appear in an earlier copy.
+- `RecordingEventListener.all()` returns a copy; events published later do not appear in an earlier copy.
 - `fakeSeedPort` stores `fakeHash(password)`. Only `FakeStrategy.password` (or your own code using `fakeVerify`) accepts those hashes; a real argon2 strategy does not.
 
 ## Best practices
@@ -249,7 +249,7 @@ import {
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   RecordingThrottle,
   expectThrottled,
@@ -271,7 +271,7 @@ describe('login form', () => {
       policy: new EnrolledMfaPolicy([]),
       steps: [],
       sessions: new MemorySessionIssuer(),
-      listeners: [new RecordingEventSink()],
+      listeners: [new RecordingEventListener()],
       principals: new RecordingPrincipalFactory(),
     });
     await fakeSeedPort(identities, passwords).user({ login: ALICE.login, password: ALICE.password });

@@ -2,7 +2,7 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
-import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
+import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventListener, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import { TotpMfaStep } from '../../src/step/index.js';
@@ -57,7 +57,7 @@ describe('v3 service: TotpService', () => {
   let identities: FakeIdentityStore;
   let sessions: MemorySessionIssuer;
   let throttle: CountingThrottle;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
   let store: HookStore;
   let step: TotpMfaStep;
   let service: TotpService;
@@ -93,7 +93,7 @@ describe('v3 service: TotpService', () => {
     alice = await fakeSeedPort(identities, passwords).user({ login: 'alice', email: 'alice@example.com', password: PASSWORD });
     sessions = new MemorySessionIssuer({ pendingTtlSeconds: 900 });
     throttle = new CountingThrottle(throttleParams());
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     store = new HookStore();
     step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     authn = new CountingAuthn({

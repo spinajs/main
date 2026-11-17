@@ -3,7 +3,7 @@ import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, Ses
 import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from './oidc-config.js';
 import { OidcProvider } from '../../src/provider.js';
@@ -92,7 +92,7 @@ export async function world(o: WorldOptions = {}) {
   const links = new MemoryLinkStore();
   const strategy = new OidcStrategy({ provider, links, identities, linking });
   const sessions = new MemorySessionIssuer();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const hook = new RecordingHook();
   const service = new FakeAuthnService({
     strategies: [strategy],

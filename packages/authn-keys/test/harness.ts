@@ -2,7 +2,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthenticationStrategy, AuthnEventListener, NonceStore } from '@spinajs/authn/contracts';
 import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, KitKeyPair } from '@spinajs/authn-testing';
 import { signChallenge } from '../src/challenge/index.js';
 import { LocalJwsSigner, StrictJwsVerifier } from '../src/jws/index.js';
@@ -45,7 +45,7 @@ export interface KeysParts {
   readonly nonces: NonceStore;
   readonly secrets: MemorySecretStore;
   readonly throttle: FakeBackoffThrottle;
-  readonly events: RecordingEventSink;
+  readonly events: RecordingEventListener;
   readonly listeners: AuthnEventListener[];
   readonly identities: FakeIdentityStore;
   readonly sessions: MemorySessionIssuer;
@@ -76,7 +76,7 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind, hooks 
   const secrets = new MemorySecretStore();
   const params = throttleParams(config);
   const throttle = new FakeBackoffThrottle(params);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const listeners: AuthnEventListener[] = [events];
   const identities = new FakeIdentityStore();
   const sessions = new MemorySessionIssuer();

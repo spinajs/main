@@ -32,7 +32,7 @@ import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { OidcController } from '../src/controllers/OidcController.js';
 import { OidcHttpClient } from '../src/http/client.js';
@@ -192,7 +192,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         policy: new EnrolledMfaPolicy([]),
         steps: [],
         sessions,
-        listeners: [new RecordingEventSink()],
+        listeners: [new RecordingEventListener()],
         principals: new RecordingPrincipalFactory(),
         hooks: await DI.resolve(Hooks),
       });

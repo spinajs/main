@@ -272,7 +272,7 @@ import {
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   UnsupportedConfig,
   fakeSeedPort,
@@ -291,7 +291,7 @@ function harness(ctx: HarnessContext): Harness {
   const sessions = new MemorySessionIssuer();
   const params = throttleParams(ctx.config);
   const throttle = new FakeBackoffThrottle(params);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const step = new FakeMfaStep();
   const local = FakeStrategy.password({ identities, passwords });
   const service = new FakeAuthnService({

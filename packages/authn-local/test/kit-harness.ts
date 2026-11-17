@@ -19,7 +19,7 @@ import {
   MemoryPasswordCredentialStore,
   MemorySecretStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   ScriptedActionHook,
   UnsupportedConfig,
@@ -148,8 +148,8 @@ class HarnessHook extends ScriptedActionHook {}
 class HarnessPasswordStore extends MemoryPasswordCredentialStore {}
 class HarnessSessionIssuer extends MemorySessionIssuer {}
 class HarnessSecretStore extends MemorySecretStore {}
-class HarnessSink extends RecordingEventSink {}
-class HarnessSecondSink extends RecordingEventSink {}
+class HarnessSink extends RecordingEventListener {}
+class HarnessSecondSink extends RecordingEventListener {}
 
 class HarnessThrottle extends FakeBackoffThrottle {
   constructor() {
@@ -361,7 +361,7 @@ export interface LocalParts {
   readonly sessions: HarnessSessionIssuer;
   readonly secrets: HarnessSecretStore;
   readonly throttle: HarnessThrottle;
-  readonly listeners: readonly RecordingEventSink[];
+  readonly listeners: readonly RecordingEventListener[];
   readonly tokens: HarnessTokenService;
   readonly mailer: HarnessMailer;
   readonly hasher: Argon2PasswordHasher;
@@ -388,7 +388,7 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
     sessions: DI.resolve(SessionIssuer) as HarnessSessionIssuer,
     secrets,
     throttle: DI.resolve(AuthnThrottle) as HarnessThrottle,
-    listeners: ((await DI.resolve(Array.ofType(AuthnEventListener))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
+    listeners: ((await DI.resolve(Array.ofType(AuthnEventListener))) as unknown[]).filter((s): s is RecordingEventListener => s instanceof RecordingEventListener),
     tokens: DI.resolve(TokenService) as HarnessTokenService,
     mailer: DI.resolve(PasswordMailer) as HarnessMailer,
     hasher: (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher,

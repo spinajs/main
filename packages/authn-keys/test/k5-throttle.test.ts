@@ -7,7 +7,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthnContext, Credentials, KeyOwner } from '@spinajs/authn/contracts';
 import { MemoryAuthnThrottle } from '@spinajs/authn';
-import { FakeClock, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, signHttpRequest, throttleParams } from '@spinajs/authn-testing';
+import { FakeClock, FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, generateKeyPair, signCompactJws, signHttpRequest, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, KitKeyPair } from '@spinajs/authn-testing';
 import { assertionIssuer } from '../src/strategies/index.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
@@ -55,7 +55,7 @@ async function world(config: ConfigOverrides = {}) {
   bind(child, IdentityStore, 'K5IdentityStore', new FakeIdentityStore());
   bind(child, PrincipalFactory, 'K5PrincipalFactory', new RecordingPrincipalFactory());
   bind(child, SessionIssuer, 'K5SessionIssuer', new MemorySessionIssuer());
-  bind(child, AuthnEventListener, 'K5Events', new RecordingEventSink());
+  bind(child, AuthnEventListener, 'K5Events', new RecordingEventListener());
   for (const s of listed) bind(child, AuthenticationStrategy, s.service, s.instance);
   const service = (await child.resolve(AuthnService)) as AuthnService;
 

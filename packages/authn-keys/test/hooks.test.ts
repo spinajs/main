@@ -3,7 +3,7 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnContext, KeyOwner } from '@spinajs/authn/contracts';
-import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, ScriptedActionHook, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
+import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventListener, ScriptedActionHook, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
 
 import { keysOptionsFor } from './support/keys-options.js';
 import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
@@ -14,7 +14,7 @@ const CODE = 'not-today';
 
 async function world() {
   const clock = new FakeClock();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const store = new MemoryKeyStore();
   const hook = new ScriptedActionHook();
   const registry = new DefaultKeyRegistry({ store, secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([events]), options: keysOptionsFor({ cache: { ttlSeconds: 0, maxEntries: 1 } }), hooks: await kitHooks([hook]) });

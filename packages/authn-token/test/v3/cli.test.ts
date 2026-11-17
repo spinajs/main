@@ -10,7 +10,7 @@ import { InvalidArgument, InvalidOperation, InvalidOption, ResourceDuplicated, U
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventListener, IdentityStore, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
+import { FakeIdentityStore, RecordingEventListener } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
 
 import '../../src/generator.js';
@@ -32,7 +32,7 @@ const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 const ctx = (now: Date): AuthnContext => ({ now, purpose: 'request' });
 
-class CliTestSink extends RecordingEventSink {}
+class CliTestSink extends RecordingEventListener {}
 class CliTestProfilePolicy extends TokenProfilePolicy {
   public async allowedProfiles(_owner: IdentityRef): Promise<readonly string[]> {
     return ['reports'];

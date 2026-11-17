@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import { AuthnEventListener, AuthnEventSink, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType } from '@spinajs/authn/contracts';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, fakeHash, throttleParams } from '../../src/index.js';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, fakeHash, throttleParams } from '../../src/index.js';
 
 const ALICE = { login: 'alice@example.test', password: 'Alice-Pass-1234' };
 const IP = '192.0.2.10';
@@ -65,20 +65,20 @@ async function login(w: ReturnType<typeof build>) {
   return w.service.authenticate({ kind: 'password', login: ALICE.login, password: ALICE.password }, { now: new Date(), purpose: 'login', ip: IP });
 }
 
-const summary = (events: RecordingEventSink) => events.all().map((e) => [e.type, e.outcome, e.reason]);
+const summary = (events: RecordingEventListener) => events.all().map((e) => [e.type, e.outcome, e.reason]);
 
 describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => {
   afterEach(() => {
-    DI.unregister(RecordingEventSink);
+    DI.unregister(RecordingEventListener);
     DI.uncache(AuthnEventListener);
     DI.uncache(AuthnEventSink);
   });
 
   it('delivers once to a listener registered under both AuthnEventListener and AuthnEventSink', async () => {
-    DI.register(RecordingEventSink).as(AuthnEventListener);
-    DI.register(RecordingEventSink).as(AuthnEventSink);
+    DI.register(RecordingEventListener).as(AuthnEventListener);
+    DI.register(RecordingEventListener).as(AuthnEventSink);
     const both = [...(await DI.resolve(Array.ofType(AuthnEventListener))), ...(await DI.resolve(Array.ofType(AuthnEventSink)))];
-    const events = both.find((l): l is RecordingEventSink => l instanceof RecordingEventSink)!;
+    const events = both.find((l): l is RecordingEventListener => l instanceof RecordingEventListener)!;
     assert.strictEqual(both.filter((l) => l === events).length, 2, 'both lookups answer the one instance');
 
     const r = await login(build(both));
@@ -91,7 +91,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('a failing listener that does not block stops nothing, and the others still get the events', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const r = await login(build([new FailingListener(false), events]));
 
     assert.strictEqual(r.status, 'success');
@@ -102,7 +102,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('a failing blocking listener stops the login, revokes its session and re-publishes the told events as listener_failed', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const w = build([new FailingListener(true), events]);
 
     await assert.rejects(login(w), AuthnListenerFailed);
@@ -113,7 +113,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('a stopped MFA challenge revokes its pending session', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const w = build([new FailingListener(true), events], true);
     const a = w.identities.add({ login: ALICE.login });
     await w.passwords.set(a, fakeHash(ALICE.password));
@@ -126,7 +126,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('a stopped MFA completion revokes the elevated session', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const w = build([new FailingListener(true, 'mfa.verify'), events], true);
     const a = w.identities.add({ login: ALICE.login });
     await w.passwords.set(a, fakeHash(ALICE.password));
@@ -144,7 +144,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('a stopped step-up revokes the reissued session', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const w = build([new FailingListener(true, 'mfa.verify'), events], true);
     const r = await login(w);
     assert.ok(r.status === 'success' && r.session);
@@ -180,7 +180,7 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
   });
 
   it('publishes token.use detached: a failing blocking listener neither stops nor holds the request, and every listener gets it', async () => {
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const log = new WarnLog();
     const w = build([new FailingListener(true), events], false, log);
 

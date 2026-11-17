@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, throttleParams } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, Harness, HarnessContext, SeedPort } from '@spinajs/authn-testing';
 
@@ -111,7 +111,7 @@ export async function jwtHarness(ctx: HarnessContext): Promise<Harness> {
     policy: new EnrolledMfaPolicy([]),
     steps: [],
     sessions: new MemorySessionIssuer(),
-    listeners: [new RecordingEventSink()],
+    listeners: [new RecordingEventListener()],
     principals: new RecordingPrincipalFactory(),
   });
 

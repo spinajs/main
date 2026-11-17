@@ -56,7 +56,7 @@ import {
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   expectSuccess,
   fakeSeedPort,
@@ -78,7 +78,7 @@ describe('order history', () => {
       policy: new EnrolledMfaPolicy([step]),
       steps: [step],
       sessions: new MemorySessionIssuer(),
-      listeners: [new RecordingEventSink()],
+      listeners: [new RecordingEventListener()],
       principals: new RecordingPrincipalFactory(),
     });
 

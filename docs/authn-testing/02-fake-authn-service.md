@@ -65,7 +65,7 @@ sequenceDiagram
 | `policy` | `MfaPolicy` | required | `EnrolledMfaPolicy`, your own | Which steps a login must pass |
 | `steps` | `readonly MfaStep[]` | required | `FakeMfaStep`, your own | Steps `completeMfa` can verify |
 | `sessions` | `SessionIssuer` | required | `MemorySessionIssuer`, your own | Issues, restores and elevates sessions |
-| `listeners` | `readonly AuthnEventListener[]` | required | `RecordingEventSink`, your own | Every event goes to every listener once, through `AuthnAudit.over`; the array is read at publish time |
+| `listeners` | `readonly AuthnEventListener[]` | required | `RecordingEventListener`, your own | Every event goes to every listener once, through `AuthnAudit.over`; the array is read at publish time |
 | `principals` | `PrincipalFactory` | required | `RecordingPrincipalFactory`, your own | Builds the `Principal` |
 | `hooks` | `Hooks` (`@spinajs/hooks`) | none | a `DefaultHooks` over your `ActionHook`s | Runs `authn.login.identified` for interactive logins; without it no hook runs |
 | `log` | `Pick<Log, 'warn'>` | none | a logger, a recording stub | Gets a warning for a listener that fails or times out, and for a session whose revocation failed after a stopped announcement; without it they are dropped silently |
@@ -100,7 +100,7 @@ import {
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   DEFAULT_THROTTLE,
 } from '@spinajs/authn-testing';
@@ -122,7 +122,7 @@ export const service = new InviteAwareAuthnService({
   policy: new EnrolledMfaPolicy([]),
   steps: [],
   sessions: new MemorySessionIssuer(),
-  listeners: [new RecordingEventSink()],
+  listeners: [new RecordingEventListener()],
   principals: new RecordingPrincipalFactory(),
 });
 ```
@@ -140,7 +140,7 @@ export const service = new InviteAwareAuthnService({
 
 - Seed users with `fakeSeedPort(identities, passwords)` and the kit users (`ALICE`, `BOB`, `CAROL`, `DAVE` from [test helpers](07-test-helpers.md#kit-users-and-values)), so passwords match the hash `FakeStrategy.password` checks.
 - Assert results with `expectSuccess`, `expectMfaRequired`, `expectFailure` and `expectThrottled`; the first two narrow the result type for the next lines.
-- Keep the `RecordingEventSink` in a variable and assert on `events.ofType('login')` when a test cares about audit.
+- Keep the `RecordingEventListener` in a variable and assert on `events.ofType('login')` when a test cares about audit.
 
 ## Patterns and antipatterns
 
@@ -172,7 +172,7 @@ import {
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
   MemorySessionIssuer,
-  RecordingEventSink,
+  RecordingEventListener,
   RecordingPrincipalFactory,
   expectMfaRequired,
   expectSuccess,
@@ -186,7 +186,7 @@ describe('admin console', () => {
     const identities = new FakeIdentityStore();
     const passwords = new MemoryPasswordCredentialStore();
     const totp = new FakeMfaStep({ name: 'totp' });
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const service = new FakeAuthnService({
       strategies: [FakeStrategy.password({ identities, passwords })],
       throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),

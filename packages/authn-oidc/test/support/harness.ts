@@ -2,7 +2,7 @@ import { AUTHN_FAILURE_BODY, MemoryNonceStore } from '@spinajs/authn';
 import type { Credentials, ExternalSubject, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeStrategy, MemoryPasswordCredentialStore, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, HttpRequest, HttpResponse, IdTokenTamper, ProbeBody } from '@spinajs/authn-testing';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from './oidc-config.js';
 import { OidcProvider } from '../../src/provider.js';
@@ -57,7 +57,7 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
   const links = new MemoryLinkStore();
   const strategy = new OidcStrategy({ provider, links, identities, linking });
   const sessions = new MemorySessionIssuer();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const principals = new RecordingPrincipalFactory();
   const service = new FakeAuthnService({
     strategies: [FakeStrategy.password({ identities, passwords }), strategy],

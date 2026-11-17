@@ -2,7 +2,7 @@ import { MfaPolicy } from '@spinajs/authn/contracts';
 import type { AuthenticationStrategy, AuthnEventListener, Credentials, AuthnFacts, AuthnService, AuthnThrottle, ExternalSubject, IdentityRef, MfaStep } from '@spinajs/authn/contracts';
 import { KIT_ATTRIBUTES, throttleParams } from '../../src/behaviour/index.js';
 import type { HarnessContext } from '../../src/behaviour/index.js';
-import { EnrolledMfaPolicy, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, fakeSeedPort } from '../../src/fakes/index.js';
+import { EnrolledMfaPolicy, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, fakeSeedPort } from '../../src/fakes/index.js';
 import type { MemorySessionOptions } from '../../src/fakes/index.js';
 import { UnsupportedConfig } from '../../src/harness/index.js';
 import type { ConfigOverrides, Harness, ThrottleParams } from '../../src/harness/index.js';
@@ -73,7 +73,7 @@ export interface ReferenceParts {
   readonly sessions: MemorySessionIssuer;
   readonly throttle: AuthnThrottle;
   readonly throttleParams: ThrottleParams;
-  readonly events: RecordingEventSink;
+  readonly events: RecordingEventListener;
   /** The live list the service publishes to; push a sink to add one. */
   readonly listeners: AuthnEventListener[];
   readonly principals: RecordingPrincipalFactory;
@@ -107,8 +107,8 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
   const sessions = new MemorySessionIssuer(sessionOptions(config));
   const params = throttleParams(config);
   const throttle = over.throttle?.(params) ?? new ReferenceBackoffThrottle(params);
-  const events = new RecordingEventSink();
-  const second = new RecordingEventSink();
+  const events = new RecordingEventListener();
+  const second = new RecordingEventListener();
   const listeners: AuthnEventListener[] = [events, second];
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();

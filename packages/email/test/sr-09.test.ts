@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { AuthnContext } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
 
@@ -28,7 +28,7 @@ void contract;
 function setup() {
   const email = capturingEmailService();
   const identities = new FakeIdentityStore();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const warnings: unknown[][] = [];
   const service = new LocalPasswordService({
     identities,

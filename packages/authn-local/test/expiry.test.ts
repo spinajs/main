@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFacts, IdentityRef, PasswordExpiry } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
@@ -38,7 +38,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
   const identities = new FakeIdentityStore();
   const passwords = new MemoryPasswordCredentialStore();
   const sessions = (over.sessions as MemorySessionIssuer | undefined) ?? new MemorySessionIssuer();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const tokens = new RecordingTokenService();
   const secrets = new MemorySecretStore();
   const mailer = new ExpiryRecordingMailer();

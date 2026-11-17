@@ -9,7 +9,7 @@ import { Orm } from '@spinajs/orm';
 import { DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventListener, AuthnService, AuthnThrottle, CLI_ACTOR, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
-import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
+import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventListener, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import { TotpMfaStep } from '../../src/step/index.js';
@@ -33,7 +33,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   let identities: FakeIdentityStore;
   let store: MemoryMfaSecretStore;
   let step: TotpMfaStep;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
   let service: TotpService;
   let alice: IdentityRef;
 
@@ -59,7 +59,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     alice = identities.add({ login: 'alice', email: 'alice@example.com' });
     store = new MemoryMfaSecretStore();
     step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     const sessions = new MemorySessionIssuer();
     const throttle = new FakeBackoffThrottle(throttleParams());
     const authn = new FakeAuthnService({ strategies: [], throttle, identities, links: new MemoryLinkStore(), linking: { jit: false, byVerifiedEmail: false }, policy: new EnrolledMfaPolicy([step]), steps: [step], sessions, listeners: [events], principals: new RecordingPrincipalFactory() });

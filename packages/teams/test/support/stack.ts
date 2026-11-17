@@ -15,7 +15,7 @@ export const INVITATION_SECRET = 'teams-test-invitation-secret-of-at-least-32-ch
 
 type TestConfiguration = ReturnType<typeof testHost.config>;
 
-export class RecordingEventSink extends AuthzEventSink {
+export class RecordingEventListener extends AuthzEventSink {
   readonly events: AuthzEvent[] = [];
 
   async publish(events: readonly AuthzEvent[]): Promise<void> {
@@ -76,7 +76,7 @@ export const TEST_CONFIG = {
 export interface TeamsStack extends TeamsDb {
   readonly authz: AuthzService;
   readonly admin: AuthzAdmin;
-  readonly events: RecordingEventSink;
+  readonly events: RecordingEventListener;
   readonly mailer: RecordingInvitationMailer;
   readonly config: TestConfiguration;
 }
@@ -92,7 +92,7 @@ async function boot(): Promise<TeamsStack> {
   config.set(['process', 'env', 'APP_ENV'], 'test');
 
   const root = DI.RootContainer;
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   root.register(testHost.instance(events)).as(AuthzEventSink);
   const mailer = new RecordingInvitationMailer();
   root.register(testHost.instance(mailer)).as(InvitationMailer);

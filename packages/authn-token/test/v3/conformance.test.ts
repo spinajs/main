@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { Credentials } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { FakeClock, KitKeyPair, StrategySubject } from '@spinajs/authn-testing';
 
@@ -53,7 +53,7 @@ async function tokenSubject({ clock }: { clock: FakeClock }): Promise<StrategySu
     unknown: async () => bearer(randomToken()),
     secretsOf: (c) => [tokenOf(c)],
     sessions: sessionsOf(new MemorySessionIssuer()),
-    events: new RecordingEventSink(),
+    events: new RecordingEventListener(),
   };
 }
 
@@ -85,7 +85,7 @@ async function jwtSubject({ clock }: { clock: FakeClock }): Promise<StrategySubj
     // No unknown(): the strategy looks up no account; it answers an external subject and AuthnService links it.
     secretsOf: (c) => [tokenOf(c)],
     sessions: sessionsOf(new MemorySessionIssuer()),
-    events: new RecordingEventSink(),
+    events: new RecordingEventListener(),
   };
 }
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { UnsupportedConfig } from '../src/harness/index.js';
 import type { Harness, HttpRequest, HttpResponse } from '../src/harness/index.js';
-import { RecordingEventSink } from '../src/fakes/index.js';
+import { RecordingEventListener } from '../src/fakes/index.js';
 import { defineCase, defineRule, planCases, runAuthnBehaviour, send, sendRaw, settleCase } from '../src/behaviour/index.js';
 import type { AuthnCase, AuthnRule, BddApi, HarnessFactory, RuleId, RunOptions, TestThis } from '../src/behaviour/index.js';
 import { MOCHA_SLACK_MS, planCasesIn, runBehaviourIn } from '../src/behaviour/runner.js';
@@ -127,7 +127,7 @@ describe('runAuthnBehaviour: validation', () => {
 
 describe('runAuthnBehaviour: execution', () => {
   it('registers describe per rule and it per case, and runs a case with its ports', async () => {
-    const { describes, ran } = await collect((bdd) => runBehaviourIn(RULES, ['A01', 'A03'], factory({ sessions: {} as never, events: new RecordingEventSink() }), { bdd, title: 'kit' }));
+    const { describes, ran } = await collect((bdd) => runBehaviourIn(RULES, ['A01', 'A03'], factory({ sessions: {} as never, events: new RecordingEventListener() }), { bdd, title: 'kit' }));
     assert.deepStrictEqual(describes, ['kit', 'A01 rule A01', 'A03 rule A03']);
     assert.deepStrictEqual(
       ran.map((r) => [r.title, r.status]),
@@ -140,7 +140,7 @@ describe('runAuthnBehaviour: execution', () => {
   });
 
   it('a missing port makes the case pending with the needs in its title and the summary line', async () => {
-    const { ran, logs } = await collect((bdd) => runBehaviourIn(RULES, ['A01'], factory({ events: new RecordingEventSink() }), { bdd }));
+    const { ran, logs } = await collect((bdd) => runBehaviourIn(RULES, ['A01'], factory({ events: new RecordingEventListener() }), { bdd }));
     assert.deepStrictEqual(
       ran.map((r) => [r.title, r.status]),
       [
@@ -239,7 +239,7 @@ describe('runAuthnBehaviour: execution', () => {
       if (ctx.caseName === 'A01 factory throws') {
         throw new Error('factory broke');
       }
-      return { events: new RecordingEventSink(), dispose: async () => void p.dispose++ };
+      return { events: new RecordingEventListener(), dispose: async () => void p.dispose++ };
     };
     const { ran } = await collect((bdd) => runBehaviourIn(r, ['A01'], f, { bdd }));
     assert.deepStrictEqual(
@@ -330,7 +330,7 @@ describe('runAuthnBehaviour: execution', () => {
   });
 
   it('a requested rule without cases registers one visible pending case and a summary line', async () => {
-    const { describes, ran, logs } = await collect((bdd) => runBehaviourIn(RULES, ['A03', 'A04'], factory({ events: new RecordingEventSink() }), { bdd }));
+    const { describes, ran, logs } = await collect((bdd) => runBehaviourIn(RULES, ['A03', 'A04'], factory({ events: new RecordingEventListener() }), { bdd }));
     assert.deepStrictEqual(describes, ['authn behaviour', 'A03 rule A03', 'A04 rule A04']);
     assert.deepStrictEqual(
       ran.map((x) => [x.title, x.status]),
@@ -379,7 +379,7 @@ describe('runAuthnBehaviour: execution', () => {
   it('settleCase reports passed, pending and failed outside mocha', async () => {
     const [p] = planCases(['A02'], { facets: ['A02/core'] });
     assert.strictEqual((await settleCase(p, factory())).status, 'pending');
-    const failing = await settleCase(p, () => ({ service: {} as never, seed: {} as never, events: new RecordingEventSink() }));
+    const failing = await settleCase(p, () => ({ service: {} as never, seed: {} as never, events: new RecordingEventListener() }));
     assert.strictEqual(failing.status, 'failed');
   });
 

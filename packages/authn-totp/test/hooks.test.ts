@@ -3,7 +3,7 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { ActionRefused } from '@spinajs/hooks';
 import type { AuthnContext, AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, fakeSeedPort, kitHooks, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, ScriptedActionHook, fakeSeedPort, kitHooks, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 
 import { mfaKeyRingFrom } from '../src/cipher/index.js';
 import { TotpService } from '../src/service/index.js';
@@ -45,7 +45,7 @@ async function rejection(p: Promise<unknown>): Promise<unknown> {
 describe('TotpService action hooks', () => {
   let clock: FakeClock;
   let store: CountingStore;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
   let hook: ScriptedActionHook;
   let service: TotpService;
   let sessions: MemorySessionIssuer;
@@ -81,7 +81,7 @@ describe('TotpService action hooks', () => {
     alice = await fakeSeedPort(identities, passwords).user({ login: 'alice', email: 'alice@example.com', password: 'correct horse battery staple' });
     sessions = new MemorySessionIssuer();
     throttle = new KeyThrottle(throttleParams());
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     store = new CountingStore();
     step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     const authn = new FakeAuthnService({

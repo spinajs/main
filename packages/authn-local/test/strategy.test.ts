@@ -5,7 +5,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, StrategyOutcome } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, Argon2PasswordHasherOptions, EXPIRED_PASSWORD_MARKER, PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
@@ -303,7 +303,7 @@ describe('LocalPasswordStrategy', function () {
         secrets,
         throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),
         tokens: null,
-        listeners: [new RecordingEventSink()],
+        listeners: [new RecordingEventListener()],
         hasher,
         policy: new LocalPasswordPolicy({}),
       });
