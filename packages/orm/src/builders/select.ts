@@ -287,10 +287,35 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return routed ? read : undefined;
   }
 
-  protected _executeOnDriver(): Promise<T> {
+  protected async _executeOnDriver(): Promise<T> {
     const driver = this.executionDriver();
     this._readDriver = driver;
-    return driver.execute(this) as Promise<T>;
+    try {
+      return (await driver.execute(this)) as T;
+    } catch (err) {
+      const fallback = this._failoverFrom(driver);
+      if (fallback === undefined) {
+        throw err;
+      }
+
+      this._readDriver = fallback;
+      return (await fallback.execute(this)) as T;
+    }
+  }
+
+  /**
+   * Only a replica its driver gave up on: withReconnect leaves it Disconnected when its reconnect attempts ran out.
+   * A statement the replica refused does not change the state and is not run again, also on a Degraded replica (the
+   * health check's verdict, not this statement's). A stream page stays on the connection it pinned.
+   */
+  private _failoverFrom(failed: OrmDriver): OrmDriver | undefined {
+    if (failed === this._driver || this._pinnedDriver !== undefined || failed.State !== ConnectionState.Disconnected) {
+      return undefined;
+    }
+
+    // the router, not the read route: a relation load routed to the lost replica must leave it too
+    const next = this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+    return next === failed ? undefined : next;
   }
 
   // The relation middlewares run their selects inside this scope (afterHydration), so they read where the rows came from.

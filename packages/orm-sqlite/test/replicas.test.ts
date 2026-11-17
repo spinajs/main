@@ -8,6 +8,7 @@ import _ from 'lodash';
 import 'mocha';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import sinon from 'sinon';
 import sqlite3 from 'sqlite3';
 import { SqliteOrmDriver } from '../src/index.js';
 import { mergeArrays } from './util.js';
@@ -87,6 +88,15 @@ class RoutedItem extends ModelBase {
   public Notes: Relation<RoutedNote, RoutedItem>;
 }
 
+// setState is protected; a test stands in for the health check and for withReconnect giving up
+const setStateOf = (driver: OrmDriver, state: ConnectionState): void => (driver as unknown as { setState(state: ConnectionState): void }).setState(state);
+
+/** What withReconnect leaves behind when its retries ran out: the driver Disconnected, the transport error rethrown. */
+function connectionLost(driver: OrmDriver): Promise<never> {
+  setStateOf(driver, ConnectionState.Disconnected);
+  return Promise.reject(Object.assign(new Error('connection lost'), { code: 'ECONNRESET' }));
+}
+
 async function readName(): Promise<string> {
   return (await RoutedItem.where({ Id: 1 }).firstOrFail()).Name;
 }
@@ -137,8 +147,7 @@ describe('read replicas on sqlite', function () {
   let replica: OrmDriver;
   let seed: Class<OrmMigration>;
 
-  // setState is protected; a test stands in for the health check and for withReconnect giving up
-  const setReplicaState = (state: ConnectionState): void => (replica as unknown as { setState(state: ConnectionState): void }).setState(state);
+  const setReplicaState = (state: ConnectionState): void => setStateOf(replica, state);
 
   before(async () => {
     seed = defineSeedMigration();
@@ -408,6 +417,104 @@ describe('read replicas on sqlite', function () {
       }
     }
   });
+
+  function loseReplica() {
+    return sinon.stub(replica, 'execute').callsFake(() => connectionLost(replica));
+  }
+
+  async function expectNotMoved(message: string): Promise<void> {
+    const onPrimary = sinon.spy(primary, 'execute');
+    try {
+      let error: unknown;
+      await readName().catch((err: unknown) => (error = err));
+
+      expect(error).to.have.property('message', message);
+      expect(onPrimary.callCount).to.eq(0);
+    } finally {
+      onPrimary.restore();
+    }
+  }
+
+  it('reads the primary when the driver gave the replica up under a select', async () => {
+    const lost = loseReplica();
+    try {
+      expect(await readName()).to.eq('primary');
+      expect(lost.callCount).to.eq(1);
+    } finally {
+      lost.restore();
+      setReplicaState(ConnectionState.Connected);
+    }
+  });
+
+  it('moves a relation load whose replica was lost after it read the owner', async () => {
+    // not onFirstCall().callThrough(): sinon ignores callThrough on a call behaviour once the stub has a default fake
+    const execute = replica.execute.bind(replica);
+    const lost = loseReplica();
+    lost.onFirstCall().callsFake(execute);
+    try {
+      const item = await RoutedItem.where({ Id: 1 }).populate('Notes').firstOrFail();
+
+      expect(item.Name).to.eq('replica');
+      expect(item.Notes.map((n) => n.Body)).to.deep.equal(['primary']);
+    } finally {
+      lost.restore();
+      setReplicaState(ConnectionState.Connected);
+    }
+  });
+
+  it('does not run a statement again that the replica refused', async () => {
+    const refused = sinon.stub(replica, 'execute').rejects(new Error('no such column: Nope'));
+    try {
+      await expectNotMoved('no such column: Nope');
+    } finally {
+      refused.restore();
+    }
+  });
+
+  it('does not run a refused statement again on a degraded replica', async () => {
+    const refused = sinon.stub(replica, 'execute').callsFake(() => {
+      setReplicaState(ConnectionState.Degraded);
+      return Promise.reject(new Error('no such column: Nope'));
+    });
+    try {
+      await expectNotMoved('no such column: Nope');
+    } finally {
+      refused.restore();
+      setReplicaState(ConnectionState.Connected);
+    }
+  });
+
+  it('does not move off a replica whose driver did not give it up', async () => {
+    // a driver that neither retries nor marks the replica (mssql, sqlite): the error surfaces as it does today
+    const failing = sinon.stub(replica, 'execute').rejects(Object.assign(new Error('connection lost'), { code: 'ECONNRESET' }));
+    try {
+      await expectNotMoved('connection lost');
+    } finally {
+      failing.restore();
+    }
+  });
+
+  it('fails a stream whose connection dies instead of moving it', async () => {
+    // the routed files are not in WAL mode, so the stream pages by keyset and every page is an execute()
+    const dead = loseReplica();
+    try {
+      let error: unknown;
+      const names: string[] = [];
+      try {
+        for await (const item of RoutedItem.select().order('Id').stream()) {
+          names.push(item.Name);
+        }
+      } catch (err) {
+        error = err;
+      }
+
+      expect(names).to.deep.equal([]);
+      expect(error).to.have.property('message', 'connection lost');
+    } finally {
+      dead.restore();
+      setReplicaState(ConnectionState.Connected);
+    }
+  });
 });
 
 /** sqlite holds a native cursor only on a WAL file it has read handles for; replicas inherit `Pool`. */
@@ -496,6 +603,55 @@ describe('read replicas on sqlite with a native stream cursor', function () {
       expect(mismatched).to.deep.equal([]);
     } finally {
       router.register(primary, [replica]);
+    }
+  });
+
+  it('moves the relation loads of a cursor batch off a replica lost after the cursor read it', async () => {
+    expect(await replica.canStreamNatively()).to.eq(true);
+
+    const lost = sinon.stub(replica, 'execute').callsFake(() => connectionLost(replica));
+    try {
+      const items: RoutedItem[] = [];
+      for await (const item of RoutedItem.select().order('Id').populate('Notes').stream()) {
+        items.push(item);
+      }
+
+      expect(items.map((i) => i.Name)).to.deep.equal(['replica', 'replica']);
+      expect(items.flatMap((i) => i.Notes.map((n) => n.Body))).to.deep.equal(['primary', 'primary']);
+      expect(lost.callCount).to.eq(1);
+    } finally {
+      lost.restore();
+      setStateOf(replica, ConnectionState.Connected);
+    }
+  });
+
+  it('fails a cursor stream whose connection dies instead of moving it', async () => {
+    expect(await replica.canStreamNatively()).to.eq(true);
+
+    const dead = sinon.stub(replica, 'executeStream').callsFake(async function* () {
+      yield* [];
+      await connectionLost(replica);
+    });
+    const onPrimary = sinon.spy(primary, 'executeStream');
+    try {
+      let error: unknown;
+      const names: string[] = [];
+      try {
+        for await (const item of RoutedItem.select().order('Id').stream()) {
+          names.push(item.Name);
+        }
+      } catch (err) {
+        error = err;
+      }
+
+      expect(names).to.deep.equal([]);
+      expect(error).to.have.property('message', 'connection lost');
+      expect(dead.callCount).to.eq(1);
+      expect(onPrimary.callCount).to.eq(0);
+    } finally {
+      dead.restore();
+      onPrimary.restore();
+      setStateOf(replica, ConnectionState.Connected);
     }
   });
 });
