@@ -21,7 +21,11 @@ export interface KeyInput {
   /** `coveredSince` of the kind (and type), read after the key's history. */
   since?: Date;
   window: ReplayWindow;
-  /** Stored precision of instants inside payloads (`changeLogPrecisionMs`); default 1. */
+  /**
+   * Precision of the instants inside images, that of the coarsest store column they come from; default 1 ms. The
+   * changelog's `changeLogPrecisionMs` serves only while every such column keeps at least that precision: a coarser
+   * one turns healthy keys into gaps.
+   */
   precisionMs?: number;
 }
 
@@ -79,11 +83,20 @@ function beforeImage(c: ChangeRecord, earlier: ChangeRecord | undefined): unknow
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 /**
- * Equality of two JSON images. Instants (Dates, ISO strings) are equal when they differ by less than `precisionMs`:
- * MySQL keeps whole seconds in a datetime column while a logged payload keeps the milliseconds it was given.
+ * Equality of two JSON images. Instants (Dates, ISO strings) are equal when they differ by less than `precisionMs`, the
+ * precision of the store column an image's instants come from. Values JSON cannot hold (Map, Set, bigint, non-finite
+ * numbers, invalid dates) are never the same: a gap rather than a guess.
  */
 export function sameImage(a: unknown, b: unknown, precisionMs = 1): boolean {
-  return equalJson(toJson(a), toJson(b), precisionMs);
+  return plainJson(a) && plainJson(b) && equalJson(toJson(a), toJson(b), precisionMs);
+}
+
+function plainJson(v: unknown): boolean {
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'bigint' || typeof v === 'function' || typeof v === 'symbol') return false;
+  if (v === null || typeof v !== 'object') return true;
+  if (v instanceof Date) return !Number.isNaN(v.getTime());
+  return !(v instanceof Map || v instanceof Set) && Object.values(v).every(plainJson);
 }
 
 function toJson(v: unknown): unknown {

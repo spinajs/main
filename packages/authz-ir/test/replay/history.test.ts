@@ -101,6 +101,15 @@ describe('sameImage', () => {
     expect(sameImage(undefined, undefined)).to.equal(true);
   });
 
+  it('never takes values JSON cannot hold for the same', () => {
+    expect(sameImage({ m: new Map([[1, 2]]) }, { m: new Map([[1, 3]]) })).to.equal(false);
+    expect(sameImage(new Set([1]), new Set([1]))).to.equal(false);
+    expect(sameImage({ n: 1n }, { n: 1n })).to.equal(false);
+    expect(sameImage({ n: Number.NaN }, { n: null })).to.equal(false);
+    expect(sameImage([Number.POSITIVE_INFINITY], [null])).to.equal(false);
+    expect(sameImage(new Date(Number.NaN), null)).to.equal(false);
+  });
+
   it('matches instants within the precision only, and other strings exactly', () => {
     expect(sameImage('2026-01-01T00:00:00.001Z', new Date('2026-01-01T00:00:00.001Z'))).to.equal(true);
     expect(sameImage('2026-01-01T00:00:00.001Z', '2026-01-01T00:00:00.002Z')).to.equal(false);
