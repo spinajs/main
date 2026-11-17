@@ -448,6 +448,21 @@ describe('read auditing', function () {
         ]);
       });
 
+      it('keeps naming rows when a condition column sits next to the key', async () => {
+        await Patient.query()
+          .select('*')
+          .selectCondition('inWard4', function () {
+            this.where('Ward', 4);
+          })
+          .asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([
+          ['1', { columns: ['Ssn'] }],
+          ['2', { columns: ['Ssn'] }],
+          ['3', { columns: ['Ssn'] }],
+        ]);
+      });
+
       it('matches column names without regard to case', async () => {
         // This package types columns strictly; a package that does not can write the other spelling.
         const query = Patient.query();

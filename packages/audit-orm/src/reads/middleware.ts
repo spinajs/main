@@ -22,7 +22,7 @@ function valueOf(row: Row, key: string): unknown {
 
 interface Disclosure {
   readonly columns: readonly string[];
-  /** Some value left inside an expression (an aggregate, a raw or condition column), so no row of the model can be named. */
+  /** Some value left inside an aggregate, so no row of the model can be named. */
   readonly computed: boolean;
 }
 
@@ -34,14 +34,14 @@ function columnName(source: ReadSource, name: string): string {
 function disclosed(source: ReadSource, rule: ReadRule): Disclosure | undefined {
   const everything = source.all || source.opaque;
   if (rule.columns === undefined) {
-    if (everything) return { columns: ['*'], computed: source.opaque || source.computed.size > 0 };
+    if (everything) return { columns: ['*'], computed: source.computed.size > 0 };
     const names = [...new Set([...source.keys.keys(), ...source.computed])].map((name) => columnName(source, name));
     return names.length === 0 ? undefined : { columns: names, computed: source.computed.size > 0 };
   }
 
   const columns = everything ? [...rule.columns] : rule.columns.filter((c) => source.keys.has(lc(c)) || source.computed.has(lc(c)));
   if (columns.length === 0) return undefined;
-  return { columns, computed: source.opaque || columns.some((c) => source.computed.has(lc(c))) };
+  return { columns, computed: columns.some((c) => source.computed.has(lc(c))) };
 }
 
 /** Row keys of the source's primary key; undefined when the select does not return all of it under a key nothing else returns. */
