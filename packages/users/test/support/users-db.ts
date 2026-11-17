@@ -67,7 +67,7 @@ const USERS_HOST_KEYS = [
   'DbAssignmentStore',
   'UsersTestRbac',
   'OrmResourceAdapter',
-  'AncestorMiddleware',
+  'AncestorObserver',
   'AccessGuardMiddleware',
   'AccessListMiddleware',
   'AuthzOrmContributor',

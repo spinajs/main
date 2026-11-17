@@ -12,9 +12,9 @@ export type { OrmIROptions } from './ir.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
 export * from './ancestors/index.js';
 export { OrmResourceAdapter } from './adapter.js';
-// Registers AncestorMiddleware as a QueryMiddleware.
+// Registers AncestorObserver as a WriteObserver, before ColumnChangeObserver: the ancestors were kept at order 90, before the column changelog.
 import './ancestors/middleware.js';
-export { AncestorMiddleware } from './ancestors/middleware.js';
+export { AncestorObserver } from './ancestors/middleware.js';
 // Registers AccessGuardMiddleware as a QueryMiddleware.
 import './guard/middleware.js';
 export { AccessGuardMiddleware } from './guard/middleware.js';

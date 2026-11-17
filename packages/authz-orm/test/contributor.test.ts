@@ -53,24 +53,17 @@ describe('authz-orm resource connection check', function () {
     await testHost.resetRoot();
   });
 
-  it('refuses at domain boot a composite-key resource with relation columns, unless it opted out of the changelog', () => {
-    const define = (type: string, changelog?: false) => {
-      class Pair extends ModelBase {
-        @Primary() public a: number;
-        @Primary() public b: number;
-        @Parent('project') public project_id: string;
-      }
-      AccessResource(type, changelog === false ? { changelog } : {})(Pair);
-      return Pair;
-    };
-    const quiet = define('quietpair', false);
-    expect(() => new AuthzOrmContributor().contribute('root')).to.not.throw();
-    const pair = define('pair');
+  it('refuses at domain boot a composite-key resource, with relation columns or without, opted out of the changelog or not', () => {
+    // Every delete of an access resource reaches the ancestor table through the write capture.
+    class Pair extends ModelBase {
+      @Primary() public a: number;
+      @Primary() public b: number;
+    }
+    AccessResource('pair', { changelog: false })(Pair);
     try {
-      expect(() => new AuthzOrmContributor().contribute('root')).to.throw(AuthzConfigError, "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b), and the column changelog of its relation columns needs a single-column primary key; give it one, or opt out with @AccessResource('pair', { changelog: false })");
+      expect(() => new AuthzOrmContributor().contribute('root')).to.throw(AuthzConfigError, "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key");
     } finally {
-      unregisterResource(pair);
-      unregisterResource(quiet);
+      unregisterResource(Pair);
     }
   });
 

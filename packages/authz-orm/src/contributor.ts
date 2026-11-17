@@ -4,7 +4,6 @@ import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
 import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
-import type { ResourceEntry } from './registry.js';
 
 /**
  * Every list joins authz_assignment (and, with @Parent, authz_resource_ancestor) with the resource table,
@@ -23,15 +22,13 @@ export function checkResourceConnections(orm: Orm): void {
   if (wrong.length > 0) throw new AuthzConfigError(`authz-orm: @AccessResource models must use the authz connection ${JSON.stringify(stores.Options?.Name)} (db.Aliases.${AUTHZ_CONNECTION}), where authz_resource_ancestor and authz_assignment live: ${wrong.join(', ')}`);
 }
 
-const hasRelationColumns = (entry: ResourceEntry): boolean => entry.parents.length > 0 || entry.owner !== undefined || Object.keys(entry.relations ?? {}).length > 0;
-
-/** The column changelog keys a row by one column: the write capture reads it, and refuses a composite key at every write. */
+/** The ancestor table and the column changelog key a row by one column: the write capture refuses a composite key at every write. */
 export function checkResourceKeys(): void {
   for (const cls of registeredClasses()) {
     const entry = entryOf(cls);
     const keys = extractModelDescriptor(cls)?.PrimaryKey ?? [];
-    if (!entry || entry.changelog === false || keys.length < 2 || !hasRelationColumns(entry)) continue;
-    throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(cls)} (resource '${entry.type}') has a composite primary key (${keys.join(', ')}), and the column changelog of its relation columns needs a single-column primary key; give it one, or opt out with @AccessResource('${entry.type}', { changelog: false })`);
+    if (!entry || keys.length < 2) continue;
+    throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(cls)} (resource '${entry.type}') has a composite primary key (${keys.join(', ')}); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`);
   }
 }
 
