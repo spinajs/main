@@ -741,7 +741,7 @@ ${line}` : line;
         Value: {
           oneOf: [
             { type: 'string' },
-            { type: 'integer' },
+            { type: 'number' },
             { type: 'boolean' },
             { type: 'array', items: { type: 'string' } },
           ],
