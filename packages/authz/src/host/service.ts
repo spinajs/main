@@ -225,6 +225,11 @@ export class DefaultAuthzService extends AuthzService {
     return this.state().authorizer.covers(holder, target, at, requestScope());
   }
 
+  audit(entry: Parameters<DecisionAudit['record']>[0]): void {
+    const s = this.state();
+    if (s.audit) this.record(s, entry);
+  }
+
   async preload(principal: Principal): Promise<void> {
     return this.state().authorizer.preload(principal, requestScope());
   }

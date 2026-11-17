@@ -1,4 +1,4 @@
-import { AuthzConfigError, AuthzDomains, DecisionAudit, DecisionReplay, ReplayBusy, thrownError } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, DecisionReplay, ReplayBusy } from '@spinajs/authz';
 import type { Permission, Principal, ReplayReport } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, NotFound, Ok, Policy, ServerError, TooManyRequests } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -98,11 +98,6 @@ export class DecisionsController extends BaseController {
 
   private async audit(domain: string, principal: Principal, report: ReplayReport): Promise<void> {
     const { id, permission, resource } = report.decision;
-    try {
-      const audit = await this.Domains.container(domain).resolveOptional(DecisionAudit);
-      await audit?.record({ kind: 'explain', principal: { type: principal.type, id: principal.id }, permission, resource, reason: `replay ${id}` });
-    } catch (e) {
-      this.Log.error({ error: thrownError(e), decisionId: id }, 'authz-http: the audit of the replay of decision ${decisionId} failed');
-    }
+    (await this.Domains.service(domain)).audit?.({ kind: 'explain', principal: { type: principal.type, id: principal.id }, permission, resource, reason: `replay ${id}` });
   }
 }

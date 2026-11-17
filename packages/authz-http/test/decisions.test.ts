@@ -1,8 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AuthzConfigError, DecisionReplay, ReplayBusy } from '@spinajs/authz';
+import { AuthzConfigError, DecisionAudit, DecisionReplay, ReplayBusy } from '@spinajs/authz';
 import type { DecisionRequest, ReplayOptions, ReplayReport } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
 import { DecisionsControllerSource, DecisionsPolicy } from '../src/index.js';
@@ -181,13 +182,17 @@ describe('GET /authz/decisions/:id/explain', function () {
     expect(res.body).to.deep.include({ error: 'replay_busy' });
   });
 
-  it('writes one explain audit entry per answered call, naming the replayed decision', async () => {
+  it("writes one explain audit entry per answered call, naming the replayed decision, to the domain's selected audit", async () => {
     running = await boot(ENABLED);
+    // Registered after the boot picked the domain's audit: the last registration, but not the selected one.
+    const later = new RecordingAudit();
+    (await testHost.domains()).container(D).register(testHost.instance(later)).as(DecisionAudit);
     await get(URL, 'bob');
     await get(`${URL}?format=tree`, 'bob');
     const entries = running.domains[0].audit.of('explain');
     expect(entries).to.have.length(2);
     expect(entries[0]).to.deep.include({ kind: 'explain', principal: { type: 'user', id: 'bob' }, permission: 'file:read', resource: { type: 'file', id: 'f1' }, reason: `replay ${ID}` });
+    expect(later.entries).to.have.length(0);
   });
 
   it('fails the boot when enabled with no DecisionReplay registered, naming @spinajs/authz-orm/replay', async () => {
