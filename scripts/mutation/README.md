@@ -94,7 +94,8 @@ listed under the table.
 - **Raise** after a run that scored higher: `node scripts/mutation/update-baseline.mjs --latest` from any branch, then
   commit `baseline.json` in a pull request. Every mode takes the scores of branch `v4`; `--branch <name>` names another
   (`master`, once 4.x is there).
-- **A given run:** `--run <run id>`. **A downloaded candidate:** pass the file path.
+- **A given run:** `--run <run id>`. **A downloaded candidate:** pass the file path, but see below: the reviewed
+  baseline change must come from `--run` or `--latest`.
 - **Lower** only with `--allow-lower <target>` for each target that dropped, and the reason in the pull request
   (new untested code, a Stryker upgrade).
 - **A new or split target** added to `targets.json` after the first baseline fails the next run ("no baseline entry")
@@ -108,7 +109,15 @@ The script reads runs of `spinajs/main` only (`gh --repo spinajs/main`, whatever
 - a candidate whose `measuredOn` is not `ci: "github-actions"`, `repository: "spinajs/main"`,
   `ref: "refs/heads/<branch>"` and a `runUrl` of a `spinajs/main` run (with `--run <id>` or `--latest`: that run), so a
   candidate file without these fields is refused too;
-- a candidate in which a target has no score.
+- with `--run <id>` or `--latest`: a candidate whose `commit` is not the run's head commit, and a run whose head commit
+  is not on `refs/heads/<branch>` (GitHub's compare of the branch with that commit), which refuses a run of a tag named
+  like the branch;
+- a candidate in which a target has no score, or an entry that is not a `score` from 0 to 100 with a non-negative
+  integer `valid` (the whole update is refused, naming the target).
+
+A candidate file passed by path is checked only against what it says about itself: anyone can type the provenance
+fields next to invented scores, so file mode proves nothing about where the scores came from. The pull request that
+changes `baseline.json` must take them from `--run <id>` (or `--latest`) and link the run.
 
 `--latest` and `--run` need the `gh` CLI.
 

@@ -62,28 +62,48 @@ export function runRefusal(run, branch) {
   return undefined;
 }
 
-/** Checks the candidate's own record of where it was measured; `runId` is the run it was downloaded from, if any. */
-export function provenanceRefusal(measuredOn, { branch, runId }) {
+/**
+ * Checks the candidate's own record of where it was measured; `runId` and `commit` are the run it was downloaded from
+ * and that run's head commit, if any.
+ */
+export function provenanceRefusal(measuredOn, { branch, runId, commit }) {
   if (measuredOn?.ci !== 'github-actions') return `the candidate was not measured on CI (measuredOn.ci is ${JSON.stringify(measuredOn?.ci)})`;
   if (measuredOn.repository !== REPOSITORY) return `the candidate was measured in ${JSON.stringify(measuredOn.repository)}, not in ${REPOSITORY}`;
   if (measuredOn.ref !== `refs/heads/${branch}`) return `the candidate was measured on ${JSON.stringify(measuredOn.ref)}, not on refs/heads/${branch}`;
   const id = typeof measuredOn.runUrl === 'string' && measuredOn.runUrl.startsWith(RUN_URL) ? measuredOn.runUrl.slice(RUN_URL.length) : '';
   if (!/^\d+$/.test(id)) return `the candidate's run URL ${JSON.stringify(measuredOn.runUrl)} is not a run of ${RUN_URL}<id>`;
   if (runId !== undefined && id !== runId) return `the candidate names run ${id}, not run ${runId}`;
+  if (commit !== undefined && measuredOn.commit !== commit) return `the candidate names commit ${JSON.stringify(measuredOn.commit)}, not the run's head commit ${commit}`;
   return undefined;
 }
 
-export function nextBaseline({ candidate, current, targets, allowLower, branch, runId }) {
-  const refusal = provenanceRefusal(candidate.measuredOn, { branch, runId });
+// `head_branch` holds a tag's name for a run of a tag, so only the commit's ancestry tells a branch run from a tag run.
+/** `status` of GitHub's compare of refs/heads/<branch> (base) with the run's head commit. */
+export function ancestryRefusal(status, { branch, commit }) {
+  if (status === 'identical' || status === 'behind') return undefined;
+  return `the run's head commit ${commit} is not on refs/heads/${branch} (compare status ${JSON.stringify(status)})`;
+}
+
+function entryRefusal(name, entry) {
+  const { score, valid } = entry ?? {};
+  if (!(typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 100)) return `${name}: score ${JSON.stringify(score)} is not a number from 0 to 100`;
+  if (!(Number.isInteger(valid) && valid >= 0)) return `${name}: valid ${JSON.stringify(valid)} is not a non-negative integer`;
+  return undefined;
+}
+
+export function nextBaseline({ candidate, current, targets, allowLower, branch, runId, commit }) {
+  const refusal = provenanceRefusal(candidate.measuredOn, { branch, runId, commit });
   if (refusal) throw new Error(refusal);
   const missing = targets.filter((t) => candidate.targets?.[t.name] === undefined).map((t) => t.name);
   if (missing.length) throw new Error(`the run has no score for ${missing.join(', ')}: take a run in which every target finished`);
+  const malformed = targets.map((t) => entryRefusal(t.name, candidate.targets[t.name])).filter(Boolean);
+  if (malformed.length) throw new Error(`the candidate is malformed: ${malformed.join('; ')}`);
   const lowered = targets.filter((t) => current.targets[t.name] !== undefined && candidate.targets[t.name].score < current.targets[t.name].score && !allowLower.includes(t.name));
   if (lowered.length) {
     const list = lowered.map((t) => `${t.name} ${candidate.targets[t.name].score} < ${current.targets[t.name].score}`).join(', ');
     throw new Error(`lower than the baseline: ${list}; pass --allow-lower <target> for each and say why in the pull request`);
   }
-  return { measuredOn: candidate.measuredOn, targets: Object.fromEntries(targets.map((t) => [t.name, candidate.targets[t.name]])) };
+  return { measuredOn: candidate.measuredOn, targets: Object.fromEntries(targets.map((t) => [t.name, { score: candidate.targets[t.name].score, valid: candidate.targets[t.name].valid }])) };
 }
 
 function gh(args) {
@@ -104,17 +124,21 @@ function latestRun(branch) {
 
 function checkedRun(runId, branch) {
   const run = JSON.parse(gh(['api', `repos/${REPOSITORY}/actions/runs/${runId}`]));
-  const refusal = runRefusal(run, branch);
+  const refusal = runRefusal(run, branch) ?? (/^[0-9a-f]{40}$/.test(run.head_sha ?? '') ? undefined : `run head commit ${JSON.stringify(run.head_sha)} is not a commit id`);
   if (refusal) throw new Error(`run ${runId} cannot set the baseline: ${refusal}`);
+  const ref = `refs/heads/${branch}`.split('/').map(encodeURIComponent).join('/');
+  const status = gh(['api', `repos/${REPOSITORY}/compare/${ref}...${run.head_sha}`, '--jq', '.status']).trim();
+  const off = ancestryRefusal(status, { branch, commit: run.head_sha });
+  if (off) throw new Error(`run ${runId} cannot set the baseline: ${off}`);
   console.log(`run ${runId}: ${run.event} on ${run.head_branch} (${run.head_sha})`);
-  return runId;
+  return { runId, commit: run.head_sha };
 }
 
-function fromRun(runId, apply) {
+function fromRun({ runId, commit }, apply) {
   const dir = mkdtempSync(join(tmpdir(), 'mutation-baseline-'));
   try {
     gh(['run', 'download', runId, '--repo', REPOSITORY, '--name', 'mutation-gate', '--dir', dir]);
-    return apply(join(dir, CANDIDATE_FILE), runId);
+    return apply(join(dir, CANDIDATE_FILE), runId, commit);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -122,8 +146,8 @@ function fromRun(runId, apply) {
 
 function main(argv) {
   const options = parseArgs(argv);
-  const apply = (file, runId) => {
-    const next = nextBaseline({ candidate: JSON.parse(readFileSync(file, 'utf8')), current: readBaseline(BASELINE), targets: readTargets(TARGETS).targets, allowLower: options.allowLower, branch: options.branch, runId });
+  const apply = (file, runId, commit) => {
+    const next = nextBaseline({ candidate: JSON.parse(readFileSync(file, 'utf8')), current: readBaseline(BASELINE), targets: readTargets(TARGETS).targets, allowLower: options.allowLower, branch: options.branch, runId, commit });
     writeFileSync(BASELINE, JSON.stringify(next, null, 2) + '\n');
     console.log(`${BASELINE} updated from ${next.measuredOn.runUrl ?? file}:`);
     for (const [name, { score, valid }] of Object.entries(next.targets)) console.log(`  ${name}: ${score.toFixed(2)} (${valid} valid mutants)`);

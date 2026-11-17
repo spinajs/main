@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { REPOSITORY, nextBaseline, parseArgs, provenanceRefusal, runRefusal } from '../mutation/update-baseline.mjs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { REPOSITORY, ancestryRefusal, nextBaseline, parseArgs, provenanceRefusal, runRefusal } from '../mutation/update-baseline.mjs';
+
+const UPDATER = fileURLToPath(new URL('../mutation/update-baseline.mjs', import.meta.url));
 
 const targets = [{ name: 'authz-engine' }, { name: 'authz-ir-eval' }];
 const ci = { ci: 'github-actions', runUrl: 'https://github.com/spinajs/main/actions/runs/9', repository: 'spinajs/main', commit: 'abc', ref: 'refs/heads/v4', event: 'push', date: '2026-11-07T02:17:00.000Z' };
@@ -17,7 +24,7 @@ test('arguments', () => {
   assert.deepEqual(parseArgs(['--run', '123', '--allow-lower', 'authz-engine']), { run: '123', branch: 'v4', allowLower: ['authz-engine'] });
   assert.deepEqual(parseArgs(['--branch', 'master', '--run', '123']), { run: '123', branch: 'master', allowLower: [] });
   assert.deepEqual(parseArgs(['c.json']), { file: 'c.json', branch: 'v4', allowLower: [] });
-  for (const bad of [[], ['--run', 'abc'], ['--latest', '--branch'], ['--latest', '--branch', 'a', '--branch', 'b'], ['--allow-lower'], ['-x'], ['a.json', 'b.json']]) assert.throws(() => parseArgs(bad), /usage/);
+  for (const bad of [[], ['--run', 'abc'], ['--latest', '--branch'], ['--latest', '--branch', 'a', '--branch', 'b'], ['--allow-lower'], ['-x'], ['a.json', 'b.json'], ['--latest', '--branch', '-x'], ['--latest', '--allow-lower', '-x']]) assert.throws(() => parseArgs(bad), /usage/);
 });
 
 test('only push, workflow_dispatch and schedule runs of mutation.yml on this repository and branch may set the baseline', () => {
@@ -48,6 +55,15 @@ test('a candidate must name this repository, the branch and a run of it', () => 
   assert.match(at({ runUrl: 'https://github.com/fork/main/actions/runs/9' }), /is not a run of/);
   assert.match(at({ runUrl: 'https://github.com/spinajs/main/actions/runs/9/attempts/2' }), /is not a run of/);
   assert.match(at({}, { runId: '10' }), /names run 9, not run 10/);
+  assert.equal(at({}, { runId: '9', commit: 'abc' }), undefined);
+  assert.match(at({}, { runId: '9', commit: 'def' }), /names commit "abc", not the run's head commit def/);
+  assert.match(at({ commit: undefined }, { commit: 'abc' }), /names commit undefined/);
+});
+
+test("the run's head commit must be on the branch: a run of a tag named like it is refused", () => {
+  assert.equal(ancestryRefusal('identical', { branch: 'v4', commit: 'abc' }), undefined);
+  assert.equal(ancestryRefusal('behind', { branch: 'v4', commit: 'abc' }), undefined);
+  for (const status of ['ahead', 'diverged', '']) assert.match(ancestryRefusal(status, { branch: 'v4', commit: 'abc' }), /head commit abc is not on refs\/heads\/v4/);
 });
 
 test('a candidate must come from CI, from this repository and branch, and score every target', () => {
@@ -55,6 +71,35 @@ test('a candidate must come from CI, from this repository and branch, and score 
   assert.throws(() => next(candidate(70, 80, { ...ci, ref: 'refs/heads/feature' }), empty), /not on refs\/heads\/v4/);
   assert.throws(() => next(candidate(70), empty, { runId: '10' }), /names run 9, not run 10/);
   assert.throws(() => next({ measuredOn: ci, targets: { 'authz-engine': { score: 70, valid: 1 } } }, empty), /no score for authz-ir-eval/);
+  assert.throws(() => next(candidate(70), empty, { runId: '9', commit: 'def' }), /not the run's head commit def/);
+});
+
+test('every written entry is a score from 0 to 100 and a non-negative integer count, and nothing else', () => {
+  const withEngine = (entry) => ({ measuredOn: ci, targets: { 'authz-ir-eval': { score: 80, valid: 900 }, 'authz-engine': entry } });
+  for (const [entry, message] of [
+    [{ score: '93', valid: 1 }, /authz-engine: score "93" is not a number from 0 to 100/],
+    [{ score: 150, valid: 1 }, /authz-engine: score 150/],
+    [{ score: -1, valid: 1 }, /authz-engine: score -1/],
+    [{ score: null, valid: 1 }, /authz-engine: score null/],
+    [{ score: 90, valid: 1.5 }, /authz-engine: valid 1\.5 is not a non-negative integer/],
+    [{ score: 90, valid: -3 }, /authz-engine: valid -3/],
+    [{ score: 90 }, /authz-engine: valid undefined/],
+  ]) assert.throws(() => next(withEngine(entry), empty), message);
+  assert.deepEqual(next(withEngine({ score: 90, valid: 9, note: 'x' }), empty).targets['authz-engine'], { score: 90, valid: 9 });
+});
+
+test('the CLI exits 1 and names the reason for a refused candidate file, and writes nothing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mutation-update-'));
+  try {
+    const file = join(dir, 'candidate.json');
+    writeFileSync(file, JSON.stringify(candidate(70, 80, { ...ci, ref: 'refs/tags/v4' })));
+    const result = spawnSync(process.execPath, [UPDATER, file], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /measured on "refs\/tags\/v4", not on refs\/heads\/v4/);
+    assert.doesNotMatch(result.stdout, /updated/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the first baseline is the whole candidate, in targets.json order', () => {
