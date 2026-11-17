@@ -139,9 +139,14 @@ export class FlowTracer extends QueryTracer {
     const builder = builderOf(this.checker, this.checker.getTypeAtLocation(e));
     if (builder === undefined) return undefined;
     const value = unscopedBuilder(e, builder.model);
-    for (const { call } of chainOf(e)?.calls ?? []) scopeBy(value, call);
+    // `helper.accessible().builder()`: a call before the builder exists scopes nothing.
+    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(value, call);
     this.meta.set(value, { kind: builder.kind, origin: e });
     return { value, pending: true };
+  }
+
+  private onBuilder(call: ts.CallExpression): boolean {
+    return ts.isPropertyAccessExpression(call.expression) && builderOf(this.checker, this.checker.getTypeAtLocation(call.expression.expression)) !== undefined;
   }
 
   /** `helper(q).accessible(p)`: the builder the outermost followed call of the chain hands back, then the calls chained on it. */

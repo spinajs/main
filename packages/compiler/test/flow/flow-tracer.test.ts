@@ -151,4 +151,8 @@ describe('flow: effects and the tracer across calls', () => {
     expect(returnedScope('ReassignedShapes.scopedLater')).to.deep.equal([true, UNSCOPED]);
     expect(returnedScope('ReassignedShapes.clonedScope')).to.deep.equal([true, UNSCOPED]);
   });
+
+  it('a builder read from its type is scoped only by calls made on a builder', () => {
+    expect(returnedScope('HelperShapes.chained')).to.deep.equal([true, UNSCOPED]);
+  });
 });

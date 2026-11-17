@@ -110,3 +110,19 @@ export class ReassignedShapes {
     return q;
   }
 }
+
+export class ScopeHelper {
+  public accessible(): ScopeHelper {
+    return this;
+  }
+
+  public builder(): Selected {
+    return Invoice.query();
+  }
+}
+
+export class HelperShapes {
+  public chained(h: ScopeHelper) {
+    return h.accessible().builder();
+  }
+}
