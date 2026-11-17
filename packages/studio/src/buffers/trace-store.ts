@@ -8,7 +8,7 @@ import type { StudioPage, StudioSpan, TraceDetail, TraceQuery, TraceSummary } fr
 import { StudioSpanProcessor } from '../processor.js';
 import type { SpanSink } from '../processor.js';
 import type { CaptureOptions, SpanStartLike } from '../span.js';
-import { approximateBytes, hrTimeToNanos, isLocalRoot, kindOf } from '../span.js';
+import { approximateBytes, hrTimeToNanos, isLocalRoot, kindOf, truncate } from '../span.js';
 
 export interface TraceStoreOptions {
   traces: number;
@@ -199,7 +199,7 @@ export class TraceStore extends AsyncService implements SpanSink {
       return;
     }
     const entry = this.entry(ctx.traceId, hrTimeToNanos(span.startTime));
-    if (isLocalRoot(span)) entry.openRoot = { name: span.name, kind: kindOf(span.kind) };
+    if (isLocalRoot(span)) entry.openRoot = { name: truncate(span.name), kind: kindOf(span.kind) };
   }
 
   public end(span: StudioSpan, isRoot: boolean): void {
@@ -208,9 +208,11 @@ export class TraceStore extends AsyncService implements SpanSink {
     if (isRoot && isUnder(span.attributes['url.path'], this.options.basePath)) return;
 
     const entry = this.entry(span.traceId, BigInt(span.startUnixNano));
-    this.record(entry, span);
+    const recorded = this.record(entry, span);
     if (!isRoot) return;
 
+    // A root past spansPerTrace is still kept for the summary, so it still counts.
+    if (!recorded) this.charge(entry, approximateBytes(span));
     entry.root = span;
     entry.openRoot = undefined;
     this.notify(summarize(entry));
@@ -247,21 +249,25 @@ export class TraceStore extends AsyncService implements SpanSink {
     return span.parentSpanContext !== undefined && this.own.has(span.parentSpanContext.spanId);
   }
 
-  private record(entry: TraceEntry, span: StudioSpan): void {
+  private record(entry: TraceEntry, span: StudioSpan): boolean {
     if (entry.spans.length >= this.options.spansPerTrace) {
       entry.truncated = true;
-      return;
+      return false;
     }
     entry.spans.push(span);
-    const bytes = approximateBytes(span);
-    entry.bytes += bytes;
-    this.bytes += bytes;
     this.revision++;
     if (span.status === 'error') entry.errorCount++;
     const end = spanEndNs(span);
     if (end > entry.endNs) entry.endNs = end;
     const principal = span.attributes[SpinaAttr.PrincipalId];
     if (entry.principalId === undefined && typeof principal === 'string') entry.principalId = principal;
+    this.charge(entry, approximateBytes(span));
+    return true;
+  }
+
+  private charge(entry: TraceEntry, bytes: number): void {
+    entry.bytes += bytes;
+    this.bytes += bytes;
     while (this.bytes > this.options.maxBytes && this.traces.size > 1) this.evictFirst(entry);
   }
 
