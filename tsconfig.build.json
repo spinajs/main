@@ -209,6 +209,9 @@
       "path": "packages/workflow/tsconfig.build.json"
     },
     {
+      "path": "packages/workflow-http/tsconfig.build.json"
+    },
+    {
       "path": "packages/threading/tsconfig.build.json"
     },
     {
