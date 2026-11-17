@@ -10,6 +10,8 @@ import type { DecisionRequest } from '@spinajs/authz';
 import { PrincipalMiddleware } from '@spinajs/authz-http';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { VoteFn } from '@spinajs/authz-testing';
+import { DEFAULT_TRACING_OPTIONS, ensureTracing, tracingState } from '@spinajs/tracing';
+import { resetTracing } from '@spinajs/tracing/testing';
 
 import { STUDIO_SERVICES } from '../../src/index.js';
 import { testConfig } from './config.js';
@@ -62,6 +64,8 @@ export async function startApp(opts: StartOptions = {}): Promise<TestApp> {
   }
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
+  // TracingBootstrapper waits for di.resolved.Configuration, which testHost may have emitted before it subscribed.
+  if (tracingState().owner === 'none') ensureTracing({ ...DEFAULT_TRACING_OPTIONS, serviceName: 'studio-test' });
   await DI.resolve(Controllers);
   const server = await DI.resolve(HttpServer);
   await server.start();
@@ -95,4 +99,5 @@ export async function stopApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type);
   DI.uncache(ServerMiddleware);
   await testHost.uninstallHost();
+  await resetTracing();
 }
