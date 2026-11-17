@@ -1,4 +1,5 @@
 // Types only: `@spinajs/studio/contracts` is what the Studio UI compiles against.
+import type { Decision, DenyReason, Trace } from '@spinajs/authz';
 import type { ServiceEntry, SourceRef } from '@spinajs/manifest';
 
 export type StudioSource = 'manifest' | 'runtime' | 'merged';
@@ -10,6 +11,7 @@ export interface StudioFeatures {
   di: boolean;
   routes: boolean;
   authz: boolean;
+  explain: boolean;
   rebac: boolean;
   telemetry: boolean;
   scheduler: boolean;
@@ -108,3 +110,9 @@ export interface DiServiceDetail { token: string; source: StudioSource; implemen
 
 export interface StudioAuthzPermission { name: string; description?: string; types?: string[] }
 export interface StudioAuthzDomain { name: string; parent?: string; models: string[]; algorithm: string; typeAlgorithms: Record<string, string>; permissions: StudioAuthzPermission[]; error?: string }
+
+export type { DenyReason, ResourceFilter, Trace } from '@spinajs/authz';
+/** `Decision` as JSON carries it: `validUntil` is an ISO string; the trace travels beside it, in `StudioExplainResult.trace`. */
+export type StudioDecision = Omit<Decision, 'validUntil' | 'trace'> & { validUntil?: string };
+export interface StudioExplainInput { domain?: string; principal: string; permission: string; resource?: string }
+export interface StudioExplainResult { decision: StudioDecision; trace?: Trace; denies: DenyReason[] }
