@@ -90,6 +90,14 @@ describe('TableAuditStore', function () {
         expect((await db.rows(dialect, TABLE))[0].data_hash).to.eq(payloadHash(data));
       });
 
+      it('keeps a payload over the 64 kB of a MySQL TEXT column', async () => {
+        const data = { blob: 'x'.repeat(70000) };
+        await audit().record({ kind: 'custom', action: 'large', data }, { trail });
+        const [event] = await audit().trail(trail).since(0);
+        expect(event.data).to.deep.eq(data);
+        expect((await db.rows(dialect, TABLE))[0].data_hash).to.eq(payloadHash(data));
+      });
+
       it('commits and rolls back a transactional event with the write', async () => {
         const driver = db.driver(dialect);
         const input = { kind: 'data', action: 'insert', subject: { type: 'invoice', id: '1' } } as const;
@@ -120,15 +128,26 @@ describe('TableAuditStore', function () {
         expect(inner).to.eq(`audit: recording 1 event(s) of trail "${trail}" in ${TABLE} on connection "${dialect}" failed; is the table migrated there (AuditTrailTableMigration)?`);
       });
 
-      it("keeps a confirmed event when the caller's transaction rolls back", async function () {
-        // One physical connection: there the event cannot leave the caller's transaction.
-        if (dialect === 'sqlite' || dialect === 'pglite') this.skip();
+      it("keeps a confirmed event when the caller's transaction rolls back", async () => {
         const driver = db.driver(dialect);
+        const input = { kind: 'read', action: 'patient.read' } as const;
+        // sqlite and PGlite hold a statement from outside the open transaction until it ends: awaited inside, the record would wait
+        // forever on sqlite and fail at the pool's AcquireTimeout on PGlite.
+        const held = dialect === 'sqlite' || dialect === 'pglite';
+        let settled = false;
+        let recorded: Promise<void> = Promise.resolve();
         const failing = driver.transaction(async () => {
-          await audit().record({ kind: 'read', action: 'patient.read' }, { trail });
+          if (held) {
+            recorded = audit()
+              .record(input, { trail })
+              .finally(() => (settled = true));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            expect(settled).to.eq(false);
+          } else await audit().record(input, { trail });
           throw new Error('caller failed');
         });
         await expect(failing).to.be.rejectedWith('caller failed');
+        await recorded;
         expect(await db.rows(dialect, TABLE)).to.have.length(1);
       });
     });

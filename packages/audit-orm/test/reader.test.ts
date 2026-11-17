@@ -73,6 +73,7 @@ describe('TableAuditReader', function () {
     expect((await reader.list(trail, { ...page, source: 'orders' })).map((e) => e.id)).to.deep.eq(['e1']);
     expect(await reader.list(trail, page)).to.deep.eq([]);
     expect(await reader.redact(trail, patient, 'billing')).to.eq(1);
+    expect(await reader.redact(trail, patient, 'billing')).to.eq(0);
     expect((await reader.list(trail, { ...page, source: 'billing' })).map((e) => [e.id, e.redacted, e.data])).to.deep.eq([['e2', true, {}]]);
     expect(await reader.prune(trail, day(9), 'orders')).to.eq(1);
     expect(await reader.prune(trail, day(9))).to.eq(1);
@@ -150,7 +151,7 @@ describe('TableAuditReader', function () {
       });
 
       it('redacts a subject, keeps the payload hashes and records the erasure', async () => {
-        const hashes = (await db.rows(dialect, TABLE)).map((r) => r.data_hash);
+        const before = await db.rows(dialect, TABLE);
         const events = audit().trail(trail);
         expect(await events.forget(patient)).to.eq(2);
 
@@ -161,7 +162,15 @@ describe('TableAuditReader', function () {
         ]);
         const rows = await db.rows(dialect, TABLE);
         expect(rows.map((r) => r.data)).to.deep.eq(['', '{}', '', '{"redacted":2}']);
-        expect(rows.slice(0, 3).map((r) => r.data_hash)).to.deep.eq(hashes);
+        const withoutData = ({ data: _data, ...rest }: Record<string, unknown>): Record<string, unknown> => rest;
+        expect(rows.slice(0, 3).map(withoutData)).to.deep.eq(before.map(withoutData));
+      });
+
+      it('prunes more than one chunk', async () => {
+        const old = Array.from({ length: 501 }, (_unused, i): AuditEvent => ({ id: `p${i}`, at: day(4), kind: 'action', action: 'old', outcome: 'ok', actor: 'user:u1', data: {} }));
+        await insertRows(db.driver(dialect), TABLE, old.map(storedColumns));
+        expect(await new TableAuditReader().prune(trailConfig(trail), day(5))).to.eq(504);
+        expect(await db.rows(dialect, TABLE)).to.have.length(0);
       });
     });
   }

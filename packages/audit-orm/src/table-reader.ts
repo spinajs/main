@@ -54,7 +54,7 @@ export class TableAuditReader extends AuditReader {
   async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
     const update = this.driver(trail, source).update().in(this.table(trail)).update({ data: REDACTED_DATA });
     if (this.hasSourceColumn()) update.where('source', source ?? trail.connection);
-    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id);
+    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
     return RowsAffected;
   }
 

@@ -22,7 +22,8 @@ export function auditEventColumns(table: TableQueryBuilder): void {
   table.string('decision_id', W.decision_id);
   table.string('idempotency_key', W.idempotency_key);
   table.string('data_subject', W.data_subject);
-  table.text('data').notNull();
+  // TEXT on MySQL holds 64 KB; LONGTEXT is TEXT on Postgres and sqlite and NVARCHAR(MAX) on MSSQL.
+  table.longtext('data').notNull();
   table.string('data_hash', W.data_hash);
 }
 
