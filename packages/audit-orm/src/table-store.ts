@@ -1,10 +1,9 @@
-import { AuditConfigError, AuditStore, AuditWriteFailed, auditStore, trailConfig, trailNames } from '@spinajs/audit';
+import { AuditStore, AuditWriteFailed } from '@spinajs/audit';
 import type { AuditAppend, AuditReader, TrailConfig } from '@spinajs/audit';
-import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
 
 import { insertForWrite, joinsCallerOn, quoted, writeDriver } from './orm-store.js';
+import { assertOwnTable } from './own-tables.js';
 import { storedColumns } from './rows.js';
 import { TableAuditReader } from './table-reader.js';
 
@@ -22,7 +21,7 @@ export class TableAuditStore extends AuditStore {
   }
 
   async append(write: AuditAppend): Promise<void> {
-    await assertOwnTables();
+    assertOwnTable(write.trail, TableAuditStore);
     const driver = writeDriver(write, 'TableAuditStore');
     try {
       await insertForWrite(driver, write, write.trail.table, write.events.map(storedColumns));
@@ -32,43 +31,8 @@ export class TableAuditStore extends AuditStore {
     }
   }
 
-  async reader(): Promise<AuditReader | undefined> {
-    await assertOwnTables();
-    return DI.resolve(TableAuditReader);
+  reader(trail: TrailConfig): Promise<AuditReader | undefined> {
+    assertOwnTable(trail, TableAuditStore);
+    return Promise.resolve(DI.resolve(TableAuditReader));
   }
-}
-
-// The `audit.trails` values already found free of shared tables; a changed configuration is a new value.
-const checked = new WeakSet<object>();
-
-const driverName = (connection: string): string => DI.get(Orm)?.Connections.get(connection)?.Options.Name ?? connection;
-
-function configOf(name: string): TrailConfig | undefined {
-  try {
-    return trailConfig(name);
-  } catch {
-    // An invalid trail fails where it is used, not on every other trail.
-    return undefined;
-  }
-}
-
-/**
- * Refuses two trails of a table store on one table and connection (design D10): a trail table has no trail column, so
- * retention and reads of one trail would reach the other's events. Checked once per `audit.trails` value.
- */
-export async function assertOwnTables(): Promise<void> {
-  const configured: unknown = DI.get(Configuration)?.get<unknown>(['audit', 'trails']);
-  if (configured === null || typeof configured !== 'object' || checked.has(configured)) return;
-  const registered = DI.RootContainer.getRegisteredNames(AuditStore);
-  const owners = new Map<string, string>();
-  for (const name of trailNames()) {
-    const trail = configOf(name);
-    if (trail === undefined || !registered.includes(trail.store) || !((await auditStore(trail)) instanceof TableAuditStore)) continue;
-    const connection = driverName(trail.connection);
-    const key = JSON.stringify([connection, trail.table]);
-    const other = owners.get(key);
-    if (other !== undefined) throw new AuditConfigError(`audit: trails ${quoted(other)} and ${quoted(name)} both use table ${quoted(trail.table)} on connection ${quoted(connection)}; give each trail its own table`);
-    owners.set(key, name);
-  }
-  checked.add(configured);
 }
