@@ -133,6 +133,19 @@ describe('ConfigTenantRegistry', () => {
     expect(() => registry.get('acme')).to.throw(InvalidOption, 'tenancy.tenants[0].state "disabled" is not a tenant state');
   });
 
+  it('refuses an id, a slug or a domain listed for two tenants', () => {
+    const cases: [unknown[], string][] = [
+      [[{ id: 'acme' }, { id: 'acme', name: 'Acme again' }], 'tenancy.tenants[1].id "acme" is already used by tenancy.tenants[0]'],
+      [[{ id: 'a', slug: 'shop' }, { id: 'b' }, { id: 'c', slug: 'shop' }], 'tenancy.tenants[2].slug "shop" is already used by tenancy.tenants[0]'],
+      [[{ id: 'a', domains: ['Shop.Example'] }, { id: 'b', domains: ['shop.example'] }], 'tenancy.tenants[1].domains "shop.example" is already used by tenancy.tenants[0]'],
+    ];
+    for (const [listed, message] of cases) {
+      const registry = new ConfigTenantRegistry();
+      Object.defineProperty(registry, 'Listed', { value: listed });
+      expect(() => registry.get('acme')).to.throw(InvalidOption, message);
+    }
+  });
+
   it('is empty without the key', async () => {
     app = await tenancyApp();
 
