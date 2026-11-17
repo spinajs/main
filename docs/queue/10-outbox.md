@@ -1,6 +1,6 @@
 # Transactional outbox
 
-The outbox is being built up over several releases of 4.x. What works so far: the `queue.outbox` configuration is validated at boot, and with `queue.outbox.enabled` set to `true` the `queue_outbox` table is created on every database that `queue.outbox.connections` names, and `emit()` inside a transaction writes a row to it instead of publishing ([What `emit()` does](#what-emit-does)), and `OutboxRelay.tick()` publishes the committed rows, retries the ones whose publish failed and deletes old published rows ([The relay](#the-relay), [Failures, dead rows and retention](#failures-dead-rows-and-retention)). Nothing calls `tick()` on a timer yet: the loop that drives it arrives in a later release.
+With the outbox enabled, `emit()` inside a database transaction writes the message to a `queue_outbox` table in that transaction instead of publishing it, so the message commits or rolls back with the business change ([What `emit()` does](#what-emit-does)). A relay that runs in the queue service publishes the committed rows right after the commit and on a timer, at least once ([Running the relay](#running-the-relay), [Guarantees](#guarantees)). The outbox is off by default.
 
 ## Configuration
 
@@ -47,7 +47,7 @@ A duration (`maxAge`, `retention`, `backoff.delay`, `backoff.maxDelay`) is a who
 
 **Unknown keys under `queue.outbox` are dropped by the configuration validator, without an error or a log line.** A misspelt key therefore has no effect: check the spelling against the table above when a setting seems to be ignored.
 
-Outbox times are database time, which `@spinajs/durable` reads from the ORM connection `default`: an app that enables the outbox sets `db.DefaultConnection`. The writer reads the database clock once, when the queue service resolves (or at the first emit through the outbox), and the relay reads it again on every pass.
+Outbox times are database time, which `@spinajs/durable` reads from the ORM connection `default`: an app that enables the outbox sets `db.DefaultConnection`. The writer reads the database clock when the queue service resolves (or at the first emit through the outbox), and reads it again in the background on the first emit that comes a minute or more after its last read; the relay reads it on every pass. A queue service that cannot read it fails to resolve with an `InvalidOperation` that names `db.DefaultConnection`.
 
 ## What `emit()` does
 
@@ -94,6 +94,7 @@ Concurrent calls of `tick()` on one relay share the pass in progress. Several re
 import { DI } from '@spinajs/di';
 import { OutboxRelay } from '@spinajs/queue';
 
+// autoStart: false runs no timer; the caller drives the passes
 const relay = await DI.resolve(OutboxRelay, [{ replicaId: 'reports-1', autoStart: false }]);
 await relay.tick();
 ```
@@ -110,6 +111,18 @@ What the relay guarantees, and what it does not:
 - **Fenced writes.** Every mark, failure record and release is fenced by `ClaimedBy` and `ClaimEpoch`, so a relay that lost its claim changes nothing.
 - **No ordering.** One relay with no failures publishes in `Id` order, but two relays, a failed publish that is retried later, a row the stop rule released, or a second queue connection reorder messages.
 
+## Running the relay
+
+With `queue.outbox.relay: true` (the default), every process that resolves the queue service runs a relay loop. An app with the outbox enabled resolves the queue service when its Orm boots ([What happens at boot](#what-happens-at-boot)), so the loop starts then, and rows left by an earlier run are published without waiting for a first emit. Emit-only replicas set `relay: false` and leave publishing to the processes that run a relay.
+
+- **On a timer.** The loop runs a pass when it starts, then one pass `queue.outbox.tick` ms after the previous pass ended. Passes never overlap: a pass that takes longer than `tick` delays the next one.
+- **After a commit.** A transaction that wrote outbox rows nudges the relay of its own process once the outermost transaction has committed, and a pass runs at once. However many rows the transaction wrote, its commit gives one pass. A commit that lands while a pass is running gets one more pass as soon as that one ends, because the running pass may have read its due rows before the commit. A rolled-back transaction or savepoint nudges nothing, and relays in other processes find the row at their next tick.
+- **When a pass fails.** A pass that throws (the database is unreachable, for example) is logged as an error on the `queue` logger, and the loop goes on at the next tick. A failed publish is recorded on its row and does not fail the pass ([Failures, dead rows and retention](#failures-dead-rows-and-retention)). A crash (`crash: true`) stops the loop for good, as the death of the process it stands for.
+- **Stopping.** Disposing the queue service (`DI.dispose()`) stops the loop: no new pass starts, the publish in flight finishes and is marked, and the rows of that pass not yet published are released for a later pass. Stopping waits for the pass at most `claimTtl`, after which another relay may take its rows over anyway, so a publish that never returns does not hold up shutdown for longer; the rows behind it then wait out their claims.
+- **Several relays.** Every process can run a relay, and several are safe: claims are fenced, so each row goes to one of them. They mostly take turns rather than share a batch, because the first relay to claim a batch holds all of its rows.
+
+The loop's timers run outside the transaction and the request in which they were started: a queue service resolved on first use inside a business transaction does not pull the relay into that transaction.
+
 ## Failures, dead rows and retention
 
 A publish that throws (anything but a crash) is recorded on the row, under the relay's claim:
@@ -120,7 +133,7 @@ A publish that throws (anything but a crash) is recorded on the row, under the r
 
 There is no attempt limit. A row dies by age: the first failure that happens when the row is at least `queue.outbox.maxAge` old (counted from `CreatedAt`, in database time) sets `Status` to `dead` instead of scheduling a retry, and the relay logs an error. Until then the row is retried, so a broker outage shorter than `maxAge` loses nothing.
 
-Age alone never kills a row: a row that is never attempted, because no relay runs, stays `pending`. But once a row is `maxAge` old, its next attempt is its last: if it fails, the row is `dead` at once, whatever the reason. That can be the broker, or something local to the relay: routing names a queue connection that `queue.connections` no longer has, the stored message cannot be read back, or the queue service fails to resolve. The case to plan for is a restart after the app and its broker were both down for longer than `maxAge`: if the relay runs its first pass before the broker accepts connections, every row older than `maxAge` is `dead` after that pass. Set `maxAge` above the longest outage you plan for, start the relay once the broker is reachable, or re-drive the dead rows afterwards (below).
+Age alone never kills a row: a row that is never attempted, because no relay runs, stays `pending`. But once a row is `maxAge` old, its next attempt is its last: if it fails, the row is `dead` at once, whatever the reason. That can be the broker, or something local to the relay: routing names a queue connection that `queue.connections` no longer has, the stored message cannot be read back, or the queue service fails to resolve. The case to plan for is a restart after the app and its broker were both down for longer than `maxAge`: if the relay runs before the broker accepts connections, every row older than `maxAge` that the relay reaches before the broker is back is `dead`. A pass reads at most `batchSize` rows per connection, so a large backlog dies batch by batch, for as many passes as the broker stays unreachable. Set `maxAge` above the longest outage you plan for, start the relay once the broker is reachable, or re-drive the dead rows afterwards (below).
 
 An example with the defaults (`backoff` exponential from `1s` to `5m`, `maxAge` `24h`): RabbitMQ is down for 90 minutes. Every row emitted meanwhile fails, and its waits grow 1 s, 2 s, 4 s and so on until they reach 5 minutes; from then on it is retried every 5 minutes, and published within about 5 minutes of the broker's return. Nothing dies, because no row is 24 hours old. A row still failing after a day is tried about 300 times before it dies.
 
@@ -140,13 +153,50 @@ UPDATE queue_outbox SET Status = 'pending', AvailableAt = 0, CreatedAt = <now in
 
 `CreatedAt` must move, or the row dies again at its next failure. The re-driven row keeps its `PublishedTo`, so the connections that confirmed it are not sent to again.
 
+## Guarantees
+
+- **The row commits or rolls back with the business change.** A message emitted inside a transaction on an outbox connection is written in that transaction; a rollback, of the transaction or of the savepoint the emit ran in, leaves no row.
+- **At least once.** A committed row is published at least once, and can be published more than once ([The relay](#the-relay)).
+- **No ordering.** One relay with no failures publishes in `Id` order, but two relays, a failed publish that is retried later, a row the stop rule released, or a second queue connection reorder messages.
+- **Consumers must tolerate duplicates.** A job whose `JobId` already finished is skipped (`queue.deduplicate`, on by default). Events will be deduplicated per subscription by `queue.deduplicateEvents` (`12-event-deduplication.md`, arriving with the next release); until then an event handler must tolerate receiving the same event twice.
+- **The nudge only shortens the wait.** A nudge that never comes (the process died right after the commit, or the row was written by hand) leaves the row to the next tick of any relay.
+
 ## What happens at boot
 
 With `queue.outbox.enabled` set to `true`:
 
 - **The Orm boot checks every outbox connection.** While `Orm.resolve()` collects its migrations, the outbox's migration source takes the driver of each connection in `connections` and compiles the outbox insert on it. A connection that does not exist, or a driver that cannot compile an insert with `orIgnore()`, fails `Orm.resolve()` with `InvalidConfiguration`, which names the connection. This happens before any service exists and before anything emits.
-- **The queue service is resolved when the Orm is.** A Bootstrapper of `@spinajs/queue` resolves `QueueService` as soon as the Orm is resolved, without waiting for a first emit. This opens the app's queue connections (one broker connection per `queue.connections` entry) even if the app never emits. A failure there is logged on the `queue` logger and met again by the first `DI.resolve(QueueService)`.
+- **The queue service is resolved when the Orm is.** A Bootstrapper of `@spinajs/queue` resolves `QueueService` as soon as the Orm is resolved, without waiting for a first emit. This opens the app's queue connections (one broker connection per `queue.connections` entry) even if the app never emits, and with `relay: true` it starts the relay loop. A failure there is logged on the `queue` logger and met again by the first `DI.resolve(QueueService)`.
 
 A process that runs no Bootstrappers (a script that resolves the Orm by hand) resolves the queue service on first use instead, and the service repeats the connection check then. With the outbox disabled, neither happens.
 
-SQL Server: the boot fails until `@spinajs/orm-mssql` implements `orIgnore()`.
+## Supported databases
+
+SQLite, Postgres and MySQL. On SQL Server the Orm boot fails with the `InvalidConfiguration` of the connection check above ("cannot compile an insert with orIgnore()"), until `@spinajs/orm-mssql` implements `orIgnore()`.
+
+## Operating it
+
+Dead rows, and how to re-drive one: [Failures, dead rows and retention](#failures-dead-rows-and-retention).
+
+Stuck rows:
+
+```sql
+-- claimed by a relay that went away; the next pass of any relay takes the row over
+SELECT Id, Name, ClaimedBy, ClaimedUntil FROM queue_outbox
+WHERE Status = 'pending' AND ClaimedUntil < <now in epoch ms>;
+
+-- failing on every try; LastError says why, and AvailableAt is the next try
+SELECT Id, Name, Attempts, AvailableAt, LastError FROM queue_outbox
+WHERE Status = 'pending' AND Attempts > 0
+ORDER BY Attempts DESC;
+```
+
+When rows stay `pending` and nothing publishes them:
+
+- no process runs a relay: every process has `relay: false`, or none resolves the queue service;
+- the relay runs but its passes fail: look for "Outbox relay … tick failed" on the `queue` logger (the database is unreachable, or `db.DefaultConnection` is missing);
+- the broker is down: `Attempts` and `LastError` grow on each row, and `AvailableAt` moves forward by the backoff.
+
+## Tracing
+
+`TraceParent` holds the `traceparent` header the message carried when it was emitted, if it had the W3C version-00 shape (`00-<trace id>-<span id>-<flags>`); otherwise it is empty.

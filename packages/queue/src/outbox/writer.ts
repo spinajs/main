@@ -1,14 +1,20 @@
 import { Config } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { DbClock, FaultInjector } from '@spinajs/durable';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
 import { Orm, type OrmDriver } from '@spinajs/orm';
+import { isCrash } from '../crash.js';
 import type { IQueueMessage } from '../interfaces.js';
 import { outboxConfig, type IQueueOutboxConfig } from './config.js';
 import { OutboxAmbiguousTransaction, OutboxConnectionNotCovered, OutboxMessageIdConflict } from './errors.js';
+import { inRootContext } from './root-context.js';
 import { newOutboxRow, OUTBOX_MESSAGE_ID_MAX } from './row.js';
 import { OutboxStore } from './store.js';
 import { assertInsertOrIgnore, outboxTargets, type OutboxTarget } from './targets.js';
+
+/** How old the database time offset may get before an emit has it read again; a process without a relay has nothing else that reads it. */
+const RESYNC_AFTER_MS = 60_000;
 
 interface OutboxConnections {
   targets: OutboxTarget[];
@@ -19,6 +25,9 @@ interface OutboxConnections {
 @Singleton()
 @Injectable()
 export class OutboxWriter {
+  @Logger('queue')
+  protected Log: Log;
+
   @Config('queue.outbox')
   protected Raw: Partial<IQueueOutboxConfig> | undefined;
 
@@ -31,6 +40,7 @@ export class OutboxWriter {
   protected config?: IQueueOutboxConfig;
   protected connections?: OutboxConnections;
   protected synced?: Promise<number>;
+  protected syncedAt = 0;
 
   public get Config(): IQueueOutboxConfig {
     return (this.config ??= outboxConfig(this.Raw));
@@ -40,7 +50,12 @@ export class OutboxWriter {
   public async ready(): Promise<void> {
     if (!this.Config.enabled) return;
     for (const target of (await this.allConnections()).targets) assertInsertOrIgnore(target);
-    await this.syncTime();
+    try {
+      await this.syncTime();
+    } catch (error) {
+      if (isCrash(error)) throw error;
+      throw new InvalidOperation('queue.outbox: database time could not be read. @spinajs/durable reads it from the ORM connection "default", so an app that enables the outbox sets db.DefaultConnection', error);
+    }
   }
 
   /** The target the message was written to, or undefined when the caller must publish it directly. */
@@ -98,13 +113,29 @@ export class OutboxWriter {
     }
   }
 
-  /** Rows carry database time, which the relay compares AvailableAt with. A running relay keeps the shared offset current. */
+  /** Rows carry database time, which the relay compares AvailableAt with. */
   protected async syncTime(): Promise<void> {
-    // a failed sync is tried again by the next emit, not remembered
-    await (this.synced ??= this.Time.sync().catch((error: unknown) => {
-      this.synced = undefined;
-      throw error;
-    }));
+    const now = this.Time.now();
+    if (this.synced === undefined) {
+      this.syncedAt = now;
+      // a failed sync is tried again by the next emit, not remembered
+      this.synced = this.Time.sync().catch((error: unknown) => {
+        this.synced = undefined;
+        throw error;
+      });
+    } else if (now - this.syncedAt >= RESYNC_AFTER_MS) {
+      this.syncedAt = now;
+      this.resync();
+    }
+    await this.synced;
+  }
+
+  // Not awaited, and outside the emitter's context: the emit may run in a transaction on `default`, which a failed read
+  // would abort on Postgres. Until the read returns, rows carry the previous offset.
+  protected resync(): void {
+    inRootContext(() => {
+      this.Time.sync().catch((error: unknown) => this.Log.warn({ error }, 'The outbox could not read database time again; rows keep the previous offset'));
+    });
   }
 
   protected async allConnections(): Promise<OutboxConnections> {
