@@ -8,7 +8,7 @@ Emitting, from `MyJob.emit(values, options?)` or `MyEvent.emit(values, options?)
 
 1. The static `emit()` builds a plain `IQueueMessage`: `values`, then `Type`, `CreatedAt` (`values.CreatedAt` or now) and `Name` (the class name), then `options`. `QueueJob.emit()` also sets `Persistent: true` unless `values` or `options` set it.
 2. `ev(message)` resolves `QueueService` from DI and calls `emit(message)`.
-3. `DefaultQueueService.emit()` runs `beforeEmit()` of every [message hook](06-message-hooks.md), in registration order. A hook that throws rejects `emit()` and nothing is sent.
+3. `DefaultQueueService.emit()` runs `beforeEmit()` of every [message hook](06-message-hooks.md), in ascending `order`, hooks of one order in registration order. A hook that throws rejects `emit()` and nothing is sent.
 4. It finds the connections the message is routed to (see [Connections and routing](02-connections-and-routing.md)). An unknown connection name throws `ConnectionNotFound`.
 5. For a job it sets `JobId` to a new UUID v4, unless the message already carries one. All routed connections get the same `JobId`.
 6. It awaits `QueueClient.emit(message)` on each connection in turn.
@@ -61,7 +61,7 @@ sequenceDiagram
 | `JobProgressCallback` | type | `(percent: number, meta?: IJobProgressMeta) => Promise<void>` |
 | `IJobProgressMeta` | interface | `phase?: string`, `message?: string` |
 | `IJobFailureContext` | interface | `attempt`, `maxAttempts`, `isFinal`, `jobId`, passed to `onFailed()` |
-| `jobOptions(message)` | function | The `@Job` options of a message's own class: `{ runAs }` for `'initiator'` or `'system'`, else `{}` |
+| `jobOptions(message)` | function | The `@Job` options of a message's own class, or `{}`. An unknown `runAs` or `tenancy` value is left out |
 
 ### Message fields
 
@@ -86,10 +86,10 @@ Scheduling and priority are honoured only by transports that support them; [`@sp
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'` | Marks the class as a job. `runAs` is read by a [message hook](06-message-hooks.md), such as the one in `@spinajs/authz-queue`; the queue itself ignores it |
+| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'`, `access?`, `resource?`, `tenancy?: 'carry' \| 'required' \| 'none'` (`JobOptions`) | Marks the class as a job. The options are read by [message hooks](06-message-hooks.md): `runAs`, `access` and `resource` by the one in [`@spinajs/authz-queue`](../authz-queue/README.md), `tenancy` by the one in [`@spinajs/tenancy/queue`](../tenancy/01-queue-tenant-scope.md); the queue itself ignores them |
 | `@Event(opts?)` | class extending `QueueEvent` | `durable?: boolean` | Marks the class as an event. `durable: true` makes every `consume()` of it durable, so it needs a `subscriptionId` |
 
-Both decorators write the `queue:options` metadata only when the class has none of its own. `consume()` reads it through the prototype chain, so an undecorated subclass of a decorated class is consumable. `jobOptions()` reads only the class's own metadata, so a subclass never inherits its parent's `runAs`.
+Both decorators write the `queue:options` metadata only when the class has none of its own. `consume()` reads it through the prototype chain, so an undecorated subclass of a decorated class is consumable. `jobOptions()` reads only the class's own metadata, so a subclass never inherits its parent's `runAs` or `tenancy`.
 
 ## Services and extension points
 
