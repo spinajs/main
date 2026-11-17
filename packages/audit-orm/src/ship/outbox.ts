@@ -1,7 +1,7 @@
 import type { AuditEvent, AuditSubject } from '@spinajs/audit';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { REDACTED_DATA, insertRows, rowsOf, storedColumns, toStored } from '../rows.js';
+import { REDACTED_DATA, rowsOf, storedColumns, toStored } from '../rows.js';
 import { AUDIT_OUTBOX_TABLE } from './table.js';
 
 export interface BufferedEvent {
@@ -11,12 +11,9 @@ export interface BufferedEvent {
   readonly event: AuditEvent;
 }
 
-export async function bufferEvents(driver: OrmDriver, trail: string, events: readonly AuditEvent[]): Promise<void> {
-  await insertRows(
-    driver,
-    AUDIT_OUTBOX_TABLE,
-    events.map((e) => ({ trail, ...storedColumns(e) })),
-  );
+/** The buffer rows of a trail's events. */
+export function bufferRows(trail: string, events: readonly AuditEvent[]): Record<string, unknown>[] {
+  return events.map((e) => ({ trail, ...storedColumns(e) }));
 }
 
 /** The oldest buffered events of one trail, in buffer order. */

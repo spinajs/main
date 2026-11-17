@@ -143,17 +143,18 @@ describe('audit shipping', function () {
         expect(RecordingSink.batches).to.have.length(0);
       });
 
-      it('keeps a confirmed event buffered when the caller transaction around it rolls back', async function () {
-        // sqlite and PGlite hold a statement from outside the open transaction until it ends.
-        if (dialect === 'sqlite' || dialect === 'pglite') this.skip();
-        // The service runs a confirmed append outside the caller's transaction scope; a bare append would join it.
+      it('a confirmed event inside the caller transaction: kept on a pooled driver, with the caller on sqlite and PGlite', async () => {
+        const signed = (id: string): AuditInput => ({ kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id } });
         await expect(
           driver().transaction(async () => {
-            await audit().record({ kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id: 'c1' } }, { trail: 'shipped', mode: 'confirmed', onFailure: 'reject' });
+            await audit().record(signed('c1'), { trail: 'shipped', mode: 'confirmed', onFailure: 'reject' });
             throw new Error('caller failed');
           }),
         ).to.be.rejectedWith('caller failed');
-        expect((await buffered()).map((r) => r.subject_id)).to.deep.eq(['c1']);
+        await driver().transaction(() => audit().record(signed('c2'), { trail: 'shipped', mode: 'confirmed', onFailure: 'reject' }));
+        // sqlite and PGlite serve one transaction at a time, so the confirmed write joins the caller's.
+        const joined = dialect === 'sqlite' || dialect === 'pglite';
+        expect((await buffered()).map((r) => r.subject_id)).to.deep.eq(joined ? ['c2'] : ['c1', 'c2']);
       });
 
       it('buffers on the connection a write names instead of the trail connection', async () => {
