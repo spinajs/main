@@ -120,4 +120,80 @@ describe('flow: summarize', () => {
     expect((cycle.summaries.get(fn('climb'))?.effects ?? []).map((e) => e.path.map((s) => s.name).join(' > '))).to.deep.equal(['walk']);
     expect(cycle.opaqueCalls).to.equal(0);
   });
+
+  const UNSCOPED_READ = [['read-many', 'Invoice', 'none', null, '']];
+
+  it('a builder that may be several kinds or models reports each of them, and of a join only those left unscoped', () => {
+    expect(effectsOf('VariantShapes.kinds')).to.deep.equal([
+      ['update', 'Invoice', 'none', null, ''],
+      ['delete', 'Invoice', 'none', null, ''],
+    ]);
+    expect(effectsOf('VariantShapes.models')).to.deep.equal([
+      ['read-many', 'Invoice', 'none', null, ''],
+      ['read-many', 'Note', 'none', null, ''],
+    ]);
+    expect(effectsOf('VariantShapes.sources')).to.deep.equal([
+      ['read-many', 'Invoice', 'none', null, ''],
+      ['read-many', 'Note', 'none', null, ''],
+    ]);
+    expect(sitesOf('VariantShapes.sources')).to.deep.equal(['(c ? new InvoiceSource() : new NoteSource()).make()', '(c ? new InvoiceSource() : new NoteSource()).make()']);
+    expect(effectsOf('VariantShapes.reassigned')).to.deep.equal([['read-many', 'Note', 'none', null, '']]);
+  });
+
+  it('a builder variable reassigned later in a loop or after a closure that reads it holds every value it is given', () => {
+    expect(effectsOf('LoopShapes.reassignedLater')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('LoopShapes.reassignedLater')).to.deep.equal(['Invoice.query()']);
+    expect(effectsOf('LoopShapes.carried')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('LoopShapes.carried')).to.deep.equal(["Invoice.where('Status', 'open')"]);
+    expect(effectsOf('LoopShapes.deferred')).to.deep.equal(UNSCOPED_READ);
+    expect(effectsOf('LoopShapes.narrowed')).to.deep.equal([['read-many', 'Invoice', 'accessible', null, '']]);
+  });
+
+  it('a for…of that writes into a builder variable leaves it unscoped', () => {
+    expect(effectsOf('LoopShapes.reused')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('LoopShapes.reused')).to.deep.equal(['list']);
+  });
+
+  it('a builder handed around a cycle settles unscoped when one turn of it is', () => {
+    const rally = run('rally');
+    expect(effectsOf('rally')).to.deep.equal(UNSCOPED_READ);
+    expect(rally.summaries.get(fn('ping'))?.returns?.scoped).to.deep.equal({ accessible: false, unscoped: false });
+    expect(effectsOf('endless')).to.deep.equal(UNSCOPED_READ);
+    expect([rally.opaqueCalls, run('endless').opaqueCalls]).to.deep.equal([0, 0]);
+  });
+
+  it('an argument a call may hand to an opaque member beside a followed one counts as executed', () => {
+    expect(effectsOf('CallShapes.handedAside')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('CallShapes.handedAside')).to.deep.equal(['Invoice.query()']);
+    expect(run('CallShapes.handedAside').opaqueCalls).to.equal(1);
+  });
+
+  it('a variable that may hold a parameter or a fresh builder does not hand the parameter back', () => {
+    expect(effectsOf('CallShapes.picked')).to.deep.equal(UNSCOPED_READ);
+    expect(run('CallShapes.picked').summaries.get(fn('CallShapes.pick'))?.returns).to.deep.equal({ kind: 'select', model: 'Invoice', scoped: { accessible: false, unscoped: false } });
+  });
+
+  it('a root runs its builder parameter, a default parameter and a yielded builder, and a promise of rows runs where it is called', () => {
+    expect(effectsOf('CallShapes.rootParam')).to.deep.equal(UNSCOPED_READ);
+    expect(effectsOf('OptionalShapes.generic')).to.deep.equal(UNSCOPED_READ);
+    expect(effectsOf('CallShapes.omitted')).to.deep.equal([['read-many', 'Invoice', 'none', null, 'CallShapes.defaulted:direct']]);
+    expect(effectsOf('CallShapes.streamed')).to.deep.equal(UNSCOPED_READ);
+    expect(effectsOf('CallShapes.floating')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('CallShapes.floating')).to.deep.equal(['Invoice.find([1])']);
+  });
+
+  it('a variable that held rows and then a builder runs the builder, and a closure scopes only the builders it declares', () => {
+    expect(effectsOf('LateShapes.rowsThenBuilder')).to.deep.equal([['read-many', 'Invoice', 'accessible', null, ''], ...UNSCOPED_READ]);
+    expect(effectsOf('LateShapes.scopedInCallback')).to.deep.equal(UNSCOPED_READ);
+  });
+
+  it('the shapes the tracer reads conservatively stay unscoped where a root runs them', () => {
+    // A returned `??` runs operand by operand: the scoped default is an effect of its own.
+    for (const root of ['OptionalShapes.nullishOptional', 'CastShapes.castChoiceFromAny']) {
+      expect(effectsOf(root), root).to.deep.equal([...UNSCOPED_READ, ['read-many', 'Invoice', 'accessible', null, '']]);
+    }
+    for (const root of ['LogicalAssignShapes.nullishAssigned', 'DestructuredShapes.fromArray', 'UnexplainedShapes.unexplainedFirst', 'MakerShapes.picked']) {
+      expect(effectsOf(root), root).to.deep.equal(UNSCOPED_READ);
+    }
+  });
 });

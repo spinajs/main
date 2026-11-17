@@ -4,12 +4,14 @@ import type { AuthzEffect, BuilderKind, EffectScope, FunctionSummary, PathStep, 
 import { isFunctionLike } from './call-graph.js';
 import type { CallGraph, CallTarget, FunctionLike } from './call-graph.js';
 import { FlowTracer, alternatives } from './flow-tracer.js';
-import { modelShape, unwrap } from './query-values.js';
+import { chainOf, modelShape, unwrap } from './query-values.js';
 import type { QueryValue } from './query-values.js';
 
 export interface FlowSummaries {
   readonly summaries: ReadonlyMap<FunctionLike, FunctionSummary>;
+  /** Calls whose callee the program does not determine, plus functions whose summary did not settle. */
   readonly opaqueCalls: number;
+  /** Calls into dependency packages, which the pass does not follow. */
   readonly externalCalls: number;
 }
 
@@ -21,6 +23,8 @@ interface Scope {
 }
 
 const MAX_ROUNDS = 20;
+/** Each pass over a function's bindings only lowers what they hold, so this bound is a guard, not a limit. */
+const MAX_BINDING_PASSES = 10;
 const isAsync = (fn: FunctionLike): boolean => (ts.getCombinedModifierFlags(fn) & ts.ModifierFlags.Async) !== 0;
 
 /** The expressions that may leave through `e`: what a literal holds, the operands of a choice, or the expression itself. */
@@ -30,6 +34,13 @@ function parts(e: ts.Expression): readonly ts.Expression[] {
   if (ts.isObjectLiteralExpression(inner)) return inner.properties.flatMap((p) => (ts.isPropertyAssignment(p) ? parts(p.initializer) : ts.isShorthandPropertyAssignment(p) ? [p.name] : []));
   return alternatives(inner)?.flatMap(parts) ?? [e];
 }
+
+/** What runs when a function runs, apart from its body: the defaults of its parameters. */
+const defaults = (fn: FunctionLike): ts.Expression[] => fn.parameters.flatMap((p) => p.initializer ?? []);
+
+/** `x.p = q`, `x[i] = q`: a builder stored where the pass does not follow it. */
+const isStore = (node: ts.Node): node is ts.BinaryExpression =>
+  ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left));
 
 function scopeOf(value: QueryValue, system: Scope['system']): { scoped: EffectScope; reason?: string } {
   if (value.scoped.accessible) return { scoped: 'accessible' };
@@ -49,14 +60,14 @@ class FunctionAnalysis {
   private readonly effects = new Map<string, AuthzEffect>();
   private readonly systemRuns = new Map<string, SystemRun>();
   private readonly executes = new Map<number, BuilderKind>();
-  private returns: ReturnedBuilder | undefined;
+  private readonly handedBack: QueryValue[] = [];
 
   constructor(
     private readonly graph: CallGraph,
     private readonly checker: ts.TypeChecker,
     private readonly fn: FunctionLike,
     private readonly summaries: ReadonlyMap<FunctionLike, FunctionSummary>,
-    /** An entry point runs `fn`: what it returns goes to the framework, which runs it. */
+    /** An entry point runs `fn`: what it returns goes to the framework, which runs it, and its parameters come from there. */
     private readonly root: boolean,
   ) {
     this.tracer = new FlowTracer(checker, graph, summaries);
@@ -64,21 +75,51 @@ class FunctionAnalysis {
   }
 
   run(): FunctionSummary {
+    this.settle();
     this.enter(this.fn, { owner: this.fn });
-    return { effects: [...this.effects.values()], systemRuns: [...this.systemRuns.values()], ...(this.returns === undefined ? {} : { returns: this.returns }), executes: this.executes };
+    const returns = this.handedBack.length === 0 ? undefined : this.returned(this.tracer.join(this.handedBack));
+    return { effects: [...this.effects.values()], systemRuns: [...this.systemRuns.values()], ...(returns === undefined ? {} : { returns }), executes: this.executes };
+  }
+
+  /**
+   * A loop or a closure can run an assignment before a use written above it, so every binding of the function, its
+   * closures' included, is observed until what the variables hold settles, and only then are the uses read: a
+   * variable holds any value it is given anywhere in the function. Scoping statements stay where they stand.
+   */
+  private settle(): void {
+    const nodes: ts.Node[] = [];
+    const collect = (node: ts.Node): void => {
+      nodes.push(node);
+      ts.forEachChild(node, collect);
+    };
+    this.fn.parameters.filter((p) => p.initializer !== undefined).forEach(collect);
+    if (this.fn.body !== undefined) collect(this.fn.body);
+    let held = this.held();
+    for (let pass = 0; pass < MAX_BINDING_PASSES; pass++) {
+      for (const node of nodes) this.tracer.observeBinding(node);
+      const now = this.held();
+      if (now === held) return;
+      held = now;
+    }
+    this.tracer.distrust();
+  }
+
+  private held(): string {
+    return [...this.tracer.builders.values()].map((v) => `${v.scoped.accessible}${v.scoped.unscoped}${this.tracer.variantsOf(v).length}${this.tracer.metaOf(v).param}`).join();
   }
 
   /** A function written inside the one being summarised is analysed where it stands, with the same builders in scope. */
   private enter(fn: FunctionLike, scope: Scope): void {
+    const inner: Scope = { ...scope, owner: fn };
+    for (const initializer of defaults(fn)) this.visit(initializer, inner);
     const { body } = fn;
     if (body === undefined) return;
-    const inner: Scope = { ...scope, owner: fn };
-    if (!ts.isBlock(body)) this.returned(body, inner);
+    if (!ts.isBlock(body)) this.leaves(body, inner);
     this.visit(body, inner);
   }
 
   private visit(node: ts.Node, scope: Scope): void {
-    this.tracer.observe(node);
+    if (this.scopesHere(node, scope)) this.tracer.observeScoping(node);
     if (isFunctionLike(node)) this.enter(node, scope);
     else if (ts.isCallExpression(node) && isSystemRunAs(node, this.checker)) this.systemRun(node, scope);
     else {
@@ -87,12 +128,21 @@ class FunctionAnalysis {
     }
   }
 
+  /** A closure may run late or never, so its `q.accessible(p);` scopes only builders it declares itself. */
+  private scopesHere(node: ts.Node, scope: Scope): boolean {
+    if (scope.owner === this.fn || !ts.isExpressionStatement(node)) return true;
+    const root = chainOf(node.expression)?.root;
+    const declaration = root !== undefined && ts.isIdentifier(root) ? this.checker.getSymbolAtLocation(root)?.valueDeclaration : undefined;
+    return declaration !== undefined && declaration.pos >= scope.owner.pos && declaration.end <= scope.owner.end && declaration.getSourceFile() === scope.owner.getSourceFile();
+  }
+
   private at(node: ts.Node, scope: Scope): void {
     if (ts.isAwaitExpression(node)) this.awaited(node, scope);
-    else if (ts.isReturnStatement(node) && node.expression !== undefined) this.returned(node.expression, scope);
+    else if (ts.isReturnStatement(node) && node.expression !== undefined) this.leaves(node.expression, scope);
+    else if (ts.isYieldExpression(node) && node.expression !== undefined) this.escaped(node.expression, scope);
     else if (ts.isCallExpression(node) || ts.isNewExpression(node)) this.call(node, scope);
     else if (ts.isPropertyAccessExpression(node)) this.callees(node, this.graph.getter(node), scope);
-    else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))) this.escaped(node.right, scope);
+    else if (isStore(node)) this.escaped(node.right, scope);
   }
 
   private awaited(node: ts.AwaitExpression, scope: Scope): void {
@@ -101,26 +151,33 @@ class FunctionAnalysis {
     this.escaped(node.expression, scope);
   }
 
-  private returned(expr: ts.Expression, scope: Scope): void {
+  /** A returned expression: handed back to the caller, or run. */
+  private leaves(expr: ts.Expression, scope: Scope): void {
     if (this.memberExecution(expr) !== undefined) return;
     const traced = this.tracer.traced(expr);
     // Only the function being summarised hands a builder to a caller the pass sees; a promise is already running, and an entry root's caller is the framework.
-    if (traced?.pending === true && scope.owner === this.fn && !this.root && !isAsync(this.fn) && !this.isPromise(expr)) this.handBack(traced.value);
+    if (traced?.pending === true && scope.owner === this.fn && !this.root && !isAsync(this.fn) && !this.isPromise(expr)) this.handedBack.push(traced.value);
     else this.escaped(expr, scope);
   }
 
   private call(node: ts.CallExpression | ts.NewExpression, scope: Scope): void {
     const run = this.memberExecution(node);
     if (run !== undefined) this.executed(run, node, scope);
-    const { targets } = this.graph.resolve(node);
-    this.callees(node, targets, scope);
+    else if (this.startsAtOnce(node)) this.escaped(node, scope);
+    const resolved = this.graph.resolve(node);
+    this.callees(node, resolved.targets, scope);
     for (const handed of this.graph.handedTo(node)) this.callees(handed, this.graph.referenced(handed), scope);
-    const summaries = targets.flatMap((t) => this.summaries.get(t.fn) ?? []);
+    const summaries = resolved.targets.flatMap((t) => this.summaries.get(t.fn) ?? []);
+    // A member the pass does not follow may run what it is handed; a followed callee that neither runs nor returns it leaves it unexecuted.
+    const unfollowed = resolved.targets.length === 0 || resolved.opaque || resolved.external;
     (node.arguments ?? []).forEach((argument, index) => {
-      const handedBack = summaries.some((s) => s.returns?.param === index);
-      // A followed callee that neither runs nor returns the builder leaves it unexecuted.
-      if (summaries.some((s) => s.executes.has(index)) || (targets.length === 0 && !handedBack)) this.escaped(argument, scope);
+      if (unfollowed || summaries.some((s) => s.executes.has(index))) this.escaped(argument, scope);
     });
+  }
+
+  /** `Model.find(pks)` returns a promise, not a builder: the query runs when it is called. */
+  private startsAtOnce(node: ts.CallExpression | ts.NewExpression): node is ts.CallExpression {
+    return ts.isCallExpression(node) && this.isPromise(node) && this.tracer.traced(node)?.pending === true;
   }
 
   /** The effects of what a call, a `new`, a getter read or a function passed by name runs, one hop further from their sites. */
@@ -162,20 +219,18 @@ class FunctionAnalysis {
   private executed(value: QueryValue, at: ts.Expression, scope: Scope): void {
     const meta = this.tracer.metaOf(value);
     const scoped = scopeOf(value, scope.system);
-    if (meta.param !== undefined && scoped.scoped === 'none') {
+    if (meta.param !== undefined && scoped.scoped === 'none' && !this.root) {
       // The caller knows how its argument was scoped, so the effect is reported at the call.
       this.executes.set(meta.param, meta.kind);
       return;
     }
-    this.add({ kind: this.effectKind(meta.kind, at), model: value.model, ...scoped, site: meta.param === undefined ? meta.origin : at, path: [] });
+    const site = meta.param === undefined ? meta.origin : at;
+    for (const variant of this.tracer.variantsOf(value)) this.add({ kind: this.effectKind(variant.kind, at), model: variant.model, ...scoped, site, path: [] });
   }
 
-  private handBack(value: QueryValue): void {
-    const meta = this.tracer.metaOf(value);
-    const had = this.returns;
-    // Several returns: scoped only when every one of them is.
-    const scoped = { accessible: value.scoped.accessible && (had?.scoped.accessible ?? true), unscoped: value.scoped.unscoped && (had?.scoped.unscoped ?? true) };
-    this.returns = { kind: meta.kind, model: value.model, scoped, ...(meta.param === undefined ? {} : { param: meta.param }) };
+  private returned(value: QueryValue): ReturnedBuilder {
+    const { kind, param, variants } = this.tracer.metaOf(value);
+    return { kind, model: value.model, scoped: { ...value.scoped }, ...(param === undefined ? {} : { param }), ...(variants === undefined ? {} : { variants }) };
   }
 
   /** The pending builder `expr` runs by calling one of its executing members (`q.first()`). */
@@ -234,7 +289,7 @@ function reach(graph: CallGraph, roots: readonly FunctionLike[]): Reach {
     ts.forEachChild(node, walk);
   };
   // A Set iterates the entries added while it is iterated, so it is the worklist; no recursion over the call graph.
-  for (const fn of found) if (fn.body !== undefined) walk(fn.body);
+  for (const fn of found) [...defaults(fn), ...(fn.body === undefined ? [] : [fn.body])].forEach(walk);
   // Found callers first; reversed, most callees are summarised before their callers.
   return { order: [...found].reverse(), opaque, external };
 }

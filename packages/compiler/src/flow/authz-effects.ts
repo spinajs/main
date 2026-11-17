@@ -24,11 +24,18 @@ export interface SystemRun {
   readonly reason?: string;
   readonly path: readonly PathStep[];
 }
+/** A kind and model a builder may be: one of a union type, of a choice or of a call with several targets. */
+export interface BuilderVariant {
+  readonly kind: BuilderKind;
+  readonly model: string;
+}
 export interface ReturnedBuilder {
   readonly kind: BuilderKind;
   readonly model: string;
   readonly scoped: { readonly accessible: boolean; readonly unscoped: boolean };
   readonly param?: number;
+  /** Every kind and model the builder may be, when it may be more than one. */
+  readonly variants?: readonly BuilderVariant[];
 }
 
 export interface FunctionSummary {
@@ -74,18 +81,25 @@ function partsOf(checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>
 }
 
 /**
- * The ORM builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`, a
- * union with a builder member), with the model of its type argument.
+ * Every ORM builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`,
+ * the builder members of a union), with the model of its type argument.
  */
-export function builderOf(checker: ts.TypeChecker, type: ts.Type): { kind: BuilderKind; model: string | undefined } | undefined {
+export function buildersOf(checker: ts.TypeChecker, type: ts.Type): Array<{ kind: BuilderKind; model: string | undefined }> {
+  const out: Array<{ kind: BuilderKind; model: string | undefined }> = [];
   for (const part of partsOf(checker, type)) {
     const symbol = part.getSymbol() ?? part.aliasSymbol;
     const kind = symbol !== undefined && isDeclaredIn(symbol.declarations?.[0], ORM) ? BUILDERS.get(symbol.name) : undefined;
     if (kind === undefined) continue;
     const [argument] = isReference(part) ? checker.getTypeArguments(part) : [];
-    return { kind, model: argument === undefined ? undefined : modelShape(checker, argument)?.model };
+    const model = argument === undefined ? undefined : modelShape(checker, argument)?.model;
+    if (!out.some((b) => b.kind === kind && b.model === model)) out.push({ kind, model });
   }
-  return undefined;
+  return out;
+}
+
+/** The first builder `type` may be; `buildersOf` gives them all. */
+export function builderOf(checker: ts.TypeChecker, type: ts.Type): { kind: BuilderKind; model: string | undefined } | undefined {
+  return buildersOf(checker, type).at(0);
 }
 
 /**
@@ -117,6 +131,6 @@ export function literalReason(expr: ts.Expression | undefined): string | undefin
 
 const place = (node: ts.Node): string => `${node.getSourceFile().fileName}:${node.pos}`;
 
-/** What makes two effects the same one: its query site, kind and scope. The path is not part of it. */
-export const effectKey = (e: AuthzEffect): string => `${place(e.site)}:${e.kind}:${e.scoped}:${e.reason ?? ''}`;
+/** What makes two effects the same one: its query site, kind, model and scope. The path is not part of it. */
+export const effectKey = (e: AuthzEffect): string => `${place(e.site)}:${e.kind}:${e.model}:${e.scoped}:${e.reason ?? ''}`;
 export const runKey = (r: SystemRun): string => `${place(r.site)}:${r.reason ?? ''}`;

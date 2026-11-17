@@ -1,6 +1,6 @@
 import ts from 'typescript';
-import { builderOf, staticKind } from './authz-effects.js';
-import type { BuilderKind, FunctionSummary } from './authz-effects.js';
+import { builderOf, buildersOf, staticKind } from './authz-effects.js';
+import type { BuilderKind, BuilderVariant, FunctionSummary, ReturnedBuilder } from './authz-effects.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
 import { QueryTracer, chainOf, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
@@ -22,7 +22,11 @@ export interface BuilderMeta {
   readonly origin: ts.Node;
   /** The index of the parameter the builder came in through. */
   readonly param?: number;
+  /** Every kind and model the builder may be, when it may be more than one. */
+  readonly variants?: readonly BuilderVariant[];
 }
+
+type Scoping = QueryValue['scoped'];
 
 const unscopedBuilder = (node: ts.Node, model: string | undefined): QueryValue => ({
   node,
@@ -31,6 +35,12 @@ const unscopedBuilder = (node: ts.Node, model: string | undefined): QueryValue =
   scoped: { accessible: false, unscoped: false },
   shape: 'many',
 });
+
+function distinct(variants: readonly BuilderVariant[]): BuilderVariant[] {
+  const out: BuilderVariant[] = [];
+  for (const v of variants) if (!out.some((o) => o.kind === v.kind && o.model === v.model)) out.push(v);
+  return out;
+}
 
 /**
  * `QueryTracer` across calls: a builder-typed parameter is a pending builder, and a call into the package that hands
@@ -53,22 +63,57 @@ export class FlowTracer extends QueryTracer {
     return this.meta.get(value) ?? { kind: 'select', origin: value.node };
   }
 
+  variantsOf(value: QueryValue): readonly BuilderVariant[] {
+    const meta = this.metaOf(value);
+    return meta.variants ?? [{ kind: meta.kind, model: value.model }];
+  }
+
+  /**
+   * A builder that may be any of `values` (`untyped`: or something the tracer does not know): scoped only when every
+   * one is. A finding names what may run unscoped, so the origin, kinds and models come from the values that are not
+   * scoped, and the parameter only when every value is that parameter.
+   */
+  join(values: readonly QueryValue[], origin?: ts.Node, untyped = false): QueryValue {
+    const scoped = { accessible: !untyped && values.every((v) => v.scoped.accessible), unscoped: !untyped && values.every((v) => v.scoped.unscoped) };
+    const open = values.filter((v) => !v.scoped.accessible);
+    const named = scoped.accessible || open.length === 0 ? values : open;
+    const params = values.map((v) => this.metaOf(v).param);
+    const param = !untyped && params.every((p) => p === params[0]) ? params[0] : undefined;
+    return this.made(origin ?? this.metaOf(named[0]).origin, distinct(named.flatMap((v) => this.variantsOf(v))), scoped, param);
+  }
+
+  /** Every builder variable as an unscoped builder. */
+  distrust(): void {
+    for (const [symbol, value] of this.builders) this.builders.set(symbol, this.join([value], undefined, true));
+  }
+
   seedParameters(fn: FunctionLike): void {
     fn.parameters.forEach((parameter, index) => {
-      const builder = builderOf(this.checker, this.checker.getTypeAtLocation(parameter));
-      const symbol = builder === undefined ? undefined : this.checker.getSymbolAtLocation(parameter.name);
-      if (builder === undefined || symbol === undefined) return;
-      const value = unscopedBuilder(parameter, builder.model);
-      this.meta.set(value, { kind: builder.kind, origin: parameter, param: index });
-      this.builders.set(symbol, value);
+      const symbol = this.checker.getSymbolAtLocation(parameter.name);
+      const value = symbol === undefined ? undefined : this.typed(parameter, this.checker.getTypeAtLocation(parameter), index);
+      if (symbol !== undefined && value !== undefined) this.builders.set(symbol, value);
     });
   }
 
   /** The per-node part of `QueryTracer.run`. */
   observe(node: ts.Node): void {
+    this.observeBinding(node);
+    this.observeScoping(node);
+  }
+
+  /** What a node binds: a declaration, an assignment, the target of a `for…of` or `for…in`, a parameter's default. */
+  observeBinding(node: ts.Node): void {
     if (ts.isVariableDeclaration(node) && node.initializer) this.declare(node.name, node.initializer);
+    else if (ts.isParameter(node) && node.initializer && ts.isIdentifier(node.name)) this.defaulted(node.name, node.initializer);
+    else if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind)) this.assign(node);
+    else if ((ts.isForOfStatement(node) || ts.isForInStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      for (const name of assignedNames(node.initializer)) this.reassign(name, undefined, node.expression);
+    }
+  }
+
+  /** `q.accessible(p);`: a statement that scopes the builder a variable holds. */
+  observeScoping(node: ts.Node): void {
     if (ts.isExpressionStatement(node)) this.extendBuilder(node.expression);
-    if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind)) this.assign(node);
   }
 
   private assign(node: ts.BinaryExpression): void {
@@ -79,19 +124,44 @@ export class FlowTracer extends QueryTracer {
 
   private declare(name: ts.BindingName, initializer: ts.Expression): void {
     const traced = this.traced(initializer);
-    const symbol = traced === undefined && ts.isIdentifier(name) ? this.checker.getSymbolAtLocation(name) : undefined;
-    const unexplained = symbol === undefined ? undefined : this.declaredBuilder(symbol, initializer);
-    if (symbol !== undefined && unexplained !== undefined) this.builders.set(symbol, unexplained);
-    else this.bind(name, traced);
+    const symbol = ts.isIdentifier(name) ? this.checker.getSymbolAtLocation(name) : undefined;
+    const value = symbol !== undefined && traced === undefined ? this.declaredBuilder(symbol, initializer) : traced?.pending === true ? traced.value : undefined;
+    if (symbol === undefined || value === undefined) {
+      this.bind(name, traced);
+      return;
+    }
+    const held = this.builders.get(symbol);
+    // Observed again (a loop body, the fixed point of a summary), the variable holds any value it was given.
+    this.builders.set(symbol, held === undefined ? value : this.join([held, value]));
+  }
+
+  /** A parameter with a default holds what a caller passes, read from its type, or the default. */
+  private defaulted(name: ts.Identifier, initializer: ts.Expression): void {
+    const symbol = this.checker.getSymbolAtLocation(name);
+    if (symbol === undefined) return;
+    const passed = this.builders.has(symbol) ? undefined : this.declaredBuilder(symbol, name);
+    if (passed !== undefined) this.builders.set(symbol, passed);
+    this.reassign(name, this.traced(initializer), initializer);
   }
 
   /** What a builder-typed variable holds when the tracer cannot explain the value it is given: an unscoped builder. */
   private declaredBuilder(symbol: ts.Symbol, origin: ts.Node): QueryValue | undefined {
     const declaration = symbol.valueDeclaration;
-    const builder = declaration === undefined ? undefined : builderOf(this.checker, this.checker.getTypeAtLocation(declaration));
-    if (builder === undefined) return undefined;
-    const value = unscopedBuilder(origin, builder.model);
-    this.meta.set(value, { kind: builder.kind, origin });
+    return declaration === undefined ? undefined : this.typed(origin, this.checker.getTypeAtLocation(declaration));
+  }
+
+  /** An unscoped builder made at `origin` of every builder `type` may be. */
+  private typed(origin: ts.Node, type: ts.Type, param?: number): QueryValue | undefined {
+    const variants = buildersOf(this.checker, type).map((b) => ({ kind: b.kind, model: b.model ?? 'unknown' }));
+    return variants.length === 0 ? undefined : this.made(origin, variants, { accessible: false, unscoped: false }, param);
+  }
+
+  private made(origin: ts.Node, variants: readonly BuilderVariant[], scoped: Scoping, param?: number): QueryValue {
+    const [first] = variants;
+    const value = unscopedBuilder(origin, first.model);
+    value.scoped.accessible = scoped.accessible;
+    value.scoped.unscoped = scoped.unscoped;
+    this.meta.set(value, { kind: first.kind, origin, ...(param === undefined ? {} : { param }), ...(variants.length > 1 ? { variants } : {}) });
     return value;
   }
 
@@ -110,18 +180,15 @@ export class FlowTracer extends QueryTracer {
     const symbol = ts.isShorthandPropertyAssignment(name.parent) ? this.checker.getShorthandAssignmentValueSymbol(name.parent) : this.checker.getSymbolAtLocation(name);
     if (symbol === undefined) return;
     const held = this.builders.get(symbol);
-    const next = assigned?.pending === true ? assigned.value : (this.declaredBuilder(symbol, origin) ?? (held === undefined ? undefined : unscopedBuilder(origin, held.model)));
-    if (next === undefined) return;
-    if (held === undefined) {
-      this.builders.set(symbol, next);
-      return;
-    }
-    const joined = unscopedBuilder(next.node, next.model);
-    joined.scoped.accessible = held.scoped.accessible && next.scoped.accessible;
-    joined.scoped.unscoped = held.scoped.unscoped && next.scoped.unscoped;
-    // The finding points at the value that left the variable unscoped.
-    this.meta.set(joined, held.scoped.accessible ? this.metaOf(next) : this.metaOf(held));
-    this.builders.set(symbol, joined);
+    const next = assigned?.pending === true ? assigned.value : (this.declaredBuilder(symbol, origin) ?? (held === undefined ? undefined : this.join([held], origin, true)));
+    if (next !== undefined) this.builders.set(symbol, held === undefined ? next : this.join([held, next]));
+  }
+
+  /** A variable that may hold a builder is one where it is read, whatever rows it held elsewhere. */
+  protected override ofSymbol(id: ts.Identifier): Traced | undefined {
+    const symbol = this.checker.getSymbolAtLocation(id);
+    const builder = symbol === undefined ? undefined : this.builders.get(symbol);
+    return builder === undefined ? super.ofSymbol(id) : { value: builder, pending: true };
   }
 
   public override traced(expr: ts.Expression): Traced | undefined {
@@ -154,22 +221,15 @@ export class FlowTracer extends QueryTracer {
     }
     const [first] = pending;
     if (first === undefined) return undefined;
-    if (pending.length === 1 && !untyped) return { value: first, pending: true };
-    const value = unscopedBuilder(e, first.model);
-    value.scoped.accessible = !untyped && pending.every((v) => v.scoped.accessible);
-    value.scoped.unscoped = !untyped && pending.every((v) => v.scoped.unscoped);
-    this.meta.set(value, { kind: this.metaOf(first).kind, origin: e });
-    return { value, pending: true };
+    return { value: pending.length === 1 && !untyped ? first : this.join(pending, e, untyped), pending: true };
   }
 
   /** A builder the tracer cannot follow to a model class, read from its type and scoped by the calls chained on it. */
   private byType(e: ts.Expression): Traced | undefined {
-    const builder = builderOf(this.checker, this.checker.getTypeAtLocation(e));
-    if (builder === undefined) return undefined;
-    const value = unscopedBuilder(e, builder.model);
+    const value = this.typed(e, this.checker.getTypeAtLocation(e));
+    if (value === undefined) return undefined;
     // `helper.accessible().builder()`: a call before the builder exists scopes nothing.
     for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(value, call);
-    this.meta.set(value, { kind: builder.kind, origin: e });
     return { value, pending: true };
   }
 
@@ -190,24 +250,27 @@ export class FlowTracer extends QueryTracer {
     return undefined;
   }
 
+  /** What a call hands back: any of what its targets hand back, each read on its own. */
   private returnedBy(call: ts.CallExpression): QueryValue | undefined {
     const resolved = this.graph.resolve(call);
-    const returns = resolved.targets.flatMap((t) => this.summaries.get(t.fn)?.returns ?? []);
-    const [first] = returns;
-    if (first === undefined) return undefined;
-    // A target that builds a fresh builder is not scoped by the argument another target hands back.
-    const handed = returns.map((r) => {
-      const argument = r.param === undefined ? undefined : this.pendingArgument(call, r.param);
-      return { argument, accessible: r.scoped.accessible || argument?.scoped.accessible === true, unscoped: r.scoped.unscoped || argument?.scoped.unscoped === true };
+    const handed = resolved.targets.flatMap((t) => {
+      const returns = this.summaries.get(t.fn)?.returns;
+      return returns === undefined ? [] : [this.handedBack(call, returns)];
     });
+    if (handed.length === 0) return undefined;
     // What the pass does not see may hand back an unscoped builder.
-    if (resolved.opaque || resolved.external || resolved.targets.some((t) => this.handsBackUnsummarised(t.fn))) handed.push({ argument: undefined, accessible: false, unscoped: false });
-    const from = handed[0].argument;
-    const value = unscopedBuilder(call, from?.model ?? first.model);
-    value.scoped.accessible = handed.every((h) => h.accessible);
-    value.scoped.unscoped = handed.every((h) => h.unscoped);
-    const meta = from === undefined ? undefined : this.metaOf(from);
-    this.meta.set(value, { kind: first.kind, origin: meta?.origin ?? call, ...(meta?.param === undefined ? {} : { param: meta.param }) });
+    if (resolved.opaque || resolved.external || resolved.targets.some((t) => this.handsBackUnsummarised(t.fn))) handed.push(this.byType(call)?.value ?? unscopedBuilder(call, handed[0].model));
+    return this.join(handed);
+  }
+
+  /** A target that hands back its parameter hands back the argument, scoped further as the target scoped it; another builds its own. */
+  private handedBack(call: ts.CallExpression, returns: ReturnedBuilder): QueryValue {
+    const argument = returns.param === undefined ? undefined : this.pendingArgument(call, returns.param);
+    if (argument === undefined) return this.made(call, returns.variants ?? [{ kind: returns.kind, model: returns.model }], returns.scoped);
+    const value = unscopedBuilder(argument.node, argument.model);
+    value.scoped.accessible = returns.scoped.accessible || argument.scoped.accessible;
+    value.scoped.unscoped = returns.scoped.unscoped || argument.scoped.unscoped;
+    this.meta.set(value, this.metaOf(argument));
     return value;
   }
 
