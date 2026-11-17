@@ -41,3 +41,62 @@ registerOpenApiParamType('ContentDigestArg', (param) => ({
   description: 'RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`',
   schema: { type: 'string' },
 }));
+
+type ListDescriptor = {
+  GroupableColumns?: Set<string>;
+  AggregatableColumns?: Map<string, string[]>;
+  IncludableRelations?: Set<string>;
+};
+
+// orm-http's list args. Registered here because http-swagger reads orm descriptors by symbol and depends on neither orm nor orm-http.
+const listDescriptorOf = (param: IRouteParameter): ListDescriptor =>
+  (typeof param.Options === 'function' ? (Reflect.getMetadata(Symbol.for('MODEL_DESCRIPTOR'), param.Options) as ListDescriptor | undefined) : undefined) ?? {};
+
+const MEASURE_NAME = '^[A-Za-z_][A-Za-z0-9_]{0,62}$';
+
+registerOpenApiParamType('AggregateModelRouteArg', (param) => {
+  const descriptor = listDescriptorOf(param);
+  const groupable = [...(descriptor.GroupableColumns ?? [])];
+  const aggregatable = [...(descriptor.AggregatableColumns ?? [])];
+
+  const measured = aggregatable.map(([column, functions]) => ({
+    type: 'object',
+    required: ['name', 'fn', 'column'],
+    properties: { name: { type: 'string', pattern: MEASURE_NAME }, fn: { type: 'string', enum: functions }, column: { type: 'string', enum: [column] } },
+  }));
+  const counted = {
+    type: 'object',
+    required: ['name', 'fn'],
+    properties: { name: { type: 'string', pattern: MEASURE_NAME }, fn: { type: 'string', enum: ['count'] }, column: { type: 'string' } },
+  };
+
+  return {
+    in: 'query',
+    required: false,
+    schema: {
+      type: 'object',
+      required: ['measures'],
+      properties: {
+        groupBy: { type: 'array', items: groupable.length > 0 ? { type: 'string', enum: groupable } : { type: 'string' } },
+        measures: { type: 'array', minItems: 1, items: { anyOf: [...measured, counted] } },
+        order: {
+          type: 'array',
+          items: { type: 'object', required: ['column'], properties: { column: { type: 'string' }, order: { type: 'string', enum: ['ASC', 'DESC'] } } },
+        },
+        limit: { type: 'integer', minimum: 1 },
+      },
+    },
+  };
+});
+
+registerOpenApiParamType('IncludeModelRouteArg', (param) => {
+  const includable = Array.isArray(param.Options) ? (param.Options as string[]) : [...(listDescriptorOf(param).IncludableRelations ?? [])];
+
+  return {
+    in: 'query',
+    required: false,
+    description: includable.length > 0 ? `Relations to load, comma separated: ${includable.join(', ')}` : 'No relation can be included',
+    // Comma separated text on the wire; the enum documents the names one entry may take.
+    schema: { type: 'array', items: includable.length > 0 ? { type: 'string', enum: includable } : { type: 'string' } },
+  };
+});
