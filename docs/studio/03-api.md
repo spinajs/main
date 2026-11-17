@@ -33,6 +33,8 @@ Endpoint `traces`. One trace as `TraceDetail`: its summary, its spans, the buffe
 
 `traceId` is 32 lower-case hex digits; anything else is a `400`. A trace that is not in the buffer is a `404`.
 
+The `traces` guard covers the trace's log lines: restrict `logs` and `traces` together.
+
 ## `GET /api/traces/stream`
 
 Endpoint `traces`. A server-sent event stream: one `trace` event per finished root span, with the trace id as the event id and a `TraceSummary` as data.

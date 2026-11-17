@@ -118,9 +118,9 @@ The `logs` feature of `GET /api/capabilities` is `true` while a target of type `
 What the target keeps:
 
 - every line that carries a trace id (`traceId`, or the older `trace_id`), and every warning and above without one;
-- never a line written inside a Studio request. A Studio request the sampler did not record is not recognised: its lines with a trace id, and its warnings, are kept.
+- never a line written inside a Studio request. A Studio request the sampler did not record is not recognised: its lines with a trace id, and its warnings, are kept. Any caller can cause this by sending an unsampled `traceparent` (ending in `-00`).
 
-Each line keeps its level, logger, message, trace and span ids, and its scalar fields (strings, numbers, booleans); objects are dropped. Fields named in `studio.redactAttributes` are stored as `[redacted]`. A logged error becomes the field `error`, `"<name>: <message>"`.
+Each line keeps its level, logger, message, trace and span ids, and its scalar fields (strings, numbers, booleans); objects are dropped. Fields named in `studio.redactAttributes` are stored as `[redacted]`; redaction goes by field name only. The default list names span attributes only, so it matches no log field, and the message is kept as rendered: a value interpolated into it is not redacted. A logged error becomes the field `error`, `"<name>: <message>"`.
 
 Memory bound: at most `studio.buffers.logs` lines (default 5000). The message and every string field are cut at 2 KiB, and a line keeps at most 8 KiB (`MAX_LOG_LINE_BYTES`) of field data; the fields past it are dropped.
 
