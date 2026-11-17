@@ -771,8 +771,8 @@ Set these before the first 3.0 start:
   outside development and test;
 - `authn.audit.hashKey.secret` (32 characters or more), so throttle keys in `authn_throttle` are keyed
   hashes. Outside development and test, `DbAuthnThrottle` fails boot without it; in development and
-  test it uses a random key per process and warns once. `LogAuthnAuditSink` without it also uses a
-  random key per process, so the hashes in your logs change on each restart and differ between nodes;
+  test it uses a random key per process and warns once. The hashes of authentication events that
+  `@spinajs/audit-authn` writes to the `security` trail use `audit.hashKey.secret` instead;
 - `authn.throttle.service` only when you register a throttle of your own (section 3.4);
 - `http.trustProxy`: the proxy hops, or their addresses and CIDRs (section 3.4). Without it, every
   client behind the proxy shares one address for throttling and audit, and the CSRF guard sees the
@@ -1128,7 +1128,7 @@ Config, boot checks and old keys are in [section 3.4](#34-keys-that-other-config
 The flow is in the [authentication flow](../authn/01-authentication-flow.md). What an app sees:
 
 - **Class names.** `DefaultAuthnService`, `StrategyRegistry`, `DefaultMfaPolicy`,
-  `MemoryAuthnThrottle`, `AuthnAudit`, `LogAuthnAuditSink`, `AccountLinkService`, `FreshAuthCheck` and
+  `MemoryAuthnThrottle`, `AuthnAudit`, `AccountLinkService`, `FreshAuthCheck` and
   `AuthnImpersonationService`. DI keys classes by name, so the last two avoid the plain names: the
   `FreshAuth` policy and the 2.x `ImpersonationService` of `authn-http` would clash with them.
 - **Service names are class names.** `authn.strategies` entries and `authn.throttle.service`,
@@ -1619,7 +1619,7 @@ upgrades.**
 | SR-12 | The CSRF origin guard checks every cookie request with an unsafe method, and CORS with an empty list allows nothing (step 8). |
 | SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once, and an older time step is refused (`TotpMfaStep`, SR-15). |
 | SR-16 | Cookie flags and secret checks follow the app env, not `NODE_ENV=production` alone, and a missing env counts as production. |
-| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. `LogAuthnAuditSink` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
+| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. The `security` trail of `@spinajs/audit-authn` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
 
 ## 11. Open items in 3.0.0-rc.1
 

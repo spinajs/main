@@ -24,7 +24,7 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not impo
 
 | Import | Holds | Side effects |
 | --- | --- | --- |
-| `@spinajs/authn` | Everything below except `@spinajs/authn/boot`, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
+| `@spinajs/authn` | Everything below except `@spinajs/authn/boot`, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle` and `AuthnConfigBootstrapper` |
 | `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash` (these four re-exported from `@spinajs/principal`), and the [shared constants and helpers](#shared-constants-and-helpers) | None |
 | `@spinajs/authn/schemas` | `AUTHN_CONFIGURATION_SCHEMA` | None |
 | `@spinajs/authn/register-schema` | Registers `AUTHN_CONFIGURATION_SCHEMA` at import | For modules that read `authn.*` and may load where the root never does |
@@ -63,7 +63,7 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `SessionIssuer` | Issue, restore, rotate and revoke sessions | `DefaultSessionIssuer` (authn-session) | [Session contract](08-session-contract.md) |
 | `MfaPolicy`, `MfaStep`, `MfaEnrolments` | Which factors a login needs; one factor; stored enrolments | `DefaultMfaPolicy` (core); `TotpMfaStep` (authn-totp); `DbMfaEnrolments` (authn-orm) | [MFA](04-mfa-policy-and-steps.md) |
 | `AuthnThrottle` | Backoff per key | `MemoryAuthnThrottle` (core); `DbAuthnThrottle` (authn-orm) | [Throttling](05-throttling.md) |
-| `AuthnEventSink` | Receives every authentication event | `LogAuthnAuditSink` (core); `DbAuthnAuditSink` (authn-orm); `QueueAuthnEventSink` (users); `SseSessionEndSink` (authz-http) | [Audit events](06-audit-events.md) |
+| `AuthnEventSink` | Receives every authentication event | None in the core; `AuthnAuditRecorder` (audit-authn), which records events in the `security` trail; `DbAuthnAuditSink` (authn-orm); `QueueAuthnEventSink` (users); `SseSessionEndSink` (authz-http) | [Audit events](06-audit-events.md) |
 | `IdentityLinkStore` | External subjects of an identity | `DbIdentityLinkStore` (authn-orm) | [Account linking](10-account-linking.md) |
 | `SecretStore` | Single-use secrets: reset, invite, key challenge | `DbSecretStore` (authn-orm) | [`@spinajs/authn-orm`](../authn-orm/README.md) |
 | `NonceStore` | Single-use values until they expire: an OIDC `state` | `MemoryNonceStore` (core, `@spinajs/authn/nonces`, not registered); `DbNonceStore` (authn-orm) | [Nonce store](../authn-orm/04-nonce-store.md) |

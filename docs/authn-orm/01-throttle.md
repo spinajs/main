@@ -283,4 +283,4 @@ export async function retryAfterSixthAttempt(login: string): Promise<number> {
 - [`@spinajs/authn-local`](../authn-local/README.md), [`@spinajs/authn-totp`](../authn-totp/README.md), [`@spinajs/authn-keys`](../authn-keys/README.md): the strategy packages that count into this throttle.
 - [`@spinajs/util` throttle](../util/10-throttle.md) and [custom throttle stores](../util/11-custom-throttle-stores.md): the `ThrottleStore` contract `DbThrottleStore` implements.
 - [Models and schema](07-models-and-schema.md): the `AuthnThrottle` model, the `default` connection and driver gaps.
-- [Audit sink](06-audit-sink.md): `authn.audit.hashKey.secret` is shared with `LogAuthnAuditSink`'s hashes.
+- [Audit sink](06-audit-sink.md): `DbAuthnAuditSink`. `authn.audit.hashKey.secret` keys only the throttle rows; events recorded by `@spinajs/audit-authn` are hashed with `audit.hashKey.secret`.

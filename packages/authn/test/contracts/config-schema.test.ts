@@ -117,7 +117,7 @@ function example(): Json {
     linking: { jit: false, byVerifiedEmail: false },
     login: { requireVerifiedAddress: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
-    audit: { hashIdentifiers: true },
+    audit: { listenerTimeoutMs: 2000 },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
@@ -244,7 +244,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, listenerTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { listenerTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -260,7 +260,7 @@ describe('authn.* configuration schema', () => {
         token: TOKEN_DEFAULTS,
         keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
-        audit: { hashIdentifiers: true, listenerTimeoutMs: 2000 },
+        audit: { listenerTimeoutMs: 2000 },
         http: {},
         strategies: [],
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] },
@@ -337,6 +337,10 @@ describe('authn.* configuration schema', () => {
     it('refuses a secret ref without secret', () => {
       refused({ mfa: { encryptionKey: { previous: [] } } }, '/mfa/encryptionKey');
       refused({ audit: { hashKey: {} } }, '/audit/hashKey');
+    });
+
+    it('refuses the removed authn.audit.hashIdentifiers: hashing belongs to the audit trail', () => {
+      refused({ audit: { hashIdentifiers: false } }, '/audit');
     });
   });
 });

@@ -9,7 +9,7 @@ import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, Memo
 import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/boot/index.js';
-import { TestLog, useTestLog } from '../audit/test-log.js';
+import { useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
 export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.mfa.policy.methods', 'authn.freshAuth', 'authn.impersonation', 'authn.login'];
@@ -194,7 +194,7 @@ function kitStrategies(identities: FakeIdentityStore, passwords: MemoryPasswordC
 }
 
 /**
- * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink, DefaultMfaPolicy and
+ * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, DefaultMfaPolicy and
  * MemoryAuthnThrottle, resolved in a fresh child container with its own Configuration (all of them are per container,
  * D11), over kit fakes for the neighbours N1 does not own. The kit MFA step (`fake`) is listed in `authn.mfa.steps`.
  * The throttle is built from the child's Configuration and registered there under the name `MemoryAuthnThrottle`, so
@@ -326,7 +326,6 @@ const spyOf = (strategies: readonly StrategySpec[]) => ({
 
 /** Every port the core service has today; `hooks` when the parts were built with that KitActionHooks. */
 export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness {
-  const logStart = TestLog.lines.length;
   return {
     service: parts.service,
     seed: fakeSeedPort(parts.identities, parts.passwords),
@@ -335,7 +334,6 @@ export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness
     throttle: { throttle: parts.throttle, params: (parts.throttle as MemoryAuthnThrottle).params },
     events: parts.events,
     sinks: [parts.events, parts.second],
-    logs: { lines: () => TestLog.lines.slice(logStart).filter((l) => l.includes(' authn audit ')) },
     spy: spyOf(parts.strategies),
     mfa: { step: parts.step, enrol: async (id) => parts.step.enrol(id), code: async (id) => parts.step.nextCode(id) },
     passwordStore: parts.passwords,

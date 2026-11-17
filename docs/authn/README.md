@@ -21,7 +21,7 @@ npm install @spinajs/authn
 | [Strategies](03-strategies.md) | `AuthenticationStrategy`, `StrategyRegistry`, `authn.strategies` and writing a login method |
 | [MFA policy and steps](04-mfa-policy-and-steps.md) | `MfaPolicy`, `DefaultMfaPolicy`, `MfaStep`, `MfaEnrolments` and `authn.mfa.*` |
 | [Throttling](05-throttling.md) | `AuthnThrottle`, `MemoryAuthnThrottle`, `StoreAuthnThrottle`, the keys and `authn.throttle.*` |
-| [Audit events](06-audit-events.md) | `AuthnEvent`, `AuthnEventSink`, `AuthnAudit`, `LogAuthnAuditSink` and `authn.audit.*` |
+| [Audit events](06-audit-events.md) | `AuthnEvent`, `AuthnEventListener`, `AuthnAudit`, recording with `@spinajs/audit-authn` and `authn.audit.*` |
 | [Principal and authorization](07-principal-and-authz.md) | `Principal`, `AuthnFacts`, `PrincipalFactory`, and how the principal reaches authz |
 | [Session contract](08-session-contract.md) | `SessionIssuer`, the `Session` class, `SessionKeys` and a custom session class |
 | [Fresh authentication](09-fresh-authentication.md) | `FreshAuthCheck`, `isFresh` and `authn.freshAuth.maxAgeSeconds` |

@@ -5,7 +5,7 @@ import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventListener, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventListener } from '../../src/index.js';
 import type { AuditConfig, AuthnEvent, AuthnEventType } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 import { TestLog, useTestLog } from './test-log.js';
@@ -80,7 +80,7 @@ const BASE: Class<unknown>[] = [FirstSink, SecondSink, ThirdSink];
 
 class ChildSink extends Recording {}
 
-// What AuthnAudit itself logs; LogAuthnAuditSink writes to the same logger.
+// What AuthnAudit itself logs.
 const auditorLines = (): string[] => TestLog.of('authn-audit').filter((e) => e.message.startsWith('AuthnAudit:')).map((e) => `${e.level} ${e.message}`);
 
 const IP = '203.0.113.7';
@@ -172,7 +172,6 @@ describe('AuthnAudit', function () {
       await a.publish(ev('login', 'failure'));
       await a.publish(ev('login'));
       expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'FirstSink:login', 'SecondSink:login', 'ThirdSink:login']);
-      expect(sinkNames(a)).to.include('LogAuthnAuditSink');
       const first = (await DI.resolve(FirstSink)).events.map((e) => e.outcome);
       const second = (await DI.resolve(SecondSink)).events.map((e) => e.outcome);
       expect(first).to.deep.equal(['failure', 'success']);
@@ -182,7 +181,7 @@ describe('AuthnAudit', function () {
     it('keeps every registered sink when authn.audit is unset', async () => {
       for (const audit of [{}, undefined]) {
         const a = await boot(audit);
-        for (const t of [...BASE, LogAuthnAuditSink]) expect(sinkNames(a)).to.include(t.name);
+        for (const t of BASE) expect(sinkNames(a)).to.include(t.name);
       }
     });
 
@@ -396,7 +395,7 @@ describe('AuthnAudit', function () {
     it('takes the defaults from the schema, also when authn.audit is unset', async () => {
       for (const audit of [{}, undefined]) {
         const a = await boot(audit);
-        expect((a as unknown as { Config: AuditConfig }).Config).to.deep.equal({ hashIdentifiers: true, listenerTimeoutMs: 2000 });
+        expect((a as unknown as { Config: AuditConfig }).Config).to.deep.equal({ listenerTimeoutMs: 2000 });
       }
     });
 
@@ -405,11 +404,10 @@ describe('AuthnAudit', function () {
     });
 
     it('fails boot on malformed authn.audit values, naming the path of each', async () => {
-      await bootFails('LogAuthnAuditSink', 'authn.audit');
+      await bootFails('AuthnAuditRecorder', 'authn.audit');
       await bootFails({ sink: ['FirstSink'] }, 'authn.audit.sink');
       await bootFails({ typo: 1 }, 'authn.audit.typo');
       await bootFails({ sinks: ['FirstSink'] }, 'authn.audit.sinks');
-      await bootFails({ hashIdentifiers: 'yes' }, 'authn.audit.hashIdentifiers');
       await bootFails({ hashKey: 'k'.repeat(40) }, 'authn.audit.hashKey');
       await bootFails({ hashKey: { secret: 'short' } }, 'authn.audit.hashKey.secret');
       await bootFails({ hashKey: { secret: 'k'.repeat(32), version: 1 } }, 'authn.audit.hashKey.version');
@@ -418,13 +416,13 @@ describe('AuthnAudit', function () {
     });
 
     it('reports every bad value of one boot', async () => {
-      await bootFails({ hashIdentifiers: 'yes', listenerTimeoutMs: 0, typo: 1 }, 'authn.audit.hashIdentifiers', 'authn.audit.listenerTimeoutMs', 'authn.audit.typo');
+      await bootFails({ hashKey: { secret: 'short' }, listenerTimeoutMs: 0, typo: 1 }, 'authn.audit.hashKey.secret', 'authn.audit.listenerTimeoutMs', 'authn.audit.typo');
     });
 
     it('does not echo config values', async () => {
       expect(await bootFails({ hashKey: { secret: 'hunter2-hunter2' } }, 'authn.audit.hashKey.secret')).to.not.contain('hunter2');
       expect(await bootFails({ hashKey: 'hunter2-hunter2-hunter2-hunter2-hunter2' }, 'authn.audit.hashKey')).to.not.contain('hunter2');
-      expect(await bootFails({ hashIdentifiers: 'hunter2' }, 'authn.audit.hashIdentifiers')).to.not.contain('hunter2');
+      expect(await bootFails({ listenerTimeoutMs: 'hunter2' }, 'authn.audit.listenerTimeoutMs')).to.not.contain('hunter2');
       expect(await bootFails('hunter2', 'authn.audit')).to.not.contain('hunter2');
     });
 
@@ -434,7 +432,6 @@ describe('AuthnAudit', function () {
       const a = await child.resolve(AuthnAudit);
       await a.publish(ev('login'));
       expect(calls).to.have.members(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'ChildSink:login']);
-      expect(sinkNames(a)).to.include('LogAuthnAuditSink');
       expect(a.listeners()).to.include(await DI.resolve(FirstSink));
     });
 
@@ -443,19 +440,13 @@ describe('AuthnAudit', function () {
       children.push(child);
       child.register(configurationOf({}, undefined, true)).as(Configuration);
       await child.resolve(Configuration);
-      for (const build of [() => child.resolve(AuthnAudit), async () => (await child.resolve(LogAuthnAuditSink)).on(ev('login'))]) {
-        try {
-          await build();
-          expect.fail('expected the call to fail');
-        } catch (e) {
-          expect(e).to.be.instanceOf(InvalidOperation);
-          expect((e as Error).message).to.contain('authn.audit is unset');
-        }
+      try {
+        await child.resolve(AuthnAudit);
+        expect.fail('expected the call to fail');
+      } catch (e) {
+        expect(e).to.be.instanceOf(InvalidOperation);
+        expect((e as Error).message).to.contain('authn.audit is unset');
       }
-    });
-
-    it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {
-      expect((DI.getRegisteredTypes(AuthnEventSink) ?? []).includes(LogAuthnAuditSink as never)).to.equal(true);
     });
   });
 
@@ -482,11 +473,10 @@ describe('AuthnAudit', function () {
   });
 
   describe('@spinajs/authn/audit', () => {
-    it('exports the AuthnAudit of the root entry, without the log sink', async () => {
+    it('exports the AuthnAudit of the root entry', async () => {
       const root = await import('@spinajs/authn');
       const sub = await import('@spinajs/authn/audit');
       expect(sub.AuthnAudit).to.equal(root.AuthnAudit);
-      expect(Object.keys(sub)).to.not.include('LogAuthnAuditSink');
     });
   });
 });

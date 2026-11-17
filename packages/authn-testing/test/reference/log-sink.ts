@@ -4,7 +4,7 @@ import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnE
 import type { LogsPort } from '../../src/harness/index.js';
 
 /**
- * A log sink in the shape of LogAuthnAuditSink: login strings are written as keyed hashes (SR-19).
+ * A log sink that writes login strings as keyed hashes (SR-19).
  * Events carry no login string, so `hint` holds the login of the attempt in flight (see withLoginHints).
  */
 export class ReferenceLogSink extends AuthnEventSink implements LogsPort {

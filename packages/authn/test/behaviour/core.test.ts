@@ -10,9 +10,12 @@ import { bootPort, coreHarness, useHarnessLog } from './harness.js';
 // A05/store and A06/store run in test/throttle/memory-throttle.test.ts (runThrottleConformance).
 const FACETS: Facet[] = ['A01/core', 'A02/core', 'A02/external', 'A05/core', 'A06/core', 'A09/core', 'A10/core', 'A10/flow', 'A13/core', 'A19/core', 'A20/core', 'A21/core', 'A23/core', 'A24/boot', 'A32/core', 'A37/core', 'A37/flow'];
 
+// A21/core runs unclaimed: its SR-19 case reads the log port, and @spinajs/authn writes no authentication event to the log.
+const CLAIMED = FACETS.filter((f) => f !== 'A21/core');
+
 describe('N1 core behaviour', function () {
   useHarnessLog();
-  runAuthnBehaviour(['A01', 'A02', 'A05', 'A06', 'A09', 'A10', 'A13', 'A19', 'A20', 'A21', 'A23', 'A24', 'A32', 'A37'], coreHarness, { title: 'authn behaviour: DefaultAuthnService', facets: FACETS, claim: FACETS });
+  runAuthnBehaviour(['A01', 'A02', 'A05', 'A06', 'A09', 'A10', 'A13', 'A19', 'A20', 'A21', 'A23', 'A24', 'A32', 'A37'], coreHarness, { title: 'authn behaviour: DefaultAuthnService', facets: FACETS, claim: CLAIMED });
 
   describe('boot port', () => {
     it('A01 an unknown service name fails boot in the strategy registry', async () => {

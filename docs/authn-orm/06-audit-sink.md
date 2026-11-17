@@ -34,7 +34,6 @@ A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authn.audit.listenerTimeoutMs` | `number` | `2000` | integer 1 to 60000 | How long `AuthnAudit` waits for one sink, this one included. |
-| `authn.audit.hashIdentifiers` | `boolean` | `true` | `true`, `false` | Read by `LogAuthnAuditSink`. `DbAuthnAuditSink` never hashes. |
 | `authn.audit.retentionDays` | `number` or `null` | unset | integer 1 or more | Age in days after which `AuthnAuditRetention` deletes a row. Unset or `null` keeps every row. |
 | `authn.audit.purgeInterval` | `number` or `null` | unset | integer 1 or more, milliseconds | Period of the purge timer. Unset or `null` runs none. |
 
@@ -72,7 +71,7 @@ Index `authn_audit_at` covers `at`; index `authn_audit_identity` covers `(identi
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, resolved as a list; per child container; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `LogAuthnAuditSink` (`@spinajs/authn`), `QueueAuthnEventSink` (`@spinajs/users`) | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
+| Event sink | `AuthnEventSink`, resolved as a list; per child container; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `AuthnAuditRecorder` (`@spinajs/audit-authn`, the `security` trail), `QueueAuthnEventSink` (`@spinajs/users`) | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
 
 ### Event sink: custom implementation
 

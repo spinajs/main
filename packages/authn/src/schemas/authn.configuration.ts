@@ -203,12 +203,10 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'listenerTimeoutMs', 'retentionDays', 'purgeInterval'] },
+      propertyNames: { enum: ['hashKey', 'listenerTimeoutMs', 'retentionDays', 'purgeInterval'] },
       properties: {
-        // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
-        hashIdentifiers: { enum: [true, false], default: true },
         hashKey: {
-          ...secretRefSchema('HMAC key of LogAuthnAuditSink for hashed identifiers and of DbAuthnThrottle for its row keys; null: a random key per process, which DbAuthnThrottle refuses outside development and test.'),
+          ...secretRefSchema('HMAC key of DbAuthnThrottle for its row keys; null: a random key per process, which DbAuthnThrottle refuses outside development and test.'),
           propertyNames: { enum: ['secret'] },
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },
