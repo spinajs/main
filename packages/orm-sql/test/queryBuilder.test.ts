@@ -6,7 +6,7 @@ import 'mocha';
 // Registers the concrete logger. Without it every `@Logger` field resolves the abstract
 // `Log` from log-common and the first `Log.trace()` in Orm.resolve() throws.
 import '@spinajs/log';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler, JoinStatement } from '@spinajs/orm';
 import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -932,6 +932,22 @@ describe('Relations query builder', () => {
 
     // join binding must come before the main WHERE binding (ON precedes WHERE in SQL)
     expect(result.bindings).to.deep.equal(['foo', 1]);
+  });
+
+  it('compiles a join under the alias JoinStatement.Joined names', () => {
+    const byRelation = RelationModel.where('Id', 1).leftJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+      this.where('Id', 5);
+    });
+    const byOptions = RelationModel.query().leftJoin({ joinModel: RelationModel2, joinTableAlias: 'r2', sourceTablePrimaryKey: 'relation_id', joinTableForeignKey: 'Id' });
+
+    for (const [query, alias] of [
+      [byRelation, '$RelationModel2$'],
+      [byOptions, 'r2'],
+    ] as const) {
+      const joined = query.JoinStatements.filter((s): s is JoinStatement => s instanceof JoinStatement).map((s) => s.Joined);
+      expect(joined.map((j) => [j.table, j.alias, j.model])).to.deep.equal([['RelationTable2', alias, RelationModel2]]);
+      expect((query.toDB() as ICompilerOutput).expression).to.contain(`LEFT JOIN \`RelationTable2\` as \`${alias}\` ON`);
+    }
   });
 
   it('join callback with multiple where conditions combines them in ON clause', () => {

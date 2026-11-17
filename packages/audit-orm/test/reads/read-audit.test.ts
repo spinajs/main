@@ -1,6 +1,7 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { AuditConfigError, AuditStore, AuditWriteFailed, audit } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
@@ -11,6 +12,7 @@ import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm'
 import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditSubjectType, registerAuditReads } from '../../src/index.js';
 import { DIALECTS, TestDb } from '../../src/testing.js';
 import type { Dialect } from '../../src/testing.js';
+import { forgetAuditReads } from '../../src/reads/rules.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
 
 chai.use(chaiAsPromised);
@@ -225,7 +227,6 @@ const AUDIT = {
     wedge: { connection: 'wedge', table: 'audit_wedge', onFailure: 'reject', retry: RETRY },
     held: { connection: 'wedge', table: 'audit_held', onFailure: 'reject', retry: RETRY },
   },
-  confirmTimeoutMs: 1500,
 };
 const WEDGE = { Driver: 'orm-driver-sqlite', Name: 'wedge', Filename: ':memory:' };
 
@@ -271,6 +272,7 @@ describe('read auditing', function () {
   });
 
   after(async () => {
+    forgetAuditReads(Keyless);
     await db?.close();
   });
 
@@ -604,6 +606,22 @@ describe('read auditing', function () {
         expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 0 : 1);
       });
 
+      it('records two audited reads in parallel inside one transaction, and keeps them as the transaction does', async () => {
+        const driver = db.driver(dialect);
+        const both = () => Promise.all([Visit.query().where('Id', 1), Visit.query().where('Id', 2)]);
+        await driver.transaction(async () => {
+          expect((await both()).map((rows) => rows.length)).to.deep.eq([1, 1]);
+        });
+        expect(await searched()).to.have.length(2);
+
+        const failing = driver.transaction(async () => {
+          await both();
+          throw new Error('caller failed');
+        });
+        await expect(failing).to.be.rejectedWith('caller failed');
+        expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 2 : 4);
+      });
+
       it('returns an audited read inside a transaction, and its record commits', async () => {
         await db.driver(dialect).transaction(async () => {
           expect(await Visit.query().where('Id', 1)).to.have.length(1);
@@ -664,6 +682,10 @@ describe('read auditing', function () {
       await Appointment.insert({ clinic_id: 1, patient_id: 2 });
     });
 
+    after(() => {
+      for (const model of [DoctorWard, Doctor, PatientCard]) forgetAuditReads(model);
+    });
+
     const of = async (type: string) => (await recorded('restricted')).filter((e) => e.subject?.type === type || (e.subject === undefined && e.action === `${type}.read`));
 
     it('audits the rows of a hasMany populate', async () => {
@@ -689,7 +711,8 @@ describe('read auditing', function () {
       expect((await of('patient')).map((e) => e.subject?.id)).to.deep.eq(['1', '1', '2']);
     });
 
-    it('records no count and no exists in row mode: they return no row of the model', async () => {
+    it('records no count, no exists and no select of the key alone in row mode: they return nothing the caller did not name', async () => {
+      await Badge.query().select('Id').asRaw();
       await Badge.query().selectCount();
       await Reflect.apply(Badge.exists.bind(Badge), undefined, [Buffer.from('ab01', 'hex')]);
 
@@ -756,11 +779,16 @@ describe('read auditing', function () {
     });
 
     it('fails the select when its record cannot join a transaction and waits past audit.confirmTimeoutMs', async () => {
+      const config = DI.get(Configuration);
+      config?.set('audit.confirmTimeoutMs', 1500);
       registerAuditReads(DoctorWard, { trail: 'held', mode: 'query' });
       const held = db.driver('wedge').transaction(() => pause(3000));
-
-      await expect(DoctorWard.all()).to.be.rejectedWith(AuditWriteFailed);
-      await held;
+      try {
+        await expect(DoctorWard.all()).to.be.rejectedWith(AuditWriteFailed);
+      } finally {
+        config?.set('audit.confirmTimeoutMs', undefined);
+        await held;
+      }
     });
 
     it('fails the first audited select of each rule that names a column its table lacks', async () => {
