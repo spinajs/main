@@ -29,10 +29,11 @@ const KEYS = [
 
 type Key = (typeof KEYS)[number];
 type Durations = Record<Key, unknown>;
+type Values = Readonly<Record<string, unknown>>;
 
-const each = (value: unknown): Durations => Object.fromEntries(KEYS.map((k) => [k, value])) as Durations;
+const each = (value: unknown): Values => Object.fromEntries(KEYS.map((k) => [k, value]));
 
-const schedulerOf = (d: Durations) => ({
+const schedulerOf = (d: Values) => ({
   emitTimeout: d.emitTimeout,
   retention: { runs: d['retention.runs'], logs: d['retention.logs'], errors: d['retention.errors'] },
   schedules: [
@@ -49,9 +50,9 @@ const schedulerOf = (d: Durations) => ({
 
 // createTestApp runs every Bootstrapper, so SchedulerBootstrapper registers the schema as it does in an app. The boot
 // timeout is generous because boots take tens of seconds on a loaded machine; it stays below the mocha timeout.
-const boot = (d: Durations) => createTestApp({ config: { ...logging, scheduler: schedulerOf(d) }, bootTimeout: 150_000 });
+const boot = (d: Values) => createTestApp({ config: { ...logging, scheduler: schedulerOf(d) }, bootTimeout: 150_000 });
 
-const stored = (app: TestApp): Durations => Object.fromEntries(KEYS.map((k) => [k, app.config.get<unknown>(`scheduler.${k}`)])) as Durations;
+const stored = (app: TestApp): Values => Object.fromEntries(KEYS.map((k) => [k, app.config.get<unknown>(`scheduler.${k}`)]));
 
 async function refusal(value: unknown): Promise<InvalidConfiguration> {
   try {
@@ -99,9 +100,13 @@ describe('scheduler configuration schema: durations', function () {
     expect(stored(await boot(each(0)))).to.deep.equal(each(0));
   });
 
-  // The number branch has no `integer`, as before this schema change: parseDuration takes a fractional millisecond.
-  it('keeps a fractional number of milliseconds a number', async () => {
-    expect(stored(await boot(each(1.5)))).to.deep.equal(each(1.5));
+  it('keeps a duration padded with blanks as written, and the scheduler reads it', async () => {
+    const app = await boot(each('  5s  '));
+
+    expect(stored(app)).to.deep.equal(each('  5s  '));
+    const def = (await app.resolve(ScheduleRegistry)).get(SCHEDULE);
+    expect(def.spec).to.deep.include({ kind: 'every', intervalMs: 5_000 });
+    expect(def).to.deep.include({ jitterMs: 5_000, misfireThresholdMs: 5_000, timeoutMs: 5_000 });
   });
 
   it('keeps a duration with a unit as written', async () => {
@@ -125,7 +130,7 @@ describe('scheduler configuration schema: durations', function () {
     expect(stored(await boot(each('5000')))).to.deep.equal(each(5000));
   });
 
-  for (const value of [null, true, false, '', -5, 'soon']) {
+  for (const value of [null, true, false, '', ' ', '	', 1.5, -5, 'soon']) {
     it(`refuses ${JSON.stringify(value)} when the configuration loads, naming the key`, async () => {
       const error = await refusal(value);
       const paths = error.violations.map((v) => v.path);
