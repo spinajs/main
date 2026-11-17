@@ -50,12 +50,20 @@ function schemasAndDiagnostics(fragments: ManifestFragment[]): { schemas: Record
 function mergeAuthz(fragments: ManifestFragment[]): AuthzSection | undefined {
   const sections = fragments.flatMap((f) => (f.authz ? [f.authz] : []));
   if (sections.length === 0) return undefined;
+  const total = (pick: (flow: AuthzSection['flow']) => number): number => sections.reduce((sum, s) => sum + pick(s.flow), 0);
   return {
     resources: sections.flatMap((s) => s.resources),
     permissions: sections.flatMap((s) => s.permissions),
     entryPoints: sections.flatMap((s) => s.entryPoints),
     findings: sections.flatMap((s) => s.findings),
     ignores: sections.flatMap((s) => s.ignores),
+    flow: {
+      entryPoints: total((f) => f.entryPoints),
+      unresolvedRoots: total((f) => f.unresolvedRoots),
+      opaqueCalls: total((f) => f.opaqueCalls),
+      externalCalls: total((f) => f.externalCalls),
+      foreignModelQueries: total((f) => f.foreignModelQueries),
+    },
   };
 }
 

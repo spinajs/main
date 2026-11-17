@@ -148,7 +148,17 @@ A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 
 ### Authorization facts
 
-The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `entryPoints`: every route, socket command and event, queue job (`job:<Class>`), literal `consume(Event, handler)` call (`event:<Class>`), schedule and CLI command, with its access as OR-of-AND policy groups: the class and handler scopes combined as the runtime combines them, and an `AccessPolicy` group listing its permissions; `system` is the `@SystemTask(reason)` of the class. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
+The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `entryPoints`: every route, socket command and event, queue job (`job:<Class>`), literal `consume(Event, handler)` call (`event:<Class>`), schedule and CLI command, with its access as OR-of-AND policy groups: the class and handler scopes combined as the runtime combines them, and an `AccessPolicy` group listing its permissions; `system` is the `@SystemTask(reason)` of the class. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings`: the `AUTHZ001`, `AUTHZ002` and `AUTHZ006` warnings of the compiler's flow pass, one per query or `runAs` site, each with the entry point and call path that reach it ([Authz flow findings](../compiler/authz-flow.md)).
+
+`flow` says how much of the code the flow pass covered, so an empty `findings` list can be weighed. It is required in every `authz` section; merging sums each counter over the fragments.
+
+| Counter | Meaning |
+| --- | --- |
+| `entryPoints` | Entry points whose handler the pass analysed. |
+| `unresolvedRoots` | Entry points whose handler has no body in the package (inherited from a dependency) or cannot be located. |
+| `opaqueCalls` | Calls whose callee the program does not determine (a callback parameter, a function-typed property, an overload), function values handed on that it does not determine, and functions whose summary did not settle. |
+| `externalCalls` | Calls into dependencies, which the pass does not follow. |
+| `foreignModelQueries` | Unscoped query sites of models another package declares; whether those are access resources is not visible in declaration files. |
 
 `ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet; an app manifest with an `authz` section says so with the info diagnostic `AUTHZ010`.
 

@@ -12,7 +12,7 @@ const entry = (kind: EntryPoint['kind'], id: string, line: number, over: Partial
 const APP = { name: 'app', version: '0.0.0', root: '/fixture', outDir: 'lib' };
 const withAuthz = (entryPoints: EntryPoint[], over: Partial<AuthzSection> & Partial<Manifest> = {}): Manifest => {
   const { resources = [], permissions = [], ignores = [], ...rest } = over;
-  return fixture({ app: APP, authz: { resources, permissions, entryPoints, findings: [], ignores }, ...rest });
+  return fixture({ app: APP, authz: { resources, permissions, entryPoints, findings: [], ignores, flow: { entryPoints: 0, unresolvedRoots: 0, opaqueCalls: 0, externalCalls: 0, foreignModelQueries: 0 } }, ...rest });
 };
 const codes = (found: { code: string; severity: string; source?: { line: number } }[]) => found.map((d) => `${d.code}:${d.severity}:${d.source?.line ?? '-'}`);
 

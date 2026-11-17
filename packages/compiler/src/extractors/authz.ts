@@ -151,8 +151,11 @@ function modelPermissions(resources: Resource[]): AuthzSection['permissions'] {
   return types.flatMap((type) => RESOURCE_ACTIONS.map((action) => ({ name: `${type}:${action}`, declaredIn: 'model' as const })));
 }
 
-/** The package's `authz` section; undefined when it declares nothing. `findings` stay empty until the flow pass. */
-export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs): AuthzSection | undefined {
+/** The authz facts the extractors read; the flow pass adds `findings` and `flow`. */
+export type AuthzFacts = Omit<AuthzSection, 'findings' | 'flow'>;
+
+/** The package's authz facts; undefined when it declares nothing. */
+export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs): AuthzFacts | undefined {
   const system = systemTasks(files, ctx);
   const classes = classesBySource(files, ctx, sourceKey);
   const entryPoints = [
@@ -162,6 +165,6 @@ export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceF
     ...inputs.schedules.map((s) => systemEntry('schedule', s.name, s.source, system)),
     ...inputs.commands.map((c) => systemEntry('cli', c.name, c.source, system)),
   ];
-  const section: AuthzSection = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, findings: [], ignores: ignoresIn(files, ctx) };
+  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoresIn(files, ctx) };
   return section.resources.length || section.entryPoints.length || section.ignores.length ? section : undefined;
 }

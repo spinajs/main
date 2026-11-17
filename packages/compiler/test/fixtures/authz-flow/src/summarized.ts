@@ -225,3 +225,13 @@ export class PassedByName {
     await q;
   }
 }
+
+export class UnionDrop {
+  public async execute() {
+    await Promise.all([Invoice.destroy()].map(this.drop));
+  }
+
+  private drop = async (q: IUpdateQueryBuilder<Invoice> | IDeleteQueryBuilder<Invoice>) => {
+    await q;
+  };
+}

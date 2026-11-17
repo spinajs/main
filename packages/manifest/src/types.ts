@@ -341,6 +341,8 @@ export interface AuthzSection {
   /** AUTHZ0xx from the flow pass. */
   findings: Diagnostic[];
   ignores: Array<{ code: string; reason: string; source: SourceRef }>;
+  /** What the flow pass covered: the entry points it analysed, those whose handler it could not find a body for, calls whose callee the program does not determine, calls into dependencies it does not follow, and unscoped queries of models another package declares. */
+  flow: { entryPoints: number; unresolvedRoots: number; opaqueCalls: number; externalCalls: number; foreignModelQueries: number };
   /** Canonical PolicyIR, when the `authz.*` config is statically readable. */
   ir?: string;
   policyHash?: string;

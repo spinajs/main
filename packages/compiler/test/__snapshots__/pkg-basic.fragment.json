@@ -1743,7 +1743,14 @@
       }
     ],
     "findings": [],
-    "ignores": []
+    "ignores": [],
+    "flow": {
+      "entryPoints": 11,
+      "unresolvedRoots": 3,
+      "opaqueCalls": 0,
+      "externalCalls": 4,
+      "foreignModelQueries": 0
+    }
   },
   "schemas": {
     "spinajs/basic.configuration.schema.json": {

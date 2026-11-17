@@ -243,3 +243,4 @@ The analyzer depends on `typescript` pinned to `~5.9.0` and uses the in-process 
 
 - [doctor](doctor.md)
 - [N+1 diagnostics](n-plus-one.md)
+- [Authz flow findings](authz-flow.md)

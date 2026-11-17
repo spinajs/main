@@ -2054,6 +2054,33 @@
             ]
           }
         },
+        "flow": {
+          "type": "object",
+          "properties": {
+            "entryPoints": {
+              "type": "number"
+            },
+            "unresolvedRoots": {
+              "type": "number"
+            },
+            "opaqueCalls": {
+              "type": "number"
+            },
+            "externalCalls": {
+              "type": "number"
+            },
+            "foreignModelQueries": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "entryPoints",
+            "unresolvedRoots",
+            "opaqueCalls",
+            "externalCalls",
+            "foreignModelQueries"
+          ]
+        },
         "ir": {
           "type": "string"
         },
@@ -2066,7 +2093,8 @@
         "permissions",
         "entryPoints",
         "findings",
-        "ignores"
+        "ignores",
+        "flow"
       ]
     },
     "Diagnostic": {
