@@ -186,6 +186,9 @@ const SEED = Number(process.env.FUZZ_SEED ?? 20261105);
 const SCHEMAS = Number(process.env.FUZZ_SCHEMAS ?? 160);
 const INPUTS = 70;
 
+// Seeds 0, 1, 2, 77, 135, 199 and the default compare every drawn schema; the margin is for one the server refuses.
+const comparedFloor = (drawn: number): number => Math.ceil(drawn * 0.9);
+
 describe('emitZod: the replay of Ajv coercions against the server, on seeded random schemas', function () {
   this.timeout(180000);
 
@@ -206,9 +209,10 @@ describe('emitZod: the replay of Ajv coercions against the server, on seeded ran
     const manifest = parityManifest(await appBasicManifest(), named);
     const subject = await subjectOf(manifest);
     const found: { stricter: string[]; looser: string[] } = { stricter: [], looser: [] };
-    let infinite = 0;
+    let compared = 0;
     for (const id of ids) {
       if (!zodSchemaOf(subject, id, 'coerced') || serverRefusal(subject, id, { coerce: true }) !== undefined) continue;
+      compared++;
       const inputs = Array.from({ length: INPUTS }, () => (id.includes('Nested') ? { v: value(rnd, 2) } : value(rnd, 2)));
       const result = await parity(manifest, id, { coerce: true, variant: 'coerced' }, inputs);
       expect(result.errors, `${id} errors`).to.deep.equal([]);
@@ -217,14 +221,13 @@ describe('emitZod: the replay of Ajv coercions against the server, on seeded ran
         if (direction === 'looser' && diagnosticsFor(subject, id).length > 0) continue;
         const disagreements = direction === 'stricter' ? result.zodStricter : result.zodLooser;
         const changed = disagreements.filter((d) => JSON.stringify(finite(d.input)) !== JSON.stringify(d.input));
-        infinite += changed.length;
         if (changed.length === 0) continue;
         const neutral = await parity(manifest, id, { coerce: true, variant: 'coerced' }, changed.map((d) => finite(d.input)));
         const same = new Set([...neutral.zodStricter, ...neutral.zodLooser].map((d) => JSON.stringify(d.input)));
         for (const d of changed.filter((c) => !same.has(JSON.stringify(finite(c.input)))).slice(0, 3)) found[direction].push(`${id} ${JSON.stringify(manifest.schemas[id])} on ${show(d.input)}`);
       }
     }
-    expect(infinite, 'disagreements that hold a literal infinity, compared').to.be.at.least(0);
+    expect(compared, 'fuzz schemas compared').to.be.at.least(comparedFloor(ids.length));
     expect(found).to.deep.equal({ stricter: [], looser: [] });
   });
 
@@ -242,13 +245,16 @@ describe('emitZod: the replay of Ajv coercions against the server, on seeded ran
     const manifest = parityManifest(await appBasicManifest(), named);
     const subject = await subjectOf(manifest);
     const found: { stricter: string[]; looser: string[]; errors: string[] } = { stricter: [], looser: [], errors: [] };
+    let compared = 0;
     for (const id of ids) {
       if (!zodSchemaOf(subject, id, 'coerced') || serverRefusal(subject, id, { coerce: true }) !== undefined) continue;
+      compared++;
       const result = await parity(manifest, id, { coerce: true, variant: 'coerced' }, Array.from({ length: INPUTS * 3 }, () => loopValue(rnd)));
       found.errors.push(...result.errors.slice(0, 2).map((e) => `${id} ${e}`));
       found.stricter.push(...result.zodStricter.slice(0, 2).map((d) => `${id} ${JSON.stringify(manifest.schemas[id])} on ${show(d.input)}`));
       if (diagnosticsFor(subject, id).length === 0) found.looser.push(...result.zodLooser.slice(0, 2).map((d) => `${id} ${JSON.stringify(manifest.schemas[id])} on ${show(d.input)}`));
     }
+    expect(compared, 'fuzz schemas compared').to.be.at.least(comparedFloor(ids.length));
     expect(found).to.deep.equal({ stricter: [], looser: [], errors: [] });
   });
 });
