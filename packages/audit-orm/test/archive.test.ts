@@ -5,7 +5,7 @@ import { AuditConfigError, audit, trailConfig } from '@spinajs/audit';
 import type { AuditReader, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
-import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditPruneFailed, OutboxAuditStore, pruneAudit, shipAudit } from '../src/index.js';
+import { ArchiveAuditReader, ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditPruneFailed, OutboxAuditStore, pruneAudit, shipAudit } from '../src/index.js';
 import { TestDb } from '../src/testing.js';
 import type { Dialect } from '../src/testing.js';
 import { TRACE, config, event, setTrail, tableRows } from './support/events.js';
@@ -118,6 +118,15 @@ function archiveSuite(name: string, dialect: Dialect, db: () => TestDb, archiveC
       expect((await buffered()).map((r) => r.data)).to.deep.eq(['']);
     });
 
+    it('erases a subject from the source it names, and from every source without one', async () => {
+      await sink.deliver({ trail: 'shipped', source: source().Options.Name, events: [event(1)] });
+      await sink.deliver({ trail: 'shipped', source: 'other-app', events: [event(2, { subject: SUBJECT }), event(3)] });
+      expect(await DI.resolve(ArchiveAuditReader).redact(shipped(), SUBJECT, source().Options.Name)).to.eq(1);
+      expect((await archived()).map((r) => r.data)).to.deep.eq(['', '{"version":2}', '{"version":3}']);
+      expect(await (await reader()).redact(shipped(), SUBJECT)).to.eq(1);
+      expect((await archived()).map((r) => r.data)).to.deep.eq(['', '', '{"version":3}']);
+    });
+
     it('prunes the archive by date, for every source', async () => {
       await sink.deliver({ trail: 'shipped', source: source().Options.Name, events: [event(1, { at: new Date('2020-01-01T00:00:00Z') }), event(2)] });
       await sink.deliver({ trail: 'shipped', source: 'other-app', events: [event(3, { at: new Date('2020-01-01T00:00:00Z') })] });
@@ -158,6 +167,25 @@ describe('audit archive', function () {
   }
   archiveSuite('sqlite, archive on a dedicated connection', 'sqlite', () => db, 'archive');
 
+  it('names the attempts when every attempt to archive failed', async () => {
+    setTrail('shipped', { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', table: ARCHIVE, archiveConnection: 'archive' });
+    const archive = db.driver('archive');
+    await new ShippedArchiveMigration().up(archive);
+    let attempts = 0;
+    archive.transaction = () => {
+      attempts += 1;
+      return Promise.reject(new Error('serialization failure'));
+    };
+    try {
+      await expect(DI.resolve(ArchiveAuditSink).deliver({ trail: 'shipped', source: 'app', events: [event(1)] })).to.be.rejectedWith(`audit: archiving 1 event(s) in table "${ARCHIVE}" on connection "archive" failed after 3 attempts`);
+      expect(attempts).to.eq(3);
+    } finally {
+      Reflect.deleteProperty(archive, 'transaction');
+      setTrail('shipped', undefined);
+      await new ShippedArchiveMigration().down(archive);
+    }
+  });
+
   describe('an archive table belongs to its trail', () => {
     class TwinArchive extends AuditArchiveTableMigration {
       protected override table(): string {
@@ -177,6 +205,13 @@ describe('audit archive', function () {
       await expect(DI.resolve(ArchiveAuditSink).deliver({ trail: 'shipped', source: 'app', events: [event(1)] })).to.be.rejectedWith(AuditConfigError, refused);
       await expect(audit().trail('shipped').since(0)).to.be.rejectedWith(AuditConfigError, refused);
       await audit().record({ kind: 'custom', action: 'kept' }, { mode: 'confirmed', onFailure: 'reject' });
+    });
+
+    it('refuses a trail whose table or archive is the outbox buffer', async () => {
+      config().set(['audit', 'trails'], { live: { table: 'audit_outbox' }, archived: shipping('archive', 'audit_outbox') });
+      for (const name of ['live', 'archived']) {
+        await expect(audit().trail(name).since(0)).to.be.rejectedWith(AuditConfigError, `audit: trail "${name}" uses table "audit_outbox", which is the outbox buffer; give the trail its own table`);
+      }
     });
 
     it('refuses a second archive in one table on one connection, and reads an alias of the source connection', async () => {

@@ -13,7 +13,5 @@ export type { ShipFailure, ShipOptions, ShipResult } from './ship/ship.js';
 export { auditBacklog } from './ship/backlog.js';
 export type { AuditBacklog } from './ship/backlog.js';
 import './ship/schema.js';
-export { AUDIT_SOURCE_WIDTH } from './ship/table.js';
-export { archiveDriver } from './ship/archive.js';
-export { ArchiveAuditSink, archiveEvents } from './ship/archive-sink.js';
+export { ArchiveAuditSink } from './ship/archive-sink.js';
 export { ArchiveAuditReader } from './ship/archive-reader.js';

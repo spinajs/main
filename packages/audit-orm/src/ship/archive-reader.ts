@@ -30,7 +30,7 @@ export class ArchiveAuditReader extends TableAuditReader {
   }
 
   override redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
-    return super.redact(withSource(trail), subject, source === undefined ? undefined : named(source));
+    return super.redact(trail, subject, source === undefined ? undefined : named(source));
   }
 
   override prune(trail: TrailConfig, before: Date, source?: string): Promise<number> {

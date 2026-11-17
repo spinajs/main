@@ -8,7 +8,7 @@ import { insertRows, rowsOf, storedColumns } from '../rows.js';
 import { archiveDriver } from './archive.js';
 import { AUDIT_SOURCE_WIDTH } from './table.js';
 
-// Keeps the id list of one dedup select under the bind limit of every driver (SQLite 999, MSSQL 2100).
+// Keeps the id list of one dedup select under the bind limit of every driver (MSSQL 2100; SQLite 32766 since 3.32).
 const ID_CHUNK = 500;
 // A delivery of the same events running beside this one (an abandoned delivery landing late, a second shipper) can commit
 // between our select and our insert: the unique index on id refuses ours, and the next attempt finds those ids stored.
@@ -53,10 +53,16 @@ export async function archiveEvents(driver: OrmDriver, table: string, source: st
     try {
       return await driver.transaction(() => storeNew(driver, table, source, events));
     } catch (err) {
-      if (attempt >= ATTEMPTS) throw err;
+      if (attempt >= ATTEMPTS) throw new InvalidOperation(`audit: archiving ${events.length} event(s) in table ${JSON.stringify(table)} on connection ${JSON.stringify(driver.Options.Name)} failed after ${ATTEMPTS} attempts`, err);
     }
   }
 }
+
+const hasTable = (driver: OrmDriver, table: string): Promise<boolean> =>
+  driver
+    .schema()
+    .tableExists(table)
+    .catch(() => true);
 
 /** Stores a shipped batch in the trail's `table` on its `archiveConnection`, once per event id. */
 @Injectable(AuditEventSink)
@@ -67,7 +73,7 @@ export class ArchiveAuditSink extends AuditEventSink {
     try {
       await archiveEvents(driver, trail.table, batch.source, batch.events);
     } catch (err) {
-      if (err instanceof AuditConfigError) throw err;
+      if (err instanceof AuditConfigError || (await hasTable(driver, trail.table))) throw err;
       throw new InvalidOperation(`audit: archiving trail ${JSON.stringify(trail.name)} failed; is ${JSON.stringify(trail.table)} migrated on its archive connection (AuditArchiveTableMigration)?`, err);
     }
   }

@@ -5,6 +5,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 
 import { findConnection } from './rows.js';
+import { AUDIT_OUTBOX_TABLE } from './ship/table.js';
 
 // One entry: the configuration and the registrations it was computed from, and the refusal per colliding trail.
 let cached: { readonly key: string; readonly refusals: ReadonlyMap<string, string> } | undefined;
@@ -57,7 +58,9 @@ function refusalsOf(registered: readonly unknown[], tableStore: Class<AuditStore
   for (const name of trailNames()) {
     const trail = configOf(name);
     const claims = trail === undefined ? [] : claimsOf(trail, registered, tableStore);
-    const clash = claims.flatMap((claim) => owned.filter((o) => collide(o, claim)).map((o) => refusal(o, claim)))[0];
+    // Reads, erasure and retention of such a trail would act on every shipping trail's buffered rows.
+    const buffer = claims.some((claim) => claim.table === AUDIT_OUTBOX_TABLE) ? `audit: trail ${quoted(name)} uses table ${quoted(AUDIT_OUTBOX_TABLE)}, which is the outbox buffer; give the trail its own table` : undefined;
+    const clash = buffer ?? claims.flatMap((claim) => owned.filter((o) => collide(o, claim)).map((o) => refusal(o, claim)))[0];
     if (clash === undefined) owned.push(...claims);
     else refusals.set(name, clash);
   }
