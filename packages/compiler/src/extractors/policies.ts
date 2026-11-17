@@ -104,9 +104,21 @@ function factoryMiddleware(d: DecoratorInfo, ctx: ExtractorContext): MiddlewareR
   return decoratorArgs ? { type: factory.type, decoratorArgs } : { type: factory.type };
 }
 
+/**
+ * `@Idempotent` replaces the gate its method already has, in place, and decorators apply bottom-up (http decorators.ts).
+ * So stacked ones leave one gate: the top one's arguments, where the bottom one mounted it.
+ */
+function oneGate(refs: MiddlewareRef[]): MiddlewareRef[] {
+  const gate = FACTORY_MIDDLEWARES.Idempotent.type;
+  const top = refs.find((m) => m.type === gate);
+  const bottom = refs.findLastIndex((m) => m.type === gate);
+  if (!top || refs.indexOf(top) === bottom) return refs;
+  return refs.flatMap((m, i) => (m.type !== gate ? [m] : i === bottom ? [top] : []));
+}
+
 /** In source order; see `MiddlewareRef`. */
 export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): MiddlewareRef[] {
-  const out = decoratorsOf(node).flatMap((d): MiddlewareRef[] => {
+  const mounted = decoratorsOf(node).flatMap((d): MiddlewareRef[] => {
     if (d.name === 'Middleware') {
       const type = refOf(d.args[0], ctx);
       const options = literalArgs(d.args.slice(1), ctx);
@@ -115,6 +127,7 @@ export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): Mi
     const factory = factoryMiddleware(d, ctx);
     return factory ? [factory] : [];
   });
+  const out = oneGate(mounted);
   if (accessOf(node, ctx).fieldsFilter) out.push({ type: 'AuthzFieldsMiddleware', options: [] });
   return out;
 }
