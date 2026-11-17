@@ -134,7 +134,7 @@ export function summaryOf(verdicts, { tolerance, measuredOn }) {
 
 export function baselineCandidate(verdicts, env, now) {
   const onCi = env.GITHUB_ACTIONS === 'true';
-  const run = onCi ? { runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`, commit: env.GITHUB_SHA, ref: env.GITHUB_REF_NAME, event: env.GITHUB_EVENT_NAME } : {};
+  const run = onCi ? { runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`, repository: env.GITHUB_REPOSITORY, commit: env.GITHUB_SHA, ref: env.GITHUB_REF, event: env.GITHUB_EVENT_NAME } : {};
   const targets = Object.fromEntries(verdicts.filter((v) => v.score !== undefined).map((v) => [v.name, { score: v.score, valid: validOf(v.counts) }]));
   return { measuredOn: { ci: onCi ? 'github-actions' : 'local', ...run, date: now.toISOString() }, targets };
 }

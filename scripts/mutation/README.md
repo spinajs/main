@@ -90,9 +90,9 @@ listed under the table.
 
 `baseline.json` holds GitHub runner scores only. The workflow never writes it.
 
-- **Raise** after a run that scored higher: `node scripts/mutation/update-baseline.mjs --latest --branch v4` from any
-  branch, then commit `baseline.json` in a pull request. Without `--branch` the script takes the current branch, and a
-  feature branch has no runs.
+- **Raise** after a run that scored higher: `node scripts/mutation/update-baseline.mjs --latest` from any branch, then
+  commit `baseline.json` in a pull request. Every mode takes the scores of branch `v4`; `--branch <name>` names another
+  (`master`, once 4.x is there).
 - **A given run:** `--run <run id>`. **A downloaded candidate:** pass the file path.
 - **Lower** only with `--allow-lower <target>` for each target that dropped, and the reason in the pull request
   (new untested code, a Stryker upgrade).
@@ -100,8 +100,16 @@ listed under the table.
   by design. Record it from that run with `--run <id>`: the script writes the targets of `targets.json` only, so a
   replaced target's old key leaves `baseline.json` in the same commit.
 
-The script refuses a candidate measured locally, a run of another workflow, a `pull_request` run, a run of a fork's
-code, and a run in which a target has no score. `--latest` and `--run` need the `gh` CLI.
+The script reads runs of `spinajs/main` only (`gh --repo spinajs/main`, whatever the clone's remote). It refuses:
+
+- a run of another workflow, a `pull_request` run, a run whose repository or head repository is not `spinajs/main`,
+  and a run whose head branch is not the `--branch`;
+- a candidate whose `measuredOn` is not `ci: "github-actions"`, `repository: "spinajs/main"`,
+  `ref: "refs/heads/<branch>"` and a `runUrl` of a `spinajs/main` run (with `--run <id>` or `--latest`: that run), so a
+  candidate file without these fields is refused too;
+- a candidate in which a target has no score.
+
+`--latest` and `--run` need the `gh` CLI.
 
 ## Running locally
 

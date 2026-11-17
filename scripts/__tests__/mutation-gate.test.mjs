@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CANDIDATE_FILE, baselineCandidate, countsOf, matrixOf, parseArgs, readBaseline, readTargets, reportsOf, scoreOf, summaryOf, survivorsOf, verdictOf } from '../mutation/gate.mjs';
+import { provenanceRefusal } from '../mutation/update-baseline.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const GATE = fileURLToPath(new URL('../mutation/gate.mjs', import.meta.url));
@@ -134,9 +135,10 @@ test('the summary has one row per target, says when nothing is gated, and lists 
 test('the candidate is marked github-actions only on CI and keeps every scored target', () => {
   const v = verdictOf(engine, reportOf({ 'src/a.ts': statuses('Killed', 'Survived') }), undefined, 2);
   const now = new Date('2026-11-06T02:17:00Z');
-  const env = { GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'spinajs/main', GITHUB_RUN_ID: '9', GITHUB_SHA: 'abc', GITHUB_REF_NAME: 'v4', GITHUB_EVENT_NAME: 'push' };
+  const env = { GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'spinajs/main', GITHUB_RUN_ID: '9', GITHUB_SHA: 'abc', GITHUB_REF: 'refs/heads/v4', GITHUB_REF_NAME: 'v4', GITHUB_EVENT_NAME: 'push' };
   const ci = baselineCandidate([v, verdictOf({ ...engine, name: 'x' }, undefined, undefined, 2)], env, now);
-  assert.deepEqual(ci, { measuredOn: { ci: 'github-actions', runUrl: 'https://github.com/spinajs/main/actions/runs/9', commit: 'abc', ref: 'v4', event: 'push', date: '2026-11-06T02:17:00.000Z' }, targets: { 'authz-engine': { score: 50, valid: 2 } } });
+  assert.deepEqual(ci, { measuredOn: { ci: 'github-actions', runUrl: 'https://github.com/spinajs/main/actions/runs/9', repository: 'spinajs/main', commit: 'abc', ref: 'refs/heads/v4', event: 'push', date: '2026-11-06T02:17:00.000Z' }, targets: { 'authz-engine': { score: 50, valid: 2 } } });
+  assert.equal(provenanceRefusal(ci.measuredOn, { branch: 'v4', runId: '9' }), undefined);
   assert.equal(baselineCandidate([v], {}, now).measuredOn.ci, 'local');
 });
 
