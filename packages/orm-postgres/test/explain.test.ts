@@ -83,6 +83,13 @@ describe('normalizePostgresPlan', () => {
     });
   }
 
+  it('replaces a bound boolean or NULL and keeps IS [NOT] NULL and quoted names', () => {
+    const filter = '("Name" IS DISTINCT FROM NULL::text) AND ("Flag" = true) AND (COALESCE("Off", FALSE)) AND ("A" IS NOT NULL) AND ("B" IS NULL) AND ("null" = 1)';
+
+    expect(redacted({ 'Node Type': 'Seq Scan', Filter: filter }).root.detail).to.equal('Filter: ("Name" IS DISTINCT FROM ?::text) AND ("Flag" = ?) AND (COALESCE("Off", ?)) AND ("A" IS NOT NULL) AND ("B" IS NULL) AND ("null" = ?)');
+    expect(redacted({ 'Node Type': 'Result', 'One-Time Filter': 'false' }).root.detail).to.equal('One-Time Filter: ?');
+  });
+
   it('keeps Output, Function Call and the other keys outside its vocabulary out of a redacted plan', () => {
     const node = {
       'Node Type': 'Function Scan',

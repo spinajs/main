@@ -147,8 +147,8 @@ export class SlowQueryCollector extends SlowQuerySink {
   ```
 - No driver runs `EXPLAIN ANALYZE`, so the planned statement itself never runs: a `SELECT … INTO`, a `FOR UPDATE` or a select that calls a writing function is planned, not executed.
 - An EXPLAIN never runs a second statement. What the builder compiled itself (quoted names, placeholders, the dialect's keywords) is planned as it is. Only SQL the caller wrote, a `RawQuery` anywhere in the builder or an `executeSql` fragment, is checked as text: such a statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator, `LIKE … ESCAPE ''`, a select wrapped in parentheses. `ExecutedStatement.rawSql` says which kind a statement is, and `OrmDriver.explain(sql, bindings, rawSql)` passes it on, so a driver checks the text only where it is caller-written.
-- Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
-- `OrmDriver.explain()` runs outside the ambient transaction, on a connection of its own. A driver with one session cannot do that while a transaction is open (see the end of this section): never await `explain()` inside a transaction there. A capture made while the transaction is still open on PGlite ends with `planError`.
+- Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped), a bare `true`, `false` or `NULL` becomes `?` too (`IS [NOT] NULL` stays: no server prints a bound value there), and `raw` is `null`; with it, the driver's plan is published as it is. The plan's shape can still give away a boolean or NULL binding, which no text redaction removes: postgres plans `"Flag" = false` as `(NOT "Flag")` and `"Name" = NULL` as `One-Time Filter`, and MySQL reports a contradiction as `Impossible WHERE`.
+- `OrmDriver.explain()` runs outside the ambient transaction, on a connection of its own. A driver with one session cannot do that while a transaction is open (see the end of this section): never await `explain()` inside a transaction there. A capture made while a transaction is open on PGlite waits for it to end and gets its plan after the commit. It ends with `planError` only when the transaction holds the session longer than the pool's `AcquireTimeout` (10 s by default), and never with session settings, where it queues behind the transaction.
 - Streams, direct `executeOnDb()` calls and transaction control statements are not recorded.
 - SQLite, postgres (and PGlite) and MySQL plan their selects (below). MSSQL does not: a record of a select there carries `planError: driver <token> cannot explain`.
 
@@ -174,7 +174,7 @@ QUERY PLAN
 - `label` is the `Node Type`, followed by `on <relation>` and the alias when it differs from the relation: `Index Scan on explain_user u`.
 - `detail` joins, with `; `, the `Join Type` (`Inner join`), the index (`using explain_user_pkey`), the conditions (`Hash Cond`, `Merge Cond`, `Index Cond`, `Recheck Cond`, `Join Filter`, `Filter`, `One-Time Filter`) and the `Sort Key` and `Group Key` lists. Every other key, `Output` included, stays in `raw`.
 - `estimatedRows` is `Plan Rows`, `estimatedCost` is `Total Cost`, and `Plans` become the children.
-- The bindings travel as statement parameters, and the planner prints their values in the conditions and keys. Unless `db.Explain.CaptureBindings` is set, they are replaced by `?`, and the double-quoted names stay:
+- The bindings travel as statement parameters, and the planner prints their values in the conditions and keys. Unless `db.Explain.CaptureBindings` is set, they are replaced by `?`, and the double-quoted names stay. A boolean or NULL binding can still show in the shape: `(NOT "Flag")`, a `Result` with `One-Time Filter: ?`.
 
 ```text
 Nested Loop                        Inner join
@@ -197,7 +197,7 @@ Nested Loop                        Inner join
 | `materialized_from_subquery` | `materialized` |
 | `message` | its text (`Impossible WHERE`) |
 
-`used_key_parts`, `ref`, `index_condition` and every other key stay in `raw`. `mysql2` writes the bindings into the statement text, so the server prints them as literals in `where …`. The redaction replaces them with `?`, a double-quoted token included, and cuts the condition at a literal that holds a backslash: MySQL 8.4 prints `O'Brien` as `'O\'Brien'`.
+`used_key_parts`, `ref`, `index_condition` and every other key stay in `raw`. `mysql2` writes the bindings into the statement text, so the server prints them as literals in `where …`. The redaction replaces them with `?`, a double-quoted token included, and cuts the condition at a literal that holds a backslash: MySQL 8.4 prints `O'Brien` as `'O\'Brien'`. A contradiction a boolean or NULL binding causes still shows as `Impossible WHERE`. MySQL also reads a lookup on a primary or unique key while it plans, so a redacted plan tells whether the row exists: `t (const)` when it does, `no matching row in const table` when it does not.
 
 ```text
 select #1

@@ -121,6 +121,13 @@ describe('normalizeMysqlPlan', () => {
     }
   });
 
+  it('replaces a bound boolean or NULL and keeps is [not] null and backticked names', () => {
+    const condition = '((`t`.`Flag` = true) and (`t`.`Name` <=> NULL) and ((`t`.`B` = 7) = false) and (`t`.`C` is not null) and (`t`.`D` is null) and (`t`.`null` = 1))';
+    const redacted = redactPlan(tablePlan({ table_name: 't', access_type: 'ALL', attached_condition: condition }), false);
+
+    expect(redacted.root.children[0].detail).to.equal('where ((`t`.`Flag` = ?) and (`t`.`Name` <=> ?) and ((`t`.`B` = ?) = ?) and (`t`.`C` is not null) and (`t`.`D` is null) and (`t`.`null` = ?))');
+  });
+
   it('keeps used_key_parts, ref, index_condition and the other keys outside its vocabulary out of a redacted plan', () => {
     const plan = tablePlan({
       table_name: 't',
