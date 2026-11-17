@@ -515,7 +515,7 @@ const indexes = await driver.tableIndexes?.('posts');      // LiveIndex[]
 const keys = await driver.tableForeignKeys?.('posts');     // LiveForeignKey[]
 ```
 
-- `LiveIndex { name, columns, unique, primary, inexact? }`: every index of the table, sorted by name, columns in key order. `inexact: true` marks an index with an expression part (left out of `columns`; SQLite lists it as `null`) or a column prefix part (MySQL), whose `columns` do not say exactly what it compares.
+- `LiveIndex { name, columns, unique, primary, inexact? }`: every index of the table, sorted by name, columns in key order. `inexact: true` marks an index with an expression part (left out of `columns`) or a column prefix part (MySQL), whose `columns` do not say exactly what it compares.
   The primary key is one of them, with `primary: true`.
 - `LiveForeignKey { name, column, table, references, onDelete?, onUpdate? }`: one entry per column of a foreign
   key, in key order; actions are spelled `NO ACTION`, `RESTRICT`, `CASCADE`, `SET NULL` or `SET DEFAULT`.

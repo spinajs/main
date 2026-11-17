@@ -120,11 +120,11 @@ const searchable = (query: InsertQueryBuilder, column: string): boolean => query
 
 // ON CONFLICT (target) conflicts on its target only, any other unique key fails the statement; MySQL's ON DUPLICATE KEY
 // UPDATE compiles no target and conflicts on every unique key.
-const ARBITER_DIALECTS = new Set(['postgresql', 'sqlite']);
+const ARBITER_GRAMMARS = new Set(['PostgresQL', 'Sqlite']);
 
-const dialectOf = (query: InsertQueryBuilder): string | undefined => sqlDialectOf(query.Driver.constructor as abstract new (...args: never[]) => unknown)?.name;
+const grammarOf = (query: InsertQueryBuilder): string | undefined => sqlDialectOf(query.Driver.constructor as abstract new (...args: never[]) => unknown)?.grammar;
 
-const arbiterOnly = (query: InsertQueryBuilder, target: readonly string[]): boolean => target.length > 0 && !query.Replace && query.Ignore !== true && ARBITER_DIALECTS.has(dialectOf(query) ?? '');
+const arbiterOnly = (query: InsertQueryBuilder, target: readonly string[]): boolean => target.length > 0 && !query.Replace && query.Ignore !== true && ARBITER_GRAMMARS.has(grammarOf(query) ?? '');
 
 /**
  * What an upsert may conflict on: the primary key, every single-column unique index and its own conflict target.
@@ -132,7 +132,7 @@ const arbiterOnly = (query: InsertQueryBuilder, target: readonly string[]): bool
  * value no key text holds (a date, bytes).
  */
 async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<string[] | undefined> {
-  const target = query.Update && dialectOf(query) !== 'mysql' ? query.DuplicateQueryBuilder.getColumn() : [];
+  const target = query.Update && grammarOf(query) !== 'MySQL' ? query.DuplicateQueryBuilder.getColumn() : [];
   const unique = arbiterOnly(query, target) ? [] : await uniqueKeys(query, plan);
   if (unique === undefined) return undefined;
   const keys = [[plan.pk], ...unique, ...(target.length > 0 ? [target] : [])];

@@ -722,8 +722,11 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async tableIndexes(name: string, _schema?: string): Promise<LiveIndex[]> {
-    // PRAGMA index_info names an expression part null.
-    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => ({ name: i.name, columns: i.columns, unique: i.unique === 1, primary: i.origin === 'pk', ...(i.columns.some((c) => typeof c !== 'string') ? { inexact: true } : {}) }));
+    // PRAGMA index_info names an expression part null; it is left out, as the other drivers leave it out.
+    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => {
+      const columns = i.columns.filter((c) => typeof c === 'string');
+      return { name: i.name, columns, unique: i.unique === 1, primary: i.origin === 'pk', ...(columns.length < i.columns.length ? { inexact: true } : {}) };
+    });
 
     if (!indexes.some((i) => i.primary)) {
       // An INTEGER PRIMARY KEY is the rowid itself and has no index of its own to list.
