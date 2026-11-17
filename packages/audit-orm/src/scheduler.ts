@@ -53,7 +53,7 @@ export class AuditSealError extends Error {}
  * Seals the sealed trails every 60 seconds on the leader; a run seals what was already there one settle time earlier,
  * so an event is sealed within about two minutes. A `scheduler.schedules` entry of the same name overrides the timing.
  */
-@Schedule(AUDIT_SEAL_SCHEDULE, { every: '60s', runOn: 'leader', overlap: 'skip', misfire: 'run-once' })
+@Schedule(AUDIT_SEAL_SCHEDULE, { every: '60s', runOn: 'leader', overlap: 'skip', misfire: 'run-once', timeout: '10m' })
 export class AuditSealTask extends ScheduledTask {
   public async execute(ctx: Pick<RunContext, 'result'>): Promise<SealResult> {
     const out = await sealAudit();

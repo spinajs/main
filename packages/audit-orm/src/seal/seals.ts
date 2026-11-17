@@ -1,7 +1,9 @@
+import { eventDigest, payloadHash } from '@spinajs/audit';
+import type { StoredAuditEvent } from '@spinajs/audit';
 import { instantFromDb } from '@spinajs/orm';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { rowsOf } from '../rows.js';
+import { rowsOf, toStored } from '../rows.js';
 import type { AuditRow } from '../rows.js';
 import { AUDIT_SEAL_TABLE } from './table.js';
 
@@ -23,6 +25,11 @@ const text = (v: unknown): string | undefined => (typeof v === 'string' && v !==
 /** The `data_hash` a row of a trail table carries; undefined for a row stored without one. */
 export function storedHash(row: AuditRow): string | undefined {
   return text(row.data_hash);
+}
+
+/** What a seal takes of one row. A row written by something other than storedColumns carries no data_hash: it is sealed with the hash of the payload it holds. */
+export function rowDigest(row: AuditRow, stored: StoredAuditEvent = toStored(row)): string {
+  return eventDigest(stored, storedHash(row) ?? payloadHash(stored.data));
 }
 
 function toSeal(row: AuditRow): AuditSeal {

@@ -100,7 +100,25 @@ describe('audit sealing', function () {
           [3, 4, 2],
           [5, 5, 1],
         ]);
-        expect(() => config().set(['audit', 'seal'], { batchSise: 2 })).to.throw();
+        expect(() => config().set(['audit', 'seal'], { batchSise: 2 })).to.throw(/^Invalid configuration: .*spinajs\/audit-seal\.configuration\.schema\.json/);
+      });
+
+      it('adds at most audit.seal.maxSeals seals to a table per run', async () => {
+        config().set(['audit', 'seal'], { batchSize: 2, maxSeals: 2 });
+        await append(event(1), event(2), event(3), event(4), event(5));
+        expect((await sealAudit({ settleMs: 0 })).sealed).to.eq(4);
+        expect((await sealAudit({ settleMs: 0 })).sealed).to.eq(1);
+      });
+
+      it('reports a seq that went back below the end of the seal chain', async () => {
+        await append(event(1), event(2));
+        await sealAudit({ settleMs: 0 });
+        await db.migrate(dialect, TABLE);
+        await append(event(3));
+        expect(await sealAudit({ settleMs: 0 })).to.deep.eq({
+          sealed: 0,
+          failed: [{ trail: 'sealed', connection: connection(), reason: `audit: the highest seq of "${TABLE}" on connection "${connection()}" is 1, at or below the end of its seal chain (2): the seq was reset, and rows up to seq 2 are never sealed` }],
+        });
       });
 
       it('seals only what was already there one settle time ago', async () => {
@@ -190,7 +208,7 @@ describe('audit sealing', function () {
           release();
 
           expect(await first).to.deep.eq({ sealed: 1, failed: [] });
-          expect((await second).failed.map((f) => f.trail)).to.deep.eq(['sealed']);
+          expect((await second).failed).to.deep.eq([{ trail: 'sealed', connection: connection(), reason: `audit: another sealer sealed "${TABLE}" on connection "${connection()}" from seq 3 at the same time; run one sealer (AuditSealTask runs on the leader)` }]);
           expect(await ranges()).to.deep.eq([
             [TABLE, 1, 2, 2],
             [TABLE, 3, 4, 1],
@@ -213,7 +231,8 @@ describe('audit sealing', function () {
           expect(await run).to.deep.eq({ sealed: 0, failed: [] });
           await append(event(2));
           expect(await sealAudit({ settleMs: 0 })).to.deep.eq({ sealed: 1, failed: [] });
-          await expect(driver().transaction(() => sealAudit({ settleMs: 0 }))).to.eventually.deep.eq({ sealed: 0, failed: [{ trail: 'sealed', connection: connection() }] });
+          const reason = `audit: sealing "${TABLE}" on connection "${connection()}" needs a transaction of its own; run it outside an open transaction`;
+          await expect(driver().transaction(() => sealAudit({ settleMs: 0 }))).to.eventually.deep.eq({ sealed: 0, failed: [{ trail: 'sealed', connection: connection(), reason }] });
         });
       }
 
@@ -266,14 +285,16 @@ describe('audit sealing', function () {
         await append(event(1, { at: new Date('2019-01-01T00:00:00Z') }));
         await new AuditSealTableMigration().down(driver());
         const reader = await DI.resolve(TableAuditStore).reader(sealedTrail());
-        await expect(reader?.prune(sealedTrail(), new Date('2021-01-01T00:00:00Z'))).to.be.rejected;
+        await expect(reader?.prune(sealedTrail(), new Date('2021-01-01T00:00:00Z'))).to.be.rejectedWith(/audit_seal/);
         expect(await tableRows(driver(), TABLE)).to.have.length(1);
       });
 
       it('reports the trail whose seal table is missing', async () => {
         await new AuditSealTableMigration().down(driver());
         await append(event(1));
-        expect(await sealAudit({ settleMs: 0 })).to.deep.eq({ sealed: 0, failed: [{ trail: 'sealed', connection: connection() }] });
+        const { sealed, failed } = await sealAudit({ settleMs: 0 });
+        expect([sealed, failed.map((f) => [f.trail, f.connection])]).to.deep.eq([0, [['sealed', connection()]]]);
+        expect(failed[0].reason).to.match(/audit_seal/);
       });
 
       it('the task reports the run and fails it when a table could not be sealed', async () => {
@@ -290,15 +311,17 @@ describe('audit sealing', function () {
     });
   }
 
-  it('refuses a trail whose table is the seal table, and seals nothing for a store that keeps no table', async () => {
+  it('refuses a trail whose table is the seal table, and reports a sealed trail whose store keeps no table', async () => {
     setTrail('sealed', { store: 'TableAuditStore', table: 'audit_seal', connection: 'sqlite', integrity: 'sealed' });
     setTrail('logged', { store: 'LogAuditStore', table: 'audit_event', connection: 'sqlite', integrity: 'sealed' });
+    setTrail('remote', { store: 'OutboxAuditStore', sink: 'QueueAuditSink', connection: 'sqlite', integrity: 'sealed' });
     try {
       await expect(DI.resolve(TableAuditStore).append({ trail: trailConfig('sealed'), events: [event(1)] })).to.be.rejectedWith(AuditConfigError, 'audit: trail "sealed" uses table "audit_seal", which is the seal table; give the trail its own table');
-      expect(await sealAudit({ settleMs: 0, trail: 'logged' })).to.deep.eq({ sealed: 0, failed: [] });
+      expect(await sealAudit({ settleMs: 0, trail: 'logged' })).to.deep.eq({ sealed: 0, failed: [{ trail: 'logged', connection: 'sqlite', reason: 'audit: trail "logged" is sealed, but its store LogAuditStore keeps no table to seal' }] });
+      // Its archive is sealed by the service that holds it.
+      expect(await sealAudit({ settleMs: 0, trail: 'remote' })).to.deep.eq({ sealed: 0, failed: [] });
     } finally {
-      setTrail('sealed', undefined);
-      setTrail('logged', undefined);
+      for (const name of ['sealed', 'logged', 'remote']) setTrail(name, undefined);
     }
   });
 });

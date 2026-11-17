@@ -1,4 +1,4 @@
-import { eventDigest, payloadHash, sealHash, trailConfig, trailNames } from '@spinajs/audit';
+import { AuditConfigError, sealHash, trailConfig, trailNames } from '@spinajs/audit';
 import type { TrailConfig } from '@spinajs/audit';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -7,21 +7,29 @@ import { Log } from '@spinajs/log-common';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { assertOwnTable, isTableTrail } from '../own-tables.js';
-import { rowsOf, toStored } from '../rows.js';
+import { rowsOf } from '../rows.js';
 import { archiveDriver } from '../ship/archive.js';
 import { distinctConnections } from '../ship/services.js';
 import { TableAuditStore } from '../table-store.js';
-import { lastSeal, storedHash } from './seals.js';
+import { lastSeal, rowDigest } from './seals.js';
 import { AUDIT_SEAL_TABLE } from './table.js';
 
 const DEFAULT_SEAL_BATCH = 1000;
 const MAX_SEAL_BATCH = 5000;
 const DEFAULT_SETTLE_SECONDS = 30;
+const DEFAULT_MAX_SEALS = 100;
+
+const quoted = (v: string): string => JSON.stringify(v);
+const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+class SealConflict extends InvalidOperation {}
 
 interface SealTableOptions {
   /** Seal no event after this seq; default: every event there is. */
   readonly upTo?: number;
   readonly batchSize: number;
+  /** Seals one run may add to the table. */
+  readonly maxSeals: number;
   readonly now: Date;
 }
 
@@ -32,28 +40,34 @@ interface SealedHead {
 }
 
 // One seal: the events after the last seal, read and sealed in one transaction.
-async function sealNext(driver: OrmDriver, table: string, options: SealTableOptions): Promise<SealedHead> {
+async function sealNext(driver: OrmDriver, table: string, options: SealTableOptions, attempt: { from?: number }): Promise<SealedHead> {
   const last = await lastSeal(driver, table);
   const after = last?.toSeq ?? 0;
+  attempt.from = after + 1;
   const previous = last?.hash ?? null;
   const select: SelectQueryBuilder<unknown> = driver.select().from(table).where('seq', '>', after);
   if (options.upTo !== undefined) select.where('seq', '<=', options.upTo);
   const rows = rowsOf(await select.orderBy('seq').take(options.batchSize));
   if (rows.length === 0) return { sealed: 0, toSeq: after, hash: previous };
-  const events = rows.map((row) => ({ stored: toStored(row), dataHash: storedHash(row) }));
-  // A row written by something other than storedColumns carries no data_hash: it is sealed with the hash of the payload it holds.
   const hash = sealHash(
     previous,
-    events.map(({ stored, dataHash }) => eventDigest(stored, dataHash ?? payloadHash(stored.data))),
+    rows.map((row) => rowDigest(row)),
   );
-  const toSeq = events[events.length - 1].stored.seq;
+  const toSeq = Number(rows[rows.length - 1].seq);
   // A range starts where the previous one ended, not at the first row seen: a row that commits later inside it changes its
   // count, and a second seal chained from the same one starts at the same seq, which the unique index refuses.
   await driver
     .insert()
     .into(AUDIT_SEAL_TABLE)
-    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: events.length, hash, previous_hash: previous, sealed_at: options.now });
-  return { sealed: events.length, toSeq, hash };
+    .values({ trail_table: table, from_seq: after + 1, to_seq: toSeq, event_count: rows.length, hash, previous_hash: previous, sealed_at: options.now });
+  return { sealed: rows.length, toSeq, hash };
+}
+
+// The unique index refused our seal because another sealer chained one from the same seal first.
+async function conflictOr(driver: OrmDriver, table: string, from: number | undefined, err: unknown): Promise<never> {
+  const latest = from === undefined ? undefined : await lastSeal(driver, table).catch(() => undefined);
+  if (latest !== undefined && latest.fromSeq === from) throw new SealConflict(`audit: another sealer sealed ${quoted(table)} on connection ${quoted(driver.Options.Name)} from seq ${from} at the same time; run one sealer (AuditSealTask runs on the leader)`, err);
+  throw err;
 }
 
 /**
@@ -62,13 +76,14 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
  * roll back. sqlite and PGlite hold it until a caller's open transaction ends.
  */
 async function sealTable(driver: OrmDriver, table: string, options: SealTableOptions): Promise<SealedHead> {
-  if (driver.CurrentTransaction !== undefined) throw new InvalidOperation(`audit: sealing ${JSON.stringify(table)} on connection ${JSON.stringify(driver.Options.Name)} needs a transaction of its own; run it outside an open transaction`);
+  if (driver.CurrentTransaction !== undefined) throw new InvalidOperation(`audit: sealing ${quoted(table)} on connection ${quoted(driver.Options.Name)} needs a transaction of its own; run it outside an open transaction`);
   let sealed = 0;
   // spinajs-orm-ignore ORM102: deliberate batching, one transaction per seal
-  for (;;) {
-    const step = await driver.transaction(() => sealNext(driver, table, options));
+  for (let seals = 1; ; seals += 1) {
+    const attempt: { from?: number } = {};
+    const step = await driver.transaction(() => sealNext(driver, table, options, attempt)).catch((err: unknown) => conflictOr(driver, table, attempt.from, err));
     sealed += step.sealed;
-    if (step.sealed < options.batchSize) return { ...step, sealed };
+    if (step.sealed < options.batchSize || seals >= options.maxSeals) return { ...step, sealed };
   }
 }
 
@@ -83,7 +98,9 @@ interface SealTarget {
  */
 async function sealTargets(trail: TrailConfig): Promise<SealTarget[]> {
   if (trail.archiveConnection !== undefined) return [{ driver: archiveDriver(trail), table: trail.table }];
-  if (trail.sink !== undefined || !isTableTrail(trail, TableAuditStore)) return [];
+  // A shipping trail without an archive here is sealed by the service that holds its archive.
+  if (trail.sink !== undefined) return [];
+  if (!isTableTrail(trail, TableAuditStore)) throw new AuditConfigError(`audit: trail ${quoted(trail.name)} is sealed, but its store ${trail.store} keeps no table to seal`);
   assertOwnTable(trail, TableAuditStore);
   const targets: SealTarget[] = [];
   // spinajs-orm-ignore ORM102: one metadata query per connection
@@ -96,6 +113,7 @@ async function sealTargets(trail: TrailConfig): Promise<SealTarget[]> {
 export interface SealFailure {
   readonly trail: string;
   readonly connection: string;
+  readonly reason: string;
 }
 
 export interface SealResult {
@@ -105,7 +123,7 @@ export interface SealResult {
 
 export interface SealOptions {
   readonly trail?: string;
-  /** Default `audit.seal.settleSeconds`; 0 seals up to the current head. */
+  /** Default `audit.seal.settleSeconds`. 0 seals up to the current head: for tests, since a row that commits later lands in a sealed range. */
   readonly settleMs?: number;
   readonly now?: Date;
 }
@@ -118,14 +136,16 @@ interface NotedHead {
 interface SealRun {
   readonly settleMs: number;
   readonly batchSize: number;
+  readonly maxSeals: number;
   readonly now: Date;
 }
 
-function sealConfig(): { settleMs: number; batchSize: number } {
-  const cfg = DI.get(Configuration)?.get<{ settleSeconds?: unknown; batchSize?: unknown } | undefined>(['audit', 'seal']);
+const positive = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : fallback);
+
+function sealConfig(): { settleMs: number; batchSize: number; maxSeals: number } {
+  const cfg = DI.get(Configuration)?.get<{ settleSeconds?: unknown; batchSize?: unknown; maxSeals?: unknown } | undefined>(['audit', 'seal']);
   const settle = typeof cfg?.settleSeconds === 'number' && cfg.settleSeconds >= 0 ? cfg.settleSeconds : DEFAULT_SETTLE_SECONDS;
-  const batch = typeof cfg?.batchSize === 'number' && Number.isInteger(cfg.batchSize) && cfg.batchSize >= 1 ? cfg.batchSize : DEFAULT_SEAL_BATCH;
-  return { settleMs: settle * 1000, batchSize: Math.min(batch, MAX_SEAL_BATCH) };
+  return { settleMs: settle * 1000, batchSize: Math.min(positive(cfg?.batchSize, DEFAULT_SEAL_BATCH), MAX_SEAL_BATCH), maxSeals: positive(cfg?.maxSeals, DEFAULT_MAX_SEALS) };
 }
 
 function sealedTrails(only?: string): TrailConfig[] {
@@ -140,6 +160,15 @@ async function headOf(target: SealTarget): Promise<number> {
   return rows.length === 0 ? 0 : Number(rows[0].seq);
 }
 
+// After a seq reset (a re-created table, a MySQL 5.7 restart once retention emptied it) new rows get seqs at or below the
+// chain's end, where no seal reaches them.
+async function assertNoReset(target: SealTarget, head: number): Promise<void> {
+  if (head === 0) return;
+  const last = await lastSeal(target.driver, target.table);
+  if (last === undefined || head > last.toSeq || (head === last.toSeq && !last.pruned)) return;
+  throw new InvalidOperation(`audit: the highest seq of ${quoted(target.table)} on connection ${quoted(target.driver.Options.Name)} is ${head}, at or below the end of its seal chain (${last.toSeq}): the seq was reset, and rows up to seq ${last.toSeq} are never sealed`);
+}
+
 const log = (): Log => DI.resolve(Log, ['audit-seal']);
 
 /** Seals the sealed trails. It remembers, per table, the head it saw on an earlier run; one instance serves one process. */
@@ -148,7 +177,7 @@ export class AuditSealer {
 
   async run(options: SealOptions = {}): Promise<SealResult> {
     const cfg = sealConfig();
-    const run: SealRun = { settleMs: options.settleMs ?? cfg.settleMs, batchSize: cfg.batchSize, now: options.now ?? new Date() };
+    const run: SealRun = { settleMs: options.settleMs ?? cfg.settleMs, batchSize: cfg.batchSize, maxSeals: cfg.maxSeals, now: options.now ?? new Date() };
     const seen = new Set<string>();
     const failed: SealFailure[] = [];
     let sealed = 0;
@@ -169,8 +198,9 @@ export class AuditSealer {
     try {
       return await sealTargets(trail);
     } catch (err) {
-      failed.push({ trail: trail.name, connection: trail.archiveConnection ?? trail.connection });
-      log().error({ error: err, trail: trail.name }, 'audit: the seal target of trail ${trail} cannot be resolved');
+      const reason = messageOf(err);
+      failed.push({ trail: trail.name, connection: trail.archiveConnection ?? trail.connection, reason });
+      log().warn({ trail: trail.name, reason }, 'audit: trail ${trail} is not sealed: ${reason}');
       return [];
     }
   }
@@ -178,15 +208,19 @@ export class AuditSealer {
   private async sealOne(trail: TrailConfig, target: SealTarget, key: string, run: SealRun, failed: SealFailure[]): Promise<number> {
     const connection = target.driver.Options.Name;
     try {
-      const upTo = run.settleMs <= 0 ? undefined : this.settled(key, await headOf(target), run);
+      const head = await headOf(target);
+      await assertNoReset(target, head);
+      const upTo = run.settleMs <= 0 ? undefined : this.settled(key, head, run);
       if (upTo === null) return 0;
-      const out = await sealTable(target.driver, target.table, { upTo, batchSize: run.batchSize, now: run.now });
+      const out = await sealTable(target.driver, target.table, { upTo, batchSize: run.batchSize, maxSeals: run.maxSeals, now: run.now });
       // The head in the application log is a copy of the chain's end outside the database.
       if (out.sealed > 0) log().info({ trail: trail.name, connection, table: target.table, toSeq: out.toSeq, hash: out.hash }, 'audit: sealed ${table} on ${connection} up to seq ${toSeq}, head ${hash}');
       return out.sealed;
     } catch (err) {
-      failed.push({ trail: trail.name, connection });
-      log().error({ error: err, trail: trail.name, connection, table: target.table }, 'audit: sealing ${table} on ${connection} failed; is audit_seal migrated there (AuditSealTableMigration)?');
+      const reason = messageOf(err);
+      failed.push({ trail: trail.name, connection, reason });
+      if (err instanceof InvalidOperation) log().warn({ trail: trail.name, connection, table: target.table, reason }, 'audit: sealing ${table} on ${connection} stopped: ${reason}');
+      else log().error({ error: err, trail: trail.name, connection, table: target.table }, 'audit: sealing ${table} on ${connection} failed; is audit_seal migrated there (AuditSealTableMigration)?');
       return 0;
     }
   }
