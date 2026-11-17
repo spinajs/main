@@ -48,7 +48,7 @@ const caveat: fc.Arbitrary<TupleCaveat | undefined> = fc.option(
   fc.oneof(
     fc.constant({ name: 'c_ip' }),
     fc.integer({ min: 0, max: 3 }).map((min) => ({ name: 'c_lvl', context: { 'env.min': min } })),
-    fc.constantFrom({ name: 'c_who' }, { name: 'c_who', context: { 'principal.id': 'u2' } }),
+    fc.constantFrom({ name: 'c_who' }, { name: 'c_who', context: { 'principal.id': 'u1' } }, { name: 'c_who', context: { 'principal.id': 'u2' } }),
   ),
   { nil: undefined },
 );
