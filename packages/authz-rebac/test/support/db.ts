@@ -10,7 +10,7 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { randomBytes } from 'node:crypto';
 import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 
-import { AuthzRebac_2026_10_21_00_00_00 } from '../../src/index.js';
+import { AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00 } from '../../src/index.js';
 
 export interface TestDb {
   readonly orm: Orm;
@@ -82,6 +82,7 @@ export async function bootDb(suite: string, postgres?: Mocha.Context): Promise<T
   const driver = orm.Connections.get('authz')!;
   // By hand: the boot migration pass is not what these suites test.
   await new AuthzRebac_2026_10_21_00_00_00().up(driver);
+  await new AuthzRebacCaveats_2026_11_06_00_00_00().up(driver);
   await new AuthzChangeLog_2026_11_04_00_00_00().up(driver);
   // The Orm read the table info before authz_rebac_tuple existed.
   await orm.reloadTableInfo();

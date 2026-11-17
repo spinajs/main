@@ -6,7 +6,7 @@ import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebac_2026_10_21_00_00_00, DbTupleStore, RebacModel } from '../../src/index.js';
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, caveatKey } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { tupleStoreContract } from '../support/store-contract.js';
@@ -35,7 +35,9 @@ async function selectsDuring(driver: OrmDriver, work: () => Promise<unknown>): P
 
 describe('authz-rebac: AuthzRebac migration', () => {
   it('runs on the connection alias authz', () => {
-    expect((AuthzRebac_2026_10_21_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+    for (const migration of [AuthzRebac_2026_10_21_00_00_00, AuthzRebacCaveats_2026_11_06_00_00_00]) {
+      expect((migration as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+    }
   });
 });
 
@@ -59,7 +61,39 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     const indexes = (await rawQuery(db.driver, `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`, [AUTHZ_REBAC_TUPLE_TABLE])) as { name: string }[];
     expect(indexes.map((i) => i.name)).to.include.members(['authz_rebac_tuple_object', 'authz_rebac_tuple_subject']);
     const columns = (await rawQuery(db.driver, `PRAGMA table_info(${AUTHZ_REBAC_TUPLE_TABLE})`)) as { name: string }[];
-    expect(columns.map((c) => c.name)).to.have.members(['tuple_key', 'namespace', 'object_id', 'relation', 'subject_key', 'subject_type', 'subject_id', 'subject_relation', 'created_by', 'created_at']);
+    expect(columns.map((c) => c.name)).to.have.members(['tuple_key', 'namespace', 'object_id', 'relation', 'subject_key', 'subject_type', 'subject_id', 'subject_relation', 'created_by', 'created_at', 'caveat', 'caveat_key', 'caveat_context']);
+  });
+
+  it('stores a caveat as its name, its key and its canonical context; an unconditional row keeps NULLs', async () => {
+    const store = new DbTupleStore();
+    const caveat = { name: 'not_expired', context: { 'env.until': 20, 'env.a': 'x' } };
+    await store.write([{ ...tuple(d1, 'viewer', user('bob')), caveat }, tuple(d1, 'owner', user('bob'))], [], user('admin'));
+    const rows = (await rawQuery(db.driver, `SELECT relation, caveat, caveat_key, caveat_context FROM ${AUTHZ_REBAC_TUPLE_TABLE} ORDER BY relation`)) as Record<string, unknown>[];
+    expect(rows).to.deep.equal([
+      { relation: 'owner', caveat: null, caveat_key: null, caveat_context: null },
+      { relation: 'viewer', caveat: 'not_expired', caveat_key: caveatKey(caveat), caveat_context: '{"env.a":"x","env.until":20}' },
+    ]);
+  });
+
+  it('refuses a caveat context longer than CAVEAT_CONTEXT_MAX before a transaction opens', async () => {
+    const store = new DbTupleStore();
+    let error: unknown;
+    const selects = await selectsDuring(db.driver, async () => {
+      try {
+        await store.write([{ ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'c', context: { 'env.big': 'x'.repeat(CAVEAT_CONTEXT_MAX) } } }], [], user('admin'));
+      } catch (e) {
+        error = e;
+      }
+    });
+    expect(error).to.be.instanceOf(TypeError);
+    expect(selects).to.deep.equal([]);
+  });
+
+  it('reads the stored rows in chunks, never one query per tuple', async () => {
+    const store = new DbTupleStore();
+    const absent = Array.from({ length: 600 }, (_, i) => tuple(d1, 'viewer', user(`u${i}`)));
+    const selects = await selectsDuring(db.driver, () => db.driver.transaction((tx) => store.writeIn({ driver: tx }, [], absent, user('admin'))));
+    expect(selects).to.have.length(2);
   });
 
   it('stores one row per tuple, with the subject key and the actor', async () => {
@@ -74,7 +108,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     const out = await db.driver
       .transaction(async (tx) => {
         const counts = await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice')), tuple(d1, 'viewer', user('bob'))], [], user('admin'));
-        expect(counts).to.deep.equal({ added: 2, removed: 0 });
+        expect(counts).to.deep.equal({ added: [tuple(d1, 'viewer', user('alice')), tuple(d1, 'viewer', user('bob'))], removed: [] });
         throw new Error('roll back');
       })
       .catch((e: Error) => e.message);
@@ -82,7 +116,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     expect(await store.read(d1, 'viewer')).to.deep.equal([]);
     await db.driver.transaction(async (tx) => {
       await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [], user('admin'));
-      expect(await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'viewer', user('nobody'))], user('admin'))).to.deep.equal({ added: 0, removed: 0 });
+      expect(await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'viewer', user('nobody'))], user('admin'))).to.deep.equal({ added: [], removed: [] });
     });
     expect(await store.read(d1, 'viewer')).to.deep.equal([tuple(d1, 'viewer', user('alice'))]);
   });
@@ -97,7 +131,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
         counts = await store.writeIn({ driver: tx }, ['a', 'b', 'c', 'd', 'd', 'e', 'f'].map(viewer), ['a', 'a', 'b', 'nobody'].map(viewer), user('admin'));
       }),
     );
-    expect(counts).to.deep.equal({ added: 5, removed: 2 });
+    expect(counts).to.deep.equal({ added: ['a', 'b', 'd', 'e', 'f'].map(viewer), removed: ['a', 'b'].map(viewer) });
     expect(selects).to.have.length(2);
     expect((await store.read(d1, 'viewer')).map((t) => (t.subject as { id: string }).id).sort()).to.deep.equal(['a', 'b', 'c', 'd', 'e', 'f']);
   });
