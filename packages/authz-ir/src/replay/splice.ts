@@ -5,6 +5,7 @@ import { stableStringify } from '../canonical.js';
 import { parseSubjectTypeRef } from '../ir.js';
 import type { PolicyIR, RelationName, Rewrite, TypeDef, TypeName } from '../ir.js';
 import type { StoredPolicySplicer } from './contributor.js';
+import { StoreUnreadable } from './gap.js';
 import { coverageGap, stateAt } from './history.js';
 import type { KeyState } from './history.js';
 import type { ReplayHistory } from './history-scan.js';
@@ -112,7 +113,14 @@ function merge(ir: PolicyIR, caveats: PolicyIR['caveats'], opaque: PolicyIR['opa
 
 /** The store's items at `at`, in the read order of section 3.2; the coverage gap as a string when the kind is not covered. */
 async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history: ReplayHistory, reads: ReplayRead[]): Promise<Items | string> {
-  const current = await s.current(store);
+  let current: Array<{ key: string; image: unknown }>;
+  try {
+    current = await s.current(store);
+  } catch (e) {
+    if (!(e instanceof StoreUnreadable)) throw e;
+    reads.push({ kind: s.kind, key: `${s.kind}:${store}`, origin: 'gap', reason: e.message });
+    return e.message;
+  }
   await history.catchUp();
   const changed: string[] = [];
   let anonymous: number | undefined;

@@ -1,6 +1,6 @@
 import { AuthzConfigError, PermissionRegistryImpl, parseCondition } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
-import { StoredPolicySplicers, parseStoredPolicyName, stableStringify, storedPolicyName } from '@spinajs/authz-ir';
+import { StoreUnreadable, StoredPolicySplicers, parseStoredPolicyName, stableStringify, storedPolicyName } from '@spinajs/authz-ir';
 import type { CaveatDef, KeyState, OpaqueRef, PolicyIR, RelationName, Rewrite, StoredEdge, StoredPlaceholder, TypeName } from '@spinajs/authz-ir';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -84,8 +84,13 @@ export class PolicySplicer extends StoredPolicySplicers {
 
   async current(store: string): Promise<Array<{ key: string; image: unknown }>> {
     if (store !== DB_POLICY_STORE_NAME) return [];
-    const rows = await hydrateRecords(PolicyRecord.query().onPrimary());
-    return rows.map((r) => ({ key: r.id, image: recordToPolicy(r) }));
+    try {
+      const rows = await hydrateRecords(PolicyRecord.query().onPrimary());
+      return rows.map((r) => ({ key: r.id, image: recordToPolicy(r) }));
+    } catch (e) {
+      if (e instanceof AuthzConfigError) throw new StoreUnreadable(e.message, { cause: e });
+      throw e;
+    }
   }
 
   edge(change: ChangeRecord): StoredEdge {

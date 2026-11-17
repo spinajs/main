@@ -72,6 +72,7 @@ export interface StoredPolicySplicer {
   readonly kind: 'rule' | 'policy';
   /** The placeholder at `type#relation`, from `parseStoredPolicyName(opaqueName)` and the IR's bindings; undefined when not this splicer's. */
   locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined;
+  /** Rejects with `StoreUnreadable` when the store's rows cannot be read as images: the store is then a gap. */
   current(store: string): Promise<Array<{ key: string; image: unknown }>>;
   /**
    * The item a change touches; a kind's changes come from every store of it, and a store's items are only its own. Every

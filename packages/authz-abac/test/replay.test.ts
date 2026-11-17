@@ -179,6 +179,16 @@ describe('PolicySplicer', function () {
           ['opaque', 'abac policy everyone'],
         ]);
       });
+
+      it('makes the store a gap when a policy row no longer parses, instead of failing the replay', async () => {
+        await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:*'] }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'd5', true);
+        await rawQuery(db.driver, `UPDATE ${AUTHZ_POLICY_TABLE} SET permissions = ? WHERE id = ?`, ['{not json', 'everyone'], QueryContext.Update);
+        const report = await replayDecision(record, depsOf(ir, changeLog()));
+        expect(report.replay).to.equal('unreplayable');
+        expect(report.missing.map((m) => [m.input, m.key])).to.deep.include(['policy', 'policy:db']);
+      });
     });
   }
 });
