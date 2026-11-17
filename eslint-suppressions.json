@@ -7922,11 +7922,6 @@
       "count": 5
     }
   },
-  "packages/telemetry/src/policies/TelemetryAccessPolicy.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/telemetry/src/requestStats.ts": {
     "complexity": {
       "count": 1
