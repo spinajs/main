@@ -83,18 +83,24 @@ export class FlowTracer extends QueryTracer {
     return out;
   }
 
-  /** One of `operands` is what the expression evaluates to: a builder when any of them is, scoped only when every one is. */
+  /**
+   * One of `operands` is what the expression evaluates to: a builder when any of them is, scoped only when every one
+   * is. An operand of type `any` or `unknown` may be an unscoped builder.
+   */
   private either(e: ts.Expression, operands: readonly ts.Expression[]): Traced | undefined {
-    const pending = operands.flatMap((operand) => {
+    const pending: QueryValue[] = [];
+    let untyped = false;
+    for (const operand of operands) {
       const traced = this.traced(operand);
-      return traced?.pending === true ? [traced.value] : [];
-    });
+      if (traced?.pending === true) pending.push(traced.value);
+      else if (traced === undefined) untyped ||= (this.checker.getTypeAtLocation(operand).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
+    }
     const [first] = pending;
     if (first === undefined) return undefined;
-    if (pending.length === 1) return { value: first, pending: true };
+    if (pending.length === 1 && !untyped) return { value: first, pending: true };
     const value = unscopedBuilder(e, first.model);
-    value.scoped.accessible = pending.every((v) => v.scoped.accessible);
-    value.scoped.unscoped = pending.every((v) => v.scoped.unscoped);
+    value.scoped.accessible = !untyped && pending.every((v) => v.scoped.accessible);
+    value.scoped.unscoped = !untyped && pending.every((v) => v.scoped.unscoped);
     this.meta.set(value, { kind: this.metaOf(first).kind, origin: e });
     return { value, pending: true };
   }

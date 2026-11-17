@@ -59,9 +59,26 @@ export const EXECUTING_MEMBERS: ReadonlySet<string> = new Set(['first', 'firstOr
 
 const isReference = (t: ts.Type): t is ts.TypeReference => 'objectFlags' in t && typeof t.objectFlags === 'number' && (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
 
-/** The ORM builder `type` is, looking through intersections (`Builder & T['_queryScopes']`), with the model of its type argument. */
+/** `type` without `null`/`undefined`, a type parameter as its constraint, and unions and intersections as their members. */
+function partsOf(checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>()): ts.Type[] {
+  if (seen.has(type)) return [];
+  seen.add(type);
+  if (type.isTypeParameter()) {
+    const constraint = checker.getBaseConstraintOfType(type);
+    return constraint === undefined ? [] : partsOf(checker, constraint, seen);
+  }
+  // A type parameter comes back as `T & {}`, so its members go through this function again.
+  const value = checker.getNonNullableType(type);
+  if (value.isUnionOrIntersection()) return value.types.flatMap((t) => partsOf(checker, t, seen));
+  return value === type ? [value] : partsOf(checker, value, seen);
+}
+
+/**
+ * The ORM builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`, a
+ * union with a builder member), with the model of its type argument.
+ */
 export function builderOf(checker: ts.TypeChecker, type: ts.Type): { kind: BuilderKind; model: string | undefined } | undefined {
-  for (const part of type.isIntersection() ? type.types : [type]) {
+  for (const part of partsOf(checker, type)) {
     const symbol = part.getSymbol() ?? part.aliasSymbol;
     const kind = symbol !== undefined && isDeclaredIn(symbol.declarations?.[0], ORM) ? BUILDERS.get(symbol.name) : undefined;
     if (kind === undefined) continue;

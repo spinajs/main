@@ -103,4 +103,26 @@ describe('flow: effects and the tracer across calls', () => {
     expect(kindOf('GapService.added', awaited)).to.equal('other');
     expect(kindOf('GapService.added', () => returned('GapService.added'))).to.equal('other');
   });
+
+  /** What `name` returns: pending or not, and its scope; `undefined` when the tracer has no builder there. */
+  function returnedScope(name: string, summaries: ReadonlyMap<FunctionLike, FunctionSummary> = new Map()): [boolean, { accessible: boolean; unscoped: boolean }] | undefined {
+    const traced = trace(name, summaries).traced(returned(name));
+    return traced === undefined ? undefined : [traced.pending, traced.value.scoped];
+  }
+
+  const UNSCOPED = { accessible: false, unscoped: false };
+
+  it('a builder whose type is optional, a union with undefined or a constrained type parameter is a builder', () => {
+    expect(returnedScope('OptionalShapes.optionalParam')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.asserted')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.generic')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.fromMap')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.field')).to.deep.equal([true, UNSCOPED]);
+  });
+
+  it('a default for an optional builder, or for a value of type any, leaves the choice unscoped', () => {
+    expect(returnedScope('OptionalShapes.nullishOptional')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.orUnion')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('OptionalShapes.anyOperand')).to.deep.equal([true, UNSCOPED]);
+  });
 });
