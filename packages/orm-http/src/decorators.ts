@@ -1,5 +1,5 @@
 import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
-import { FilterableOperators, IColumnFilter, IFilterableOptions } from './interfaces.js';
+import { AggregateFunction, FilterableOperators, IColumnFilter, IFilterableOptions } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
@@ -63,5 +63,22 @@ function propertyDecorator(record: (model: IModelDescriptor, propertyKey: string
 export function Sortable(): PropertyDecorator {
   return propertyDecorator((model, propertyKey) => {
     (model.SortableColumns ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** Lets an aggregate request group by this column. Grouping lists a column's distinct values, so it is opt-in. */
+export function Groupable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.GroupableColumns ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** Lets an aggregate request apply these functions to this column. */
+export function Aggregatable(functions: AggregateFunction[]): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    if (!functions || functions.length === 0) {
+      throw new Error(`Aggregatable decorator on ${model.Name} model, property ${propertyKey} must name at least one function`);
+    }
+    (model.AggregatableColumns ??= new Map<string, AggregateFunction[]>()).set(propertyKey, [...functions]);
   });
 }

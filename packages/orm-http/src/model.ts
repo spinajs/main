@@ -1,6 +1,7 @@
 import { IColumnDescriptor, IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, columnToSchema, createQuery, extractModelDescriptor } from '@spinajs/orm';
 import { MAX_FILTERS } from './builders.js';
-import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
+import { aggregateColumnsOf, aggregateSchemaFor } from './aggregate.js';
+import { IAggregateColumns, IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 
 /** Bound to each model class by the orm, so `this` is the class. */
 const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
@@ -65,6 +66,14 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       const column = modelDescriptor.Columns.find((c) => c.Name === name);
       return !name.includes('.') && !!column && !column.Virtual && !modelDescriptor.Relations?.has(name);
     });
+  },
+
+  aggregateColumns(): IAggregateColumns {
+    return aggregateColumnsOf(descriptorOf(this));
+  },
+
+  aggregateSchema() {
+    return aggregateSchemaFor(aggregateColumnsOf(descriptorOf(this)));
   },
 });
 
