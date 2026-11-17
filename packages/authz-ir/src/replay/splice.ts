@@ -114,14 +114,19 @@ function merge(ir: PolicyIR, caveats: PolicyIR['caveats'], opaque: PolicyIR['opa
 async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history: ReplayHistory, reads: ReplayRead[]): Promise<Items | string> {
   const current = await s.current(store);
   await history.catchUp();
-  const keys = [...new Set([...current.map((i) => i.key), ...[...history.changesOf(s.kind)].flatMap((c) => {
+  const changed: string[] = [];
+  let anonymous: number | undefined;
+  for (const c of history.changesOf(s.kind)) {
     const e = s.edge(c);
-    return e?.store === store ? [e.key] : [];
-  })])];
+    if (e === undefined) anonymous ??= c.seq;
+    else if (e.store === store) changed.push(e.key);
+  }
+  const keys = [...new Set([...current.map((i) => i.key), ...changed])];
   const heads = await history.headOf(s.kind, keys);
   const befores = await history.beforeOf(s.kind, keys);
   const since = await history.since(s.kind);
-  const uncovered = coverageGap(at, s.kind, since, history.window);
+  // An item of this store may be the one that change touched: without it the set would be silently shorter.
+  const uncovered = anonymous === undefined ? coverageGap(at, s.kind, since, history.window) : `${s.kind} change seq ${anonymous} names no store`;
   if (uncovered !== undefined) {
     reads.push({ kind: s.kind, key: `${s.kind}:${store}`, origin: 'gap', reason: uncovered });
     return uncovered;

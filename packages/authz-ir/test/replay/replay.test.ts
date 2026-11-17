@@ -191,6 +191,16 @@ describe('replayDecision', function () {
       expect(report.reads).to.deep.include({ kind: 'policy', key: 'ra', origin: 'history', seq: 3 });
     });
 
+    it('a change of the kind that names no store makes the store a gap, not a shorter set', async () => {
+      const w = await switched();
+      await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
+      w.switches.rows.delete('ra');
+      await w.log.append([{ kind: 'policy', op: 'remove', key: 'ra', payload: null, at: ms(HOUR / 2) }]);
+      const report = await replayDecision(w.record(u9), w.deps);
+      expect(report.replay).to.equal('unreplayable');
+      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('policy:policy:a');
+    });
+
     it('splices only the placeholders the decision can reach', async () => {
       const w = await switched();
       await w.switches.set('rc', { store: 'c', open: true }, ms(-HOUR));

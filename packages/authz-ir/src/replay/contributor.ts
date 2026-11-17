@@ -61,7 +61,10 @@ export interface StoredPolicySplicer {
   /** The placeholder at `type#relation`, from `parseStoredPolicyName(opaqueName)` and the IR's bindings; undefined when not this splicer's. */
   locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined;
   current(store: string): Promise<Array<{ key: string; image: unknown }>>;
-  /** The item a change touches; a kind's changes come from every store of it, and a store's items are only its own. */
+  /**
+   * The item a change touches; a kind's changes come from every store of it, and a store's items are only its own. Every
+   * change a splicer's stores log must name its store: one that answers undefined makes every store of the kind a gap.
+   */
   edge(change: ChangeRecord): StoredEdge | undefined;
   splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
 }
