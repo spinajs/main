@@ -4,7 +4,8 @@ import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
 import { extractModelDescriptor, HasManyToManyRelationMiddleware, Orm, SelectQueryBuilder } from '@spinajs/orm';
-import type { IBuilderMiddleware, ICompilerOutput } from '@spinajs/orm';
+import type { IBuilderMiddleware, ICompilerOutput, IWhereBuilder } from '@spinajs/orm';
+import { Lazy } from '@spinajs/util';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db, migrations } from './common.js';
 import { Location } from './models/Location.js';
@@ -211,6 +212,19 @@ describe('clone() of a populated query', function () {
     const executed = query();
     await executed;
     expect((await executed.clone()).map((r) => r.Id)).to.deep.equal([1]);
+  });
+
+  it('a clone of an executed query keeps a Lazy condition of the callback group on its relation query', async () => {
+    const query = OfferLocation.where('Id', 1).populate('Location', function () {
+      this.where('Name', 'zzz').orWhere(
+        new Lazy(function (this: IWhereBuilder<unknown>) {
+          this.where('Name', 'Loc 1');
+        }),
+      );
+    });
+
+    expect((await query).map((r) => r.Id)).to.deep.equal([1]);
+    expect((await query.clone()).map((r) => r.Id)).to.deep.equal([1]);
   });
 
   it('a populate callback that starts with orWhere() is joined to the owner conditions with AND', async () => {
