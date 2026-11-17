@@ -81,4 +81,44 @@ describe('flow: CallGraph', () => {
     expect(graph.handed(graph.handedTo(call)[0]).targets.map((t) => `${graph.nameOf(t.fn)}:${t.via}`)).to.deep.equal(['GapService.remove:reference']);
     expect(graph.handed(callsIn('resolvedOverdue')[1].arguments[0])).to.deep.equal({ targets: [], opaque: false, external: false });
   });
+
+  it('follows every member of a union callee, also where the checker merged the operands of a choice into one type', () => {
+    const both = ['MemoryStore.list:direct', 'TableStore.list:direct'];
+    expect(followed('ChoiceShapes.picked')).to.deep.equal([['store.list', both, false]]);
+    expect(followed('ChoiceShapes.inline')).to.deep.equal([['(cached ? new MemoryStore() : new TableStore()).list', both, false]]);
+    expect(followed('ChoiceShapes.typed')).to.deep.equal([['store.list', both, false]]);
+    expect(followed('ChoiceShapes.keyed')).to.deep.equal([['this[key]', ['ChoiceShapes.first:direct', 'ChoiceShapes.second:direct'], false]]);
+    expect(followed('ChoiceShapes.chosen')).to.deep.equal([['list', ['listOpen:direct', 'listAll:direct'], false]]);
+  });
+
+  it('resolves an interface a base class implements to the subclasses too', () => {
+    expect(followed('viaBase')).to.deep.equal([['lister.list', ['BaseLister.list:implementation', 'LeafLister.list:implementation'], false]]);
+    expect(followed('viaAbstractBase')).to.deep.equal([['counter.count', ['CounterBase.count:implementation'], false]]);
+  });
+
+  it('finds the getter that implements an interface property or an abstract property', () => {
+    const reads = (owner: string): string[][] => {
+      const out: string[][] = [];
+      for (const file of loaded.sourceFiles) {
+        const visit = (node: ts.Node, inside: boolean): void => {
+          const here = inside || ((ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && graph.nameOf(node) === owner);
+          if (here && ts.isPropertyAccessExpression(node)) out.push(graph.getter(node).map((t) => `${graph.nameOf(t.fn)}:${t.via}`));
+          ts.forEachChild(node, (n) => visit(n, here));
+        };
+        visit(file, false);
+      }
+      return out;
+    };
+    expect(reads('readPosition')).to.deep.equal([['TableCursor.position:implementation']]);
+    expect(reads('Paged.next')).to.deep.equal([['FirstPage.page:implementation']]);
+  });
+
+  it('an optional callback handed on is opaque', () => {
+    const [call] = callsIn('maybeLater');
+    expect(graph.handed(call.arguments[0])).to.deep.equal({ targets: [], opaque: true, external: false });
+  });
+
+  it('follows this.method() in a static method to the static override of a subclass', () => {
+    expect(followed('Maker.run')).to.deep.equal([['this.make', ['Maker.make:direct', 'SubMaker.make:implementation'], false]]);
+  });
 });
