@@ -8,6 +8,7 @@ import type { TenantScope } from '@spinajs/tenancy';
 import { confine } from './confine.js';
 import { stamp } from './insert.js';
 import { hasTenantModels, nameOf } from './registry.js';
+import { refusePartlyFiltered } from './shapes.js';
 import { isStatement, requireColumn, statementName, targetOf } from './target.js';
 import type { TenantTarget } from './target.js';
 
@@ -41,6 +42,7 @@ export class TenantScopeMiddleware extends QueryMiddleware {
       return;
     }
     if (scope.kind === 'all') return;
+    if (query instanceof SelectQueryBuilder) refusePartlyFiltered(query, statementName(query, target.entry));
     if (query instanceof SelectQueryBuilder || query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder) confine(query, target.entry.column, scope.tenant.id);
   }
 }

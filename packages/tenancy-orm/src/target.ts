@@ -23,15 +23,15 @@ function verbOf(query: QueryBuilder): string {
   return query instanceof TruncateTableQueryBuilder ? 'truncate' : 'select';
 }
 
-/** The tenant model a statement touches: through its own model, or through the table it reads. */
+/** The tenant model a statement touches: through its own model, or through the table it reads, in any letter case. */
 export function targetOf(query: QueryBuilder): TenantTarget | undefined {
-  const table = query.Table;
-  const ownTable = extractModelDescriptor(query.Model)?.TableName;
+  const table: unknown = query.Table;
+  const name = typeof table === 'string' ? table.toLowerCase() : undefined;
+  const owned = name !== undefined && extractModelDescriptor(query.Model)?.TableName.toLowerCase() === name;
   const byModel = tenantModelOf(query.Model);
-  if (byModel !== undefined) return { entry: byModel, owned: ownTable === table };
-  // Another model on its own table is not this package's business, whatever the table is called.
-  if (ownTable === table) return undefined;
-  const byTable = tenantModelOfTable(table);
+  if (byModel !== undefined) return { entry: byModel, owned };
+  // A model that is no tenant model is refused on a tenant table too: it reads every tenant's rows.
+  const byTable = name === undefined ? undefined : tenantModelOfTable(name);
   return byTable === undefined ? undefined : { entry: byTable, owned: false };
 }
 
