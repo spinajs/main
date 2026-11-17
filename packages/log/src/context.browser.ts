@@ -108,12 +108,12 @@ function tenantLabel(v: unknown): string | undefined {
   if (v === null || typeof v !== "object" || Array.isArray(v)) {
     return undefined;
   }
-  const { kind, tenant } = v as { kind?: unknown; tenant?: unknown };
+  const { kind, tenant, reason } = v as { kind?: unknown; tenant?: unknown; reason?: unknown };
   if (kind === "all") {
-    return "*";
+    return typeof reason === "string" && reason !== "" ? "*" : undefined;
   }
   const id = kind === "tenant" && tenant !== null && typeof tenant === "object" ? (tenant as { id?: unknown }).id : undefined;
-  return typeof id === "string" ? noControl(id) : undefined;
+  return typeof id === "string" && id !== "" ? noControl(id) : undefined;
 }
 
 function noControl(s: string): string {

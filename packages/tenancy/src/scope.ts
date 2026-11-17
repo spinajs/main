@@ -15,6 +15,9 @@ const TENANT_ID = new RegExp(TENANT_ID_PATTERN);
 
 const guards = new Set<TenantScopeGuard>();
 
+// authz memoises decisions and row sets in this per-store Map without a tenant in the key; they belong to the outer scope.
+const AUTHZ_CACHE_KEY = 'AuthzCache';
+
 // Resolved on every call, never cached: see packages/log/src/context.ts.
 function storage(): AsyncLocalStorage<TenantStore> {
   return DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<TenantStore>;
@@ -88,7 +91,7 @@ export async function establishTenantScope<T>(scope: TenantScope | undefined, fn
   for (const guard of guards) guard(from, scope);
 
   const als = storage();
-  const { Tenant: _replaced, ...rest } = als.getStore() ?? {};
+  const { Tenant: _replaced, [AUTHZ_CACHE_KEY]: _outerCache, ...rest } = als.getStore() ?? {};
   const store: TenantStore = scope ? { ...rest, Tenant: scope } : rest;
   return als.run(store, async () => fn());
 }

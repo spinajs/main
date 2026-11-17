@@ -34,7 +34,7 @@ describe('tenant scope', () => {
   });
 
   it('refuses an id that is not 1 to 64 characters of a-z, 0-9, "_" and "-"', async () => {
-    for (const bad of ['', 'Acme', 'a b', 'a/b', '*', 'x'.repeat(65)]) {
+    for (const bad of ['', 'Acme', 'a b', 'a/b', '*', 'acme\n', 'x'.repeat(65)]) {
       await expect(runInTenant(bad, async () => undefined)).to.be.rejectedWith(InvalidArgument);
     }
     expect(tenantRef('a_b-9')).to.deep.eq({ id: 'a_b-9' });
@@ -109,6 +109,43 @@ describe('tenant scope', () => {
     expect(changes).to.deep.eq([
       [undefined, { kind: 'tenant', tenant: { id: 'acme' } }],
       [undefined, { kind: 'tenant', tenant: { id: 'locked' } }],
+    ]);
+  });
+
+  it('leaves the outer scope intact when an inner run rejects', async () => {
+    const after = await runInTenant('acme', async () => {
+      await expect(
+        runAcrossTenants('cleanup', async () => {
+          throw new Error('inner failure');
+        }),
+      ).to.be.rejectedWith('inner failure');
+      return { scope: tenantScope(), store: store().getStore() };
+    });
+
+    expect(after.scope).to.deep.eq({ kind: 'tenant', tenant: { id: 'acme' } });
+    expect(after.store?.Tenant).to.eq(after.scope);
+  });
+
+  it('asks the guards on a change made by runAcrossTenants and by entry-point glue', async () => {
+    const changes: [TenantScope | undefined, TenantScope | undefined][] = [];
+    const stop = onTenantScopeChange((from, to) => {
+      changes.push([from, to]);
+    });
+
+    try {
+      await runInTenant('acme', () => runAcrossTenants('nightly billing', async () => undefined));
+      await establishTenantScope({ kind: 'tenant', tenant: { id: 'globex' } }, () => establishTenantScope(undefined, async () => undefined));
+    } finally {
+      stop();
+    }
+
+    const acme = { kind: 'tenant', tenant: { id: 'acme' } };
+    const globex = { kind: 'tenant', tenant: { id: 'globex' } };
+    expect(changes).to.deep.eq([
+      [undefined, acme],
+      [acme, { kind: 'all', reason: 'nightly billing' }],
+      [undefined, globex],
+      [globex, undefined],
     ]);
   });
 

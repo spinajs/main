@@ -265,6 +265,26 @@ describe("LogContext ambient async context", () => {
       }
       expect(scalarContext({ requestId: "r-1" })).to.deep.eq({ requestId: "r-1" });
     });
+
+    it("drops a scope @spinajs/tenancy would not accept: no reason across tenants, an empty id", () => {
+      for (const bad of [{ kind: "all" }, { kind: "all", reason: "" }, { kind: "all", reason: 7 }, { kind: "tenant", tenant: { id: "" } }]) {
+        expect(scalarContext({ Tenant: bad })).to.deep.eq({});
+      }
+    });
+
+    it("puts the tenant on a log line written inside LogContext.with", () => {
+      const log = DI.resolve(Log, ["ctx-tenant"]);
+
+      LogContext.with({ Tenant: { kind: "tenant", tenant: { id: "acme" } } }, () => {
+        log.info("m");
+      });
+      LogContext.with({ Tenant: { kind: "all", reason: "nightly billing" } }, () => {
+        log.info("m");
+      });
+
+      const records = sink().getRecords();
+      expect(records.map((r) => r.Variables.Tenant)).to.deep.eq(["acme", "*"]);
+    });
   });
 
   after(() => {
