@@ -3,3 +3,4 @@ export * from './model/index.js';
 export * from './migrations/index.js';
 export * from './admin/index.js';
 export * from './ir.js';
+export * from './replay.js';

@@ -12,6 +12,9 @@ import { loadPolicy } from '../policies.js';
 import { AUTHZ_POLICY_TABLE, POLICY_ACTOR_MAX_LENGTH, POLICY_ID_MAX_LENGTH, POLICY_TEXT_MAX_LENGTH, PolicyRecord, requirePolicyTransaction } from './policy-record.js';
 import type { PolicyFields, PolicyValues } from './policy-record.js';
 
+/** `DbPolicyStore.name`, which the stored policies' placeholder names; the only policy store that logs its changes. */
+export const DB_POLICY_STORE_NAME = 'db';
+
 /** The store's tags for an AuthzChange after a write commits; AbacModel reloads on them. */
 export const policyTags = (id: string): readonly string[] => Object.freeze(['policy', `policy:${id}`]);
 
@@ -22,7 +25,7 @@ export const policyTags = (id: string): readonly string[] => Object.freeze(['pol
  * command. `version()` hashes the rows, so it changes with every write, also one made outside this process.
  */
 export class DbPolicyStore extends PolicyStore {
-  readonly name: string = 'db';
+  readonly name: string = DB_POLICY_STORE_NAME;
 
   constructor() {
     super();

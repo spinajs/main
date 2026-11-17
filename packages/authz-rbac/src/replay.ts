@@ -1,13 +1,17 @@
-import { GLOBAL } from '@spinajs/authz';
-import type { ChangeRecord, ResourceRef } from '@spinajs/authz';
-import { GLOBAL_TYPE, HistoryContributors } from '@spinajs/authz-ir';
-import type { CurrentItem, HistoryEdge, ObjectRef, RelationDef, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
+import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
+import type { ChangeRecord, Permission, ResourceRef } from '@spinajs/authz';
+import { GLOBAL_TYPE, HistoryContributors, StoredPolicySplicers, parseStoredPolicyName, storedPolicyName } from '@spinajs/authz-ir';
+import type { CurrentItem, HistoryEdge, KeyState, ObjectRef, OpaqueRef, PolicyIR, RelationDef, RelationName, Rewrite, StoredEdge, StoredPlaceholder, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 import { Injectable, Singleton } from '@spinajs/di';
 
-import type { AssignmentSubject } from './contracts.js';
+import type { AssignmentSubject, RuleDef } from './contracts.js';
+import { rbacDenyRelation } from './ir.js';
+import { ruleCanMatch } from './model/list/support.js';
 import { rowToAssignment } from './stores/assignment-row.js';
 import { scopeToColumns, subjectToColumns } from './stores/columns.js';
-import { AssignmentRecord } from './stores/records.js';
+import { DB_RULE_STORE_NAME, rowToRule } from './stores/db-rule-store.js';
+import { AssignmentRecord, RuleRecord, RuleSubjectRecord } from './stores/records.js';
+import type { RuleSubjectFields } from './stores/records.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from './stores/tables.js';
 
 type Source = RelationDef['source'];
@@ -99,5 +103,70 @@ export class AssignmentHistoryContributor extends HistoryContributors {
     const image = rowToAssignment(row);
     const g = grantOf(image);
     return g === undefined ? [] : [{ key: row.id, image, subject: carrier(g) }];
+  }
+}
+
+const isRuleKind = (v: unknown): v is RuleDef['kind'] => v === 'restrict' || v === 'cap' || v === 'threshold';
+const isStrings = (v: unknown): v is readonly string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** The fields `ruleCanMatch` reads, or undefined when the image is not a rule. */
+function matchable(image: unknown): Pick<RuleDef, 'kind' | 'resourceTypes' | 'permissions'> | undefined {
+  if (!isRecord(image) || !isRuleKind(image.kind)) return undefined;
+  const { resourceTypes, permissions } = image;
+  if ((resourceTypes !== undefined && !isStrings(resourceTypes)) || (permissions !== undefined && !isStrings(permissions))) return undefined;
+  return { kind: image.kind, ...(resourceTypes === undefined ? {} : { resourceTypes }), ...(permissions === undefined ? {} : { permissions }) };
+}
+
+/** A rule whose permission globs do not parse can match anything. */
+function canMatch(rule: Pick<RuleDef, 'kind' | 'resourceTypes' | 'permissions'>, permission: Permission, type: TypeName): boolean {
+  try {
+    return ruleCanMatch(rule, permission, type);
+  } catch (e) {
+    if (e instanceof AuthzConfigError) return true;
+    throw e;
+  }
+}
+
+/**
+ * Splices the rules of `DbRuleStore` (kind `rule`, keyed by rule id) as they were at a decision's instant into the deny
+ * relation of each permission. The IR cannot express a rule, so each one that can match the permission stays opaque,
+ * named after it, and the others drop out: with no applicable rule at T the replay is exact. Other rule stores log no
+ * changes, so their placeholders stay.
+ */
+@Singleton()
+@Injectable(StoredPolicySplicers)
+export class RuleSplicer extends StoredPolicySplicers {
+  readonly kind = 'rule' as const;
+
+  locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined {
+    const stored = parseStoredPolicyName(opaqueName);
+    const permissions = Object.entries(ir.permissions).filter(([p, b]) => b.type === type && rbacDenyRelation(p) === relation);
+    // Two permissions whose names differ only in the characters a relation name cannot hold share the relation.
+    return stored === undefined || permissions.length !== 1 ? undefined : { ...stored, permission: permissions[0][0], side: 'deny' };
+  }
+
+  /** Every rule, expired ones included: the splicer does not know the `now` an expiry was judged at, so it never drops one. */
+  async current(store: string): Promise<Array<{ key: string; image: unknown }>> {
+    if (store !== DB_RULE_STORE_NAME) return [];
+    const rows = await RuleRecord.query().onPrimary();
+    const subjects = new Map<string, RuleSubjectFields[]>();
+    for (const s of rows.length === 0 ? [] : await RuleSubjectRecord.query().onPrimary()) subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
+    return rows.map((r) => ({ key: r.id, image: rowToRule(r, subjects.get(r.id) ?? []) }));
+  }
+
+  edge(change: ChangeRecord): StoredEdge {
+    return { store: DB_RULE_STORE_NAME, key: change.key };
+  }
+
+  splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; opaque?: OpaqueRef[] } {
+    if (at.store !== DB_RULE_STORE_NAME) return { term: { opaque: storedPolicyName(at.model, at.store) } };
+    const type = Object.entries(ir.permissions).find(([p]) => p === at.permission)?.[1].type;
+    const names = items.flatMap(({ key, state }) => {
+      if (state.known && state.value === undefined) return [];
+      const rule = state.known ? matchable(state.value) : undefined;
+      return rule !== undefined && type !== undefined && !canMatch(rule, at.permission, type) ? [] : [`rbac rule ${key}`];
+    });
+    const terms: Rewrite[] = names.map((name) => ({ opaque: name }));
+    return { term: terms.length === 0 ? { priority: [] } : terms.length === 1 ? terms[0] : { union: terms }, opaque: names.map((name): OpaqueRef => ({ kind: 'rewrite', name })) };
   }
 }

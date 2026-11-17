@@ -26,6 +26,9 @@ const EVERYONE: Rewrite = { intersection: [] };
 const union = (items: Rewrite[]): Rewrite => (items.length === 1 ? items[0] : { union: items });
 const safe = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
 
+/** The relation that holds a permission's permit or deny policies on its resource type (`abac_permit_<P>`). */
+export const abacRelation = (side: 'permit' | 'deny', permission: Permission): string => `abac_${side}_${safe(permission)}`;
+
 /**
  * Policies become caveated union members of `abac_permit_<P>` (permit) or `abac_deny_<P>` (deny) on the permission's
  * resource type (G4). Principal and actor types join the policy's `when` in its caveat. A non-global `scope` and an
@@ -46,8 +49,8 @@ export function abacToIR(policies: readonly LoadedPolicy[], registry: Permission
     if (permits.length + denies.length === 0) continue;
     const def = (types[type] ??= { relations: {}, permissions: {} });
     const binding: FragmentBinding = { type, list: registry.get(permission)?.list === true, source: { origin: `config:authz.${model}.policies` } };
-    if (permits.length > 0) def.permissions[(binding.permit = `abac_permit_${safe(permission)}`)] = union(permits);
-    if (denies.length > 0) def.permissions[(binding.deny = `abac_deny_${safe(permission)}`)] = union(denies);
+    if (permits.length > 0) def.permissions[(binding.permit = abacRelation('permit', permission))] = union(permits);
+    if (denies.length > 0) def.permissions[(binding.deny = abacRelation('deny', permission))] = union(denies);
     permissions[permission] = binding;
   }
   return { model, types, permissions, caveats, opaque };

@@ -3,16 +3,17 @@ import 'mocha';
 import { randomUUID } from 'node:crypto';
 import sinon from 'sinon';
 
-import { DecisionLogTap, FALSE, GLOBAL, TRUE, changeLog } from '@spinajs/authz';
+import { DecisionLogTap, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
 import type { AuthzTx, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
-import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, canonicalize, policyHash, replayDecision } from '@spinajs/authz-ir';
+import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, ReplayDeps, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
 import { recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
+import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { AssignmentHistoryContributor, DbAssignmentStore } from '../src/index.js';
-import { ALL_DB_KINDS, DB_KINDS, bootDb } from './support/db.js';
+import { AssignmentHistoryContributor, DbAssignmentStore, DbRuleStore, RuleSplicer, compileGrants, compileRoles, rbacDenyRelation, rbacToIR } from '../src/index.js';
+import { ALL_DB_KINDS, DB_KINDS, bootDb, rawQuery } from './support/db.js';
 import type { Dialect, TestDb } from './support/db.js';
 
 const expect = chai.expect;
@@ -218,6 +219,105 @@ describe('replay of RBAC decisions end to end (scenarios 3 and 9)', function () 
         const report = await replayDecision(blind, deps());
         expect(report.replay).to.equal('unreplayable');
         expect(report.missing.map((m) => m.input)).to.include('scope.project.status');
+      });
+    });
+  }
+});
+
+/** The RBAC model's IR with a DB rule store, as `RbacModel.toIR` compiles it. */
+function rulesIR(): PolicyIR {
+  const registry = new PermissionRegistryImpl();
+  registry.register([{ name: 'project:edit' }, { name: 'project:view' }], 'test');
+  registry.freeze();
+  const graph = compileRoles([{ name: 'editor', extends: [], assignable: true, scopeTypes: ['project'], source: 'test', grants: [{ permission: 'project:edit' }, { permission: 'project:view' }] }]);
+  return mergeFragments([rbacToIR(graph, compileGrants(graph, registry), registry, { storedRules: 'DbRuleStore' })]).ir;
+}
+
+/** The record the tap writes for an allowed or denied check of `user:<u>` on `project:<id>` under `ir`. */
+async function recordOf(ir: PolicyIR, u: string, permission: string, id: string, allowed: boolean): Promise<DecisionRecord> {
+  const out: DecisionRecord[] = [];
+  const sink: DecisionLog = { write: (r) => Promise.resolve(void out.push(...r)) };
+  const tap = new DecisionLogTap({ domain: 'default', sink, mode: 'all', allowSampleRate: 1, captureInputs: false, batch: { size: 1, flushMs: 1000 }, policy: { policyHash: () => policyHash(ir) }, log: { error: () => undefined } });
+  const resource = { type: 'project', id };
+  const decision = { allowed, permission, resource, principal: user(u), residual: allowed ? TRUE : FALSE, fields: { read: [], write: [] }, roles: {}, domain: 'default' };
+  tap.onDecision({ principal: { ...user(u), authenticated: true, source: 'test', attributes: {} }, permission, resource, env: {} }, decision, { env: {}, attributes: [], relations: [], modelVersions: {} }, { cached: false, durationMs: 3 });
+  await tap.flush();
+  return out[0];
+}
+
+describe('RuleSplicer', function () {
+  this.timeout(180000);
+
+  it('is registered as a stored-policy splicer and locates the rule store in the deny relation of each permission', () => {
+    expect(DI.getRegisteredTypes(StoredPolicySplicers)).to.include(RuleSplicer);
+    const ir = rulesIR();
+    const name = storedPolicyName('rbac', 'DbRuleStore');
+    for (const permission of ['project:edit', 'project:view']) {
+      expect(ir.types.project.permissions[rbacDenyRelation(permission)]).to.deep.equal({ opaque: name });
+      expect(new RuleSplicer().locate(name, 'project', rbacDenyRelation(permission), ir)).to.deep.equal({ model: 'rbac', store: 'DbRuleStore', permission, side: 'deny' });
+    }
+    expect(new RuleSplicer().locate(name, 'project', 'can_project_edit', ir)).to.equal(undefined);
+    expect(new RuleSplicer().locate('rbac rule r1', 'project', rbacDenyRelation('project:edit'), ir)).to.equal(undefined);
+  });
+
+  for (const kind of DB_KINDS) {
+    describe(kind, () => {
+      let db: TestDb<Dialect>;
+      let assignments: DbAssignmentStore;
+      let rules: DbRuleStore;
+      const ir = rulesIR();
+      const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
+      const grant = (u: string, id: string) => inTx((tx) => assignments.assign({ subject: user(u), role: 'editor', scope: { type: 'project', id } }, user('root'), tx));
+      const deps = (): ReplayDeps => ({
+        log: changeLog(),
+        loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
+        contributors: [new AssignmentHistoryContributor()],
+        splicers: [new RuleSplicer()],
+        limits: { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 50, commitLagMs: WINDOW, timeoutMs: 15_000 },
+      });
+
+      before(async function () {
+        db = await bootDb(this, kind, 'rbac_replay_rules');
+        assignments = db.container.resolve(DbAssignmentStore);
+        rules = db.container.resolve(DbRuleStore);
+        await recordCoverage(['assignment', 'rule'], [], [], new Date(Date.now() - 3_600_000));
+      });
+
+      after(async () => {
+        await db?.dispose();
+      });
+
+      it('replays an allow faithfully with no rule at T, a threshold rule of another permission, and a rule added after T', async () => {
+        await grant('ann', 'a1');
+        await inTx((tx) => rules.put({ id: 'view-only', kind: 'threshold', scope: { type: 'project', id: 'a1' }, permissions: ['project:view'], minRole: 'editor' }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'ann', 'project:edit', 'a1', true);
+        await pause(4 * WINDOW);
+        await inTx((tx) => rules.put({ id: 'late', kind: 'restrict', scope: { type: 'project', id: 'a1' }, allow: [] }, user('root'), tx));
+        await inTx((tx) => rules.remove('view-only', tx));
+        const report = await replayDecision(record, deps());
+        expect(report).to.deep.include({ replay: 'faithful', evidence: 'outcome', outcome: { recorded: 'allow', replayed: 'allow' } });
+        expect(report.reads.filter((r) => r.kind === 'rule').map((r) => [r.key, r.origin])).to.have.deep.members([
+          ['late', 'history'],
+          ['view-only', 'history'],
+        ]);
+      });
+
+      it('leaves an applicable rule opaque, and names a rule whose state at T is a gap', async () => {
+        await inTx((tx) => rules.remove('late', tx));
+        await grant('bo', 'b1');
+        await inTx((tx) => rules.put({ id: 'narrow', kind: 'restrict', scope: { type: 'project', id: 'b1' }, allow: [user('bo')] }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'bo', 'project:edit', 'b1', true);
+        await pause(4 * WINDOW);
+        const opaque = await replayDecision(record, deps());
+        expect(opaque.replay).to.equal('unreplayable');
+        expect(opaque.missing).to.deep.include({ input: 'opaque', key: 'rbac rule narrow', reason: 'the IR cannot see it' });
+
+        await rawQuery(db.driver, 'UPDATE authz_rule SET kind = ? WHERE id = ?', ['cap', 'narrow'], QueryContext.Update);
+        const gap = await replayDecision(record, deps());
+        expect(gap.replay).to.equal('unreplayable');
+        expect(gap.missing.map((m) => [m.input, m.key])).to.deep.include(['rule', 'narrow']);
       });
     });
   }
