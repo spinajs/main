@@ -25,7 +25,7 @@ npm install @spinajs/tenancy-tracing
 ## Important behaviour
 
 - A span gets the scope that is current when it **starts**. The route span and the spans started in the action, such as its queries, carry the tenant. Policy spans start outside the action's scope and do not.
-- The HTTP server span starts before `TenantMiddleware` sets the scope. It is tagged when `TenantMiddleware` applies the scope under it, not at its start, so an exporter that reads attributes only in its own `onStart` misses the server span's tenant; one that reads them when the span ends sees it.
+- The HTTP server span starts before `TenantMiddleware` sets the scope. It is tagged when `TenantMiddleware` applies the scope under it, not at its start, so an exporter that reads attributes only in its own `onStart` misses the server span's tenant; one that reads them when the span ends sees it. On a request where no scope is applied (a `@NoTenant` route, a route without `TenantMiddleware`), the first `runInTenant` or `runAcrossTenants` that runs directly under the server span tags it instead.
 - Each span reads the scope for itself, so every child span of a tenant carries the attribute, not only the root.
 - With only this processor on the hub, tracing stays id-only: no span is recorded until an exporter feeds the hub.
 - A scope that cannot be read never fails a span: the span is created without the attribute.

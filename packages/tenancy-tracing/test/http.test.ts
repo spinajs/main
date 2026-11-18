@@ -50,7 +50,13 @@ const getJson = (url: string): Promise<unknown> =>
       let text = '';
       res.setEncoding('utf8');
       res.on('data', (chunk: string) => (text += chunk));
-      res.on('end', () => resolve(JSON.parse(text)));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(text));
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
     }).on('error', reject);
   });
 

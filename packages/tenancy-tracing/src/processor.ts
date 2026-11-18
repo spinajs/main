@@ -31,7 +31,7 @@ function scopeOrNone(): TenantScope | undefined {
 onTenantScopeChange((_from, to) => {
   try {
     const span = trace.getActiveSpan();
-    if (to && span && unscopedServerSpans.delete(span)) span.setAttribute(SpinaAttr.Tenant, attributeOf(to));
+    if (to && span && unscopedServerSpans.delete(span) && span.isRecording()) span.setAttribute(SpinaAttr.Tenant, attributeOf(to));
   } catch {
     // A throwing guard refuses the scope change, and tracing must never fail a request.
   }
