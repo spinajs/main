@@ -13,6 +13,7 @@ import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
+import { DbConfigWatcher, isWatchCurrent, isWatchDisposed, startWatch, watchToken } from './watcher.js';
 
 /**
  * watch interval, default 3 min
@@ -42,6 +43,10 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
   private configuration: Configuration | null = null;
 
+  /** The watcher that runs the timer, and the container it was resolved in. */
+  private watcher: DbConfigWatcher | null = null;
+  private watcherContainer: IContainer | null = null;
+
   /** Set once the exposed options were swept into the `configuration` table; late registrations sync one by one after it. */
   private tableReady = false;
 
@@ -62,6 +67,17 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     this.unbind();
     this.tableReady = false;
     this.sweep = Promise.resolve();
+    // a watcher disposed by hand stays cached and never starts again: a new bootstrap() watches with a fresh one. The
+    // cache keys it by its own class, which is a subclass when an application registered one .as(DbConfigWatcher).
+    if (this.watcher && isWatchDisposed(this.watcher)) {
+      // a container that no longer holds its watcher was disposed itself: look in the root again
+      if (this.watcherContainer?.isCached(this.watcher)) {
+        this.watcherContainer.uncache(this.watcher.constructor);
+      } else {
+        this.watcherContainer = null;
+      }
+      this.watcher = null;
+    }
     this.lastSignal = Promise.resolve();
 
     // persist & load exposed options as they get registered (eg. lazily resolved services).
@@ -92,6 +108,13 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     this.listen('orm.migrated', onOrm);
 
     this.listen('di.dispose', () => this.unbind());
+
+    // a cached Orm never signals again, so a bootstrap() in a running application sweeps and starts the watch now
+    const container = this.watcherContainer ?? DI.RootContainer;
+    const orm = container.get(Orm);
+    if (orm) {
+      onOrm(container, orm);
+    }
   }
 
   /** Removes the DI listeners `bootstrap()` added. */
@@ -278,12 +301,20 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
    */
   public async refreshWatched(): Promise<void> {
     const cService = this.configuration ?? DI.get(Configuration)!;
+    const watcher = this.watcher ?? (DI.RootContainer.get(Orm) ? this.resolveWatcher(DI.RootContainer) : null);
+    const token = watcher ? watchToken(watcher) : 0;
 
     try {
       // raw, so each row is converted on its own: hydrating the table would let one unreadable Value fail the whole poll
       const rows = await asSystem(() => DbConfig.select().asRaw<StoredConfigRow[]>(), this.authzDomain);
       // filtered in memory, as the source does, to stay driver-agnostic about how booleans are stored
-      rows.filter((r) => Boolean(r.Watch) && Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
+      for (const row of rows.filter((r) => Boolean(r.Watch) && Boolean(r.Exposed))) {
+        // checked per row: the watcher may be disposed while the query runs, or by a listener of the change event
+        if (watcher && !isWatchCurrent(watcher, token)) {
+          break;
+        }
+        this.applyWatched(cService, row);
+      }
     } catch (err) {
       InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
     }
@@ -332,45 +363,19 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   }
 
   /**
-   * Periodically reloads watched config values from the db and pushes changes
-   * into the live configuration.
-   *
-   * Runs are chained one-after-another (the next run is scheduled only once the
-   * previous one settles) so a slow or stuck query can never overlap / pile up,
-   * and any db error is logged instead of becoming an unhandled rejection.
+   * Starts the watch timer on the watcher of `container`; a sweep after a failed one replaces the running timer. A
+   * disposed watcher starts nothing.
    */
   private startWatchTimer(container: IContainer): void {
-    const cService = container.get(Configuration)!;
     const interval = DI.get<{ value: number }>('__config_watch_interval__');
-    const intervalMs = interval?.value || CONFIG_WATCH_TIMER_INTERVAL;
+    this.configuration = container.get(Configuration)!;
+    startWatch(this.resolveWatcher(container), () => this.refreshWatched(), interval?.value || CONFIG_WATCH_TIMER_INTERVAL);
+  }
 
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let disposed = false;
-
-    const scheduleNext = () => {
-      if (disposed) {
-        return;
-      }
-      timer = setTimeout(() => void run(), intervalMs);
-    };
-
-    this.configuration = cService;
-
-    const run = async () => {
-      try {
-        await this.refreshWatched();
-      } finally {
-        scheduleNext();
-      }
-    };
-
-    scheduleNext();
-
-    DI.once('di.dispose', () => {
-      disposed = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-    });
+  /** Resolved only once the Orm is, so the container's reverse-order dispose ends the watcher before the Orm. */
+  private resolveWatcher(container: IContainer): DbConfigWatcher {
+    this.watcher = container.resolve(DbConfigWatcher);
+    this.watcherContainer = container;
+    return this.watcher;
   }
 }

@@ -18,7 +18,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm, OrmMigrationGuard, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
 
-import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
+import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter, DbConfigWatcher } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
 import { migrateAndSignal } from './support/db.js';
 import { typedRowCases } from './support/typed-rows.js';
@@ -198,8 +198,8 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   afterEach(async () => {
-    // every beforeEach starts another watch timer; without this they all keep polling the next test's database
-    DI.emit('di.dispose');
+    // the sweep of every beforeEach starts the watch timer, which would poll the next test's database
+    await DI.get(DbConfigWatcher)?.dispose();
 
     const orm = await db();
     orm.dispose();
@@ -324,13 +324,18 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     const bootstrapper = new DbConfigSourceBotstrapper();
     const internals = bootstrapper as unknown as { Converter: DbConfigValueConverter; startWatchTimer(container: IContainer): void };
     internals.Converter = await DI.resolve(DbConfigValueConverter);
-    internals.startWatchTimer({ get: () => isolated } as unknown as IContainer);
+    const watcher = new DbConfigWatcher();
+    internals.startWatchTimer({ get: () => isolated, resolve: () => watcher } as unknown as IContainer);
 
-    await DbConfig.insert({ Slug: 'db-only-watch', Value: 'b', Group: 'db-config', Type: 'string', Watch: true, Exposed: true });
+    try {
+      await DbConfig.insert({ Slug: 'db-only-watch', Value: 'b', Group: 'db-config', Type: 'string', Watch: true, Exposed: true });
 
-    await wait(3000);
+      await wait(3000);
 
-    expect(polled.get('db-only-watch')).to.equal('b');
+      expect(polled.get('db-only-watch')).to.equal('b');
+    } finally {
+      await watcher.dispose();
+    }
   });
 
   it('Should keep the value of a row that is not exposed out of the config on late sync and watch', async () => {

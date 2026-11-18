@@ -5,7 +5,7 @@ import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Configuration } from '@spinajs/configuration';
 
-import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from '../../src/index.js';
+import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter, DbConfigWatcher } from '../../src/index.js';
 import { asSystem } from '../../src/system.js';
 
 type SetConfig = (path: readonly string[], value: unknown) => void;
@@ -46,6 +46,9 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
     poll: () => bootstrapper.refreshWatched(),
     value: (path) => config.get(path),
     async dispose() {
+      // a poll by hand resolves a root watcher while the Orm is cached; it must not carry over into the next file
+      await DI.get(DbConfigWatcher)?.dispose();
+      DI.uncache(DbConfigWatcher);
       orm.dispose();
       DI.uncache(OrmMigrator);
       DI.uncache(OrmMigrationGuard);
