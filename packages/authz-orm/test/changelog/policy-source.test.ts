@@ -165,8 +165,9 @@ describe('IRPolicyHashSource (sqlite)', function () {
     testHost.activate(DI.RootContainer, 'root', bad);
     await (await testHost.domains()).service('root');
     expect((await source()).policyHash('root')).to.equal(undefined);
-    const call = warn.getCalls().find((c) => String(c.args[1]).includes('@spinajs/authz-ir is not installed'));
-    expect((call?.args[0] as { error?: Error } | undefined)?.error?.message).to.include('acme-rules');
+    const call = warn.getCalls().find((c) => String(c.args[1]).includes('needs is not installed'));
+    expect(String(call?.args[1])).to.not.include('@spinajs/authz-ir');
+    expect((call?.args[0] as { missing?: string } | undefined)?.missing).to.include('acme-rules');
   });
 
   it('a toIR that throws leaves the domain without a hash, and the boot succeeds', async () => {

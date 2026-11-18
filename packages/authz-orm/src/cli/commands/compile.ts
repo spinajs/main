@@ -33,7 +33,7 @@ export class CompileCommand extends AuthzOrmCliCommand {
     await this.command(
       () => {
         if (options.live === true && options.record === true) throw new Error('authz:compile: --record stores policy versions, which never include stored policy; drop --live');
-        if (options.check === true && options.record === true) throw new Error('authz:compile: --check writes nothing, so it records nothing; drop --record or --check');
+        if (options.check === true && options.record === true) throw new Error('authz:compile: --check writes no file and stores no policy version; drop --record or --check');
         return { out: resolve(options.out ?? 'authz.ir.json'), domain: options.domain ?? ormDomain(), stored: options.live === true ? ('include' as const) : ('opaque' as const) };
       },
       async ({ out, domain, stored }) => {

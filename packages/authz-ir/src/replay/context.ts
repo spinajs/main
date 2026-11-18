@@ -24,7 +24,7 @@ const entriesOf = (v: Record<string, unknown>, f: (k: string, x: unknown) => [st
 /** T, the instant the state is rebuilt at: when the tap logged the decision. `at` may be the caller's `env.now`. */
 export const instantOf = (record: DecisionRecord): Date => new Date(record.loggedAt ?? record.at);
 
-/** Section 3.2: the decision's reads happened up to `durationMs` before T, and commit lag only hides changes before T. */
+/** The window: the decision's reads happened up to `durationMs` before T, and commit lag only hides changes before T. */
 export const replayWindow = (record: DecisionRecord, limits: { clockSkewMs: number; commitLagMs: number }): ReplayWindow => ({
   beforeMs: (record.durationMs ?? 0) + limits.clockSkewMs + limits.commitLagMs,
   afterMs: limits.clockSkewMs,
