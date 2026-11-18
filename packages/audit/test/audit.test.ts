@@ -379,6 +379,23 @@ describe('audit(): confirmed deadline', function () {
     expect(SlowStore.calls).to.eq(2);
   });
 
+  it('gives a confirmed write 10000 ms without audit.confirmTimeoutMs', async () => {
+    app = await boot();
+    const delays: unknown[] = [];
+    const setTimer = globalThis.setTimeout;
+    const spy = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
+      delays.push(args[1]);
+      return setTimer(...args);
+    };
+    try {
+      Reflect.set(globalThis, 'setTimeout', spy);
+      await audit().record(actions('a'), { mode: 'confirmed' });
+    } finally {
+      Reflect.set(globalThis, 'setTimeout', setTimer);
+    }
+    expect(delays).to.include(10000);
+  });
+
   it('logs a confirmed write whose deadline fires between two tries as lost, after the tries it made', async () => {
     app = await boot({}, { confirmTimeoutMs: 50 });
     const lines = pipelineLog(app.container);
@@ -491,6 +508,22 @@ describe('audit(): deferred batches and failure paths', function () {
     await audit().record(actions('d'), { trail: 'slow' });
     await audit().flush();
     expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['a', 'd']);
+  });
+
+  it('drops a batch behind a block at once, without waiting out timeoutMs', async () => {
+    app = await boot({ timeoutMs: 1000, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b', 'c', 'd'), { trail: 'slow' });
+    const flushed = audit().flush();
+    while (!lines.some((l) => l.message.includes('is blocked behind'))) await pause(5);
+    const blockedAt = Date.now();
+    await flushed;
+    // Two batches behind the block: waiting out timeoutMs each would take 2000 ms.
+    expect(Date.now() - blockedAt).to.be.below(500);
+    expect(lines.filter((l) => l.message === 'audit: trail ${trail} lost ${count} event(s): ${ids}')).to.have.length(3);
+    SlowStore.held[0].release();
+    await pause(20);
   });
 
   it('lifts a block when the held append fails', async () => {
