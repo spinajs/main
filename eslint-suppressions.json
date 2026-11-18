@@ -1392,14 +1392,6 @@
       "count": 1
     }
   },
-  "packages/authz-orm/src/ancestors/targets.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "complexity": {
-      "count": 1
-    }
-  },
   "packages/authz-orm/src/audit/db-audit.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
