@@ -61,6 +61,23 @@ export class Lineage {
     return { key, call };
   }
 
+  /** Names a branch of the caller's branch. Nothing runs yet, so its id depends only on where the caller is now. */
+  public open(name: string): LineageNode {
+    const { parent, branch: from } = this.place();
+    const id = `branch:${name}`;
+    return { owner: this, branch: branchId(from, `${id}#${next(this.occurrences, `${from}|${id}`)}`), key: '', parent, turn: -1, forked: false };
+  }
+
+  /** Runs `fn` in `node`. The caller's own store is put back when `fn` returns. */
+  public within<T>(node: LineageNode, fn: () => T): T {
+    return current.run(node, fn);
+  }
+
+  /** Runs `fn` in a branch named by the caller; the branch exists before `fn` starts. */
+  public fork<T>(name: string, fn: () => T): T {
+    return this.within(this.open(name), fn);
+  }
+
   /** Where a call made now belongs. */
   protected place(): { parent: LineageNode; branch: string; turn: number; sibling: boolean } {
     const turn = this.currentTurn();

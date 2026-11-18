@@ -267,10 +267,13 @@ export class DefaultAuthzService extends AuthzService {
 
   /** The engine's decision (served from the decision cache when it can be), then the authz.check hook; the hook's answer is never stored. */
   private async decide(s: Booted, req: CheckInput): Promise<Decision> {
-    const decision = await s.authorizer.check(req, requestScope());
-    if (!s.hooks) return decision;
+    const hooks = s.hooks;
+    return s.authorizer.check(req, requestScope(), hooks ? (decision) => this.narrow(s, hooks, req, decision) : undefined);
+  }
+
+  private async narrow(s: Booted, hooks: Hooks, req: CheckInput, decision: Decision): Promise<Decision> {
     try {
-      return await s.hooks.run('authz.check', { principal: req.principal, permission: decision.permission, resource: decision.resource }, async () => decision, { mutable: [] });
+      return await hooks.run('authz.check', { principal: req.principal, permission: decision.permission, resource: decision.resource }, async () => decision, { mutable: [] });
     } catch (e) {
       // A hook only narrows: a deny stays the engine's deny, with its reason.
       if (!decision.allowed) return decision;

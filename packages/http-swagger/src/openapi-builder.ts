@@ -1,6 +1,6 @@
 import { Autoinject, ClassInfo, NewInstance, isTypedArray, type TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, PROBLEM_DETAILS_SCHEMA, ParameterType, RouteType } from '@spinajs/http';
-import type { IDocumentedAnswer, IDocumentedHeader, IRouteMiddlewareDoc, RouteMiddleware } from '@spinajs/http';
+import type { IDocumentedAnswer, IDocumentedHeader, IDocumentedRequestHeader, IRouteMiddlewareDoc, RouteMiddleware } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -445,14 +445,17 @@ ${line}` : line;
     const routeStatuses = Object.keys(operation.responses);
     const answers: Record<string, IDocumentedAnswer> = {};
     const successHeaders: Record<string, IDocumentedHeader> = {};
+    const requestHeaders: Record<string, IDocumentedRequestHeader> = {};
     const extensions = operation as unknown as Record<string, unknown>;
     const presetKeys = new Set(Object.keys(extensions));
 
     for (const doc of docs) {
       Object.assign(answers, doc.responses);
       Object.assign(successHeaders, doc.headers);
+      Object.assign(requestHeaders, doc.requestHeaders);
       mergeExtensions(extensions, doc.extensions ?? {}, presetKeys);
     }
+    this.addRequestHeaders(operation, requestHeaders);
 
     for (const [status, answer] of Object.entries(answers)) {
       if (!routeStatuses.includes(status)) operation.responses[status] = this.middlewareResponse(answer);
@@ -463,6 +466,18 @@ ${line}` : line;
       const response = operation.responses[status];
       if (!status.startsWith('2') || response.$ref) continue;
       response.headers = { ...response.headers, ...this.documentedHeaders(successHeaders) };
+    }
+  }
+
+  /** A header the route reads itself (`@Header`) is already a parameter, with the route's own schema, and stays. */
+  private addRequestHeaders(operation: IOpenApiOperation, headers: Record<string, IDocumentedRequestHeader>): void {
+    const documented = Object.entries(headers);
+    // an operation without parameters has no `parameters` key
+    if (documented.length === 0) return;
+    const parameters = (operation.parameters ??= []);
+    for (const [name, header] of documented) {
+      if (parameters.some((p) => p.in === 'header' && p.name.toLowerCase() === name.toLowerCase())) continue;
+      parameters.push({ name, in: 'header', required: header.required, description: header.description, schema: this.convertJsonSchema(header.schema) });
     }
   }
 
