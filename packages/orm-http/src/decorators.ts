@@ -1,5 +1,5 @@
 import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
-import { AggregateFunction, FilterableOperators, IColumnFilter, IFilterableOptions } from './interfaces.js';
+import { AggregateFunction, FilterableOperators, IAggregateColumns, IColumnFilter, IFilterableOptions } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
@@ -81,4 +81,9 @@ export function Aggregatable(functions: AggregateFunction[]): PropertyDecorator 
     }
     (model.AggregatableColumns ??= new Map<string, AggregateFunction[]>()).set(propertyKey, [...functions]);
   });
+}
+
+/** The request's `aggregate` value (query string or body), validated against what the model lets a request group and measure. */
+export function Aggregate(model: Constructor<ModelBase> | IAggregateColumns) {
+  return Route(Parameter('AggregateModelRouteArg', null, model));
 }
