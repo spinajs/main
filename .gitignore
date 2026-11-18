@@ -199,6 +199,7 @@ graphify-out/
 !/docs/session-provider-redis/
 !/docs/simulation/
 !/docs/studio/
+!/docs/studio-ui/
 !/docs/teams/
 !/docs/teams-http/
 !/docs/telemetry/
