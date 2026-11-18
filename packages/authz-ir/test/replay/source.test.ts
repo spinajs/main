@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
 
-import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, TupleSourceGap } from '../../src/index.js';
+import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, StoreUnreadable, TupleSourceGap } from '../../src/index.js';
 import type { ChangeLogRead, CurrentItem, HistoryContributor, HistoryEdge, ObjectRef, RelationDef, TupleSubjectRef } from '../../src/index.js';
 import { docsIR } from '../fixtures/docs.js';
 
@@ -71,6 +71,23 @@ class Tuples implements HistoryContributor {
   async remove(t: Tuple, at: Date, logged = true): Promise<void> {
     this.rows.delete(tupleKey(t));
     if (logged) await this.log.append([{ kind: 'tuple', op: 'remove', key: tupleKey(t), payload: t, at }]);
+  }
+}
+
+/** A tuple store with one row, and one logged change, it cannot decode. */
+class Garbled extends Tuples {
+  override current(object: ObjectRef, relation: string): Promise<CurrentItem<TupleSubjectRef>[]> {
+    return super.current(object, relation).then((rows) => (object.id === 'd2' ? [...rows, { key: 'garbled', image: 'garbled', subject: user('?') }] : rows));
+  }
+
+  override edges(c: ChangeRecord): HistoryEdge[] {
+    if (c.payload === 'garbled') throw new StoreUnreadable('not a tuple');
+    return super.edges(c);
+  }
+
+  override subjectAt(image: unknown): TupleSubjectRef {
+    if (image === 'garbled') throw new StoreUnreadable('not a tuple');
+    return super.subjectAt(image);
   }
 }
 
@@ -213,6 +230,29 @@ describe('HistoricalTupleSource', () => {
     const s = await source(log, [tuples]);
     const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
     expect(gap.gaps).to.deep.equal([{ kind: 'tuple', key: 'doc:d1#editor', origin: 'gap', reason: 'the tuple history starts nowhere (not covered)' }]);
+  });
+
+  it('is a gap for every read of the kind when a scanned change cannot be decoded: it may hide any key', async () => {
+    const { log } = await setup();
+    const tuples = new Garbled(log);
+    await tuples.add(editor('u1'), ms(-30 * MIN));
+    await log.append([{ kind: 'tuple', op: 'remove', key: 'garbled', payload: 'garbled', at: ms(30 * MIN) }]);
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
+    expect(gap.gaps).to.have.length(1);
+    expect(gap.gaps[0]).to.deep.include({ kind: 'tuple', key: 'doc:d1#editor', origin: 'gap' });
+    expect(gap.gaps[0].reason).to.match(/^tuple change seq \d+ cannot be decoded: not a tuple$/);
+  });
+
+  it('is a gap for a key whose image cannot be decoded, never an absent one', async () => {
+    const { log } = await setup();
+    const tuples = new Garbled(log);
+    await tuples.add(editor('u1', 'd2'), ms(-30 * MIN));
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d2'), 'editor'));
+    expect(gap.known.map((x) => x.id)).to.deep.equal(['u1']);
+    expect(gap.gaps).to.deep.equal([{ kind: 'tuple', key: 'garbled', origin: 'gap', reason: 'tuple garbled cannot be decoded: not a tuple' }]);
+    expect(s.reads).to.deep.include(gap.gaps[0]);
   });
 
   it('names a relation no contributor serves', async () => {

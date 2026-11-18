@@ -5,7 +5,7 @@ import { objectLabel, subjectLabel } from '../eval/check.js';
 import type { TupleSource } from '../eval/evaluator.js';
 import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeDef, TypeName } from '../ir.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor.js';
-import { TupleSourceGap } from './gap.js';
+import { StoreUnreadable, TupleSourceGap } from './gap.js';
 import { coverageGap, stateAt } from './history.js';
 import type { KeyState } from './history.js';
 import type { ReplayHistory } from './history-scan.js';
@@ -16,9 +16,12 @@ interface Candidate<T> {
 }
 
 interface Resolved<T> {
-  present: Array<{ value: unknown; carrier: T }>;
+  /** The keys live at T: their subject, and what the read yields for them. */
+  present: Array<{ subject: TupleSubjectRef; carrier: T }>;
   gaps: ReplayRead[];
 }
+
+type KnownState = Extract<KeyState, { known: true }>;
 
 const sameSubject = (a: TupleSubjectRef, b: TupleSubjectRef): boolean => a.type === b.type && a.id === b.id && a.relation === b.relation;
 
@@ -86,7 +89,7 @@ export class HistoricalTupleSource implements TupleSource {
         return images;
       },
     );
-    const objects = r.present.filter((p) => this.liveSubject(c, p.value, subject)).map((p) => p.carrier);
+    const objects = r.present.filter((p) => sameSubject(p.subject, subject)).map((p) => p.carrier);
     if (r.gaps.length > 0) throw new TupleSourceGap([], r.gaps);
     for (const o of objects) yield o;
   }
@@ -118,7 +121,7 @@ export class HistoricalTupleSource implements TupleSource {
       (e) => (e.relation === relation && e.object.type === object.type && e.object.id === object.id ? e.subject : undefined),
       c.coverageType(object),
     );
-    const known = r.present.map((p) => c.subjectAt(p.value, this.liveAt)).filter((s): s is TupleSubjectRef => s !== undefined);
+    const known = r.present.map((p) => p.subject);
     if (r.gaps.length > 0) throw new TupleSourceGap(known, r.gaps);
     return known;
   }
@@ -160,11 +163,6 @@ export class HistoricalTupleSource implements TupleSource {
     throw new TupleSourceGap([], [read]);
   }
 
-  private liveSubject(c: HistoryContributor, image: unknown, subject: TupleSubjectRef): boolean {
-    const s = c.subjectAt(image, this.liveAt);
-    return s !== undefined && sameSubject(s, subject);
-  }
-
   /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order. */
   private async resolve<T>(c: HistoryContributor, label: string, source: RelationDef['source'], current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<Resolved<T>> {
     const slot = `${c.kind}\u0000${type ?? ''}`;
@@ -179,10 +177,22 @@ export class HistoricalTupleSource implements TupleSource {
       const now = await current();
       await this.history.catchUp();
       const candidates = new Map<string, Candidate<T>>();
-      for (const e of this.history.edges(c.kind, (ch) => c.edges(ch))) {
+      let undecodable: string | undefined;
+      const decode = (ch: ChangeRecord): readonly HistoryEdge[] => {
+        try {
+          return c.edges(ch);
+        } catch (e) {
+          if (!(e instanceof StoreUnreadable)) throw e;
+          undecodable ??= `${c.kind} change seq ${ch.seq} cannot be decoded: ${e.message}`;
+          return [];
+        }
+      };
+      for (const e of this.history.edges(c.kind, decode)) {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
+      // A change whose edges are unknown may have touched any key of this read.
+      if (undecodable !== undefined) return this.gapRead({ kind: c.kind, key: label, origin: 'gap', reason: undecodable });
       for (const item of now) candidates.set(item.key, { image: item.image, carrier: item.subject });
       if (elsewhere !== undefined) await this.fillElsewhere(c, candidates, new Set(now.map((i) => i.key)), elsewhere);
       const keys = [...candidates.keys()];
@@ -208,7 +218,10 @@ export class HistoricalTupleSource implements TupleSource {
   }
 
   private uncoveredRead<T>(c: HistoryContributor, label: string, type: ResourceType | undefined, reason: string): Resolved<T> {
-    const read: ReplayRead = { kind: c.kind, key: type === undefined ? label : `${c.kind}:${type}`, origin: 'gap', reason };
+    return this.gapRead({ kind: c.kind, key: type === undefined ? label : `${c.kind}:${type}`, origin: 'gap', reason });
+  }
+
+  private gapRead<T>(read: ReplayRead): Resolved<T> {
     this.reads.push(read);
     return { present: [], gaps: [read] };
   }
@@ -226,16 +239,28 @@ export class HistoricalTupleSource implements TupleSource {
     // By key, so a replay walks subjects in the same order whatever the order of the writes that led to them.
     for (const [key, cand] of [...candidates].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const state = moved.has(key) ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const) : this.stateOf(c, source, key, cand.image, befores.get(key), since);
-      if (!state.known) {
-        const read: ReplayRead = { kind: c.kind, key, origin: 'gap', reason: state.reason };
+      const live = state.known ? this.live(c, key, state) : state;
+      if (!live.known) {
+        const read: ReplayRead = { kind: c.kind, key, origin: 'gap', reason: live.reason };
         this.reads.push(read);
         out.gaps.push(read);
         continue;
       }
-      this.reads.push({ kind: c.kind, key, origin: state.origin, ...(state.seq === undefined ? {} : { seq: state.seq }) });
-      if (state.value !== undefined) out.present.push({ value: state.value, carrier: cand.carrier });
+      this.reads.push({ kind: c.kind, key, origin: live.origin, ...(live.seq === undefined ? {} : { seq: live.seq }) });
+      if (live.subject !== undefined) out.present.push({ subject: live.subject, carrier: cand.carrier });
     }
     return out;
+  }
+
+  /** A known state with its subject live at T; an image the contributor cannot decode is a gap, never an absent key. */
+  private live(c: HistoryContributor, key: string, state: KnownState): (KnownState & { subject?: TupleSubjectRef }) | { known: false; reason: string } {
+    if (state.value === undefined) return state;
+    try {
+      return { ...state, subject: c.subjectAt(state.value, this.liveAt) };
+    } catch (e) {
+      if (!(e instanceof StoreUnreadable)) throw e;
+      return { known: false, reason: `${c.kind} ${key} cannot be decoded: ${e.message}` };
+    }
   }
 
   /**
