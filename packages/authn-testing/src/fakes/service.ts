@@ -82,6 +82,11 @@ export class FakeAuthnService extends AuthnService {
     await this.delivery().publishIn(ctx, e);
   }
 
+  /** As `AuthnAudit.holdIn`: the blocking listeners take the event; the resolved function tells the others. */
+  protected hold(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<() => Promise<void>> {
+    return this.delivery().holdIn(ctx, e);
+  }
+
   /** As the core publishes a non-interactive success: returns at once, and no listener can stop it. */
   protected auditDetached(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): void {
     this.delivery().publishDetached(ctx, e);
@@ -106,19 +111,24 @@ export class FakeAuthnService extends AuthnService {
     return delivery;
   }
 
-  /** As the core: a session whose announcement a blocking listener stopped is revoked, and the told events go out again as failures. */
+  /**
+   * As the core: the other listeners hear the events only after the blocking ones took every one. A session whose
+   * announcement a blocking listener stopped is revoked, and the told events go out again as failures.
+   */
   private async announce(ctx: AuthnContext, session: SessionHandle, ...events: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>[]): Promise<void> {
     let told = 0;
+    const tells: (() => Promise<void>)[] = [];
     try {
       for (const e of events) {
         told++;
-        await this.audit(ctx, e);
+        tells.push(await this.hold(ctx, e));
       }
     } catch (err) {
       await this.d.sessions.revoke(session).catch((revokeErr: unknown) => this.d.log?.warn({ errorClass: revokeErr instanceof Error ? revokeErr.name : typeof revokeErr }, 'authn: a session whose announcement was stopped could not be revoked (${errorClass})'));
       for (const e of events.slice(0, told)) await this.audit(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
       throw err;
     }
+    for (const tell of tells) await tell();
   }
 
   private keysFor(base: readonly ThrottleKey[], ctx: AuthnContext): ThrottleKey[] {

@@ -25,6 +25,25 @@ class FailingListener extends AuthnEventListener {
   }
 }
 
+/** Writes `<name> <type> <outcome>` to a journal shared with other listeners. */
+class JournalListener extends AuthnEventListener {
+  constructor(
+    private readonly blocks: boolean,
+    private readonly name: string,
+    private readonly journal: string[],
+  ) {
+    super();
+  }
+
+  public override get blocking(): boolean {
+    return this.blocks;
+  }
+
+  async on(e: AuthnEvent): Promise<void> {
+    this.journal.push(`${this.name} ${e.type} ${e.outcome}`);
+  }
+}
+
 class WarnLog {
   readonly lines: string[] = [];
 
@@ -125,6 +144,27 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
     assert.deepStrictEqual(summary(events), [['login', 'failure', 'listener_failed']]);
     assert.strictEqual(events.all()[0].ip, IP);
     assert.deepStrictEqual(await w.sessions.storage.storedKeys(), [], 'the issued session is revoked');
+  });
+
+  it('a login stopped on session.issue reaches a listener that does not block only as listener_failed failures', async () => {
+    const events = new RecordingEventListener();
+    const w = build([new FailingListener(true, 'session.issue'), events]);
+
+    await assert.rejects(login(w), AuthnListenerFailed);
+
+    assert.deepStrictEqual(summary(events), [
+      ['login', 'failure', 'listener_failed'],
+      ['session.issue', 'failure', 'listener_failed'],
+    ]);
+    assert.deepStrictEqual(await w.sessions.storage.storedKeys(), [], 'the issued session is revoked');
+  });
+
+  it('a login reaches the listeners that do not block only after the blocking ones took every event of it', async () => {
+    const journal: string[] = [];
+    const r = await login(build([new JournalListener(false, 'observer', journal), new JournalListener(true, 'gate', journal)]));
+
+    assert.strictEqual(r.status, 'success');
+    assert.deepStrictEqual(journal, ['gate login success', 'gate session.issue success', 'observer login success', 'observer session.issue success']);
   });
 
   it('a stopped MFA challenge revokes its pending session', async () => {

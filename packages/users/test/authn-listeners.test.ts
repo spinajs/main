@@ -3,8 +3,9 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventListener } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemorySessionIssuer, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { QueueAuthnEventListener, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
@@ -15,6 +16,36 @@ const HASH = '$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$c2VjcmV0aGFzaA';
 const AT = new Date('2026-10-04T08:30:00.000Z');
 
 const event = (type: AuthnEventType, identity: IdentityRef | undefined, over: Partial<AuthnEvent> = {}): AuthnEvent => ({ type, at: AT, outcome: 'success', ...(identity ? { identity } : {}), ...over });
+
+/** A blocking listener that stops every `session.issue` success. */
+class SessionIssueStopper extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  async on(e: AuthnEvent): Promise<void> {
+    if (e.type === 'session.issue' && e.outcome === 'success') throw new Error('ledger down');
+  }
+}
+
+/** A login of `ref` through the kit's fake service, which announces as the core does, with `listeners` registered. */
+function loginOf(ref: IdentityRef, listeners: readonly AuthnEventListener[]) {
+  const identities = new FakeIdentityStore();
+  identities.add({ id: ref.id, login: 'announced' });
+  const service = new FakeAuthnService({
+    strategies: [new FakeStrategy({ name: 'form', kinds: ['password'], interactive: true, keys: () => [], verify: () => ({ ok: true, identity: ref, method: 'password' }) })],
+    throttle: new FakeBackoffThrottle(throttleParams({})),
+    identities,
+    links: new MemoryLinkStore(),
+    linking: { jit: false, byVerifiedEmail: false },
+    policy: new EnrolledMfaPolicy([]),
+    steps: [],
+    sessions: new MemorySessionIssuer(),
+    listeners,
+    principals: new RecordingPrincipalFactory(),
+  });
+  return service.authenticate({ kind: 'password', login: 'announced', password: 'any' }, { now: AT, purpose: 'login' });
+}
 
 describe('users authn event listeners', function () {
   this.timeout(30000);
@@ -55,6 +86,24 @@ describe('users authn event listeners', function () {
     emit.rejects(new Error('queue down'));
     await audit.publish(event('login', ref));
     expect(emit.callCount, 'the rejecting queue was called').to.eq(2);
+  });
+
+  it('a login announced with its session sends UserLogged once', async () => {
+    const { ref } = await seedUser({ login: 'announced', password: HASH });
+
+    const r = await loginOf(ref, [await DI.resolve(QueueAuthnEventListener)]);
+
+    expect(r.status).to.eq('success');
+    expect(emitted().map((x) => x.constructor)).to.deep.eq([UserLogged]);
+  });
+
+  it('a login whose session.issue a blocking listener stopped leaves the queue empty', async () => {
+    const { ref } = await seedUser({ login: 'announced', password: HASH });
+
+    const failure = await loginOf(ref, [new SessionIssueStopper(), await DI.resolve(QueueAuthnEventListener)]).catch((err: unknown) => err);
+
+    expect(failure).to.be.instanceOf(AuthnListenerFailed);
+    expect(emitted()).to.deep.eq([]);
   });
 
   describe('QueueAuthnEventListener', () => {
