@@ -49,7 +49,11 @@ import '@spinajs/log';
 async function migrateAndCheck(): Promise<void> {
   await DI.resolve(Configuration);
 
-  await (await DI.resolve(MigrateUpCommand)).execute({});
+  const result = await (await DI.resolve(MigrateUpCommand)).execute({});
+  if (result?.tableCheckError) {
+    throw result.tableCheckError;
+  }
+
   await (await DI.resolve(MigrateStatusCommand)).execute();
 
   process.exit(process.exitCode ?? 0);

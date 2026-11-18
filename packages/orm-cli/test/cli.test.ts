@@ -59,7 +59,7 @@ function connectionConf(name: string, table: string): Class<FrameworkConfigurati
  * `console.log` is `migrate-status`'s output, so it is captured rather than silenced: the tests
  * assert on it, and letting it through would bury the mocha reporter in migration tables.
  */
-async function captureStdout(fn: () => Promise<void>): Promise<string[]> {
+async function captureStdout(fn: () => Promise<unknown>): Promise<string[]> {
   const lines: string[] = [];
   // eslint-disable-next-line no-console
   const original = console.log;

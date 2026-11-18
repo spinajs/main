@@ -130,8 +130,10 @@ export abstract class CliCommand extends AsyncService {
    * Function executed when command is running
    *
    * @param args - args passed from cli
+   * @returns what the command reports to a caller that runs it in-process; the bin ignores it and reads
+   *          `process.exitCode`
    */
-  public abstract execute(...args: any[]): Promise<void>;
+  public abstract execute(...args: any[]): Promise<unknown>;
 
   /**
    * Executed on command creation, used when you need to
