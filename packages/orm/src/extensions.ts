@@ -2,8 +2,20 @@ import type { Class, Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { QueryBuilder } from './builders/base.js';
 import type { OrmDriver } from './driver.js';
+import type { IRelationDescriptor } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import type { IOrmRelation } from './relations.js';
+
+/**
+ * How a builder's content reaches the database. `own`: sent as a statement of its own. `merged`: never sent; folded
+ * into the builder its relation was populated on (`parent`), a many-to-many junction query (`junction`) or a join
+ * (`join`). `recursive`: sent as a recursive CTE whose WHERE picks the start rows only, not the rows the recursion adds.
+ */
+export type BuilderExecution =
+  | { readonly kind: 'own' }
+  | { readonly kind: 'merged'; readonly into: 'parent' | 'junction'; readonly relation: IRelationDescriptor }
+  | { readonly kind: 'merged'; readonly into: 'join' }
+  | { readonly kind: 'recursive'; readonly relation: IRelationDescriptor };
 
 /** What a query extension method reads from its builder through `state()`. */
 export interface BuilderState {
@@ -12,6 +24,7 @@ export interface BuilderState {
   container: IContainer;
   owner: IOrmRelation | undefined;
   connection: OrmDriver;
+  execution: BuilderExecution;
 }
 
 /**

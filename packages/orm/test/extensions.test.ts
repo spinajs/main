@@ -12,6 +12,7 @@ import type { QueryTarget } from '../src/extensions.js';
 import { installQueryExtensions } from '../src/extension-install.js';
 import { DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, createQuery } from '../src/builders.js';
 import type { QueryBuilder } from '../src/builders.js';
+import { executionCopy } from '../src/builders/internal.js';
 import { RawModel } from './mocks/models/RawModel.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
@@ -71,6 +72,10 @@ class Rootless extends QueryExtension {
 type Tagged = SelectQueryBuilder & { tagged(tag: string): Tagged };
 
 const has = (prototype: object, method: string) => Object.prototype.hasOwnProperty.call(prototype, method);
+const mergedIntoJoin = () => {
+  const plain = RawModel.query() as unknown as SelectQueryBuilder;
+  return new SelectQueryBuilder(plain.Container, plain.Driver, RawModel, undefined, true, { kind: 'merged', into: 'join' });
+};
 const make = (type: Class<QueryExtension>) => new (type as new () => QueryExtension)();
 const shadowingWhere = () =>
   make(
@@ -119,12 +124,31 @@ describe('Query extensions', () => {
       expect(state.owner).to.equal(undefined);
       expect(state.container).to.equal(query.Container);
       expect(state.connection).to.equal(query.Driver);
+      expect(state.execution).to.deep.equal({ kind: 'own' });
     });
 
     it('state() of a non-select builder has no relations', () => {
       const { query } = createQuery(RawModel, DeleteQueryBuilder);
       expect(query.state().relations).to.deep.equal([]);
       expect(query.state().model?.name).to.equal('RawModel');
+    });
+
+    it('state().execution of a non-select builder is own', () => {
+      const { query } = createQuery(RawModel, DeleteQueryBuilder);
+      expect(query.state().execution).to.deep.equal({ kind: 'own' });
+    });
+
+    it('a clone and an execution copy keep the execution the builder was constructed with', () => {
+      const query = mergedIntoJoin();
+
+      expect(query.state().execution).to.deep.equal({ kind: 'merged', into: 'join' });
+      expect(query.clone().state().execution).to.equal(query.state().execution);
+      expect(executionCopy(query).state().execution).to.equal(query.state().execution);
+    });
+
+    it('the execution is frozen', () => {
+      expect(Object.isFrozen(mergedIntoJoin().state().execution)).to.equal(true);
+      expect(Object.isFrozen((RawModel.query() as unknown as SelectQueryBuilder).state().execution)).to.equal(true);
     });
 
     it('runs onClone with the source and the copy when a select builder is cloned', () => {
