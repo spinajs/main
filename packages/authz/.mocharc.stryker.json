@@ -5,6 +5,7 @@
   "spec": [
     "test/**/*.test.ts"
   ],
+  "grep": "^(?!.*@timing)",
   "ignore": [
     "test/host/**",
     "test/admin/**",

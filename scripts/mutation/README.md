@@ -76,6 +76,10 @@ Left out, and why:
   | authz-rbac | `test/ladder/agreement.test.ts` | 5.6 s |
   | authz-rbac | `test/cli/discovery.test.ts` | 5.8 s, and it hit its own 30 s timeout in a dry run (it reads built `lib/` only) |
 
+- **Timing tests**: a test that asserts a wall-clock bound ends its title with `@timing`, and every
+  `.mocharc.stryker.json` drops those titles with `"grep": "^(?!.*@timing)"` (Stryker's mocha runner ignores `invert`).
+  Instrumented code runs slower, so such a test would kill a mutant by being slow, and a slow runner could fail the dry
+  run. `npm test` still runs them. Tag every new test that measures elapsed time.
 - **`authz` host and admin suites** (`test/host/**`, `test/admin/**`): they boot DI in separate mocha processes.
   Engine code only they reach counts as NoCoverage.
 - **Cross-package kills:** a package's tests import other packages from their built `lib/`, so a mutant in `authz/src`

@@ -222,7 +222,7 @@ describe('engine attributes: mergeAttributes', () => {
     expect(() => mergeAttributes([{ l: lists(33) }])).to.throw(AuthzConfigError);
   });
 
-  it('throws AuthzConfigError fast for a list claiming 2^32-1 elements', () => {
+  it('throws AuthzConfigError fast for a list claiming 2^32-1 elements @timing', () => {
     const huge = new Proxy([], {
       get(target, key) {
         return key === 'length' ? 2 ** 32 - 1 : typeof key === 'string' && /^\d+$/.test(key) ? 'x' : Reflect.get(target, key);
@@ -236,7 +236,7 @@ describe('engine attributes: mergeAttributes', () => {
     expect(Date.now() - started).to.be.lessThan(5000);
   });
 
-  it('throws AuthzConfigError fast for a layer with 20,000 scalar keys', () => {
+  it('throws AuthzConfigError fast for a layer with 20,000 scalar keys @timing', () => {
     const wide: Record<string, unknown> = {};
     for (let i = 0; i < 20_000; i++) wide[`k${i}`] = i;
     const started = Date.now();
@@ -256,7 +256,7 @@ describe('engine attributes: mergeAttributes', () => {
     expect(mergeAttributes([{ a: shared, b: shared }])).to.deep.equal({ a: { x: 1 }, b: { x: 1 } });
   });
 
-  it('throws AuthzConfigError fast on a shared-subtree layer that would expand exponentially', () => {
+  it('throws AuthzConfigError fast on a shared-subtree layer that would expand exponentially @timing', () => {
     let v: Record<string, unknown> = { leaf: 1 };
     for (let i = 0; i < 30; i++) v = { l: v, r: v };
     const started = Date.now();

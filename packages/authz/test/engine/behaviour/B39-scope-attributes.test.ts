@@ -250,7 +250,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
   });
 
-  it('B39: a store load that never settles times out to unknown: the vote reading it is indeterminate', async () => {
+  it('B39: a store load that never settles times out to unknown: the vote reading it is indeterminate @timing', async () => {
     const store = new FakeStore();
     store.getImpl = () => new Promise(() => undefined);
     let ctx!: EvaluationContext;
@@ -274,7 +274,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(denied.reason).to.deep.equal({ code: 'model_error', model: 'm' });
   });
 
-  it('B39: an adapter scopeAttributes that never settles times out to unknown: the vote reading it is indeterminate', async () => {
+  it('B39: an adapter scopeAttributes that never settles times out to unknown: the vote reading it is indeterminate @timing', async () => {
     const m = new StaticModel('m', { vote: permit(or(eq('a', 1), eq('team', ref('scope.folder.team')))) });
     const { a, adapter } = setup([m], { config: { modelTimeoutMs: 50 } });
     adapter.scopeAttributes = () => new Promise(() => undefined);
@@ -442,7 +442,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(r.uncacheable).to.equal(true);
   });
 
-  it('B39: a scope attribute load that rejects or times out in the binder makes the decision non-cacheable', async () => {
+  it('B39: a scope attribute load that rejects or times out in the binder makes the decision non-cacheable @timing', async () => {
     const plan = permit(or(eq('a', 1), eq('plan', ref('scope.org.plan'))));
     const healthy = setup([new StaticModel('m', { vote: plan })], { store: new FakeStore() });
     expect((await pipelineOf(healthy.a, read(D1))).uncacheable).to.equal(false);
@@ -466,7 +466,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(h.log.at('error').filter((e) => /org:o1/.test(e.message) && /timed out/.test(e.message))).to.have.length(1);
   });
 
-  it('B39: a timeout memoised inside the load (a model asked first) still makes the decision non-cacheable', async () => {
+  it('B39: a timeout memoised inside the load (a model asked first) still makes the decision non-cacheable @timing', async () => {
     const hung = new FakeStore();
     hung.getImpl = () => new Promise(() => undefined);
     const m = new StaticModel('m', {
@@ -483,7 +483,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(r.uncacheable).to.equal(true);
   });
 
-  it('B39: the reason pass waits one modelTimeoutMs in all', async () => {
+  it('B39: the reason pass waits one modelTimeoutMs in all @timing', async () => {
     const stuck = new FakeRelation('doc', 'stuck', () => new Promise<boolean>(() => undefined));
     const stuckToo = new FakeRelation('doc', 'stuckToo', () => new Promise<boolean>(() => undefined));
     const vote = pass('m', eq('owner', 'nobody'), {

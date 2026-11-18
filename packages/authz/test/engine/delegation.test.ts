@@ -488,7 +488,7 @@ describe('engine/delegation', () => {
       expect(Object.isFrozen(f)).to.equal(false);
     });
 
-    it('a shared-subtree DAG of depth 30 finishes fast', () => {
+    it('a shared-subtree DAG of depth 30 finishes fast @timing', () => {
       let raw: ResourceFilter = { op: 'or', args: [c('x'), rel] };
       let built: ResourceFilter = or(c('x'), { op: 'relation', relation: 'r' });
       for (let i = 0; i < 30; i++) {

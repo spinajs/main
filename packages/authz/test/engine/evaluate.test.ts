@@ -508,7 +508,7 @@ describe('engine/evaluate', () => {
       return x;
     };
 
-    it('a shared-subtree DAG 30 levels deep finishes fast and is UNKNOWN', async () => {
+    it('a shared-subtree DAG 30 levels deep finishes fast and is UNKNOWN @timing', async () => {
       let reads = 0;
       const e = env({
         attribute: () => {
@@ -548,7 +548,7 @@ describe('engine/evaluate', () => {
       expect(await run({ op: 'and', args: [FALSE, big] }, {})).to.equal(false);
     });
 
-    it('once the budget is spent a large DAG is UNKNOWN, never TRUE, also under not', async () => {
+    it('once the budget is spent a large DAG is UNKNOWN, never TRUE, also under not @timing', async () => {
       const started = Date.now();
       expect(await run(trueDag(40), { t: 1 })).to.equal(undefined);
       expect(await run(falseDag(40), { t: 1 })).to.equal(undefined);
@@ -556,7 +556,7 @@ describe('engine/evaluate', () => {
       expect(Date.now() - started).to.be.below(15000);
     });
 
-    it('matcher work counts against the same budget', async () => {
+    it('matcher work counts against the same budget @timing', async () => {
       const text = 'a'.repeat(10000);
       const heavy = (): ResourceFilter => cmp('x', 'like', '%'.repeat(390) + 'b');
       const started = Date.now();
@@ -592,7 +592,7 @@ describe('engine/evaluate', () => {
       return x;
     };
 
-    it('a 40-level DAG over a shared 100k-element in leaf finishes fast', async () => {
+    it('a 40-level DAG over a shared 100k-element in leaf finishes fast @timing', async () => {
       const list: (string | number)[] = Array.from({ length: 100000 }, (_, i) => i + 10);
       list.push('x');
       const started = Date.now();
@@ -601,7 +601,7 @@ describe('engine/evaluate', () => {
       expect(Date.now() - started).to.be.below(5000);
     });
 
-    it('a 40-level DAG over a shared lt leaf on long strings finishes fast', async () => {
+    it('a 40-level DAG over a shared lt leaf on long strings finishes fast @timing', async () => {
       const long = 'a'.repeat(200000);
       const started = Date.now();
       expect(await run(heavyDag(40, cmp('s', 'lt', long + 'b')), { s: long })).to.equal(undefined);
@@ -609,7 +609,7 @@ describe('engine/evaluate', () => {
       expect(Date.now() - started).to.be.below(5000);
     });
 
-    it('a 40-level DAG over a shared under leaf finishes fast', async () => {
+    it('a 40-level DAG over a shared under leaf finishes fast @timing', async () => {
       const scopes: ResourceRef[] = Array.from({ length: 2000 }, (_, i) => ({ type: 'org', id: `o${i + 10}` }));
       const ancestors: ResourceRef[] = [REF, ...Array.from({ length: 500 }, (_, i) => ({ type: 'folder', id: `f${i}` })), GLOBAL];
       const e = env({ ancestors: () => Promise.resolve(ancestors) });
@@ -618,7 +618,7 @@ describe('engine/evaluate', () => {
       expect(Date.now() - started).to.be.below(5000);
     });
 
-    it('under looks scopes up in an index of the ancestors instead of comparing every pair', async () => {
+    it('under looks scopes up in an index of the ancestors instead of comparing every pair @timing', async () => {
       const scopes: ResourceRef[] = Array.from({ length: 5000 }, (_, i) => ({ type: 'org', id: `o${i + 10}` }));
       scopes.push({ type: 'folder', id: 'f4999' });
       const ancestors: ResourceRef[] = [REF, ...Array.from({ length: 5000 }, (_, i) => ({ type: 'folder', id: `f${i}` })), GLOBAL];
@@ -664,7 +664,7 @@ describe('engine/evaluate', () => {
       expect([holds, matches]).to.deep.equal([1, 1]);
     });
 
-    it('a long numeric-looking attribute against a long number list is parsed once', async () => {
+    it('a long numeric-looking attribute against a long number list is parsed once @timing', async () => {
       const digits = '1'.repeat(20000);
       const list = Array.from({ length: 50000 }, (_, i) => i);
       const started = Date.now();

@@ -108,7 +108,7 @@ describe('conditions: built-in functions', () => {
       expect(() => f.checkArgs({ cidrs: ['2001:db8::/32', '::ffff:10.0.0.0/104', '192.168.1.0/24', '10.0.0.7'] }, 'w')).not.to.throw();
     });
 
-    it('reads the host bits of an embedded IPv4 suffix, and stays fast on long junk', () => {
+    it('reads the host bits of an embedded IPv4 suffix, and stays fast on long junk @timing', () => {
       expect(() => f.checkArgs({ cidrs: ['::10.0.0.0/104', '1:2:3:4:5:6:10.0.0.0/112', '64:ff9b::192.0.2.0/120'] }, 'w')).not.to.throw();
       for (const c of ['::10.0.0.1/104', '1:2:3:4:5:6:10.0.1.0/112', '64:ff9b::192.0.2.1/120']) {
         expect(() => f.checkArgs({ cidrs: [c] }, 'w'), c).to.throw(AuthzConfigError, /no host bits/);

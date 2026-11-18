@@ -60,7 +60,7 @@ describe('engine refs: collectRefs', () => {
     expect(Object.isFrozen(collectRefs(eq('a', ref('actor.id'))))).to.equal(true);
   });
 
-  it('walks a depth-30 DAG fast', () => {
+  it('walks a depth-30 DAG fast @timing', () => {
     const started = Date.now();
     expect(collectRefs(dag(eq('x', ref('actor.id'))))).to.deep.equal(['actor.id']);
     expect(Date.now() - started).to.be.lessThan(5000);
@@ -294,7 +294,7 @@ describe('engine refs: bindEngineRefs', () => {
     expect(() => bindEngineRefs({ op: 'not' } as unknown as ResourceFilter, values)).to.throw();
   });
 
-  it('binds a depth-30 DAG fast, with both polarities of one shared node', () => {
+  it('binds a depth-30 DAG fast, with both polarities of one shared node @timing', () => {
     const started = Date.now();
     const out = bindEngineRefs(dag(eq('x', ref('missing'))), values);
     expect(Date.now() - started).to.be.lessThan(10000);

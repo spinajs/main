@@ -1089,7 +1089,7 @@ describe('Authorizer: bounded work and termination', () => {
     return out;
   };
 
-  it('a vote whose residual is a contract-built DAG of depth 30 is indeterminate, fast', async () => {
+  it('a vote whose residual is a contract-built DAG of depth 30 is indeterminate, fast @timing', async () => {
     const big = dagFilter(30);
     for (const vote of [permit(big), deny(big), { denies: [{ when: big, reason: { code: 'x' } }] }]) {
       const d = await within(500, () => make({ models: [new StaticModel('dag', { vote })] }).check({ principal: alice, permission: 'doc:read' }));
@@ -1107,7 +1107,7 @@ describe('Authorizer: bounded work and termination', () => {
     expect(d.trace!.votes[0].error).to.match(/nodes/);
   });
 
-  it('a custom combinator returning a DAG denies with model_error, fast', async () => {
+  it('a custom combinator returning a DAG denies with model_error, fast @timing', async () => {
     class Dag extends Combinator {
       readonly name = 'dag';
       combine() {
@@ -1120,7 +1120,7 @@ describe('Authorizer: bounded work and termination', () => {
     expect(d.reason).to.deep.equal({ code: 'model_error' });
   });
 
-  it('a reason or native args built as a shared-object DAG make the vote indeterminate, fast', async () => {
+  it('a reason or native args built as a shared-object DAG make the vote indeterminate, fast @timing', async () => {
     const big = dagData(30);
     const viaReason = await within(500, () => make({ models: [new StaticModel('r', { vote: { reason: { code: 'x', big } } })] }).check({ principal: alice, permission: 'doc:read' }));
     expect(viaReason.reason).to.deep.equal({ code: 'model_error', model: 'r' });
@@ -1129,7 +1129,7 @@ describe('Authorizer: bounded work and termination', () => {
     expect(viaArgs.reason).to.deep.equal({ code: 'model_error', model: 'n' });
   });
 
-  it('ctx.trace with DAG data keeps the step without data', async () => {
+  it('ctx.trace with DAG data keeps the step without data @timing', async () => {
     const m = new StaticModel('m', {
       vote: (_r, ctx) => {
         ctx.trace({ step: 'big', note: 'shared data', data: dagData(30) });
@@ -1140,7 +1140,7 @@ describe('Authorizer: bounded work and termination', () => {
     expect(d.trace!.steps.filter((s) => s.by === 'm')).to.deep.equal([{ by: 'm', step: 'big', note: 'shared data' }]);
   });
 
-  it('scope attributes built as a DAG make the asking model indeterminate', async () => {
+  it('scope attributes built as a DAG make the asking model indeterminate @timing', async () => {
     const resolver = new FakeScopeResolver(['org'], {});
     resolver.attributes = async () => dagData(30);
     const asks = new StaticModel('asks', {
@@ -1173,13 +1173,13 @@ describe('Authorizer: bounded work and termination', () => {
 
     // The re-review probe: one args array referenced by many native nodes.
     for (const n of [500, 2000, 9999]) {
-      it(`native args shared by ${n} nodes ⇒ indeterminate, fast`, () => {
+      it(`native args shared by ${n} nodes ⇒ indeterminate, fast @timing`, () => {
         const node = { op: 'native:x', args: shared };
         const v = timed(500, () => sanitizeVote({ permitWhen: { op: 'or', args: Array.from({ length: n }, () => node) }, denyWhen: FALSE, cacheable: true }, 'm', caps));
         expect(v.error).to.match(/values/);
       });
 
-      it(`a reason shared by ${n} denies ⇒ indeterminate, fast`, () => {
+      it(`a reason shared by ${n} denies ⇒ indeterminate, fast @timing`, () => {
         const reason = { code: 'x', data: shared };
         const v = timed(500, () => sanitizeVote({ permitWhen: FALSE, denyWhen: TRUE, denies: Array.from({ length: n }, () => ({ when: TRUE, reason })), cacheable: true }, 'm', caps));
         expect(v.error).to.match(/values/);
@@ -1200,7 +1200,7 @@ describe('Authorizer: bounded work and termination', () => {
       expect(v.error).to.equal(undefined);
     });
 
-    it('a check whose vote shares native args across many nodes denies fast', async () => {
+    it('a check whose vote shares native args across many nodes denies fast @timing', async () => {
       const node: ResourceFilter = { op: 'native:x', args: shared };
       const m = new StaticModel('m', { capabilities: { residuals: ['native:x'] }, vote: permit({ op: 'or', args: Array.from({ length: 9999 }, () => node) }) });
       const t0 = Date.now();
@@ -1209,7 +1209,7 @@ describe('Authorizer: bounded work and termination', () => {
       expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     });
 
-    it('ctx.trace charges one budget per model per check', async () => {
+    it('ctx.trace charges one budget per model per check @timing', async () => {
       const m = new StaticModel('m', {
         vote: (_r, ctx) => {
           for (let i = 0; i < 10_000; i++) ctx.trace({ step: 's', note: 'n', data: shared });
@@ -1226,7 +1226,7 @@ describe('Authorizer: bounded work and termination', () => {
     });
   });
 
-  it('preload terminates on self or cyclic delegation through system/unattended principals and preloads nothing a check would throw for', async () => {
+  it('preload terminates on self or cyclic delegation through system/unattended principals and preloads nothing a check would throw for @timing', async () => {
     type Mutable = { -readonly [K in keyof Principal]: Principal[K] };
     const m = new StaticModel('m');
     const self: Mutable = principal('system', 'fake');
@@ -1297,7 +1297,7 @@ describe('Authorizer: bounded work and termination', () => {
     expect(d.principal).to.deep.equal({ type: 'user', id: 'x' });
   });
 
-  it('subject evaluation is bounded by modelTimeoutMs and denies on timeout', async () => {
+  it('subject evaluation is bounded by modelTimeoutMs and denies on timeout @timing', async () => {
     const row = new FakeRow('doc', 'd1');
     const adapter = new FakeAdapter(['doc'], { rows: [row] });
     const hangs = new FakeRelation('doc', 'owner', () => new Promise<boolean>(() => undefined));

@@ -352,7 +352,7 @@ describe('field glob contracts', () => {
       );
     });
 
-    it('handles lists whose naive product is exponential', function () {
+    it('handles lists whose naive product is exponential @timing', function () {
       this.timeout(30_000);
       // 'k' at exactly one of 14 positions: 2^14 sets of matching globs
       const depth = 14;
@@ -426,7 +426,7 @@ describe('field glob contracts', () => {
 
       const extra = ['!*.*.x0', 'x1.*'];
       for (const [name, globs] of shapes) {
-        it(name, () => {
+        it(`${name} @timing`, () => {
           const paths = probes([globs, extra]);
           outcome(
             'normalize',
@@ -455,7 +455,7 @@ describe('field glob contracts', () => {
       });
     });
 
-    it('handles tens of realistic globs quickly', () => {
+    it('handles tens of realistic globs quickly @timing', () => {
       const fields = ['Id', 'Name', 'Email', 'Password', 'Profile', 'Settings', 'Org', 'Projects', 'Tokens', 'Meta'];
       const a = ['*', '!Password', '!*.secret', '!Tokens.*', 'Tokens.Name', ...fields.slice(0, 6).map((f) => `${f}.public.*`)];
       const b = [...fields.map((f) => `${f}.*`), '!Meta.internal.*', 'Meta.internal.version', '!*.*.hash', 'Org.Billing.Plan', '!Org.Billing.*'];
