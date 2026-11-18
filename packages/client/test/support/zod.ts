@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Manifest, ParamEntry, RouteEntry } from '@spinajs/manifest';
@@ -31,21 +31,47 @@ export function manifestWith(base: Manifest, named: Record<string, unknown>, ext
   };
 }
 
-const cacheDir = fileURLToPath(new URL('../../node_modules/.zod-test/', import.meta.url));
-let loaded = 0;
+// Under node_modules, so that the module resolution of the generated files finds zod and `@spinajs/client`.
+const cacheRoot = fileURLToPath(new URL('../../node_modules/.zod-test/', import.meta.url));
+
+export interface ZodLoader {
+  loadZod: (contents: string) => Promise<Record<string, unknown>>;
+  clearLoaded: () => void;
+}
+
+/**
+ * A loader with a folder of its own. Mocha processes of the package run side by side (the full suite, a fuzz seed, a diff
+ * script), and a folder or a file name they share lets one delete or overwrite what another is about to import.
+ */
+export function createZodLoader(): ZodLoader {
+  let dir: string | undefined;
+  let loaded = 0;
+  const clearLoaded = (): void => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  };
+  process.once('exit', clearLoaded);
+  return {
+    clearLoaded,
+    async loadZod(contents) {
+      if (!dir) {
+        mkdirSync(cacheRoot, { recursive: true });
+        dir = mkdtempSync(join(cacheRoot, `${process.pid}-`));
+      }
+      const file = join(dir, `client${loaded++}.zod.mjs`);
+      const output = ts.transpileModule(contents, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+      writeFileSync(file, process.env.ZOD_ROOT ? output.replace(/from '(zod(?:\/mini)?)'/, (_m, id: string) => `from '${pathToFileURL(join(zodRoot, id === 'zod' ? 'index.js' : 'mini/index.js')).href}'`) : output);
+      return (await import(pathToFileURL(file).href)) as Record<string, unknown>;
+    },
+  };
+}
+
+const shared = createZodLoader();
 
 /** Imports generated `client.zod.ts` source: transpiled, from a folder whose module resolution finds zod and `@spinajs/client`. */
-export async function loadZod(contents: string): Promise<Record<string, unknown>> {
-  mkdirSync(cacheDir, { recursive: true });
-  const file = join(cacheDir, `client${loaded++}.zod.mjs`);
-  const output = ts.transpileModule(contents, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-  writeFileSync(file, process.env.ZOD_ROOT ? output.replace(/from '(zod(?:\/mini)?)'/, (_m, id: string) => `from '${pathToFileURL(join(zodRoot, id === 'zod' ? 'index.js' : 'mini/index.js')).href}'`) : output);
-  return (await import(pathToFileURL(file).href)) as Record<string, unknown>;
-}
+export const loadZod = shared.loadZod;
 
-export function clearLoaded(): void {
-  rmSync(cacheDir, { recursive: true, force: true });
-}
+export const clearLoaded = shared.clearLoaded;
 
 export interface SafeParse {
   safeParse(value: unknown): { success: boolean; data?: unknown };

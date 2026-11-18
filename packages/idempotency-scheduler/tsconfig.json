@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "references": [
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../idempotency/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../scheduler/tsconfig.json" }
+  ]
+}

@@ -9,6 +9,7 @@ import { currentContext, type SimContext } from './context.js';
 import { SIM_CONNECTION, SimDatabase } from './database.js';
 import { SimFaults, type FaultRuntime } from './faults.js';
 import { SimFailureError } from './harness.js';
+import { Profiler } from './profile.js';
 import { SimRandom } from './random.js';
 import { SimReplicas } from './replicas.js';
 import type { ResolvedSimulationOptions } from './simulate.js';
@@ -54,7 +55,7 @@ export interface MutableSimEnv extends SimEnv {
   onCrash?: (ctx: SimContext) => void;
 }
 
-export function createEnv(o: ResolvedSimulationOptions): MutableSimEnv {
+export function createEnv(o: ResolvedSimulationOptions, profiler: Profiler = new Profiler(false)): MutableSimEnv {
   const clock = new SimClock();
   const random = new SimRandom(o.seed);
   // its own stream: editing the rule set must not reshuffle the harness's actor and pause choices
@@ -91,33 +92,39 @@ export function createEnv(o: ResolvedSimulationOptions): MutableSimEnv {
       const ctx = currentContext();
       return ctx && !env.quiescing ? runtime.park(ctx, ms) : Promise.resolve();
     },
-    settle: () =>
-      database.idle().catch((error: unknown) => {
-        throw new SimFailureError('stuck:database', error);
-      }),
-    boot: async (options) => {
-      if (app) throw new Error('SimEnv.boot: this seed is already booted');
-      const aliases = options.aliases ?? [];
-      database.prepare(options.template, aliases);
-      app = await createTestApp({
-        name: `simulation ${o.suite} seed ${o.seed}`,
-        bootTimeout: 0,
-        config: { ...options.config, logger: SILENT_LOGGER, db: database.config(aliases) },
-        register: (container) => {
-          container.register(() => clock).as(Clock);
-          container.register(() => new SimDbTimeSource(clock)).as(DbTimeSource);
-          container.register(() => faults).as(FaultInjector);
-          options.register?.(container);
-        },
-        resolve: [OrmMigrator, ...(options.resolve ?? [])],
-      });
-      const orm = await app.resolve(Orm);
-      const driver = orm.Connections.get(SIM_CONNECTION);
-      if (!driver) throw new Error(`SimEnv.boot: the ${SIM_CONNECTION} connection did not open`);
-      database.attach(driver);
-      await database.saveTemplate();
-      return app;
+    settle: () => {
+      profiler.count('settleCalls');
+      return profiler.time('settleMs', () =>
+        database.idle().catch((error: unknown) => {
+          throw new SimFailureError('stuck:database', error);
+        }),
+      );
     },
+    boot: (options) =>
+      profiler.time('bootMs', async () => {
+        if (app) throw new Error('SimEnv.boot: this seed is already booted');
+        const aliases = options.aliases ?? [];
+        database.prepare(options.template, aliases);
+        app = await createTestApp({
+          name: `simulation ${o.suite} seed ${o.seed}`,
+          bootTimeout: 0,
+          config: { ...options.config, logger: SILENT_LOGGER, db: database.config(aliases) },
+          register: (container) => {
+            container.register(() => clock).as(Clock);
+            container.register(() => new SimDbTimeSource(clock)).as(DbTimeSource);
+            container.register(() => faults).as(FaultInjector);
+            options.register?.(container);
+          },
+          resolve: [OrmMigrator, ...(options.resolve ?? [])],
+        });
+        const orm = await app.resolve(Orm);
+        const driver = orm.Connections.get(SIM_CONNECTION);
+        if (!driver) throw new Error(`SimEnv.boot: the ${SIM_CONNECTION} connection did not open`);
+        database.attach(driver);
+        await database.saveTemplate();
+        profiler.bootedFrom(database.migratedFrom);
+        return app;
+      }),
     shutdown: async (keep) => {
       try {
         await app?.dispose();

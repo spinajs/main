@@ -1,10 +1,10 @@
 import { Autoinject, DI, Injectable, Singleton, type Constructor } from '@spinajs/di';
 import { DbClock } from '@spinajs/durable';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { UniqueViolation } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
-import { isTerminal, type SerializedError, type StartOptions, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
-import { WorkflowIdConflict, WorkflowNotFound, WorkflowStartConflict } from './errors.js';
+import { isTerminal, type SerializedError, type StartOptions, type WorkflowInstanceDetail, type WorkflowInstanceView, type WorkflowStatus } from './contract.js';
+import { WorkflowIdConflict, WorkflowNotFound, WorkflowNotRetryable, WorkflowStartConflict } from './errors.js';
 import { missingVersions } from './health.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
 import { safeStringify } from './json.js';
@@ -41,6 +41,8 @@ export abstract class WorkflowService {
   /** failed → running from the failed step; compensation-failed → compensating from the failed compensation, keeping the failure it undoes. */
   public abstract retry(instanceId: string): Promise<void>;
   public abstract get(instanceId: string): Promise<WorkflowInstanceView | undefined>;
+  /** The instance with its journal rows and its pending events. */
+  public abstract details(instanceId: string): Promise<WorkflowInstanceDetail | undefined>;
   public abstract list(filter: ListFilter): Promise<WorkflowInstanceView[]>;
   public abstract health(): Promise<{ missingVersions: MissingVersion[] }>;
 }
@@ -154,6 +156,18 @@ export class DefaultWorkflowService extends WorkflowService {
     return row ? toView(row) : undefined;
   }
 
+  public async details(instanceId: string): Promise<WorkflowInstanceDetail | undefined> {
+    const view = await this.get(instanceId);
+    if (!view) return undefined;
+    const steps = await WorkflowStepModel.where('InstanceId', instanceId).onPrimary().orderBy('Seq');
+    const events = await WorkflowEventModel.where({ InstanceId: instanceId, State: 'pending' }).onPrimary().orderBy('Id');
+    return {
+      ...view,
+      steps: steps.map((s) => ({ seq: s.Seq, key: s.Key, kind: s.Kind, status: s.Status, attempt: s.Attempt, error: s.Error ?? null, startedAt: Number(s.StartedAt), finishedAt: s.FinishedAt === null ? null : Number(s.FinishedAt) })),
+      pendingEvents: events.map((e) => ({ id: String(e.Id), name: e.Name, principal: e.Principal ?? null, receivedAt: Number(e.ReceivedAt) })),
+    };
+  }
+
   /** D7: buffered until a wait consumes it; the conditional flip wakes an instance that waits for exactly this name. */
   public async signal(instanceId: string, name: string, payload: unknown, opts: SignalOptions = {}): Promise<{ accepted: boolean }> {
     checkSignal(name, opts);
@@ -206,8 +220,8 @@ export class DefaultWorkflowService extends WorkflowService {
   public async retry(instanceId: string): Promise<void> {
     const row = await WorkflowInstanceModel.where('Id', instanceId).onPrimary().first();
     if (!row) throw new WorkflowNotFound(instanceId);
-    if (row.Status !== 'failed') throw new InvalidOperation(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
-    if (row.Reason === 'timeout') throw new InvalidOperation(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
+    if (row.Status !== 'failed') throw new WorkflowNotRetryable(`workflow instance '${instanceId}' is ${row.Status}; only a failed instance can be retried`);
+    if (row.Reason === 'timeout') throw new WorkflowNotRetryable(`workflow instance '${instanceId}' passed its deadline; a retry would fail it again at once`);
     const now = await this.now();
     const driver = await workflowDriver();
     const compensation = row.Reason === 'compensation-failed';
@@ -218,7 +232,7 @@ export class DefaultWorkflowService extends WorkflowService {
       : { Status: 'running', Reason: null, Error: null, CancelRequested: false };
     await driver.transaction(async () => {
       const r = await WorkflowInstanceModel.update({ ...patch, WakeAt: null, WaitingFor: null, FinishedAt: null, UpdatedAt: now }).where({ Id: instanceId, Status: 'failed' });
-      if (r.RowsAffected !== 1) throw new InvalidOperation(`workflow instance '${instanceId}' changed while it was being retried`);
+      if (r.RowsAffected !== 1) throw new WorkflowNotRetryable(`workflow instance '${instanceId}' changed while it was being retried`);
       const rows = await WorkflowStepModel.where('InstanceId', instanceId);
       // a retried pass leaves the step failure it undoes alone
       for (const step of compensation ? rows.filter((s) => s.Kind === 'compensate' && s.Status === 'failed') : unobservedFailures(rows)) {

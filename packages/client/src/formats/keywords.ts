@@ -44,13 +44,18 @@ export function ajvEqual(a: unknown, b: unknown): boolean {
   return jsonEqual(a, b);
 }
 
-/** `uniqueItems: true`, as the server checks it with `jsonEqual`. A repeated '__proto__' string is a duplicate. */
-export function ajvUniqueItems(items: readonly unknown[]): boolean {
+/**
+ * `uniqueItems: true`, as the server checks it with `jsonEqual`. A repeated '__proto__' string is a duplicate.
+ * `types` are the primitive types of the `items` schema: like Ajv, only the items of those types are compared, so a
+ * non-finite number a coercion left in the array is skipped.
+ */
+export function ajvUniqueItems(items: readonly unknown[], types?: readonly string[]): boolean {
   if (items.length <= 1) return true;
   // Primitives are equal exactly when SameValueZero says so, which is what a Set compares by.
   const primitives = new Set<unknown>();
   const objects: unknown[] = [];
   for (const item of items) {
+    if (types && !types.some((t) => isOfType(t, item))) continue;
     if (item !== null && typeof item === 'object') objects.push(item);
     else if (primitives.has(item)) return false;
     else primitives.add(item);
@@ -61,6 +66,19 @@ export function ajvUniqueItems(items: readonly unknown[]): boolean {
     }
   }
   return true;
+}
+
+function isOfType(type: string, item: unknown): boolean {
+  switch (type) {
+    case 'number':
+      return typeof item === 'number' && Number.isFinite(item);
+    case 'integer':
+      return typeof item === 'number' && Number.isInteger(item);
+    case 'null':
+      return item === null;
+    default:
+      return typeof item === type;
+  }
 }
 
 /**
@@ -92,4 +110,31 @@ function valuesUnique(items: readonly unknown[], key: string): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Whether no number in `value` is NaN or infinite, as the server refuses one wherever it sits. Built for the
+ * intersection of two schemas that both pass a NaN through: zod cannot merge two NaN and throws.
+ */
+export function ajvFinite(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  const seen = new Set<object>();
+  while (pending.length !== 0) {
+    const item = pending.pop();
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) return false;
+    } else if (typeof item === 'object' && item !== null && !seen.has(item)) {
+      seen.add(item);
+      for (const child of Object.values(item)) pending.push(child);
+    }
+  }
+  return true;
+}
+
+/**
+ * The check of an own `__proto__` key against the `additionalProperties` schema: Ajv counts the key, and zod's object
+ * parse drops it before the catchall sees it.
+ */
+export function ownProtoAccepted(accepts: (value: unknown) => boolean): (value: unknown) => boolean {
+  return (value) => typeof value !== 'object' || value === null || Array.isArray(value) || !Object.hasOwn(value, '__proto__') || accepts(Object.getOwnPropertyDescriptor(value, '__proto__')?.value);
 }

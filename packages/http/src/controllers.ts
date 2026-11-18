@@ -178,8 +178,8 @@ export class Controllers extends AsyncService {
             throw new RouteRegistrationException(`Controller ${controller.name} does not have member ${String(name)} for route ${route.Path}`);
           }
 
-          // No source to read ( a DI-registered controller ), or a route inherited from a base class declared in
-          // another source file: the parsed source of THIS class has no such member. Read the runtime function.
+          // No source to read ( a DI-registered controller ), or a route inherited from a base class: the parsed entry
+          // holds only THIS class's own members. Read the runtime function.
           member = parseFnParamNames(action);
         }
 
