@@ -3,7 +3,9 @@ import { Log, Logger } from '@spinajs/log-common';
 import { PermanentJobFailure, QueueHeaders, QueueMessageHook, jobOptions } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { TenantScope } from './contracts.js';
+import { TenantUnavailable } from './errors.js';
 import { allTenantsScope, establishTenantScope, isTenantId, tenantScope, tenantScopeOf } from './scope.js';
+import { admitTenant } from './services.js';
 
 const ALL = '*:';
 
@@ -59,6 +61,25 @@ export class TenantQueueHook extends QueueMessageHook {
     if (tenancy === 'required' && scope?.kind !== 'tenant') {
       throw new PermanentJobFailure('tenant_required', `${message.Name} needs a tenant and the message carries ${scope ? 'the cross-tenant scope' : 'none'}`);
     }
+    if (scope?.kind === 'tenant') await this.admit(message, scope.tenant.id);
     return establishTenantScope(scope, next);
+  }
+
+  // The header says which tenant, the registry whether it may run now: the tenant can be suspended or gone since the emit.
+  private async admit(message: IQueueMessage, tenant: string): Promise<void> {
+    try {
+      await admitTenant(tenant);
+    } catch (error) {
+      if (!(error instanceof TenantUnavailable)) {
+        // Retried like any failure: the registry may answer next time, and a retry asks it again.
+        this.Log.error({ error, messageName: message.Name, tenant }, 'Message ${messageName} refused: the tenant registry failed to look up tenant ${tenant}');
+        throw error;
+      }
+      this.Log.warn({ messageName: message.Name, tenant, reason: error.reason }, 'Message ${messageName} refused: tenant ${tenant} is not admitted (${reason})');
+      const failure = new PermanentJobFailure('tenant_unavailable', `${message.Name} cannot run in tenant "${tenant}": ${error.message}`);
+      // Non-enumerable, as Exception defines it: a spread or a serialiser of the failure does not copy the registry's error.
+      Object.defineProperty(failure, 'cause', { value: error });
+      throw failure;
+    }
   }
 }
