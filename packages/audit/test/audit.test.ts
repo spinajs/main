@@ -199,7 +199,7 @@ describe('audit().record', function () {
     expect(MemoryAuditStore.events()).to.have.length(0);
   });
 
-  it('flush() on an empty buffer settles on microtasks alone: it starts no timer', async () => {
+  it('flush() on an empty buffer settles on microtasks alone', async () => {
     let settled = false;
     void audit()
       .flush()
