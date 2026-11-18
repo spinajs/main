@@ -48,7 +48,7 @@ For a shipping trail, `source` selects the connection whose buffer held the even
 
 ## `Model.audit()` and `row.audit()`
 
-With `@spinajs/audit-orm` imported, a model and a row read what was recorded about them. The subject type is the model's table name and the subject id the primary key: a string as it is, a number or bigint in decimal, a `Buffer` or typed array as lowercase hex, a composite key as its parts joined with `:` (`%` and `:` in a part escaped as `%25` and `%3A`). A producer that records events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` so these reads find them.
+With `@spinajs/audit-orm` imported, a model and a row read what was recorded about them. The subject type is the model's table name and the subject id the primary key: a string as it is, a number or bigint in decimal, a `Buffer` or typed array as lowercase hex, a composite key as its parts joined with `:` (`%` and `:` in a part escaped as `%25` and `%3A`). A producer that records events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` so these reads find them, passing the key as the loaded model holds it (after its converters), not the raw column value: a binary key with a converter gives hex from the raw column but the converted text from the model.
 
 ```ts sample
 import '@spinajs/audit-orm';
