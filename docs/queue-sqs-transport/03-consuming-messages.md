@@ -78,7 +78,7 @@ In the default `'redrive'` mode:
 | Failure | `'redrive'` (default) | `'transport'` |
 | --- | --- | --- |
 | A job fails | Left for the visibility timeout; the redrive policy dead-letters it after `maxReceiveCount` receives, without headers | Decided by `decideDelivery()`: retried with the route's `backoff` until `maxRetries`, then dead-lettered with `x-error`, `x-retry-count` and `x-original-destination` |
-| A job throws `NonRetryableError` or `PermanentJobFailure` | Left; the redelivered copy finds its row `dead` and is deleted without running | Dead-lettered at once |
+| A job throws `NonRetryableError` or `PermanentJobFailure` | Left; with `queue.deduplicate` (the default) the redelivered copy finds its row `dead` and is deleted without running | Dead-lettered at once |
 | An event fails | Left, as a job | Deleted (`onEventFailure: 'drop'`, the default), or retried and dead-lettered as a job under `onEventFailure: 'retry'` |
 | The body is not a JSON object | Left, as a job | Dead-lettered as it is; the dead letter keeps the received `x-spinajs-message-id` attribute |
 | `RedeliverLater` (an in-flight or failed dedup claim) | Left; its `delayMs` is not used, the visibility timeout is | Redelivered after `delayMs`, with `x-retry-count` unchanged |
@@ -92,6 +92,8 @@ On a standard queue in `'transport'` mode:
 
 A dead-letter queue of a standard queue must be standard, and of a FIFO queue FIFO, as AWS requires for a redrive.
 
+A dead letter keeps its `x-retry-count`. AWS's "start DLQ redrive" moves it back into the source queue as it is, so on a standard queue it gets one attempt before it is dead-lettered again. To give it every retry again, read it and `emit()` it: `emit()` leaves out `x-retry-count`, `x-error` and `x-original-destination`, so the new message starts at attempt 0.
+
 In `'redrive'` mode keep `maxReceiveCount` at 2 or more: with 1, the first failure, and every `RedeliverLater` of event deduplication, moves the message to the dead-letter queue.
 
 ### FIFO queues in transport mode
@@ -99,7 +101,7 @@ In `'redrive'` mode keep `maxReceiveCount` at 2 or more: with 1, the first failu
 A FIFO queue refuses a per-message delay and drops a re-send whose deduplication id it saw in the last 5 minutes, so a retry keeps the message:
 
 - **Attempts come from the receive count.** The attempt is `ApproximateReceiveCount - 1`; the handler sees it as `x-retry-count` in `Headers`, as on the other transports.
-- **A retry extends the visibility:** `ChangeMessageVisibility` with `min(ceil(delayMs / 1000), 39600)` seconds. The order within the message's group holds. The cap is 11 hours: SQS allows 12 hours of visibility counted from the receive, and the handler has used some of it. A retry carries no `x-error`; only the dead letter does.
+- **A retry extends the visibility:** `ChangeMessageVisibility` with `min(ceil(delayMs / 1000), 39600)` seconds. With the default `maxMessages: 1` the order within the message's group holds; a larger batch can hold a later message of the same group, which is handled while the failed one waits. The cap is 11 hours: SQS allows 12 hours of visibility counted from the receive, and the handler has used some of it. A retry carries no `x-error`; only the dead letter does.
 - **A dead letter** goes to the dead-letter queue in the `MessageGroupId` the message was received in, with `MessageDeduplicationId = <MessageId>:dead` (`<SQS message id>:dead` for an unparseable body), then the original is deleted. No `groupBy` is needed.
 - **A `RedeliverLater` and a crash each use one attempt.** Both raise the receive count, where the decision table says "attempt unchanged". Both are rare on FIFO: SQS deduplicates sends and holds a group while one of its messages is in flight.
 

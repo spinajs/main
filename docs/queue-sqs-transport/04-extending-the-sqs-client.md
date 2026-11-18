@@ -101,6 +101,9 @@ Protected state a subclass can use:
 | `Routing` | `QueueClient` | `queue.routing`, read live |
 | `RetryMode` | `SqsQueueClient` | `'redrive'` or `'transport'`, set in `resolve()` from `options.retryMode` |
 | `FifoReceiveLimits` | `SqsQueueClient` | `Map<url, maxReceiveCount>` of the FIFO queues whose redrive policy `checkFifoRedrive()` read |
+| `WarnedRetryCaps` | `SqsQueueClient` | `<url> <message name>` keys `withinReceiveLimit()` already logged its error for |
+
+`readRetryMode()` reads and checks `options.retryMode` for `resolve()`; override it to take the mode from elsewhere.
 
 #### Failure handling in transport mode
 

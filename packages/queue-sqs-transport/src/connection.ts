@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, readQueueHeaders, decideDelivery, isCrash, resolveDeliveryPolicy, retryCountOf, unparseableMessage, UnparseableMessageError, type DeliveryDecision, type DeliveryPolicy } from '@spinajs/queue';
+import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, readQueueHeaders, withoutTransportHeaders, decideDelivery, isCrash, resolveDeliveryPolicy, retryCountOf, unparseableMessage, UnparseableMessageError, type DeliveryDecision, type DeliveryPolicy } from '@spinajs/queue';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand, GetQueueAttributesCommand, type Message, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
@@ -21,6 +21,7 @@ function maxReceiveCountOf(redrivePolicy: string): number | undefined {
     return undefined;
   }
 }
+
 // MessageGroupId and MessageDeduplicationId: 1 to 128 ASCII letters, digits or punctuation
 const SQS_ID = /^[\x21-\x7E]{1,128}$/;
 
@@ -174,8 +175,10 @@ export class SqsQueueClient extends QueueClient {
   public async emit(message: IQueueMessage): Promise<void> {
     // for SQS a channel is a queue URL; Name, Type and JobId ride the JSON body
     const urls = this.getChannelForMessage(message);
+    // as on AMQP and STOMP: a received message emitted again (forwarded, or replayed from a dead letter) starts at attempt 0
+    const outgoing = message.Headers ? { ...message, Headers: withoutTransportHeaders(message.Headers) } : message;
     // built first: a FIFO URL without a group id throws before anything is sent
-    const inputs = urls.map((url) => this.sendParams(url, message, { delayMs: message.ScheduleDelay }));
+    const inputs = urls.map((url) => this.sendParams(url, outgoing, { delayMs: message.ScheduleDelay }));
 
     await Promise.all(
       inputs.map((input) => {
@@ -530,7 +533,12 @@ export class SqsQueueClient extends QueueClient {
     if (!this.isFifo(desc.url) || this.RetryMode !== 'transport') return retryCountOf(message.Headers);
 
     const attempt = this.receiveCountOf(m) - 1;
-    if (attempt > 0) message.Headers = { ...message.Headers, [QueueHeaders.RetryCount]: String(attempt) };
+    if (attempt > 0) {
+      message.Headers = { ...message.Headers, [QueueHeaders.RetryCount]: String(attempt) };
+    } else if (message.Headers?.[QueueHeaders.RetryCount] !== undefined) {
+      // a first receive carries no count, as on the other transports, whatever the producer wrote
+      message.Headers = _.omit(message.Headers, QueueHeaders.RetryCount);
+    }
     return attempt;
   }
 

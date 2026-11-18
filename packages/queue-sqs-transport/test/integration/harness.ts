@@ -64,14 +64,30 @@ async function drain(url: string): Promise<{ message: IQueueMessage; headers: Re
 
 /** One harness per case, on fresh queues: a work queue, a queue that stands for the topic channel, and a dead-letter queue. */
 export async function sqsHarness(o: { fifo: boolean }): Promise<TransportHarness> {
+  const created: string[] = [];
+  try {
+    return await setUp(o, created);
+  } catch (error) {
+    // the runner disposes only a harness it received, so a setup that fails partway cleans up here
+    for (const url of created) await raw.send(new DeleteQueueCommand({ QueueUrl: url })).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function setUp(o: { fifo: boolean }, created: string[]): Promise<TransportHarness> {
   const id = randomUUID();
   const suffix = o.fifo ? '.fifo' : '';
   const base: Record<string, string> = o.fifo ? { FifoQueue: 'true', ContentBasedDeduplication: 'false' } : {};
-  const dlq = await createQueue(`conf-${id}-dlq${suffix}`, base);
+  const create = async (name: string, attributes: Record<string, string>) => {
+    const url = await createQueue(`conf-${id}-${name}${suffix}`, attributes);
+    created.push(url);
+    return url;
+  };
+  const dlq = await create('dlq', base);
   // a FIFO work queue gets an AWS redrive policy, so the transport's maxReceiveCount check meets a real one
   const work = o.fifo ? { ...base, RedrivePolicy: JSON.stringify({ deadLetterTargetArn: await arnOf(dlq), maxReceiveCount: 10 }) } : base;
-  const queue = await createQueue(`conf-${id}-jobs${suffix}`, work);
-  const topic = await createQueue(`conf-${id}-events${suffix}`, work);
+  const queue = await create('jobs', work);
+  const topic = await create('events', work);
 
   DI.clearCache();
   // every conformance message carries a MessageId, so on FIFO each one is its own group

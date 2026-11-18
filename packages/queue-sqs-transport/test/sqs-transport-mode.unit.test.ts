@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Job, QueueJob, QueueHeaders, QueueMessageType, RedeliverLater, type IMessageRoutingOption, type IQueueJob, type IQueueMessage } from '@spinajs/queue';
+import { readMessageAttributes } from '../src/index.js';
 import { DLQ, FIFO, FIFO_DLQ, RecordingSqsClient, recordingClient, STANDARD } from './support/recording-client.js';
 
 @Job()
@@ -108,6 +109,36 @@ describe('sqs transport: retryMode', () => {
     expect(c.visibility).to.deep.equal([{ url: FIFO, seconds: 30 }]);
     expect(c.sent).to.deep.equal([]);
     expect(c.deleted).to.deep.equal([]);
+  });
+
+  it('FIFO: hides an x-retry-count the producer sent from the handler on the first receive', async () => {
+    const c = await transport(FIFO);
+    const seen: (string | undefined)[] = [];
+    const stale = job({ Headers: { [QueueHeaders.RetryCount]: '5', [QueueHeaders.TraceParent]: 'tp' } });
+    await c.receive(FIFO, stale, {
+      attributes: { [QueueHeaders.RetryCount]: '5' },
+      system: { ApproximateReceiveCount: '1', MessageGroupId: 'c-7' },
+      handler: (m) => {
+        seen.push(m.Headers?.[QueueHeaders.RetryCount], m.Headers?.[QueueHeaders.TraceParent]);
+        return Promise.resolve();
+      },
+    });
+    expect(seen).to.deep.equal([undefined, 'tp']);
+  });
+
+  it('emit() leaves out the transport headers, so a received message emitted again starts at attempt 0', async () => {
+    const c = await transport(STANDARD, DLQ);
+    await c.emit(job({ Headers: { [QueueHeaders.RetryCount]: '2', [QueueHeaders.Error]: 'e', [QueueHeaders.OriginalDestination]: DLQ, [QueueHeaders.TraceParent]: 'tp' } }));
+
+    const [sent] = c.sent;
+    const body: unknown = JSON.parse(sent.MessageBody ?? '');
+    expect(body).to.have.deep.property('Headers', { [QueueHeaders.TraceParent]: 'tp' });
+    expect(Object.keys(sent.MessageAttributes ?? {})).to.deep.equal([QueueHeaders.MessageId, QueueHeaders.TraceParent]);
+
+    // RetryCount 2: received at attempt 0 the failure is a retry, at attempt 2 it would be a dead letter
+    await c.deliver(STANDARD, sent.MessageBody ?? '', { attributes: readMessageAttributes(sent.MessageAttributes), handler: fails(new Error('boom')) });
+    expect(c.sent.map((s) => s.QueueUrl)).to.deep.equal([STANDARD, STANDARD]);
+    expect(c.sent[1].MessageAttributes?.[QueueHeaders.RetryCount]?.StringValue).to.equal('1');
   });
 
   it('FIFO: caps the visibility of a retry at 11 hours', async () => {
