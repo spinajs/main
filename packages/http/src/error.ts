@@ -5,13 +5,30 @@ import { DI, Constructor } from '@spinajs/di';
 import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
-import { BadRequest } from '@spinajs/exceptions';
+import { BadRequest, Forbidden, ResourceNotFound } from '@spinajs/exceptions';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { redactUrl } from './util/redact-url.js';
+import { EntityTooLargeException, UnsupportedMediaTypeException } from './exceptions.js';
 
 const INTERNAL_ERROR_MESSAGE = 'Internal server error';
+const MALFORMED_PATH_MESSAGE = 'request path is not valid percent-encoding';
+
+// Resolved through the error map, so an app that remaps these exceptions answers refusals with its own response too.
+const REFUSAL_EXCEPTIONS = new Map<number, new (message: string) => Error>([
+    [400, BadRequest],
+    [403, Forbidden],
+    [404, ResourceNotFound],
+    [413, EntityTooLargeException],
+    [415, UnsupportedMediaTypeException],
+]);
+
+interface IRefusal {
+    status: number;
+    message: string;
+    errorType: string;
+}
 
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
@@ -65,6 +82,40 @@ function bodyFailureMessage(err: any, errorMap: Map<string, Constructor<HttpResp
 }
 
 /**
+ * The 4xx answer an error raised before routing carries, or null.
+ *
+ * Only Express's router (the `URIError` of a malformed path) and http-errors (`expose`, set by body-parser and
+ * raw-body) mean their status for the caller. Any other error's `status` may be someone else's, such as the answer
+ * of an outgoing call made in an action.
+ */
+function refusalOf(err: unknown): IRefusal | null {
+    if (!(err instanceof Error)) {
+        return null;
+    }
+
+    // the router's message quotes the undecodable path segment
+    const malformedPath = err instanceof URIError;
+    const { message, constructor } = err;
+    if (!malformedPath && !('expose' in err && err.expose === true)) {
+        return null;
+    }
+
+    const status = ('status' in err ? err.status : undefined) ?? ('statusCode' in err ? err.statusCode : undefined);
+    if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 499) {
+        return null;
+    }
+
+    return { status, message: malformedPath ? MALFORMED_PATH_MESSAGE : message, errorType: constructor.name };
+}
+
+function refusalResponse(refusal: IRefusal, errorMap: Map<string, Constructor<HttpResponse>> | null): HttpResponse {
+    const exception = REFUSAL_EXCEPTIONS.get(refusal.status);
+    const mapped = errorMap && exception ? __resolve_error_response__(errorMap, new exception(refusal.message)) : null;
+    const ResponseClass: Constructor<HttpResponse> = mapped ?? BadRequestResponse;
+    return new ResponseClass({ message: refusal.message }, { StatusCode: refusal.status });
+}
+
+/**
  * Whether {@link __handle_error__} answers `err` with the generic 500: its response is `ServerError` or none is mapped.
  * That body spreads the error's own properties and its stack, unless `configuration.isProduction` is set: then it is
  * a fixed message only.
@@ -76,7 +127,7 @@ export function answeredAsServerError(err: unknown): boolean {
     }
 
     const response = errorMap ? __resolve_error_response__(errorMap, err) : null;
-    return response === null || isServerErrorResponse(response);
+    return response === null ? refusalOf(err) === null : isServerErrorResponse(response);
 }
 
 function isServerErrorResponse(response: Constructor<HttpResponse>): boolean {
@@ -134,20 +185,26 @@ export function __handle_error__() {
         }
 
         let error: any;
-        let response: HttpResponse | null = null;
+        let response: HttpResponse;
 
         const bodyFailure = bodyFailureMessage(err, errorMap);
+        const httpResponse = bodyFailure || !errorMap ? null : __resolve_error_response__(errorMap, err);
+        const refusal = bodyFailure || httpResponse ? null : refusalOf(err);
 
         if (bodyFailure) {
             logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
 
             error = { message: bodyFailure };
-            const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
-            response = httpResponse ? new httpResponse(error) : new BadRequestResponse(error);
+            const badRequest = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
+            response = badRequest ? new badRequest(error) : new BadRequestResponse(error);
+        } else if (refusal) {
+            logger.warn({ status: refusal.status, errorType: refusal.errorType, method: req.method, url: redactUrl(req.originalUrl) }, 'Request refused with ${status} (${errorType}) at ${method} ${url}');
+
+            error = { message: refusal.message };
+            response = refusalResponse(refusal, errorMap);
         } else {
             logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
-            const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
             if (!httpResponse) {
                 logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
             }

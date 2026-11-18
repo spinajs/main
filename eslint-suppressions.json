@@ -4404,9 +4404,6 @@
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 13
     },
-    "no-useless-assignment": {
-      "count": 1
-    },
     "promise/always-return": {
       "count": 1
     }

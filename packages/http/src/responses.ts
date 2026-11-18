@@ -99,7 +99,8 @@ export function textResponse(model: any, options?: IResponseOptions) {
     // undefined / null end the response empty (and always terminate it —
     // otherwise a missing body on this fallback path hangs until timeout).
     if (model !== undefined && model !== null) {
-      res.set('Content-Type', 'text/plain');
+      // the body is JSON even for a client that asked for text/plain, so it is labelled as JSON
+      res.set('Content-Type', 'application/json');
       res.send(JSON.stringify(model));
     } else {
       res.end();
