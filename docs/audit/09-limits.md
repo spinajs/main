@@ -39,9 +39,12 @@ What a reader of the trail, and an operator of it, must not assume.
 ## Integrity
 
 - Sealing is keyless: anyone with the application's database credentials can rewrite a trail and its seals together. Keep the logged head hash outside the database and verify with `--head`.
-- The unsealed tail, up to about two minutes, is not protected.
-- `audit.seal.settleSeconds` is an insert-to-commit limit. A transaction open longer leaves rows that every later verification lists as not covered by their seal; an inserted row looks the same, and the CLI exits 0 for both.
+- The unsealed tail, up to about two minutes, is not protected; rows older than the sealing window there read as SUSPECT.
+- `audit.seal.settleSeconds` is an insert-to-commit limit. A transaction open longer leaves rows that every later verification lists as not covered by their seal; an inserted row with an earlier `at` looks the same. Both read as SUSPECT (exit code 2), not TAMPERED.
 - A tamper report resolves to one seal (`audit.seal.batchSize` events), except for a payload edit, which names the event. Verification stops at the first mismatch.
-- `pruned_at` and erasure records are trusted by verification.
-- Changing the time zone handling of a connection under sealed data breaks every seal over it.
-- A table trail sealed on several connections is verified one connection per call.
+- `pruned_at` is not hashed: a forged prune of seals older than `retentionDays` passes verification; a younger one reads as SUSPECT, one out of chain order or dated in the future as TAMPERED.
+- An erasure record explains a blanked payload only inside a verified seal or in the young unsealed tail, and a forged one that got sealed proves nothing against someone with write access to the trail table.
+- Instants are hashed as stored: changing the time zone handling of a connection under sealed data breaks every seal over it.
+- Verify assumes the default 60-second period of `audit.seal`; a slower schedule yields false SUSPECT results (a stale tail, erasure records in the tail that stop explaining too early), never a false TAMPERED.
+- Switching a trail from `sealed` to `none` and back lets plain retention delete rows inside sealed ranges; verification then reports `count`.
+- `verify()` checks one connection per call; `spinajs audit:verify` without `--source` checks every connection that holds the trail table.

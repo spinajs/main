@@ -53,9 +53,9 @@ Applications that share an archive share subject keys: `forget(subject)` in the 
 
 ## Erased events in reads and in `verify`
 
-A read returns an erased event with `redacted: true` and `data: {}`. `verify` counts it as `redacted`; it lists the event in `unexplainedRedactions` (and `spinajs audit:verify` reports SUSPECT) when no `erasure` event of its subject at or after it is in the table. In a receiving service an event blanked on arrival because of an erasure still in its own buffer is reported that way until the erasure is shipped into the archive, about one shipping interval.
+A read returns an erased event with `redacted: true` and `data: {}`. `verify` counts it as `redacted`; it lists the event in `unexplainedRedactions` (and `spinajs audit:verify` reports SUSPECT) when no `erasure` event of its subject at or after it is in the table where verification can vouch for it: inside a seal that verified, or in the unsealed tail while the record is younger than the sealing window ([Erasure records](07-integrity-and-verification.md#erasure-records)). In a receiving service an event blanked on arrival because of an erasure still in its own buffer is reported that way until the erasure is shipped into the archive, about one shipping interval.
 
 ## Limits
 
-- A payload blanked by hand with its `data_hash` kept looks exactly like a lawful erasure; only the `erasure` event tells them apart.
+- A payload blanked by hand with its `data_hash` kept looks exactly like a lawful erasure; only the `erasure` event tells them apart. A forged `erasure` record that got sealed proves nothing against someone who can write the trail table: the chain is keyless, so ship the sealer's head hash out of the database and pin it.
 - `forget` erases payloads, not the fields that identify the event, and not copies outside the trail (logs, backups, a broker's dead-letter queue).

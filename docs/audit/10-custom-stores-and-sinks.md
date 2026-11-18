@@ -112,7 +112,7 @@ export class HttpAuditReader extends AuditReader {
 }
 ```
 
-A reader over a trail table gets `verify` by extending `TableAuditReader` (or `ArchiveAuditReader`) and overriding `driver(trail, source)` or `table(trail)`; `verifyTable(driver, table, pinned?)` runs the same check on a table you reach yourself.
+A reader over a trail table gets `verify` by extending `TableAuditReader` (or `ArchiveAuditReader`) and overriding `driver(trail, source)` or `table(trail)`; `verifyTable(driver, table, options?)` runs the same check on a table you reach yourself (`options`: `pinned`, the trail's `retentionDays` for `earlyPrunes`, and `clockSkewMs`, default 5000).
 
 ```ts sample
 import type { TrailConfig } from '@spinajs/audit';
