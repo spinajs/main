@@ -23,9 +23,9 @@ const KEY_SEPARATOR = ' ';
 /**
  * A bounded `method + route -> RequestStats` map.
  *
- * The bound is not optional. The telemetry middleware falls back to the raw
- * request path when no route matched, so an unbounded map would grow one entry
- * per distinct URL a 404-scanning bot tries.
+ * The bound is not optional: a subclass's `routeLabel()` or a direct
+ * `record()` caller may pass labels a client can vary, and an unbounded map
+ * would grow one entry per value.
  */
 export class RouteStats {
   private entries = new Map<string, RequestStats>();
