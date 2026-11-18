@@ -153,7 +153,11 @@ export class RuleSplicer extends StoredPolicySplicers {
     if (store !== DB_RULE_STORE_NAME) return [];
     const rows = await RuleRecord.query().onPrimary();
     const subjects = new Map<string, RuleSubjectFields[]>();
-    for (const s of rows.length === 0 ? [] : await RuleSubjectRecord.query().onPrimary()) subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
+    for (const s of rows.length === 0 ? [] : await RuleSubjectRecord.query().onPrimary()) {
+      const of = subjects.get(s.rule_id) ?? [];
+      of.push(s);
+      subjects.set(s.rule_id, of);
+    }
     return rows.map((r) => ({ key: r.id, image: rowToRule(r, subjects.get(r.id) ?? []) }));
   }
 
