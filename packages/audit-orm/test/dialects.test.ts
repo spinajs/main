@@ -60,7 +60,9 @@ describe('audit-orm dialect parity', function () {
       beforeEach(async () => {
         const name = db.connectionName(dialect);
         setTrail('shipped', { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', table: ARCHIVE, connection: name, archiveConnection: name, integrity: 'sealed' });
-        // A server keeps what an earlier run left.
+        // A server keeps what an earlier run left, and shipAudit reads the buffer of every open connection.
+        // spinajs-orm-ignore ORM102: one DDL statement per reachable server of the test setup
+        for (const other of TestDb.dialects().filter((d) => d !== dialect && db.has(d))) await new AuditOutboxTableMigration().down(db.driver(other));
         // spinajs-orm-ignore ORM102: three DDL statements of the test setup
         for (const m of migrations()) await m.down(driver());
         // spinajs-orm-ignore ORM102: three DDL statements of the test setup
@@ -107,10 +109,12 @@ describe('audit-orm dialect parity', function () {
       it('refuses a second archive row with the same id', async () => {
         await sink.deliver({ trail: 'shipped', source: 'app', events: [event(1)] });
         await expect(insertRows(driver(), ARCHIVE, [{ source: 'app', ...storedColumns(event(1)) }])).to.be.rejected;
+        expect(await tableRows(driver(), ARCHIVE)).to.have.length(1);
       });
 
       it('ships everything written after the buffer was emptied', async () => {
-        // An emptied MySQL 5.7 table restarts its autoincrement after a server restart: events are told apart by id, never by buffer seq.
+        // No server restart here, so not MySQL 5.7's autoincrement reset itself: only that shipping continues after an
+        // emptied buffer, telling events apart by id, as it must when such a reset hands out a seq again.
         await store.append({ trail: shipped(), events: [event(1), event(2)] });
         await shipAudit({ trail: 'shipped' });
         await store.append({ trail: shipped(), events: [event(3)] });
