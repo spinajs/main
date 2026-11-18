@@ -5,6 +5,7 @@ import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
 import type { IQueryStatement } from '../statements.js';
 import type { IOrmRelation } from '../relations.js';
 import { QueryBuilder } from './base.js';
+import type { WhereBuilder } from './where.js';
 
 /**
  * A `Relation.column` sort is compiled on the relation query, so the owner keeps an empty-column
@@ -96,8 +97,9 @@ export function groupWhereStatements(copy: ISelectQueryBuilder): void {
 
   const aggregates = statements.filter(isAggregate);
   statements.length = 0;
+  // adopted, not rebound: the recursive CTE clones the copy, and a moved Lazy must keep its own context
   copy.where(function () {
-    this.Statements.push(...conditions);
+    (this as WhereBuilder<unknown>).adopt(conditions);
   });
   statements.push(...aggregates);
 }

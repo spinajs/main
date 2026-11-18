@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import { BelongsToRelationRecursiveMiddleware, extractModelDescriptor, HasManyRelationMiddleware, IBuilderMiddleware, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
+import { Lazy } from '@spinajs/util';
 import { expect } from 'chai';
 import 'mocha';
 import sinon from 'sinon';
@@ -138,6 +139,26 @@ describe('to-many populate: the key filter confines a callback orWhere', functio
     );
 
     expect(tree.map((r) => r.Name).sort()).to.deep.equal(['A', 'A1']);
+  });
+
+  it('recursive relation keeps a Lazy condition of the callback', async () => {
+    const driver = db().Connections.get('sqlite')!;
+    await driver.insert().into('category').values([
+      { Name: 'A', parent_id: null },
+      { Name: 'B', parent_id: null },
+      { Name: 'A1', parent_id: 1 },
+      { Name: 'B1', parent_id: 2 },
+    ]);
+
+    const [category] = await Category.where('Id', 1).populate('Children', function () {
+      this.where(
+        Lazy.oF(function (this: ISelectQueryBuilder) {
+          this.where('Name', 'A');
+        }),
+      );
+    });
+
+    expect(category.Children.map((c) => c.Name)).to.deep.equal(['A1']);
   });
 
   it('leaves the relation query as written, so a second batch is filtered by its own keys only', async () => {
