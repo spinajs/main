@@ -269,6 +269,10 @@ describe('RuleSplicer', function () {
     }
     expect(new RuleSplicer().locate(name, 'project', 'can_project_edit', ir)).to.equal(undefined);
     expect(new RuleSplicer().locate('rbac rule r1', 'project', rbacDenyRelation('project:edit'), ir)).to.equal(undefined);
+    // Two permissions that share a deny relation leave the placeholder to neither.
+    expect(rbacDenyRelation('project.edit')).to.equal(rbacDenyRelation('project:edit'));
+    const shared = { ...ir, permissions: { ...ir.permissions, 'project.edit': ir.permissions['project:edit'] } };
+    expect(new RuleSplicer().locate(name, 'project', rbacDenyRelation('project:edit'), shared)).to.equal(undefined);
   });
 
   it('drops a rule only where the engine would not select it: another resource type, or threshold globs that miss', () => {

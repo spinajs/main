@@ -63,6 +63,10 @@ describe('PolicySplicer', function () {
     }
     expect(new PolicySplicer().locate(name, 'doc', 'perm_doc_read', ir)).to.equal(undefined);
     expect(new PolicySplicer().locate('abac scope of policy p', 'doc', abacRelation('permit', 'doc:read'), ir)).to.equal(undefined);
+    // Two permissions that share a relation leave the placeholder to neither.
+    expect(abacRelation('permit', 'doc.read')).to.equal(abacRelation('permit', 'doc:read'));
+    const shared = { ...ir, permissions: { ...ir.permissions, 'doc.read': ir.permissions['doc:read'] } };
+    expect(new PolicySplicer().locate(name, 'doc', abacRelation('permit', 'doc:read'), shared)).to.equal(undefined);
   });
 
   describe('splice', () => {
