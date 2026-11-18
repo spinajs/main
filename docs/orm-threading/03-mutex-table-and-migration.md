@@ -1,15 +1,15 @@
 # Mutex table and migration
 
-Every `OrmMutex` lock is a row of the `__mutex__` table, read and written through the exported `__mutex__` model. The package ships the migration that creates the table. Use the model to list or clean up locks, and your own migration to change the table.
+Every `OrmMutex` lock is a row of the `__mutex__` table, read and written through the exported `__mutex__` model. The package ships the migrations that create the table and name its holder column. Use the model to list or clean up locks, and your own migration to change the table.
 
 ## How it works
 
 1. Importing `@spinajs/orm-threading` runs two decorators:
    - `@Model('__mutex__')` registers the `__mutex__` class under `__models__`; `@Connection('default')` binds it to the `default` connection.
-   - `@Migration('default')` registers `Mutex_2024_12_03_11_41_00` under `__migrations__`.
-2. `Orm.resolve()` finds the migration through `DiRegistryMigrationSource`; no directory scan is needed.
-3. `Orm.resolve()` (`DI.resolve(Orm)`) runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
-4. `Mutex_2024_12_03_11_41_00.up()` creates the table. `down()` drops it.
+   - `@Migration('default')` registers `Mutex_2024_12_03_11_41_00` and `MutexHolder_2026_11_16_00_00_00` under `__migrations__`.
+2. `Orm.resolve()` finds the migrations through `DiRegistryMigrationSource`; no directory scan is needed.
+3. `Orm.resolve()` (`DI.resolve(Orm)`) runs them when the connection has `Migration.OnStartup: true`. Otherwise run them with the ORM migration commands.
+4. `Mutex_2024_12_03_11_41_00.up()` creates the table; `MutexHolder_2026_11_16_00_00_00.up()` renames the column the first one created as `Tenant` to `Holder`, keeping the rows. Their `down()` rename it back and drop the table.
 5. `Orm` binds the model to the driver stored under `default`, which is the connection named in `db.DefaultConnection`.
 
 ## Configuration
@@ -17,7 +17,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | The connection stored as `default`; the table and the model live there. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migrations when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
 
 See [Connections](../orm/01-connections.md#configuration) and [Migrations](../orm/10-migrations.md) for the rest of these sections.
 
@@ -43,7 +43,7 @@ this.Config = _.merge(this.Config, {
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `Name` | `VARCHAR(32)`, primary key, unique, not null | Lock name; the model's primary key. |
-| `Tenant` | `VARCHAR(32)`, not null | Current or last owner. |
+| `Holder` | `VARCHAR(32)`, not null | Current or last owner. |
 | `Locked` | `BOOLEAN`, not null, default `0` | `true` while the owner holds the lock. |
 | `LockedUntil` | `BIGINT`, null | Expiry as epoch milliseconds on the database clock. `NULL` never expires. Set by `acquire()` and `renew()`, cleared by `release()`. |
 | `Created_at` | `DATETIME`, not null, default current time | Set on insert; `@CreatedAt` on the model. |
@@ -55,7 +55,7 @@ this.Config = _.merge(this.Config, {
 | --- | --- | --- |
 | class `__mutex__` | `@Connection('default')`, `@Model('__mutex__')` | `ModelBase<__mutex__>` |
 | `Name` | `@Primary()` | `string` |
-| `Tenant` | none | `string` |
+| `Holder` | none | `string` |
 | `Locked` | none | `boolean` |
 | `LockedUntil` | none | `number \| null` |
 | `Created_at` | `@CreatedAt()` | Luxon `DateTime` |
@@ -69,29 +69,30 @@ The constructor fills `Created_at` and `Updated_at` with `DateTime.now()` unless
 | --- | --- | --- | --- | --- |
 | `__mutex__` model | `__models__` list, registered by `@Model` on import | `__mutex__` | none | Use it directly for reads and admin writes. `OrmMutex` references the class itself, so a subclass model is **not** picked up; change the table with a migration instead. |
 | `Mutex_2024_12_03_11_41_00` migration | `__migrations__` list, registered by `@Migration('default')` on import | creates `__mutex__` | none | Add your own later migration on `default` to alter the table. Its `down()` drops the table. |
+| `MutexHolder_2026_11_16_00_00_00` migration | `__migrations__` list, registered by `@Migration('default')` on import | renames `__mutex__.Tenant` to `Holder` | none | Runs after the first one. A migration of your own that names the holder column must be dated after it. |
 
-### Migration: widen the name and tenant columns
+### Migration: widen the name and holder columns
 
-`VARCHAR(32)` is short for task names such as `task-recalculate-warehouse-stock` or tenants built from a host name. Add a later migration that widens both columns. The class name's timestamp must be after `2024_12_03_11_41_00`.
+`VARCHAR(32)` is short for task names such as `task-recalculate-warehouse-stock` or holders built from a host name. Add a later migration that widens both columns. The class name's timestamp must be after `2026_11_16_00_00_00`, the migration that renames the holder column.
 
 ```ts sample
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 @Migration('default')
-export class WidenMutexColumns_2026_10_17_09_00_00 extends OrmMigration {
+export class WidenMutexColumns_2026_12_01_09_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().alterTable('__mutex__', (table) => {
       table.string('Name', 128).notNull().modify();
     });
 
     await connection.schema().alterTable('__mutex__', (table) => {
-      table.string('Tenant', 128).notNull().modify();
+      table.string('Holder', 128).notNull().modify();
     });
   }
 
   public async down(connection: OrmDriver): Promise<void> {
     await connection.schema().alterTable('__mutex__', (table) => {
-      table.string('Tenant', 32).notNull().modify();
+      table.string('Holder', 32).notNull().modify();
     });
 
     await connection.schema().alterTable('__mutex__', (table) => {
@@ -129,7 +130,7 @@ export async function heldLocks(): Promise<Array<{ name: string; owner: string; 
 
   return locks.map((lock) => ({
     name: lock.Name,
-    owner: lock.Tenant,
+    owner: lock.Holder,
     since: lock.Updated_at.toISO() ?? '',
     until: lock.LockedUntil === null ? null : new Date(Number(lock.LockedUntil)).toISOString(),
   }));
@@ -156,6 +157,24 @@ export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
   return result.RowsAffected;
 }
 ```
+
+## Migration
+
+### `__mutex__.Tenant` is `__mutex__.Holder`
+
+The column and the model property are renamed, with no alias. `MutexHolder_2026_11_16_00_00_00` renames the column and keeps the rows. It runs with `Migration.OnStartup: true` or with the ORM migration commands.
+
+```ts
+// Before
+const mine = await __mutex__.where({ Tenant: holder, Locked: true });
+
+// After
+const mine = await __mutex__.where({ Holder: holder, Locked: true });
+```
+
+- Change raw SQL and dashboards that read `__mutex__.Tenant`.
+- A migration of your own that names the `Tenant` column must run before `MutexHolder_2026_11_16_00_00_00`, or name `Holder`.
+- The rename does not survive a rolling deploy. A replica of the old version fails on the renamed column; a replica of the new version fails until the migration has run. Stop the old replicas, migrate, then start the new ones.
 
 ## Related
 

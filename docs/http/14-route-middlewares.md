@@ -348,7 +348,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. There are two exceptions. An `@Idempotent` replay of an unrestricted principal's completed request is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). And when a [request deadline](29-request-deadlines.md) answered 504 while a middleware of this stage was still running, that answer is final: the gate evaluates no policy, and nothing after it runs. |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 

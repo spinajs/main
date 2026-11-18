@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 
 import { TestConfiguration } from './common.js';
 import { Test } from './models/Test.js';
-import { DbTranslationSource } from '../src/index.js';
+import { DbTranslationSource, IntlModelRelation } from '../src/index.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2.js';
 import { Untranslated } from './models/Untranslated.js';
@@ -236,5 +236,48 @@ describe('ORM intl tests', function () {
 
     expect(result['en_US']['hello world']).to.be.eq('bla bla');
     expect(result['de_DE']['hello world']).to.be.eq('bla bla german');
+  });
+
+  it('a clone of a translated query is translated, once', async () => {
+    const query = Test.where('Id', '>', 0);
+    expect(query.translate('en_GB')).to.eq(query);
+    const copy = query.clone();
+
+    expect(copy.translated).to.eq(true);
+    expect(copy.translate('en_GB')).to.eq(copy);
+    expect(copy.Relations.filter((r) => r instanceof IntlModelRelation)).to.have.length(1);
+
+    const result = await copy;
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
+  it('a clone of an executed translated query is translated', async () => {
+    const query = Test.where('Id', '>', 0);
+    query.translate('en_GB');
+    await query;
+
+    const result = await query.clone();
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
+  it('a clone of an executed query translated from async storage is translated', async () => {
+    const store = DI.resolve(AsyncLocalStorage);
+    const result = await store.run({ language: 'en_GB' }, async () => {
+      const query = Test.where('Id', '>', 0);
+      await query;
+      return await query.clone();
+    });
+
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
+  it('a clone keeps AllowTranslate', () => {
+    const query = Test.query();
+    query.AllowTranslate = false;
+
+    expect(query.clone().AllowTranslate).to.eq(false);
   });
 });
