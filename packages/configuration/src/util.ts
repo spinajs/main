@@ -12,14 +12,32 @@ export { merge, mergeArrays, mapObject, pickString, pickObjects } from './util-c
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare let jasmine: never;
 
-export function parseArgv(param: string): string | undefined {
-  const index = process.argv.indexOf(param);
+export function parseArgv(param: string, argv: readonly string[] = process.argv): string | undefined {
+  const index = argv.indexOf(param);
 
-  if (index === -1 || process.argv.length <= index + 1) {
+  if (index === -1 || argv.length <= index + 1) {
     return undefined;
   }
 
-  return process.argv[index + 1];
+  return argv[index + 1];
+}
+
+export interface ChosenEnvironment {
+  /** As given, not normalized: pass it to `normalizeEnvironment()` for the file suffix. */
+  name: string;
+  from: '--env' | 'APP_ENV' | 'NODE_ENV' | 'default';
+}
+
+/**
+ * The environment `FrameworkConfiguration` loads when no `process.env` DI value is registered and `Env` is not set:
+ * `--env`, then `APP_ENV`, then `NODE_ENV`, then `development`. Usable before the configuration resolves.
+ */
+export function chooseEnvironment(argv: readonly string[] = process.argv, env: NodeJS.ProcessEnv = process.env): ChosenEnvironment {
+  const fromArgv = parseArgv('--env', argv);
+  if (fromArgv !== undefined) return { name: fromArgv, from: '--env' };
+  if (env.APP_ENV !== undefined) return { name: env.APP_ENV, from: 'APP_ENV' };
+  if (env.NODE_ENV !== undefined) return { name: env.NODE_ENV, from: 'NODE_ENV' };
+  return { name: 'development', from: 'default' };
 }
 
 export function findBasePath(path: string): string | null {

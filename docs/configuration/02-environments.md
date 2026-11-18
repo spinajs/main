@@ -17,6 +17,19 @@ The environment decides which environment-specific config files load (`db.dev.js
 
 4. **Flags.** `load()` computes the flags from that same `process.env.APP_ENV`, through the same `normalizeEnvironment()`, before the sources merge.
 
+### Before the configuration resolves
+
+`chooseEnvironment(argv?, env?)` applies the same order (`--env`, `APP_ENV`, `NODE_ENV`, `'development'`) to `process.argv` and `process.env`, or to the arguments you pass. It returns the name as given and where it came from (`'--env'`, `'APP_ENV'`, `'NODE_ENV'` or `'default'`). Use it in a start-up check that runs before `Configuration`, so the check and the loaded files agree. It does not see a `process.env` DI value or an `Env` set in code.
+
+```ts sample
+import { chooseEnvironment, normalizeEnvironment } from '@spinajs/configuration';
+
+const { name, from } = chooseEnvironment();
+if (!['dev', 'prod', 'test'].includes(normalizeEnvironment(name))) {
+  throw new Error(`${from}=${name} is not an environment of this service`);
+}
+```
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
