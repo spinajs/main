@@ -1,4 +1,4 @@
-import { IModelDescriptor, IQueryStatement, ISelectQueryBuilder, IWhereBuilder, ModelBase, SelectQueryBuilder, SortOrder } from '@spinajs/orm';
+import { Builder, IModelDescriptor, IQueryStatement, ISelectQueryBuilder, IWhereBuilder, ModelBase, SelectQueryBuilder, SortOrder } from '@spinajs/orm';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { CanceledException } from '@spinajs/util';
 import './builders.js';
@@ -21,9 +21,10 @@ export interface IListOptions extends PageOptions {
   fallbackSort?: { column: string; order?: SortOrder };
 
   /**
-   * Restricts every statement the list runs: the count, the page and the aggregates. What it adds becomes one
+   * Restricts the count, the page and the aggregates; the relations `include` loads are not scoped. What it adds becomes one
    * condition ANDed with the request's filter, e.g. `(q) => q.where('TenantId', tenant)` or, with
-   * `@spinajs/authz-orm`, `(q) => q.accessible('order.read')`.
+   * `@spinajs/authz-orm`, `(q) => q.accessible('order.read')`. It runs synchronously: a scope that returns a
+   * promise is refused with `InvalidOption`.
    */
   scope?: (query: SelectQueryBuilder<any>) => void;
 
@@ -63,7 +64,15 @@ function applyScope(query: Query, scope: IListOptions['scope']): void {
 
   const statements = (query as unknown as Statements)._statements;
   const before = statements.length;
-  scope(query as unknown as SelectQueryBuilder<any>);
+  const result: unknown = scope(query as unknown as SelectQueryBuilder<any>);
+
+  // What an async scope adds after its first await misses the bracketing below, or the statement altogether.
+  // A builder is thenable too (awaiting it runs it), and `(q) => q.where(...)` returns one.
+  if (!(result instanceof Builder) && typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
+    // Its rejection would otherwise go unhandled: the refusal below is what the caller gets.
+    Promise.resolve(result).catch(() => undefined);
+    throw new InvalidOption('readList: options.scope must add its conditions synchronously, but it returned a promise');
+  }
 
   // The ORM joins where statements without brackets, so a scope that ORs would swallow the filter after it
   // (`a OR b AND (filter)`). Its where statements move into one group; HAVING statements stay at the top level.

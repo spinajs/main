@@ -24,12 +24,34 @@
 
 ## Packages
 
-`@spinajs/orm-http`, `@spinajs/http-swagger`. No breaking changes.
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No API is removed; check the points below before upgrading.
 
 ## Behaviour note
 
 - A model that marks a relation `@Includable()` makes `@FromModel` refuse every other relation in `?include=` with
   `400`. A model with no `@Includable` relation keeps populating any relation named, as before.
+
+## What to check before upgrading
+
+- A filter group that carries `"not": true` is now negated. Before, the group schema did not know `not`, so the flag
+  was accepted and ignored, and the group matched as written; the same request now answers the rows the group does not
+  match. Search clients that send `not` on a group, and drop it where it was never meant.
+- `FilterableOperators` gains `nlike`, `nb-like`, `ne-like`, `empty` and `nempty`. Code that keeps an exhaustive
+  `Record<FilterableOperators, …>` or an exhaustive `switch` over it stops compiling until it handles the five new
+  operators.
+- `MAX_FILTERS` (100) now counts the conditions and groups of a filter at every depth, not only the top-level list. A
+  request whose nested groups add up to more than 100 entries is refused with `400`.
+- `readList` refuses a `scope` that returns a promise with `InvalidOption`: what an async scope adds after an `await`
+  would miss the statement. A scope that returns the builder, such as `(q) => q.where(...)`, is unaffected.
+- `@Aggregate(Model)` over a model with no `@Groupable` and no `@Aggregatable` column answered `500` to every request,
+  because its schema did not compile; it now counts rows and answers `400` to a request that names a column.
+  `Model.aggregateSchema()` of such a model compiles.
+- The OpenAPI description of the `aggregate` query parameter moves from `schema` to `content['application/json']`, as
+  the server reads one JSON string, and carries the limits the server validates: `additionalProperties: false`,
+  `maxItems`, `uniqueItems` and lower-case `order`. Regenerate clients built from the document: they sent the object
+  exploded into `?groupBy=…&measures=…`. `registerOpenApiParamType` takes an optional `contentType` on a header, query,
+  path or cookie description, which documents the value under `content` instead of `schema`; registrations without it
+  are unchanged.
 
 ## New
 

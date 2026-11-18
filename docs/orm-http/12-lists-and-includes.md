@@ -89,6 +89,7 @@ await readList(Order, request, { scope: (query) => query.accessible('order.read'
 - `include` cannot be combined with `columns`: a relation answers columns of another model that the projection does not govern. Run two lists if you need both.
 - `columns` names columns of the model's table. A relation path (`Customer.Name`) or a filter-only column cannot be listed, so a projection refuses filters on them. A name that is no column throws `InvalidOption`.
 - `scope` runs once per statement: three times for a list with aggregates. Keep it free of side effects.
+- `scope` restricts the rows of the listed model only; it is not applied to the relations `include` loads. An included relation answers every related row the listed rows point at, unless something outside `readList` restricts that relation's queries. Mark a relation `@Includable` only when every reader of the listed rows may see all of its related rows; otherwise leave it out and load it with a list of its own, under its own scope.
 - Every statement is built, and every refusal made, before the first one runs.
 - `readList` does not validate the filter against the model's schema; that is `@Filter`'s job, and it is where the group depth is bounded.
 

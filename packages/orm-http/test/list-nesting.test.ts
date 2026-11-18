@@ -7,6 +7,7 @@ import '../src/extension.js';
 import { Filterable, FilterGroupDepth } from '../src/decorators.js';
 import { FilterableLogicalOperators, IFilterEntry, MAX_FILTER_GROUP_DEPTH } from '../src/interfaces.js';
 import { filterSchemaFor } from '../src/model.js';
+import { MAX_FILTERS } from '../src/builders.js';
 import { installFilterStatics } from './filter-statics.js';
 import { bootListFixture, compileSchema, Customer, idsOf, Order } from './list-fixture.js';
 
@@ -131,6 +132,24 @@ describe('filter groups nested deeper than one level', function () {
     const inNegated = (leaf: IFilterEntry): IFilterEntry[] => [{ filters: [{ not: true, filters: [leaf] }] }];
     expect(refusal(DeepOrder, inNegated({ Column: 'Customer.Name', Operator: 'eq', Value: 'acme' }))).to.throw(InvalidArgument, /whole query/);
     expect(refusal(DeepOrder, inNegated({ Column: 'Total', Operator: 'gt', Value: 1 }))).to.throw(InvalidArgument, /whole query/);
+  });
+
+  describe('MAX_FILTERS counts the entries at every depth', () => {
+    const conditions = (count: number): IFilterEntry[] => Array.from({ length: count }, () => OPEN);
+
+    it('refuses a group that carries more than MAX_FILTERS conditions', () => {
+      expect(refusal(Order, [{ filters: conditions(MAX_FILTERS) }])).to.throw(InvalidArgument, `Maximum allowed: ${MAX_FILTERS}`);
+    });
+
+    it('refuses nested groups whose entries add up to more than MAX_FILTERS', () => {
+      const filters: IFilterEntry[] = [...conditions(40), { filters: [...conditions(30), { filters: conditions(30) }] }];
+      expect(refusal(DeepOrder, filters)).to.throw(InvalidArgument, /102/);
+    });
+
+    it('accepts MAX_FILTERS entries, groups included', () => {
+      const filters: IFilterEntry[] = [...conditions(MAX_FILTERS - 2), { filters: [OPEN] }];
+      expect(refusal(Order, filters)).to.not.throw();
+    });
   });
 
   it('a relation column inside nested and-groups is still applied to the whole query', () => {

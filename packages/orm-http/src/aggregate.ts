@@ -41,6 +41,8 @@ export function aggregateSchemaFor(columns: IAggregateColumns) {
       column: { const: column },
     },
   }));
+  // An enum may not be empty: without allow-listed columns, `count` takes no column and `groupBy` no value.
+  const countable = [...new Set([...columns.groupable, ...Object.keys(columns.aggregatable)])];
   const counted = {
     type: 'object',
     additionalProperties: false,
@@ -48,10 +50,9 @@ export function aggregateSchemaFor(columns: IAggregateColumns) {
     properties: {
       name: { type: 'string', pattern: NAME.source },
       fn: { const: 'count' },
-      column: { type: 'string', enum: [...new Set([...columns.groupable, ...Object.keys(columns.aggregatable)])] },
+      ...(countable.length > 0 ? { column: { type: 'string', enum: countable } } : {}),
     },
   };
-  // An enum may not be empty: a model with no groupable column gets a `groupBy` no value satisfies.
   const groupColumn = columns.groupable.length > 0 ? { type: 'string', enum: columns.groupable } : { not: {} };
 
   return {
@@ -84,7 +85,8 @@ function checkGroupBy(groupBy: unknown, columns: IAggregateColumns, names: Set<s
 
   for (const column of groupBy as unknown[]) {
     if (typeof column !== 'string' || !columns.groupable.includes(column)) {
-      refuse('groupBy', `Cannot group by ${JSON.stringify(column)}. Groupable columns are: ${columns.groupable.join(', ')}`);
+      const groupable = columns.groupable.length > 0 ? `Groupable columns are: ${columns.groupable.join(', ')}` : 'The model has no @Groupable column';
+      refuse('groupBy', `Cannot group by ${JSON.stringify(column)}. ${groupable}`);
     }
     if (names.has(column as string)) {
       refuse('groupBy', `groupBy names ${column as string} twice`);
@@ -119,7 +121,8 @@ function checkMeasure({ name, fn, column }: IAggregateMeasure, columns: IAggrega
   const allowed = typeof column === 'string' && (columns.aggregatable[column] ?? []).includes(fn);
   const countable = fn === 'count' && typeof column === 'string' && (columns.groupable.includes(column) || column in columns.aggregatable);
   if (!allowed && !countable) {
-    refuse('column', `Function ${fn} is not allowed on column ${JSON.stringify(column)}`);
+    const none = columns.groupable.length === 0 && Object.keys(columns.aggregatable).length === 0;
+    refuse('column', `Function ${fn} is not allowed on column ${JSON.stringify(column)}${none ? ': the model has no @Groupable or @Aggregatable column, so only a count of rows is allowed' : ''}`);
   }
 }
 
