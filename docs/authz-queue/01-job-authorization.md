@@ -113,14 +113,14 @@ The schema `AUTHZ_QUEUE_CONFIGURATION_SCHEMA` (`$configurationModule: 'authz.que
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Message hook | `QueueMessageHook`, one entry of the list the queue resolves with `Array.ofType(QueueMessageHook)` on every emit and handle; singleton; registered by `@Injectable(QueueMessageHook)` at import | `AuthzQueueHook` | none | Subclass it and override the protected `initiator(initiator)` (which principal a stamp becomes) or `service()` (which `AuthzService` it uses). Then `DI.unregister(AuthzQueueHook)` and `DI.register(MySubclass).as(QueueMessageHook)` before the queue starts. |
+| Message hook | `QueueMessageHook`, one entry of the list the queue resolves with `Array.ofType(QueueMessageHook)` on every emit and handle; singleton; registered by `@Injectable(QueueMessageHook)` at import; `order` `-50` | `AuthzQueueHook` | none | Subclass it and override the protected `initiator(initiator)` (which principal a stamp becomes) or `service()` (which `AuthzService` it uses). Then `DI.unregister(AuthzQueueHook)` and `DI.register(MySubclass).as(QueueMessageHook)` before the queue starts. |
 | Initiator principal factory | `InitiatorPrincipalFactory`, singleton | `StampedInitiatorPrincipalFactory` | `UserInitiatorPrincipalFactory` (`@spinajs/users/queue`) | See [Initiator principal factory](02-initiator-principal-factory.md). |
 
 `QueueMessageHook` and the `JobOptions` type are re-exported from `@spinajs/queue`. The package exports the stamp's shape as `Initiator`: `{ readonly type: PrincipalType; readonly id: string; readonly ceiling?: Ceiling }`.
 
 ### `AuthzQueueHook`: custom implementation
 
-Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks nest by `order` (lowest outermost; equal orders in registration order), so a hook that needs the job's principal takes an order above 0, or order 0 and registers after this one.
+Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks nest by `order` (lowest outermost; equal orders in registration order). `AuthzQueueHook` has order `-50`, so a hook that needs the job's principal takes an order above `-50`, such as the default `0`. On emit the chain runs backwards, so this hook writes `Initiator` after every hook of a higher order, whatever the import order. A subclass keeps the order unless it overrides `order`.
 
 ```ts sample
 import '@spinajs/authz-queue';
