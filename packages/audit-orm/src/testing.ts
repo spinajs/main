@@ -11,6 +11,7 @@ import { createTestDatabase } from '@spinajs/testing-orm';
 import type { TestDatabase } from '@spinajs/testing-orm';
 
 import { AuditTrailTableMigration } from './migration.js';
+import { rowsOf } from './rows.js';
 
 export type Dialect = 'sqlite' | 'pglite' | 'postgres' | 'mysql';
 export const DIALECTS: readonly Dialect[] = ['sqlite', 'pglite', 'postgres', 'mysql'];
@@ -96,8 +97,12 @@ export class TestDb {
    */
   static dialects(): readonly Dialect[] {
     const env = process.env;
-    const named: Record<Dialect, boolean> = { sqlite: true, pglite: true, postgres: env.ORM_TEST_POSTGRES_PORT !== undefined, mysql: env.ORM_TEST_MYSQL_HOST !== undefined || env.ORM_TEST_MYSQL_PORT !== undefined };
-    return DIALECTS.filter((dialect) => named[dialect]);
+    const named = (dialect: Dialect): boolean => {
+      if (dialect === 'postgres') return env.ORM_TEST_POSTGRES_PORT !== undefined;
+      if (dialect === 'mysql') return env.ORM_TEST_MYSQL_HOST !== undefined || env.ORM_TEST_MYSQL_PORT !== undefined;
+      return true;
+    };
+    return DIALECTS.filter(named);
   }
 
   has(dialect: Dialect): boolean {
@@ -127,8 +132,7 @@ export class TestDb {
   }
 
   async rows(dialect: Dialect, table: string): Promise<Record<string, unknown>[]> {
-    const rows: unknown = await this.driver(dialect).select().from(table).orderBy('seq');
-    return Array.isArray(rows) ? rows.filter((r): r is Record<string, unknown> => r !== null && typeof r === 'object') : [];
+    return rowsOf(await this.driver(dialect).select().from(table).orderBy('seq'));
   }
 
   async close(): Promise<void> {
