@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { Log, Logger, newTraceContext } from '@spinajs/log';
+import { ROOT_CONTEXT, SpanKind, SpanStatusCode, TraceFlags, context, isSpanContextValid, trace } from '@opentelemetry/api';
+import type { Context, Span } from '@opentelemetry/api';
+import { Log, Logger } from '@spinajs/log';
+import { SpinaAttr, childTraceIds, extractTraceContext, tracer } from '@spinajs/tracing';
+import type { TraceIds } from '@spinajs/tracing';
 import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame, isStreamCredit } from '@spinajs/http-socket-common';
 import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketMiddleware } from './interfaces.js';
 import { SocketConnection } from './connection.js';
@@ -212,7 +216,7 @@ export class SocketDispatcher extends AsyncService {
 
     try {
       // D14: middlewares, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
-      const running = this.Als.run(ctx.storage, () => this.next(ctx, chain, 0));
+      const running = this.within(ctx, () => this.next(ctx, chain, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
       // onFinish sees the chain's own outcome, also when no onAfter wrote it and when an abort answered the client.
       ctx.chainSettled = running.then(
@@ -246,6 +250,12 @@ export class SocketDispatcher extends AsyncService {
       if (!ctx.stream && runtime.running.get(ctx.request.id) === ctx) {
         runtime.running.delete(ctx.request.id);
       }
+    }
+
+    if (!reply.ok) {
+      // the wire code only: the reply's message can quote the payload
+      ctx.trace?.span.setAttribute('error.type', reply.error.code);
+      ctx.trace?.span.setStatus({ code: SpanStatusCode.ERROR, message: reply.error.code });
     }
 
     this.observe(ctx, reply, performance.now() - started);
@@ -315,11 +325,13 @@ export class SocketDispatcher extends AsyncService {
     }
     const chain = this.chainOf(ctx);
     // a stream acks at once, so its run is tracked too: the shutdown drain must see open streams
-    const replied = this.execute(ctx, chain).then((answer) => {
-      this.send(reply, answer, raw.name);
-      // after the ack, so the client knows the id is a stream before its first chunk
-      return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
-    });
+    const replied = this.execute(ctx, chain)
+      .then((answer) => {
+        this.send(reply, answer, raw.name);
+        // after the ack, so the client knows the id is a stream before its first chunk
+        return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
+      })
+      .finally(() => ctx.trace?.span.end());
     this.track(this.replies, replied);
     if (chain.some((middleware) => middleware.onFinish)) {
       this.track(
@@ -338,7 +350,7 @@ export class SocketDispatcher extends AsyncService {
 
     await Promise.all(
       [...ctx.finishing].reverse().map((middleware) =>
-        this.Als.run(ctx.storage, async () => middleware.onFinish!(ctx)).catch((err: unknown) =>
+        this.within(ctx, async () => middleware.onFinish!(ctx)).catch((err: unknown) =>
           this.Log.error({ error: err, command: ctx.request.name, middleware: middleware.constructor.name }, 'Socket middleware ${middleware} failed in onFinish of command ${command}'),
         ),
       ),
@@ -365,9 +377,37 @@ export class SocketDispatcher extends AsyncService {
   }
 
   protected createContext(runtime: IConnectionRuntime, request: CommandRequest): SocketCommandContext {
-    const ctx = new SocketCommandContext(runtime, request, this.callStorage(runtime.connection, request.name, request.id, request.traceparent));
+    const { commandTrace, ids } = this.startCommandSpan(request);
+    const ctx = new SocketCommandContext(runtime, request, this.callStorage(runtime.connection, request.name, request.id, ids));
+    ctx.trace = commandTrace;
     ctx.armDeadline(request.deadline);
     return ctx;
+  }
+
+  /** The command's SERVER span and the ids of its call storage. */
+  protected startCommandSpan(request: CommandRequest): { commandTrace?: { span: Span; context: Context }; ids: TraceIds } {
+    try {
+      const parent = extractTraceContext(request.traceparent === undefined ? {} : { traceparent: request.traceparent }, ROOT_CONTEXT);
+      const span = tracer().startSpan(
+        `socket ${this.Registry.command(request.name) ? request.name : '_OTHER'}`,
+        { kind: SpanKind.SERVER, attributes: { [SpinaAttr.SocketCommand]: request.name } },
+        parent,
+      );
+      const sc = span.spanContext();
+      // Tracing not started: the API's no-op tracer answers the parent's own context, or an invalid one without a parent.
+      const minted = isSpanContextValid(sc) && sc.spanId !== trace.getSpanContext(parent)?.spanId;
+      const ids: TraceIds = minted ? { traceId: sc.traceId, spanId: sc.spanId, sampled: (sc.traceFlags & TraceFlags.SAMPLED) !== 0 } : childTraceIds(parent);
+      return { commandTrace: { span, context: trace.setSpan(parent, span) }, ids };
+    } catch (error) {
+      // socket.io calls the listener outside any promise: a failing propagator or sampler of an external SDK would leave the command unanswered
+      this.Log.error({ error, command: request.name }, 'Tracing could not start the span of socket command ${command}; it runs untraced');
+      return { ids: childTraceIds(ROOT_CONTEXT) };
+    }
+  }
+
+  /** The command's ALS store and its span, active together. */
+  protected within<T>(ctx: SocketCommandContext, fn: () => T): T {
+    return context.with(ctx.trace?.context ?? context.active(), () => this.Als.run(ctx.storage, fn));
   }
 
   protected onCancel(runtime: IConnectionRuntime, frame: unknown): void {
@@ -538,15 +578,13 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /** The ambient AsyncLocalStorage store of one call; log lines and policies read it. */
-  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), traceparent?: string): ISocketCallStorage {
-    const trace = newTraceContext(traceparent);
-
+  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), ids: TraceIds = childTraceIds(ROOT_CONTEXT)): ISocketCallStorage {
     return {
       Principal: connection.principal,
       AuthnPrincipal: connection.authenticated ? connection.principal : null,
       requestId,
-      traceId: trace.traceId,
-      spanId: trace.spanId,
+      traceId: ids.traceId,
+      spanId: ids.spanId,
       realIp: connection.handshake.address,
       connectionId: connection.id,
       clientId: connection.clientId,
@@ -727,7 +765,7 @@ export class SocketDispatcher extends AsyncService {
     const stream = new ServerStream({
       id: ctx.request.id,
       name,
-      iterator: this.Als.run(ctx.storage, () => source[Symbol.asyncIterator]()),
+      iterator: this.within(ctx, () => source[Symbol.asyncIterator]()),
       signal: ctx.signal,
       abort: (reason) => ctx.abort(reason),
       credits,
@@ -736,7 +774,7 @@ export class SocketDispatcher extends AsyncService {
       send: (event, frame) => {
         socket.emit(event, frame);
       },
-      within: (step) => this.Als.run(ctx.storage, step),
+      within: (step) => this.within(ctx, step),
       toWire: (err) => this.Errors.toWire(err, `stream ${name}`),
       // a client that grants credit blind but never reads its socket would otherwise grow engine.io's write buffer without bound
       backlogged: () => unsentPackets(socket) > limits.maxCredits,

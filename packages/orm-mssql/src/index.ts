@@ -37,6 +37,11 @@ function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
+/** The row count an `orIgnore()` batch selects as `INSERTED`; a plain insert has no such column. */
+function insertedCountOf(row: unknown): number | undefined {
+  return typeof row === 'object' && row !== null && 'INSERTED' in row && typeof row.INSERTED === 'number' ? row.INSERTED : undefined;
+}
+
 /**
  * Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text.
  * A `?` inside a '...' or "..." literal or a [...] identifier is text too.
@@ -143,7 +148,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         };
       case QueryContext.Insert:
         return {
-          RowsAffected: result.rowsAffected[0],
+          RowsAffected: insertedCountOf(result.recordset?.[0]) ?? result.rowsAffected[0],
           // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
           LastInsertId: result.recordset?.[0]?.ID ?? 0,
           Returning: [],

@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { ConnectionState, DefaultReplicaRouter, IDriverOptions, markWrite, OrmDriver, QueryBuilder, readYourWrites, wroteInScope } from '../src/index.js';
+import { readRouteOf, withReadRoute } from '../src/read-route.js';
 
 function driver(name: string, options: Partial<IDriverOptions> = {}, state = ConnectionState.Connected): OrmDriver {
   return { Options: { Name: name, Driver: 'fake', ...options }, State: state, CurrentTransaction: undefined } as unknown as OrmDriver;
@@ -109,5 +110,48 @@ describe('read-your-writes scope', () => {
       });
       expect(wroteInScope(primary)).to.eq(true);
     });
+  });
+});
+
+describe('read route of relation loads', () => {
+  it('routes the selects of the primary it was opened for, and of no other connection', () => {
+    const main = driver('main');
+    const replica = driver('r1');
+    const other = driver('other');
+
+    withReadRoute(main, replica, () => {
+      expect(readRouteOf(main)).to.eq(replica);
+      expect(readRouteOf(other)).to.eq(undefined);
+    });
+    expect(readRouteOf(main)).to.eq(undefined);
+  });
+
+  it('keeps the outer route inside a nested scope of another connection', () => {
+    const main = driver('main');
+    const other = driver('other');
+    const mainReplica = driver('r1');
+    const otherReplica = driver('o1');
+
+    withReadRoute(main, mainReplica, () => {
+      withReadRoute(other, otherReplica, () => {
+        expect(readRouteOf(main)).to.eq(mainReplica);
+        expect(readRouteOf(other)).to.eq(otherReplica);
+      });
+      expect(readRouteOf(other)).to.eq(undefined);
+    });
+  });
+
+  it('keeps concurrent scopes apart', async () => {
+    const main = driver('main');
+    const seen = await Promise.all(
+      [driver('r1'), driver('r2')].map((read) =>
+        withReadRoute(main, read, async () => {
+          await Promise.resolve();
+          return readRouteOf(main)?.Options.Name;
+        }),
+      ),
+    );
+
+    expect(seen).to.deep.equal(['r1', 'r2']);
   });
 });

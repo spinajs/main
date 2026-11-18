@@ -38,6 +38,27 @@ describe('authz-queue configuration through @Config', () => {
     expect(await violationPaths(boot({ bus: { topic: '' } }))).to.include('authz.bus.topic');
   });
 
+  class ModeProbe extends AuthzQueueHook {
+    refuses(): boolean {
+      return this.refusesUndeclared();
+    }
+  }
+
+  it("authz.queue.systemTask is 'deny' by default and 'warn' when set; another value fails boot", async () => {
+    expect(read(new AuthzQueueHook(), await boot({}), 'SystemTaskMode')).to.equal('deny');
+    expect(bindConfiguration(new ModeProbe(), await boot({})).refuses()).to.equal(true);
+    const warn = await boot({ queue: { systemTask: 'warn' } });
+    expect(read(new AuthzQueueHook(), warn, 'SystemTaskMode')).to.equal('warn');
+    expect(bindConfiguration(new ModeProbe(), warn).refuses()).to.equal(false);
+    expect(await violationPaths(boot({ queue: { systemTask: 'allow' } }))).to.include('authz.queue.systemTask');
+  });
+
+  it('a mode the schema never saw still refuses', async () => {
+    const child = await boot({});
+    setPastSchema(await child.resolve(Configuration), 'authz.queue.systemTask', 'off');
+    expect(bindConfiguration(new ModeProbe(), child).refuses()).to.equal(true);
+  });
+
   it('a domain set at runtime to no live domain fails the hooks closed, never falls back to root', async () => {
     await testHost.installHost();
     try {
