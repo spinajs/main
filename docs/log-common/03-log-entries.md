@@ -10,14 +10,15 @@
    - `err` is an `Error`: the message is `message`, or `err.message` when `message` is `null` or `undefined`.
    - `err` is falsy: the message is `message`.
    - `err` is a non-empty string: `err` itself is the message.
-2. **Format.** With `args`, the message runs through a built-in `util.format` clone: `%s %d %i %f %j %o %O %%`. Arguments left over are appended, space-separated; objects render as JSON. Without `args` the message is kept as it is.
-3. **Read the ambient context.** The function registered with [`setLogContextProvider()`](04-ambient-log-context.md) is called; a throw or `null` counts as `{}`.
-4. **Merge the variables**, later wins:
+2. **Take a trailing error.** When `err` is not an `Error` and `variables` has no `error` key, the first `Error` in `args` past the ones the message's specifiers fill becomes the entry's error. It is taken out of `args` only when `format()` would append it as `{}`; an error with enumerable fields or a `toJSON()` keeps its text in the message. An `Error` that a specifier fills stays a format argument.
+3. **Format.** With `args`, the message runs through a built-in `util.format` clone: `%s %d %i %f %j %o %O %%`. Arguments left over are appended, space-separated; objects render as JSON. Without `args` the message is kept as it is.
+4. **Read the ambient context.** The function registered with [`setLogContextProvider()`](04-ambient-log-context.md) is called; a throw or `null` counts as `{}`.
+5. **Merge the variables**, later wins:
    1. ambient context fields;
-   2. `error` (the `Error`, or `undefined`), `level` (upper-case name), `logger` (`logger ?? message`), `message` (the formatted text);
+   2. `error` (the `Error` of `err` or of step 2, or `undefined`), `level` (upper-case name), `logger` (`logger ?? message`), `message` (the formatted text);
    3. `variables` (logger variables and per-call fields).
-5. **Serialize.** `applySerializers()` runs the [field serializers](05-serializers.md). By default `error` becomes `{ name, message, stack, code?, signal? }`.
-6. **Return** `{ Level: level, Variables }`.
+6. **Serialize.** `applySerializers()` runs the [field serializers](05-serializers.md). By default `error` becomes `{ name, message, stack, code?, signal? }`.
+7. **Return** `{ Level: level, Variables }`.
 
 ### Call forms in `FrameworkLogger`
 
@@ -26,6 +27,7 @@
 | `log.info('User %s signed in', id)` | `createLogMessageObject('User %s signed in', null, level, name, vars, id)` |
 | `log.error(err, 'Payment %s failed', id)` | `createLogMessageObject(err, 'Payment %s failed', level, name, vars, id)` |
 | `log.error(err)` | `message` is `err.message` |
+| `log.warn('Read of %s failed', file, err)` | `createLogMessageObject('Read of %s failed', null, level, name, vars, file, err)`; `err` is past the one specifier, so it becomes `error` |
 | `log.info({ userId }, 'User ${userId} signed in')` | `renderTemplate()` on the message with the call's fields, then `createLogMessageObject(null, text, level, name, { ...vars, ...fields }, ...args)` |
 
 ## API
