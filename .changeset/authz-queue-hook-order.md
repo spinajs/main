@@ -1,5 +1,5 @@
 ---
-"@spinajs/authz-queue": major
+"@spinajs/authz-queue": minor
 "@spinajs/tenancy": patch
 ---
 
