@@ -1004,6 +1004,40 @@ describe('Relations query builder', () => {
     expect(result.bindings).to.deep.equal(['foo', 5, 6, 1]);
   });
 
+  it('brackets an orWhere of a join query callback behind an empty callback', () => {
+    const result = RelationModel.where('Id', 1)
+      .leftJoin(
+        'Relation',
+        function () {
+          /* no condition of its own */
+        },
+        function (this: ISelectQueryBuilder<RelationModel2>) {
+          this.orWhere('Id', 5);
+        },
+      )
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( `$RelationModel2$`.`Id` = ? ) WHERE');
+    expect(result.bindings).to.deep.equal([5, 1]);
+  });
+
+  it('brackets a raw OR of a join query callback inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .leftJoin(
+        'Relation',
+        function () {
+          /* no condition of its own */
+        },
+        function (this: ISelectQueryBuilder<RelationModel2>) {
+          this.where(RawQuery.create('RelationProperty = ? OR Id = ?', ['foo', 5]));
+        },
+      )
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( RelationProperty = ? OR Id = ? ) WHERE');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
   it('left join with callback stays a LEFT JOIN', () => {
     // regression: the join callback must not fold its condition into the main
     // WHERE, which would turn this LEFT JOIN into an effective inner join.
@@ -1262,6 +1296,49 @@ describe('whereOnJoin', () => {
 
     expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? OR `$Relation$`.`RelationProperty` = ? ) WHERE');
     expect(result.bindings).to.deep.equal(['foo', 'bar', 1]);
+  });
+
+  it('keeps an orWhere of whereOnJoin as OR, bracketed inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where('RelationProperty', 'foo').orWhere('RelationProperty', 'bar');
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? OR `$Relation$`.`RelationProperty` = ? ) WHERE');
+    expect(result.bindings).to.deep.equal(['foo', 'bar', 1]);
+  });
+
+  it('brackets a raw OR of whereOnJoin inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where(RawQuery.create('RelationProperty = ? OR Id = ?', ['foo', 5]));
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( RelationProperty = ? OR Id = ? ) WHERE');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
+  it('brackets a lazy OR of whereOnJoin inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where(
+            new Lazy(function (this: IWhereBuilder<unknown>) {
+              this.where(RawQuery.create('RelationProperty = ? OR Id = ?', ['foo', 5]));
+            }),
+          );
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( RelationProperty = ? OR Id = ? ) WHERE');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
   });
 
   it('scopes nested populate condition to the nested JOIN', () => {

@@ -381,6 +381,26 @@ export class SqlJoinStatement extends JoinStatement {
     );
   }
 
+  /**
+   * Conditions appended to ON keep their own AND/OR connectors and are bracketed, so an OR
+   * among them cannot escape the key match: `pk = fk AND ( a ) OR b`. A query callback adds
+   * statements next to the callback's group, and a raw or lazy fragment carries bare text.
+   */
+  protected onConditions(statements: IQueryStatement[], bindings: unknown[]): string {
+    const compiled = new SqlWhereCompiler().where({ Statements: statements });
+    if (!compiled.expression) {
+      return '';
+    }
+
+    bindings.push(...compiled.bindings);
+
+    // Read after compiling: a lazy build may append statements.
+    const conditions = (statements as WhereStatement[]).filter((x) => !x.IsAggregate);
+    const [only] = conditions;
+    const selfContained = conditions.length === 1 && !(only instanceof RawQueryStatement) && !(only instanceof LazyQueryStatement);
+    return selfContained ? ` AND ${compiled.expression}` : ` AND ( ${compiled.expression} )`;
+  }
+
   /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */
   protected tableQualifier(driver: OrmDriver): string | undefined {
     return driver.Options.Database;
@@ -488,40 +508,13 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (this._whereBuilder) {
-      // Compile join-callback conditions through the shared where-compiler so
-      // per-statement AND/OR connectors are honoured here too.
-      const compiled = new SqlWhereCompiler().where(this._whereBuilder);
-      if (compiled.expression && compiled.expression !== '') {
-        // A query callback adds conditions next to the callback's own group, so an OR there
-        // would escape the key match: `pk = fk AND ( a ) OR b`. Read after compiling: a lazy
-        // build may append statements.
-        const conditions = (this._whereBuilder.Statements as WhereStatement[]).filter((x) => !x.IsAggregate);
-        const bracketed = conditions.length === 1 && WhereQueryStatement.isGroup(conditions[0]);
-        onExpression += bracketed ? ` AND ${compiled.expression}` : ` AND ( ${compiled.expression} )`;
-        if (Array.isArray(compiled.bindings)) {
-          onBindings.push(...compiled.bindings);
-        }
-      }
+      onExpression += this.onConditions(this._whereBuilder.Statements, onBindings);
     }
 
     // whereOnJoin() conditions from a populated relation - appended to ON
     // so the outer join semantics are preserved
     if (this._options.onStatements) {
-      const parts: string[] = [];
-      (this._options.onStatements as WhereStatement[])
-        .filter((x) => !x.IsAggregate)
-        .forEach((x) => {
-          const r = x.build();
-          parts.push(...r.Statements);
-          if (Array.isArray(r.Bindings)) {
-            onBindings.push(...r.Bindings);
-          }
-        });
-
-      if (parts.length > 0) {
-        // Top-level statements are ALWAYS joined with AND
-        onExpression += ` AND ${parts.join(' AND ')}`;
-      }
+      onExpression += this.onConditions(this._options.onStatements, onBindings);
     }
 
     return {

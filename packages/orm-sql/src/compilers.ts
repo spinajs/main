@@ -264,7 +264,7 @@ export class SqlColumnsCompiler implements IColumnsCompiler {
 
 @NewInstance()
 export class SqlWhereCompiler implements IWhereCompiler {
-  public where(builder: IWhereBuilder<unknown>) {
+  public where(builder: Pick<IWhereBuilder<unknown>, 'Statements'>) {
     const bindings: any[] = [];
 
     // Lazy statements must be built FIRST: their build() may have side effects
