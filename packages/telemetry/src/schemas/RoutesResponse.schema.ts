@@ -10,7 +10,7 @@ const RoutesResponseSchema = {
         type: 'object',
         properties: {
           method: { type: 'string', description: 'HTTP method' },
-          route: { type: 'string', description: 'Matched route path, or the raw path when nothing matched' },
+          route: { type: 'string', description: 'Matched route path, or <unmatched> when nothing matched' },
           stats: RequestStatsSnapshotSchema,
         },
       },
