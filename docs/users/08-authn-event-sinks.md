@@ -12,8 +12,8 @@
 | authn event | Outcome | Emitted |
 | --- | --- | --- |
 | `login` | success | `UserLogged` |
-| `login` | failure | `UserLoginFailed` with `UserIsBanned` (`banned`), `UserNotActive` (`inactive`, `deleted`) or `InvalidCredentials` (any other reason except `listener_failed`) |
-| `login` | failure, reason `listener_failed` | nothing |
+| `login` | failure | `UserLoginFailed` with `UserIsBanned` (`banned`), `UserNotActive` (`inactive`, `deleted`) or `InvalidCredentials` (any other reason except `listener_failed` and `hook_error`) |
+| `login` | failure, reason `listener_failed` or `hook_error` | nothing |
 | `password.change` | success | `UserPasswordExpired` when `data.expired`, else `UserPasswordChanged` |
 | `password.reset` | success | `UserPasswordChanged` |
 | `password.reset.request` | success | `UserPasswordChangeRequest` |
@@ -105,6 +105,7 @@ Unregister before the first authn event resolves the listener list.
 
 - `QueueAuthnEventListener` maps `invite.redeem` to no event; `UserActivated` comes from [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state).
 - A login that a blocking listener stopped (the recorder of `@spinajs/audit-authn` on a trail that rejects, for example) comes back as a `login` failure with reason `listener_failed`. The credentials were right, so no error class of `UserLoginFailed` describes it, and a consumer that counts failed logins must not count an outage of the audit store: it emits nothing. A stopped `login` event never reached the other listeners as a success, so no `UserLogged` went out for it. When the `login` event got through and the `session.issue` that follows it was stopped, `UserLogged` was already emitted and nothing follows it.
+- A login whose action hook failed (it threw, returned attributes that are not an object, or set a session ceiling that cannot be held) comes back as a `login` failure with reason `hook_error`. The credentials were not wrong either, so it emits nothing for the same reason. Webhooks and the security trail still receive the event. A deliberate refusal by a hook (`hook:<code>`) still emits `UserLoginFailed` with `InvalidCredentials`.
 - A subclass of 3.0's `UserAccountSink` becomes a subclass of `UserPasswordStateHook`: see [Migrating from `UserAccountSink`](07-identity-and-password-stores.md#migrating-from-useraccountsink).
 - MFA changes have no user event; they reach listeners as `mfa.enrol` and `mfa.disable`.
 

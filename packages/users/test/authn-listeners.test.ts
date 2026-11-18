@@ -119,6 +119,14 @@ describe('users authn event listeners', function () {
       expect(emitted()).to.deep.eq([]);
     });
 
+    it('re-emits nothing for a login whose action hook failed (hook_error)', async () => {
+      const { ref } = await seedUser({ login: 'hook-failed', password: HASH });
+
+      await (await DI.resolve(QueueAuthnEventListener)).on(event('login', ref, { outcome: 'failure', reason: 'hook_error', data: { hook: 'Throws', failure: 'boom' } }));
+
+      expect(emitted()).to.deep.eq([]);
+    });
+
     it('maps impersonation start, end and expiry with the impersonator as UserUUID', async () => {
       const { ref: admin } = await seedUser({ login: 'impersonator' });
       const { ref: target } = await seedUser({ login: 'impersonated' });
