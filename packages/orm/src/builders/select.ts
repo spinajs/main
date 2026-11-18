@@ -481,7 +481,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * into HAVING, which a WHERE group would drop, so they stay flat.
    */
   public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
-    const isAggregate = (s: IQueryStatement) => s instanceof WhereStatement && s.IsAggregate;
+    const isAggregate = (s: IQueryStatement) => 'IsAggregate' in s && s.IsAggregate === true;
     this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
 
     const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
@@ -489,9 +489,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return;
     }
 
-    // hung under `builder`, so a clone of the group keeps resolving the merged builder's alias
-    const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>);
-    group.Statements.push(...grouped);
+    const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
     const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
     this._markMerged([statement]);
     this._statements.push(statement);

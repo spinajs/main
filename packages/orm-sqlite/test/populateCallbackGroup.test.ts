@@ -88,6 +88,20 @@ describe('belongsTo populate callback conditions', function () {
     expect(skus(await late)).to.deep.equal([]);
   });
 
+  it('a clone taken after compile qualifies a nested whereColumn() with the nested alias', async () => {
+    const query = UowOrderItem.where('Sku', 'A').populate('Order', function () {
+      this.populate('Client', function () {
+        this.whereColumn('Id', '=', 'Id');
+      });
+    });
+    const compiled = sql(query);
+    const late = query.clone();
+
+    expect(compiled).to.contain('`$Order$.$Client$`.`Id` = `$Order$.$Client$`.`Id`');
+    expect(sql(late)).to.eq(compiled);
+    expect(skus(await late)).to.deep.equal(['A']);
+  });
+
   it('every keyset page of a stream keeps the group', async () => {
     expect(skus(await collect(noItemWithOrOrder().stream({ batchSize: 1 })))).to.deep.equal([]);
 

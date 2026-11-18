@@ -6,7 +6,7 @@ import 'mocha';
 // Registers the concrete logger. Without it every `@Logger` field resolves the abstract
 // `Log` from log-common and the first `Log.trace()` in Orm.resolve() throws.
 import '@spinajs/log';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler, extractModelDescriptor } from '@spinajs/orm';
 import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -1171,6 +1171,38 @@ describe('whereOnJoin', () => {
       'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` WHERE `$RelationModel$`.`Id` = ? AND ( `$Relation$`.`RelationProperty` = ? )',
     );
     expect(result.bindings).to.deep.equal([1, 'foo']);
+  });
+
+  it('a clone taken after compile keeps a Lazy where of a populate callback', () => {
+    const query = RelationModel.where('Id', 1).populate('Relation', function () {
+      this.where(
+        new Lazy(function (this: IWhereBuilder<unknown>) {
+          this.where('RelationProperty', 'foo');
+        }),
+      );
+    });
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.contain('WHERE `$RelationModel$`.`Id` = ? AND ( `$Relation$`.`RelationProperty` = ? )');
+    expect(query.clone().toDB()).to.deep.equal(compiled);
+  });
+
+  it('keeps an aggregate condition of a populate callback in HAVING, out of the WHERE group', () => {
+    const column = extractModelDescriptor(RelationModel2)!.Columns.find((c) => c.Name === 'RelationProperty')!;
+    column.Aggregate = true;
+    try {
+      const result = RelationModel.where('Id', 1)
+        .populate('Relation', function () {
+          this.where('Id', 99);
+          this.where('RelationProperty', 'foo');
+        })
+        .toDB() as ICompilerOutput;
+
+      expect(result.expression).to.match(/ WHERE `\$RelationModel\$`\.`Id` = \? AND \( `\$Relation\$`\.`Id` = \? \) HAVING `RelationProperty` = \?$/);
+      expect(result.bindings).to.deep.equal([1, 99, 'foo']);
+    } finally {
+      column.Aggregate = false;
+    }
   });
 
   it('splits tagged and untagged conditions between ON and WHERE', () => {
