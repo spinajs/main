@@ -13,6 +13,9 @@ declare module '@spinajs/orm' {
     GroupableColumns?: Set<string>;
 
     AggregatableColumns?: Map<string, AggregateFunction[]>;
+
+    /** Relations a request may load through `include`; absent means the model does not restrict `@FromModel`. */
+    IncludableRelations?: Set<string>;
   }
 
   export interface ISelectQueryBuilder {
@@ -51,6 +54,8 @@ declare module '@spinajs/orm' {
 
     /** @returns json schema of an aggregate request over this model */
     export function aggregateSchema(): object;
+
+    export function includableRelations(): string[];
 
     /**
      *

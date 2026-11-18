@@ -10,7 +10,7 @@ import { TestConfiguration } from './common.js';
 import '../src/extension.js';
 import '../src/builders.js';
 import '../src/aggregate.js';
-import { Aggregatable, Filterable, Groupable, Sortable } from '../src/decorators.js';
+import { Aggregatable, Filterable, Groupable, Includable, Sortable } from '../src/decorators.js';
 import { installFilterStatics } from './filter-statics.js';
 
 @Migration('default')
@@ -77,6 +77,7 @@ export class Order extends ModelBase {
   @Filterable(['like', 'nlike', 'b-like', 'nb-like', 'e-like', 'ne-like', 'empty', 'nempty', 'isnull'])
   public Note: string;
 
+  @Includable()
   @BelongsTo(Customer, 'CustomerId')
   public Customer: SingleRelation<Customer>;
 }
