@@ -32,6 +32,8 @@ The registry is `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`); `RULE_IDS` lis
 | OIDC login | `A02/external`, `A13/oidc`, `A19/oidc`, `A27/oidc` |
 | Identity lifecycle and metadata | `A08/lifecycle`, `A12/identity`, `A12/flow`, `A12/api` |
 
+Claim facets, not rule ids. Claiming a rule id claims every facet of the rule: an `AuthnService` that claims `A21` also claims `A21/log`, which fails without a `logs` port. Claim `A21/core`.
+
 The repository's `packages/authn-testing/README.md` lists which SpinaJS package claims which facet today.
 
 ## The rules
