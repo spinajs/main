@@ -384,7 +384,8 @@ export class SqlJoinStatement extends JoinStatement {
   /**
    * Conditions appended to ON keep their own AND/OR connectors and are bracketed, so an OR
    * among them cannot escape the key match: `pk = fk AND ( a ) OR b`. A query callback adds
-   * statements next to the callback's group, and a raw or lazy fragment carries bare text.
+   * statements next to the callback's group, and raw text (a raw where, a raw value, a lazy
+   * fragment) can carry a bare OR. Only a single group, which brackets itself, is left as is.
    */
   protected onConditions(statements: IQueryStatement[], bindings: unknown[]): string {
     const compiled = new SqlWhereCompiler().where({ Statements: statements });
@@ -394,11 +395,9 @@ export class SqlJoinStatement extends JoinStatement {
 
     bindings.push(...compiled.bindings);
 
-    // Read after compiling: a lazy build may append statements.
     const conditions = (statements as WhereStatement[]).filter((x) => !x.IsAggregate);
-    const [only] = conditions;
-    const selfContained = conditions.length === 1 && !(only instanceof RawQueryStatement) && !(only instanceof LazyQueryStatement);
-    return selfContained ? ` AND ${compiled.expression}` : ` AND ( ${compiled.expression} )`;
+    const selfBracketed = conditions.length === 1 && WhereQueryStatement.isGroup(conditions[0]);
+    return selfBracketed ? ` AND ${compiled.expression}` : ` AND ( ${compiled.expression} )`;
   }
 
   /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */

@@ -1234,7 +1234,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? ) WHERE `$RelationModel$`.`Id` = ?',
     );
 
     // ON binding must come before the WHERE binding (ON precedes WHERE in SQL)
@@ -1276,7 +1276,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? ) WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
     );
     expect(result.bindings).to.deep.equal(['foo', 1, 99]);
   });
@@ -1324,6 +1324,18 @@ describe('whereOnJoin', () => {
     expect(result.bindings).to.deep.equal(['foo', 5, 1]);
   });
 
+  it('brackets a raw value with an OR in a single whereOnJoin condition inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where('Id', '=', RawQuery.create('5 OR 1 = 1'));
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`Id` = 5 OR 1 = 1 ) WHERE');
+  });
+
   it('brackets a lazy OR of whereOnJoin inside ON', () => {
     const result = RelationModel.where('Id', 1)
       .populate('Relation', function () {
@@ -1353,7 +1365,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.`relation3_id` = `$Relation$.$Relation3$`.`Id` AND `$Relation$.$Relation3$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.`relation3_id` = `$Relation$.$Relation3$`.`Id` AND ( `$Relation$.$Relation3$`.`RelationProperty` = ? ) WHERE `$RelationModel$`.`Id` = ?',
     );
     expect(result.bindings).to.deep.equal(['bar', 1]);
   });
