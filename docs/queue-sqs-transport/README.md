@@ -2,7 +2,7 @@
 
 The Amazon SQS transport for `@spinajs/queue`. `SqsQueueClient` sends queue messages (events and jobs) to SQS queues and consumes them with a long-poll loop per queue URL.
 
-It does **not** create queues, set redrive policies or support FIFO queues out of the box. Create the queues and their dead-letter queues in AWS (or LocalStack) first; [Extending the SQS client](04-extending-the-sqs-client.md) shows a FIFO subclass. It has no SNS topics either: an "event" goes to a queue URL like a job does.
+It does **not** create queues or set redrive policies. Create the queues and their dead-letter queues in AWS (or LocalStack) first. FIFO queues need a `groupBy` on the route of every message sent to them; see [Publishing messages](02-publishing-messages.md#fifo-queues). It has no SNS topics either: an "event" goes to a queue URL like a job does.
 
 ## Install
 
@@ -16,8 +16,8 @@ npm install @spinajs/queue-sqs-transport
 | --- | --- |
 | [SQS connection](01-sqs-connection.md) | Connection config, how `queue.connections[].service` selects `SqsQueueClient`, one client per connection name, AWS region, endpoint and credentials |
 | [Publishing messages](02-publishing-messages.md) | `emit()`: queue URL routing, the JSON envelope, fan-out to several queues, and what SQS ignores |
-| [Consuming messages](03-consuming-messages.md) | `subscribe()`: the long-poll loop, ack by delete, redelivery and dead-lettering through SQS, receive-error backoff, `unsubscribe()` and `dispose()` |
-| [Extending the SQS client](04-extending-the-sqs-client.md) | DI registration and lifetime, registering a factory, subclassing `SqsQueueClient` (FIFO send, SNS unwrapping, rotating credentials), writing your own `QueueClient` |
+| [Consuming messages](03-consuming-messages.md) | `subscribe()`: the long-poll loop, ack by delete, the two retry modes (redelivery and dead-lettering through SQS, or by the transport with `retryMode: 'transport'`), receive-error backoff, `unsubscribe()` and `dispose()` |
+| [Extending the SQS client](04-extending-the-sqs-client.md) | DI registration and lifetime, registering a factory, subclassing `SqsQueueClient` (the send seams, a custom FIFO group, SNS unwrapping, rotating credentials), writing your own `QueueClient` |
 
 ## Quick start
 
@@ -66,7 +66,7 @@ export async function requestResize(imageId: string) {
 
 ## Event deduplication
 
-`SqsQueueClient` declares `RedeliversFailedEvents`, so `queue.deduplicateEvents` accepts SQS connections ([Event deduplication](../queue/12-event-deduplication.md)). A failed event, and a duplicate that arrives while another consumer still handles the first copy (`RedeliverLater`), are not deleted: they come back after the visibility timeout. Each such redelivery counts toward the queue's `maxReceiveCount`, so a small one can move the only copy to the dead-letter queue while the first is still being handled. Keep `maxReceiveCount` at 5 or more for a deduplicated subscription.
+`SqsQueueClient` declares `RedeliversFailedEvents`, so `queue.deduplicateEvents` accepts SQS connections ([Event deduplication](../queue/12-event-deduplication.md)). A failed event, and a duplicate that arrives while another consumer still handles the first copy (`RedeliverLater`), are not deleted: they come back after the visibility timeout. Each such redelivery counts toward the queue's `maxReceiveCount`, so a small one can move the only copy to the dead-letter queue while the first is still being handled. Keep `maxReceiveCount` at 5 or more for a deduplicated subscription. With `retryMode: 'transport'` a `RedeliverLater` comes back after its own delay instead; a failed event is decided by its route ([Retry modes](03-consuming-messages.md#retry-modes)).
 
 ## Related packages
 
