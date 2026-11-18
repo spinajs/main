@@ -58,6 +58,10 @@ describe('render-image CLI command', function () {
     await DI.resolve(Configuration);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   afterEach(async () => {
     for (const f of outputs.splice(0)) {
       try {

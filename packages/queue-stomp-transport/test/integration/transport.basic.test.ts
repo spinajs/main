@@ -105,6 +105,10 @@ describe('stomp queue transport test', function () {
     await requireBroker(this);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   it('Should connect to queue server', async () => {
     await q();
   });

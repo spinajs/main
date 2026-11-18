@@ -100,6 +100,7 @@ describe('amqp queue transport test', function () {
   });
 
   after(() => {
+    DI.unregister(ConnectionConf);
     process.exit(0);
   });
 

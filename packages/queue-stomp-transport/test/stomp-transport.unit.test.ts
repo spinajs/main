@@ -195,6 +195,10 @@ describe('stomp queue transport - unit', function () {
     await DI.resolve(Configuration);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   describe('resolve / connection lifecycle', () => {
     it('resolves once the broker connects', async () => {
       const c = new TestableStompClient(options());

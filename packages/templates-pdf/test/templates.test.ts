@@ -65,6 +65,10 @@ describe('templates', function ()  {
     await DI.resolve(Configuration);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   afterEach(async () => {
     // dispose so the pooled browser is closed and the process can exit
     await DI.dispose();

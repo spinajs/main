@@ -182,6 +182,10 @@ describe('amqp queue transport - unit', function () {
     await DI.resolve(Configuration);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   describe('connection lifecycle', () => {
     it('creates a confirm channel for publishing and a consume channel with prefetch 1', async () => {
       const c = await connected();

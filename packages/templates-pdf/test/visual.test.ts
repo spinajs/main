@@ -158,6 +158,10 @@ describe('visual regression', function () {
     await DI.resolve(Configuration);
   });
 
+  after(() => {
+    DI.unregister(ConnectionConf);
+  });
+
   afterEach(async () => {
     await DI.dispose();
   });
