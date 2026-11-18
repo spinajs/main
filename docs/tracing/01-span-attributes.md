@@ -37,33 +37,33 @@ This page documents only the keys, not the spans that carry them.
 | `SpinaAttr.Step` | `spina.scheduler.step` | not set by any package yet |
 | `SpinaAttr.Resumed` | `spina.scheduler.resumed` | not set by any package yet |
 | `SpinaAttr.SocketCommand` | `spina.socket.command` | not set by any package yet |
-| `SpinaAttr.Tenant` | `spina.tenant.id` | not set by any package yet; set it on your own spans |
+| `SpinaAttr.Tenant` | `spina.tenant.id` | set by `@spinajs/tenancy-tracing`: on every span, the tenant id of the scope the span starts in, `'*'` across all tenants |
 
 ## Important behaviour
 
 - `SpinaAttr` names keys only; setting a key does not make any package read it.
-- `spina.tenant.id` carries a tenant id. Code that runs across all tenants (`runAcrossTenants()` of `@spinajs/tenancy`) has no single id; leave the attribute unset there.
+- `spina.tenant.id` carries the tenant id, or `'*'` for code that runs across all tenants (`runAcrossTenants()` of `@spinajs/tenancy`). Import [`@spinajs/tenancy-tracing`](../tenancy-tracing/README.md) instead of setting it by hand: it tags every span, child spans included.
 
 ## Best practices
 
-- Take the tenant from `currentTenant()` of `@spinajs/tenancy` rather than from request input, so the span shows the scope the code ran in.
+- Take the tenant from the scope (`currentTenant()` of `@spinajs/tenancy`, which `@spinajs/tenancy-tracing` reads too) rather than from request input, so the span shows the scope the code ran in.
 - Use the constant, never the string literal: a renamed key then fails to compile instead of splitting your traces.
 
 ## Examples
 
 ### Tag a background job span with its tenant
 
+With `@spinajs/tenancy-tracing` imported, the job needs no tracing code for its tenant:
+
 ```ts sample
-import { currentTenant, runInTenant } from '@spinajs/tenancy';
-import { SpinaAttr, withSpan } from '@spinajs/tracing';
+import '@spinajs/tenancy-tracing';
+import { runInTenant } from '@spinajs/tenancy';
+import { withSpan } from '@spinajs/tracing';
 
 export async function rebuildSearchIndex(tenantId: string): Promise<void> {
   await runInTenant(tenantId, async () => {
-    await withSpan('search.rebuild', {}, async (span) => {
-      const tenant = currentTenant();
-      if (tenant) {
-        span.setAttribute(SpinaAttr.Tenant, tenant.id);
-      }
+    // search.rebuild and every span under it carry spina.tenant.id
+    await withSpan('search.rebuild', {}, async () => {
       // rebuild the index of this tenant
     });
   });
@@ -72,5 +72,6 @@ export async function rebuildSearchIndex(tenantId: string): Promise<void> {
 
 ## Related
 
+- [`@spinajs/tenancy-tracing`](../tenancy-tracing/README.md): sets `spina.tenant.id` on every span.
 - [`@spinajs/tenancy`](../tenancy/README.md): `runInTenant`, `currentTenant`.
 - [Async context and tracing](../log/12-async-context-and-tracing.md): the `Tenant` field on log lines.

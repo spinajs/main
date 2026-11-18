@@ -100,4 +100,5 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/log`](log/README.md), [`log-common`](log-common/README.md), [`log-otlp`](log-otlp/README.md), [`log-source-graphana-loki`](log-source-graphana-loki/README.md) | Logging and targets |
 | [`@spinajs/telemetry`](telemetry/README.md), [`telemetry-common`](telemetry-common/README.md), [`telemetry-otel`](telemetry-otel/README.md) | Metrics and tracing |
 | [`@spinajs/tracing`](tracing/README.md) | OpenTelemetry bootstrap; span attribute keys |
+| [`@spinajs/tenancy-tracing`](tenancy-tracing/README.md) | The tenant of the current scope on every span |
 | [`@spinajs/electron`](electron/README.md) | Services in the Electron main process |

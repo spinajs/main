@@ -214,6 +214,7 @@ graphify-out/
 !/docs/templates-xlsx/
 !/docs/tenancy/
 !/docs/tenancy-http/
+!/docs/tenancy-tracing/
 !/docs/testing/
 !/docs/testing-orm/
 !/docs/threading/
