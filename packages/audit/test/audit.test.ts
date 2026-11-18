@@ -613,7 +613,8 @@ describe('audit(): deferred batches and failure paths', function () {
       await pause(150);
       expect(unhandled).to.deep.eq([]);
       expect(warnings).to.have.length(4);
-      for (const warning of warnings) expect(warning).to.contain('no logger');
+      // The logger's failure is the same on every line: its message, not its stack.
+      for (const warning of warnings) expect(warning).to.contain('no logger').and.not.match(/\n\s+at /);
       expect(resolutions).to.have.length(1);
     } finally {
       FlakyStore.failure = new Error('store down');
