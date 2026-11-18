@@ -1,10 +1,12 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { audit, eventDigest, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
+import { audit, eventDigest, eventsHash, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { instantFromDb } from '@spinajs/orm';
 import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
+import type { AuditRow } from '../src/index.js';
 import { TestDb } from '../src/testing.js';
 import { event, setTrail, tableRows } from './support/events.js';
 
@@ -12,6 +14,12 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const ARCHIVE = 'audit_shipped';
+
+// The hash a seal row must carry over these digests: its events hash, chained with its own sealed_at as the dialect reads it back.
+function expectSealOver(seal: AuditRow, digests: readonly string[]): void {
+  const sealedAt = instantFromDb(seal.sealed_at)?.toJSDate() ?? new Date(Number.NaN);
+  expect([seal.events_hash, seal.hash]).to.deep.eq([eventsHash(digests), sealHash(null, sealedAt, eventsHash(digests))]);
+}
 
 class ShippedArchiveMigration extends AuditArchiveTableMigration {
   protected override table(): string {
@@ -81,7 +89,7 @@ describe('audit-orm dialect parity', function () {
         const source = db.connectionName(dialect);
         const digests = [big, event(2)].map((e: AuditEvent) => eventDigest({ ...e, source }, payloadHash(e.data)));
         const [seal] = await tableRows(driver(), 'audit_seal', 'id');
-        expect(seal.hash).to.eq(sealHash(null, digests));
+        expectSealOver(seal, digests);
         expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 2, redacted: 0, tampered: undefined, unsealed: 0 });
       });
 
@@ -92,7 +100,7 @@ describe('audit-orm dialect parity', function () {
         expect(stored.at.toISOString()).to.eq(precise.at.toISOString());
         await sealNow();
         const [seal] = await tableRows(driver(), 'audit_seal', 'id');
-        expect(seal.hash).to.eq(sealHash(null, [eventDigest({ ...precise, source: 'app' }, payloadHash(precise.data))]));
+        expectSealOver(seal, [eventDigest({ ...precise, source: 'app' }, payloadHash(precise.data))]);
         expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 1, tampered: undefined });
       });
 

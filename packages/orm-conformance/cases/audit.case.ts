@@ -79,7 +79,8 @@ export const AUDIT_CASES = [
             left: await count(driver, 'audit_outbox'),
             sealed: sealed.sealed,
             sealFailures: sealed.failed.map((f) => f.reason),
-            head: seal?.hash ?? null,
+            // The seal's own hash chains its sealed_at, a time of the run; what it sealed is the same on every target.
+            eventsHash: seal?.events_hash ?? null,
             seals: report.seals,
             intact: report.intact,
             tampered: report.tampered ?? null,
