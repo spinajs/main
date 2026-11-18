@@ -3,7 +3,7 @@ import type { AuditPinnedHead, AuditSubject, AuditTamper, AuditUncoveredRow, Aud
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { rowsOf, toStored } from '../rows.js';
+import { erasureRecords, rowsOf, toStored } from '../rows.js';
 import type { AuditRow } from '../rows.js';
 import { sealConfig } from './config.js';
 import { SEAL_PAGE_SIZE, lastSeal, rowDigest, sealById, sealsAfter, storedHash } from './seals.js';
@@ -176,7 +176,7 @@ async function unexplained(driver: OrmDriver, table: string, redactions: readonl
   // spinajs-orm-ignore ORM102: deliberate batching, one SELECT per SUBJECT_CHUNK erased subjects
   for (let i = 0; i < subjects.length; i += SUBJECT_CHUNK) {
     const chunk = subjects.slice(i, i + SUBJECT_CHUNK);
-    const select = driver.select().from(table).where('kind', 'custom').where('action', 'erasure');
+    const select = driver.select().from(table).where(erasureRecords);
     select.whereIn('subject_type', [...new Set(chunk.map((s) => s.type))]).whereIn('subject_id', [...new Set(chunk.map((s) => s.id))]);
     for (const erasure of rowsOf(await select).map(toStored)) {
       if (!vouched(erasure, v)) continue;

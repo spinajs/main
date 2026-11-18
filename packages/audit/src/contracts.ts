@@ -206,7 +206,7 @@ export interface AuditRedaction {
 
 export abstract class AuditReader {
   abstract list(trail: TrailConfig, filter: AuditFilter): Promise<readonly StoredAuditEvent[]>;
-  /** Blanks the payload of every event of one subject and keeps its hash; returns how many. */
+  /** Blanks the payload of every event of one subject, erasure records (`custom`/`erasure`) excepted, and keeps its hash; returns how many. */
   abstract redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number>;
   /**
    * The erasure `forget` runs, one connection at a time: `forget` records each yielded redaction's `erasure` event,

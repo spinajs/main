@@ -173,6 +173,19 @@ describe('audit queue sink', function () {
       expect([await data(late.id), await data(other.id), await data(after.id), await data(String(erasure?.id))]).to.deep.eq(['', '{"version":9}', '{"version":8}', '{"redacted":1}']);
     });
 
+    it('blanks an event of another kind named erasure, buffered or archived: only custom/erasure is an erasure record', async () => {
+      const named = (n: number): AuditEvent => event(n, { kind: 'action', action: 'erasure', subject: c1, data: { email: 'a@example.com' } });
+      await arrive(named(1));
+      await audit().record({ kind: 'action', action: 'erasure', subject: c1, data: { email: 'b@example.com' } }, { trail: 'remote', mode: 'confirmed' });
+
+      await audit().trail('remote').forget(c1);
+      expect(await data(named(1).id)).to.eq('');
+      expect((await tableRows(driver(), 'audit_outbox')).map((r) => [r.kind, r.data])).to.deep.eq([
+        ['action', ''],
+        ['custom', '{"redacted":2}'],
+      ]);
+    });
+
     it('never blanks an earlier erasure record, buffered or archived, when the subject is forgotten again', async () => {
       await arrive(event(1, { subject: c1 }));
       await audit().trail('remote').forget(c1);

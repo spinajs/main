@@ -237,6 +237,20 @@ describe('TableAuditReader', function () {
         expect((await events.of(patient, { order: 'desc', limit: 1 })).map((e) => e.action)).to.deep.eq(['update']);
       });
 
+      it('blanks an event of another kind named erasure, and keeps the erasure records forget wrote', async () => {
+        const events = audit().trail(trail);
+        await events.forget(patient);
+        await audit().record({ kind: 'action', action: 'erasure', subject: patient, data: { email: 'a@example.com' } }, { trail });
+
+        expect(await events.forget(patient)).to.eq(1);
+        const erasures = (await db.rows(dialect, tableOf(dialect))).filter((r) => r.action === 'erasure').map((r) => [r.kind, r.data]);
+        expect(erasures).to.deep.eq([
+          ['custom', '{"redacted":2}'],
+          ['action', ''],
+          ['custom', '{"redacted":1}'],
+        ]);
+      });
+
       it('redacts a subject, keeps the payload hashes and records the erasure', async () => {
         const before = await db.rows(dialect, tableOf(dialect));
         const events = audit().trail(trail);

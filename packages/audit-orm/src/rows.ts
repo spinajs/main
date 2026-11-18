@@ -2,7 +2,7 @@ import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, canonicalJson, payloadHa
 import type { AuditEvent, StoredAuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Orm, instantFromDb } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
+import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 // Keeps one INSERT of 18 columns (and the one or two a buffer or an archive adds) within the bind-parameter limit of every driver.
 const INSERT_CHUNK = 50;
@@ -10,8 +10,25 @@ const INSERT_CHUNK = 50;
 /** What a redacted payload is stored as; `data_hash` keeps the hash of the text it replaced. */
 export const REDACTED_DATA = '';
 
-/** The action of the event `forget` records; an erasure never blanks one, because it is the evidence of an earlier erasure. */
-export const ERASURE_ACTION = 'erasure';
+/**
+ * The kind and action of the record `forget` writes, reserved for it. Verify, arrival blanking and every erasure take
+ * exactly this pair as an erasure record, and an erasure never blanks one: it is the evidence of an earlier erasure.
+ */
+export const ERASURE = { kind: 'custom', action: 'erasure' } as const;
+
+export const isErasureRecord = (e: { readonly kind: string; readonly action: string }): boolean => e.kind === ERASURE.kind && e.action === ERASURE.action;
+
+/** A where clause for erasure records. */
+export function erasureRecords(this: IWhereBuilder<unknown>): void {
+  this.where('kind', ERASURE.kind);
+  this.where('action', ERASURE.action);
+}
+
+/** A where clause for every row but erasure records; `kind` and `action` are never null. */
+export function exceptErasureRecords(this: IWhereBuilder<unknown>): void {
+  this.where('kind', '<>', ERASURE.kind);
+  this.orWhere('action', '<>', ERASURE.action);
+}
 
 /** A row of a trail table as a select without a model returns it: column names to driver values. */
 export type AuditRow = Readonly<Record<string, unknown>>;

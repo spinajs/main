@@ -133,4 +133,4 @@ export class LegacyAuditReader extends TableAuditReader {
 
 - A sink that does not deduplicate on `id` stores duplicates: delivery is at least once.
 - A store without `joinsTransaction` cannot take transactional writes, and one without a reader cannot be read, erased, pruned or verified from the application.
-- A custom reader's `redact` must keep `data_hash` and every sealed field, or the seals of a sealed trail fail after an erasure, and must leave `erasure` records alone.
+- A custom reader's `redact` must keep `data_hash` and every sealed field, or the seals of a sealed trail fail after an erasure, and must leave erasure records (`kind: 'custom'`, `action: 'erasure'`) alone.
