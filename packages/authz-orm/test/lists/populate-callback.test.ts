@@ -5,8 +5,7 @@ import sinon from 'sinon';
 import { AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { BelongsTo, HasMany, HasManyToMany, Relation, SingleRelation } from '@spinajs/orm';
-import type { ModelBase } from '@spinajs/orm';
+import { BelongsTo, HasMany, HasManyToMany, ModelBase, Relation, SingleRelation } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -18,7 +17,8 @@ const expect = chai.expect;
 const alice: Principal = { type: 'user', id: 'alice', authenticated: true, source: 'test', attributes: {} };
 const green: AccessPlan = { kind: 'filter', permit: [{ op: 'test.flag', args: { flag: 'green' } }], deny: [] };
 
-type Q = Promise<ModelBase[]> & {
+// Builders are thenables, not Promises.
+type Q = PromiseLike<ModelBase[]> & {
   accessible(p: string): Q;
   within(r: object): Q;
   withAccess(p: string[]): Q;
@@ -28,10 +28,18 @@ type Q = Promise<ModelBase[]> & {
 type M = Omit<typeof ModelBase, 'query'> & { query(): Q };
 
 const marks: Record<string, (q: Q, permission: string) => void> = {
-  accessible: (q, p) => q.accessible(p),
-  within: (q) => q.within({ type: 'project', id: 'p1' }),
-  withAccess: (q, p) => q.withAccess([p]),
-  withFields: (q, p) => q.withFields(p),
+  accessible: (q, p) => {
+    q.accessible(p);
+  },
+  within: (q) => {
+    q.within({ type: 'project', id: 'p1' });
+  },
+  withAccess: (q, p) => {
+    q.withAccess([p]);
+  },
+  withFields: (q, p) => {
+    q.withFields(p);
+  },
 };
 
 const listOf = (rows: ModelBase[], relation: string) => rows.map((r) => [...(r as unknown as Record<string, Iterable<{ id: unknown }>>)[relation]].map((x) => String(x.id)).sort());
@@ -73,12 +81,12 @@ describe('authz marks in a populate callback', function () {
         { id: 'j2', campaign_id: 'c1', tag_id: 'r1' },
       ],
     });
-    // emitDecoratorMetadata records SingleRelation / Relation for these properties; the relation decorators read it.
-    const toTag = (proto: object) => {
-      Reflect.defineMetadata('design:type', SingleRelation, proto, 'tag');
-      BelongsTo(Tag, 'tag_id', 'id')(proto, 'tag');
-    };
+    class TagLink extends ModelBase {
+      @BelongsTo(Tag, 'tag_id', 'id')
+      public tag!: SingleRelation<ModelBase>;
+    }
     const Offer = await db.define({
+      base: TagLink,
       name: 'Offer',
       columns: { flag: 'TEXT', campaign_id: 'TEXT', tag_id: 'TEXT' },
       rows: [
@@ -86,33 +94,30 @@ describe('authz marks in a populate callback', function () {
         { id: 'o2', flag: 'red', campaign_id: 'c1', tag_id: 'g1' },
         { id: 'o3', flag: 'red', campaign_id: 'c2', tag_id: 'g1' },
       ],
-      decorate: (c, proto) => {
-        AccessResource('offer')(c);
-        toTag(proto);
-      },
+      decorate: (c) => AccessResource('offer')(c),
     });
     Note = (await db.define({
+      base: TagLink,
       name: 'Note',
       columns: { flag: 'TEXT', tag_id: 'TEXT' },
       rows: [{ id: 'n1', flag: 'green', tag_id: 'r1' }],
-      decorate: (c, proto) => {
-        AccessResource('note')(c);
-        toTag(proto);
-      },
+      decorate: (c) => AccessResource('note')(c),
     })) as M;
+    class CampaignLinks extends ModelBase {
+      @HasMany(Offer, { foreignKey: 'campaign_id', primaryKey: 'id' })
+      public offers!: Relation<ModelBase, ModelBase>;
+
+      @HasManyToMany(CampaignTag, Tag, { targetModelPKey: 'id', sourceModelPKey: 'id', junctionModelTargetPk: 'tag_id', junctionModelSourcePk: 'campaign_id' })
+      public tags!: Relation<ModelBase, ModelBase>;
+    }
     Campaign = (await db.define({
+      base: CampaignLinks,
       name: 'Campaign',
       columns: { title: 'TEXT' },
       rows: [
         { id: 'c1', title: 'one' },
         { id: 'c2', title: 'two' },
       ],
-      decorate: (_c, proto) => {
-        Reflect.defineMetadata('design:type', Relation, proto, 'offers');
-        HasMany(Offer, { foreignKey: 'campaign_id', primaryKey: 'id' })(proto, 'offers');
-        Reflect.defineMetadata('design:type', Relation, proto, 'tags');
-        HasManyToMany(CampaignTag, Tag, { targetModelPKey: 'id', sourceModelPKey: 'id', junctionModelTargetPk: 'tag_id', junctionModelSourcePk: 'campaign_id' })(proto, 'tags');
-      },
     })) as M;
   });
 
