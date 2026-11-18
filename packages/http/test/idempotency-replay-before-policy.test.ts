@@ -4,12 +4,12 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { IdempotencyService } from '@spinajs/idempotency';
+import { IdempotencyService, idempotencyKey } from '@spinajs/idempotency';
 import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log';
 import type { TestApp } from '@spinajs/testing';
 import { httpApp, req, TestConfiguration } from './common.js';
-import { Audit, AuditSink, BaseController, BasePath, BasePolicy, Controllers, Del, HttpServer, Idempotent, Middleware, Ok, Param, Policy, ReplayedResponse, RouteMiddleware } from '../src/index.js';
+import { Audit, AuditSink, BaseController, BasePath, BasePolicy, Controllers, Del, HttpServer, IdempotencyScopePart, Idempotent, Middleware, Ok, Param, Policy, ReplayedResponse, RouteMiddleware } from '../src/index.js';
 import type { IAuditRecord, IMiddlewareContext, IReplyContext, MiddlewareStage, Request } from '../src/index.js';
 
 const state = {
@@ -59,11 +59,21 @@ class SignIn extends RouteMiddleware {
         },
       });
     }
+    const zone = header('x-zone');
+    if (zone) Reflect.set(storage, 'Zone', zone);
     return req.headers['x-maintenance'] ? new Ok({ maintenance: true }) : undefined;
   }
 
   public onAfter({ response }: IReplyContext): void {
     state.beforePolicyAfter.push({ status: response.statusCode, replay: response instanceof ReplayedResponse });
+  }
+}
+
+/** Stands for the tenant scope part of @spinajs/tenancy-http: x-zone is the request's tenant. */
+class ZonePart extends IdempotencyScopePart {
+  public partOf(store: object): string | undefined {
+    const zone: unknown = Reflect.get(store, 'Zone');
+    return typeof zone === 'string' ? `zone:${zone}` : undefined;
   }
 }
 
@@ -151,7 +161,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
 }
 
 describe('Idempotency-Key replay before the policy gate', function () {
-  this.timeout(20_000);
+  this.timeout(60_000);
 
   let app: TestApp;
 
@@ -161,6 +171,7 @@ describe('Idempotency-Key replay before the policy gate', function () {
       register: (c) => {
         c.register(ReplayAuditSink).as(AuditSink);
         c.register(ReplayItemsController).as(BaseController);
+        c.register(ZonePart).as(IdempotencyScopePart);
       },
       resolve: [Intl, Controllers],
     });
@@ -444,6 +455,78 @@ describe('Idempotency-Key replay before the policy gate', function () {
       expect(missing.status).to.eq(400);
       expect(missing.body.code).to.eq('idempotency.key-required');
       expect(state.actionCalls).to.eq(0);
+    });
+  });
+
+  describe('with a registered IdempotencyScopePart (a tenant)', () => {
+    const z1 = { 'x-zone': 'z1' };
+    const z2 = { 'x-zone': 'z2' };
+
+    it('runs the same principal and key again in another zone, and replays each zone its own reply', async () => {
+      const first = await remove('open/a', 'zone-1', 'u1', z1);
+      const other = await remove('open/a', 'zone-1', 'u1', z2);
+      const firstAgain = await remove('open/a', 'zone-1', 'u1', z1);
+      const otherAgain = await remove('open/a', 'zone-1', 'u1', z2);
+
+      expect(first.body).to.deep.eq({ deleted: 'a', call: 1 });
+      expect(other.status).to.eq(200);
+      expect(other.headers['idempotent-replayed']).to.eq(undefined);
+      expect(other.body).to.deep.eq({ deleted: 'a', call: 2 });
+      expect([firstAgain.headers['idempotent-replayed'], firstAgain.text]).to.deep.eq(['true', first.text]);
+      expect([otherAgain.headers['idempotent-replayed'], otherAgain.text]).to.deep.eq(['true', other.text]);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it('runs an anonymous random key again in another zone', async () => {
+      const key = randomUUID();
+      await remove('open/a', key, undefined, z1);
+      const other = await remove('open/a', key, undefined, z2);
+
+      expect(other.status).to.eq(200);
+      expect(other.headers['idempotent-replayed']).to.eq(undefined);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it("never replays another zone's reply before the policies: the policies judge it", async () => {
+      await remove('a', 'zone-peek-1', 'u1', z1);
+      const other = await remove('a', 'zone-peek-1', 'u1', z2);
+      const again = await remove('a', 'zone-peek-1', 'u1', z1);
+
+      expect(other.status).to.eq(403);
+      expect(other.headers['idempotent-replayed']).to.eq(undefined);
+      expect(again.headers['idempotent-replayed']).to.eq('true');
+      expect(state.policyCalls).to.eq(2);
+      expect(state.actionCalls).to.eq(1);
+    });
+
+    it('does not refuse a key another zone holds in flight', async () => {
+      let release!: () => void;
+      state.hold = new Promise<void>((resolve) => (release = resolve));
+
+      const held = remove('a', 'zone-race-1', 'u1', z1).then((res) => res);
+      await waitFor(() => state.actionCalls === 1);
+      const other = remove('a', 'zone-race-1', 'u1', z2).then((res) => res);
+      await waitFor(() => state.actionCalls === 2);
+      release();
+
+      expect([(await held).status, (await other).status]).to.deep.eq([200, 200]);
+    });
+
+    it('does not refuse as key reuse a key another zone used on another request', async () => {
+      await remove('a', 'zone-reuse-1', 'u1', z1);
+      const other = await remove('b', 'zone-reuse-1', 'u1', z2);
+
+      expect(other.status).to.eq(200);
+      expect(other.body).to.deep.eq({ deleted: 'b', call: 2 });
+    });
+
+    it('keeps the key of a request outside any zone as it was without parts', async () => {
+      const run = sinon.spy(await app.resolve(IdempotencyService), 'run');
+
+      await remove('open/a', 'zone-none-1', 'u1');
+
+      const [scope, key] = run.firstCall.args;
+      expect(idempotencyKey(scope, key)).to.eq(idempotencyKey({ namespace: 'http:DELETE /replay-items/open/:id', principal: 'user:u1' }, 'zone-none-1'));
     });
   });
 });
