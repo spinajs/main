@@ -5,7 +5,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { rowsOf, toStored } from '../rows.js';
 import type { AuditRow } from '../rows.js';
-import { sealConfig } from './seal.js';
+import { sealConfig } from './config.js';
 import { SEAL_PAGE_SIZE, lastSeal, rowDigest, sealById, sealsAfter, storedHash } from './seals.js';
 import type { AuditSeal } from './seals.js';
 
