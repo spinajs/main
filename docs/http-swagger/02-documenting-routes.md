@@ -84,13 +84,14 @@ Standard codes and their components: `400` `BadRequest`, `401` `Unauthorized`, `
 
 ### File downloads
 
-A route that returns a file is documented as a binary body, not as JSON. The class name comes from `@returns {Name}`, from `@response <code> {Name}`, or from the declared return type.
+A route that returns a file is documented as a binary body, not as JSON; a route that streams server-sent events gets a text body. The class name comes from `@returns {Name}`, from `@response <code> {Name}`, or from the declared return type.
 
 | Return class | Media type | Schema |
 | --- | --- | --- |
 | `FileResponse` | `application/octet-stream` | `{ type: 'string', format: 'binary' }` |
 | `ZipResponse` | `application/zip` | same |
 | `JsonFileResponse` | `application/json` | same |
+| `SseResponse` | `text/event-stream` | `{ type: 'string' }`: the connection stays open and streams text events |
 
 ## Examples
 
