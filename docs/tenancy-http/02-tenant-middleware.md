@@ -141,6 +141,7 @@ DI.register(LoggedTenantMiddleware).as(TenantMiddleware);
 - **`@NoTenant()` clears.** A `'none'` route deletes any `Tenant` key already in the store, and the authz cache with it.
 - **Only `'required'` builds a chain.** `'none'` and `'all'` instances never ask a resolver, so a bad `tenancy.http.resolvers` fails the startup only when some route requires a tenant.
 - **Cross-tenant routes are not checked against the principal.** `@AllTenants` sets `{ kind: 'all' }` for every caller; restrict those routes with a policy.
+- **Idempotency keys stay in their tenant.** `TenantIdempotencyScope`, an `IdempotencyScopePart` of `@spinajs/http`, adds the scope this middleware set to the scope of every `@Idempotent` key: `tenant:<id>`, or `tenant:*` for `@AllTenants` whatever its reason. One user's, or anonymous callers', `Idempotency-Key` in two tenants runs once in each and is never replayed, nor refused as in flight or reused, across them, also by the replay before the policies, which runs after this middleware. A request with no scope keeps the key it had without tenancy. See [Idempotency scope](../http/26-idempotency.md#scope).
 
 ## Best practices
 

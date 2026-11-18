@@ -68,8 +68,10 @@ ready for `IdempotencyClaimConflict`.
 
 ## Keys and fingerprints
 
-The stored key is the sha256 hex of the JSON text `[namespace, principal ?? null, key]`. The namespace and the principal
-keep callers apart: the same client key from two users is two keys. A fingerprint (the sha256 of the request,
+The stored key is the sha256 hex of the JSON text `[namespace, principal ?? null, key, ...parts]`. The namespace and the principal
+keep callers apart: the same client key from two users is two keys. The optional `parts` of a scope add more of the
+caller's scope, such as its tenant (`tenant:acme`), so one user's key in two tenants is two keys; a scope without
+parts keeps the key it had before parts existed. A fingerprint (the sha256 of the request,
 `fingerprintOf()`) makes a repeat with a different request fail with `IdempotencyKeyReuse`, also while the first call
 still runs.
 

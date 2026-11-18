@@ -147,9 +147,9 @@ On any other route the policies always run, even after a `'beforePolicy'` middle
 Two consequences follow:
 
 - Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
-  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant chosen by
-  a header is not part of the fingerprint either, so one user's request to tenant B with a key used for tenant A
-  replays A's reply, on the claim path too: put the tenant in the URL, or in the body with `fingerprint: 'body'`.
+  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant is not one
+  of them: with `@spinajs/tenancy-http` the tenant is part of the key's [scope](#scope), so a request to tenant B
+  never replays a reply stored in tenant A, before the policies or on the claim path.
 - A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
   semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
 
@@ -175,6 +175,12 @@ A restricted principal gets a scope of its own: its key (`principalKey`) togethe
 or an admin impersonating that user, nor the other way round. An unrestricted principal keeps the plain
 `principalKey`. A share link is scoped by the link, its scope and expiry and the signed-in companion: two bearers of
 one link who are not signed in share its key space, as anonymous callers share theirs.
+
+Every registered `IdempotencyScopePart` adds a part to the scope, read from `req.storage` after the `'beforePolicy'`
+middlewares ran. `@spinajs/tenancy-http` registers one for the tenant that `TenantMiddleware` set: the same key from
+one user, or from anonymous callers, in two tenants runs once in each, and is neither replayed nor refused as in
+flight or reused across them. A request with no part, such as one outside any tenant scope, keeps the key it had
+without parts.
 
 ### Shared scopes
 
