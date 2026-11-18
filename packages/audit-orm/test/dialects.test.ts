@@ -1,0 +1,121 @@
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import 'mocha';
+import { audit, eventDigest, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
+import type { AuditEvent, TrailConfig } from '@spinajs/audit';
+import { DI } from '@spinajs/di';
+import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
+import { TestDb } from '../src/testing.js';
+import { event, setTrail, tableRows } from './support/events.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+const ARCHIVE = 'audit_shipped';
+
+class ShippedArchiveMigration extends AuditArchiveTableMigration {
+  protected override table(): string {
+    return ARCHIVE;
+  }
+}
+
+describe('audit-orm dialect parity', function () {
+  this.timeout(120000);
+  let db: TestDb;
+
+  before(async () => {
+    db = await TestDb.open();
+  });
+
+  after(async () => {
+    await db?.close();
+  });
+
+  it('reaches the servers the dialect job requires', () => {
+    if (process.env.ORM_TEST_DIALECTS_REQUIRED !== '1') return;
+    expect((['postgres', 'mysql'] as const).filter((dialect) => !db.has(dialect))).to.deep.eq([]);
+  });
+
+  for (const dialect of TestDb.dialects()) {
+    describe(dialect, () => {
+      let store: OutboxAuditStore;
+      let sink: ArchiveAuditSink;
+      const driver = () => db.driver(dialect);
+      const shipped = (): TrailConfig => trailConfig('shipped');
+      const migrations = () => [new AuditOutboxTableMigration(), new ShippedArchiveMigration(), new AuditSealTableMigration()];
+      const sealNow = () => sealAudit({ trail: 'shipped', settleMs: 0 });
+
+      before(function () {
+        if (!db.has(dialect)) this.skip();
+      });
+
+      beforeEach(async () => {
+        const name = db.connectionName(dialect);
+        setTrail('shipped', { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', table: ARCHIVE, connection: name, archiveConnection: name, integrity: 'sealed' });
+        // A server keeps what an earlier run left.
+        // spinajs-orm-ignore ORM102: three DDL statements of the test setup
+        for (const m of migrations()) await m.down(driver());
+        // spinajs-orm-ignore ORM102: three DDL statements of the test setup
+        for (const m of migrations()) await m.up(driver());
+        store = DI.resolve(OutboxAuditStore);
+        sink = DI.resolve(ArchiveAuditSink);
+      });
+
+      afterEach(async () => {
+        setTrail('shipped', undefined);
+        // spinajs-orm-ignore ORM102: three DDL statements of the test teardown
+        for (const m of migrations()) await m.down(driver());
+      });
+
+      it('carries an event through buffer, shipment, archive and seal unchanged', async () => {
+        // Above the 64 KB of a MySQL TEXT column: data is LONGTEXT.
+        const big = event(1, { data: { text: 'naïve café 東京', pad: 'x'.repeat(100000), nested: { n: 1.5, list: [1, 'two', null] } } });
+        await store.append({ trail: shipped(), events: [big, event(2)] });
+        expect((await tableRows(driver(), 'audit_outbox')).map((r) => String(r.id).length)).to.deep.eq([36, 36]);
+        expect(await shipAudit({ trail: 'shipped' })).to.deep.eq({ shipped: 2, failed: [] });
+        expect(await sealNow()).to.deep.eq({ sealed: 2, failed: [] });
+
+        const [first, second] = await audit().trail('shipped').since(0);
+        expect(first.data).to.deep.eq(big.data);
+        expect([first.id, second.id, first.at.getTime()]).to.deep.eq([big.id, event(2).id, big.at.getTime()]);
+        const source = db.connectionName(dialect);
+        const digests = [big, event(2)].map((e: AuditEvent) => eventDigest({ ...e, source }, payloadHash(e.data)));
+        const [seal] = await tableRows(driver(), 'audit_seal', 'id');
+        expect(seal.hash).to.eq(sealHash(null, digests));
+        expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 2, redacted: 0, tampered: undefined, unsealed: 0 });
+      });
+
+      it('keeps the milliseconds of at, so what it sealed verifies', async () => {
+        const precise = event(1, { at: new Date('2026-11-16T10:00:01.234Z') });
+        await sink.deliver({ trail: 'shipped', source: 'app', events: [precise] });
+        const [stored] = await audit().trail('shipped').since(0, { source: 'app' });
+        expect(stored.at.toISOString()).to.eq(precise.at.toISOString());
+        await sealNow();
+        const [seal] = await tableRows(driver(), 'audit_seal', 'id');
+        expect(seal.hash).to.eq(sealHash(null, [eventDigest({ ...precise, source: 'app' }, payloadHash(precise.data))]));
+        expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 1, tampered: undefined });
+      });
+
+      it('refuses a second archive row with the same id', async () => {
+        await sink.deliver({ trail: 'shipped', source: 'app', events: [event(1)] });
+        await expect(insertRows(driver(), ARCHIVE, [{ source: 'app', ...storedColumns(event(1)) }])).to.be.rejected;
+      });
+
+      it('ships everything written after the buffer was emptied', async () => {
+        // An emptied MySQL 5.7 table restarts its autoincrement after a server restart: events are told apart by id, never by buffer seq.
+        await store.append({ trail: shipped(), events: [event(1), event(2)] });
+        await shipAudit({ trail: 'shipped' });
+        await store.append({ trail: shipped(), events: [event(3)] });
+        await shipAudit({ trail: 'shipped' });
+        expect((await tableRows(driver(), ARCHIVE)).map((r) => r.id)).to.deep.eq([event(1).id, event(2).id, event(3).id]);
+      });
+
+      it('reads a bigint seq as a number and pages by it', async () => {
+        await sink.deliver({ trail: 'shipped', source: 'app', events: [event(1), event(2), event(3)] });
+        const all = await audit().trail('shipped').since(0, { source: 'app' });
+        expect(all.map((e) => typeof e.seq)).to.deep.eq(['number', 'number', 'number']);
+        expect((await audit().trail('shipped').since(all[0].seq, { source: 'app', limit: 1 })).map((e) => e.id)).to.deep.eq([event(2).id]);
+      });
+    });
+  }
+});

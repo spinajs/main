@@ -1,0 +1,88 @@
+name: audit-orm
+
+# The suites of @spinajs/audit-orm on PostgreSQL 16.6 and MySQL 8.0 / 5.7 ( shape of orm-postgres.yml and
+# migrations-mysql.yml ), against the services this job starts. The test job of build.yml runs the same files on sqlite
+# and PGlite.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/audit/**'
+      - 'packages/audit-orm/**'
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-postgres/**'
+      - 'packages/orm-mysql/**'
+      - '.github/workflows/audit-orm.yml'
+  pull_request:
+    paths:
+      - 'packages/audit/**'
+      - 'packages/audit-orm/**'
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-postgres/**'
+      - 'packages/orm-mysql/**'
+      - '.github/workflows/audit-orm.yml'
+  workflow_dispatch:
+
+jobs:
+  dialects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mysql: ['mysql:8.0', 'mysql:5.7']
+
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      mysql:
+        image: ${{ matrix.mysql }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # ts-mocha resolves @spinajs/* to lib: the package's own graph plus every devDependency its suites import.
+      - name: build audit-orm, the drivers and the test dependencies
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/audit-orm/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json packages/orm-pglite/tsconfig.build.json packages/orm-postgres/tsconfig.build.json packages/orm-mysql/tsconfig.build.json packages/orm-mssql/tsconfig.build.json packages/queue/tsconfig.build.json packages/scheduler/tsconfig.build.json packages/testing/tsconfig.build.json packages/testing-orm/tsconfig.build.json packages/log/tsconfig.build.json
+
+      - name: dialect suites
+        working-directory: packages/audit-orm
+        env:
+          ORM_TEST_POSTGRES_PORT: '15432'
+          ORM_TEST_MYSQL_HOST: 127.0.0.1
+          ORM_TEST_MYSQL_PORT: '13306'
+          ORM_TEST_DIALECTS_REQUIRED: '1'
+        run: npm run test:dialects

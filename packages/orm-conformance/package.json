@@ -25,6 +25,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@spinajs/audit": "3.0.23",
+    "@spinajs/audit-orm": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/log": "3.0.23",

@@ -8,6 +8,8 @@
   },
   "include": ["src/**/*", "cases/**/*", "test/**/*"],
   "references": [
+    { "path": "../audit/tsconfig.json" },
+    { "path": "../audit-orm/tsconfig.json" },
     { "path": "../configuration/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
