@@ -18,14 +18,16 @@ Importing the package is enough. Its classes register themselves with DI on impo
 | --- | --- |
 | [Bootstrapping](01-bootstrapping.md) | `OrmHttpBootstrapper`: what importing the package registers, and what happens to every model when the ORM resolves |
 | [Route arguments](02-route-args.md) | `@FromModel` loads a row by a request value (404 when absent); `@AsModel` and `@Body` build an unsaved model from the body |
-| [Filtering](03-filtering.md) | `@Filterable`, `@Filter`, every operator, nested groups, the generated JSON schema, `SelectQueryBuilder.filter()` |
+| [Filtering](03-filtering.md) | `@Filterable`, `@Filter`, every operator (with the negated `nlike`, `nb-like`, `ne-like`, and `empty` / `nempty`), nested and negated groups, the generated JSON schema, `SelectQueryBuilder.filter()` |
 | [DTO relations](04-dto-relations.md) | `@Relation` on a DTO field: the incoming id is replaced with the resolved model, 404 when absent |
-| [Pagination and ordering](05-pagination-and-order.md) | `PaginationDTO`, `OrderDTO`: schema-validated paging and sorting input; `readPage`, `readSort`, `DEFAULT_PAGE`: default, clamp and whitelist it |
+| [Pagination and ordering](05-pagination-and-order.md) | `PaginationDTO`, `OrderDTO`, `SortingDTO`: schema-validated paging and sorting input; `readPage`, `readSort`, `readSorting`, `DEFAULT_PAGE`: default, clamp and whitelist it; `@Sortable` |
 | [Repository middleware](06-repository-middleware.md) | `RepositoryMiddleware` (defined, not exported) and the ORM's `QueryMiddleware` that works instead |
 | [Custom filter columns](07-custom-filter-columns.md) | `IColumnFilter.query`: your own SQL for a filter column; inline column sets for models you cannot decorate |
 | [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md) | Replace or extend `FromDbModel`, `AsDbModel`, `FilterModelRouteArg`, `DbModelHydrator`, `RelationResolverHydrator` through DI |
 | [Not-found response](09-not-found-response.md) | `OrmNotFound` turns `OrmNotFoundException` into `404`; replace it with your own response |
 | [Model statics and builder extension](10-model-statics-and-builder-extension.md) | `MODEL_STATIC_MIXINS`, `SelectQueryBuilder.prototype.filter`, the `@spinajs/orm` type augmentation; add your own statics |
+| [Aggregates](11-aggregates.md) | `@Groupable`, `@Aggregatable`, `@Aggregate`, `SelectQueryBuilder.aggregate()`, `readAggregateRows`: grouped sums, averages, minimums, maximums and counts |
+| [Lists and includes](12-lists-and-includes.md) | `readList`: one page, its total and its aggregates; `@Includable`, `@Include`, `readInclude`; `ListResponseDTO`, `listResponseSchema` |
 
 ## Quick start
 

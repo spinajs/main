@@ -4,11 +4,13 @@ The package extends `@spinajs/orm` in three ways: statics bound onto every model
 
 ## How it works
 
-1. Importing the package runs `builders.ts`, which assigns `SelectQueryBuilder.prototype.filter`. Every select builder of every model has it from then on.
+1. Importing the package runs `builders.ts` and `aggregate.ts`, which assign `SelectQueryBuilder.prototype.filter` and `SelectQueryBuilder.prototype.aggregate`. Every select builder of every model has them from then on.
 2. `extension.ts` augments `@spinajs/orm` types:
    - `IModelDescriptor.FilterableColumns?: Map<string, IColumnFilter<unknown>>`
+   - `IModelDescriptor.SortableColumns`, `GroupableColumns`, `AggregatableColumns`, `IncludableRelations`: the allow-lists of `@Sortable`, `@Groupable`, `@Aggregatable` and `@Includable`
    - `ISelectQueryBuilder.filter(filter?, logicalOperator?, filters?): this`
-   - `ModelBase.filterSchema()`, `ModelBase.filterColumns()`, `ModelBase.filter(filterRequest?)`
+   - `ISelectQueryBuilder.aggregate(spec, columns?): this`
+   - `ModelBase.filterSchema()`, `ModelBase.filterColumns()`, `ModelBase.filter(filterRequest?)`, `ModelBase.sortableColumns()`, `ModelBase.aggregateColumns()`, `ModelBase.aggregateSchema()`, `ModelBase.includableRelations()`
 3. When the ORM resolves, `OrmHttpBootstrapper` iterates `MODEL_STATIC_MIXINS` with `for...in` and sets `Model[key] = MODEL_STATIC_MIXINS[key].bind(Model)` on every model in `orm.Models`.
 
 | Static | Returns |
@@ -16,6 +18,10 @@ The package extends `@spinajs/orm` in three ways: statics bound onto every model
 | `filterColumns()` | `[{ column, operators, query }]` for every filterable column; `[]` when none. |
 | `filterSchema()` | JSON schema of an `IFilterRequest` over those columns; `{}` when none. |
 | `filter(request?)` | `Promise` of the rows: a new select builder with `filter(request.filters, request.op)` applied, awaited. |
+| `sortableColumns()` | The `@Sortable` columns; with none, the filterable columns of the model's own table. See [Pagination and ordering](05-pagination-and-order.md#multi-column-sorting). |
+| `aggregateColumns()` | `{ groupable, aggregatable }`: the `@Groupable` columns and the functions of each `@Aggregatable` column. |
+| `aggregateSchema()` | JSON schema of an `IAggregateRequest` over those columns. See [Aggregates](11-aggregates.md). |
+| `includableRelations()` | The `@Includable` relations. See [Lists and includes](12-lists-and-includes.md). |
 
 ## Services and extension points
 
@@ -23,6 +29,7 @@ The package extends `@spinajs/orm` in three ways: statics bound onto every model
 | --- | --- | --- | --- | --- |
 | Model statics | `MODEL_STATIC_MIXINS`, exported object, copied onto each model once per ORM resolve | `filter`, `filterColumns`, `filterSchema` | your keys | Add a function under a new key before the ORM resolves; declare its type in `declare module '@spinajs/orm' { namespace ModelBase { ... } }`. Replacing an existing key changes it for every model. |
 | `SelectQueryBuilder.filter()` | prototype method, set at import | `builders.ts` | none | Keep the original and assign a wrapper after importing `@spinajs/orm-http`. |
+| `SelectQueryBuilder.aggregate()` | prototype method, set at import | `aggregate.ts` | none | As `filter()`. |
 | Type augmentation | `declare module '@spinajs/orm'` in `extension.ts` | as listed above | none | Add your own `declare module '@spinajs/orm'` block for statics you add. |
 
 ### MODEL_STATIC_MIXINS: add a `filterPage()` static to every model
