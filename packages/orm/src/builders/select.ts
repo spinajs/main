@@ -614,13 +614,33 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const c = column ?? '*';
     const a = as ?? 'count';
 
+    this._joinBelongsToForCount();
     this.clearColumns();
-    // a populated relation would join and select its columns next to the aggregate
-    this._relations = [];
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
 
     return this;
+  }
+
+  /**
+   * A belongs-to populate is a LEFT JOIN whose callback conditions narrow the owner rows, so a count keeps it. The
+   * other relations load in selects of their own and are dropped, as are what a compile adds besides the join and the
+   * conditions: columns (cleared by the caller), sorts, DISTINCT, the CTE and the hydration middlewares.
+   */
+  private _joinBelongsToForCount(): void {
+    const belongsTo = relationOf(RelationType.One);
+    const joined = this._relations.filter((r) => r instanceof belongsTo);
+    const kept = { middlewares: this._middlewares.length, sorts: this._sorts, distinct: this._distinct, cte: this._cteStatement };
+
+    this._relations = [];
+    for (const relation of joined) {
+      relation.compile();
+    }
+
+    this._middlewares = this._middlewares.slice(0, kept.middlewares);
+    this._sorts = kept.sorts;
+    this._distinct = kept.distinct;
+    this._cteStatement = kept.cte;
   }
 
   public selectCount(column?: DeclaredColumn<Unbox<T>>, as?: string): Promise<number>;
