@@ -19,10 +19,11 @@ npm install @spinajs/tracing
 ## Quick start
 
 ```ts sample
-import { SpinaAttr, withSpan } from '@spinajs/tracing';
+import { withSpan } from '@spinajs/tracing';
 
-export async function renderInvoice(tenantId: string, invoiceId: number): Promise<void> {
-  await withSpan('invoice.render', { attributes: { [SpinaAttr.Tenant]: tenantId, 'invoice.id': invoiceId } }, async () => {
+// spina.tenant.id comes from the tenant scope when @spinajs/tenancy-tracing is imported
+export async function renderInvoice(invoiceId: number): Promise<void> {
+  await withSpan('invoice.render', { attributes: { 'invoice.id': invoiceId } }, async () => {
     // render and store the invoice
   });
 }

@@ -2,7 +2,7 @@
 
 Puts the tenant of the current [`@spinajs/tenancy`](../tenancy/README.md) scope on every span of a SpinaJS application, as the `spina.tenant.id` attribute (`SpinaAttr.Tenant` of [`@spinajs/tracing`](../tracing/README.md)). Importing the package is the whole setup.
 
-It does **not** export spans: an exporter such as [`@spinajs/telemetry-otel`](../telemetry-otel/README.md) does. It does **not** decide the tenant: it reads the scope that `runInTenant`, `runAcrossTenants` or `@spinajs/tenancy-http` set.
+It does **not** export spans: the attribute reaches a tracing backend only through an exporter attached to the `@spinajs/tracing` hub, such as the OTLP processor of [`@spinajs/telemetry-otel`](../telemetry-otel/README.md). It does **not** decide the tenant: it reads the scope that `runInTenant`, `runAcrossTenants` or `@spinajs/tenancy-http` set.
 
 ## Install
 
@@ -24,9 +24,10 @@ npm install @spinajs/tenancy-tracing
 
 ## Important behaviour
 
-- A span gets the scope that is current when it **starts**. The HTTP server span starts before `TenantMiddleware` sets the scope and has no `spina.tenant.id`; spans started after it, such as the route span and the queries of the action, have it.
+- A span gets the scope that is current when it **starts**. The route span and the spans started in the action, such as its queries, carry the tenant. Policy spans start outside the action's scope and do not.
+- The HTTP server span starts before `TenantMiddleware` sets the scope. It is tagged when `TenantMiddleware` applies the scope under it, not at its start, so an exporter that reads attributes only in its own `onStart` misses the server span's tenant; one that reads them when the span ends sees it.
 - Each span reads the scope for itself, so every child span of a tenant carries the attribute, not only the root.
-- With only this processor on the hub, tracing stays id-only: no span is recorded until an exporter or Studio is attached.
+- With only this processor on the hub, tracing stays id-only: no span is recorded until an exporter feeds the hub.
 - A scope that cannot be read never fails a span: the span is created without the attribute.
 - `*` is never a tenant id (ids are `a-z`, `0-9`, `_` and `-`), so a query for `spina.tenant.id = "*"` finds only cross-tenant work. The reason given to `runAcrossTenants` is not exported.
 - When an app registered its own OpenTelemetry SDK before SpinaJS (`tracingState().owner === 'external'`), there is no hub and nothing is attached: add `new TenantSpanProcessor()` to that SDK.
