@@ -195,8 +195,8 @@ second after the client dropped. `Audit` waits for the action to end (`ctx.settl
 The wait holds no timer that keeps the process alive. When the http server begins to close (`http.server.closing`),
 every pending wait ends at once and its event is recorded as `attempt`, and so is a wait that begins later: a request
 the closing server cut off. On a `reject` trail the event is the one outcome that follows the confirmed attempt.
-`Audit` hears the event on the container it was resolved in; when `HttpServer` belongs to another container, the waits
-end only after `abortWaitMs`.
+`Audit` hears the event on the container it was resolved in; when `HttpServer` belongs to another container, the
+pending waits end only after `abortWaitMs`.
 
 ## Trails and failure
 

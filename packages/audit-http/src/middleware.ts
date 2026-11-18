@@ -7,7 +7,7 @@ import { Config } from '@spinajs/configuration';
 import { Autoinject, Container, DI, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { CodedHttpException, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
-import { LifecycleState, REDACTED, RouteMiddleware, RouteType, answeredAsServerError, redactFields, redactUrl, sensitiveKeyMatcher, stageOf } from '@spinajs/http';
+import { HttpServer, LifecycleState, REDACTED, RouteMiddleware, RouteType, answeredAsServerError, redactFields, redactUrl, sensitiveKeyMatcher, stageOf } from '@spinajs/http';
 import type { IFinishContext, IMiddlewareContext, IReplyContext, IRoute, MiddlewareStage } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log-common';
 import { isStringArray } from '@spinajs/util';
@@ -101,42 +101,37 @@ function abortWaitOf(declared: number | undefined, configured: number | undefine
 
 type Settlement = Awaited<IFinishContext['settled']>;
 
-/** The part of `HttpServer` that `http.server.closing` carries and the watch reads. */
-interface ILifecycleSource {
-  readonly State: LifecycleState;
-}
-
 interface IClosingWatch {
   readonly ends: Set<() => void>;
-  server?: ILifecycleSource;
+  readonly listener: () => void;
 }
 
-// One listener per container, kept for its life: a request the shutdown cut off begins its wait after the event.
 const closingWatches = new WeakMap<IContainer, IClosingWatch>();
 
+// One listener per container. Restoring a container snapshot removes it, so its presence is checked on every wait.
 function closingWatchOf(container: IContainer): IClosingWatch {
   let watch = closingWatches.get(container);
-  if (watch) return watch;
-
-  const ends = new Set<() => void>();
-  const created: IClosingWatch = { ends };
-  container.on('http.server.closing', (server: ILifecycleSource) => {
-    created.server = server;
-    ends.forEach((end) => end());
-  });
-  closingWatches.set(container, (watch = created));
+  if (!watch) {
+    const ends = new Set<() => void>();
+    watch = { ends, listener: () => ends.forEach((end) => end()) };
+    closingWatches.set(container, watch);
+  }
+  if (!container.listeners('http.server.closing').includes(watch.listener)) {
+    container.on('http.server.closing', watch.listener);
+  }
   return watch;
 }
 
 /** Calls `end` when the http server of `container` begins to close, at once when it already does; the returned function stops watching. */
 function onServerClosing(container: IContainer, end: () => void): () => void {
-  const watch = closingWatchOf(container);
-  const state = watch.server?.State;
-  if (state === LifecycleState.Closing || state === LifecycleState.Closed) {
+  // the server the container holds now: a request the shutdown cut off begins its wait after the event
+  const server = container.get(HttpServer);
+  if (server?.State === LifecycleState.Closing || server?.State === LifecycleState.Closed) {
     end();
     return () => undefined;
   }
 
+  const watch = closingWatchOf(container);
   watch.ends.add(end);
   return () => watch.ends.delete(end);
 }

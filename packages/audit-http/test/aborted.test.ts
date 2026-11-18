@@ -292,14 +292,38 @@ describe('Audit of a request the client went away from, at shutdown', function (
 
   afterEach(() => gate.open());
 
+  // The root container is restored after each app: the closing listener goes away, the closed server leaves the cache.
+  const secondApp = async (): Promise<TestApp> => {
+    await (await auditApp({ audit: { trails: TRAILS }, controllers: [LeftController] })).dispose();
+    return auditApp({ audit: { trails: TRAILS }, controllers: [LeftController] });
+  };
+
+  it('records the outcome of the action in an app booted after another one stopped', async () => {
+    const app = await secondApp();
+    const timers = sinon.spy(globalThis, 'setTimeout');
+    try {
+      await leave('left/commits');
+      await until(() => timers.getCalls().find((call) => call.args[1] === 30000), 'Audit did not begin to wait');
+      gate.open();
+
+      const [event] = await eventsOf('default', 1);
+      expect(event.outcome).to.eq('ok');
+      expect(dataOf(event).aborted).to.eq(true);
+    } finally {
+      timers.restore();
+      await app.dispose();
+    }
+  });
+
   it('ends a pending wait as an attempt when the http server begins to close', async () => {
-    const app = await auditApp({ audit: { trails: TRAILS }, controllers: [LeftController] });
+    const app = await secondApp();
     const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const timers = sinon.spy(globalThis, 'setTimeout');
     try {
       await leave('left/commits');
       // the default wait, which the fake clock never reaches
       await until(() => timers.getCalls().find((call) => call.args[1] === 30000), 'Audit did not begin to wait');
+      expect(await recorded()).to.have.length(0);
       await (await app.resolve(HttpServer)).stop();
 
       const [event] = await eventsOf('default', 1);
@@ -313,7 +337,7 @@ describe('Audit of a request the client went away from, at shutdown', function (
   });
 
   it('ends at once the wait of a request the client left after the server began to close', async () => {
-    const app = await auditApp({ audit: { trails: TRAILS }, controllers: [LeftController] });
+    const app = await secondApp();
     const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const request = await held('left/commits');
