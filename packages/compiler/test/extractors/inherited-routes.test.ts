@@ -101,6 +101,11 @@ describe('inherited routes', function () {
     expect(entry('BaseCrud')).to.not.have.property('bases');
     expect(entry('BaseCrud').routes.every((r) => r.inheritedFrom === undefined)).to.equal(true);
   });
+
+  it('carries @Idempotent of a redeclared route without a route decorator onto the inherited route', () => {
+    expect(entry('NotesController').routes.find((r) => r.handler === 'create')!.idempotency).to.deep.equal({ required: true });
+    expect(entry('ArticlesController').routes.find((r) => r.handler === 'create')).to.not.have.property('idempotency');
+  });
 });
 
 describe('inherited routes from a dependency fragment', function () {

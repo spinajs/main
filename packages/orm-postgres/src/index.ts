@@ -365,7 +365,7 @@ export class PostgresOrmDriver extends SqlDriver {
       insertIdIsFirstOfBatch: false,
       concurrentTransactions: true,
       nativeJson: true,
-      // pg-cursor submits to a real pg client; a subclass that puts a pool-shaped adapter here (PGlite) pages by keyset instead
+      // pg-cursor submits to a real pg client; PGlite's pool adapter is not one, and PgliteOrmDriver brings its own cursor
       streaming: this.Pool instanceof pg.Pool,
     };
   }

@@ -138,6 +138,13 @@ The build records the `http.routes.middlewares` of its configuration as `globalR
 
 A controller's or route's `middlewares` are listed in source order; the runtime applies decorators bottom-up, so it mounts one list in reverse. `options` are the literal arguments of `@Middleware(Type, ...options)`, the constructor options. A decorator that mounts its own middleware (`@Accepts`, `@BotCheck`, `@Idempotent`, ...) records `decoratorArgs`, its own literal arguments, which need not be the constructor options (`@Consumes('a', 'b')` passes `[['a', 'b']]`, `@Idempotent` fills in defaults). Either field is omitted when an argument is not a plain JSON literal in the source.
 
+A route behind `@Idempotent` of `@spinajs/http` also carries `idempotency: { required }`, read from its
+`IdempotencyMiddleware` entry. `required` is the decorator's literal `required` option. It is `false` when the option is
+absent or the argument is not a literal; the compiler then reports the argument as `CMP001`. An inherited route keeps
+its base's value unless the subclass redeclares the method with its own `@Idempotent`. Every other route has no such
+key, so a manifest of an app without `@Idempotent` routes is byte for byte what it was before the field existed, hash
+included. `manifestVersion` stays 2. Generators read this field; they do not search `middlewares`.
+
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 
 **Run it from the folder the app runs from.** `system.dirs` is usually computed from `process.cwd()`, so the build warns with `CLI001` when that is not the `tsconfig` folder. It is a warning and not a refusal, because an app that runs from its build folder gets the right dirs only from there. A configured dir of the app with no source folder behind it gets `CMP008`, so a partly wrong working directory shows as more than per-class warnings. Paths are compared physically, so a release folder behind a symlink maps either way, and `manifest.app.root` holds the physical path. A manifest carried from one release folder to the next keeps pointing at the old one while that folder exists: set `SPINAJS_MANIFEST_ROOT` in such a layout.

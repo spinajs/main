@@ -150,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [scheduler]
+        suite: [scheduler, workflow]
 
     steps:
       - uses: actions/checkout@v4
@@ -168,7 +168,8 @@ jobs:
 
       # Measured 2026-11-04 on a loaded dev host: 14-50 s (avg 25 s) per 200-step scheduler seed plus ~25 s startup,
       # so 8 seeds take ~4 min. The program plan wants 200 seeds per suite; raise --seeds once seeds get cheaper.
-      # One leg per suite, so the gate stays ~4 min as suites are added; release waits for every leg.
+      # One leg per suite; release waits for every leg. A 250-step workflow seed took 50-460 s on a loaded dev host
+      # (2026-11-17), so that leg may need more than this step's 10 minutes.
       - name: simulate ${{ matrix.suite }} ( 8 seeds )
         timeout-minutes: 10
         run: npm run sim -- --suite ${{ matrix.suite }} --seeds 8 --out sim-reports

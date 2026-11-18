@@ -23,5 +23,6 @@ studio-ui:
     - npm run link:ckit
     - npm run link:ckit -- --check
     - npm run typecheck -w @spinajs/studio-ui
+    - npm run lint -w @spinajs/studio-ui
     - npm test -w @spinajs/studio-ui
     - npm run build -w @spinajs/studio-ui

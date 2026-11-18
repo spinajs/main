@@ -7,11 +7,11 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { Connection, Model, Orm } from '@spinajs/orm';
+import { Connection, MIGRATIONS, Model, MODELS, Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueJob, QueueMessageHook } from '@spinajs/queue';
-import { ChangeBus, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
-import type { Principal } from '@spinajs/authz';
+import { ChangeBus, GLOBAL, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
+import type { Decision, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
@@ -19,11 +19,13 @@ import { join, normalize, resolve } from 'path';
 import { PrincipalAttributeProvider, RBAC_USER_MODEL, User, UserIsBanned, UserNotActive, UserPrincipalFactory } from '../src/index.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID, TEST_USER_UUID_3 } from './migration/rbac.migration.js';
-import { registerAuthzHost, rootAuthz } from './support/authz-host.js';
+import { registerAuthzHost, rootAdmin, rootAuthz } from './support/authz-host.js';
 import { seedUser, setIdentityFlags } from './support/users-db.js';
 
 type AuthzQueue = typeof import('@spinajs/authz-queue');
 type UsersQueue = typeof import('../src/queue/index.js');
+type AuthzWorkflow = typeof import('@spinajs/authz-workflow');
+type UsersWorkflow = typeof import('../src/workflow/index.js');
 
 chai.use(chaiAsPromised);
 
@@ -61,7 +63,8 @@ async function factory(): Promise<UserPrincipalFactory> {
 }
 
 describe('UserPrincipalFactory', function () {
-  this.timeout(30000);
+  // every test boots the users database; under a loaded machine that alone can take over 30 s
+  this.timeout(120000);
 
   before(() => {
     DI.register(TestConfiguration).as(Configuration);
@@ -354,7 +357,194 @@ describe('UserPrincipalFactory', function () {
       expect(JSON.parse(line!.slice('RESULT '.length))).to.deep.eq({ alone: { hook: false, initiator: false }, resolved: true, hook: true });
     });
   });
+
+  describe('UserSignalPrincipalFactory (@spinajs/users/workflow)', () => {
+    let authzWorkflow: AuthzWorkflow;
+    let usersWorkflow: UsersWorkflow;
+    let undo: () => void;
+
+    // authz-workflow loads @spinajs/workflow and @spinajs/durable, and all three register on import. The later files of
+    // the users run share this process: what a boot would pick up is dropped at once, the rest when the block ends.
+    before(async () => {
+      const added = trackRegistrations([Bootstrapper, MODELS.key, MIGRATIONS.key, 'SignalPrincipalFactory', 'SignalAuthorizer', 'WorkflowService', 'Clock', 'DbTimeSource', 'FaultInjector']);
+      usersWorkflow = await import('../src/workflow/index.js');
+      authzWorkflow = await import('@spinajs/authz-workflow');
+      // This database has no `workflow` connection, and no test here runs an engine or reads the workflow configuration.
+      for (const service of [Bootstrapper, MODELS.key, MIGRATIONS.key]) added.drop(service);
+      undo = () => added.dropAll();
+    });
+
+    after(() => undo());
+
+    const seeded = async (login: string): Promise<string> => (await User.query().withDeleted().whereLogin(login).firstOrFail()).Uuid;
+    const signer = async (): Promise<InstanceType<AuthzWorkflow['SignalPrincipalFactory']>> => await DI.resolve<InstanceType<AuthzWorkflow['SignalPrincipalFactory']>>(authzWorkflow.SignalPrincipalFactory);
+
+    it('is the SignalPrincipalFactory DI resolves once @spinajs/users/workflow is imported', async () => {
+      expect(await signer()).to.be.instanceOf(usersWorkflow.UserSignalPrincipalFactory);
+    });
+
+    it("reloads an active user: the provider attributes it has now, source 'workflow', no ceiling", async () => {
+      firstDerive = (_u, principal) => ({ pool: 'p1', seen: principal.source });
+
+      const p = await (await signer()).principalOf({ type: 'user', id: TEST_USER_UUID });
+
+      expect(p).to.include({ type: 'user', id: TEST_USER_UUID, authenticated: true, source: 'workflow' });
+      expect(p.attributes).to.deep.eq({ pool: 'p1', seen: 'workflow' });
+      expect(p).to.not.have.property('ceiling');
+      expect((p.identity as User).Uuid).to.eq(TEST_USER_UUID);
+    });
+
+    for (const [title, uuid] of [
+      ['an inactive', () => seeded('test-notactive')],
+      ['a banned', async () => TEST_USER_UUID_3],
+      ['a soft-deleted', () => seeded('test-deleted')],
+      ['an unknown', async () => '00000000-0000-4000-8000-000000000000'],
+    ] as const) {
+      it(`checks the signal of ${title} user as UNATTENDED`, async () => {
+        expect(await (await signer()).principalOf({ type: 'user', id: await uuid() })).to.eq(UNATTENDED);
+      });
+    }
+
+    for (const [title, id] of [
+      ['an id that is not a uuid', 'not-a-uuid'],
+      ['an upper-case uuid (stored Uuids are lower case)', TEST_USER_UUID.toUpperCase()],
+    ] as const) {
+      it(`checks a signal stamped with ${title} as UNATTENDED`, async () => {
+        expect(await (await signer()).principalOf({ type: 'user', id })).to.eq(UNATTENDED);
+      });
+    }
+
+    it('checks a stamp that is not { type, id } as UNATTENDED and reports it, without throwing', async () => {
+      class Reporting extends usersWorkflow.UserSignalPrincipalFactory {
+        public reports = 0;
+
+        protected malformed(ref: unknown): void {
+          this.reports++;
+          super.malformed(ref);
+        }
+      }
+      const f = await DI.resolve<Reporting>(Reporting);
+
+      for (const stamp of [null, undefined, [], ['user', TEST_USER_UUID], 'user:x', { type: 'user' }, { type: 'user', id: 7 }, { type: 'user', id: '' }, { type: '', id: 'x' }, { type: 'agent' }]) {
+        expect(await f.principalOf(stamp as never), JSON.stringify(stamp)).to.eq(UNATTENDED);
+      }
+      expect(f.reports).to.eq(10);
+    });
+
+    it('checks an agent as UNATTENDED: the stamp cannot name the owner to reload', async () => {
+      expect(await (await signer()).principalOf({ type: 'agent', id: 'agent-token-1' })).to.eq(UNATTENDED);
+    });
+
+    it('leaves system, unattended and service stamps to the stamped factory', async () => {
+      const f = await signer();
+
+      expect(await f.principalOf({ type: 'system', id: 'system' })).to.eq(SYSTEM);
+      expect(await f.principalOf({ type: 'unattended', id: 'unattended' })).to.eq(UNATTENDED);
+      expect(await f.principalOf({ type: 'service', id: 'svc' })).to.deep.eq({ type: 'service', id: 'svc', authenticated: true, source: 'workflow', attributes: {} });
+    });
+
+    it('throws when the user store fails, so the wait is asked again', async () => {
+      const f = await signer();
+      await rootAuthz();
+      sinon.stub(SqliteOrmDriver.prototype, 'executeOnDb').rejects(new Error('db down'));
+
+      await expect(f.principalOf({ type: 'user', id: TEST_USER_UUID })).to.be.rejectedWith('db down');
+    });
+
+    it('throws when an attribute provider fails', async () => {
+      firstDerive = () => {
+        throw new Error('provider down');
+      };
+
+      await expect((await signer()).principalOf({ type: 'user', id: TEST_USER_UUID })).to.be.rejectedWith('provider down');
+    });
+
+    it('a user who signed and is then deactivated is UNATTENDED when the wait asks', async () => {
+      const { user, ref } = await seedUser({ login: 'signed-then-deactivated' });
+      const f = await signer();
+
+      expect(await f.principalOf({ type: 'user', id: user.Uuid })).to.include({ type: 'user', id: user.Uuid, source: 'workflow' });
+
+      await setIdentityFlags(ref, { active: false });
+
+      expect(await f.principalOf({ type: 'user', id: user.Uuid })).to.eq(UNATTENDED);
+    });
+
+    it("through AuthzSignalAuthorizer: a signal is decided on the signer's account state and roles when the wait asks", async () => {
+      class RootSignalAuthorizer extends authzWorkflow.AuthzSignalAuthorizer {
+        protected async principalOf(ref: PrincipalRef): Promise<Principal> {
+          return (await signer()).principalOf(ref);
+        }
+
+        protected async decide(principal: Principal, permission: string, resource: ResourceRef): Promise<Decision> {
+          return (await rootAuthz()).check({ principal, permission, resource });
+        }
+      }
+      const authorizer = new RootSignalAuthorizer();
+      const { user, ref } = await seedUser({ login: 'signer-of-approvals' });
+      await (await rootAdmin()).assign(SYSTEM, { subject: ref, role: 'admin', scope: GLOBAL });
+      const allowed = (): Promise<boolean> => authorizer.authorize(`user:${user.Uuid}`, 'users:read', undefined, { instanceId: 'wf-1', workflow: 'order', event: 'approved' });
+
+      expect(await allowed(), 'an active admin').to.eq(true);
+      for (const [state, flags] of [
+        ['deactivated', { active: false }],
+        ['banned', { banned: true }],
+        ['deleted', { deleted: true }],
+      ] as const) {
+        await setIdentityFlags(ref, flags);
+        expect(await allowed(), state).to.eq(false);
+        await setIdentityFlags(ref, { active: true, banned: false, deleted: false });
+        expect(await allowed(), `${state}, then restored`).to.eq(true);
+      }
+
+      const [revoked] = await (await rootAdmin()).execute(SYSTEM, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject: ref, role: 'admin' }]);
+      expect(revoked.ok).to.eq(true);
+      expect(await allowed(), 'the role revoked').to.eq(false);
+    });
+
+    it('importing @spinajs/users alone loads no part of authz-workflow; @spinajs/users/workflow does (built package)', function () {
+      this.timeout(240000);
+      const script = [
+        "import { DI } from '@spinajs/di';",
+        "await import('@spinajs/users');",
+        "const alone = { factory: DI.RootContainer.hasRegistered('SignalPrincipalFactory'), authorizer: DI.RootContainer.hasRegistered('SignalAuthorizer') };",
+        "const { UserSignalPrincipalFactory } = await import('@spinajs/users/workflow');",
+        "const { SignalPrincipalFactory } = await import('@spinajs/authz-workflow');",
+        'const resolved = (await DI.resolve(SignalPrincipalFactory)) instanceof UserSignalPrincipalFactory;',
+        "console.log('RESULT ' + JSON.stringify({ alone, resolved, authorizer: DI.RootContainer.hasRegistered('SignalAuthorizer') }));",
+        'process.exit(0);',
+      ].join('\n');
+
+      expect(childResult(script)).to.deep.eq({ alone: { factory: false, authorizer: false }, resolved: true, authorizer: true });
+    });
+
+    it('authz-workflow alone registers the stamped factory; importing @spinajs/users/workflow after it still wins (built package)', function () {
+      this.timeout(240000);
+      const script = [
+        "import { DI } from '@spinajs/di';",
+        "const { AuthzSignalAuthorizer, SignalPrincipalFactory, StampedSignalPrincipalFactory } = await import('@spinajs/authz-workflow');",
+        "const { SignalAuthorizer } = await import('@spinajs/workflow');",
+        "const last = () => DI.RootContainer.getRegisteredTypes('SignalPrincipalFactory').at(-1).name;",
+        'const alone = last();',
+        "const { UserSignalPrincipalFactory } = await import('@spinajs/users/workflow');",
+        'const factory = await DI.resolve(SignalPrincipalFactory);',
+        'const authorizer = await DI.resolve(SignalAuthorizer);',
+        "console.log('RESULT ' + JSON.stringify({ alone, stampedRegistered: alone === StampedSignalPrincipalFactory.name, last: last(), resolved: factory instanceof UserSignalPrincipalFactory, authorizer: authorizer instanceof AuthzSignalAuthorizer }));",
+        'process.exit(0);',
+      ].join('\n');
+
+      expect(childResult(script)).to.deep.eq({ alone: 'StampedSignalPrincipalFactory', stampedRegistered: true, last: 'UserSignalPrincipalFactory', resolved: true, authorizer: true });
+    });
+  });
 });
+
+/** The `RESULT <json>` line a child node process prints for `script`, run against the built packages. */
+function childResult(script: string): unknown {
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd(), encoding: 'utf8', timeout: 180000 });
+  const line = out.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
+  expect(line, out).to.be.a('string');
+  return JSON.parse(line!.slice('RESULT '.length));
+}
 
 @Job({ runAs: 'initiator' })
 class InitiatorProbe extends QueueJob {

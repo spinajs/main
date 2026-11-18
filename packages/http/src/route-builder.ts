@@ -153,9 +153,10 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed). The one
-    // exception is an @Idempotent replay of this principal's own completed request: nothing executes for it.
-    if (repliedBeforePolicy(res)) {
+    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed). Two exceptions:
+    // an @Idempotent replay of this principal's own completed request (nothing executes for it), and an answer sent in
+    // place (a deadline 504), which is final, so the policies would only load data for a reply that is dropped.
+    if (repliedBeforePolicy(res) || repliedInPlace(res)) {
       next();
       return;
     }

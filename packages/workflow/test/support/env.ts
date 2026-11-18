@@ -1,5 +1,5 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import { Clock, DbTimeSource } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
@@ -16,6 +16,8 @@ export interface TestEnvOptions {
   extra?: Record<string, unknown>;
   /** Runs before anything resolves. DI keeps registrations across boots, so register only switchable test doubles. */
   register?: () => void;
+  /** Runs every registered Bootstrapper before the Configuration resolves, as an application boot does: the registered schemas then validate and coerce it. */
+  bootstrap?: boolean;
 }
 
 let current: TestEnvOptions = {};
@@ -61,6 +63,7 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   DI.register(() => clock).as(Clock);
   DI.register(() => clock.dbSource).as(DbTimeSource);
   options.register?.();
+  if (options.bootstrap) for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   DI.register(WorkflowTestConf).as(Configuration);
   await DI.resolve(Configuration);
   await (await DI.resolve(Orm)).Migrator.ready();
