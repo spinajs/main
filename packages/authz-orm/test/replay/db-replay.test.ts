@@ -286,11 +286,17 @@ describe('DbDecisionReplay', function () {
       it('12: a change inserted before the decision and committed after it is a gap, never divergent', async () => {
         await world();
         let id = '';
-        await driver.transaction(async () => {
-          await Doc.update({ folder_id: 'f2' }).where('id', 'd1');
-          await pause(2 * WINDOW.clockSkewMs);
-          id = await decide(true);
-        });
+        // A frozen Date logs the change exactly 2 x clockSkewMs before the decision, however long the statements take.
+        const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+        try {
+          await driver.transaction(async () => {
+            await Doc.update({ folder_id: 'f2' }).where('id', 'd1');
+            clock.tick(2 * WINDOW.clockSkewMs);
+            id = await decide(true);
+          });
+        } finally {
+          clock.restore();
+        }
         const report = await replay(id);
         expect(report.replay).to.equal('unreplayable');
         expect(report.missing.some((m) => m.key === 'doc:d1#parent' && /ambiguity window/.test(m.reason))).to.equal(true);
