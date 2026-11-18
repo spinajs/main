@@ -21,11 +21,13 @@ class PaymentCaptured extends QueueEvent {
 }
 
 const storeFailures: { claim?: Error; complete?: Error } = {};
+let claims = 0;
 
 /** The real store, failing the next claim or reply write the test arms. */
 @Injectable(IdempotencyStore)
 class FlakyIdempotencyStore extends OrmIdempotencyStore {
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
+    claims++;
     const failure = storeFailures.claim;
     storeFailures.claim = undefined;
     if (failure) throw failure;
@@ -325,6 +327,21 @@ describe('queue: event deduplication by MessageId', function () {
     await env.client.deliverAll();
     expect(calls).to.equal(1);
     expect(faultsHit.filter((f) => f.name === 'queue.before-ack')).to.have.length(2);
+  });
+
+  it('leaves a delivery that crashed after its claim unsettled, not delayed like a failed claim', async () => {
+    const env = await boot({ store: FlakyIdempotencyStore.name });
+    let calls = 0;
+    await env.queue.consume<PaymentCaptured>(PaymentCaptured, async () => void calls++, 'ledger');
+    await env.queue.emit(new PaymentCaptured({ PaymentId: 'p13' }));
+    claims = 0;
+    env.faults.crashAt = 'idempotency.after-claim';
+    await env.client.deliverAll();
+    env.faults.crashAt = undefined;
+    // without advancing the clock: an unsettled crash comes back at once, a RedeliverLater would wait CLAIM_FAILURE_REDELIVERY_MS
+    await env.client.deliverAll();
+    expect(claims).to.equal(2);
+    expect(calls, 'the dead claim still holds the key').to.equal(0);
   });
 
   it('redelivers an event whose claim fails, and runs it again after its reply could not be stored', async () => {
