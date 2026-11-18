@@ -188,13 +188,15 @@ second after the client dropped. `Audit` waits for the action to end (`ctx.settl
 | The action | `outcome` |
 | --- | --- |
 | ends with a result after the client left | `ok` |
-| throws, or stops on the abort signal | `failed` with `data.error`; `denied` for a refusal of the policy gate |
+| throws, or stops on the abort signal | `failed` with `data.error`; `denied` for a refusal of the policy gate, `failed` for a policy that crashed |
 | is still running after `abortWaitMs` | `attempt`: the result is unknown |
 
 `status` and `ms` are taken when the connection closed, so `status` stays unset unless the headers had been sent.
 The wait holds no timer that keeps the process alive. When the http server begins to close (`http.server.closing`),
-every pending wait ends at once and its event is recorded as `attempt`. On a `reject` trail the event is the one
-outcome that follows the confirmed attempt.
+every pending wait ends at once and its event is recorded as `attempt`, and so is a wait that begins later: a request
+the closing server cut off. On a `reject` trail the event is the one outcome that follows the confirmed attempt.
+`Audit` hears the event on the container it was resolved in; when `HttpServer` belongs to another container, the waits
+end only after `abortWaitMs`.
 
 ## Trails and failure
 

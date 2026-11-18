@@ -55,6 +55,17 @@ class HeldPolicy extends BasePolicy {
   }
 }
 
+class CrashingPolicy extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {
+    await gate.pass();
+    throw new TypeError('policy bug');
+  }
+}
+
 @BasePath('left')
 class LeftController extends BaseController {
   @Get()
@@ -78,6 +89,13 @@ class LeftController extends BaseController {
     return new Ok({ ok: true });
   }
 
+  @Get()
+  @Policy(CrashingPolicy)
+  @Middleware(Audit)
+  public crashed() {
+    return new Ok({ ok: true });
+  }
+
   @Post()
   @Middleware(Audit, { trail: 'restricted' })
   public async vault() {
@@ -94,13 +112,18 @@ const TRAILS = {
 const dataOf = (event: StoredAuditEvent) => event.data as Record<string, unknown>;
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 
-/** Sends a request and goes away once the route holds it at the gate. */
-async function leave(path: string, method = 'GET'): Promise<void> {
+/** Sends a request and resolves once the route holds it at the gate. */
+async function held(path: string, method = 'GET'): Promise<http.ClientRequest> {
   const request = http.request({ host: 'localhost', port: appPort(), path: `/${path}`, method });
   request.on('error', () => undefined);
   request.end();
   await gate.entered;
-  request.destroy();
+  return request;
+}
+
+/** Sends a request and goes away once the route holds it at the gate. */
+async function leave(path: string, method = 'GET'): Promise<void> {
+  (await held(path, method)).destroy();
 }
 
 // setTimeout is faked, so the polls below turn the event loop with setImmediate and measure real time.
@@ -167,7 +190,7 @@ describe('Audit of a request the client went away from', function () {
     await leave('left/commits');
     await waiting();
     expect(await recorded()).to.have.length(0);
-    expect(listeners()).to.eq(before + 1);
+    expect(listeners()).to.eq(before);
 
     gate.open();
     const [event] = await eventsOf('default', 1);
@@ -212,6 +235,17 @@ describe('Audit of a request the client went away from', function () {
     expect(event.outcome).to.eq('denied');
     expect(dataOf(event).aborted).to.eq(true);
     expect(dataOf(event).error).to.deep.eq({ name: 'Forbidden', message: 'not yours' });
+  });
+
+  it('records a policy that crashed after the client left as failed', async () => {
+    await leave('left/crashed');
+    await waiting();
+
+    gate.open();
+    const [event] = await eventsOf('default', 1);
+    expect(event.outcome).to.eq('failed');
+    expect(dataOf(event).aborted).to.eq(true);
+    expect(dataOf(event).error).to.deep.eq({ name: 'TypeError' });
   });
 
   it('writes one outcome beside the confirmed attempt of a reject trail', async () => {
@@ -273,6 +307,24 @@ describe('Audit of a request the client went away from, at shutdown', function (
       expect(dataOf(event).aborted).to.eq(true);
     } finally {
       timers.restore();
+      clock.restore();
+      await app.dispose();
+    }
+  });
+
+  it('ends at once the wait of a request the client left after the server began to close', async () => {
+    const app = await auditApp({ audit: { trails: TRAILS }, controllers: [LeftController] });
+    const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const request = await held('left/commits');
+      const stopped = (await app.resolve(HttpServer)).stop();
+      request.destroy();
+
+      const [event] = await eventsOf('default', 1);
+      expect(event.outcome).to.eq('attempt');
+      expect(dataOf(event).aborted).to.eq(true);
+      await stopped;
+    } finally {
       clock.restore();
       await app.dispose();
     }

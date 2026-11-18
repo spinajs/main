@@ -6,8 +6,8 @@ import type { AuditInput, AuditOutcome, AuditWriteOptions } from '@spinajs/audit
 import { Config } from '@spinajs/configuration';
 import { Autoinject, Container, DI, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
-import { REDACTED, RouteMiddleware, RouteType, redactFields, redactUrl, sensitiveKeyMatcher, stageOf } from '@spinajs/http';
+import { CodedHttpException, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
+import { LifecycleState, REDACTED, RouteMiddleware, RouteType, answeredAsServerError, redactFields, redactUrl, sensitiveKeyMatcher, stageOf } from '@spinajs/http';
 import type { IFinishContext, IMiddlewareContext, IReplyContext, IRoute, MiddlewareStage } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log-common';
 import { isStringArray } from '@spinajs/util';
@@ -36,6 +36,8 @@ interface IAuditState {
   body?: unknown;
   bodyTruncated?: number;
   error?: IAuditError;
+  /** The error `error` describes, as the error reply got it. */
+  failure?: unknown;
   /** Joins the attempt of a rejecting trail to its outcome. */
   invocation?: string;
 }
@@ -99,38 +101,57 @@ function abortWaitOf(declared: number | undefined, configured: number | undefine
 
 type Settlement = Awaited<IFinishContext['settled']>;
 
-interface IClosingWatch {
-  readonly ends: Set<() => void>;
-  readonly listener: () => void;
+/** The part of `HttpServer` that `http.server.closing` carries and the watch reads. */
+interface ILifecycleSource {
+  readonly State: LifecycleState;
 }
 
-// One listener per container, held only while a wait is pending: every mount of Audit is an instance of its own.
+interface IClosingWatch {
+  readonly ends: Set<() => void>;
+  server?: ILifecycleSource;
+}
+
+// One listener per container, kept for its life: a request the shutdown cut off begins its wait after the event.
 const closingWatches = new WeakMap<IContainer, IClosingWatch>();
 
-/** Calls `end` when the http server of `container` begins to close; the returned function stops watching. */
-function onServerClosing(container: IContainer, end: () => void): () => void {
+function closingWatchOf(container: IContainer): IClosingWatch {
   let watch = closingWatches.get(container);
-  if (!watch) {
-    const ends = new Set<() => void>();
-    watch = { ends, listener: () => ends.forEach((e) => e()) };
-    container.on('http.server.closing', watch.listener);
-    closingWatches.set(container, watch);
+  if (watch) return watch;
+
+  const ends = new Set<() => void>();
+  const created: IClosingWatch = { ends };
+  container.on('http.server.closing', (server: ILifecycleSource) => {
+    created.server = server;
+    ends.forEach((end) => end());
+  });
+  closingWatches.set(container, (watch = created));
+  return watch;
+}
+
+/** Calls `end` when the http server of `container` begins to close, at once when it already does; the returned function stops watching. */
+function onServerClosing(container: IContainer, end: () => void): () => void {
+  const watch = closingWatchOf(container);
+  const state = watch.server?.State;
+  if (state === LifecycleState.Closing || state === LifecycleState.Closed) {
+    end();
+    return () => undefined;
   }
 
-  const { ends, listener } = watch;
-  ends.add(end);
-  return () => {
-    ends.delete(end);
-    if (ends.size > 0) return;
-    container.removeListener('http.server.closing', listener);
-    closingWatches.delete(container);
-  };
+  watch.ends.add(end);
+  return () => watch.ends.delete(end);
 }
 
 function outcomeOf(error: IAuditError | undefined, res: Res): AuditOutcome {
   if (error === undefined) return 'ok';
   // the policy gate marks its stage before it refuses (a later stage overwrites the mark); its 500 is a crash, not a refusal
   return stageOf(res) === 'policy' && res.statusCode < 500 ? 'denied' : 'failed';
+}
+
+// The status of a reply to a client that left can still be the default 200, so the error decides, as for the route span.
+function abortedOutcomeOf(error: unknown, res: Res): AuditOutcome {
+  if (error === undefined) return 'ok';
+  const serverError = error instanceof CodedHttpException ? error.status >= 500 : answeredAsServerError(error);
+  return stageOf(res) === 'policy' && !serverError ? 'denied' : 'failed';
 }
 
 /**
@@ -202,6 +223,7 @@ export class Audit extends RouteMiddleware {
     const target = this.targetOf(route, path);
     const trail = trailConfig(target.trail, this.Container);
     await auditStore(trail, this.Container);
+    closingWatchOf(this.Container);
     this.target = { ...target, rejecting: trail.onFailure === 'reject' };
   }
 
@@ -226,6 +248,7 @@ export class Audit extends RouteMiddleware {
     const state = this.states.get(res);
     if (state && error !== undefined) {
       state.error = describeError(error);
+      state.failure = error;
     }
   }
 
@@ -252,8 +275,11 @@ export class Audit extends RouteMiddleware {
   protected async abortedOutcome({ res, settled }: IFinishContext, state: IAuditState): Promise<AuditOutcome> {
     const settlement = await this.settledWithin(settled);
     if (!settlement) return 'attempt';
-    if (settlement.error !== undefined) state.error ??= describeError(settlement.error);
-    return outcomeOf(state.error, res);
+    if (state.failure === undefined && settlement.error !== undefined) {
+      state.failure = settlement.error;
+      state.error = describeError(settlement.error);
+    }
+    return abortedOutcomeOf(state.failure, res);
   }
 
   protected async settledWithin(settled: Promise<Settlement>): Promise<Settlement | undefined> {
