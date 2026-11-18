@@ -1,5 +1,9 @@
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
+import { Clock } from '@spinajs/durable';
+import { isCrash } from '../crash.js';
+import { decideDelivery, resolveDeliveryPolicy, retryCountOf } from '../delivery.js';
+import type { DeliveryDecision } from '../delivery.js';
 import { QueueClient, QueueMessageType } from '../interfaces.js';
 import { QueueHeaders } from '../headers.js';
 import type { IQueueMessage, QueueMessage } from '../interfaces.js';
@@ -22,6 +26,7 @@ interface MemorySubscription {
   /** Resolved only in deferred mode; the default mode ignores channels. */
   channels: string[];
   callback: Callback;
+  subscriptionId?: string;
   active: boolean;
 }
 
@@ -30,6 +35,10 @@ interface PendingDelivery {
   channel: string;
   /** Events only: the subscriptions that rejected it and get it again. A job is re-queued for whoever consumes its channel. */
   owed?: MemorySubscription[];
+  /** Clock time from which the delivery may be handed out. */
+  availableAt: number;
+  /** The transport headers of this copy, merged over the message's own `Headers` on delivery. */
+  headers: Record<string, string>;
 }
 
 /** Connects the clients that share one broker name. */
@@ -61,10 +70,11 @@ function wire<T>(value: T): T {
 }
 export { wire as wireCopy };
 
-/** What a subscriber receives: the wire copy with the MessageId header the broker transports add. */
-function delivered(message: IQueueMessage): IQueueMessage {
+/** What a subscriber receives: the wire copy with the MessageId header and the transport headers of this copy. */
+function delivered(message: IQueueMessage, headers: Record<string, string> = {}): IQueueMessage {
   const copy = wire(message);
-  if (copy.MessageId) copy.Headers = { ...copy.Headers, [QueueHeaders.MessageId]: copy.MessageId };
+  const all = { ...copy.Headers, ...headers, ...(copy.MessageId ? { [QueueHeaders.MessageId]: copy.MessageId } : {}) };
+  if (Object.keys(all).length > 0) copy.Headers = all;
   return copy;
 }
 
@@ -75,11 +85,14 @@ export class MemoryQueueClient extends QueueClient {
   /** Every message this client accepted, in order. Append-only. */
   readonly published: IQueueMessage[] = [];
 
-  /** Messages the transport dead-lettered. Nothing writes them yet. */
+  /** Messages the transport dead-lettered. Deferred mode writes them when a decision dead-letters. */
   readonly deadLettered: { channel: string; message: IQueueMessage; headers: Record<string, string> }[] = [];
 
   /** @internal */
   subscriptions: MemorySubscription[] = [];
+
+  @Autoinject(Clock)
+  protected Timers: Clock;
 
   private broker: MemoryBroker;
 
@@ -96,7 +109,7 @@ export class MemoryQueueClient extends QueueClient {
     return this.MemoryOptions.deferred === true;
   }
 
-  // only deferred mode keeps a rejected delivery queued; the default mode has nothing to redeliver from
+  // only deferred mode executes a RedeliverLater as a later delivery; the default mode has nothing to redeliver from
   public get RedeliversFailedEvents(): boolean {
     return this.Deferred;
   }
@@ -117,7 +130,7 @@ export class MemoryQueueClient extends QueueClient {
     this.published.push(message);
 
     if (this.Deferred) {
-      for (const channel of this.getChannelForMessage(message)) this.broker.pending.push({ message, channel });
+      for (const channel of this.getChannelForMessage(message)) this.broker.pending.push({ message, channel, availableAt: this.Timers.now(), headers: {} });
       return;
     }
 
@@ -127,9 +140,9 @@ export class MemoryQueueClient extends QueueClient {
     }
   }
 
-  async subscribe(channel: string | Constructor<QueueMessage>, callback: Callback): Promise<void> {
+  async subscribe(channel: string | Constructor<QueueMessage>, callback: Callback, subscriptionId?: string): Promise<void> {
     const channels = !this.Deferred ? [] : typeof channel === 'string' ? [channel] : this.getChannelForMessage(channel);
-    this.subscriptions.push({ client: this, channels, callback, active: true });
+    this.subscriptions.push({ client: this, channels, callback, subscriptionId, active: true });
   }
 
   unsubscribe(): void {
@@ -143,19 +156,21 @@ export class MemoryQueueClient extends QueueClient {
   }
 
   /**
-   * Deferred mode: delivers what the broker holds, in publish order, and settles a delivery once its callback resolved.
-   * A rejected delivery stays queued for the next call; what is published meanwhile waits for the next call too.
-   * Default mode delivers during `emit()`, so there is nothing to do.
+   * Deferred mode: delivers what the broker holds and is due on the injected `Clock`, in publish order, and settles a
+   * delivery once its callback resolved. A rejected delivery is settled by the delivery decision: acked, dead-lettered
+   * into `deadLettered`, or queued again until its delay has passed; a crash leaves it queued as it was. What is
+   * published meanwhile waits for the next call. Default mode delivers during `emit()`, so there is nothing to do.
    */
   async deliverAll(): Promise<void> {
     if (!this.Deferred) return;
 
-    const batch = this.broker.pending;
+    const now = this.Timers.now();
+    const held = this.broker.pending;
     this.broker.pending = [];
     const unsettled: PendingDelivery[] = [];
-    for (const delivery of batch) {
-      const left = await this.attempt(delivery);
-      if (left) unsettled.push(left);
+    for (const delivery of held) {
+      if (delivery.availableAt > now) unsettled.push(delivery);
+      else unsettled.push(...(await this.attempt(delivery)));
     }
     this.broker.pending = [...unsettled, ...this.broker.pending];
   }
@@ -163,28 +178,56 @@ export class MemoryQueueClient extends QueueClient {
   private targetsOf(delivery: PendingDelivery): MemorySubscription[] {
     if (delivery.owed) return delivery.owed.filter((s) => s.active);
     const subscribed = this.broker.subscriptionsOn(delivery.channel);
-    return delivery.message.Type === QueueMessageType.Job ? subscribed.slice(0, 1) : subscribed;
+    if (delivery.message.Type === QueueMessageType.Job) return subscribed.slice(0, 1);
+    // subscriptions that share a subscriptionId compete for one copy, as consumers of one durable queue do
+    const taken = new Set<string>();
+    return subscribed.filter((s) => {
+      if (!s.subscriptionId) return true;
+      if (taken.has(s.subscriptionId)) return false;
+      taken.add(s.subscriptionId);
+      return true;
+    });
   }
 
-  /** Returns the delivery still owed to someone, or undefined once it is settled or has nowhere to go. */
-  private async attempt(delivery: PendingDelivery): Promise<PendingDelivery | undefined> {
+  /** Returns what is still owed: retries, crashed copies, and a job nobody consumes yet. */
+  private async attempt(delivery: PendingDelivery): Promise<PendingDelivery[]> {
     const targets = this.targetsOf(delivery);
     if (targets.length === 0) {
       // A queue holds a job until a consumer arrives; a topic drops an event nobody listens to.
-      return !delivery.owed && delivery.message.Type === QueueMessageType.Job ? delivery : undefined;
+      return !delivery.owed && delivery.message.Type === QueueMessageType.Job ? [delivery] : [];
     }
 
-    const failed: MemorySubscription[] = [];
+    const left: PendingDelivery[] = [];
     for (const target of targets) {
+      const copy = delivered(delivery.message, delivery.headers);
       try {
-        await target.callback(delivered(delivery.message));
+        await target.callback(copy);
       } catch (err) {
-        failed.push(target);
-        target.client.Log?.warn({ error: err, channel: delivery.channel, messageName: delivery.message.Name }, 'Memory delivery of ${messageName} on ${channel} failed, it stays queued');
+        if (isCrash(err)) {
+          // a dead consumer settles nothing: the broker hands the same copy out again
+          left.push({ ...delivery, owed: this.owedTo(delivery, target) });
+          continue;
+        }
+        const decision = decideDelivery(copy, retryCountOf(delivery.headers), err, resolveDeliveryPolicy(target.client, delivery.message));
+        left.push(...this.execute(delivery, target, decision));
       }
     }
+    return left;
+  }
 
-    if (failed.length === 0) return undefined;
-    return delivery.message.Type === QueueMessageType.Job ? { message: delivery.message, channel: delivery.channel } : { ...delivery, owed: failed };
+  private execute(delivery: PendingDelivery, target: MemorySubscription, decision: DeliveryDecision): PendingDelivery[] {
+    const deadLetter = decision.action === 'dead-letter' ? `${decision.reason}, to ${decision.channel ?? 'no dead-letter channel'}` : undefined;
+    target.client.Log?.warn({ messageName: delivery.message.Name, channel: delivery.channel, action: decision.action, deadLetter }, 'Memory delivery of ${messageName} on ${channel} failed, decided ${action}');
+    if (decision.action === 'ack') return [];
+    if (decision.action === 'dead-letter') {
+      if (decision.channel) this.deadLettered.push({ channel: decision.channel, message: delivery.message, headers: { ...decision.headers, [QueueHeaders.OriginalDestination]: delivery.channel } });
+      return [];
+    }
+    return [{ message: delivery.message, channel: delivery.channel, owed: this.owedTo(delivery, target), availableAt: this.Timers.now() + decision.delayMs, headers: { ...delivery.headers, ...decision.headers } }];
+  }
+
+  /** A job goes back to its queue for any consumer; an event copy is owed to the subscription that failed it. */
+  private owedTo(delivery: PendingDelivery, target: MemorySubscription): MemorySubscription[] | undefined {
+    return delivery.message.Type === QueueMessageType.Job ? undefined : [target];
   }
 }

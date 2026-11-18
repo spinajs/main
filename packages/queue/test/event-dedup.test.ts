@@ -8,7 +8,7 @@ import { FakeClock } from '@spinajs/durable/testing';
 import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
-import { decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
+import { CLAIM_FAILURE_REDELIVERY_MS, decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueHeaders, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
 import { MemoryBroker, wireCopy } from '../src/testing/index.js';
 import { deferred, memoryClientOf, RecordingFaults, faultsHit, T0 } from './support/outbox-env.js';
 
@@ -21,11 +21,13 @@ class PaymentCaptured extends QueueEvent {
 }
 
 const storeFailures: { claim?: Error; complete?: Error } = {};
+let claims = 0;
 
 /** The real store, failing the next claim or reply write the test arms. */
 @Injectable(IdempotencyStore)
 class FlakyIdempotencyStore extends OrmIdempotencyStore {
   public async claim(key: string, opts: IdempotencyClaimOptions): Promise<IdempotencyClaim> {
+    claims++;
     const failure = storeFailures.claim;
     storeFailures.claim = undefined;
     if (failure) throw failure;
@@ -48,7 +50,11 @@ interface BootOptions {
   deferred?: boolean;
   bootstrap?: boolean;
   store?: string;
+  routing?: Record<string, unknown>;
 }
+
+// the memory transport drops a failed event by default, so a case that expects the failed delivery again routes it to be retried
+const RETRIED = { routing: { PaymentCaptured: { maxRetries: 1, onEventFailure: 'retry' } } };
 
 let brokerSeq = 0;
 let current: BootOptions & { brokerName: string } = { brokerName: '' };
@@ -64,7 +70,7 @@ class DedupConf extends FrameworkConfiguration {
       idempotency: { store: current.store ?? 'OrmIdempotencyStore', lease: '30s' },
       queue: {
         default: 'memory',
-        routing: {},
+        routing: current.routing ?? {},
         ...(current.deduplicate === undefined ? {} : { deduplicate: current.deduplicate }),
         deduplicateEvents: current.deduplicateEvents ?? true,
         deduplicateTtl: current.deduplicateTtl === undefined ? '7d' : current.deduplicateTtl,
@@ -133,7 +139,7 @@ describe('queue: event deduplication by MessageId', function () {
   });
 
   it('releases the key after a handler failure, so the redelivery runs again', async () => {
-    const env = await boot();
+    const env = await boot(RETRIED);
     let calls = 0;
     await env.queue.consume<PaymentCaptured>(
       PaymentCaptured,
@@ -323,17 +329,44 @@ describe('queue: event deduplication by MessageId', function () {
     expect(faultsHit.filter((f) => f.name === 'queue.before-ack')).to.have.length(2);
   });
 
+  it('leaves a delivery that crashed after its claim unsettled, not delayed like a failed claim', async () => {
+    const env = await boot({ store: FlakyIdempotencyStore.name });
+    let calls = 0;
+    await env.queue.consume<PaymentCaptured>(PaymentCaptured, async () => void calls++, 'ledger');
+    await env.queue.emit(new PaymentCaptured({ PaymentId: 'p13' }));
+    claims = 0;
+    env.faults.crashAt = 'idempotency.after-claim';
+    await env.client.deliverAll();
+    env.faults.crashAt = undefined;
+    // without advancing the clock: an unsettled crash comes back at once, a RedeliverLater would wait CLAIM_FAILURE_REDELIVERY_MS
+    await env.client.deliverAll();
+    expect(claims).to.equal(2);
+    expect(calls, 'the dead claim still holds the key').to.equal(0);
+  });
+
   it('redelivers an event whose claim fails, and runs it again after its reply could not be stored', async () => {
     const env = await boot({ store: FlakyIdempotencyStore.name });
     const handled: string[] = [];
-    await env.queue.consume<PaymentCaptured>(PaymentCaptured, async (m) => void handled.push(m.PaymentId), 'ledger');
+    const retryCounts: (string | undefined)[] = [];
+    await env.queue.consume<PaymentCaptured>(
+      PaymentCaptured,
+      async (m) => {
+        handled.push(m.PaymentId);
+        retryCounts.push(m.Headers?.[QueueHeaders.RetryCount]);
+      },
+      'ledger',
+    );
 
     storeFailures.claim = new Error('database unavailable');
     await env.queue.emit(new PaymentCaptured({ PaymentId: 'p9' }));
     await env.client.deliverAll();
     expect(handled).to.deep.equal([]);
     await env.client.deliverAll();
+    expect(handled, 'the redelivery waits CLAIM_FAILURE_REDELIVERY_MS').to.deep.equal([]);
+    await env.clock.advance(CLAIM_FAILURE_REDELIVERY_MS);
+    await env.client.deliverAll();
     expect(handled).to.deep.equal(['p9']);
+    expect(retryCounts, 'a failed claim is not a counted retry').to.deep.equal(['0']);
 
     storeFailures.complete = new Error('database unavailable');
     const message = new PaymentCaptured({ PaymentId: 'p10', MessageId: '10101010-1010-4010-8010-101010101010' });

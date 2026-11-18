@@ -13,6 +13,9 @@ export class RedeliverLater extends Error {
   }
 }
 
+/** How long the queue waits before it redelivers an event whose dedup claim failed. A `250 * 2^n` value, so AMQP's forced-delay bucket equals it. */
+export const CLAIM_FAILURE_REDELIVERY_MS = 1000;
+
 export function isRedeliverLater(error: unknown): error is RedeliverLater {
   return typeof error === 'object' && error !== null && Object.getOwnPropertyDescriptor(error, REDELIVER)?.value === true;
 }
