@@ -86,11 +86,8 @@ jobs:
       - name: build audit-orm, the drivers and the test dependencies
         run: node node_modules/typescript-7/lib/tsc.js -b packages/audit-orm/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json packages/orm-pglite/tsconfig.build.json packages/orm-postgres/tsconfig.build.json packages/orm-mysql/tsconfig.build.json packages/orm-mssql/tsconfig.build.json packages/queue/tsconfig.build.json packages/scheduler/tsconfig.build.json packages/testing/tsconfig.build.json packages/testing-orm/tsconfig.build.json packages/log/tsconfig.build.json
 
-      # MySQL 5.7 creates MYSQL_DATABASE in latin1, which refuses non-Latin-1 text; a service cannot pass
-      # --character-set-server. The migrations declare no character set, so the tables take the database's.
-      - name: utf8mb4 test database
-        run: mysql -h 127.0.0.1 -P 13306 -uroot -proot -e "ALTER DATABASE test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-
+      # MySQL 5.7 creates MYSQL_DATABASE in latin1. Keep it: the suites' non-Latin-1 cases prove that every audit text
+      # column declares its own character set.
       - name: dialect suites
         working-directory: packages/audit-orm
         env:
