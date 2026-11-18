@@ -1,6 +1,6 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { TenantRecord, TenantRunFailure, TenantRunReport, TenantState } from './contracts.js';
-import { TenantSwitchDenied } from './errors.js';
+import { TenantIterationAborted, TenantSwitchDenied } from './errors.js';
 import { runInTenant, tenantScope } from './scope.js';
 import { tenantRegistry } from './services.js';
 
@@ -16,6 +16,7 @@ export interface ForEachTenantOptions {
  * instead of stopping at the first. Callable with no scope and from the cross-tenant scope.
  *
  * @throws TenantSwitchDenied inside a single-tenant scope
+ * @throws TenantIterationAborted when the registry fails; no tenant starts after that, and the error carries the report of those that ran
  */
 export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>, options: ForEachTenantOptions = {}): Promise<TenantRunReport> {
   const concurrency = options.concurrency ?? 1;
@@ -64,6 +65,7 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   };
 
   await Promise.allSettled(Array.from({ length: concurrency }, () => worker()));
-  if (broken) throw broken.error;
-  return { total, succeeded: total - failed.length, failed };
+  const report: TenantRunReport = { total, succeeded: total - failed.length, failed };
+  if (broken) throw new TenantIterationAborted(`forEachTenant stopped after ${total} tenant(s): ${String(broken.error)}`, report, broken.error);
+  return report;
 }
