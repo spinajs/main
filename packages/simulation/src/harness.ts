@@ -1,6 +1,7 @@
 import { runInContext, type SimContext } from './context.js';
 import { SimCrash } from './crash.js';
 import type { MutableSimEnv } from './env.js';
+import { Profiler } from './profile.js';
 import type { ResolvedSimulationOptions, SimActor, SimFailure, SimReport, SimSystem, SimTraceAction } from './simulate.js';
 
 type Outcome = { kind: 'done' } | { kind: 'error'; error: unknown };
@@ -49,6 +50,7 @@ export class Harness {
     protected readonly env: MutableSimEnv,
     protected readonly o: ResolvedSimulationOptions,
     protected readonly report: SimReport,
+    protected readonly profiler: Profiler = new Profiler(false),
   ) {
     // traced where the fault runtime raises it, so a crash that production code swallowed still shows up
     env.onCrash = (ctx) => this.trace(ctx.replica, 'crash');
@@ -67,15 +69,17 @@ export class Harness {
   }
 
   public async run(system: SimSystem): Promise<void> {
-    for (this.step = 0; this.step < this.o.steps; this.step++) {
-      await this.guarded('workload', () => system.workload(this.env.random, this.step));
-      await this.env.settle();
-      await this.turn(system);
-      await this.advance(this.env.random.int(this.o.maxClockStepMs + 1));
-      this.report.steps = this.step + 1;
-      if (this.report.steps % this.o.checkEvery === 0) await this.check(system, false);
-    }
-    await this.quiesce(system);
+    await this.profiler.time('stepsMs', async () => {
+      for (this.step = 0; this.step < this.o.steps; this.step++) {
+        await this.guarded('workload', () => system.workload(this.env.random, this.step));
+        await this.env.settle();
+        await this.turn(system);
+        await this.advance(this.env.random.int(this.o.maxClockStepMs + 1));
+        this.report.steps = this.step + 1;
+        if (this.report.steps % this.o.checkEvery === 0) await this.check(system, false);
+      }
+    });
+    await this.profiler.time('quiesceMs', () => this.quiesce(system));
     await this.check(system, true);
   }
 
@@ -130,6 +134,7 @@ export class Harness {
   }
 
   protected tick(actor: SimActor): Promise<void> {
+    this.profiler.count('ticks');
     this.trace(actor.name, 'tick');
     return this.follow(actor, this.env.replicas.context(actor.replica), () => actor.tick());
   }
@@ -231,10 +236,12 @@ export class Harness {
   }
 
   protected async check(system: SimSystem, final: boolean): Promise<void> {
-    await this.env.settle();
-    for (const inv of system.invariants) {
-      if (!inv.final || final) await this.guarded(inv.name, () => inv.check());
-    }
+    await this.profiler.time('checkMs', async () => {
+      await this.env.settle();
+      for (const inv of system.invariants) {
+        if (!inv.final || final) await this.guarded(inv.name, () => inv.check());
+      }
+    });
   }
 
   /** Runs suite code and names the failure after `label`, unless it already is a SimFailureError. */

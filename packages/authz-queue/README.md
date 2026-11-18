@@ -7,7 +7,7 @@ Importing the package registers `AuthzQueueHook` as a `QueueMessageHook` of `@sp
 - On emit it writes `message.Initiator` (`{ type, id, ceiling? }`) from the principal in the current async context. Nothing is written when there is none (unattended), and an `Initiator` the caller set is removed.
 - A handler runs as `UNATTENDED` unless its job says otherwise. Every check it makes is denied.
   - `@Job({ runAs: 'initiator' })`: the handler runs as the principal that emitted the message. A message without a usable `Initiator` runs unattended.
-  - `@Job({ runAs: 'system' })`: the handler runs as `SYSTEM`.
+  - `@Job({ runAs: 'system' })`: the handler runs as `SYSTEM`. Without `access` the class also needs `@SystemTask(reason)`; otherwise the job is refused (`system_task_missing`), unless `authz.queue.systemTask` is `'warn'`.
 - Every handler run is wrapped in `runAs`, with the reason `job:<name>`, so it shows in the audit when `authz.domains.<domain>.audit.runAs` is on.
 
 The hook uses the authz domain named by `authz.queue.domain` (default `root`).

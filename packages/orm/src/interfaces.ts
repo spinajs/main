@@ -1587,6 +1587,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   onPrimary(): this;
 
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
+
+  /** Merges `builder`'s joins, and the WHERE statements `filter` keeps as one AND group an `orWhere()` cannot widen this query through. */
+  mergeStatementsAsGroup(builder: ISelectQueryBuilder, filter: (statement: IQueryStatement) => boolean): void;
 }
 
 export interface ICompilerOutput {

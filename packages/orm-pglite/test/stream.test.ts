@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { Connection, HasMany, Model, ModelBase, Orm, Primary, QueryContext, Relation, StreamNotSupported } from '@spinajs/orm';
+import { Connection, HasMany, Model, ModelBase, Orm, Primary, QueryContext, Relation } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
@@ -90,8 +90,9 @@ describe('stream() on PGlite', function () {
     await driver.executeOnDb(`UPDATE pgl_stream SET "Name" = 'n' || "Id"`, [], QueryContext.Update);
   });
 
-  it('has no pg cursor and pages by keyset', async () => {
-    expect(driver.supportedFeatures().streaming).to.eq(false);
+  it('streams through a WITH HOLD cursor', async () => {
+    expect(driver.supportedFeatures().streaming).to.eq(true);
+    const cursor = sinon.spy(driver, 'executeStreamOnDb');
 
     const ids: number[] = [];
     for await (const row of PglStream.select().order('Id').stream({ batchSize: 64 })) {
@@ -99,9 +100,104 @@ describe('stream() on PGlite', function () {
     }
 
     expect(ids).to.deep.equal(Array.from({ length: 300 }, (_, i) => i + 1));
+    expect(cursor.callCount).to.eq(1);
   });
 
-  it('refuses a query without an order', async () => {
-    await expect(PglStream.select().stream()[Symbol.asyncIterator]().next()).to.be.rejectedWith(StreamNotSupported);
+  it('streams a query without an order: a cursor needs none', async () => {
+    const ids: number[] = [];
+    for await (const row of PglStream.select().stream({ batchSize: 64 })) {
+      ids.push(row.Id);
+    }
+
+    expect(ids.sort((a, b) => a - b)).to.deep.equal(Array.from({ length: 300 }, (_, i) => i + 1));
+  });
+
+  const openCursors = async () => {
+    const rows: Array<{ n: number }> = await driver.executeOnDb('SELECT count(*)::int AS n FROM pg_cursors', [], QueryContext.Select);
+    return rows[0].n;
+  };
+
+  it('lets the loop body query between batches and leaves no cursor open', async () => {
+    let seen = 0;
+    let countedInside = 0;
+    for await (const row of PglStream.select().order('Id').stream({ batchSize: 7 })) {
+      seen += row.Id > 0 ? 1 : 0;
+      if (seen === 8) {
+        countedInside = (await PglStream.all()).length;
+      }
+    }
+
+    expect(seen).to.eq(300);
+    expect(countedInside).to.eq(300);
+    expect(await openCursors()).to.eq(0);
+  });
+
+  it('closes the cursor when the loop breaks', async () => {
+    let read = 0;
+    for await (const row of PglStream.select().order('Id').stream({ batchSize: 7 })) {
+      read += row.Id > 0 ? 1 : 0;
+      if (read === 10) {
+        break;
+      }
+    }
+
+    expect(read).to.eq(10);
+    expect(await openCursors()).to.eq(0);
+  });
+
+  it('closes the cursor when the loop body throws', async () => {
+    const failing = async () => {
+      for await (const row of PglStream.select().order('Id').stream({ batchSize: 7 })) {
+        if (row.Id === 10) {
+          throw new Error('stop');
+        }
+      }
+    };
+
+    await expect(failing()).to.be.rejectedWith('stop');
+    expect(await openCursors()).to.eq(0);
+  });
+
+  it('runs two streams of one connection side by side', async () => {
+    const pairs: number[] = [];
+    for await (const outer of PglStream.select().where('Id', '<=', 2).order('Id').stream({ batchSize: 1 })) {
+      for await (const inner of PglStream.select().where('Id', '<=', 2).order('Id').stream({ batchSize: 1 })) {
+        pairs.push(outer.Id * 10 + inner.Id);
+      }
+    }
+
+    expect(pairs).to.deep.equal([11, 12, 21, 22]);
+    expect(await openCursors()).to.eq(0);
+  });
+
+  it('rejects with the FETCH error when the CLOSE after it fails too', async () => {
+    const run = driver.executeOnDb.bind(driver);
+    let fetches = 0;
+    sinon.stub(driver, 'executeOnDb').callsFake((stmt: string, params: unknown[], context: QueryContext): Promise<unknown> => {
+      if (stmt.startsWith('FETCH')) {
+        fetches++;
+      }
+      if (fetches === 2 && stmt.startsWith('FETCH')) {
+        return Promise.reject(new Error('fetch failed'));
+      }
+      if (fetches === 2 && stmt.startsWith('CLOSE')) {
+        return Promise.reject(new Error('close failed'));
+      }
+      return run(stmt, params, context);
+    });
+
+    const reading = async () => {
+      let read = 0;
+      for await (const row of PglStream.select().order('Id').stream({ batchSize: 7 })) {
+        read += row.Id > 0 ? 1 : 0;
+      }
+      return read;
+    };
+
+    await expect(reading()).to.be.rejectedWith('fetch failed');
+    sinon.restore();
+    // the stubbed CLOSE never reached the database
+    await driver.executeOnDb('CLOSE ALL', [], QueryContext.Select);
+    expect(await openCursors()).to.eq(0);
   });
 });
