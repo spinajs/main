@@ -82,3 +82,31 @@ export class AggregateDTO implements IAggregateRequest {
     Object.assign(this, data);
   }
 }
+
+/** One page of a list: declare a subclass per model with `@Schema(listResponseSchema(...))` and name it in `@returns`. */
+export class ListResponseDTO<T> {
+  public rows: T[];
+  /** Rows matching the filter, before paging. */
+  public total: number;
+  public aggregates?: Record<string, unknown>[];
+
+  constructor(data: Partial<ListResponseDTO<T>>) {
+    Object.assign(this, data);
+  }
+}
+
+/** JSON schema of a list answer whose rows match `row` (a schema object or `{ $ref }`). */
+export function listResponseSchema(id: string, row: object, options: { aggregates?: boolean } = {}) {
+  return {
+    $id: id,
+    type: 'object',
+    required: ['rows', 'total'],
+    properties: {
+      rows: { type: 'array', items: row },
+      total: { type: 'integer', minimum: 0 },
+      ...(options.aggregates !== false && {
+        aggregates: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      }),
+    },
+  };
+}
