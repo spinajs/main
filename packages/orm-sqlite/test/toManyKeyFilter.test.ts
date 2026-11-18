@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { BelongsToRelationRecursiveMiddleware, HasManyRelationMiddleware, IBuilderMiddleware, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
+import { BelongsToRelationRecursiveMiddleware, extractModelDescriptor, HasManyRelationMiddleware, IBuilderMiddleware, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
@@ -31,9 +31,9 @@ async function rawResults(run: () => PromiseLike<unknown>): Promise<Row[][]> {
   return results;
 }
 
-function relationMiddleware(query: object, type: Constructor<IBuilderMiddleware>): IBuilderMiddleware {
-  (query as { toDB(): unknown }).toDB();
-  const found = (query as { _middlewares: IBuilderMiddleware[] })._middlewares.find((m) => m instanceof type);
+function relationMiddleware(query: ISelectQueryBuilder, type: Constructor<IBuilderMiddleware>): IBuilderMiddleware {
+  query.toDB();
+  const found = (query as unknown as { _middlewares: IBuilderMiddleware[] })._middlewares.find((m) => m instanceof type);
   if (!found) {
     throw new Error(`the populate registered no ${type.name}`);
   }
@@ -78,6 +78,24 @@ describe('to-many populate: the key filter confines a callback orWhere', functio
 
     expect(capture.statements[1].expression).to.contain('WHERE ( `$Items$`.`Qty` = ? OR `$Items$`.`Qty` = ? ) AND `$Items$`.`order_id` IN (?)');
     expect(capture.statements[1].bindings).to.deep.equal([5, 99, 1]);
+  });
+
+  it('hasMany keeps an aggregate condition of the callback in HAVING, outside the group', async () => {
+    const qty = extractModelDescriptor(UowOrderItem)!.Columns.find((c) => c.Name === 'Qty')!;
+    qty.Aggregate = true;
+    const capture = captureStatements();
+    try {
+      await UowOrder.where('Id', 1).populate('Items', function () {
+        this.where('Sku', 'A').orWhere('Qty', '>', 3).orWhere('Sku', 'C').groupBy('order_id');
+      });
+    } finally {
+      capture.restore();
+      qty.Aggregate = false;
+    }
+
+    expect(capture.statements[1].expression).to.contain('WHERE ( `$Items$`.`Sku` = ? OR `$Items$`.`Sku` = ? ) AND `$Items$`.`order_id` IN (?) GROUP BY');
+    expect(capture.statements[1].expression).to.match(/HAVING `Qty` > \?$/);
+    expect(capture.statements[1].bindings).to.deep.equal(['A', 'C', 1, 3]);
   });
 
   it('many-to-many reads no junction row of another parent', async () => {

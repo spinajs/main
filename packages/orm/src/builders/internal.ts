@@ -87,7 +87,7 @@ export function executionCopy<Q extends object>(query: Q): Q {
  * widen a key filter ANDed after it. HAVING statements stay where they are. The source query is not changed.
  */
 export function groupWhereStatements(copy: ISelectQueryBuilder): void {
-  const statements = (copy as unknown as { _statements: IQueryStatement[] })._statements;
+  const statements = copy.Statements;
   const isAggregate = (s: IQueryStatement) => (s as { IsAggregate?: boolean }).IsAggregate === true;
   const conditions = statements.filter((s) => !isAggregate(s));
   if (conditions.length === 0) {
