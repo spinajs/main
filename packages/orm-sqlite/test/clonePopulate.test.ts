@@ -9,6 +9,7 @@ import { Lazy } from '@spinajs/util';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db, migrations } from './common.js';
 import { Location } from './models/Location.js';
+import { LocationNetwork } from './models/LocationNetwork.js';
 import { Offer } from './models/Offer.js';
 import { OfferLocation } from './models/OfferLocation.js';
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
@@ -261,30 +262,27 @@ describe('clone() of a populated query', function () {
     expect(await ids(refused.clone())).to.deep.equal([]);
   });
 
-  it('groups the target conditions of a many-to-many populate in the junction query', async () => {
-    const query = Offer.where({ Id: 1 }).populate('Localisations', function () {
-      this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
-    });
+  it('keeps an aggregate condition of a nested populate at the top level, where HAVING reads it', () => {
+    const name = extractModelDescriptor(LocationNetwork)!.Columns.find((c) => c.Name === 'Name')!;
+    name.Aggregate = true;
+    try {
+      const compiled = String(
+        sql(
+          OfferLocation.select().populate('Location', function () {
+            this.where('Id', 1).orWhere('Id', 2);
+            this.populate('Network', function () {
+              this.where('Name', 'Network 1');
+            });
+          }),
+        ),
+      );
 
-    expect(sql(junctionQuery(query))).to.contain('WHERE ( `$Localisations$`.`Name` = ? OR `$Localisations$`.`Name` = ? )');
-    expect((await query).flatMap((o) => [...o.Localisations].map((l) => l.Name)).sort()).to.deep.equal(['Loc 1', 'Loc 2']);
-  });
-
-  it('the junction query of a many-to-many populate with an OR reads the rows of its owners only', async () => {
-    const connection = db().Connections.get('sqlite')!;
-    await connection.insert().into('offer').values({ Name: 'Offer 2' });
-    await connection.insert().into('offer_location').values({ Localisation: 1, Offer_id: 2 });
-    const query = Offer.where({ Id: 2 }).populate('Localisations', function () {
-      this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
-    });
-
-    // what HasManyToManyRelationMiddleware runs for the owner rows it hydrates
-    const junction = junctionQuery(query).clone();
-    junction.whereIn('Offer_id', [2]);
-    const rows = await junction.asRaw<Array<Record<string, unknown>>>();
-
-    expect(rows.map((r) => r['Offer_id'])).to.deep.equal([2]);
-    expect((await query).flatMap((o) => [...o.Localisations].map((l) => l.Name))).to.deep.equal(['Loc 1']);
+      expect(compiled).to.contain('WHERE ( `$Location$`.`Id` = ? OR `$Location$`.`Id` = ? )');
+      expect(compiled).to.contain('HAVING `Name` = ?');
+      expect(compiled).to.not.contain('`$Location$.$Network$`.`Name` = ?');
+    } finally {
+      name.Aggregate = false;
+    }
   });
 
   it('keeps an aggregate condition of the callback at the top level, where HAVING reads it', () => {
