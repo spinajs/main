@@ -9,7 +9,8 @@ import '@spinajs/log';
 import { TestConfiguration } from './common.js';
 import '../src/extension.js';
 import '../src/builders.js';
-import { Filterable, Sortable } from '../src/decorators.js';
+import '../src/aggregate.js';
+import { Aggregatable, Filterable, Groupable, Sortable } from '../src/decorators.js';
 import { installFilterStatics } from './filter-statics.js';
 
 @Migration('default')
@@ -59,13 +60,16 @@ export class Order extends ModelBase {
   @Filterable(['eq', 'in'])
   public Id: number;
 
+  @Groupable()
   @Filterable(['eq', 'in'])
   public CustomerId: number;
 
+  @Groupable()
   @Sortable()
   @Filterable(['eq', 'neq', 'in'])
   public Status: string;
 
+  @Aggregatable(['sum', 'avg', 'min', 'max'])
   @Sortable()
   @Filterable(['eq', 'gt', 'gte', 'lt', 'lte'])
   public Amount: number;

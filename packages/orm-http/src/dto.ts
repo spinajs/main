@@ -1,5 +1,6 @@
 import { SortOrder } from '@spinajs/orm';
 import { Schema } from '@spinajs/validation';
+import { IAggregateMeasure, IAggregateRequest } from './interfaces.js';
 
 @Schema({
   type: 'object',
@@ -67,5 +68,17 @@ export class SortingDTO {
   // The framework builds a DTO also for an absent parameter, so `data` may be undefined.
   constructor(data?: Partial<SortingDTO>) {
     this.by = Array.isArray(data?.by) ? data.by.map((entry) => new OrderDTO(entry)) : ((data?.by as unknown as OrderDTO[]) ?? []);
+  }
+}
+
+/** `?aggregate={"groupBy":["status"],"measures":[{"name":"total","fn":"sum","column":"amount"}]}`. No `@Schema`: the schema depends on the model, the route argument supplies it. */
+export class AggregateDTO implements IAggregateRequest {
+  public groupBy?: string[];
+  public measures: IAggregateMeasure[];
+  public order?: { column?: string; order?: SortOrder }[];
+  public limit?: number;
+
+  constructor(data: Partial<AggregateDTO>) {
+    Object.assign(this, data);
   }
 }

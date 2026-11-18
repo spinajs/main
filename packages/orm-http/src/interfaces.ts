@@ -146,4 +146,29 @@ export interface FromModelOptions<T extends typeof ModelBase> {
  * it; the value of all three is matched literally. `nlike`, `nb-like` and `ne-like` keep the rows the matching operator
  * leaves out, except rows whose column is null. `empty` matches null or empty text, `nempty` the rest.
  */
-export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set' | 'nlike' | 'nb-like' | 'ne-like' | 'empty' | 'nempty';
+export type AggregateFunction = 'sum' | 'avg' | 'min' | 'max' | 'count';
+
+export interface IAggregateMeasure {
+  /** The key of the value in each result row; also its SQL alias, so an identifier. */
+  name: string;
+  fn: AggregateFunction;
+  /** The measured column; `count` without one counts rows. */
+  column?: string;
+}
+
+export interface IAggregateRequest {
+  /** One result row per distinct combination of these columns; none: one row over every matching row. */
+  groupBy?: string[];
+  measures: IAggregateMeasure[];
+  /** By group columns or measure names. */
+  order?: { column?: string; order?: SortOrder }[];
+  limit?: number;
+}
+
+/** What a model lets a request group and measure. */
+export interface IAggregateColumns {
+  groupable: string[];
+  aggregatable: Record<string, AggregateFunction[]>;
+}
+
+export type FilterableOperators ='eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set' | 'nlike' | 'nb-like' | 'ne-like' | 'empty' | 'nempty';
