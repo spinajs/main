@@ -142,8 +142,8 @@ describe('SchedulerService.runNow', () => {
     await expect(service.runNow('ghost', { triggeredBy: by })).to.be.rejectedWith(ScheduleNotFound);
   });
 
-  it('waits for the end of the run', async () => {
-    const pending = service.runNow('no-params', { wait: true, triggeredBy: by });
+  it('waits with a limit for a run that the loop of this process does not execute', async () => {
+    const pending = service.runNow('no-params', { wait: { timeoutMs: 60_000 }, triggeredBy: by });
     await waitFor(async () => (await RunModel.all()).length === 1);
     await s.tickOnce();
     await s.idle();

@@ -3,8 +3,9 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DataValidator } from '@spinajs/validation';
-import { InvalidRunState, SchedulePaused } from '@spinajs/scheduler';
+import { InvalidRunState, SCHEDULER_CONFIGURATION_SCHEMA, SchedulePaused, SchedulerNotRunning } from '@spinajs/scheduler';
 
+import shippedConfig from '../src/config/scheduler-http.js';
 import { ErrorStatusDto, LAST_EVENT_ID_SCHEMA, PauseDto, RetryFailedDto, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS, RunNowDto } from '../src/dto/requests.js';
 import { SchedulerConflict } from '../src/errors.js';
 import '../src/dto/responses.js';
@@ -19,7 +20,9 @@ class EmptyConfiguration extends FrameworkConfiguration {
 describe('scheduler-http dto', () => {
   let validator: DataValidator;
 
-  before(async () => {
+  before(async function () {
+    // resolving the configuration loads every installed package's defaults, which can outlast mocha's 2 s default
+    this.timeout(20000);
     DI.register(EmptyConfiguration).as(Configuration);
     await DI.resolve(Configuration);
     validator = await DI.resolve(DataValidator);
@@ -35,6 +38,17 @@ describe('scheduler-http dto', () => {
 
   const valid = (type: object, data: unknown) => validator.tryValidate(validator.extractSchema(type), data as object)[0];
   const validAgainst = (schema: object, data: unknown) => validator.tryValidate(schema, data as object)[0];
+
+  it('bounds scheduler.http.runWaitTimeout to what a timer can wait, and ships a default inside the bound', () => {
+    // $id and the custom keyword are only meaningful to @spinajs/configuration's own ajv instance
+    const { $id: _id, $configurationModule: _module, ...schema } = SCHEDULER_CONFIGURATION_SCHEMA as Record<string, unknown>;
+    const withWait = (runWaitTimeout: unknown) => validAgainst(schema, { http: { runWaitTimeout } });
+
+    expect(withWait(shippedConfig.scheduler.http.runWaitTimeout)).to.eq(true);
+    expect(withWait(2147483647)).to.eq(true);
+    expect(withWait(2147483648)).to.eq(false);
+    expect(withWait(-1)).to.eq(false);
+  });
 
   it('accepts an empty run-now body and the documented fields', () => {
     expect(valid(RunNowDto, {})).to.eq(true);
@@ -82,6 +96,7 @@ describe('scheduler-http dto', () => {
 
     expect(map.get(InvalidRunState.name)).to.eq(SchedulerConflict);
     expect(map.get(SchedulePaused.name)).to.eq(SchedulerConflict);
+    expect(map.get(SchedulerNotRunning.name)).to.eq(SchedulerConflict);
   });
 
   it('registers the run-accepted response schema under its documented name', () => {

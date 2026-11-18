@@ -154,9 +154,34 @@ metric; a data-derived name such as `` `page-${i}` `` grows the series without b
 
 - `runNow` conflicts (`RunConflict`, 409 / exit 3) with a queued, running or `retrying` run of the schedule unless `force` is set. With `force` on an `overlap: 'skip'` schedule the run does not take the schedule lease and may overlap.
 - A manual run of a `runOn: 'all'` schedule runs once, on the first replica that is not running that schedule locally; it waits while every replica is busy with it.
+- `wait: true` waits until the run ends, so it needs a started loop in the calling process: without one `runNow` refuses at once with `SchedulerNotRunning` (an `InvalidOperation`, 409 / exit 3) and writes no run. When a replica elsewhere runs the loop, wait with `wait: { timeoutMs }`; the run goes on after the timeout. `@spinajs/scheduler-http` does that for `"wait": true`, bounded by `scheduler.http.runWaitTimeout`: 200 when the run ended, 202 with the run not finished yet (`queued`, `running`, `retrying` or `emitted`; `isTerminalStatus(run.status)` is false) when the time ran out.
 - Params are validated against the schedule's `params` schema; a schedule without one rejects any params.
 - `cancel` ends a `queued`, `retrying` or `emitted` run at once and flags a `running` one; its holder aborts on the next heartbeat. A cancelled run always ends `aborted` / `cancelled`, also when its holder died or it had gone `retrying`; it is neither counted in health nor grouped. A task that succeeds before it notices the cancel stays `succeeded`. Cancelling an `emitted` run does not recall its queue job.
 - `pause` stops scheduled firing; manual runs and retries still work. `pause --hard` also refuses `runNow`, `retry` and `retryFailed` (`SchedulePaused`, 409 / exit 3). `resume` clears either pause, resets the consecutive-failure count, and moves a past `NextRunAt` to the next occurrence.
+
+### Run a schedule once and wait
+
+At application start, once `DI.resolve(Scheduler)` has started the loop:
+
+```ts
+const service = await DI.resolve(SchedulerService);
+const { run } = await service.runNow('import-rates', {
+  triggeredBy: { kind: 'system', id: 'startup' },
+  wait: { timeoutMs: 30_000 },
+});
+// run.status is final, or 'queued' / 'running' / 'retrying' / 'emitted' when the timeout passed (isTerminalStatus(run.status) is false)
+```
+
+In a test, or in any process whose loop is not started (`autoStart: false`), the
+process claims and executes the run itself:
+
+```ts
+const scheduler = await DI.resolve(Scheduler, [{ replicaId: 'test', autoStart: false }]);
+const { runId } = await service.runNow('import-rates', { triggeredBy: { kind: 'system', id: 'test' } });
+await scheduler.runLocally(runId); // false when the run cannot be claimed here, e.g. the schedule is busy
+await scheduler.idle(); // every run this process executes has ended
+const run = await service.getRun(runId);
+```
 
 ## Error groups and health
 

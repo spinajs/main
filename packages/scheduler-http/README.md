@@ -18,6 +18,7 @@ through the `admin.scheduler` sub-role.
 | Key | Default | Meaning |
 |---|---|---|
 | `scheduler.http.sse.heartbeat` | `15000` | ms between `: ping` comments on open event streams; `0` disables |
+| `scheduler.http.runWaitTimeout` | `30000` | ms a run-now request with `wait: true` waits for the run to end before it answers 202 with the unfinished run; at most `2147483647` (about 24.8 days), there is no unbounded setting |
 
 ## Permissions
 
@@ -54,7 +55,7 @@ principal as `kind: 'service'`. `name` is the user's `Login` (else `Email`). Oth
 |---|---|---|---|
 | GET | `/scheduler/schedules` | read | 200 `ScheduleInfo[]` |
 | GET | `/scheduler/schedules/:name` | read | 200 `ScheduleDetail`, 404 |
-| POST | `/scheduler/schedules/:name/runs` `{ params?, force?, wait? }` | run | 202 `{ runId }`; 200 `{ runId, run }` with `wait`; 400 `{ errors }`; 404; 409 `{ runId }` |
+| POST | `/scheduler/schedules/:name/runs` `{ params?, force?, wait? }` | run | 202 `{ runId }`; with `wait` 200 `{ runId, run }` when the run ended, 202 `{ runId, run }` when the wait timed out; 400 `{ errors }`; 404; 409 `{ runId }` |
 | POST | `/scheduler/schedules/:name/retry-failed` `{ since }` | run | 202 `{ runIds }` |
 | POST | `/scheduler/schedules/:name/pause` `{ hard? }` | manage | 200 `ScheduleInfo` |
 | POST | `/scheduler/schedules/:name/resume` | manage | 200 `ScheduleInfo` |
@@ -68,8 +69,18 @@ principal as `kind: 'service'`. `name` is the user's `Login` (else `Email`). Oth
 | PATCH | `/scheduler/errors/:fingerprint` `{ status }` | manage | 200 `ErrorGroupInfo`, 404 |
 | POST | `/scheduler/prune` | manage | 200 `PruneResult` |
 
-Statuses for service errors follow `httpStatusForError()` of `@spinajs/scheduler`. `wait: true` holds the HTTP
-request until the run ends; follow long runs through the event stream instead.
+Statuses for service errors follow `httpStatusForError()` of `@spinajs/scheduler`. `wait: true` creates the run and
+holds the request until the run ends, at most `scheduler.http.runWaitTimeout` ms. The loop that executes the run may
+be on another replica: the serving process sees its end through the journal.
+- A run that ended answers **200** `{ runId, run }`, with `run` in a final status (`succeeded`, `failed`, `dead`,
+  `aborted`, `skipped`, `misfired`).
+- When the time runs out first, the answer is **202** `{ runId, run }`: the `{ runId }` of the answer without `wait`,
+  plus the run not finished yet (`queued`, `running`, `retrying` or `emitted`, `finishedAt` null). Follow it through
+  `GET /scheduler/runs/:id` or its event stream.
+- A client tells the two apart by the status code, or by `isTerminalStatus(run.status)` of `@spinajs/scheduler` /
+  `run.finishedAt !== null`.
+
+Follow long runs through the event stream instead of a long wait.
 
 ## Live updates (Server-Sent Events)
 

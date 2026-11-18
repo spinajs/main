@@ -2,6 +2,7 @@ import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BaseController } from '@spinajs/http';
 import { SCHEDULER_SSE_HEARTBEAT_MS, SchedulerService, TriggeredBy } from '@spinajs/scheduler';
+import { RUN_WAIT_TIMEOUT_MS } from './defaults.js';
 import { triggeredByFrom } from './principal.js';
 
 export function compact<T extends object>(value: T): Partial<T> {
@@ -18,6 +19,9 @@ export abstract class SchedulerControllerBase extends BaseController {
 
   @Config('scheduler.http.sse.heartbeat', { defaultValue: SCHEDULER_SSE_HEARTBEAT_MS })
   protected HeartbeatMs: number;
+
+  @Config('scheduler.http.runWaitTimeout', { defaultValue: RUN_WAIT_TIMEOUT_MS })
+  protected RunWaitTimeoutMs: number;
 
   protected triggeredBy(): TriggeredBy {
     // the action runs inside AsyncLocalStorage.run(req.storage), where authz-http's PrincipalMiddleware left the principal

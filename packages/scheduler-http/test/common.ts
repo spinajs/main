@@ -10,7 +10,7 @@ import express from 'express';
 import { DI } from '@spinajs/di';
 import type { Class, Factory } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { SchedulerService } from '@spinajs/scheduler';
+import { Clock, DbClock, DefaultSchedulerService, RunEventHub, SchedulerService } from '@spinajs/scheduler';
 
 import { ErrorsController, MaintenanceController, RunsController, SchedulesController } from '../src/index.js';
 import schedulerHttpConfig from '../src/config/scheduler-http.js';
@@ -133,4 +133,9 @@ export async function stopHttp(): Promise<void> {
   }
   registered = [];
   DI.uncache(SchedulerService);
+  // a suite with the real service leaves these bound to its own FakeClock and database
+  DI.uncache(DefaultSchedulerService);
+  DI.uncache(Clock);
+  DI.uncache(DbClock);
+  DI.uncache(RunEventHub);
 }
