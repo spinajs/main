@@ -2,7 +2,7 @@ import { compilePermissionGlob, isPermissionGlob } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 import type { ObjectRef, OpaqueRef, PolicyIR, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
-import { RewriteAutomaton } from './graph.js';
+import { ANYONE, RewriteAutomaton } from './graph.js';
 import type { Edge } from './graph.js';
 import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers } from './monotone.js';
 import type { Encoder } from './smt/encode.js';
@@ -75,7 +75,7 @@ export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: Bound
     case 'implies':
       return orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
     case 'onlyVia':
-      return orBounded(await exactOnlyVia(ir, a.permission, a.holders), ir, { checks: [{ permission: a.permission, allowed: true }], admit: holderAdmits(ir, a.holders, 'without') }, options);
+      return onlyVia(ir, a.permission, a.holders, options);
     case 'never':
       return never(ir, a.holder, a.permission, options);
     case 'separated':
@@ -115,7 +115,8 @@ function permissionsMatching(ir: PolicyIR, glob: string): Permission[] {
 async function never(ir: PolicyIR, holder: string, glob: string, options: BoundedOptions): Promise<Verdict> {
   const verdicts: Verdict[] = [];
   for (const permission of permissionsMatching(ir, glob)) {
-    const hits = reachers(ir, permission).filter((r) => matchesHolder(holder, r.holder));
+    // An anyone term needs no holder, so whoever the selector names reaches the permission through it.
+    const hits = reachers(ir, permission).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
@@ -129,11 +130,30 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
   return combine(verdicts, ir);
 }
 
+const ANYONE_LISTED = 'a listed holder is an anyone term the exact engine cannot decide; the bounded search rules a holder out by its tuples, and an anyone term reads none';
+
+/** One of `selectors` selects an anyone term that reaches `permission`. */
+const listsAnyone = (ir: PolicyIR, permission: Permission, selectors: readonly string[]): boolean =>
+  reachers(ir, permission).some((r) => r.holder.kind === 'anyone' && selectors.some((s) => matchesHolder(s, r.holder)));
+
+async function onlyVia(ir: PolicyIR, permission: Permission, holders: readonly string[], options: BoundedOptions): Promise<Verdict> {
+  const exact = await exactOnlyVia(ir, permission, holders);
+  if (exact.result !== 'unknown') return exact;
+  if (listsAnyone(ir, permission, holders)) return { ...exact, message: `onlyVia(${permission}): ${ANYONE_LISTED}` };
+  return orBounded(exact, ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, holders, 'without') }, options);
+}
+
+const acceptsAnyone = (edges: readonly Edge[]): boolean => edges.at(-1)?.to === ANYONE;
+
 /** Both witnesses on one resource and one principal; `undefined` when their principals cannot be the same. */
 function merged(type: TypeName, a: readonly Edge[], b: readonly Edge[]): Scenario | undefined {
+  // An anyone path fits any principal, so the path that names one goes first and the other adopts its principal.
+  const [first, second] = acceptsAnyone(a) && !acceptsAnyone(b) ? [b, a] : [a, b];
   const objects = new Objects();
-  const x = instantiate(type, a, objects);
-  const y = instantiate(type, b, objects, x.resource);
+  const x = instantiate(type, first, objects);
+  // Its tuples name no principal, so nothing is renamed and the principal may be any object, the resource included.
+  if (acceptsAnyone(second)) return { principal: x.principal, resource: x.resource, tuples: [...x.tuples, ...instantiate(type, second, objects, x.resource, x.principal).tuples] };
+  const y = instantiate(type, second, objects, x.resource);
   const internal = y.tuples.some((t) => t.object.type === y.principal.type && t.object.id === y.principal.id) || (y.resource.type === y.principal.type && y.resource.id === y.principal.id);
   if (x.principal.type !== y.principal.type || internal) return undefined;
   const rename = (s: TupleSubjectRef): TupleSubjectRef => (s.type === y.principal.type && s.id === y.principal.id ? { ...s, id: x.principal.id } : s);
@@ -195,6 +215,10 @@ async function isolated(ir: PolicyIR, type: TypeName, except: readonly string[],
   const without = holderAdmits(ir, except, 'without');
   const verdicts: Verdict[] = [];
   for (const permission of Object.keys(ir.permissions).sort()) {
+    if (listsAnyone(ir, permission, except)) {
+      verdicts.push({ result: 'unknown', engine: 'bounded', opaque: [], message: `isolated(${type}): ${ANYONE_LISTED}` });
+      continue;
+    }
     verdicts.push(
       await bounded(ir, { checks: [{ permission, allowed: true }], admit: (t, u) => t.subject.id !== '*' && without(t, u), extra: (e, u) => boundary(e, u, type) }, options),
     );
