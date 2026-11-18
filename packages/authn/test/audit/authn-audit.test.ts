@@ -345,6 +345,22 @@ describe('AuthnAudit', function () {
       });
     });
 
+    it('warns when no AuthnEventListener is registered, and not when one is', async () => {
+      await boot({});
+      expect(auditorLines()).to.deep.equal([]);
+
+      for (const t of BASE) {
+        DI.uncache(t);
+        DI.unregister(t);
+      }
+      try {
+        expect((await boot({})).listeners()).to.deep.equal([]);
+        expect(auditorLines()).to.deep.equal(['warn AuthnAudit: no AuthnEventListener is registered; authentication events are neither recorded nor acted on']);
+      } finally {
+        for (const t of BASE) DI.register(t).as(AuthnEventListener);
+      }
+    });
+
     it('does not take a class that is not registered as an AuthnEventListener', async () => {
       expect(sinkNames(await boot({}))).to.not.include('NotASink');
     });
@@ -399,8 +415,12 @@ describe('AuthnAudit', function () {
       }
     });
 
-    it('refuses the removed sampleUse key, naming it', async () => {
+    it('refuses the removed keys, naming each', async () => {
       await bootFails({ sampleUse: 0.5 }, 'authn.audit.sampleUse');
+      await bootFails({ sinkTimeoutMs: 2000 }, 'authn.audit.sinkTimeoutMs');
+      await bootFails({ hashIdentifiers: false }, 'authn.audit.hashIdentifiers');
+      await bootFails({ retentionDays: 30 }, 'authn.audit.retentionDays');
+      await bootFails({ purgeInterval: 60000 }, 'authn.audit.purgeInterval');
     });
 
     it('fails boot on malformed authn.audit values, naming the path of each', async () => {
