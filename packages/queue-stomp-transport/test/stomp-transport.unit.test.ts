@@ -1467,6 +1467,13 @@ describe('stomp queue transport - unit', function () {
       expect(c.fake.subscriptions).to.have.length(0);
     });
 
+    it('refuses a subscription id with a comma, which ActiveMQ would split into a composite destination', async () => {
+      const c = await virtual();
+      await expect(c.subscribe(ORDERS, sinon.stub().resolves(), 'x,/queue/Consumer.other')).to.be.rejectedWith(InvalidArgument, /subscriptionId/);
+      await expect(c.subscribe(ORDERS, sinon.stub().resolves(), 'x,/queue/other')).to.be.rejectedWith(InvalidArgument, /subscriptionId/);
+      expect(c.fake.subscriptions).to.have.length(0);
+    });
+
     it('stops consuming a consumer queue on unsubscribe, without a durable UNSUBSCRIBE', async () => {
       const c = await virtual();
       await c.subscribe(ORDERS, sinon.stub().resolves(), 'billing', true);

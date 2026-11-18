@@ -24,7 +24,7 @@ Receiving one message:
 2. A string `CreatedAt` becomes a luxon `DateTime`.
 3. Every handler tracked for the channel runs. When all of them resolve, the message is acked. An ack that throws because the socket is gone is logged as a warning; the broker redelivers the message after the reconnect.
 4. When one rejects, `handleFailedMessage(message, qMessage, desc, err)`:
-   - a **crash** (an error with `crash: true`) is logged as an error and the frame is left unsettled: no ack, no nack. The broker hands it out again once the connection drops;
+   - a **crash** (an error with `crash: true`) is logged as an error and the frame is left unsettled: no ack, no nack (see [Crash](#crash) for what the broker does with it);
    - anything else goes to `decideDelivery(qMessage, x-retry-count, err, resolveDeliveryPolicy(this, qMessage))`, and `executeDecision()` carries out the answer.
 5. `executeDecision(message, qMessage, desc, decision)`:
    - **ack** (a failed event under `onEventFailure: 'drop'`, the default): logged as a warning and acked, so it is dropped;
@@ -43,7 +43,7 @@ sequenceDiagram
   alt handler resolves
     C->>B: ACK
   else crash: true
-    Note over C,B: unsettled until the connection drops
+    Note over C,B: unsettled; see Crash
   else decision: ack (event dropped)
     C->>B: ACK
   else decision: retry
@@ -77,7 +77,7 @@ With `options.virtualTopics: true` on the connection, a subscription with a `sub
 
 - the consumer queue is a queue: subscribers that share a `subscriptionId` (replicas) compete for one copy, each `subscriptionId` gets its own copy, and the broker keeps messages while nobody consumes;
 - it is durable by nature: `durable` sends no `activemq.subscriptionName` for it;
-- a `subscriptionId` on a topic cannot contain `.`, `*` or `>`, because it is one path element of the queue name (ActiveMQ's pattern is `Consumer.*.VirtualTopic.>`);
+- a `subscriptionId` on a topic cannot contain `.`, `*`, `>` or `,`, because it is one path element of the queue name (ActiveMQ's pattern is `Consumer.*.VirtualTopic.>`, and ActiveMQ splits a destination on `,` into a composite one);
 - a named topic subscription must be on a `/topic/VirtualTopic.*` channel; `subscribe()` refuses any other topic with `InvalidArgument`;
 - a subscription without a `subscriptionId` still subscribes the topic itself.
 
@@ -89,13 +89,27 @@ A retry decision goes into the subscription's consumer queue, for events and job
 
 - `onEventFailure: 'retry'` on a message class whose subscription is a topic without a consumer queue (a plain topic, an unnamed subscription, or a connection without `options.virtualTopics`) throws `InvalidArgument` from `subscribe()`, so `QueueService.consume()` fails at boot. A route to a `/queue/...` channel is accepted;
 - a raw `subscribe('/topic/...', …)` does not know the message class; if it meets a retry decision for an event, the transport logs an error and acks the event;
-- a `RedeliverLater` (from event deduplication, or thrown by the handler) is republished into the consumer queue or the `/queue/...` channel with its delay and an unchanged `x-retry-count`. On a topic subscription without a consumer queue it is logged as an error and nacked: on ActiveMQ a NACK sends the message to the broker's dead-letter queue, it is not redelivered. A `RedeliverLater` is never acked.
+- a `RedeliverLater` (from event deduplication, or thrown by the handler) is republished into the consumer queue or the `/queue/...` channel with its delay and an unchanged `x-retry-count`. On a topic subscription without a consumer queue it is logged as an error and nacked. A NACK is never a redelivery on ActiveMQ (see [NACK on ActiveMQ](#nack-on-activemq)), so a default, non-persistent event is lost there. A `RedeliverLater` is never acked.
 
 `RedeliversFailedEvents` is `options.virtualTopics`, so `queue.deduplicateEvents` accepts a STOMP connection only with virtual topics (see [Event deduplication](../queue/12-event-deduplication.md)).
 
 ### Crash
 
-An error with `crash: true` is never decided. The transport logs an error and leaves the frame unsettled, and the broker redelivers it once the connection drops. With the default `options.prefetch` of 1 the subscription receives nothing more until then. Outside tests only `FaultInjector` produces such an error.
+An error with `crash: true` is never decided. The transport logs an error and leaves the frame unsettled. What the broker does with it depends on the subscription:
+
+- a `/queue/...` channel, a consumer queue or a durable topic subscription: the broker hands the frame out again once the connection closes;
+- a non-durable topic subscription (an unnamed one, or a named one without `durable` and without a consumer queue): the broker discards the frame when the connection closes.
+
+The transport does not close the connection for you, and heartbeats keep it up. With the default `options.prefetch` of 1 the subscription therefore receives nothing more until the connection closes, in practice until the process restarts. Outside tests only `FaultInjector` produces such an error.
+
+### NACK on ActiveMQ
+
+The transport nacks a frame when a retry or dead-letter publish throws or gets no receipt within `ReceiptTimeout`, and for a `RedeliverLater` on a topic subscription without a consumer queue. ActiveMQ never redelivers a NACKed frame; it hands it to the destination's dead-letter strategy:
+
+- a persistent message (every job, and an event emitted with `Persistent: true`) goes to `DLQ.<queue>` for a queue or a consumer queue (the reference config's `individualDeadLetterStrategy`), and to the shared `ActiveMQ.DLQ` for a topic;
+- a non-persistent message, which is every event emitted without `Persistent: true`, is discarded, because the dead-letter strategies default to `processNonPersistent="false"`.
+
+So a retry republish the broker refused, or a `RedeliverLater` on a plain topic, loses a default event. To keep such events, emit them with `Persistent: true`, or set `processNonPersistent="true"` on the broker's `deadLetterStrategy` and give the `topic=">"` policy entry a `deadLetterStrategy` too.
 
 ## Decorators
 
@@ -229,15 +243,15 @@ export class AlertingStompClient extends StompQueueClient {
 - **One subscription per channel and subscription id per connection.** Subscriptions are keyed by channel, and on a `/topic/...` channel by channel and `subscriptionId`. Message classes with the same channel and `subscriptionId` on one connection share one broker subscription: every message runs every class's handler, and `QueueService` skips the ones whose `Name` does not match. Two `subscriptionId`s on one topic are two broker subscriptions, and each gets its own copy of every message. On a `/queue/...` channel all message classes share one broker subscription whatever their `subscriptionId`, because a second one would split the queue's messages; the subscription id and durability of the first `subscribe()` apply to all of them. The STOMP subscription id is `<subscriptionId>@<channel>`, so one `subscriptionId` used on several channels gives each its own. `unsubscribe(MessageClass)` removes that class's handler and drops a broker subscription with its last handler; `unsubscribe(channel)` drops every subscription of the channel at once. When one handler rejects, the failure policy below applies to the message, and a retry runs every handler of that subscription again.
 - **Upgrading from 3.x.** There, a message class consumed durably on a topic under a different `subscriptionId` than another class on that topic joined the first class's durable subscription. Now it gets its own durable subscription, which the broker creates at its first subscribe and which holds nothing from before. Its messages still stored in the shared subscription are delivered there, `QueueService` skips them by `Name`, and they are acked without running its handler. Drain the topic before deploying (stop publishing and let the consumers empty the shared subscription), or accept that those messages are lost. To keep the shared subscription instead, give both classes the first class's `subscriptionId`.
 - Prefetch defaults to `1` with `client-individual` acks: ActiveMQ sends the next message on a subscription only after the current one is acked, so handlers on one subscription run one at a time. With `options.prefetch: n`, up to `n` messages run at once. The value applies to every subscription on the connection; put job queues and event topics on separate connections when they need different values.
-- A retry is a new message: the original is acked after the broker confirms the retry publish with a receipt. A receipt that arrives after `ReceiptTimeout` leaves the retry on the broker and the nacked original is redelivered too: the job runs twice.
+- A retry is a new message: the original is acked after the broker confirms the retry publish with a receipt. A receipt that arrives after `ReceiptTimeout` leaves the retry on the broker, and the nacked original goes to the broker's dead-letter queue, or is discarded when it is non-persistent (see [NACK on ActiveMQ](#nack-on-activemq)). The original runs again only if someone moves it back.
 - A retry keeps `priority` and `correlation-id` but drops the original `AMQ_SCHEDULED_*` headers, so a cron job does not schedule itself again on retry. It is always sent `persistent`.
 - A job routed to a `/topic/...` channel without a consumer queue is retried on that topic: every subscriber gets the retry. Route jobs to `/queue/...` channels.
 - A failed event is dropped unless its route says `onEventFailure: 'retry'`; then it is retried into its consumer queue or its `/queue/...` channel, and dead-lettered when its retries run out.
 - `NonRetryableError` and `PermanentJobFailure` are dead-lettered on their first failure, whatever retries are left, and `QueueService` marks the job row `dead`.
 - The transport counts attempts in the `x-retry-count` header; `QueueService` counts them in the `queue_jobs` row and marks it `dead` when they run out. Both use `RetryCount`, or the route's `maxRetries` when the job has none, so they agree. A `RedeliverLater` is not counted.
 - An unparseable body uses only `defaultQueueDeadLetterChannel`; route-level dead-letter channels do not apply because the message name is unknown.
-- When a publish to the retry or dead-letter channel throws or times out, the original is nacked. A NACK does not redeliver on ActiveMQ: the message goes to the broker's dead-letter queue (`DLQ.<queue>` in the reference broker config, see [ACTIVEMQ.md](../../packages/queue-stomp-transport/ACTIVEMQ.md)).
-- A crashed frame (`crash: true`) holds its prefetch slot until the connection drops.
+- When a publish to the retry or dead-letter channel throws or times out, the original is nacked. A NACK does not redeliver on ActiveMQ: a persistent message goes to `DLQ.<queue>` (queues) or `ActiveMQ.DLQ` (topics), and a non-persistent one is discarded unless the broker's `deadLetterStrategy` sets `processNonPersistent="true"` (see [NACK on ActiveMQ](#nack-on-activemq) and [ACTIVEMQ.md](../../packages/queue-stomp-transport/ACTIVEMQ.md)).
+- A crashed frame (`crash: true`) holds its prefetch slot until the connection closes; on a non-durable topic subscription the broker then discards it.
 - A durable subscription is identified by ActiveMQ through `client-id` plus `activemq.subscriptionName`, not by the STOMP subscription id. The `client-id` comes from the [client factory](05-client-factory-and-client-id.md); keep `app.name`, `APP_ENV` and the connection `name` stable, or a restart creates a new durable subscription and the old one keeps collecting messages. The durable name is the `subscriptionId` alone, so one `subscriptionId` can be durable on one topic per `client-id`; ActiveMQ refuses a second (`Durable consumer is in use`).
 - `unsubscribe(channelOrClass, removeDurable = true)` sends `UNSUBSCRIBE` with `activemq.subscriptionName`, which deletes the durable subscription on the broker. Without `removeDurable` it only stops consuming; the broker keeps storing messages for it.
 - `unsubscribe()` while the socket is down only forgets the descriptor, so the subscription is not replayed on reconnect. With `removeDurable` it logs a warning: no `UNSUBSCRIBE` can be sent, so the broker keeps the durable subscription.
@@ -247,7 +261,7 @@ export class AlertingStompClient extends StompQueueClient {
 - Set `RetryCount` on every job emit and a `deadLetterChannel` on every job route; without a dead-letter channel, a job that runs out of retries is dropped with only a log line.
 - Set `retryDelay` on connections that carry jobs calling external services; immediate retries hit the same outage.
 - Make job handlers throw on failure. A handler that catches its own error and resolves gets its message acked.
-- Consume dead-letter channels with a separate tool or job that reads `x-original-destination` and `x-error` and re-emits after a fix.
+- Consume dead-letter channels with a separate tool or job that reads `x-original-destination` and `x-error` and re-emits after a fix. For a consumer-queue subscription `x-original-destination` is the topic (`/topic/VirtualTopic.<name>`), so re-driving into it reaches every subscriber; re-drive into `/queue/Consumer.<subscriptionId>.VirtualTopic.<name>` to reach only the one that failed.
 
 ## Patterns and antipatterns
 

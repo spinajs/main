@@ -495,9 +495,13 @@ export class StompQueueClient extends QueueClient {
   protected endSubscription(desc: ISubscriptionDescriptor, removeDurable: boolean) {
     const frameId = this.frameIdOf(desc);
 
+    if (desc.queue && removeDurable) {
+      this.Log.warn({ queue: desc.queue, channel: desc.channel }, 'Stopped consuming ${queue}; the consumer queue of ${channel} stays on the broker and keeps collecting messages until it is deleted there');
+    }
+
     if (!this.Connected) {
       // the live subscription went away with the socket; UNSUBSCRIBE cannot be sent without one
-      if (desc.durable && removeDurable) {
+      if (!desc.queue && desc.durable && removeDurable) {
         this.Log.warn({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
       }
     } else if (!desc.queue && desc.durable && removeDurable && desc.subscriptionId && frameId) {
@@ -506,9 +510,6 @@ export class StompQueueClient extends QueueClient {
       this.Client.unsubscribe(frameId, { 'activemq.subscriptionName': desc.subscriptionId });
       this.Log.info({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
     } else {
-      if (desc.queue && removeDurable) {
-        this.Log.warn({ queue: desc.queue, channel: desc.channel }, 'Stopped consuming ${queue}; the consumer queue of ${channel} stays on the broker and keeps collecting messages until it is deleted there');
-      }
       desc.active?.unsubscribe();
     }
   }
@@ -537,8 +538,9 @@ export class StompQueueClient extends QueueClient {
     const topics = channels.filter((c) => c.startsWith(TOPIC_PREFIX));
 
     if (this.VirtualTopics && subscriptionId && topics.length > 0) {
-      if (/[.*>]/.test(subscriptionId)) {
-        throw new InvalidArgument(`subscriptionId ${subscriptionId} names an ActiveMQ consumer queue under options.virtualTopics, so it cannot contain '.', '*' or '>'`);
+      // ActiveMQ splits a destination on ',' into a composite destination
+      if (/[.*>,]/.test(subscriptionId)) {
+        throw new InvalidArgument(`subscriptionId ${subscriptionId} names an ActiveMQ consumer queue under options.virtualTopics, so it cannot contain '.', '*', '>' or ','`);
       }
 
       const plain = topics.filter((c) => !c.startsWith(VIRTUAL_TOPIC_PREFIX));

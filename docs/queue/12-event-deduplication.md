@@ -69,7 +69,7 @@ A connection that acks a failed event instead of redelivering it would drop an i
 | --- | --- |
 | `MemoryQueueClient` (`@spinajs/queue/testing`) | With `options.deferred: true`; refused otherwise |
 | `SqsQueueClient` | Yes: a failed or in-flight event comes back after the visibility timeout. Each redelivery counts toward the queue's `maxReceiveCount`, so keep it at 5 or more for a deduplicated subscription |
-| `StompQueueClient` | With `options.virtualTopics`: a failed or in-flight event is republished into its consumer queue, or into its `/queue/...` channel, with `AMQ_SCHEDULED_DELAY`. Refused otherwise, because a NACK on ActiveMQ goes to the dead-letter queue instead of coming back. With virtual topics a named subscription of a topic must be on a `/topic/VirtualTopic.*` channel, so every deduplicated subscription has a queue to come back to |
+| `StompQueueClient` | With `options.virtualTopics`: an in-flight duplicate or a failed claim is republished into its consumer queue, or into its `/queue/...` channel, with `AMQ_SCHEDULED_DELAY` (a handler failure follows `onEventFailure`, so under the default `drop` it is not retried). Refused otherwise, because ActiveMQ never redelivers a NACK: it dead-letters a persistent message and discards a non-persistent one, which a default event is. With virtual topics a named subscription of a topic must be on a `/topic/VirtualTopic.*` channel, so every deduplicated subscription has a queue to come back to |
 | `AmqpQueueClient` | Refused in this release |
 
 The delivery-contract release changes this for AMQP too: it accepts event deduplication.
