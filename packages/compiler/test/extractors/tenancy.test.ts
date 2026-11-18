@@ -142,6 +142,7 @@ describe('tenancy entry points', () => {
       ['billing.totals', 'socket-command'],
       ['job:Notify', 'queue-handler'],
       ['job:Rebalance', 'queue-handler'],
+      ['job:Reindex', 'queue-handler'],
       ['heartbeat', 'schedule'],
       ['billing:sync', 'cli'],
     ];
@@ -171,15 +172,23 @@ describe('tenancy entry points', () => {
     expect(entry('vacuum')).to.deep.include({ tenancy: 'none', declared: 'none' });
   });
 
-  it('notes a @Job tenancy option that is no literal once', () => {
+  it('reads the @Job tenancy option as the options object evaluates: from a constant, and overridden by a later spread', () => {
+    expect(entry('job:Settle')).to.deep.include({ tenancy: 'required', declared: 'required' });
+    expect(entry('job:Archive')).to.deep.include({ tenancy: 'none', declared: 'none' });
+  });
+
+  it('notes a @Job option that is no literal once, tenancy or access', () => {
     const notes = fragment.diagnostics.filter((d) => d.code === 'CMP001' && d.source?.file === 'src/dynamic-job.ts');
-    expect(notes.map((d) => [d.message, d.source?.line])).to.deep.equal([['non-literal decorator argument: tenancyMode()', 5]]);
+    expect(notes.map((d) => [d.message, d.source?.line])).to.deep.equal([
+      ['non-literal decorator argument: tenancyMode()', 5],
+      ['non-literal decorator argument: perms()', 10],
+    ]);
   });
 
   it('lists every entry point of the package under the kind, id and source the authz section gives it', () => {
     const key = (e: { kind: string; id: string; source: { file: string; line: number } }): string => `${e.kind} ${e.id} ${e.source.file}:${e.source.line}`;
     expect(tenancy.entryPoints.map(key)).to.deep.equal(fragment.authz!.entryPoints.map(key));
-    expect(tenancy.entryPoints).to.have.length(35);
+    expect(tenancy.entryPoints).to.have.length(38);
   });
 
   it('writes no section for a package that declares no tenancy', async () => {
