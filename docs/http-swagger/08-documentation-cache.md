@@ -1,6 +1,6 @@
 # Documentation cache
 
-`SwaggerDocCache` collects what the builder needs to know about one controller beyond its decorators: the JSDoc of the class and its methods, and the policies applied to it. The JSDoc is parsed once per controller file by `DefaultControllerCache` from `@spinajs/http` and kept on disk. Replace either class, or add a JSDoc tag, to change what the document says.
+`SwaggerDocCache` collects what the builder needs to know about one controller beyond its decorators: the JSDoc of the class and its methods, and the policies applied to it. The JSDoc is parsed once per controller class by `DefaultControllerCache` from `@spinajs/http` and kept on disk. Replace either class, or add a JSDoc tag, to change what the document says.
 
 ## How it works
 
@@ -8,7 +8,7 @@
 
 1. Calls `DefaultControllerCache.getDocumentation(controller)`:
    - a controller whose `file` is a placeholder such as `<dynamic>` gets `{ className, methods: {} }`, so no JSDoc;
-   - otherwise the key is `doc_<@spinajs/http version>_<hash of the .d.ts>` in the `__fs_controller_cache__` file provider (`<cwd>/__cache__/__controllers__`). A missing `.d.ts` makes the hasher throw `IOFail`;
+   - otherwise the key is `doc_<@spinajs/http version>_<hash of the .d.ts>_<hash of the class name>` in the `__fs_controller_cache__` file provider (`<cwd>/__cache__/__controllers__`). A missing `.d.ts` makes the hasher throw `IOFail`;
    - a missing entry is generated: the `.d.ts` (the controller file with `.js` replaced) is parsed with the TypeScript compiler API, every method's JSDoc goes through `tagExtractors`, and the entry is written.
 2. Reads `controller.instance.Descriptor` for controller-level and route-level policy names; see [Policies and access](05-policies-and-access.md).
 3. Asks `DefaultControllerCache.getPolicyDocumentation()` for the JSDoc of those policies.
