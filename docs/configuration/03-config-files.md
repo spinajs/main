@@ -15,7 +15,7 @@
 4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Both add `__file__: [path]` to every top-level object.
 5. The environment result is merged over the common result and returned to the configuration.
 
-A file that fails to import or parse is logged with `InternalLogger.error` and counts as `{}`. The boot goes on.
+A file that fails to import or parse fails the load. `Load()` rejects with an `InvalidConfiguration` whose message names the file and the original error; the original error is its `cause`. `DI.resolve(Configuration)` rejects with it, so the application does not start on a half-loaded configuration. A reload (`configuration.load()`) throws the same error and keeps the tree it had.
 
 ## Search directories
 
@@ -100,7 +100,7 @@ Subclass `BaseFileSource` to load a format the framework does not read: YAML, TO
 | Member | Kind | Use |
 | --- | --- | --- |
 | `Load(configuration)` | abstract, from `ConfigurationSource` | Call `this.load()` for the common and the environment pattern, merge the two. |
-| `load(extension, callback)` | protected | Globs `extension` under every search directory; `callback(file)` returns a promise of the parsed object. |
+| `load(extension, callback)` | protected | Globs `extension` under every search directory; `callback(file)` returns a promise of the parsed object. A rejected promise fails the load, and with it the boot. |
 | `getEnvironment(configuration)` | protected | Returns the normalized environment name. |
 | `Order` | getter, `1` | Override to load before or after the other sources. |
 | `CommonDirs`, `BasePath` | protected fields | Read or extend the search list in your constructor. |
@@ -159,7 +159,7 @@ void main();
 - Files load in two passes: every common file from every directory, then every environment file. An environment file in a package directory still wins over a common file in your project.
 - A file whose name has a dot before the extension (`my.settings.js`) is not a common file. It loads only when the environment is named after its second part (`settings`).
 - Directories are globbed recursively: `config/nested/db.js` loads like `config/db.js`. The directory structure does not change the config keys; only the exported object does.
-- A config module that throws on import, or a JSON file with a syntax error, is logged and skipped. The configuration boots without it, and a schema may then fill defaults for the missing module.
+- A config module that throws on import or in `onConfigLoad`, or a JSON file with a syntax error, stops the boot with `InvalidConfiguration`, for example `Cannot load configuration file /app/dist/config/http.js: Unexpected token`. Every file found in a search directory must load; there is no option to skip a broken one. Remove a file you do not want loaded.
 - Without `DI.setESMModuleSupport()`, the sources search `lib/cjs/config` of each `@spinajs` package and load files with `require()`. An ESM app must call it before the configuration resolves.
 - `WORKSPACE_ROOT_PATH` is detected once per source construction and written to `process.env`. In a workspace, without it, package configs build paths under the app package that do not exist.
 - The ancestor walk (row 2 and the `WORKSPACE_ROOT_PATH` detection) stops at the workspace root, but an explicit `WORKSPACE_ROOT_PATH` is searched wherever it points (row 3). In a nested checkout, leave it unset or point it at the inner checkout, or the outer packages load again.

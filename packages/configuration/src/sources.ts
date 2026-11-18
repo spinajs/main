@@ -7,6 +7,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
+import { InvalidConfiguration } from './exception.js';
+
+function cannotLoad(file: string, err: unknown) {
+  const error = new InvalidConfiguration(`Cannot load configuration file ${file}: ${err instanceof Error ? err.message : String(err)}`);
+  error.cause = err;
+  return error;
+}
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -246,8 +253,8 @@ export class JsFileSource extends BaseFileSource {
 
         return cfg;
       } catch (err) {
-        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
-        return {} as IConfigLike;      }
+        throw cannotLoad(file, err);
+      }
     }
   }
 }
@@ -276,8 +283,7 @@ export class JsonFileSource extends BaseFileSource {
         }
         return Promise.resolve(cfg);
       } catch (err) {
-        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
-        return Promise.resolve({} as IConfigLike);
+        return Promise.reject(cannotLoad(file, err));
       }
     } 
   }
