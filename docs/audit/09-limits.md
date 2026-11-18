@@ -26,7 +26,7 @@ What a reader of the trail, and an operator of it, must not assume.
 - Delivery is at least once; a destination that does not deduplicate on `id` sees duplicates.
 - Reads of a shipping trail lag by at least one shipping interval, longer while a delivery fails.
 - The shipper has no dead-letter: an event a sink always refuses blocks its trail on that connection. On the queue, refused messages need a dead-letter queue.
-- Whoever can publish `AuditBatchRecorded` to the route can forge archived events.
+- Whoever can publish `AuditBatchRecorded` to the route can forge archived events, unless the receiving service requires [signed batches](06-shipping.md#signed-batches); then only the holder of a source's key can, for that source.
 - A message whose events are more than 5 minutes ahead of the receiving service's clock waits or is dead-lettered.
 - On MSSQL two archive indexes, `(subject_type, subject_id, action)` and `(source, subject_type, subject_id, seq)`, have keys wider than 900 bytes: the archive needs SQL Server 2016 or later, whose nonclustered keys hold 1700 bytes.
 
