@@ -32,7 +32,7 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Poll interval | DI value `'__config_watch_interval__'`, shape `{ value: number }` | not registered (180 000 ms) | any number of milliseconds | `DI.register({ value: ms }).asValue('__config_watch_interval__')` before `Orm` resolves. |
-| Poll | `DbConfigSourceBotstrapper.refreshWatched()`, public method of the singleton bootstrapper | runs on the timer | call it yourself | `(await DI.resolve(DbConfigSourceBotstrapper)).refreshWatched()` forces a poll now; see the example below. Subclassing: [Customizing the bootstrapper](09-customizing-the-bootstrapper.md). |
+| Poll | `DbConfigSourceBotstrapper.refreshWatched()`, public method of the singleton bootstrapper | runs on the timer | call it yourself | `(await DI.resolve(DbConfigSourceBotstrapper)).refreshWatched()` forces a poll now; see the example below. When a subclass replaced the bootstrapper, resolve the subclass instead, or register it `.as(DbConfigSourceBotstrapper)` so this call reaches it. Subclassing: [Customizing the bootstrapper](09-customizing-the-bootstrapper.md). |
 | Change comparison | `isConfigValueEqual(a, b)`, exported function | lodash `isEqualWith` plus `DateTime` instant comparison | none | Not pluggable; call it in your own code to compare config values the same way. |
 
 ## Important behaviour
@@ -106,7 +106,7 @@ export async function enableCheckoutV2(): Promise<void> {
 }
 ```
 
-`DI.resolve(DbConfigSourceBotstrapper)` returns the same singleton the bootstrap phase ran, so `refreshWatched()` writes into the configuration its timer updates.
+`DI.resolve(DbConfigSourceBotstrapper)` returns the same singleton the bootstrap phase ran, so `refreshWatched()` writes into the configuration its timer updates. That holds while the base class is registered, or a subclass that replaced it is registered `.as(DbConfigSourceBotstrapper)`; after a plain `DI.unregister(DbConfigSourceBotstrapper)` for a subclass, resolve the subclass or add that registration, see [Customizing the bootstrapper](09-customizing-the-bootstrapper.md#how-it-works).
 
 ### Start watching an option without a deploy
 
