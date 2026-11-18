@@ -63,39 +63,39 @@ export function mutexContract(title: string, connection: { Name: string; Driver:
     });
 
     it('Should grant exactly one of 20 concurrent acquires on an existing mutex', async () => {
-      await mutex_create({ Name: 'race', Tenant: 'creator' });
+      await mutex_create({ Name: 'race', Holder: 'creator' });
 
-      const results = await Promise.all(Array.from({ length: 20 }, (_v, i) => mutex_acquire({ Name: 'race', Tenant: `replica-${i}` })));
+      const results = await Promise.all(Array.from({ length: 20 }, (_v, i) => mutex_acquire({ Name: 'race', Holder: `replica-${i}` })));
 
       expect(results.filter((r) => r.Locked)).to.have.length(1);
     });
 
     it('Should grant exactly one of 20 concurrent acquires on a missing mutex', async () => {
-      const results = await Promise.all(Array.from({ length: 20 }, (_v, i) => mutex_acquire({ Name: 'race', Tenant: `replica-${i}` })));
+      const results = await Promise.all(Array.from({ length: 20 }, (_v, i) => mutex_acquire({ Name: 'race', Holder: `replica-${i}` })));
 
       expect(results.filter((r) => r.Locked)).to.have.length(1);
     });
 
     // MySQL reports matched rows only because mysql2 sets CLIENT_FOUND_ROWS by default
     it('Should let the holder acquire again with ttl 0', async () => {
-      expect((await mutex_acquire({ Name: 'reentrant', Tenant: 'a', ttl: 0 })).Locked).to.be.true;
-      expect((await mutex_acquire({ Name: 'reentrant', Tenant: 'a', ttl: 0 })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'reentrant', Holder: 'a', ttl: 0 })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'reentrant', Holder: 'a', ttl: 0 })).Locked).to.be.true;
     });
 
-    it('Should let another tenant take an expired lock', async () => {
-      await mutex_acquire({ Name: 'ttl', Tenant: 'a', ttl: 300 });
+    it('Should let another holder take an expired lock', async () => {
+      await mutex_acquire({ Name: 'ttl', Holder: 'a', ttl: 300 });
       await sleep(500);
 
-      expect((await mutex_acquire({ Name: 'ttl', Tenant: 'b', ttl: 300 })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'ttl', Holder: 'b', ttl: 300 })).Locked).to.be.true;
     });
 
     it('Should keep a renewed lock past its first expiry', async () => {
-      await mutex_acquire({ Name: 'renew', Tenant: 'a', ttl: 600 });
+      await mutex_acquire({ Name: 'renew', Holder: 'a', ttl: 600 });
       await sleep(300);
-      expect(await mutex_renew({ Name: 'renew', Tenant: 'a', ttl: 600 })).to.be.true;
+      expect(await mutex_renew({ Name: 'renew', Holder: 'a', ttl: 600 })).to.be.true;
       await sleep(400);
 
-      expect((await mutex_acquire({ Name: 'renew', Tenant: 'b', ttl: 600 })).Locked).to.be.false;
+      expect((await mutex_acquire({ Name: 'renew', Holder: 'b', ttl: 600 })).Locked).to.be.false;
     });
   });
 }

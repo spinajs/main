@@ -1,3 +1,4 @@
+import type { Context, Span } from '@opentelemetry/api';
 import { CommandRequest, SocketException } from '@spinajs/http-socket-common';
 import { CommandOutcome, IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketFinishContext, ISocketIdempotencyClaim, ISocketOutcomeRecorder, ISocketReplyContext, SocketMiddleware } from './interfaces.js';
 import { SocketConnection } from './connection.js';
@@ -53,6 +54,8 @@ export class SocketCommandContext implements ISocketReplyContext, ISocketFinishC
   public finishing?: SocketMiddleware[];
   /** @internal Settles, never rejects, when the middleware chain has. */
   public chainSettled: Promise<void> = Promise.resolve();
+  /** @internal The command's SERVER span and the context it is active in; set by the dispatcher. */
+  public trace?: { span: Span; context: Context };
 
   protected readonly controller = new AbortController();
   protected timer: ReturnType<typeof setTimeout> | null = null;
