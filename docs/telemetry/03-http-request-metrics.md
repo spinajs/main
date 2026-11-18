@@ -40,6 +40,7 @@
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
+| `telemetry.http.enabled` | `boolean` | `true` | `true`, `false` | `false`: `before()` returns a handler that only calls `next()`, so the three series are never defined and the request statistics stay empty |
 | `telemetry.prefix` | `string` | `'http'` | a Prometheus name prefix | Prefix of the three series |
 | `telemetry.buckets` | `number[]` | `DURATION_BUCKETS_MS` | ascending ms values | Histogram buckets |
 
@@ -63,6 +64,7 @@ export default {
 
 ## Important behaviour
 
+- `telemetry.http.enabled` is read when `HttpServer` resolves and calls `before()`; a subclass that keeps or wraps the base `before()` follows it too. The `/telemetry/stats`, `timeline` and `routes` endpoints still answer, with zero counts; turn them off with `telemetry.endpoints.<endpoint>.enabled`.
 - The label set is read on `finish`, not in `before()`: `req.route` exists only after the router matched, and handlers may change the status.
 - Every step is inside `try`/`catch`. A failing metric or store logs a `warn` on the `telemetry` logger and never breaks the request.
 - The gauge is balanced exactly once per request, whichever of `finish` and `close` fires first.

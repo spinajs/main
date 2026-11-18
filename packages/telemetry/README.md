@@ -470,6 +470,8 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.auth.domain` | `'root'` | Authz domain the `'AccessPolicy'` slots check in |
 | `telemetry.auth.skipInDevelopment` | `false` | Skip the `'AccessPolicy'` checks; needs an explicit development env too |
 | `telemetry.collectDefaultMetrics` | `true` | Register `process_*` / `nodejs_*` metrics at bootstrap |
+| `telemetry.http.enabled` | `true` | Time requests in the request middleware; `false` leaves out the http metrics and the request statistics |
+| `telemetry.endpoints.<endpoint>.enabled` | `true` | `false` answers 404 on that endpoint to every caller, before any credential check |
 | `telemetry.prefix` | `'http'` | Metric name prefix for the http metrics |
 | `telemetry.buckets` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | Duration histogram buckets ( ms ) |
 | `telemetry.apdexThresholdMs` | `25` | Apdex satisfied threshold; tolerated is 4x |

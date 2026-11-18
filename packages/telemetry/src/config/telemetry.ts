@@ -72,6 +72,25 @@ const config = {
      */
     collectDefaultMetrics: true,
 
+    http: {
+      /** false: the request middleware only passes requests on, so no http_* metric exists and the JSON stats stay empty. */
+      enabled: true,
+    },
+
+    /**
+     * Per endpoint: `enabled: false` answers 404 to every caller, as for a path no route matches.
+     * Read when http registers the routes. Not `routes.enabled` below, which only stops recording per-route stats.
+     */
+    endpoints: {
+      metrics: { enabled: true },
+      stats: { enabled: true },
+      timeline: { enabled: true },
+      routes: { enabled: true },
+      perf: { enabled: true },
+      health: { enabled: true },
+      ready: { enabled: true },
+    },
+
     /** Metric name prefix for the http telemetry metrics. */
     prefix: 'http',
 

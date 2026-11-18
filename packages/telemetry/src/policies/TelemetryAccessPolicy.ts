@@ -8,6 +8,7 @@ import type { IAccessDescriptor } from '@spinajs/authz-http';
 import { BasePolicy, Policy, RouteRegistrationException } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
+import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
 
@@ -32,12 +33,13 @@ function ruleHolder(permissions: readonly Permission[], domain: string): IContro
   return holder as unknown as IController;
 }
 
-type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' };
+type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' } | { kind: 'off' };
 
 /**
  * Guards one telemetry endpoint by its slot `telemetry.auth.policies.<endpoint>`, read once when
- * http registers the route, from the Configuration of the container that resolves the policy:
- * `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
+ * http registers the route, from the Configuration of the container that resolves the policy.
+ * An endpoint whose `telemetry.endpoints.<endpoint>.enabled` is false answers 404 to everyone and
+ * needs no slot. `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
  * on the permission's type-level resource in `telemetry.auth.domain` (default root), with
  * AccessPolicy's 401/403 answers; any other value names a registered BasePolicy that decides
  * instead. A slot that cannot be honoured throws, so the route never registers.
@@ -49,6 +51,9 @@ type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { k
 export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
   @Logger('Security')
   protected Log: Log;
+
+  @Config('telemetry.endpoints', { defaultValue: {} })
+  protected Endpoints: Record<string, { enabled?: boolean } | undefined>;
 
   @Config('telemetry.auth.policies', { defaultValue: {} })
   protected Policies: Record<string, string>;
@@ -89,6 +94,9 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
     switch (this.guard.kind) {
       case 'skip':
         return;
+      case 'off':
+        // The answer of a path no route matches, so a turned-off endpoint does not show it exists.
+        throw new ResourceNotFound(`Route not found: ${req.method} ${req.originalUrl.split('?')[0]}`);
       case 'named':
         return this.guard.policy.execute(req, route, controller);
       case 'access':
@@ -102,6 +110,8 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
     const fail = (why: string) => new RouteRegistrationException(`telemetry endpoint ${String(endpoint)}: ${why}`);
 
     if (typeof endpoint !== 'string' || endpoint.length === 0) throw fail('the endpoint name must be a non-empty string');
+    if (this.Endpoints[endpoint]?.enabled === false) return { kind: 'off' };
+
     const slot = this.Policies[endpoint];
     if (slot === undefined) throw fail(`${slotKey} must name a policy, but it is not set`);
 
