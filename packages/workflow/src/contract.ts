@@ -2,7 +2,13 @@ import type { RetryPolicyOptions } from '@spinajs/durable';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 
-export type WorkflowStatus = 'running' | 'sleeping' | 'waiting' | 'compensating' | 'completed' | 'failed' | 'compensated' | 'cancelled';
+export const WORKFLOW_STATUSES = ['running', 'sleeping', 'waiting', 'compensating', 'completed', 'failed', 'compensated', 'cancelled'] as const;
+
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+
+const STATUSES: ReadonlySet<string> = new Set(WORKFLOW_STATUSES);
+
+export const isWorkflowStatus = (value: string): value is WorkflowStatus => STATUSES.has(value);
 
 export const TERMINAL_STATUSES: readonly WorkflowStatus[] = ['completed', 'failed', 'compensated', 'cancelled'];
 
@@ -111,4 +117,28 @@ export interface WorkflowInstanceView {
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
+}
+
+export interface WorkflowStepView {
+  seq: number;
+  key: string;
+  kind: StepKind;
+  status: StepStatus;
+  attempt: number;
+  error: SerializedError | null;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
+/** Payloads are left out: an operator reading the instance need not see what a signaller sent. */
+export interface WorkflowEventView {
+  id: string;
+  name: string;
+  principal: string | null;
+  receivedAt: number;
+}
+
+export interface WorkflowInstanceDetail extends WorkflowInstanceView {
+  steps: WorkflowStepView[];
+  pendingEvents: WorkflowEventView[];
 }
