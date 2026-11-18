@@ -1,14 +1,13 @@
 import ts from 'typescript';
 import { DECLARED_ENTRY_TENANCY, TENANT_MIDDLEWARE, undeclaredTenancy } from '@spinajs/manifest';
-import type { AuthzSection, ControllerEntry, ManifestFragment, ScheduleEntry, TenancyDeclaration, TenancyEntryPoint, TenancyModel, TenancySection } from '@spinajs/manifest';
+import type { AuthzSection, ControllerEntry, ManifestFragment, QueueMessageEntry, ScheduleEntry, TenancyDeclaration, TenancyEntryPoint, TenancyModel, TenancySection } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
+import { decoratorsOf, type DecoratorInfo } from '../decorators.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classesBySource } from './access-options.js';
 import { routeEntryId, sourceKey } from './authz.js';
 import { decoratorOrigin, originOf, programDeclares } from './decorator-origin.js';
 import { ignoreCommentsIn } from './ignore-comments.js';
-import { optionOf } from './model-sql.js';
 import { literalText } from './string-arg.js';
 import { escapesIn } from './tenancy-escapes.js';
 
@@ -27,6 +26,7 @@ interface Declaration {
 export interface TenancyInputs {
   controllers: ControllerEntry[];
   schedules: ScheduleEntry[];
+  queueMessages: QueueMessageEntry[];
   authz: AuthzSection | undefined;
   models: TenancyModel[];
 }
@@ -100,9 +100,14 @@ function routeDeclarations(controllers: ControllerEntry[], classes: Map<string, 
   return out;
 }
 
-function jobDeclaration(cls: ts.ClassDeclaration | undefined, ctx: ExtractorContext): Declaration | undefined {
-  const value = cls && literalValue(optionOf(findDecorator(cls, 'Job')?.args[0], 'tenancy'), ctx);
-  return value === 'carry' || value === 'required' || value === 'none' ? { declared: value } : undefined;
+/** By the source of the job class, where the authz section puts its entry point. */
+function jobDeclarations(messages: QueueMessageEntry[]): Map<string, Declaration> {
+  const out = new Map<string, Declaration>();
+  for (const message of messages) {
+    const value = message.options.tenancy;
+    if (message.kind === 'job' && (value === 'carry' || value === 'required' || value === 'none')) out.set(sourceKey(message.source), { declared: value });
+  }
+  return out;
 }
 
 function scheduleDeclarations(schedules: ScheduleEntry[]): Map<string, Declaration> {
@@ -119,10 +124,11 @@ function entryPointsOf(inputs: TenancyInputs, files: readonly ts.SourceFile[], c
   const classes = classesBySource(files, ctx, sourceKey);
   const routes = programDeclares(ctx.program, TENANCY_HTTP) ? routeDeclarations(inputs.controllers, classes, ctx) : new Map<string, Declaration>();
   const schedules = scheduleDeclarations(inputs.schedules);
+  const jobs = jobDeclarations(inputs.queueMessages);
   const declarationOf = (entry: EntryPoint): Declaration | undefined => {
     if (entry.kind === 'route') return routes.get(entry.id);
     if (entry.kind === 'schedule') return schedules.get(entry.id);
-    return entry.kind === 'queue-handler' ? jobDeclaration(classes.get(sourceKey(entry.source)), ctx) : undefined;
+    return entry.kind === 'queue-handler' ? jobs.get(sourceKey(entry.source)) : undefined;
   };
   return (inputs.authz?.entryPoints ?? []).map((entry) => {
     const declaration = declarationOf(entry);
