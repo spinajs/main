@@ -343,6 +343,8 @@ describe('audit().record', function () {
     for (const options of [{ mode: 'transactional', transaction: {} }, { mode: 'confirmed' }, { mode: 'deferred' }, {}] as const) {
       await expect(audit().record(reserved, options)).to.be.rejectedWith(AuditConfigError, REFUSED);
       await expect(audit().record([{ kind: 'action', action: 'kept' }, reserved], options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+      // MySQL's PAD SPACE and MSSQL compare 'erasure ' equal to the pair.
+      await expect(audit().record({ ...reserved, action: 'erasure  ' }, options)).to.be.rejectedWith(AuditConfigError, REFUSED);
     }
     await audit().flush();
     expect(MemoryAuditStore.appends()).to.deep.eq([]);
@@ -350,9 +352,11 @@ describe('audit().record', function () {
     // Only the pair is reserved.
     await audit().record({ kind: 'action', action: 'erasure', subject: patientOf('9') }, { mode: 'confirmed' });
     await audit().record({ kind: 'custom', action: 'erasure.requested', subject: patientOf('9') }, { mode: 'confirmed' });
+    await audit().record({ kind: 'custom', action: ' erasure', subject: patientOf('9') }, { mode: 'confirmed' });
     expect(MemoryAuditStore.events().map((e) => [e.kind, e.action])).to.deep.eq([
       ['action', 'erasure'],
       ['custom', 'erasure.requested'],
+      ['custom', ' erasure'],
     ]);
   });
 

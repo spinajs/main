@@ -10,7 +10,7 @@ import { Log } from '@spinajs/log-common';
 import { auditContext } from './context.js';
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, AuditService } from './contracts.js';
 import type { AuditEvent, AuditInput, AuditStore, AuditTrail, AuditWriteMode, AuditWriteOptions, TrailConfig } from './contracts.js';
-import { ERASURE, isErasureRecord } from './erasure.js';
+import { ERASURE } from './erasure.js';
 import type { RecordErasure } from './erasure.js';
 import { AuditConfigError, AuditWriteFailed } from './errors.js';
 import { quoted } from './guards.js';
@@ -45,6 +45,13 @@ interface Flight {
 const DEFERRED: Way = { mode: 'deferred', onFailure: 'continue' };
 
 const isList = (input: AuditInput | readonly AuditInput[]): input is readonly AuditInput[] => Array.isArray(input);
+
+// MySQL's PAD SPACE collations and MSSQL compare an action with trailing U+0020 equal to the reserved one.
+function takesErasurePair(input: AuditInput): boolean {
+  if (input.kind !== ERASURE.kind || typeof input.action !== 'string' || !input.action.startsWith(ERASURE.action)) return false;
+  const padding = input.action.slice(ERASURE.action.length);
+  return padding === ' '.repeat(padding.length);
+}
 
 function sized(name: string, value: string | undefined, max: number): void {
   if (value !== undefined && (value.length === 0 || value.length > max)) throw new AuditConfigError(`audit: ${name} must be 1 to ${max} characters`);
@@ -166,7 +173,7 @@ export class DefaultAuditService extends AuditService {
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
     const inputs = isList(input) ? input : [input];
-    if (inputs.some(isErasureRecord)) throw new AuditConfigError(`audit: kind '${ERASURE.kind}' with action '${ERASURE.action}' is reserved for the record AuditTrail.forget writes; record this event under another action`);
+    if (inputs.some(takesErasurePair)) throw new AuditConfigError(`audit: kind '${ERASURE.kind}' with action '${ERASURE.action}' is reserved for the record AuditTrail.forget writes; record this event under another action`);
     return this.submit(inputs, options);
   }
 
