@@ -5,6 +5,7 @@ import { AuditReader, AuditStore, audit } from '@spinajs/audit';
 import type { StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
+import { getScheduleDeclarations } from '@spinajs/scheduler';
 import { AuditPruneFailed, pruneAudit } from '../src/index.js';
 import { AUDIT_RETENTION_SCHEDULE, AuditRetentionTask } from '../src/scheduler.js';
 import { TestDb } from '../src/testing.js';
@@ -146,6 +147,16 @@ describe('audit retention', function () {
 
   it('keeps everything of a trail whose store has no reader', async () => {
     expect(await pruneAudit({ now: NOW, trail: 'unread' })).to.eq(0);
+  });
+
+  it('declares the audit schedules: daily retention, shipping every 10 s and sealing every minute, on the leader', () => {
+    const declared = Object.fromEntries(getScheduleDeclarations().filter((d) => d.name.startsWith('audit.')).map((d) => [d.name, d.options]));
+    const leader = { runOn: 'leader', overlap: 'skip', misfire: 'run-once' };
+    expect(declared).to.deep.eq({
+      'audit.retention': { every: '24h', ...leader },
+      'audit.ship': { every: '10s', ...leader, timeout: '10m' },
+      'audit.seal': { every: '60s', ...leader, timeout: '10m' },
+    });
   });
 
   it('the scheduled task prunes and reports the count', async () => {
