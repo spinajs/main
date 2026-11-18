@@ -62,6 +62,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/orm-cli`](orm-cli/README.md) | Migration commands |
 | [`@spinajs/orm-http`](orm-http/README.md) | Route arguments that load models |
 | [`@spinajs/orm-threading`](orm-threading/README.md) | Database-backed mutex |
+| [`@spinajs/tenancy-orm`](tenancy-orm/README.md) | Tenant rows in the ORM (`@Tenant()` models), the tenants table and its registry |
 | [`@spinajs/intl-orm`](intl-orm/README.md) | Per-language column values |
 | [`@spinajs/tenancy-orm`](tenancy-orm/README.md) | Confine the rows of a tenant in the ORM |
 | [`configuration-db-source`](configuration-db-source/README.md), [`configuration-http`](configuration-http/README.md) | Database-stored configuration and its HTTP API |
