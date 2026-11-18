@@ -11,7 +11,8 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
-// Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
+// Registers the bootstrapper for an app that never imports the package entry. The controller scan imports this file
+// after the configuration boot, so it runs only when the app's entry runs the pending bootstrappers after that scan.
 import '../bootstrap.js';
 
 /**

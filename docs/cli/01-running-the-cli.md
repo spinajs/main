@@ -7,7 +7,7 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 1. **Entry.** `spinajs` runs `lib/mjs/cli.js` (`src/cli.ts`). Its import of `args.js` registers the default [argv provider](06-argv-provider.md) under `'__cli_argv_provider__'`.
 2. **ESM mode.** `DI.setESMModuleSupport()` makes `@spinajs/di` load files with `import()`.
 3. **Bootstrappers.** `DI.resolve(Array.ofType(Bootstrapper))` returns every `Bootstrapper` registered by the modules loaded so far; the bin awaits `bootstrap()` on each.
-4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`.
+4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`. The bin then resolves the list again and runs the bootstrappers that the modules imported by config files registered; each bootstrapper runs once. See [Who runs bootstrappers](../di/10-service-lifecycle.md#who-runs-bootstrappers).
 5. **Logger.** `resolveCliLog()` returns the framework `Log` named `CLI` when an implementation is registered, else `InternalLoggerProxy`. It logs `Welcome to spinajs cli...` at `success` level.
 6. **Run.** `await DI.resolve(Cli)` runs [`Cli.resolve()`](07-cli-service.md): it lists the command files, builds the commander tree and parses argv. The chosen command's `execute()` runs inside this call.
 7. **Exit.** On success the bin calls `process.exit(process.exitCode ?? 0)`. On an error in any of steps 3 to 6 it logs the message (unless it is a `CommanderError`, which commander already logged) and calls `process.exit(-1)`. Before step 5 there is no logger yet, so the error goes to `console.error`.
@@ -19,9 +19,10 @@ sequenceDiagram
   participant Conf as Configuration
   participant Cli
   participant Cmd as CliCommand
-  Bin->>DI: resolve(Array.ofType(Bootstrapper))
+  Bin->>DI: resolve(Array.ofType(Bootstrapper)), bootstrap() each
   Bin->>DI: resolve(Configuration)
   DI->>Conf: load config files, read --app/--env/--apppath
+  Bin->>DI: resolve(Array.ofType(Bootstrapper)), bootstrap() those not run yet
   Bin->>DI: resolve(Cli)
   DI->>Cli: resolve()
   Cli->>Cli: list files in system.dirs.cli, build commander tree
@@ -83,6 +84,7 @@ It is not exported from `@spinajs/cli`.
 - Only the invoked command and the commands on its dispatch path (its parents) are resolved from DI. A command whose dependencies are unavailable, eg. a database, does not break other commands. See [Commands](02-commands.md#how-it-works).
 - `process.exit()` runs right after the command resolves. Work the command started but did not await (timers, open sockets, unflushed streams) is cut off.
 - `configuration:dump` logs every configuration value, including secrets, to every configured log target.
+- A bootstrapper registered by a module that only a command file imports never runs: the commands are scanned after the last bootstrapper pass. Import that module from a config file instead.
 
 ## Best practices
 
