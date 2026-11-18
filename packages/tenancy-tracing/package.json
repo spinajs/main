@@ -47,12 +47,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/tenancy": "3.0.23",
     "@spinajs/tracing": "3.0.23"
   },
   "devDependencies": {
+    "@spinajs/fs": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/tenancy-http": "3.0.23",
     "@spinajs/testing": "3.0.23"
   },
   "spinajs": {
