@@ -80,7 +80,7 @@ export function isTableTrail(trail: TrailConfig, tableStore: Class<AuditStore>):
 }
 
 /**
- * Refuses a trail of a table store whose table another such trail uses (design D10): a trail table has no trail column,
+ * Refuses a trail of a table store whose table another such trail uses: a trail table has no trail column,
  * and its events may sit on any connection, so retention and reads of one trail would reach the other's. Only the
  * colliding trails are refused. Recomputed when the configured trails or the registered stores change: the signature is
  * the configuration's JSON, because `Configuration.set` changes `audit.trails` in place.

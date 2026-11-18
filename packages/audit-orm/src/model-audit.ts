@@ -27,6 +27,7 @@ interface Named {
 
 type By = Pick<AuditFilter, 'subject' | 'subjectType'>;
 
+// The limit rule of listAudit in @spinajs/audit, which does not export it: keep the two alike.
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
 
