@@ -312,7 +312,7 @@ export interface IResponseOptions {
 }
 
 export abstract class ServerMiddleware extends AsyncService {
-  public Order!: number;
+  public Order = 0;
 
   public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
   /**
