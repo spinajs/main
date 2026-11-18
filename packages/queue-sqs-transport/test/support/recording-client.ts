@@ -19,9 +19,22 @@ export class RecordingSqsClient extends SqsQueueClient {
   public sent: SendMessageCommandInput[] = [];
   public deleted: string[] = [];
   public clockMs = 1_000_000;
+  public visibility: { url: string; seconds: number }[] = [];
+  /** RedrivePolicy JSON by queue URL; a URL without an entry has no policy. */
+  public redrive = new Map<string, string>();
+  public redriveError?: Error;
 
   protected now(): number {
     return this.clockMs;
+  }
+
+  protected changeVisibility(url: string, _receiptHandle: string | undefined, seconds: number): Promise<void> {
+    this.visibility.push({ url, seconds });
+    return Promise.resolve();
+  }
+
+  protected redrivePolicyOf(url: string): Promise<string | undefined> {
+    return this.redriveError ? Promise.reject(this.redriveError) : Promise.resolve(this.redrive.get(url));
   }
 
   protected sendMessage(input: SendMessageCommandInput): Promise<void> {

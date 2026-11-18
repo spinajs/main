@@ -86,6 +86,7 @@ export default {
 | Subscribe | `public async subscribe(channelOrMessage, callback)` | one `pollLoop()` per URL, shared by every callback on it | | Override, call `super.subscribe()` |
 | Poll loop | `protected async pollLoop(desc)` | sequential receive and handle with backoff | | Override; must never reject, it runs detached |
 | Message handler | `protected async handleMessage(desc, m: SqsReceived)` | parse, `CreatedAt` to `DateTime`, attributes, re-send if not yet due, callback, delete | SNS unwrap below | Override, call `super.handleMessage(desc, m)` |
+| Failure handling | the methods in [Failure handling in transport mode](#failure-handling-in-transport-mode) | the [retry modes](03-consuming-messages.md#retry-modes) | | Override one method, call `super` |
 | Error sleep | `protected backoffSleep(ms, signal)` | abortable `setTimeout` | | Override to add jitter |
 | Stop | `protected stop(desc)`, `unsubscribe()`, `dispose()` | clear `running`, abort; `dispose()` waits for the loops, then destroys `SQSClient` | | Override `dispose()`, call `super.dispose()` last |
 
@@ -98,6 +99,23 @@ Protected state a subclass can use:
 | `Subscriptions` | `SqsQueueClient` | `Map<url, desc>` of live poll loops |
 | `Log` | `QueueClient` | The `queue` logger |
 | `Routing` | `QueueClient` | `queue.routing`, read live |
+| `RetryMode` | `SqsQueueClient` | `'redrive'` or `'transport'`, set in `resolve()` from `options.retryMode` |
+| `FifoReceiveLimits` | `SqsQueueClient` | `Map<url, maxReceiveCount>` of the FIFO queues whose redrive policy `checkFifoRedrive()` read |
+
+#### Failure handling in transport mode
+
+`handleMessage()` hands a failure to these protected methods. In `'redrive'` mode `handleFailure()` and `handleUnparseable()` log and return.
+
+| Method | Default | Override to |
+| --- | --- | --- |
+| `handleFailure(desc, m, message, attempt, error)` | leaves a crash; in `'redrive'` mode leaves the message; in `'transport'` mode runs `decideDelivery()` with `resolveDeliveryPolicy()` (capped by `withinReceiveLimit()` on FIFO) and calls `executeDecision()` | log or count failures before `super` |
+| `handleUnparseable(desc, m, cause)` | in `'transport'` mode decides the stand-in of `unparseableMessage()`, with the received `x-spinajs-message-id`, as `unparseable` | send poison bodies somewhere else |
+| `executeDecision(desc, m, message, decision)` | `ack`: delete. `dead-letter`: send the original body to the channel, then delete. `retry`: a visibility change on FIFO, a delayed copy and a delete on a standard queue | carry a decision out differently, for example through SNS |
+| `attemptOf(desc, m, message)` | `x-retry-count`, or `ApproximateReceiveCount - 1` on FIFO in `'transport'` mode, written to `x-retry-count` | count attempts another way |
+| `receiveCountOf(m)` | `ApproximateReceiveCount`, at least 1 | |
+| `checkFifoRedrive(url, maxRetries)` | the [check at subscribe](03-consuming-messages.md#fifo-queues-in-transport-mode); stores the count in `FifoReceiveLimits` | change or drop the boot check |
+| `withinReceiveLimit(desc, message, policy)` | lowers `maxRetries` to `maxReceiveCount - 2` when a job's own `RetryCount` asks for more, and logs an error once per queue and job name | change the cap |
+| `changeVisibility(url, receiptHandle, seconds)`, `redrivePolicyOf(url)` | `ChangeMessageVisibilityCommand`; `GetQueueAttributesCommand` for `RedrivePolicy` | record or wrap the calls; unit tests replace them |
 
 Exported types for overrides:
 

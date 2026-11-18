@@ -1,13 +1,26 @@
 import { createHash } from 'node:crypto';
-import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, readQueueHeaders } from '@spinajs/queue';
+import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, readQueueHeaders, decideDelivery, isCrash, resolveDeliveryPolicy, retryCountOf, unparseableMessage, UnparseableMessageError, type DeliveryDecision, type DeliveryPolicy } from '@spinajs/queue';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, type Message, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand, GetQueueAttributesCommand, type Message, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { MAX_SQS_DELAY_MS, NOT_BEFORE_ATTRIBUTE, readMessageAttributes, toMessageAttributes } from './attributes.js';
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** SQS allows 12 hours of visibility counted from the receive; an hour is left for the handler that already ran. */
+const MAX_FIFO_RETRY_SECONDS = 39_600;
+
+function maxReceiveCountOf(redrivePolicy: string): number | undefined {
+  try {
+    const policy: unknown = JSON.parse(redrivePolicy);
+    const count = Number(typeof policy === 'object' && policy !== null ? Reflect.get(policy, 'maxReceiveCount') : undefined);
+    return Number.isFinite(count) ? count : undefined;
+  } catch {
+    return undefined;
+  }
+}
 // MessageGroupId and MessageDeduplicationId: 1 to 128 ASCII letters, digits or punctuation
 const SQS_ID = /^[\x21-\x7E]{1,128}$/;
 
@@ -50,6 +63,11 @@ export interface ISqsConnectionOptions {
    * Cap ( ms ) for the escalating receive-error backoff. Defaults to 10000ms.
    */
   receiveErrorBackoffMaxMs?: number;
+  /**
+   * Who retries and dead-letters a failed message. 'redrive' ( default ): the SQS visibility timeout and the queue's
+   * redrive policy. 'transport': the delivery decision of `@spinajs/queue`, with its headers and dead-letter channel.
+   */
+  retryMode?: 'redrive' | 'transport';
 }
 
 /** What the transport reads of a received SQS message. */
@@ -115,11 +133,18 @@ export class SqsQueueClient extends QueueClient {
    */
   protected Loops = new Set<Promise<void>>();
 
+  protected RetryMode: 'redrive' | 'transport' = 'redrive';
+
+  /** maxReceiveCount of each FIFO queue whose redrive policy the subscribe check read. */
+  protected FifoReceiveLimits = new Map<string, number>();
+
+  protected readonly WarnedRetryCaps = new Set<string>();
+
   constructor(options: IQueueConnectionOptions) {
     super(options);
   }
 
-  // a failed handler leaves the message in the queue; SQS delivers it again after the visibility timeout
+  // a RedeliverLater comes back in both modes: after the visibility timeout ('redrive') or after its delay ('transport')
   public get RedeliversFailedEvents(): boolean {
     return true;
   }
@@ -134,6 +159,7 @@ export class SqsQueueClient extends QueueClient {
     // connection defaults - so a routing-only connection ( no defaultQueueChannel /
     // defaultTopicChannel ) is perfectly valid. resolve()'s only job is to build
     // the SQSClient; region/endpoint/credentials are all optional for the SDK.
+    this.RetryMode = this.readRetryMode();
     this.Sqs = new SQSClient({
       region: o.region,
       endpoint: o.endpoint,
@@ -173,6 +199,85 @@ export class SqsQueueClient extends QueueClient {
 
   protected async deleteMessage(url: string, receiptHandle: string | undefined): Promise<void> {
     await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: url, ReceiptHandle: receiptHandle }));
+  }
+
+  protected async changeVisibility(url: string, receiptHandle: string | undefined, seconds: number): Promise<void> {
+    await this.Sqs.send(new ChangeMessageVisibilityCommand({ QueueUrl: url, ReceiptHandle: receiptHandle, VisibilityTimeout: seconds }));
+  }
+
+  protected async redrivePolicyOf(url: string): Promise<string | undefined> {
+    const res = await this.Sqs.send(new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: ['RedrivePolicy'] }));
+    return res.Attributes?.RedrivePolicy;
+  }
+
+  protected readRetryMode(): 'redrive' | 'transport' {
+    // the bag is typed any; a typed local keeps the read out of no-unsafe-member-access
+    const options: Record<string, unknown> = this.Options.options ?? {};
+    const raw = options.retryMode;
+    if (raw === undefined) return 'redrive';
+    if (raw !== 'redrive' && raw !== 'transport') {
+      throw new InvalidArgument(`Queue connection ${this.Options.name}: options.retryMode must be 'redrive' or 'transport', got ${JSON.stringify(raw)}`);
+    }
+    return raw;
+  }
+
+  /**
+   * FIFO retries keep the message and extend its visibility, so an AWS redrive policy must outlast every retry.
+   * One that was read and cannot fails the subscription: AWS would dead-letter the message, without headers,
+   * before the transport does. One that cannot be read is only warned about: the role may lack the permission
+   * while the queue is configured correctly.
+   */
+  protected async checkFifoRedrive(url: string, maxRetries: number): Promise<void> {
+    let policy: string | undefined;
+    try {
+      policy = await this.redrivePolicyOf(url);
+    } catch (error) {
+      this.Log.warn(
+        { error, queueUrl: url, connection: this.Options.name },
+        'Cannot read the redrive policy of FIFO queue ${queueUrl} ( ${connection} ), so transport retry mode runs unchecked there: if its maxReceiveCount is too small, AWS dead-letters messages without headers. Grant sqs:GetQueueAttributes on the queue to have it checked',
+      );
+      return;
+    }
+
+    if (policy === undefined) return;
+
+    const maxReceiveCount = maxReceiveCountOf(policy);
+    if (maxReceiveCount === undefined) {
+      this.Log.warn({ queueUrl: url, connection: this.Options.name, policy }, 'FIFO queue ${queueUrl} ( ${connection} ) has a redrive policy without a readable maxReceiveCount, so transport retry mode runs unchecked there: ${policy}');
+      return;
+    }
+
+    if (maxReceiveCount <= maxRetries + 1) {
+      throw new InvalidArgument(
+        `FIFO queue ${url} ( connection ${this.Options.name} ) has a redrive policy with maxReceiveCount ${maxReceiveCount}, but its route asks for maxRetries ${maxRetries}: in transport retry mode AWS would dead-letter the message before the transport does. ` +
+          `Raise maxReceiveCount above ${maxRetries + 1}, lower the route's maxRetries, or remove the redrive policy`,
+      );
+    }
+
+    this.FifoReceiveLimits.set(url, maxReceiveCount);
+  }
+
+  /**
+   * A message's own RetryCount wins over the routing value the subscribe check saw. When the queue's redrive policy
+   * cannot hold it, the message is decided with the most retries that policy holds, so the transport dead-letters
+   * it with its headers one receive before AWS would do it without them.
+   */
+  protected withinReceiveLimit(desc: ISqsSubscriptionDescriptor, message: IQueueMessage, policy: DeliveryPolicy): DeliveryPolicy {
+    const limit = this.FifoReceiveLimits.get(desc.url);
+    if (limit === undefined || limit > policy.maxRetries + 1) return policy;
+
+    // a stored limit passed the subscribe check, so it is at least 2
+    const maxRetries = limit - 2;
+    const key = `${desc.url} ${message.Name}`;
+    if (!this.WarnedRetryCaps.has(key)) {
+      this.WarnedRetryCaps.add(key);
+      this.Log.error(
+        { messageName: message.Name, queueUrl: desc.url, asked: policy.maxRetries, maxReceiveCount: limit, maxRetries },
+        '${messageName} asks for ${asked} retries, but the redrive policy of FIFO queue ${queueUrl} has maxReceiveCount ${maxReceiveCount}: the transport dead-letters it after ${maxRetries}. Raise maxReceiveCount above ${asked} + 1 or lower the RetryCount',
+      );
+    }
+
+    return { ...policy, maxRetries };
   }
 
   /** The MessageGroupId of a FIFO send: the value of the message field the routing `groupBy` names. */
@@ -227,6 +332,14 @@ export class SqsQueueClient extends QueueClient {
       throw new InvalidArgument(`No SQS queue URL for ${key} on connection ${this.Options.name}: set a queue.routing entry, defaultQueueChannel or defaultTopicChannel`);
     }
 
+    // before any poll loop starts, so a refused subscription leaves nothing behind
+    if (this.RetryMode === 'transport') {
+      const maxRetries = _.isString(channelOrMessage) ? 0 : (this.getMaxRetriesForMessage(channelOrMessage) ?? 0);
+      for (const url of urls.filter((u) => this.isFifo(u))) {
+        await this.checkFifoRedrive(url, maxRetries);
+      }
+    }
+
     urls.forEach((url) => {
       const existing = this.Subscriptions.get(url);
 
@@ -268,9 +381,7 @@ export class SqsQueueClient extends QueueClient {
 
   /**
    * Long-poll loop for a single subscription. Runs until `desc.running` is cleared
-   * ( by unsubscribe / dispose ). On success the message is acked by DeleteMessage;
-   * on handler failure the message is left untouched so the SQS visibility timeout
-   * redelivers it and the redrive policy dead-letters after maxReceiveCount.
+   * ( by unsubscribe / dispose ). Each received message goes to {@link handleMessage}.
    */
   protected async pollLoop(desc: ISqsSubscriptionDescriptor): Promise<void> {
     const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
@@ -351,9 +462,8 @@ export class SqsQueueClient extends QueueClient {
 
   /**
    * Processes a single received SQS message: parse -> rehydrate -> handler -> ack.
-   * Guards against poison / non-object payloads so a bad message is skipped rather
-   * than crashing the loop. Keeps the ack/nack contract: delete on handler success,
-   * leave ( for redelivery / DLQ ) on handler failure.
+   * A handler failure or an unparseable body is left for the visibility timeout and the redrive policy
+   * in 'redrive' mode, and decided by {@link executeDecision} in 'transport' mode. A crash is never decided.
    */
   protected async handleMessage(desc: ISqsSubscriptionDescriptor, m: SqsReceived): Promise<void> {
     let parsed: unknown;
@@ -361,18 +471,13 @@ export class SqsQueueClient extends QueueClient {
     try {
       parsed = JSON.parse(m.Body!);
     } catch (e) {
-      // poison message - we can't tell its Type so we can't route it. Leave it:
-      // SQS redelivery + the redrive policy will dead-letter it after maxReceiveCount,
-      // which is preferable to deleting evidence of a producer bug.
-      this.Log.error({ error: e, queueUrl: desc.url, connection: this.Options.name }, 'Unparseable SQS message on ${queueUrl} ( ${connection} ), leaving for redelivery / DLQ');
+      await this.handleUnparseable(desc, m, e);
       return;
     }
 
-    // JSON.parse happily yields non-object values ( null, numbers, strings,
-    // booleans ) that would blow up the CreatedAt / callback access below with a
-    // TypeError. Treat them as poison and skip so the loop stays alive.
+    // JSON.parse also yields null, numbers, strings and booleans, which carry no message
     if (!parsed || typeof parsed !== 'object') {
-      this.Log.error({ queueUrl: desc.url, connection: this.Options.name }, 'Non-object SQS message body on ${queueUrl} ( ${connection} ), skipping');
+      await this.handleUnparseable(desc, m, new TypeError('the body is not a JSON object'));
       return;
     }
 
@@ -388,6 +493,8 @@ export class SqsQueueClient extends QueueClient {
     const standard = readQueueHeaders(attributes);
     if (message.Headers || Object.keys(standard).length > 0) message.Headers = { ...message.Headers, ...standard };
 
+    const attempt = this.attemptOf(desc, m, message);
+
     const notBefore = Number(attributes[NOT_BEFORE_ATTRIBUTE]);
     const now = this.now();
     // the transport never writes a deadline past the timer limit; a later one would be re-sent every 15 minutes for ever
@@ -400,10 +507,7 @@ export class SqsQueueClient extends QueueClient {
     try {
       await desc.callback(message);
     } catch (err) {
-      // NACK: do nothing. The message stays invisible only for the visibility
-      // timeout, after which SQS redelivers; the redrive policy dead-letters it
-      // once maxReceiveCount is hit. No manual retry / DLQ logic here.
-      this.Log.error({ error: err, messageName: message.Name, queueUrl: desc.url }, 'Handler failed for ${messageName} on ${queueUrl}, leaving message for redelivery');
+      await this.handleFailure(desc, m, message, attempt, err);
       return;
     }
 
@@ -416,6 +520,88 @@ export class SqsQueueClient extends QueueClient {
     } catch (err) {
       this.Log.error({ error: err, messageName: message.Name, queueUrl: desc.url, connection: this.Options.name }, 'ack/delete failed for message ${messageName} on ${queueUrl} ( ${connection} ), it will redeliver');
     }
+  }
+
+  /**
+   * The received copy's attempt. On FIFO in transport mode the receive count is the only attempt counter:
+   * it is also written to the message's `x-retry-count`, so the handler sees it as on the other transports.
+   */
+  protected attemptOf(desc: ISqsSubscriptionDescriptor, m: SqsReceived, message: IQueueMessage): number {
+    if (!this.isFifo(desc.url) || this.RetryMode !== 'transport') return retryCountOf(message.Headers);
+
+    const attempt = this.receiveCountOf(m) - 1;
+    if (attempt > 0) message.Headers = { ...message.Headers, [QueueHeaders.RetryCount]: String(attempt) };
+    return attempt;
+  }
+
+  protected async handleFailure(desc: ISqsSubscriptionDescriptor, m: SqsReceived, message: IQueueMessage, attempt: number, error: unknown): Promise<void> {
+    if (isCrash(error)) {
+      this.Log.error({ error, messageName: message.Name, queueUrl: desc.url }, 'The consumer of ${messageName} on ${queueUrl} crashed; the message stays as it is until its visibility timeout ends');
+      return;
+    }
+
+    if (this.RetryMode === 'redrive') {
+      this.Log.error({ error, messageName: message.Name, queueUrl: desc.url }, 'Handler failed for ${messageName} on ${queueUrl}, leaving message for redelivery');
+      return;
+    }
+
+    const policy = resolveDeliveryPolicy(this, message);
+    await this.executeDecision(desc, m, message, decideDelivery(message, attempt, error, this.isFifo(desc.url) ? this.withinReceiveLimit(desc, message, policy) : policy));
+  }
+
+  protected receiveCountOf(m: SqsReceived): number {
+    const count = Number(m.Attributes?.ApproximateReceiveCount);
+    return Number.isInteger(count) && count >= 1 ? count : 1;
+  }
+
+  /** A body that is not a JSON object has no type and no route. Redrive mode leaves it to AWS; transport mode dead-letters it. */
+  protected async handleUnparseable(desc: ISqsSubscriptionDescriptor, m: SqsReceived, cause: unknown): Promise<void> {
+    if (this.RetryMode === 'redrive') {
+      this.Log.error({ error: cause, queueUrl: desc.url, connection: this.Options.name }, 'Unparseable SQS message on ${queueUrl} ( ${connection} ), leaving for redelivery / DLQ');
+      return;
+    }
+
+    const stand = unparseableMessage();
+    const messageId = readMessageAttributes(m.MessageAttributes)[QueueHeaders.MessageId];
+    const decision = decideDelivery(messageId ? { ...stand, MessageId: messageId } : stand, 0, new UnparseableMessageError(cause), resolveDeliveryPolicy(this, stand));
+    await this.executeDecision(desc, m, stand, decision);
+  }
+
+  /**
+   * A failed send, delete or visibility change propagates to the poll loop, which logs it, and the message comes
+   * back after its visibility timeout. A delete that fails after a copy was sent leaves two copies: at least once.
+   */
+  protected async executeDecision(desc: ISqsSubscriptionDescriptor, m: SqsReceived, message: IQueueMessage, decision: DeliveryDecision): Promise<void> {
+    if (decision.action === 'ack') {
+      if (decision.dropped) {
+        this.Log.warn({ messageName: message.Name, queueUrl: desc.url, reason: decision.reason }, 'Handler failed for ${messageName} on ${queueUrl}, dropping it. ${reason}');
+      }
+      await this.deleteMessage(desc.url, m.ReceiptHandle);
+      return;
+    }
+
+    if (decision.action === 'dead-letter') {
+      if (decision.channel) {
+        const headers = { ...decision.headers, [QueueHeaders.OriginalDestination]: desc.url };
+        // a FIFO dead letter keeps the group it was received in and needs a dedup id of its own
+        const input = this.sendParams(decision.channel, message, { headers, groupId: m.Attributes?.MessageGroupId, dedupId: `${message.MessageId ?? m.MessageId ?? ''}:dead` });
+        await this.sendMessage({ ...input, MessageBody: m.Body ?? '' });
+      } else {
+        this.Log.warn({ messageName: message.Name, queueUrl: desc.url, reason: decision.headers[QueueHeaders.Error] }, '${messageName} failed on ${queueUrl} and no dead-letter queue is configured - dropping. ${reason}');
+      }
+      await this.deleteMessage(desc.url, m.ReceiptHandle);
+      return;
+    }
+
+    // a FIFO re-send would lose its place in the group, and SQS drops one whose dedup id it saw in the last 5 minutes
+    if (this.isFifo(desc.url)) {
+      await this.changeVisibility(desc.url, m.ReceiptHandle, Math.min(Math.ceil(decision.delayMs / 1000), MAX_FIFO_RETRY_SECONDS));
+      return;
+    }
+
+    const copy = { ...message, Headers: { ...message.Headers, ...decision.headers } };
+    await this.sendMessage(this.sendParams(desc.url, copy, { delayMs: decision.delayMs, headers: decision.headers }));
+    await this.deleteMessage(desc.url, m.ReceiptHandle);
   }
 
   public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, _removeDurable?: boolean): void {
