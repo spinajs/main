@@ -34,6 +34,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/hooks`](hooks/README.md) | Action hooks |
 | [`@spinajs/util`](util/README.md) | Shared utilities |
 | [`@spinajs/threading`](threading/README.md) | Mutex, critical section, rate limit |
+| [`@spinajs/tenancy`](tenancy/README.md) | Tenant scope, tenant registry, entering a tenant, running code for every tenant |
 | [`@spinajs/idempotency`](idempotency/README.md) | Run a call once per key, replay its reply, take over a dead replica's claim |
 | [`@spinajs/intl`](intl/README.md) | Translations |
 | [`@spinajs/internal-logger`](internal-logger/README.md) | Logger for code that runs before the real one |
@@ -52,6 +53,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/http-socket-client`](http-socket-client/README.md) | Socket client |
 | [`@spinajs/http-socket-example`](http-socket-example/README.md) | A runnable notes server and client, with a bundle recipe |
 | [`@spinajs/intl-http`](intl-http/README.md) | Per-request language |
+| [`@spinajs/tenancy-http`](tenancy-http/README.md) | Tenant of a request or socket connection, `TenantMiddleware`, tenant route decorators |
 
 ## Data and storage
 
@@ -97,4 +99,5 @@ One folder per package under `docs/`. Each package page lists its features and l
 | --- | --- |
 | [`@spinajs/log`](log/README.md), [`log-common`](log-common/README.md), [`log-otlp`](log-otlp/README.md), [`log-source-graphana-loki`](log-source-graphana-loki/README.md) | Logging and targets |
 | [`@spinajs/telemetry`](telemetry/README.md), [`telemetry-common`](telemetry-common/README.md), [`telemetry-otel`](telemetry-otel/README.md) | Metrics and tracing |
+| [`@spinajs/tracing`](tracing/README.md) | OpenTelemetry bootstrap; span attribute keys |
 | [`@spinajs/electron`](electron/README.md) | Services in the Electron main process |
