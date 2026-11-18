@@ -113,6 +113,16 @@ describe('audit verification', function () {
       expect(await verifyOn('pglite')).to.deep.include({ intact: 1, redacted: 0, tampered: undefined });
     });
 
+    it('never blanks an earlier erasure record when the subject is forgotten again', async () => {
+      await forget();
+      await forget();
+      for (const dialect of both) {
+        const erasures = (await tableRows(db.driver(dialect), TABLE)).filter((r) => r.action === 'erasure').map((r) => r.data);
+        expect(erasures).to.deep.eq(['{"redacted":1}', '{"redacted":0}']);
+        expect(await verifyOn(dialect)).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
+    });
+
     it('writes a missing erasure record when forget runs again after the record failed', async () => {
       setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: db.connectionName('sqlite'), integrity: 'sealed', onFailure: 'reject', retry: { attempts: 1, delay: 1 } });
       const pglite = db.driver('pglite');

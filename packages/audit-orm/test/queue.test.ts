@@ -173,6 +173,17 @@ describe('audit queue sink', function () {
       expect([await data(late.id), await data(other.id), await data(after.id), await data(String(erasure?.id))]).to.deep.eq(['', '{"version":9}', '{"version":8}', '{"redacted":1}']);
     });
 
+    it('never blanks an earlier erasure record, buffered or archived, when the subject is forgotten again', async () => {
+      await arrive(event(1, { subject: c1 }));
+      await audit().trail('remote').forget(c1);
+      await audit().trail('remote').forget(c1);
+      expect((await tableRows(driver(), 'audit_outbox')).map((r) => r.data)).to.deep.eq(['{"redacted":1}', '{"redacted":0}']);
+
+      await shipAudit({ trail: 'remote' });
+      await audit().trail('remote').forget(c1);
+      expect((await archived()).filter((r) => r.action === 'erasure').map((r) => r.data)).to.deep.eq(['{"redacted":1}', '{"redacted":0}']);
+    });
+
     it('blanks what arrives of a subject whose erasure this service has not shipped yet', async () => {
       await audit().trail('remote').forget(c1);
       expect(await archived()).to.have.length(0);

@@ -14,6 +14,7 @@ export async function eraseCustomer(id: string): Promise<number> {
 
 - **Blanked:** `data`. It is stored as an empty string and reads back as `{}` with `redacted: true`.
 - **Kept:** every other field (`id`, `at`, `kind`, `action`, `subject`, `actor`, ...) and `data_hash`, the hash of the payload that was there. So who did what to the subject and when stays on record, and a seal over the event still verifies ([Integrity and verification](07-integrity-and-verification.md)).
+- **Never blanked:** the subject's earlier `erasure` records. They are the evidence of earlier erasures, so forgetting a subject again keeps their payload and count.
 - **Returned:** how many events this call blanked; events already blank are not counted again.
 
 Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, the subject, `data: { redacted: <count> }`) in the confirmed mode beside the events it redacted: on `source` when one is given; without one on the trail's `connection`, and, on a table trail, on each other connection where the subject has a row, with that connection's count. `verify` looks for the record in the same table on the same connection. A failure to record one leaves that connection's payloads blanked without their record, which `verify` reads as SUSPECT: on a `reject` trail `forget` throws `AuditWriteFailed`; on a `continue` trail the failure is logged and `forget` resolves. Run `forget` again to repair it: it writes the record on every connection where the subject has a row, also when nothing is left to blank.

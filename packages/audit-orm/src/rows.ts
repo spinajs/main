@@ -10,6 +10,9 @@ const INSERT_CHUNK = 50;
 /** What a redacted payload is stored as; `data_hash` keeps the hash of the text it replaced. */
 export const REDACTED_DATA = '';
 
+/** The action of the event `forget` records; an erasure never blanks one, because it is the evidence of an earlier erasure. */
+export const ERASURE_ACTION = 'erasure';
+
 /** A row of a trail table as a select without a model returns it: column names to driver values. */
 export type AuditRow = Readonly<Record<string, unknown>>;
 

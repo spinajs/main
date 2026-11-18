@@ -3,7 +3,7 @@ import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditV
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
+import { ERASURE_ACTION, REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
 import { distinctConnections } from './ship/services.js';
@@ -103,7 +103,7 @@ export class TableAuditReader extends AuditReader {
   private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
     const update = driver.update().in(this.table(trail)).update({ data: REDACTED_DATA });
     if (source !== undefined && this.hasSourceColumn()) update.where('source', source);
-    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
+    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('action', '<>', ERASURE_ACTION).where('data', '<>', REDACTED_DATA);
     return RowsAffected;
   }
 

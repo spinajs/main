@@ -1,7 +1,7 @@
 import type { AuditEvent, AuditSubject, StoredAuditEvent } from '@spinajs/audit';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { REDACTED_DATA, rowsOf, storedColumns, toStored } from '../rows.js';
+import { ERASURE_ACTION, REDACTED_DATA, rowsOf, storedColumns, toStored } from '../rows.js';
 import { AUDIT_OUTBOX_TABLE } from './table.js';
 
 export interface BufferedEvent {
@@ -52,6 +52,6 @@ export async function removeBlank(driver: OrmDriver, rows: readonly StoredAuditE
 
 /** Blanks the payload of one subject's buffered events; returns how many this call blanked. */
 export async function blankBuffered(driver: OrmDriver, trail: string, subject: AuditSubject): Promise<number> {
-  const { RowsAffected } = await driver.update().in(AUDIT_OUTBOX_TABLE).update({ data: REDACTED_DATA }).where('trail', trail).where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
+  const { RowsAffected } = await driver.update().in(AUDIT_OUTBOX_TABLE).update({ data: REDACTED_DATA }).where('trail', trail).where('subject_type', subject.type).where('subject_id', subject.id).where('action', '<>', ERASURE_ACTION).where('data', '<>', REDACTED_DATA);
   return RowsAffected;
 }
