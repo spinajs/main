@@ -302,7 +302,7 @@ export class DefaultAuthnService extends AuthnService {
     try {
       return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx, clean);
     } catch (err) {
-      // A stopped announcement is the one rejection let through (B20): its session is already revoked.
+      // A stopped announcement is the one rejection let through: its session is already revoked.
       if (err instanceof AuthnListenerFailed) throw err;
       // Only a verified credential gets here: a rejection would tell it apart from a wrong one (A02).
       return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClass(err) } });
