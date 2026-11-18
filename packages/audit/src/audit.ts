@@ -105,10 +105,14 @@ const idsOf = (events: readonly AuditEvent[]): string =>
     .map((e) => e.id)
     .join(',');
 
-// Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString.
+// Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString. An Error is written
+// by name and message: a stack would take several lines per warning.
 function fallbackText(message: string, fields: Record<string, unknown>, err: unknown): string {
+  const brief = (v: unknown): unknown => (v instanceof Error ? String(v) : v);
   try {
-    return `audit: the logger "audit-pipeline" failed (${err instanceof Error ? String(err) : inspect(err)}): ${message} ${inspect(fields, { breakLength: Infinity })}`;
+    const named = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, brief(value)]));
+    const why = err instanceof Error ? String(err) : inspect(err);
+    return `audit: the logger "audit-pipeline" failed (${why}): ${message} ${inspect(named, { breakLength: Infinity })}`;
   } catch {
     return `audit: the logger "audit-pipeline" failed: ${message}`;
   }

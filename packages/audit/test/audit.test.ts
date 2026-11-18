@@ -613,9 +613,14 @@ describe('audit(): deferred batches and failure paths', function () {
       await pause(150);
       expect(unhandled).to.deep.eq([]);
       expect(warnings).to.have.length(4);
-      // The logger's failure is the same on every line: its message, not its stack.
-      for (const warning of warnings) expect(warning).to.contain('no logger').and.not.match(/\n\s+at /);
       expect(resolutions).to.have.length(1);
+
+      // A store that fails with an Error: the line names it, and neither its stack nor the logger's is printed.
+      FlakyStore.failure = new Error('store down');
+      await audit().record(actions('d'), { trail: 'flaky', mode: 'confirmed' });
+      expect(warnings).to.have.length(5);
+      expect(warnings[4]).to.contain('Error: store down');
+      for (const warning of warnings) expect(warning).to.contain('Error: no logger').and.not.match(/^\s+at /m);
     } finally {
       FlakyStore.failure = new Error('store down');
       Reflect.set(process, 'emitWarning', emitWarning);
