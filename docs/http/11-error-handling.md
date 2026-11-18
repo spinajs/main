@@ -18,16 +18,24 @@ Errors reach the handler from two places:
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
 1. **Body-parser failures.** Invalid JSON answers 400 with `request body is not valid JSON`. A `verify` hook failure answers with the response mapped for the thrown class, or 400 `request body was refused` when it is not mapped. Both log at `warn` and never echo the request body.
-2. **Refusals raised before routing.** An unmapped error that Express or http-errors marks for the client answers with its own 4xx `status` (or `statusCode`) and `{ message }`, and logs at `warn`:
+2. **Refusals raised before routing.** An unmapped error that Express or http-errors marks for the client answers with its own 4xx `status` (or `statusCode`) and `{ message }`, and logs at the level of its status (see step 6):
    - the `URIError` of a path with malformed percent-encoding (`/files/%ZZ`): 400 `request path is not valid percent-encoding`;
    - an http-errors error with `expose: true`, such as body-parser's 413 for a body over its `limit` or 415 for an unsupported charset: its own message.
 
    The response is the one mapped for `BadRequest` (400), `Forbidden` (403), `ResourceNotFound` (404), `EntityTooLargeException` (413) or `UnsupportedMediaTypeException` (415), else `BadRequestResponse`, sent with the error's status. Any other error's `status` is ignored: an action that throws the error of an outgoing call with `status: 404` still answers 500.
-3. Otherwise it logs the error at `error` with method and URL, in every environment; the entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
-4. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
-5. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 3 names the failure.
-6. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
-7. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
+3. **Lookup.** Otherwise it walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it uses `ServerError` (500) and logs a warning after the entry of step 6.
+4. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 6 names the failure.
+5. It creates `new ResponseClass(body)`.
+6. **Log entry.** It logs `Error in controller ${method} at path ${url}` with the exception (message and stack), its `status` (the response's `statusCode`), method and URL, in every environment. Query values in the URL are replaced by `[redacted]`. The level follows the status, so that client errors do not count as server errors:
+
+   | Status | Level |
+   | --- | --- |
+   | 401, 404 (also a request that matches no route) | `debug` |
+   | any other 4xx | `warn` |
+   | 5xx, and any status outside 4xx | `error` |
+
+7. It runs `response.execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
+8. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
 
 ```mermaid
 sequenceDiagram
@@ -288,6 +296,7 @@ A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fa
 - An exact registration wins over an inherited one, because the walk starts at the concrete class.
 - Every own enumerable field of the exception goes into the body, except for a production 500 from `ServerError`. Do not put secrets, SQL or tokens on exceptions mapped to another status. `CodedHttpExceptionResponse` does not: it sends `code`, `message` and `details` only.
 - Unmapped errors (a plain `Error`, a `TypeError`) answer 500 and log `Error type X dont have assigned http response`.
+- Only a 5xx answer writes an `error` entry. A 401 or 404 logs at `debug`, so a scanner or a client polling without credentials stays out of a log that runs at `info`; any other 4xx (403, 400, 409) logs at `warn`. Alerting on `error` entries therefore counts server failures only; watch `warn` entries of the `http` logger to see a burst of 403s.
 - Outside production the body carries `stack`, and a 500 carries the exception's message and fields. Set `configuration.isProduction` in production.
 - The map and the configuration are read when each handler is created (controller startup and `HttpServer.start()`). Register mappings before that.
 - A request to an unknown path answers 404 with `Route not found: <METHOD> <path>`.

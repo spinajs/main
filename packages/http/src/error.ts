@@ -164,6 +164,18 @@ function errorBody(err: any, response: Constructor<HttpResponse>, isProductionEn
     return error;
 }
 
+// A client error is the client's to fix, so it must not trip alerts on ERROR lines. 401 and 404 are what scanners
+// and clients polling without credentials produce on every request.
+function logByStatus(logger: Log, status: number, fields: object, message: string): void {
+    if (status === 401 || status === 404) {
+        logger.debug(fields, message);
+    } else if (status >= 400 && status <= 499) {
+        logger.warn(fields, message);
+    } else {
+        logger.error(fields, message);
+    }
+}
+
 export function __handle_error__() {
 
     const logger = DI.resolve(Log, ['http']);
@@ -198,20 +210,21 @@ export function __handle_error__() {
             const badRequest = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
             response = badRequest ? new badRequest(error) : new BadRequestResponse(error);
         } else if (refusal) {
-            logger.warn({ status: refusal.status, errorType: refusal.errorType, method: req.method, url: redactUrl(req.originalUrl) }, 'Request refused with ${status} (${errorType}) at ${method} ${url}');
+            logByStatus(logger, refusal.status, { status: refusal.status, errorType: refusal.errorType, method: req.method, url: redactUrl(req.originalUrl) }, 'Request refused with ${status} (${errorType}) at ${method} ${url}');
 
             error = { message: refusal.message };
             response = refusalResponse(refusal, errorMap);
         } else {
-            logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
+            const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
+            error = errorBody(err, ResponseClass, isProductionEnv);
+            response = new ResponseClass(error);
+
+            const status = response.statusCode;
+            logByStatus(logger, status, { error: err, status, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
             if (!httpResponse) {
                 logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
             }
-
-            const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
-            error = errorBody(err, ResponseClass, isProductionEnv);
-            response = new ResponseClass(error);
         }
 
         response

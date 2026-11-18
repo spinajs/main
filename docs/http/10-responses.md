@@ -8,7 +8,7 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
 2. The response handler (`__handle_response__`, the step after the action and its `onAfter` middlewares) calls `response.execute(req, res)`.
    - Nothing stored (the action returned `undefined` or `null`): it raises `ResourceNotFound`, answered as 404.
 3. `Response.execute()` awaits the data (`prepareResponse()`: a `Promise` is awaited; an array of promises is awaited with `Promise.all`).
-4. It calls `httpResponse(data, this._template, { ...options, StatusCode: options.StatusCode ?? this._errorCode })`, which returns a function `(req, res) => void`; the response handler calls it.
+4. It calls `httpResponse(data, this._template, { ...options, StatusCode: this.statusCode })` (`options.StatusCode`, else `_errorCode`), which returns a function `(req, res) => void`; the response handler calls it.
 5. A thrown error or rejected promise goes to the [error handler](11-error-handling.md).
 
 ### Content negotiation
@@ -174,6 +174,7 @@ Members you use when extending `Response`:
 | Member | Meaning |
 | --- | --- |
 | `protected _errorCode: number` | Default status. |
+| `get statusCode(): number` | The status the response answers with: `options.StatusCode`, else `_errorCode`. The error handler logs by it. Override it when `execute()` picks another status, as `CodedHttpExceptionResponse` does with the exception's own status. |
 | `protected _template: string` | Template name in `__fs_http_response_templates__` for HTML clients. |
 | `protected responseData`, `protected options` | Constructor arguments. |
 | `prepareResponse()` | Awaits the data. |
