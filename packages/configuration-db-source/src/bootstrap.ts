@@ -21,6 +21,12 @@ const CONFIG_WATCH_TIMER_INTERVAL = 3 * 60 * 1000;
 
 const LOG_CHANNEL = 'configuration-db-source';
 
+/**
+ * Emitted on the root DI container as `(slug, previous, next)` after the watch poll changed a configuration value;
+ * `next` is what the configuration holds after the change. Listeners are not awaited.
+ */
+export const CONFIGURATION_DB_CHANGED_EVENT = 'configuration.db.changed';
+
 type __dbCOnfigOptions = { path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon };
 
 /** A `configuration` row as the driver returns it: `Value` is the stored text, not yet converted for its `Type`. */
@@ -298,8 +304,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       const value = this.Converter.fromDB(row.Value, row, { TypeColumn: 'Type' }) as unknown;
       // Slug is the canonical config path (same value passed to @Config).
       // Group is display-only metadata and must not be part of the path.
-      if (!isConfigValueEqual(cService.get(row.Slug), value)) {
+      const previous = cService.get(row.Slug);
+      if (!isConfigValueEqual(previous, value)) {
         cService.set(row.Slug, value);
+        // the schemas set() applies may coerce or fill in the value, so listeners get what the application reads
+        this.emitWatchedChanged(row.Slug, previous, cService.get(row.Slug));
       }
       this.refusedRows.delete(row.Slug);
     } catch (err) {
@@ -310,6 +319,15 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       }
 
       InternalLogger.error({ error: err, slug: row.Slug }, 'Watched config value ${slug} from db was refused, the previous value stays', LOG_CHANNEL);
+    }
+  }
+
+  /** A listener that throws is logged: it must neither mark the applied row as refused nor stop the rest of the poll. */
+  private emitWatchedChanged(slug: string, previous: unknown, next: unknown): void {
+    try {
+      DI.emit(CONFIGURATION_DB_CHANGED_EVENT, slug, previous, next);
+    } catch (err) {
+      InternalLogger.error({ error: err, slug }, 'A listener of configuration.db.changed failed for ${slug}', LOG_CHANNEL);
     }
   }
 
