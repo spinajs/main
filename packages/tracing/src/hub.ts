@@ -38,6 +38,7 @@ export class SpanProcessorHub implements SpanProcessor {
   private sinks: readonly SpanProcessor[] = [];
   private processors: readonly SpanProcessor[] = [];
 
+  /** Counts enrichers too; whether spans are recorded is `recording`. */
   public get size(): number {
     return this.processors.length;
   }
