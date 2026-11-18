@@ -21,6 +21,11 @@ const properties = {
       properties: { id: { type: 'string', minLength: 1, maxLength: AUDIT_SEAL_KEY_ID_WIDTH }, secret: { type: 'string', minLength: MIN_SEAL_SECRET_LENGTH } },
     },
   },
+  // Per table, the end of the keyless seals sealed before the keys were set; with keys and no entry, none is lawful.
+  keylessUpTo: {
+    type: 'object',
+    additionalProperties: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'object', additionalProperties: { type: 'integer', minimum: 0 } }] },
+  },
 };
 
 // propertyNames, not additionalProperties: the configuration's removeAdditional would drop a misspelt key silently.

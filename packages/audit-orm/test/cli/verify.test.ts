@@ -177,7 +177,7 @@ describe('audit:verify', function () {
     try {
       await append(event(1));
       await sealAudit({ settleMs: 0 });
-      config().set(['audit', 'seal'], { keys: [key] });
+      config().set(['audit', 'seal'], { keys: [key], keylessUpTo: { [TABLE]: 1 } });
       const keyless = await run('sealed');
       expect(keyless.lines[keyless.lines.length - 1]).to.eq('result: SUSPECT, the newest seal is keyless although audit.seal.keys is set');
       expect(process.exitCode).to.eq(2);

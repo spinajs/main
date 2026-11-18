@@ -525,7 +525,9 @@ describe('audit verification', function () {
         const OLD = { id: '2026-10', secret: 'a'.repeat(32) };
         const NEW = { id: '2026-11', secret: 'b'.repeat(32) };
         const useKeys = (...keys: { id: string; secret: string }[]): void => config().set(['audit', 'seal'], keys.length === 0 ? undefined : { keys });
+        const useKeysAfter = (keylessUpTo: number, ...keys: { id: string; secret: string }[]): void => config().set(['audit', 'seal'], { keys, keylessUpTo: { [TABLE]: keylessUpTo } });
         const keyIds = async (): Promise<unknown[]> => (await seals()).map((s) => s.key_id);
+        const keylessRefusal = (toSeq: number): string => `audit: the seal chain of "${TABLE}" on connection "${connection()}" ends in a keyless seal at seq ${toSeq} past audit.seal.keylessUpTo, so a keyed seal after it would vouch for it; if it was sealed before audit.seal.keys was set, set audit.seal.keylessUpTo["${TABLE}"] to ${toSeq}, else run audit:verify`;
 
         // What someone without the key can do: recompute every seal from the rows as they are now, with the public function.
         const resealKeyless = async (keyId: string | null): Promise<void> => {
@@ -556,7 +558,7 @@ describe('audit verification', function () {
           expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
         });
 
-        it('fails a keyless seal after a keyed one, and doubts a chain whose newest seal is keyless', async () => {
+        it('fails a keyless seal after a keyed one, and a keyed chain rewritten keyless from its first seal', async () => {
           useKeys(OLD);
           await append(event(1));
           await sealNow();
@@ -574,11 +576,31 @@ describe('audit verification', function () {
             .where('from_seq', 2);
           expect((await verify()).tampered).to.deep.eq({ seq: 2, reason: 'seal', fromSeq: 2, toSeq: 2 });
 
-          // The whole chain rewritten keyless looks like a chain sealed before the key was added.
+          // With keys and no audit.seal.keylessUpTo, no keyless seal is lawful; a verifier without either cannot tell.
           await resealKeyless(null);
-          expect(await verify()).to.deep.include({ tampered: undefined, intact: 2, keylessHead: true });
+          expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 1 });
           useKeys();
           expect(await verify()).to.deep.include({ tampered: undefined, keylessHead: false });
+        });
+
+        it('keeps a keyed chain rewritten keyless tampered, because the sealer refuses to sign on top of it', async () => {
+          useKeys(OLD);
+          await append(event(1));
+          await sealNow();
+          await append(event(2));
+          await sealNow();
+          await edit(2, { actor: 'user:u2' });
+          await resealKeyless(null);
+          await append(event(3));
+          const { sealed, failed } = await sealNow();
+          expect([sealed, failed.map((f) => f.reason)]).to.deep.eq([0, [keylessRefusal(2)]]);
+          expect(await keyIds()).to.deep.eq([null, null]);
+          expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 1 });
+
+          // A lawful keyless prefix does not cover a keyless rewrite past it.
+          useKeysAfter(1, OLD);
+          expect((await verify()).tampered).to.deep.eq({ seq: 2, reason: 'seal', fromSeq: 2, toSeq: 2 });
+          expect((await sealNow()).failed.map((f) => f.reason)).to.deep.eq([keylessRefusal(2)]);
         });
 
         it('signs with the first key and verifies with every listed one', async () => {
@@ -598,12 +620,17 @@ describe('audit verification', function () {
           expect((await verify()).unverifiable).to.deep.eq({ keyId: OLD.id, fromSeq: 1, toSeq: 1 });
         });
 
-        it('turns a keyless chain keyed in the middle, and never back', async () => {
+        it('turns a keyless chain keyed in the middle at audit.seal.keylessUpTo, and never back', async () => {
           await append(event(1));
           await sealNow();
           useKeys(OLD);
-          expect(await verify()).to.deep.include({ tampered: undefined, intact: 1, keylessHead: true });
+          // Keys added without naming where the keyless part ends: its seals are not lawful, and the sealer names the value.
+          expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 1 });
           await append(event(2));
+          expect((await sealNow()).failed.map((f) => f.reason)).to.deep.eq([keylessRefusal(1)]);
+
+          useKeysAfter(1, OLD);
+          expect(await verify()).to.deep.include({ tampered: undefined, intact: 1, keylessHead: true });
           await sealNow();
           expect(await keyIds()).to.deep.eq([null, OLD.id]);
           expect(await verify()).to.deep.include({ tampered: undefined, intact: 2, keylessHead: false });
@@ -613,6 +640,19 @@ describe('audit verification', function () {
           const { sealed, failed } = await sealNow();
           expect([sealed, failed.map((f) => f.reason)]).to.deep.eq([0, [`audit: the seal chain of "${TABLE}" on connection "${connection()}" is keyed (key "${OLD.id}"), so a keyless seal after it would read as tampered; set audit.seal.keys`]]);
           expect(await keyIds()).to.deep.eq([null, OLD.id]);
+        });
+
+        it('fails and refuses a keyless seal past audit.seal.keylessUpTo, also without keys', async () => {
+          await append(event(1), event(2));
+          await sealNow();
+          config().set(['audit', 'seal'], { keylessUpTo: { [TABLE]: 1 } });
+          expect((await verify()).tampered).to.deep.eq({ seq: 1, reason: 'seal', fromSeq: 1, toSeq: 2 });
+
+          config().set(['audit', 'seal'], { keylessUpTo: { [TABLE]: { [connection()]: 2, elsewhere: 0 } } });
+          expect(await verify()).to.deep.include({ tampered: undefined, intact: 2 });
+          await append(event(3));
+          const refused = `audit: audit.seal.keylessUpTo ends the keyless seals of "${TABLE}" on connection "${connection()}" at seq 2, so a keyless seal up to seq 3 would read as tampered; set audit.seal.keys`;
+          expect((await sealNow()).failed.map((f) => f.reason)).to.deep.eq([refused]);
         });
 
         it('prunes keyed seals whole and keeps verifying the chain after them', async () => {

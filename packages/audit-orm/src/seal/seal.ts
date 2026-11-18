@@ -10,9 +10,10 @@ import { rowsOf } from '../rows.js';
 import { archiveDriver } from '../ship/archive.js';
 import { distinctConnections } from '../ship/services.js';
 import { TableAuditStore } from '../table-store.js';
-import { sealConfig } from './config.js';
-import type { SealKey } from './config.js';
+import { keylessUpToFor, sealConfig } from './config.js';
+import type { SealConfig, SealKey } from './config.js';
 import { lastSeal, rowDigest } from './seals.js';
+import type { AuditSeal } from './seals.js';
 import { AUDIT_SEAL_TABLE } from './table.js';
 
 const quoted = (v: string): string => JSON.stringify(v);
@@ -29,12 +30,27 @@ interface SealTableOptions {
   readonly now: Date;
   /** Signs the seals; without one they are keyless. */
   readonly key: SealKey | undefined;
+  readonly keylessUpTo: number | undefined;
 }
 
 interface SealedHead {
   readonly sealed: number;
   readonly toSeq: number;
   readonly hash: string | null;
+}
+
+/**
+ * Refuses a seal verification would read as tampered. A keyed seal on a keyless one past keylessUpTo would also vouch for
+ * a chain rewritten without the key, so the database alone can never make it lawful.
+ */
+function assertKeying(driver: OrmDriver, table: string, last: AuditSeal | undefined, toSeq: number, options: SealTableOptions): void {
+  const on = `${quoted(table)} on connection ${quoted(driver.Options.Name)}`;
+  if (options.key !== undefined) {
+    if (last !== undefined && last.keyId === undefined && last.toSeq > (options.keylessUpTo ?? 0)) throw new InvalidOperation(`audit: the seal chain of ${on} ends in a keyless seal at seq ${last.toSeq} past audit.seal.keylessUpTo, so a keyed seal after it would vouch for it; if it was sealed before audit.seal.keys was set, set audit.seal.keylessUpTo[${quoted(table)}] to ${last.toSeq}, else run audit:verify`);
+    return;
+  }
+  if (last?.keyId !== undefined) throw new InvalidOperation(`audit: the seal chain of ${on} is keyed (key ${quoted(last.keyId)}), so a keyless seal after it would read as tampered; set audit.seal.keys`);
+  if (options.keylessUpTo !== undefined && toSeq > options.keylessUpTo) throw new InvalidOperation(`audit: audit.seal.keylessUpTo ends the keyless seals of ${on} at seq ${options.keylessUpTo}, so a keyless seal up to seq ${toSeq} would read as tampered; set audit.seal.keys`);
 }
 
 // One seal: the events after the last seal, read and sealed in one transaction.
@@ -47,12 +63,12 @@ async function sealNext(driver: OrmDriver, table: string, options: SealTableOpti
   if (options.upTo !== undefined) select.where('seq', '<=', options.upTo);
   const rows = rowsOf(await select.orderBy('seq').take(options.batchSize));
   if (rows.length === 0) return { sealed: 0, toSeq: after, hash: previous };
-  if (last?.keyId !== undefined && options.key === undefined) throw new InvalidOperation(`audit: the seal chain of ${quoted(table)} on connection ${quoted(driver.Options.Name)} is keyed (key ${quoted(last.keyId)}), so a keyless seal after it would read as tampered; set audit.seal.keys`);
+  const toSeq = Number(rows[rows.length - 1].seq);
+  assertKeying(driver, table, last, toSeq, options);
   // Whole seconds: what every dialect's dateTime stores and reads back unchanged.
   const sealedAt = new Date(Math.floor(options.now.getTime() / 1000) * 1000);
   const events = eventsHash(rows.map((row) => rowDigest(row)));
   const hash = sealHash(previous, sealedAt, events, options.key?.secret);
-  const toSeq = Number(rows[rows.length - 1].seq);
   // A range starts where the previous one ended, not at the first row seen: a row that commits later inside it changes its
   // count, and a second seal chained from the same one starts at the same seq, which the unique index refuses.
   await driver
@@ -138,6 +154,7 @@ interface SealRun {
   readonly maxSeals: number;
   readonly now: Date;
   readonly key: SealKey | undefined;
+  readonly cfg: SealConfig;
 }
 
 function sealedTrails(only?: string): TrailConfig[] {
@@ -169,7 +186,7 @@ export class AuditSealer {
 
   async run(options: SealOptions = {}): Promise<SealResult> {
     const cfg = sealConfig();
-    const run: SealRun = { settleMs: options.settleMs ?? cfg.settleMs, batchSize: cfg.batchSize, maxSeals: cfg.maxSeals, now: options.now ?? new Date(), key: cfg.keys[0] };
+    const run: SealRun = { settleMs: options.settleMs ?? cfg.settleMs, batchSize: cfg.batchSize, maxSeals: cfg.maxSeals, now: options.now ?? new Date(), key: cfg.keys[0], cfg };
     const seen = new Set<string>();
     const failed: SealFailure[] = [];
     let sealed = 0;
@@ -204,9 +221,9 @@ export class AuditSealer {
       await assertNoReset(target, head);
       const upTo = run.settleMs <= 0 ? undefined : this.settled(key, head, run);
       if (upTo === null) return 0;
-      const out = await sealTable(target.driver, target.table, { upTo, batchSize: run.batchSize, maxSeals: run.maxSeals, now: run.now, key: run.key });
+      const out = await sealTable(target.driver, target.table, { upTo, batchSize: run.batchSize, maxSeals: run.maxSeals, now: run.now, key: run.key, keylessUpTo: keylessUpToFor(run.cfg, connection, target.table) });
       // The head in the application log is a copy of the chain's end outside the database.
-      if (out.sealed > 0) log().info({ trail: trail.name, connection, table: target.table, toSeq: out.toSeq, hash: out.hash }, 'audit: sealed ${table} on ${connection} up to seq ${toSeq}, head ${hash}');
+      if (out.sealed > 0) log().info({ trail: trail.name, connection, table: target.table, toSeq: out.toSeq, hash: out.hash, keyId: run.key?.id ?? 'none' }, 'audit: sealed ${table} on ${connection} up to seq ${toSeq}, head ${hash}, key ${keyId}');
       return out.sealed;
     } catch (err) {
       const reason = messageOf(err);

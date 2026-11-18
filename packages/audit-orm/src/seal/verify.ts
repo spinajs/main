@@ -5,7 +5,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { erasureRecords, rowsOf, toStored } from '../rows.js';
 import type { AuditRow } from '../rows.js';
-import { sealConfig } from './config.js';
+import { keylessUpToFor, sealConfig } from './config.js';
 import type { SealKey } from './config.js';
 import { SEAL_PAGE_SIZE, lastSeal, rowDigest, sealById, sealsAfter, storedHash } from './seals.js';
 import type { AuditSeal } from './seals.js';
@@ -33,6 +33,8 @@ export interface VerifyTableOptions {
   readonly now?: Date;
   /** The keys a keyed seal is checked with, found by id; default audit.seal.keys. */
   readonly keys?: readonly SealKey[];
+  /** The seq up to which seals may be keyless; default audit.seal.keylessUpTo of the table, else 0 when keys are set. */
+  readonly keylessUpTo?: number;
 }
 
 interface VerifyRun extends VerifyTableOptions {
@@ -220,17 +222,17 @@ interface Chain {
 }
 
 // A seal must chain from the one verified before it, match a pinned head that ends where it ends, be pruned only after
-// every seal before it was, and stay keyed after a keyed one, or a keyless rewrite from any keyed seal on would verify.
-function relink(seal: AuditSeal, good: AuditSeal | undefined, pinned: AuditPinnedHead | undefined): AuditTamper | undefined {
+// every seal before it was, and be keyed after a keyed one and past keylessUpTo, or a keyless rewrite would verify.
+function relink(seal: AuditSeal, good: AuditSeal | undefined, { pinned, keylessUpTo }: VerifyRun): AuditTamper | undefined {
   if (seal.pruned && good !== undefined && !good.pruned) return tamper(seal, 'count', seal.fromSeq);
-  if (seal.keyId === undefined && good?.keyId !== undefined) return tamper(seal, 'seal', seal.fromSeq);
+  if (seal.keyId === undefined && (good?.keyId !== undefined || (keylessUpTo !== undefined && seal.toSeq > keylessUpTo))) return tamper(seal, 'seal', seal.fromSeq);
   const pinMismatch = seal.toSeq === pinned?.toSeq && seal.hash !== pinned.hash;
   return seal.previousHash !== (good?.hash ?? null) || pinMismatch ? tamper(seal, 'chain', seal.fromSeq) : undefined;
 }
 
 /** Where the walk stops at one seal; undefined when the seal verified. */
 async function stopAt(driver: OrmDriver, table: string, seal: AuditSeal, good: AuditSeal | undefined, walk: Walk, options: VerifyRun): Promise<Omit<Chain, 'good'> | undefined> {
-  const tampered = relink(seal, good, options.pinned);
+  const tampered = relink(seal, good, options);
   if (tampered) return { tampered };
   const unverifiable = unverifiableOf(seal, options.keys);
   if (unverifiable) return { tampered: undefined, unverifiable };
@@ -259,6 +261,12 @@ async function walkChain(driver: OrmDriver, table: string, options: VerifyRun, w
   return { good, tampered: met || !pinned ? undefined : { seq: pinned.toSeq, reason: 'chain', fromSeq: pinned.toSeq, toSeq: pinned.toSeq } };
 }
 
+function runOf(connection: string, table: string, options: VerifyTableOptions): VerifyRun {
+  const cfg = sealConfig();
+  const keys = options.keys ?? cfg.keys;
+  return { ...options, keys, keylessUpTo: options.keylessUpTo ?? keylessUpToFor(cfg, connection, table) ?? (keys.length > 0 ? 0 : undefined) };
+}
+
 /**
  * Verifies the seal chain of one table. A pinned head protects the chain up to its `to_seq` only. It reads without a
  * transaction of its own and refuses a caller's: there it would count rows that can still roll back.
@@ -266,7 +274,7 @@ async function walkChain(driver: OrmDriver, table: string, options: VerifyRun, w
 export async function verifyTable(driver: OrmDriver, table: string, options: VerifyTableOptions = {}): Promise<Omit<AuditVerifyReport, 'trail'>> {
   if (driver.CurrentTransaction !== undefined) throw new InvalidOperation(`audit: verifying ${JSON.stringify(table)} on connection ${JSON.stringify(driver.Options.Name)} needs a transaction of its own; run it outside an open transaction`);
   const walk: Walk = { seals: 0, intact: 0, redacted: 0, prunedSeals: 0, uncovered: [], earlyPrunes: [], redactions: [] };
-  const run: VerifyRun = { ...options, keys: options.keys ?? sealConfig().keys };
+  const run = runOf(driver.Options.Name, table, options);
   const { good, tampered, unverifiable } = await walkChain(driver, table, run, walk);
   const sealedTo = (await lastSeal(driver, table))?.toSeq ?? 0;
   const { redactions, ...tally } = walk;

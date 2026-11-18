@@ -102,6 +102,7 @@ describe('audit sealing', function () {
             { id: '2026-11', secret },
             { id: '2026-10', secret: 'o'.repeat(32) },
           ],
+          keylessUpTo: { [TABLE]: 1 },
         });
         await append(event(2));
         await sealAudit({ settleMs: 0, now: new Date('2026-11-16T12:00:00Z') });
@@ -114,6 +115,9 @@ describe('audit sealing', function () {
       it('refuses keys it could not sign or verify with', async () => {
         for (const keys of [{ id: 'k' }, [{ id: '', secret: 's'.repeat(32) }], [{ id: 'k', secret: 'short' }], [{ id: 'k', secret: 's'.repeat(32), key: 'x' }]]) {
           expect(() => config().set(['audit', 'seal'], { keys }), JSON.stringify(keys)).to.throw(/audit\.seal\.keys/);
+        }
+        for (const keylessUpTo of [[1], { [TABLE]: -1 }, { [TABLE]: 1.5 }, { [TABLE]: 'one' }, { [TABLE]: { main: -1 } }]) {
+          expect(() => config().set(['audit', 'seal'], { keylessUpTo }), JSON.stringify(keylessUpTo)).to.throw(/audit\.seal\.keylessUpTo/);
         }
         config().set(['audit', 'seal'], {
           keys: [

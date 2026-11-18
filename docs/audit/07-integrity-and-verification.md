@@ -35,7 +35,7 @@ The payload enters only through its hash, so erasing a payload ([Erasure](08-era
 
 ### A seal key
 
-Without a key anyone who can write the database can delete rows and recompute every seal, because `sealHash` has no secret. With `audit.seal.keys` the seals become HMACs, and rewriting them needs a secret the database does not hold:
+Without a key anyone who can write the database can delete rows and recompute every seal, because `sealHash` has no secret. With `audit.seal.keys` the seals become HMACs, which nobody without the key can make:
 
 ```json
 { "audit": { "seal": { "keys": [{ "id": "2026-11", "secret": "<at least 32 characters, from the environment>" }] } } }
@@ -43,12 +43,15 @@ Without a key anyone who can write the database can delete rows and recompute ev
 
 - The first key signs new seals and its `id` is stored in `audit_seal.key_id` (null for a keyless seal). Every listed key verifies the seals it signed, found by id.
 - **Rotation**: put the new key first and keep the old one listed; old seals verify while their key stays in the list.
-- A keyless chain may turn keyed in the middle: the previous hash feeds the next seal whatever made it. It never turns back: the sealer refuses to add a keyless seal after a keyed one (reported in `failed` and logged), and verification reports one as `tampered` `seal`.
-- A seal whose key is not configured where it is verified stops the walk as `unverifiable`, never as intact; `spinajs audit:verify` answers CANNOT VERIFY with exit code 4.
-- With keys configured, a chain whose newest seal is keyless is suspect (`keylessHead`): a chain not sealed since the key was added, or one rewritten without the key from its first seal. It clears once the sealer adds a keyed seal.
+- **Keys on a chain sealed without them.** Where the keyless part of a chain ends is kept in the configuration, not in the database, because a chain rewritten keyless looks exactly like one sealed before the keys. With keys set, a keyless seal is lawful only up to `audit.seal.keylessUpTo` of its table: `{ "<table>": <toSeq> }`, or `{ "<table>": { "<connection>": <toSeq> } }` for a table on several connections. Without an entry no keyless seal is lawful. Set it in the same change as the keys, to the `to_seq` of the table's last seal; the sealer refuses to sign on top of a keyless seal past it, and its error names the value.
+- A keyless chain turns keyed in the middle there: the previous hash feeds the next seal whatever made it. It never turns back: verification reports a keyless seal after a keyed one, or past `keylessUpTo` (with or without keys), as `tampered` `seal`, and the sealer refuses to add one (reported in `failed` and logged).
+- A seal whose key is not configured where it is verified stops the walk as `unverifiable`, never as intact; `spinajs audit:verify` answers CANNOT VERIFY with exit code 4. Anyone who can write `audit_seal` can also put an unknown `key_id` on a seal to stop the walk there, so CANNOT VERIFY on a chain whose keys were never removed is worth investigating.
+- With keys configured, a chain whose newest seal is the last lawful keyless one is suspect (`keylessHead`): not sealed since the keys were added, or cut back to its keyless part. It clears once the sealer adds a keyed seal.
 - The secret is at least 32 characters: a seal row holds the HMAC and every input to it, so a short secret can be guessed offline. A key id is 1 to 64 characters, and ids are unique.
 
-A key does not show a chain cut at its end (the newest seals deleted with their events): the pinned head ([below](#verifying)) stays the advice for that. Whoever runs code on the application server can read the key.
+**What a key buys.** A forger without the key cannot make a keyed seal, so a rewrite fails verification wherever no sealer runs over it afterwards: a copy or a backup verified apart, or a rewrite that keeps the existing seals. On the live system it is weaker. The sealer signs whatever follows the last seal, so a database writer who deletes the seals after a kept one and edits the events behind it has the sealer re-sign that history on its next run, and verification answers intact. Nothing in the database tells this apart from a lawful chain: only a head pinned ([below](#verifying)) after the edit point shows it, and the traces are unsealed rows older than the sealing window (`staleUnsealed`) until that run, and `sealed_at` values well after the `at` of the rows they cover, which verification does not check. The same holds for an edited backup restored into production. Keep pinning heads with a key too.
+
+A key does not show a chain cut at its end (the newest seals deleted with their events) either. Whoever runs code on the application server can read the key.
 
 ## The seal task
 
@@ -60,6 +63,7 @@ A key does not show a chain cut at its end (the newest seals deleted with their 
 | `audit.seal.batchSize` | 1000 | Events per seal (at most 5000): the memory of one step and the resolution of a tamper report. |
 | `audit.seal.maxSeals` | 100 | Seals per table and run; a backlog is sealed over several runs. |
 | `audit.seal.keys` | none | `[{ id, secret }]`: the first signs, every one verifies ([A seal key](#a-seal-key)). |
+| `audit.seal.keylessUpTo` | none | Per table (or per table and connection), the `to_seq` up to which seals may be keyless; with keys and no entry, none may ([A seal key](#a-seal-key)). |
 
 Each seal is read and written in a transaction of its own; sealing inside a caller's open transaction is refused. Run one sealer: a second one sealing the same table at the same time is refused by the unique index on `(trail_table, from_seq)` and reported. A table whose `seq` was reset (re-created, or a MySQL 5.7 restart after retention emptied it) is reported and not sealed. After every seal the sealer logs the new head (`toSeq`, `hash`) at info level on the logger `audit-seal`.
 
@@ -86,7 +90,7 @@ export async function checkBilling(loggedHead: { toSeq: number; hash: string }):
 | `prunedSeals` | Seals whose events retention removed; their link in the chain and their own hash are checked. |
 | `tampered` | The first mismatch, `{ seq, reason, fromSeq, toSeq }`; `undefined` when every seal matches. |
 | `unverifiable` | The first seal signed with a key not in `audit.seal.keys` here, `{ keyId, fromSeq, toSeq }`, where the walk stopped; `undefined` when every key was at hand. |
-| `keylessHead` | Keys are configured, but the newest verified seal is keyless. |
+| `keylessHead` | Keys are configured, but the newest verified seal is keyless (within `audit.seal.keylessUpTo`). |
 | `unsealed` | Events after the last seal. |
 | `staleUnsealed` | Of those, events whose `at` is older than the sealing window. |
 | `head` | The last seal that verified (`toSeq`, `hash`). |
@@ -97,7 +101,7 @@ export async function checkBilling(loggedHead: { toSeq: number; hash: string }):
 | `tampered.reason` | Means | `seq` |
 | --- | --- | --- |
 | `payload` | An event's payload no longer matches its `data_hash`. | That event. |
-| `seal` | A sealed field, a `data_hash` together with its payload, the order of events, or a seal's hash, `sealed_at` or `events_hash` was changed, on a pruned seal too; or a keyless seal follows a keyed one. | First seq of the range. |
+| `seal` | A sealed field, a `data_hash` together with its payload, the order of events, or a seal's hash, `sealed_at` or `events_hash` was changed, on a pruned seal too; or a keyless seal follows a keyed one or ends past `audit.seal.keylessUpTo` (with keys and no entry: any keyless seal). | First seq of the range. |
 | `count` | A sealed event is gone; more rows are in the range than a late commit explains; a row not covered by its seal is stamped after the seal was made; or a seal is marked pruned out of chain order or with `pruned_at` in the future. | First seq of the range. |
 | `chain` | A seal is gone, replaced, or does not start where the previous one ended, or the pinned head was not met. | First seq of the range, or the pinned `toSeq`. |
 
@@ -142,7 +146,7 @@ Without `--source`, every connection that holds the trail table is verified on i
 | intact | 0 |
 | TAMPERED | 1 |
 | SUSPECT | 2 |
-| could not run: unknown trail, unreachable connection, invalid `--head`, a trail that is not sealed, invalid `audit.seal.keys` | 3, one line on stderr |
+| could not run: unknown trail, unreachable connection, invalid `--head`, a trail that is not sealed, invalid `audit.seal.keys` or `audit.seal.keylessUpTo` | 3, one line on stderr |
 | CANNOT VERIFY: a seal's key is not configured here | 4 |
 
 Over several connections the exit code is 1 if any connection is tampered, else the highest of the others: 4 if a seal's key is missing on any, else 3 if any could not be verified (its error is printed and the others still run), else 2 if any is suspect, else 0.
@@ -153,9 +157,10 @@ On a sealed trail retention removes whole sealed ranges: the events of every sea
 
 ## Threat model
 
-Without a key the chain detects an edit, deletion or reordering in a sealed range made by anyone **without** write access to `audit_seal`. With a key ([A seal key](#a-seal-key)) it also detects one made by anyone who can write `audit_seal` but cannot read the application's environment: a database administrator, SQL injection on the application's connection, an edited backup. It does not stop:
+Without a key the chain detects an edit, deletion or reordering in a sealed range made by anyone **without** write access to `audit_seal`. With a key ([A seal key](#a-seal-key)), someone who can write `audit_seal` but cannot read the application's environment (a database administrator, SQL injection on the application's connection, an edited backup) cannot make a keyed seal: their rewrite fails where no sealer runs over it afterwards, and on the live system when it keeps the existing seals. It does not stop:
 
 - **Anyone with the application's database credentials**, or SQL injection on its connection, on a keyless chain: they can rewrite the trail and `audit_seal` together. Only a head hash kept outside the database catches that, up to the pinned seal. Ship the sealer's head log line to an external, append-only log and pass it as `--head`; a write-once sink for the trail itself closes the rest.
+- **A rewrite after a kept seal, re-signed by the sealer**, with a key: deleting the seals after a kept one and editing the events behind them, so that the next sealer run signs that history again. Only a head pinned after the edit point shows it.
 - **A cut end**, with or without a key: the newest seals deleted together with their events leave a shorter chain that verifies. Only a pinned head shows it.
 - **Anyone on the application server**: the key is there.
 - **An inserted row** in a sealed range with an `at` before the seal: it is listed as `uncovered` `late`, exactly like a late commit, and the result is SUSPECT, not TAMPERED.
