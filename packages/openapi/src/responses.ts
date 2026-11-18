@@ -1,6 +1,7 @@
 import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
 import type { OpenAPIV3_1 } from 'openapi-types';
 import type { ComponentRegistry } from './components.js';
+import { IDEMPOTENCY_ANSWERS, REPLAYED_HEADER, REPLAYED_HEADER_NAME, RETRY_AFTER_HEADER } from './idempotency.js';
 import { isAnonymous, permissionsOf } from './security.js';
 
 const STANDARD: Record<number, string> = {
@@ -73,6 +74,20 @@ function implied(route: RouteEntry, controller: ControllerEntry, errorMap: Recor
   return [...statuses];
 }
 
+/** A status the route already answers stays, as in the JSDoc builder, so Retry-After goes only on a 409 added here. */
+function idempotent(route: RouteEntry, registry: ComponentRegistry, errorSchemaId: string, responses: OpenAPIV3_1.ResponsesObject): void {
+  if (!route.idempotency) return;
+  for (const [status, description] of Object.entries(IDEMPOTENCY_ANSWERS)) {
+    if (responses[status]) continue;
+    const answer = problem(Number(status), description, registry, errorSchemaId);
+    responses[status] = status === '409' ? { ...answer, headers: { 'Retry-After': RETRY_AFTER_HEADER } } : answer;
+  }
+  for (const [status, response] of Object.entries(responses)) {
+    if (!status.startsWith('2') || '$ref' in response) continue;
+    response.headers = { ...response.headers, [REPLAYED_HEADER_NAME]: REPLAYED_HEADER };
+  }
+}
+
 export function buildResponses(route: RouteEntry, controller: ControllerEntry, errorMap: Record<string, number>, registry: ComponentRegistry, errorSchemaId: string): OpenAPIV3_1.ResponsesObject {
   const responses: OpenAPIV3_1.ResponsesObject = {};
   const text = route.returnType.text;
@@ -83,6 +98,7 @@ export function buildResponses(route: RouteEntry, controller: ControllerEntry, e
   for (const status of implied(route, controller, errorMap)) {
     if (!responses[String(status)]) responses[String(status)] = problem(status, undefined, registry, errorSchemaId);
   }
+  idempotent(route, registry, errorSchemaId, responses);
 
   return Object.fromEntries(Object.entries(responses).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

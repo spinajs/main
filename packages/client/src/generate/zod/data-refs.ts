@@ -1,6 +1,6 @@
 import { literal } from '../ts-type.js';
 import { child, type Location } from './diagnostics.js';
-import type { Check } from './print.js';
+import type { Check, ZodNode } from './print.js';
 import { isJson, type Json } from './refs.js';
 
 /** The keywords whose `{ $data }` value the emitter maps: `const` and the numeric and length limits. */
@@ -34,6 +34,18 @@ function parentPath(pointer: string): string[] | undefined {
   return match ? match[1].split('/').slice(1).map((s) => s.replace(/~1/g, '/').replace(/~0/g, '~')) : undefined;
 }
 
+/**
+ * For a coerced object: what each `$data` check reads. Ajv validates the properties in order on one object, so a
+ * keyword reads the siblings before its property as coerced and the ones after as sent: the check reads the object as
+ * sent, with `before(name)` applied, and the property through `holder(name)`.
+ */
+export interface DataOrder {
+  holder: (name: string) => string | undefined;
+  before: (name: string) => { fn: string; uses: ZodNode[]; cut?: boolean } | undefined;
+  /** Says (ZOD005) that the keyword at `at` is left unchecked. */
+  unchecked: (at: Location) => void;
+}
+
 /** A location's key, to tell the builder which `$data` keywords a parent object has already checked. */
 export const locationKey = (at: Location): string => `${at.schema}\u0000${at.pointer}`;
 
@@ -41,22 +53,26 @@ export const locationKey = (at: Location): string => `${at.schema}\u0000${at.poi
  * `$data` in a property's own keywords (`DataValidator` builds Ajv with `$data: true`), as checks on the object that
  * holds it: there the referenced sibling is in reach. Adds the location of each keyword it maps to `handled`.
  */
-export function dataChecks(properties: Json, at: Location, format: (name: string) => string, handled: Set<string>): Check[] {
-  const checks: Check[] = [];
-  for (const [name, schema] of Object.entries(properties)) {
-    if (!isJson(schema)) continue;
-    for (const keyword of DATA_KEYWORDS) {
-      const value = schema[keyword];
-      const path = isDataRef(value) ? parentPath(value.$data) : undefined;
-      if (!isDataRef(value) || path === undefined) continue;
-      handled.add(locationKey(child(at, 'properties', name, keyword)));
-      checks.push({
-        kind: 'refine',
-        fn: `(o) => ${format('dataLimit')}(${literal(keyword)}, Reflect.get(o, ${literal(name)}), ${format('dataRef')}(o, ${JSON.stringify(path)}))`,
-        message: `must ${OPERATORS[keyword]} ${value.$data}`,
-        path: [name],
-      });
-    }
+export function dataChecks(properties: Json, at: Location, format: (name: string) => string, handled: Set<string>, order?: DataOrder): Check[] {
+  return Object.entries(properties).flatMap(([name, schema]) => {
+    if (!isJson(schema)) return [];
+    return DATA_KEYWORDS.flatMap((keyword) => dataCheck(name, keyword, schema, at, format, handled, order));
+  });
+}
+
+function dataCheck(name: string, keyword: (typeof DATA_KEYWORDS)[number], schema: Json, at: Location, format: (name: string) => string, handled: Set<string>, order?: DataOrder): Check[] {
+  const value = schema[keyword];
+  const path = isDataRef(value) ? parentPath(value.$data) : undefined;
+  if (!isDataRef(value) || path === undefined) return [];
+  handled.add(locationKey(child(at, 'properties', name, keyword)));
+  const after = order?.before(name);
+  // A replay that cannot be built (ZOD005) leaves the check off.
+  if (after?.cut) {
+    order?.unchecked(child(at, 'properties', name, keyword));
+    return [];
   }
-  return checks;
+  const holder = `Reflect.get(o, ${literal(name)})`;
+  const call = (held: string, source: string): string => `${format('dataLimit')}(${literal(keyword)}, ${held}, ${format('dataRef')}(${source}, ${JSON.stringify(path)}))`;
+  const fn = order ? `((after, hold) => (o) => typeof o !== 'object' || o === null || ${call(`hold(${holder})`, 'after(o)')})(${after?.fn ?? '(o) => o'}, ${order.holder(name) ?? '(v) => v'})` : `(o) => ${call(holder, 'o')}`;
+  return [{ kind: 'refine', fn, ...(after?.uses.length ? { uses: after.uses } : {}), message: `must ${OPERATORS[keyword]} ${value.$data}`, path: [name] }];
 }

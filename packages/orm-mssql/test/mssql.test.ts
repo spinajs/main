@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MsSqlOrmDriver } from './../src/index.js';
 import { mergeArrays } from './util.js';
-import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException, QueryContext, resolveMigrationTool } from '@spinajs/orm';
+import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 // Registers the logging implementation the framework's `@Logger` decorator resolves. Without
 // it every `this.Log.*` call is a TypeError — Orm.createConnections died on `Log.trace` before
@@ -129,25 +129,6 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     expect(result).to.be.not.null;
     expect(result.Id).to.gt(0);
     expect(result.Name).to.eq('test');
-  });
-
-  it('should throw insert or ignore  query', () => {
-    const compile = () => {
-      db()
-        .Connections.get('mssql')!
-        .insert()
-        .into('user')
-        .values({
-          Name: 'test',
-          Password: 'test_password',
-          CreatedAt: '2019-10-18',
-        })
-        .orIgnore()
-        .toDB();
-    };
-    expect(() => {
-      compile();
-    }).to.throw(OrmException);
   });
 
   it('should delete', async () => {

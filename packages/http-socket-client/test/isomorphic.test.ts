@@ -6,7 +6,9 @@ import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
-const ALLOWED_PACKAGES = ['@spinajs/http-socket-common', 'socket.io-client'];
+// @opentelemetry/api: owner decision B9 (2026-11-16). Commands carry the caller's trace context; the package imports
+// no Node built-in and does nothing until an SDK registers a propagator.
+const ALLOWED_PACKAGES = ['@opentelemetry/api', '@spinajs/http-socket-common', 'socket.io-client'];
 const NODE_GLOBAL = /\b(?:process|Buffer|__dirname|__filename|require|setImmediate|global)\s*[.(]/;
 
 /** Reachable only through the `./node` subpath. */
@@ -30,7 +32,7 @@ function specifiers(source: string): string[] {
 }
 
 describe('isomorphic main entry', () => {
-  it('declares only socket.io-client and http-socket-common as runtime dependencies', () => {
+  it('declares only @opentelemetry/api, socket.io-client and http-socket-common as runtime dependencies', () => {
     const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
     expect(Object.keys(manifest.dependencies ?? {}).sort()).to.deep.equal(ALLOWED_PACKAGES);
   });
