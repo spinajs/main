@@ -7,7 +7,7 @@ import { Orm } from '@spinajs/orm';
 import { AuditVerifyCommand } from '../../src/cli/commands/audit-verify.js';
 import { AuditSealTableMigration, TableAuditStore, insertRows, sealAudit, storedColumns } from '../../src/index.js';
 import { TestDb } from '../../src/testing.js';
-import { event, setTrail, tableRows } from '../support/events.js';
+import { config, event, setTrail, tableRows } from '../support/events.js';
 
 const expect = chai.expect;
 const TABLE = 'audit_sealed';
@@ -170,6 +170,28 @@ describe('audit:verify', function () {
     const pruned = await run('sealed');
     expect(pruned.lines.filter((l) => l.startsWith('pruned') || l.startsWith('result'))).to.deep.eq(['pruned earlier than retention here explains: seal 1..1', 'result: SUSPECT, 1 seal(s) pruned earlier than retention here explains']);
     expect(process.exitCode).to.eq(2);
+  });
+
+  it('cannot verify a seal whose key is not configured, with exit code 4, and doubts a keyless head under keys', async () => {
+    const key = { id: '2026-11', secret: 'k'.repeat(32) };
+    try {
+      await append(event(1));
+      await sealAudit({ settleMs: 0 });
+      config().set(['audit', 'seal'], { keys: [key] });
+      const keyless = await run('sealed');
+      expect(keyless.lines[keyless.lines.length - 1]).to.eq('result: SUSPECT, the newest seal is keyless although audit.seal.keys is set');
+      expect(process.exitCode).to.eq(2);
+
+      process.exitCode = undefined;
+      await append(event(2));
+      await sealAudit({ settleMs: 0 });
+      config().set(['audit', 'seal'], undefined);
+      const missing = await run('sealed');
+      expect(missing.lines.slice(1)).to.deep.eq(['seals: 2 checked, 0 pruned', 'events: 1 intact, 0 redacted, 0 not sealed yet', `head: seq 1, hash ${String((await tableRows(driver(), 'audit_seal', 'id'))[0].hash)}`, 'result: CANNOT VERIFY, seal 2..2 is signed with key "2026-11", which is not in audit.seal.keys here']);
+      expect(process.exitCode).to.eq(4);
+    } finally {
+      config().set(['audit', 'seal'], undefined);
+    }
   });
 
   it('turns an error into one line and exit code 3', async () => {

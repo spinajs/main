@@ -15,6 +15,8 @@ export interface AuditSeal {
   readonly eventsHash: string;
   readonly hash: string;
   readonly previousHash: string | null;
+  /** The key that signed it; undefined for a keyless seal. */
+  readonly keyId: string | undefined;
   readonly sealedAt: Date;
   readonly pruned: boolean;
   readonly prunedAt: Date | undefined;
@@ -43,6 +45,7 @@ function toSeal(row: AuditRow): AuditSeal {
     eventsHash: text(row.events_hash) ?? '',
     hash: text(row.hash) ?? '',
     previousHash: text(row.previous_hash) ?? null,
+    keyId: text(row.key_id),
     // Compared in JavaScript, never in SQL; an unreadable time is an invalid date, which retention treats as too young.
     sealedAt: instantFromDb(row.sealed_at)?.toJSDate() ?? new Date(Number.NaN),
     pruned: row.pruned_at !== null && row.pruned_at !== undefined,

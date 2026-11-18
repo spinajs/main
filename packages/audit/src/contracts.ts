@@ -164,6 +164,13 @@ export interface AuditUncoveredRow {
   readonly toSeq: number;
 }
 
+/** A seal signed with a key that is not configured where it is verified; verification stops there. */
+export interface AuditUnverifiableSeal {
+  readonly keyId: string;
+  readonly fromSeq: number;
+  readonly toSeq: number;
+}
+
 /** A seal's end and hash kept outside the database, for example from the sealer's log; it protects the chain up to its `toSeq` only. */
 export interface AuditPinnedHead {
   readonly toSeq: number;
@@ -185,6 +192,13 @@ export interface AuditVerifyReport {
   readonly prunedSeals: number;
   /** The first mismatch, where verification stopped; undefined when every seal matches. */
   readonly tampered: AuditTamper | undefined;
+  /** The first seal whose key is not configured here, where verification stopped; undefined when every key was at hand. */
+  readonly unverifiable: AuditUnverifiableSeal | undefined;
+  /**
+   * Seal keys are configured, but the newest verified seal is keyless: a chain not sealed since the key was added, or one
+   * rewritten without the key from its first seal.
+   */
+  readonly keylessHead: boolean;
   /** Events after the last seal, not covered yet. */
   readonly unsealed: number;
   /** Of those, events older than the sealing window: a sealer that stopped, a backlog, or deleted seals. */

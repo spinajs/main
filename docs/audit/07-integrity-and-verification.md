@@ -27,11 +27,28 @@ Where a trail is sealed:
 
 ## What a seal covers
 
-Each event enters a seal through `eventDigest`: SHA-256 over `id`, `at` as epoch milliseconds, `kind`, `action`, the subject type and id, `outcome`, `actor`, `onBehalfOf`, `traceId`, `origin`, `tenant`, `decisionId`, `idempotencyKey`, `dataSubject`, `source` (archives only; `null` elsewhere and for every absent field) and `data_hash`. `data_hash` is `payloadHash(data)`, the SHA-256 of the payload's canonical JSON (members sorted by UTF-16 code units, as RFC 8785), written on every row. `seq` enters through the order of the digests. A seal stores `events_hash` (`eventsHash(digests)`: SHA-256 of the digests in `seq` order, one per line) in `audit_seal.events_hash`, and its hash is `sealHash(previous, sealed_at, events_hash)`: SHA-256 of the previous seal's hash, the seal's own `sealed_at` as epoch milliseconds (the sealer stores whole seconds) and its events hash. A seal covers the range `(previous to_seq, to_seq]` and records how many events it saw.
+Each event enters a seal through `eventDigest`: SHA-256 over `id`, `at` as epoch milliseconds, `kind`, `action`, the subject type and id, `outcome`, `actor`, `onBehalfOf`, `traceId`, `origin`, `tenant`, `decisionId`, `idempotencyKey`, `dataSubject`, `source` (archives only; `null` elsewhere and for every absent field) and `data_hash`. `data_hash` is `payloadHash(data)`, the SHA-256 of the payload's canonical JSON (members sorted by UTF-16 code units, as RFC 8785), written on every row. `seq` enters through the order of the digests. A seal stores `events_hash` (`eventsHash(digests)`: SHA-256 of the digests in `seq` order, one per line) in `audit_seal.events_hash`, and its hash is `sealHash(previous, sealed_at, events_hash)`: SHA-256 of the previous seal's hash, the seal's own `sealed_at` as epoch milliseconds (the sealer stores whole seconds) and its events hash. A keyed seal ([below](#a-seal-key)) is `sealHash(previous, sealed_at, events_hash, secret)`: an HMAC-SHA256 of the same text. A seal covers the range `(previous to_seq, to_seq]` and records how many events it saw.
 
-Every seal's hash can be recomputed from its own row, so a pruned seal, whose events retention removed, still proves its time and its place in the chain. Moving a `sealed_at` back, to make a prune look old enough, fails that seal as `seal` unless every later hash is rewritten too; a pinned head ([below](#verifying)) catches that rewrite, so it binds the `sealed_at` of every seal before it.
+Every seal's hash can be recomputed from its own row (with its key, for a keyed seal), so a pruned seal, whose events retention removed, still proves its time and its place in the chain. Moving a `sealed_at` back, to make a prune look old enough, fails that seal as `seal` unless every later hash is rewritten too; a pinned head ([below](#verifying)) catches that rewrite, so it binds the `sealed_at` of every seal before it.
 
 The payload enters only through its hash, so erasing a payload ([Erasure](08-erasure.md)) keeps the seal intact.
+
+### A seal key
+
+Without a key anyone who can write the database can delete rows and recompute every seal, because `sealHash` has no secret. With `audit.seal.keys` the seals become HMACs, and rewriting them needs a secret the database does not hold:
+
+```json
+{ "audit": { "seal": { "keys": [{ "id": "2026-11", "secret": "<at least 32 characters, from the environment>" }] } } }
+```
+
+- The first key signs new seals and its `id` is stored in `audit_seal.key_id` (null for a keyless seal). Every listed key verifies the seals it signed, found by id.
+- **Rotation**: put the new key first and keep the old one listed; old seals verify while their key stays in the list.
+- A keyless chain may turn keyed in the middle: the previous hash feeds the next seal whatever made it. It never turns back: the sealer refuses to add a keyless seal after a keyed one (reported in `failed` and logged), and verification reports one as `tampered` `seal`.
+- A seal whose key is not configured where it is verified stops the walk as `unverifiable`, never as intact; `spinajs audit:verify` answers CANNOT VERIFY with exit code 4.
+- With keys configured, a chain whose newest seal is keyless is suspect (`keylessHead`): a chain not sealed since the key was added, or one rewritten without the key from its first seal. It clears once the sealer adds a keyed seal.
+- The secret is at least 32 characters: a seal row holds the HMAC and every input to it, so a short secret can be guessed offline. A key id is 1 to 64 characters, and ids are unique.
+
+A key does not show a chain cut at its end (the newest seals deleted with their events): the pinned head ([below](#verifying)) stays the advice for that. Whoever runs code on the application server can read the key.
 
 ## The seal task
 
@@ -42,6 +59,7 @@ The payload enters only through its hash, so erasing a payload ([Erasure](08-era
 | `audit.seal.settleSeconds` | 30 | Must exceed the longest time an audited row sits between its insert and its commit. A row committed later lands in a range already sealed and is reported by every verification after. |
 | `audit.seal.batchSize` | 1000 | Events per seal (at most 5000): the memory of one step and the resolution of a tamper report. |
 | `audit.seal.maxSeals` | 100 | Seals per table and run; a backlog is sealed over several runs. |
+| `audit.seal.keys` | none | `[{ id, secret }]`: the first signs, every one verifies ([A seal key](#a-seal-key)). |
 
 Each seal is read and written in a transaction of its own; sealing inside a caller's open transaction is refused. Run one sealer: a second one sealing the same table at the same time is refused by the unique index on `(trail_table, from_seq)` and reported. A table whose `seq` was reset (re-created, or a MySQL 5.7 restart after retention emptied it) is reported and not sealed. After every seal the sealer logs the new head (`toSeq`, `hash`) at info level on the logger `audit-seal`.
 
@@ -67,6 +85,8 @@ export async function checkBilling(loggedHead: { toSeq: number; hash: string }):
 | `redacted` | Sealed events whose payload was erased; their seal still matches. |
 | `prunedSeals` | Seals whose events retention removed; their link in the chain and their own hash are checked. |
 | `tampered` | The first mismatch, `{ seq, reason, fromSeq, toSeq }`; `undefined` when every seal matches. |
+| `unverifiable` | The first seal signed with a key not in `audit.seal.keys` here, `{ keyId, fromSeq, toSeq }`, where the walk stopped; `undefined` when every key was at hand. |
+| `keylessHead` | Keys are configured, but the newest verified seal is keyless. |
 | `unsealed` | Events after the last seal. |
 | `staleUnsealed` | Of those, events whose `at` is older than the sealing window. |
 | `head` | The last seal that verified (`toSeq`, `hash`). |
@@ -77,7 +97,7 @@ export async function checkBilling(loggedHead: { toSeq: number; hash: string }):
 | `tampered.reason` | Means | `seq` |
 | --- | --- | --- |
 | `payload` | An event's payload no longer matches its `data_hash`. | That event. |
-| `seal` | A sealed field, a `data_hash` together with its payload, the order of events, or a seal's hash, `sealed_at` or `events_hash` was changed, on a pruned seal too. | First seq of the range. |
+| `seal` | A sealed field, a `data_hash` together with its payload, the order of events, or a seal's hash, `sealed_at` or `events_hash` was changed, on a pruned seal too; or a keyless seal follows a keyed one. | First seq of the range. |
 | `count` | A sealed event is gone; more rows are in the range than a late commit explains; a row not covered by its seal is stamped after the seal was made; or a seal is marked pruned out of chain order or with `pruned_at` in the future. | First seq of the range. |
 | `chain` | A seal is gone, replaced, or does not start where the previous one ended, or the pinned head was not met. | First seq of the range, or the pinned `toSeq`. |
 
@@ -88,13 +108,14 @@ Extra rows in a range are told apart from tampering by searching for the rows wh
 Verification tells evidence of tampering from what it cannot vouch for:
 
 - **Tampering** (`tampered`): everything in the table above, among them a late row stamped after its seal, and a prune out of chain order or dated in the future.
-- **Suspect**: rows no seal covers (`uncovered`), payloads blanked without a vouched-for erasure record (`unexplainedRedactions`), prunes that only fail the age test (`earlyPrunes`: also lawful after `retentionDays` was raised or retention switched off, or after a direct `AuditReader.prune`), and unsealed rows older than the sealing window (`staleUnsealed`). Lawful causes of a stale tail: a stopped sealer, a backlog over `audit.seal.maxSeals`, a leader change, or rows that land with an old `at` (an archive receiving a shipping backlog after an outage, a deferred write retried late, a caller-supplied `at` in the past), which read as stale for up to one sealing window. Deleted seals look the same.
+- **Cannot verify** (`unverifiable`): a seal signed with a key not configured here; nothing after it is checked.
+- **Suspect**: rows no seal covers (`uncovered`), payloads blanked without a vouched-for erasure record (`unexplainedRedactions`), prunes that only fail the age test (`earlyPrunes`: also lawful after `retentionDays` was raised or retention switched off, or after a direct `AuditReader.prune`), a keyless newest seal although keys are configured (`keylessHead`), and unsealed rows older than the sealing window (`staleUnsealed`). Lawful causes of a stale tail: a stopped sealer, a backlog over `audit.seal.maxSeals`, a leader change, or rows that land with an old `at` (an archive receiving a shipping backlog after an outage, a deferred write retried late, a caller-supplied `at` in the past), which read as stale for up to one sealing window. Deleted seals look the same.
 
 The sealing window is twice `settleSeconds` rounded up to the seal period, plus the clock skew. Verify assumes `AuditSealTask`'s default period of 60 seconds. A slower `audit.seal` schedule (`scheduler.schedules['audit.seal']`) only produces false suspects, never a false tampered: rows in the tail read as stale too early, and erasure records in the tail stop explaining their blanked payloads before they are sealed.
 
 ### Erasure records
 
-An `erasure` event explains a blanked payload of its subject at or before its `at` only where it can be vouched for: inside a seal that verified (and that covers it), or in the unsealed tail while it is younger than the sealing window. A forged erasure record that got sealed proves nothing against someone who can write the trail table: the chain is keyless, so they can append the record and let the sealer seal it. Against such a writer only the head hash shipped out of the database helps, pinned before the blanking.
+An `erasure` event explains a blanked payload of its subject at or before its `at` only where it can be vouched for: inside a seal that verified (and that covers it), or in the unsealed tail while it is younger than the sealing window. A forged erasure record that got sealed proves nothing against someone who can write the trail table: they can append the record and let the sealer seal it, a keyed sealer included. Against such a writer only the head hash shipped out of the database helps, pinned before the blanking.
 
 A **pinned head** is a seal end and hash kept outside the database, for example the sealer's log line. The walk must meet a seal ending at its `toSeq` with that hash, else `chain`. It protects the chain up to that seal only: pin the latest logged head.
 
@@ -114,16 +135,17 @@ head: seq 18000, hash 9f2c…
 result: intact
 ```
 
-Without `--source`, every connection that holds the trail table is verified on its own and prints its own report; a trail with an archive, or one that is not a table trail, is verified once. `--head` with a trail on several connections needs `--source`. Further lines list stale unsealed rows, rows not covered by their seal, redactions without an erasure record and early prunes, at most 20 each. The result line is `result: intact`, `result: TAMPERED at seq <n> (<why>), seal <a>..<b>`, or `result: SUSPECT, ` followed by each doubt with its count, for example `1 row(s) not covered by their seal, 3 payload(s) blanked without an erasure record`.
+Without `--source`, every connection that holds the trail table is verified on its own and prints its own report; a trail with an archive, or one that is not a table trail, is verified once. `--head` with a trail on several connections needs `--source`. Further lines list stale unsealed rows, rows not covered by their seal, redactions without an erasure record and early prunes, at most 20 each. The result line is `result: intact`, `result: TAMPERED at seq <n> (<why>), seal <a>..<b>`, `result: CANNOT VERIFY, seal <a>..<b> is signed with key "<id>", which is not in audit.seal.keys here`, or `result: SUSPECT, ` followed by each doubt with its count, for example `1 row(s) not covered by their seal, 3 payload(s) blanked without an erasure record` (a keyless head reads `the newest seal is keyless although audit.seal.keys is set`).
 
 | Outcome | Exit code |
 | --- | --- |
 | intact | 0 |
 | TAMPERED | 1 |
 | SUSPECT | 2 |
-| could not run: unknown trail, unreachable connection, invalid `--head`, a trail that is not sealed | 3, one line on stderr |
+| could not run: unknown trail, unreachable connection, invalid `--head`, a trail that is not sealed, invalid `audit.seal.keys` | 3, one line on stderr |
+| CANNOT VERIFY: a seal's key is not configured here | 4 |
 
-Over several connections the exit code is 1 if any connection is tampered, else 3 if any could not be verified (its error is printed and the others still run), else 2 if any is suspect, else 0.
+Over several connections the exit code is 1 if any connection is tampered, else the highest of the others: 4 if a seal's key is missing on any, else 3 if any could not be verified (its error is printed and the others still run), else 2 if any is suspect, else 0.
 
 ## Retention
 
@@ -131,9 +153,11 @@ On a sealed trail retention removes whole sealed ranges: the events of every sea
 
 ## Threat model
 
-The chain is keyless. It detects an edit, deletion or reordering in a sealed range made by anyone **without** write access to `audit_seal`. It does not stop:
+Without a key the chain detects an edit, deletion or reordering in a sealed range made by anyone **without** write access to `audit_seal`. With a key ([A seal key](#a-seal-key)) it also detects one made by anyone who can write `audit_seal` but cannot read the application's environment: a database administrator, SQL injection on the application's connection, an edited backup. It does not stop:
 
-- **Anyone with the application's database credentials**, or SQL injection on its connection: they can rewrite the trail and `audit_seal` together. Only a head hash kept outside the database catches that, up to the pinned seal. Ship the sealer's head log line to an external, append-only log and pass it as `--head`; a write-once sink for the trail itself closes the rest.
+- **Anyone with the application's database credentials**, or SQL injection on its connection, on a keyless chain: they can rewrite the trail and `audit_seal` together. Only a head hash kept outside the database catches that, up to the pinned seal. Ship the sealer's head log line to an external, append-only log and pass it as `--head`; a write-once sink for the trail itself closes the rest.
+- **A cut end**, with or without a key: the newest seals deleted together with their events leave a shorter chain that verifies. Only a pinned head shows it.
+- **Anyone on the application server**: the key is there.
 - **An inserted row** in a sealed range with an `at` before the seal: it is listed as `uncovered` `late`, exactly like a late commit, and the result is SUSPECT, not TAMPERED.
 - **A blanked payload with a forged erasure record**: a payload blanked with its `data_hash` kept looks exactly like a lawful erasure; only an `erasure` event of that subject tells them apart. A record counts only inside a verified seal or in the young unsealed tail, but anyone who can write the table can append one and let the sealer seal it.
 - **A forged prune**: `pruned_at` is not hashed. A writer to `audit_seal` who marks the oldest seals pruned and deletes their rows passes verification, a pinned head included, once those seals are older than `retentionDays`; a younger one is listed in `earlyPrunes`.

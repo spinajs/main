@@ -1,11 +1,12 @@
 import { eventsHash, payloadHash, sealHash } from '@spinajs/audit';
-import type { AuditPinnedHead, AuditSubject, AuditTamper, AuditUncoveredRow, AuditVerifyReport, StoredAuditEvent } from '@spinajs/audit';
+import type { AuditPinnedHead, AuditSubject, AuditTamper, AuditUncoveredRow, AuditUnverifiableSeal, AuditVerifyReport, StoredAuditEvent } from '@spinajs/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { erasureRecords, rowsOf, toStored } from '../rows.js';
 import type { AuditRow } from '../rows.js';
 import { sealConfig } from './config.js';
+import type { SealKey } from './config.js';
 import { SEAL_PAGE_SIZE, lastSeal, rowDigest, sealById, sealsAfter, storedHash } from './seals.js';
 import type { AuditSeal } from './seals.js';
 
@@ -30,6 +31,12 @@ export interface VerifyTableOptions {
   /** How far a row's `at` may run ahead of the sealer's clock; default 5 s. */
   readonly clockSkewMs?: number;
   readonly now?: Date;
+  /** The keys a keyed seal is checked with, found by id; default audit.seal.keys. */
+  readonly keys?: readonly SealKey[];
+}
+
+interface VerifyRun extends VerifyTableOptions {
+  readonly keys: readonly SealKey[];
 }
 
 interface Checked {
@@ -49,6 +56,15 @@ interface Walk {
   readonly earlyPrunes: { readonly fromSeq: number; readonly toSeq: number }[];
   readonly redactions: Checked[];
 }
+
+// The hash a seal must carry; undefined when its key is not at hand.
+function expectedHash(seal: AuditSeal, keys: readonly SealKey[]): string | undefined {
+  if (seal.keyId === undefined) return sealHash(seal.previousHash, seal.sealedAt, seal.eventsHash);
+  const key = keys.find((k) => k.id === seal.keyId);
+  return key && sealHash(seal.previousHash, seal.sealedAt, seal.eventsHash, key.secret);
+}
+
+const unverifiableOf = (seal: AuditSeal, keys: readonly SealKey[]): AuditUnverifiableSeal | undefined => (seal.keyId === undefined || keys.some((k) => k.id === seal.keyId) ? undefined : { keyId: seal.keyId, fromSeq: seal.fromSeq, toSeq: seal.toSeq });
 
 const tamper = (seal: AuditSeal, reason: AuditTamper['reason'], seq: number): AuditTamper => ({ seq, reason, fromSeq: seal.fromSeq, toSeq: seal.toSeq });
 
@@ -95,7 +111,7 @@ function prunedByRetention(seal: AuditSeal, retentionDays: number | undefined): 
   return seal.prunedAt.getTime() - seal.sealedAt.getTime() >= retentionDays * DAY_MS - CLOCK_SKEW_MS;
 }
 
-async function checkPruned(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyTableOptions): Promise<AuditTamper | undefined> {
+async function checkPruned(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyRun): Promise<AuditTamper | undefined> {
   const now = (options.now ?? new Date()).getTime();
   if (seal.prunedAt === undefined || seal.prunedAt.getTime() > now + CLOCK_SKEW_MS) return tamper(seal, 'count', seal.fromSeq);
   if (!prunedByRetention(seal, options.retentionDays)) walk.earlyPrunes.push({ fromSeq: seal.fromSeq, toSeq: seal.toSeq });
@@ -113,18 +129,18 @@ async function checkPruned(driver: OrmDriver, table: string, seal: AuditSeal, af
 
 // Retention may have pruned this seal since its page was read. It stamps pruned_at only, so any other change to the row
 // is forged.
-async function rereadPruned(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyTableOptions): Promise<AuditTamper | undefined> {
+async function rereadPruned(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyRun): Promise<AuditTamper | undefined> {
   const now = await sealById(driver, seal.id);
   if (now?.pruned !== true) return tamper(seal, 'count', seal.fromSeq);
-  const same = now.hash === seal.hash && now.previousHash === seal.previousHash && sealHash(now.previousHash, now.sealedAt, now.eventsHash) === now.hash;
+  const same = now.hash === seal.hash && now.previousHash === seal.previousHash && now.keyId === seal.keyId && expectedHash(now, options.keys) === now.hash;
   return same ? checkPruned(driver, table, now, after, walk, options) : tamper(seal, 'seal', seal.fromSeq);
 }
 
 /** Recomputes one seal over its range `(after, to_seq]`; undefined when it still matches. */
-async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyTableOptions): Promise<AuditTamper | undefined> {
+async function checkSeal(driver: OrmDriver, table: string, seal: AuditSeal, after: number, walk: Walk, options: VerifyRun): Promise<AuditTamper | undefined> {
   if (seal.fromSeq !== after + 1) return tamper(seal, 'chain', seal.fromSeq);
   // From the seal's own row: its time and events hash are checked even after retention removed its events.
-  if (sealHash(seal.previousHash, seal.sealedAt, seal.eventsHash) !== seal.hash) return tamper(seal, 'seal', seal.fromSeq);
+  if (expectedHash(seal, options.keys) !== seal.hash) return tamper(seal, 'seal', seal.fromSeq);
   if (seal.pruned) return checkPruned(driver, table, seal, after, walk, options);
   const rows: Checked[] = [];
   for (const row of rowsOf(await rangeOf(driver, table, after, seal))) {
@@ -200,18 +216,30 @@ function sealingWindow(skewMs: number): number {
 interface Chain {
   readonly good: AuditSeal | undefined;
   readonly tampered: AuditTamper | undefined;
+  readonly unverifiable?: AuditUnverifiableSeal;
 }
 
-// A seal must chain from the one verified before it, match a pinned head that ends where it ends, and be pruned only
-// after every seal before it was.
+// A seal must chain from the one verified before it, match a pinned head that ends where it ends, be pruned only after
+// every seal before it was, and stay keyed after a keyed one, or a keyless rewrite from any keyed seal on would verify.
 function relink(seal: AuditSeal, good: AuditSeal | undefined, pinned: AuditPinnedHead | undefined): AuditTamper | undefined {
   if (seal.pruned && good !== undefined && !good.pruned) return tamper(seal, 'count', seal.fromSeq);
+  if (seal.keyId === undefined && good?.keyId !== undefined) return tamper(seal, 'seal', seal.fromSeq);
   const pinMismatch = seal.toSeq === pinned?.toSeq && seal.hash !== pinned.hash;
   return seal.previousHash !== (good?.hash ?? null) || pinMismatch ? tamper(seal, 'chain', seal.fromSeq) : undefined;
 }
 
+/** Where the walk stops at one seal; undefined when the seal verified. */
+async function stopAt(driver: OrmDriver, table: string, seal: AuditSeal, good: AuditSeal | undefined, walk: Walk, options: VerifyRun): Promise<Omit<Chain, 'good'> | undefined> {
+  const tampered = relink(seal, good, options.pinned);
+  if (tampered) return { tampered };
+  const unverifiable = unverifiableOf(seal, options.keys);
+  if (unverifiable) return { tampered: undefined, unverifiable };
+  const mismatch = await checkSeal(driver, table, seal, good?.toSeq ?? 0, walk, options);
+  return mismatch ? { tampered: mismatch } : undefined;
+}
+
 /** Walks the seal chain of one table from its first seal and stops at the first seal or event that does not match. */
-async function walkChain(driver: OrmDriver, table: string, options: VerifyTableOptions, walk: Walk): Promise<Chain> {
+async function walkChain(driver: OrmDriver, table: string, options: VerifyRun, walk: Walk): Promise<Chain> {
   const { pinned } = options;
   let good: AuditSeal | undefined;
   let met = pinned === undefined;
@@ -220,8 +248,8 @@ async function walkChain(driver: OrmDriver, table: string, options: VerifyTableO
     const page = await sealsAfter(driver, table, good?.toSeq ?? 0);
     for (const seal of page) {
       walk.seals += 1;
-      const tampered = relink(seal, good, pinned) ?? (await checkSeal(driver, table, seal, good?.toSeq ?? 0, walk, options));
-      if (tampered) return { good, tampered };
+      const stop = await stopAt(driver, table, seal, good, walk, options);
+      if (stop) return { good, ...stop };
       met ||= seal.toSeq === pinned?.toSeq;
       good = seal;
     }
@@ -238,7 +266,8 @@ async function walkChain(driver: OrmDriver, table: string, options: VerifyTableO
 export async function verifyTable(driver: OrmDriver, table: string, options: VerifyTableOptions = {}): Promise<Omit<AuditVerifyReport, 'trail'>> {
   if (driver.CurrentTransaction !== undefined) throw new InvalidOperation(`audit: verifying ${JSON.stringify(table)} on connection ${JSON.stringify(driver.Options.Name)} needs a transaction of its own; run it outside an open transaction`);
   const walk: Walk = { seals: 0, intact: 0, redacted: 0, prunedSeals: 0, uncovered: [], earlyPrunes: [], redactions: [] };
-  const { good, tampered } = await walkChain(driver, table, options, walk);
+  const run: VerifyRun = { ...options, keys: options.keys ?? sealConfig().keys };
+  const { good, tampered, unverifiable } = await walkChain(driver, table, run, walk);
   const sealedTo = (await lastSeal(driver, table))?.toSeq ?? 0;
   const { redactions, ...tally } = walk;
   const freshFrom = (options.now ?? new Date()).getTime() - sealingWindow(options.clockSkewMs ?? CLOCK_SKEW_MS);
@@ -248,6 +277,8 @@ export async function verifyTable(driver: OrmDriver, table: string, options: Ver
     table,
     ...tally,
     tampered,
+    unverifiable,
+    keylessHead: run.keys.length > 0 && tampered === undefined && unverifiable === undefined && good !== undefined && good.keyId === undefined,
     unsealed: await driver.select().from(table).where('seq', '>', sealedTo).selectCount(),
     staleUnsealed: await driver.select().from(table).where('seq', '>', sealedTo).where('at', '<', new Date(freshFrom)).selectCount(),
     head: good === undefined ? undefined : { toSeq: good.toSeq, hash: good.hash },

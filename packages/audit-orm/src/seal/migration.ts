@@ -1,7 +1,7 @@
 import { OrmMigration } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { AUDIT_SEAL_TABLE, AUDIT_SEAL_TABLE_NAME_WIDTH } from './table.js';
+import { AUDIT_SEAL_KEY_ID_WIDTH, AUDIT_SEAL_TABLE, AUDIT_SEAL_TABLE_NAME_WIDTH } from './table.js';
 
 /** Extend it with your own `@Migration(name)` on every connection that holds the table of a sealed trail (for a shipping trail: its archive connection). */
 export class AuditSealTableMigration extends OrmMigration {
@@ -15,6 +15,8 @@ export class AuditSealTableMigration extends OrmMigration {
       table.string('events_hash', 64).notNull().exact();
       table.string('hash', 64).notNull().exact();
       table.string('previous_hash', 64).exact();
+      // Null for a keyless seal.
+      table.string('key_id', AUDIT_SEAL_KEY_ID_WIDTH).exact();
       table.dateTime('sealed_at').notNull();
       table.dateTime('pruned_at');
     });

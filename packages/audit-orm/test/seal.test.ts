@@ -93,6 +93,37 @@ describe('audit sealing', function () {
         expect((await tableRows(driver(), TABLE)).map((r) => r.data_hash)).to.deep.eq([payloadHash(event(1).data), payloadHash(event(2).data)]);
       });
 
+      it('signs with the first of audit.seal.keys and stores its id, and stores none without keys', async () => {
+        const secret = 's'.repeat(32);
+        await append(event(1));
+        await sealAudit({ settleMs: 0 });
+        config().set(['audit', 'seal'], {
+          keys: [
+            { id: '2026-11', secret },
+            { id: '2026-10', secret: 'o'.repeat(32) },
+          ],
+        });
+        await append(event(2));
+        await sealAudit({ settleMs: 0, now: new Date('2026-11-16T12:00:00Z') });
+
+        const [first, second] = await seals();
+        expect([first.key_id, second.key_id]).to.deep.eq([null, '2026-11']);
+        expect(second.hash).to.eq(sealHash(String(first.hash), new Date('2026-11-16T12:00:00Z'), eventsHash([eventDigest(event(2), payloadHash(event(2).data))]), secret));
+      });
+
+      it('refuses keys it could not sign or verify with', async () => {
+        for (const keys of [{ id: 'k' }, [{ id: '', secret: 's'.repeat(32) }], [{ id: 'k', secret: 'short' }], [{ id: 'k', secret: 's'.repeat(32), key: 'x' }]]) {
+          expect(() => config().set(['audit', 'seal'], { keys }), JSON.stringify(keys)).to.throw(/audit\.seal\.keys/);
+        }
+        config().set(['audit', 'seal'], {
+          keys: [
+            { id: 'k', secret: 's'.repeat(32) },
+            { id: 'k', secret: 't'.repeat(32) },
+          ],
+        });
+        await expect(sealAudit({ settleMs: 0 })).to.be.rejectedWith(AuditConfigError, 'audit: audit.seal.keys lists the key id "k" twice');
+      });
+
       it('cuts a long run into seals of audit.seal.batchSize events', async () => {
         config().set(['audit', 'seal'], { batchSize: 2 });
         await append(event(1), event(2), event(3), event(4), event(5));
