@@ -30,21 +30,25 @@ const event = (n: number): AuditEvent => ({
 
 const count = async (driver: OrmDriver, table: string): Promise<number> => rowsOf(await driver.select().from(table)).length;
 
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
+
 /**
  * The case writes its own trail into the target application's configuration and restores it afterwards: the runner
- * boots each target without an audit section, and the shipper, the sink and the sealer read their trail from there.
+ * boots each target without audit trails, and the shipper, the sink and the sealer read their trail from there. The
+ * whole audit section is put back from a copy: there is no unset, and setting trails to undefined would leave the key.
  */
 async function withTrail<T>(driver: OrmDriver, run: () => Promise<T>): Promise<T> {
   const config = DI.get(Configuration);
   if (!config) throw new Error('the conformance application has no Configuration');
-  const trails = config.get<unknown>(['audit', 'trails']);
-  const before = trails !== null && typeof trails === 'object' ? trails : {};
+  const audit = config.get<unknown>(['audit']);
+  const saved = isRecord(audit) ? { ...audit } : undefined;
+  const trails = saved?.trails;
   const name = driver.Options.Name;
-  config.set(['audit', 'trails'], { ...before, [TRAIL]: { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', table: ARCHIVE, connection: name, archiveConnection: name, integrity: 'sealed' } });
+  config.set(['audit', 'trails'], { ...(isRecord(trails) ? trails : {}), [TRAIL]: { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', table: ARCHIVE, connection: name, archiveConnection: name, integrity: 'sealed' } });
   try {
     return await run();
   } finally {
-    config.set(['audit', 'trails'], before);
+    config.set(['audit'], saved);
   }
 }
 
