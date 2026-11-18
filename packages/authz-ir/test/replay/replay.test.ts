@@ -251,6 +251,10 @@ describe('replayDecision', function () {
     w.log.beforeRead = (m) => (m === 'latest' ? new Promise((resolve) => setTimeout(resolve, 50)) : undefined);
     const late = await replayDecision(w.record(), { ...w.deps, limits: { ...w.deps.limits, timeoutMs: 10 } });
     expect(late.missing).to.deep.equal([{ input: 'timeout', reason: 'the replay ran past timeoutMs 10' }]);
+    const fault = new Error('a contributor failed');
+    w.log.beforeRead = (m) => (m === 'latest' ? new Promise((_resolve, reject) => setTimeout(() => reject(fault), 50)) : undefined);
+    const rejected = await replayDecision(w.record(), { ...w.deps, limits: { ...w.deps.limits, timeoutMs: 10 } }).catch((e: unknown) => e);
+    expect(rejected, 'a fault after the deadline is no timeout').to.equal(fault);
     const cancelled = new AbortController();
     cancelled.abort(new Error('client went away'));
     const error = await replayDecision(w.record(), w.deps, { signal: cancelled.signal }).catch((e: unknown) => e);
