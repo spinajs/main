@@ -155,7 +155,8 @@ export class DefaultAuditService extends AuditService {
   // Events dropped in the current overflow of the buffer.
   private dropped = 0;
   private disposed = false;
-  private joinUnknownLogged = false;
+  // Trails whose store could not tell whether it joins the caller; each is reported once.
+  private readonly joinUnknown = new Set<string>();
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
     const trail = trailConfig(options.trail, this.Container);
@@ -312,8 +313,8 @@ export class DefaultAuditService extends AuditService {
       return store.joinsCaller?.(trail, connection) === true;
     } catch (err) {
       if (err instanceof AuditConfigError) throw err;
-      if (!this.joinUnknownLogged) this.report('warn', { error: err, trail: trail.name }, UNKNOWN_JOIN);
-      this.joinUnknownLogged = true;
+      if (!this.joinUnknown.has(trail.name)) this.report('warn', { error: err, trail: trail.name }, UNKNOWN_JOIN);
+      this.joinUnknown.add(trail.name);
       return false;
     }
   }
