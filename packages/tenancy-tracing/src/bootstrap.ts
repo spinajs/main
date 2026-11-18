@@ -21,7 +21,7 @@ export class TenantTracingBootstrapper extends Bootstrapper {
   protected Container!: IContainer;
 
   public bootstrap(): void {
-    // The hub exists once TracingBootstrapper has seen Configuration, which bootstrappers run before.
+    // Bootstrappers run before Configuration resolves (cli.ts, createTestApp), and the hub needs the tracing options.
     const configuration = this.Container.isResolved(Configuration) ? this.Container.get(Configuration) : null;
     if (configuration) {
       attachToHub(configuration);
