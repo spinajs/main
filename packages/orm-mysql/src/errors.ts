@@ -1,4 +1,4 @@
-import { ConstraintKind, ConstraintViolation, IConstraintViolationInfo, IDriverOptions, OrmException, UniqueViolation } from '@spinajs/orm';
+import { ConstraintKind, ConstraintViolation, DataException, IConstraintViolationInfo, IDriverOptions, OrmException, UniqueViolation } from '@spinajs/orm';
 
 const MYSQL_CONSTRAINT_KINDS: Record<number, ConstraintKind> = {
   1048: 'not_null',
@@ -19,9 +19,14 @@ function duplicateKey(message: string): IConstraintViolationInfo {
   return dot > 0 ? { table: key.slice(0, dot), constraint: key.slice(dot + 1) } : { constraint: key };
 }
 
-/** Maps a mysql2 error by its errno: `1062` is a duplicate, the listed others a constraint failure. */
+type NativeError = { errno?: unknown; code?: unknown; message?: unknown; sqlState?: unknown } | null | undefined;
+
+// a select that compares a datetime column with a value outside its range fails with it, under sqlState HY000
+const ER_WRONG_VALUE = 1525;
+
+/** Maps a mysql2 error by its errno: `1062` is a duplicate, the listed others a constraint failure; sqlState class 22 is a refused value. */
 export function mapMySqlError(err: unknown, driver: Partial<IDriverOptions>, query: string, bindings: unknown): Error {
-  const native = err as { errno?: unknown; code?: unknown; message?: unknown } | null | undefined;
+  const native = err as NativeError;
   const message = String(native?.message ?? err);
 
   if (native?.errno === 1062 || native?.code === 'ER_DUP_ENTRY') {
@@ -33,6 +38,17 @@ export function mapMySqlError(err: unknown, driver: Partial<IDriverOptions>, que
     const column = /(?:Column|Field) '([^']+)'/.exec(message)?.[1];
     const constraint = /CONSTRAINT `([^`]+)`/.exec(message)?.[1] ?? /Check constraint '([^']+)'/.exec(message)?.[1];
     return new ConstraintViolation(message, kind, { constraint, columns: column ? [column] : undefined }, driver, query, bindings, err);
+  }
+
+  return statementError(native, driver, query, bindings, err);
+}
+
+/** A refused value (sqlState class 22 or `ER_WRONG_VALUE`) is a DataException, any other error an OrmException. */
+function statementError(native: NativeError, driver: Partial<IDriverOptions>, query: string, bindings: unknown, err: unknown): OrmException {
+  const sqlState = typeof native?.sqlState === 'string' ? native.sqlState : '';
+  const errno = native?.errno;
+  if (sqlState.startsWith('22') || errno === ER_WRONG_VALUE) {
+    return new DataException(`the database refused a value of the statement (errno ${String(errno)}, sqlState ${sqlState})`, driver, query, bindings, err);
   }
 
   return new OrmException('Error executing orm command ', driver, query, bindings, err);

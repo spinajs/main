@@ -29,8 +29,9 @@ export function inheritPolicies(inherited: PolicyRef[][], own: PolicyRef[][]): P
 }
 
 // `@Idempotent` replaces the route's existing IdempotencyMiddleware in place rather than nesting a second gate (http decorators.ts).
+// Of stacked own ones the top is applied last, so it is the one that stays.
 function replaceIdempotency(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
-  const ownGate = own.findLast((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  const ownGate = own.find((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
   const at = inherited.findIndex((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
   if (!ownGate || at < 0) return [...inherited, ...own];
   return [...inherited.map((m, i) => (i === at ? ownGate : m)), ...own.filter((m) => m.type !== IDEMPOTENCY_MIDDLEWARE)];

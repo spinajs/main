@@ -5,7 +5,7 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
@@ -15,13 +15,15 @@ import type { IOrmRelation } from '../relations.js';
 import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
-import { StreamNotSupported } from '../exceptions.js';
+import { DataException, InvalidCursor, StreamNotSupported } from '../exceptions.js';
 import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetFamilies, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
 import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { hasPk } from '../primary-keys.js';
 import { executeRecorded, inMigrationRun } from '../schema-touches.js';
-import { ReplicaRouter } from '../replica-router.js';
+import { ReplicaRouter, wroteInScope } from '../replica-router.js';
+import { readRouteOf, withReadRoute } from '../read-route.js';
+import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
 import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
@@ -250,6 +252,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /** Set by the keyset fallback stream on every page, so one stream never changes replica between pages. */
   protected _pinnedDriver?: OrmDriver;
 
+  /** The connection the last execution read; the relation loads of its rows read the same one. */
+  protected _readDriver?: OrmDriver;
+
   public onPrimary(): this {
     this._onPrimary = true;
     return this;
@@ -265,7 +270,58 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this._driver;
     }
 
-    return this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+    return this._ownerRead() ?? this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+  }
+
+  /**
+   * The connection the rows whose relations are loading came from. The router decides instead where it would answer
+   * the primary (a transaction, a write in the read-your-writes scope) and once that connection is no longer healthy.
+   */
+  private _ownerRead(): OrmDriver | undefined {
+    const read = readRouteOf(this._driver);
+    if (read === undefined || read === this._driver) {
+      return read;
+    }
+
+    const routed = this._driver.CurrentTransaction === undefined && !wroteInScope(this._driver) && read.State === ConnectionState.Connected;
+    return routed ? read : undefined;
+  }
+
+  protected async _executeOnDriver(): Promise<T> {
+    const driver = this.executionDriver();
+    this._readDriver = driver;
+    try {
+      return (await driver.execute(this)) as T;
+    } catch (err) {
+      const fallback = this._failoverFrom(driver);
+      if (fallback === undefined) {
+        throw err;
+      }
+
+      this._readDriver = fallback;
+      return (await fallback.execute(this)) as T;
+    }
+  }
+
+  /**
+   * Only a replica its driver gave up on: withReconnect leaves it Disconnected when its reconnect attempts ran out.
+   * A statement the replica refused does not change the state and is not run again, also on a Degraded replica (the
+   * health check's verdict, not this statement's). A stream page stays on the connection it pinned.
+   */
+  private _failoverFrom(failed: OrmDriver): OrmDriver | undefined {
+    if (failed === this._driver || this._pinnedDriver !== undefined || failed.State !== ConnectionState.Disconnected) {
+      return undefined;
+    }
+
+    // the router, not the read route: a relation load routed to the lost replica must leave it too
+    const next = this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+    return next === failed ? undefined : next;
+  }
+
+  // The relation middlewares run their selects inside this scope (afterHydration), so they read where the rows came from.
+  protected _materialize(result: T): Promise<T> {
+    const read = this._readDriver;
+    return read === undefined ? super._materialize(result) : withReadRoute(this._driver, read, () => super._materialize(result));
   }
 
   public clone(): this {
@@ -475,6 +531,26 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._statements = this._statements.concat(stms);
   }
 
+  /**
+   * Like {@link mergeStatements}, but the WHERE statements `filter` keeps arrive as one AND group, so an
+   * `orWhere()` among them cannot widen this query past its own conditions. Aggregate statements compile
+   * into HAVING, which a WHERE group would drop, so they stay flat.
+   */
+  public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
+    const isAggregate = (s: IQueryStatement) => 'IsAggregate' in s && s.IsAggregate === true;
+    this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
+
+    const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
+    if (grouped.length === 0) {
+      return;
+    }
+
+    const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
+    const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
+    this._markMerged([statement]);
+    this._statements.push(statement);
+  }
+
   private _markMerged(statements: IQueryStatement[]) {
     for (const s of statements) this._merged.add(s);
   }
@@ -538,13 +614,33 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const c = column ?? '*';
     const a = as ?? 'count';
 
+    this._joinBelongsToForCount();
     this.clearColumns();
-    // a populated relation would join and select its columns next to the aggregate
-    this._relations = [];
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
 
     return this;
+  }
+
+  /**
+   * A belongs-to populate is a LEFT JOIN whose callback conditions narrow the owner rows, so a count keeps it. The
+   * other relations load in selects of their own and are dropped, as are what a compile adds besides the join and the
+   * conditions: columns (cleared by the caller), sorts, DISTINCT, the CTE and the hydration middlewares.
+   */
+  private _joinBelongsToForCount(): void {
+    const belongsTo = relationOf(RelationType.One);
+    const joined = this._relations.filter((r) => r instanceof belongsTo);
+    const kept = { middlewares: this._middlewares.length, sorts: this._sorts, distinct: this._distinct, cte: this._cteStatement };
+
+    this._relations = [];
+    for (const relation of joined) {
+      relation.compile();
+    }
+
+    this._middlewares = this._middlewares.slice(0, kept.middlewares);
+    this._sorts = kept.sorts;
+    this._distinct = kept.distinct;
+    this._cteStatement = kept.cte;
   }
 
   public selectCount(column?: DeclaredColumn<Unbox<T>>, as?: string): Promise<number>;
@@ -672,6 +768,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   protected async *_streamFromCursor(driver: OrmDriver, batchSize: number): AsyncGenerator<unknown> {
+    this._readDriver = driver;
     for (const middleware of this._queryMiddlewares) {
       await middleware.beforeQueryExecution(this);
     }
@@ -755,17 +852,55 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
     const backward = options.before !== undefined;
     const cursor = options.before ?? options.after;
+    const side = backward ? 'before' : 'after';
 
     this._orderByKeyset(columns, backward);
     this._selectKeysetColumns(columns, descriptor);
+    let cursorValues: unknown[] | undefined;
     if (cursor !== undefined) {
       const families = keysetFamilies(columns, descriptor, sqlDialectOf(this._driver.constructor as abstract new (...args: never[]) => unknown));
-      applyKeysetPredicate(this, columns, decodeCursor(columns, cursor, families), backward ? 'before' : 'after');
+      cursorValues = decodeCursor(columns, cursor, families);
+      applyKeysetPredicate(this, columns, cursorValues, side);
     }
     this.take(options.limit + 1);
 
-    const rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    let rows: Array<Unbox<T>>;
+    try {
+      rows = (await this.execute()) as unknown as Array<Unbox<T>>;
+    } catch (err) {
+      // the family check passes values the column still refuses: a label outside a postgres enum, a NUL in text
+      if (cursorValues !== undefined && err instanceof DataException && (await this._cursorRefused(columns, cursorValues, side))) {
+        throw new InvalidCursor('cursor value does not fit the column', side, undefined, err);
+      }
+      throw err;
+    }
     return keysetPage(columns, rows, options.limit, { cursor, backward });
+  }
+
+  /**
+   * Whether the database refuses the keyset predicate on its own. Only then did the cursor carry the refused value:
+   * the same data error can come from the query's own conditions or from a relation load.
+   */
+  private async _cursorRefused(columns: KeysetColumn[], values: unknown[], side: 'after' | 'before'): Promise<boolean> {
+    const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model, undefined, false);
+    // no row of the probe reaches the caller, so the query middlewares (row filters, translation) have nothing to guard
+    probe._queryMiddlewares = [];
+    probe.setTable(this._table);
+    if (this._database) {
+      probe.database(this._database);
+    }
+    // not `*`: a column computed at read time can refuse its own row data, which says nothing about the cursor
+    probe.select(columns[0].column);
+    applyKeysetPredicate(probe, columns, values, side);
+    // one row, not none: mysql and mssql evaluate the comparison only against a row
+    probe.take(1);
+
+    try {
+      await probe.asRaw();
+      return false;
+    } catch (err) {
+      return err instanceof DataException;
+    }
   }
 
   private _orderByKeyset(columns: KeysetColumn[], backward: boolean): void {

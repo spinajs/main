@@ -1,0 +1,16 @@
+{
+  "commit": "394f0c21fdf81f52f8e6a12d255810a402f253e9",
+  "dirty": true,
+  "packages": [
+    "access",
+    "charts",
+    "components",
+    "core",
+    "data",
+    "data-grid",
+    "i18n",
+    "ops",
+    "styles",
+    "tanstack"
+  ]
+}

@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { CodedHttpException, InvalidArgument } from '@spinajs/exceptions';
 import { isRandomKey, isSharedScope } from '@spinajs/idempotency';
-import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Idempotent, Ok, Post, parseIdempotencyKey } from '../src/index.js';
+import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Idempotent, Middleware, Ok, Post, RouteMiddleware, parseIdempotencyKey } from '../src/index.js';
 import type { IControllerDescriptor } from '../src/interfaces.js';
 import { IdempotencyMiddleware } from '../src/idempotency/middleware.js';
 import { resolveIdempotentOptions } from '../src/idempotency/options.js';
@@ -33,6 +33,20 @@ class IdemStackedController extends BaseController {
   @Idempotent({ ttl: '2h' })
   @Idempotent({ ttl: '1h' })
   public stacked() {
+    return new Ok();
+  }
+}
+
+class IdemFirst extends RouteMiddleware {}
+class IdemSecond extends RouteMiddleware {}
+
+class IdemMixedController extends BaseController {
+  @Post()
+  @Middleware(IdemFirst)
+  @Idempotent({ ttl: '2h' })
+  @Middleware(IdemSecond)
+  @Idempotent({ ttl: '1h' })
+  public mixed() {
     return new Ok();
   }
 }
@@ -81,6 +95,13 @@ describe('@Idempotent', () => {
 
     expect(gates(route)).to.have.length(1);
     expect(gates(route)[0].Options).to.deep.equal([route.Idempotency]);
+    expect(route.Idempotency!.ttl).to.equal('2h');
+  });
+
+  it('keeps the stacked gate where the bottom decorator mounted it, among the other middlewares', () => {
+    const route = routeIn(IdemMixedController, 'mixed');
+
+    expect(route.Middlewares.map((m) => m.Type)).to.deep.equal([IdempotencyMiddleware, IdemSecond, IdemFirst]);
     expect(route.Idempotency!.ttl).to.equal('2h');
   });
 
