@@ -205,6 +205,10 @@ Project.where('id', id).populate('tasks', function () { this.accessible('task:re
 Without `onNone: 'empty'`, a caller who may read the project but no task gets `AccessDenied` from
 the populate, which fails the whole load.
 
+This works on a hasMany relation only: in a belongsTo, many-to-many, `@Recursive` or join callback,
+`.accessible()`, `.within()` and `.withAccess()` throw `AuthzConfigError`
+([access lists](../../docs/authz-orm/01-access-lists.md#important-behaviour)).
+
 ## Keeping the ancestor table right
 
 | Write through the ORM | What happens |

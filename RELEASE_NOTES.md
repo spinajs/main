@@ -1,3 +1,21 @@
+# Release notes — authz-orm: access marks in a populate callback that would not filter throw
+
+## Security fix
+
+- `@spinajs/authz-orm`: `.accessible()`, `.within()` and `.withAccess()` called in the populate callback of a
+  belongs-to or many-to-many relation were dropped without a word, so the related rows came back unfiltered: a
+  belongs-to query is merged into the parent query and a many-to-many relation runs its junction query instead. On a
+  `@Recursive` relation the recursive part of the query is built without the where, so its descendants came back
+  unfiltered. These calls now throw `AuthzConfigError` naming the relation and saying what to do instead. A
+  many-to-many list's own `populate(cb)` (`campaign.tags.populate(...)`) throws too and names the junction model's
+  belongs-to to the target, because the list loads through its junction model. The same calls in a join callback
+  (`leftJoin(relation, on, queryCallback)`) throw as well, since the join query is merged into the parent.
+
+## Behaviour change
+
+- Code that made such a call now throws: filter the parent query, populate through a has-many relation (which runs
+  its own query and keeps filtering as before), or load the related rows with their own `.accessible()` query.
+
 # Release notes — orm: an orWhere in a belongs-to populate callback cannot widen the query
 
 ## Security fix
@@ -17,11 +35,6 @@
   without rebinding them to the copy, so they keep reading the builder they were built on: its alias, the parents
   `outer()` walks, and the context of a `Lazy` callback. `ISelectQueryBuilder.mergeStatementsAsGroup()` merges a
   builder's WHERE statements as such a group.
-
-## Known
-
-- `@spinajs/authz-orm`: `.accessible()` called inside a belongs-to or many-to-many populate callback has no
-  effect: the relation's own query never runs, so the related rows are not filtered. Only a has-many populate filters.
 
 # Release notes — orm-http: list scope, column projection, deeper filter groups
 
@@ -94,20 +107,6 @@
   `listResponseSchema` type the answer. See [Lists and includes](docs/orm-http/12-lists-and-includes.md).
 - `@spinajs/http-swagger` documents the `@Aggregate` and `@Include` arguments as query parameters naming the model's
   allowed columns, functions and relations.
-# Release notes — authz-orm: access marks in a populate callback that would not filter throw
-
-## Security fix
-
-- `@spinajs/authz-orm`: `.accessible()`, `.within()` and `.withAccess()` called in the populate callback of a
-  belongs-to or many-to-many relation were dropped without a word, so the related rows came back unfiltered: a
-  belongs-to query is merged into the parent query and a many-to-many relation runs its junction query instead. On a
-  `@Recursive` relation the recursive part of the query is built without the where, so its descendants came back
-  unfiltered. These calls now throw `AuthzConfigError` naming the relation and saying what to do instead. A
-  many-to-many list's own `populate(cb)` (`campaign.tags.populate(...)`) throws too and names the junction model's
-  belongs-to to the target, because the list loads through its junction model. The same calls in a join callback
-  (`leftJoin(relation, on, queryCallback)`) throw as well, since the join query is merged into the parent.
-- Code that made such a call now throws: filter the parent query, populate through a has-many relation (which runs
-  its own query and keeps filtering as before), or load the related rows with their own `.accessible()` query.
 
 # Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
 
