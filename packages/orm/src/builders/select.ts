@@ -21,7 +21,9 @@ import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { hasPk } from '../primary-keys.js';
 import { executeRecorded, inMigrationRun } from '../schema-touches.js';
-import { ReplicaRouter } from '../replica-router.js';
+import { ReplicaRouter, wroteInScope } from '../replica-router.js';
+import { readRouteOf, withReadRoute } from '../read-route.js';
+import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
 import { executionCopy, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
@@ -250,6 +252,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /** Set by the keyset fallback stream on every page, so one stream never changes replica between pages. */
   protected _pinnedDriver?: OrmDriver;
 
+  /** The connection the last execution read; the relation loads of its rows read the same one. */
+  protected _readDriver?: OrmDriver;
+
   public onPrimary(): this {
     this._onPrimary = true;
     return this;
@@ -265,7 +270,33 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this._driver;
     }
 
-    return this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+    return this._ownerRead() ?? this._container.get<ReplicaRouter>(ReplicaRouter)?.pick(this._driver, this) ?? this._driver;
+  }
+
+  /**
+   * The connection the rows whose relations are loading came from. The router decides instead where it would answer
+   * the primary (a transaction, a write in the read-your-writes scope) and once that connection is no longer healthy.
+   */
+  private _ownerRead(): OrmDriver | undefined {
+    const read = readRouteOf(this._driver);
+    if (read === undefined || read === this._driver) {
+      return read;
+    }
+
+    const routed = this._driver.CurrentTransaction === undefined && !wroteInScope(this._driver) && read.State === ConnectionState.Connected;
+    return routed ? read : undefined;
+  }
+
+  protected _executeOnDriver(): Promise<T> {
+    const driver = this.executionDriver();
+    this._readDriver = driver;
+    return driver.execute(this) as Promise<T>;
+  }
+
+  // The relation middlewares run their selects inside this scope (afterHydration), so they read where the rows came from.
+  protected _materialize(result: T): Promise<T> {
+    const read = this._readDriver;
+    return read === undefined ? super._materialize(result) : withReadRoute(this._driver, read, () => super._materialize(result));
   }
 
   public clone(): this {
@@ -672,6 +703,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   protected async *_streamFromCursor(driver: OrmDriver, batchSize: number): AsyncGenerator<unknown> {
+    this._readDriver = driver;
     for (const middleware of this._queryMiddlewares) {
       await middleware.beforeQueryExecution(this);
     }
