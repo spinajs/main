@@ -48,7 +48,7 @@ What one subscription is depends on the transport:
 | Transport | One subscription |
 | --- | --- |
 | AMQP | One queue per `subscriptionId` |
-| STOMP | One durable subscription per replica; the copies the replicas receive collapse into one handling under one `subscriptionId` |
+| STOMP | With `options.virtualTopics`, one consumer queue per `subscriptionId` (`Consumer.<subscriptionId>.VirtualTopic.<name>`), which the replicas share; on a `/queue/...` channel, the queue |
 | SQS | One queue |
 
 ## What each delivery does
@@ -69,9 +69,10 @@ A connection that acks a failed event instead of redelivering it would drop an i
 | --- | --- |
 | `MemoryQueueClient` (`@spinajs/queue/testing`) | With `options.deferred: true`; refused otherwise |
 | `SqsQueueClient` | Yes: a failed or in-flight event comes back after the visibility timeout. Each redelivery counts toward the queue's `maxReceiveCount`, so keep it at 5 or more for a deduplicated subscription |
-| `AmqpQueueClient`, `StompQueueClient` | Refused in this release |
+| `StompQueueClient` | With `options.virtualTopics`: a failed or in-flight event is republished into its consumer queue, or into its `/queue/...` channel, with `AMQ_SCHEDULED_DELAY`. Refused otherwise, because a NACK on ActiveMQ goes to the dead-letter queue instead of coming back. With virtual topics a named subscription of a topic must be on a `/topic/VirtualTopic.*` channel, so every deduplicated subscription has a queue to come back to |
+| `AmqpQueueClient` | Refused in this release |
 
-The delivery-contract release changes this for two transports: AMQP accepts event deduplication, and STOMP accepts it on a connection with `options.virtualTopics`. A STOMP connection without virtual topics keeps refusing it.
+The delivery-contract release changes this for AMQP too: it accepts event deduplication.
 
 ## The guarantee
 
