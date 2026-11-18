@@ -1,0 +1,9 @@
+{
+  "$id": "app.paging",
+  "type": "object",
+  "properties": {
+    "perPage": { "type": "integer", "default": 20 },
+    "sort": { "type": "string" }
+  },
+  "additionalProperties": false
+}

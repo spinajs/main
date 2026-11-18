@@ -64,8 +64,10 @@ updates of that entry fail with a 500 and the error is logged.
 The [`@spinajs/validation`](../validation) options apply to the incoming
 value: with `useDefaults` the schema's defaults are written into object /
 array values before they are stored (so they are fixed at write time),
-`coerceTypes` coerces values, and with `removeAdditional` unknown properties
-are stripped instead of rejected.
+and with `removeAdditional` unknown properties are stripped instead of rejected.
+A value is never type converted: it must already have the entry's JSON type
+(a JSON number for `number`, a JSON boolean for `boolean`), otherwise the
+update answers 400, whatever `coerceTypes` says.
 
 ## File uploads
 

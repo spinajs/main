@@ -1,0 +1,9 @@
+{
+  "$id": "app.export",
+  "type": "object",
+  "properties": {
+    "limit": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+    "label": { "anyOf": [{ "type": "integer" }, { "type": "string" }] }
+  },
+  "additionalProperties": false
+}

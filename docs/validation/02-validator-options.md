@@ -83,7 +83,7 @@ export default {
 };
 ```
 
-- The id decides, not the caller: `tryValidate('authn.LoginBody', data)`, `tryValidate({ $id: 'authn.LoginBody', ... }, data)` and an instance of a `@Schema({ $id: 'authn.LoginBody', ... })` class are all strict. A schema without `$id` is never strict.
+- The id decides: `tryValidate('authn.LoginBody', data)`, `tryValidate({ $id: 'authn.LoginBody', ... }, data)` and an instance of a `@Schema({ $id: 'authn.LoginBody', ... })` class are all strict. A schema without `$id` is strict only when the caller asks for it: `tryValidate(schema, data, { coerceTypes: false })` validates on `StrictValidator` for that one call. The option cannot turn coercion on for a strict id.
 - A `$ref` from a strict schema resolves on the strict instance, so the referenced schema is checked without coercion too.
 - Only the `$id` of the schema you validate against counts. A strict-prefixed schema reached by `$ref` from a schema without a strict prefix is validated on the coercing instance, with coercion.
 - `DataValidator.isStrict(schemaOrId)` tells which instance a schema uses.

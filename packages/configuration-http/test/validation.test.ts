@@ -33,6 +33,12 @@ describe('formatValidationErrors', () => {
     expect(formatValidationErrors('Value', [err('/Value', 'must be string'), err('/Value', 'must be string')])).to.equal('Value must be string');
   });
 
+  it('names the expected type of a type error that has no message', () => {
+    const typeErr = (type: string | string[]) => ({ ...err('/Value/limit'), keyword: 'type', params: { type } }) as IValidationError;
+    expect(formatValidationErrors('Value', [typeErr('integer')])).to.equal('Value/limit must be integer');
+    expect(formatValidationErrors('Value', [typeErr(['integer', 'null'])])).to.equal('Value/limit must be integer or null');
+  });
+
   it('falls back to a generic message', () => {
     expect(formatValidationErrors('Default', [err('/Default')])).to.equal('Default is invalid');
     expect(formatValidationErrors('Default', [])).to.equal('invalid value for Default');
