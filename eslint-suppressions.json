@@ -3351,13 +3351,10 @@
   },
   "packages/configuration/src/sources.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
+      "count": 1
     },
     "prefer-const": {
-      "count": 3
+      "count": 1
     }
   },
   "packages/configuration/src/util-common.ts": {

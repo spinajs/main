@@ -156,7 +156,7 @@ void main();
 
 - Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win, **arrays are concatenated**. A later file cannot shorten or replace an array a package config defines; it can only append to it.
 - `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
-- Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
+- A module loaded from a file holds only the keys of the file. Its origin is logged at trace level (`Trying to load file ...`), not stored in the tree.
 - After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.
 - The `system` section is not wrapped in a proxy: a `ConfigVar` stored directly under `system` is returned as the `ConfigVar` object.

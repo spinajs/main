@@ -120,7 +120,7 @@ The `refuse` message is not logged. It reaches the caller as `ActionRefused.mess
 
 `DefaultHooks` applies both defaults even when the configuration holds no `hooks` section, for example in a test container that loads no configuration files.
 
-Any other key under `hooks` fails configuration validation, so a typo does not pass silently. The one exception is `__file__`, the marker the configuration file sources add to every root object they load; you never set it yourself.
+Any other key under `hooks` fails configuration validation, so a typo does not pass silently.
 
 ```ts
 export default {
