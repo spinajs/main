@@ -1,5 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
@@ -321,7 +322,7 @@ describe('queue message hooks', function () {
       protected readonly label = 'last';
     }
     // Outer and Inner (order 0) were registered first.
-    const added = [LateHook, LowHook, PeerHook, LastHook];
+    const added: Class<QueueMessageHook>[] = [LateHook, LowHook, PeerHook, LastHook];
     for (const hook of added) DI.register(hook).as(QueueMessageHook);
     DI.uncache(Array.ofType(QueueMessageHook));
 
@@ -332,7 +333,10 @@ describe('queue message hooks', function () {
       const c = await client();
       await c.deliver(c.Emitted[0]);
     } finally {
-      for (const hook of added) DI.unregister(hook);
+      for (const hook of added) {
+        DI.unregister(hook);
+        DI.uncache(hook);
+      }
       DI.uncache(Array.ofType(QueueMessageHook));
     }
 

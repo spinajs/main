@@ -248,6 +248,8 @@ describe('TenantQueueHook', () => {
       } finally {
         DI.unregister(ForgingHook);
         DI.unregister(LateForgingHook);
+        DI.uncache(ForgingHook);
+        DI.uncache(LateForgingHook);
         DI.uncache(Array.ofType(QueueMessageHook));
       }
 

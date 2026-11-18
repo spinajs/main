@@ -120,7 +120,7 @@ The schema `AUTHZ_QUEUE_CONFIGURATION_SCHEMA` (`$configurationModule: 'authz.que
 
 ### `AuthzQueueHook`: custom implementation
 
-Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks run in registration order, the first registered outermost, so a hook that needs the job's principal must be registered after this one.
+Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks nest by `order` (lowest outermost; equal orders in registration order), so a hook that needs the job's principal takes an order above 0, or order 0 and registers after this one.
 
 ```ts sample
 import '@spinajs/authz-queue';
