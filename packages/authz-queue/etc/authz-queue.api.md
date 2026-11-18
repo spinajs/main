@@ -23,6 +23,13 @@ export interface Initiator {
 // JobOptions (@spinajs/queue)
 export interface JobOptions {
     runAs?: "initiator" | "system";
+    /** Permissions the principal the job runs as must hold, any one of them, before `execute`; a `QueueMessageHook` ( authz-queue ) checks them. */
+    access?: string | readonly string[];
+    /** The resource `access` is checked on; default: the type-level resource of each permission ( `invoice:send` checks `{ type: 'invoice' }` ). */
+    resource?: (message: any) => {
+        type: string;
+        id?: string;
+    };
 }
 
 // QueueMessageHook (@spinajs/queue)
