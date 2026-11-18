@@ -337,4 +337,14 @@ describe('audit sealing', function () {
       for (const name of ['sealed', 'logged', 'remote']) setTrail(name, undefined);
     }
   });
+
+  it('reports a sealed trail whose archive connection does not exist', async () => {
+    setTrail('lost', { store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', table: 'audit_lost', connection: 'sqlite', archiveConnection: 'nowhere', integrity: 'sealed' });
+    try {
+      const { sealed, failed } = await sealAudit({ settleMs: 0, trail: 'lost' });
+      expect([sealed, failed.map((f) => [f.trail, f.reason])]).to.deep.eq([0, [['lost', 'audit: no ORM connection "nowhere"']]]);
+    } finally {
+      setTrail('lost', undefined);
+    }
+  });
 });
