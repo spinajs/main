@@ -169,7 +169,7 @@ export const config = {
 | `whenReady(timeoutMs?)` | `Promise<void>` | Resolves at once when connected, else on the next connect. With `timeoutMs`, rejects with `UnexpectedServerError` after that time. Rejects with `UnexpectedServerError` once `dispose()` has started. |
 | `ClientId` | `string` | The `client-id` sent to the broker: `clientId`, else `name`, plus `-<options.clientIdSuffix>` or `-<QUEUE_INSTANCE_ID>` when one is set. |
 | `Name`, `ServiceName` | `string` | The connection `name`. |
-| `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, then awaits `client.deactivate()`. |
+| `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, forgets every tracked subscription, then awaits `client.deactivate()`. Durable subscriptions stay on the broker. |
 | `describeWebSocketError(err)` | `string` | Exported helper: a one-line reason for a WebSocket error event, safe on circular socket objects. |
 
 `describeWebSocketError()` prefers the wrapped error's message and code (`connect ECONNREFUSED 127.0.0.1:61614 ( ECONNREFUSED )`), then the event's message, then `event '<type>'`, then `'unknown error'`. For `ws`'s `closed before the connection was established` it adds a hint that the WebSocket handshake never completed, which points at the URL or the network path rather than the broker.

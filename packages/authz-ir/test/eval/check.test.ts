@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { GLOBAL_OBJECT, IREvaluator, MemoryTupleSource } from '../../src/index.js';
-import type { EvalInput, IREvaluatorOptions, PolicyIR, Truth } from '../../src/index.js';
+import type { EvalInput, IREvaluatorOptions, PolicyIR, Rewrite, Truth } from '../../src/index.js';
 import { docsIR } from '../fixtures/docs.js';
 
 const user = (id: string) => ({ type: 'user', id });
@@ -147,4 +147,44 @@ describe('IREvaluator.check principal narrowing (G6)', () => {
     expect(await truth({ principal: { ...agent, delegation: 'inherit', ceiling: { permissions: ['folder:*'] } } })).to.equal('deny');
     expect(await truth({ principal: { type: 'agent', id: 'a1', onBehalfOf: { type: 'system', id: 'system' }, delegation: 'inherit' } })).to.equal('deny');
   });
+});
+
+const assignment = { kind: 'tuples', store: 'authz_assignment' } as const;
+
+/** `editor` permits doc:read and `blocked` denies it; both are roles a ceiling can name. */
+function denyRoleIR(read: Rewrite): PolicyIR {
+  return {
+    version: 1,
+    types: {
+      user: { relations: {}, permissions: {} },
+      doc: { relations: { editor: { allowed: ['user'], source: assignment }, blocked: { allowed: ['user'], source: assignment } }, permissions: { read } },
+    },
+    permissions: { 'doc:read': { type: 'doc', relation: 'read', list: true, source: { origin: 'test' } } },
+    caveats: {},
+    combine: { default: { algorithm: 'deny-overrides' } },
+    principal: { ceiling: true, delegation: true, ancestry: 'parent', roles: { editor: [{ type: 'doc', relation: 'editor' }], blocked: [{ type: 'doc', relation: 'blocked' }] } },
+    opaque: [],
+  };
+}
+
+const COMBINED: ReadonlyArray<readonly [string, Rewrite]> = [
+  ['deny-overrides', { exclusion: { base: { computed: 'editor' }, subtract: { computed: 'blocked' } } }],
+  ['first-applicable', { priority: [{ when: { computed: 'blocked' }, then: 'deny' }, { when: { computed: 'editor' }, then: 'permit' }] }],
+];
+
+describe('IREvaluator.check: a role ceiling narrows permits only (G6)', () => {
+  for (const [combine, read] of COMBINED) {
+    it(`${combine}: a ceiling that leaves the deny role out still denies`, async () => {
+      const ir = denyRoleIR(read);
+      const source = new MemoryTupleSource(ir).add(doc('d1'), 'editor', user('u1')).add(doc('d1'), 'editor', user('u2')).add(doc('d1'), 'blocked', user('u2'));
+      const as = (id: string, roles?: string[]): Promise<Truth> => truth({ principal: roles === undefined ? user(id) : { ...user(id), ceiling: { roles } } }, source, ir);
+      expect(await as('u1')).to.equal('allow');
+      expect(await as('u2')).to.equal('deny');
+      expect(await as('u2', ['editor'])).to.equal('deny');
+      expect(await as('u2', ['editor', 'blocked'])).to.equal('deny');
+      expect(await as('u2', [])).to.equal('deny');
+      expect(await as('u1', ['editor'])).to.equal('allow');
+      expect(await as('u1', ['blocked'])).to.equal('deny');
+    });
+  }
 });

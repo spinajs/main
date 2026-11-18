@@ -22,12 +22,12 @@ In `require` mode a controller with a source file that the manifest does not lis
 **Per controller**, when `CacheControllerMetadata` answers, it calls `getCache(controllerInfo)` once per controller:
 
 1. A controller without a real source file (`file` is `<di>` or `<dynamic>`) gets its parameter names from `Function.prototype.toString()` of each action; no documentation.
-2. Otherwise it takes the file, replaces `.js` with `.d.ts`, and hashes it with `FileHasher` (`@spinajs/fs`).
-3. The keys are `<package version>_<hash>` (parameters) and `doc_<package version>_<hash>` (documentation), in the `__fs_controller_cache__` provider.
+2. Otherwise it takes the file, replaces `.js` with `.d.ts`, hashes its content with `FileHasher` (`@spinajs/fs`), and hashes that content hash together with the class name.
+3. The keys are `<package version>_<hash>` (parameters) and `doc_<package version>_<hash>` (documentation), in the `__fs_controller_cache__` provider. The class name is part of the hash, so several controllers declared in one file each have their own pair of entries.
 4. A missing entry is generated: `ts.createSourceFile()` parses that one file, without the default lib or `@types` a `ts.Program` would load, finds the class **by name**, and walks its method declarations.
 5. It returns the parameter map `{ [method]: string[] }`.
 
-A route whose method is not in the parsed class (inherited from a base class in another file) falls back to `Function.prototype.toString()` in `Controllers.register()`.
+A route whose method is not in the parsed class (inherited from a base class, in the same file or another) falls back to `Function.prototype.toString()` in `Controllers.register()`.
 
 **Documentation** extracted per controller:
 

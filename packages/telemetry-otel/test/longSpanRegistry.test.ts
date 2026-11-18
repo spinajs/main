@@ -2,31 +2,31 @@ import 'mocha';
 import { expect } from 'chai';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanStatusCode } from '@opentelemetry/api';
+import { resetTracing } from '@spinajs/tracing/testing';
 import { OtelTracing } from '../src/tracing.js';
 import { LongSpanRegistry } from '../src/longSpanRegistry.js';
-import { setField } from './tracing.test.js';
-
-const noopLog = { info: () => undefined, warn: () => undefined, error: () => undefined };
+import { setField, silentLog } from './support.js';
 
 function makeRegistry(maxAgeMs = 60_000): { registry: LongSpanRegistry; exporter: InMemorySpanExporter; tracing: OtelTracing } {
   const tracing = new OtelTracing();
   setField(tracing, 'enabled', true);
-  setField(tracing, 'serviceName', 'test');
-  setField(tracing, 'resourceAttributes', {});
   setField(tracing, 'endpoint', 'http://localhost:4318/v1/traces');
-  setField(tracing, 'log', noopLog);
+  setField(tracing, 'log', silentLog);
   const exporter = new InMemorySpanExporter();
+  setField(tracing, 'cfg', { get: (_path: string, fallback: unknown) => fallback });
   tracing.start(new SimpleSpanProcessor(exporter));
 
   const registry = new LongSpanRegistry();
   setField(registry, 'tracing', tracing);
-  setField(registry, 'log', noopLog);
+  setField(registry, 'log', silentLog);
   setField(registry, 'maxAgeMs', maxAgeMs);
   setField(registry, 'sweepIntervalMs', 3_600_000); // manual sweep in tests
   return { registry, exporter, tracing };
 }
 
 describe('LongSpanRegistry', () => {
+  afterEach(() => resetTracing());
+
   it('open + event + close exports one span with events and final attributes', () => {
     const { registry, exporter } = makeRegistry();
     registry.open('txn-1', 'payment.transaction', { 'transaction.id': 'txn-1' });

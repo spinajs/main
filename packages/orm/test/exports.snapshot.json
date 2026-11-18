@@ -40,6 +40,7 @@
   "CreatedAt",
   "DEFAULT_MIGRATION_DIRS",
   "DEFAULT_SAVE_CHUNK",
+  "DataException",
   "Dataset",
   "DateTime",
   "DateTimeWrapper",
