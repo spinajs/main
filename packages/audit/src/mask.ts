@@ -30,15 +30,19 @@ export function auditHash(value: string, container: IContainer = DI.RootContaine
   return createHmac('sha256', key).update(value).digest('base64url');
 }
 
-// A number or bigint hashes as its decimal text, like the same identifier written as a string, so the two stay correlatable.
+// A number or bigint hashes as its decimal text and a value written as a JSON string (a Date, a URL) as that text, like
+// the same identifier stored as a string, so the two stay correlatable.
 function hashText(path: string, v: unknown): string {
   if (typeof v === 'string') return v;
   if (typeof v === 'bigint') return v.toString();
+  let text: string;
   try {
-    return canonicalJson(v);
+    text = canonicalJson(v);
   } catch (err) {
     throw new AuditConfigError(`audit: hash path ${quoted(path)} reached a value that cannot be written as JSON`, undefined, undefined, err);
   }
+  const parsed: unknown = text.startsWith('"') ? JSON.parse(text) : undefined;
+  return typeof parsed === 'string' ? parsed : text;
 }
 
 const hashed =

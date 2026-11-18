@@ -108,6 +108,19 @@ describe('audit masking', () => {
     expect(() => maskOf(trail, { hash: ['data.loop'] })(event({ loop }))).to.throw(AuditConfigError, 'audit: hash path "data.loop" reached a value that cannot be written as JSON');
   });
 
+  it('hashes a value whose JSON is one string as that string', () => {
+    const iso = '2026-01-01T00:00:00.000Z';
+    const url = new URL('https://example.com/a?b=1');
+    // Luxon's DateTime writes its ISO text through toJSON, like a Date.
+    const dateTime = { toJSON: () => iso };
+    const out = maskOf(trail, { hash: ['data.*'] })(event({ date: new Date(iso), text: iso, boxed: new String(iso), dateTime, url, quoted: '"7"', safe: 2 ** 53 - 1, safeBig: 2n ** 53n - 1n }));
+    expect([out.data.date, out.data.text, out.data.boxed, out.data.dateTime]).to.deep.eq([auditHash(iso), auditHash(iso), auditHash(iso), auditHash(iso)]);
+    expect(out.data.url).to.eq(auditHash(url.href));
+    // A plain string is never unquoted: '"7"' stays apart from 7.
+    expect(out.data.quoted).to.eq(auditHash('"7"'));
+    expect([out.data.safe, out.data.safeBig]).to.deep.eq([auditHash('9007199254740991'), auditHash('9007199254740991')]);
+  });
+
   it('refuses a path that would break the event', () => {
     expect(() => maskOf(trail, { omit: ['actor'] })).to.throw(AuditConfigError, 'audit: a write to trail "default": omit path "actor" is not maskable');
     expect(() => maskOf(trail, { mask: ['data'] })).to.throw(AuditConfigError, 'mask path "data" is not maskable');
