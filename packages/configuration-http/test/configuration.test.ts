@@ -455,10 +455,11 @@ describe('configuration-http access wiring', () => {
     for (const method of ['list', 'get', 'update']) expect(rule(method).options.fields).to.equal('filter');
   });
 
-  it('declares both permissions with field sets', () => {
+  it('declares read and update with field sets, and manage without', () => {
     expect(configurationHttpConfig.authz.permissions).to.deep.equal({
       'configuration:read': { fields: true, list: true },
       'configuration:update': { fields: true },
+      'configuration:manage': {},
     });
   });
 
@@ -466,7 +467,7 @@ describe('configuration-http access wiring', () => {
     const { roles } = configurationHttpConfig.authz.rbac;
 
     expect(roles['admin.configuration'].assignable).to.equal(false);
-    expect(roles['admin.configuration'].grants).to.have.members(['configuration:read', 'configuration:update']);
+    expect(roles['admin.configuration'].grants).to.have.members(['configuration:read', 'configuration:update', 'configuration:manage']);
     expect(roles.admin.extends).to.include('admin.configuration');
 
     // no other role defined by this module mentions the permissions: it is admin-only

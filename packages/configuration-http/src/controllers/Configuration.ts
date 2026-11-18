@@ -28,6 +28,10 @@ function present(entry: DbConfig) {
   return out;
 }
 
+function entryRef(entry: DbConfig) {
+  return { type: 'configuration', id: String(entry.Id) };
+}
+
 /**
  * HTTP api for database stored configuration values.
  *
@@ -87,6 +91,7 @@ export class ConfigurationController extends BaseController {
   /**
    * Update configuration entry value
    * Updates the value ( and optionally default/watch flag ) of an existing entry.
+   * Sending `Default` or `Watch` also needs `configuration:manage` on the entry.
    * The incoming value is validated against the entry `Type` and `Meta` constraints and,
    * when `@spinajs/validation` holds a schema whose `$id` equals the slug, against that schema.
    * Structural fields ( slug, group, type ) cannot be changed through this api.
@@ -95,7 +100,7 @@ export class ConfigurationController extends BaseController {
    * @response 200 Updated configuration entry
    * @response 400 Invalid value for the entry type, constraints or registered schema
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — configuration:update permission required
+   * @response 403 Forbidden — configuration:update permission required, or configuration:manage for a body with Default or Watch
    * @response 404 Configuration entry not found
    * @response 500 Registered schema for this slug cannot be compiled
    */
@@ -104,6 +109,10 @@ export class ConfigurationController extends BaseController {
   public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
     // The response carries the entry, so updating it needs read too.
     const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
+    if (data.Default !== undefined || data.Watch !== undefined) {
+      await authz().assert(caller, 'configuration:manage', entryRef(entry), entry);
+    }
+
     try {
       const valueError = validateEntryValue(this.Validator, entry, 'Value', data.Value);
       if (valueError) {
@@ -157,7 +166,7 @@ export class ConfigurationController extends BaseController {
     const service = authz();
     const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).first());
     if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
-    const ref = { type: 'configuration', id: String(entry.Id) };
+    const ref = entryRef(entry);
     for (const permission of permissions) {
       if (!(await service.can(caller, permission, ref, entry))) throw new ResourceNotFound(`configuration entry ${slug} not found`);
     }

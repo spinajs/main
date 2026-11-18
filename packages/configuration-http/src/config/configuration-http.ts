@@ -24,16 +24,17 @@ const configurationHttp = {
     },
   },
   authz: {
-    // Config values can hold secrets: both permissions carry field sets, so a grant can hide `Value`.
+    // Config values can hold secrets: read and update carry field sets, so a grant can hide `Value`.
     permissions: {
       'configuration:read': { fields: true, list: true },
       'configuration:update': { fields: true },
+      'configuration:manage': {},
     },
     rbac: {
       roles: {
         'admin.configuration': {
           assignable: false,
-          grants: ['configuration:read', 'configuration:update'],
+          grants: ['configuration:read', 'configuration:update', 'configuration:manage'],
         },
         // The config merge concatenates `extends` arrays, so this adds to the other `admin` fragments.
         admin: {

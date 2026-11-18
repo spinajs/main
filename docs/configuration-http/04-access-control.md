@@ -1,10 +1,10 @@
 # Access control
 
-Configuration values can hold secrets, so every route is guarded by `@spinajs/authz`. The package declares two permissions with field sets, an admin-only role, and registers `DbConfig` as the `configuration` access resource so ORM queries on it are checked too.
+Configuration values can hold secrets, so every route is guarded by `@spinajs/authz`. The package declares three permissions (two with field sets), an admin-only role, and registers `DbConfig` as the `configuration` access resource so ORM queries on it are checked too.
 
 ## How it works
 
-1. **Config fragment.** The package config declares `configuration:read` (`fields`, `list`) and `configuration:update` (`fields`), the role `admin.configuration` that grants both, and adds it to `admin` through `extends`.
+1. **Config fragment.** The package config declares `configuration:read` (`fields`, `list`), `configuration:update` (`fields`) and `configuration:manage`, the role `admin.configuration` that grants all three, and adds it to `admin` through `extends`.
 2. **Boot.** `ConfigurationHttpBootstrapper.bootstrap()` runs with the other bootstrappers, before the authz domain boots:
    - `registerAccessResource(DbConfig, 'configuration')` makes `DbConfig` an access resource. Multi-row selects must use `.accessible()`, `.unscoped()` or `runAs(SYSTEM)`.
    - `requireSystemPrincipal()` opts the root domain in: `@spinajs/configuration-db-source` then persists exposed options and runs the watch poll as `SYSTEM`, after the root authz service boots.
@@ -18,7 +18,8 @@ Configuration values can hold secrets, so every route is guarded by `@spinajs/au
 | --- | --- | --- | --- | --- |
 | `authz.permissions.configuration:read` | permission definition | `{ fields: true, list: true }` | see authz | Read entries; usable in `.accessible()` lists; grants may carry a field set. |
 | `authz.permissions.configuration:update` | permission definition | `{ fields: true }` | see authz | Change `Value`, `Default`, `Watch`; grants may carry a field set. |
-| `authz.rbac.roles.admin.configuration` | role | `{ assignable: false, grants: ['configuration:read', 'configuration:update'] }` | — | Holds both permissions; exists only to be extended. |
+| `authz.permissions.configuration:manage` | permission definition | `{}` | see authz | Needed on the row, in addition to `configuration:update`, by a `PATCH` body that has `Default` or `Watch`. |
+| `authz.rbac.roles.admin.configuration` | role | `{ assignable: false, grants: ['configuration:read', 'configuration:update', 'configuration:manage'] }` | — | Holds all three permissions; exists only to be extended. |
 | `authz.rbac.roles.admin.extends` | `string[]` | adds `'admin.configuration'` | role names | `admin` gets configuration management. Config merge concatenates `extends` arrays. |
 
 ```ts
@@ -27,10 +28,11 @@ export default {
     permissions: {
       'configuration:read': { fields: true, list: true },
       'configuration:update': { fields: true },
+      'configuration:manage': {},
     },
     rbac: {
       roles: {
-        'admin.configuration': { assignable: false, grants: ['configuration:read', 'configuration:update'] },
+        'admin.configuration': { assignable: false, grants: ['configuration:read', 'configuration:update', 'configuration:manage'] },
         admin: { extends: ['admin.configuration'] },
       },
     },
@@ -71,6 +73,7 @@ export default {
           grants: [
             'configuration:read',
             { permission: 'configuration:update', fields: { write: ['Value', 'Watch'] } },
+            'configuration:manage',
           ],
         },
       },
@@ -106,6 +109,7 @@ export default {
 
 - A request without a principal is 401 on every route; a route check failure is 403; a row check failure is 404.
 - `PATCH` checks `configuration:read` **and** `configuration:update` on the row. Update without read answers 404.
+- A `PATCH` body with `Default` or `Watch` also needs `configuration:manage` on the row; without it the request answers 403. The check runs on the body left after the `fields.write` filter, so a field the update grant strips needs no `configuration:manage`.
 - The `PATCH` response is filtered by the `fields.read` of the update decision, not of the read grant.
 - A body field outside `fields.write` is stripped, or answered with 400 when `authz.fields.write.mode` is `reject`.
 - A list call by a principal whose read grant has a row condition the model cannot turn into a list plan fails with 403.
