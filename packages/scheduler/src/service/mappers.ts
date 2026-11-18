@@ -128,6 +128,8 @@ export function toStepInfo(s: RunStepModel): StepInfo {
     done: s.Done ?? null,
     total: s.Total ?? null,
     message: s.Message ?? null,
+    result: s.Result ?? null,
+    resultStored: !!s.ResultStored,
     error: s.Error ?? null,
   };
 }

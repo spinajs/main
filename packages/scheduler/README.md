@@ -93,7 +93,7 @@ before the ORM boots; a `@Task` file first imported through
 |---|---|
 | `runId`, `schedule`, `trigger`, `attempt`, `scheduledAt`, `firedAt`, `params`, `triggeredBy` | identity |
 | `signal` | aborted on cancel, timeout, lease loss or shutdown; pass it to I/O |
-| `step(name, fn, { weight?, persistResult? })` | a named, timed, recorded step; resumed retries skip completed steps and return their stored result |
+| `step(name, fn, { weight?, persistResult? })` | a named, timed, recorded step; resumed retries skip completed steps and return their stored result. `getRun` returns the stored value as `steps[].result` and `steps[].resultStored` (false when no value was kept); `persistResult: false` keeps a value out of the database and the API |
 | `progress(0..100 \| { done, total, message? })` | progress of the current step, rolled up to the run; written at most every `progressFlush` ms |
 | `expectSteps(totalWeight)` | tells the roll-up the total step weight (else the last succeeded run's steps, else the steps seen so far) |
 | `message(text, level?)` | short status line on the run and step |

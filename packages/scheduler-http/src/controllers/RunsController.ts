@@ -49,7 +49,8 @@ export class RunsController extends SchedulerControllerBase {
 
   /**
    * Show a run
-   * Status, attempt chain, progress, current step and message, steps with timing, result, error and log lines.
+   * Status, attempt chain, progress, current step and message, steps with timing and their stored results, the
+   * run result, error and log lines.
    * @security cookieAuth
    * @param id Run id
    * @returns {RunDetail} Run details

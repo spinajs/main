@@ -71,6 +71,16 @@ principal as `kind: 'service'`. `name` is the user's `Login` (else `Email`). Oth
 Statuses for service errors follow `httpStatusForError()` of `@spinajs/scheduler`. `wait: true` holds the HTTP
 request until the run ends; follow long runs through the event stream instead.
 
+`GET /scheduler/runs/:id` returns each step's stored return value as `steps[].result`, under `scheduler:read`, like the
+run's own `result`. `steps[].resultStored` says whether a value was kept. `true` with `result: null` means the step
+returned nothing (or returned null). `false` means the step has not succeeded (see `status`); with status `succeeded`
+it means the value was dropped. A `skipped` step of a resumed retry carries the earlier attempt's value and has
+`resultStored: true`. A value is kept
+only when it is JSON and fits `scheduler.maxStepResultBytes` (64 KiB by default). The detail lists the steps of every
+attempt, so it holds at most step rows × that bound. Mark a step whose value must not be
+readable with `ctx.step(name, fn, { persistResult: false })`; it is then not stored at all, and a resumed retry runs
+that step again. Lists (`/scheduler/runs`, `recentRuns`) carry no steps.
+
 ## Live updates (Server-Sent Events)
 
 ```ts

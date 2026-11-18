@@ -117,6 +117,15 @@ export interface StepInfo {
   done: number | null;
   total: number | null;
   message: string | null;
+  /** The value the step returned, as stored; `null` when `resultStored` is false or the step returned nothing. */
+  result: unknown;
+  /**
+   * True with `result: null` for a step that returned nothing (or returned null). False when no value was kept: the
+   * step has not succeeded (see `status`), or, with status `succeeded`, its value was dropped (`persistResult: false`,
+   * not JSON, larger than `maxStepResultBytes`). A `skipped` step of a resumed retry carries the earlier attempt's
+   * value and is true.
+   */
+  resultStored: boolean;
   error: StructuredError | null;
 }
 
