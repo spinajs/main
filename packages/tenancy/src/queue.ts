@@ -76,7 +76,10 @@ export class TenantQueueHook extends QueueMessageHook {
         throw error;
       }
       this.Log.warn({ messageName: message.Name, tenant, reason: error.reason }, 'Message ${messageName} refused: tenant ${tenant} is not admitted (${reason})');
-      throw Object.assign(new PermanentJobFailure('tenant_unavailable', `${message.Name} cannot run in tenant "${tenant}": ${error.message}`), { cause: error });
+      const failure = new PermanentJobFailure('tenant_unavailable', `${message.Name} cannot run in tenant "${tenant}": ${error.message}`);
+      // Non-enumerable, as Exception defines it: a spread or a serialiser of the failure does not copy the registry's error.
+      Object.defineProperty(failure, 'cause', { value: error });
+      throw failure;
     }
   }
 }

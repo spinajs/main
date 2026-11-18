@@ -203,16 +203,23 @@ describe('TenantQueueHook', () => {
   });
 
   it('refuses for good a message for a tenant that is not active or not known, and never calls its handler', async () => {
+    let called = 0;
+    const handler = async () => {
+      called += 1;
+      return 'ran';
+    };
     for (const tenant of ['provisioning', 'suspended', 'deleting', 'deleted', 'nobody']) {
       for (const message of [carrying(new CarryJob(), tenant), carrying(new RequiredJob(), tenant), carrying(new TenantPing(), tenant)]) {
-        const refused = await failureOf(hook.aroundHandle(message, async () => 'ran'));
+        const refused = await failureOf(hook.aroundHandle(message, handler));
 
         if (!isPermanentJobFailure(refused)) throw new Error(`expected a permanent failure for ${tenant}, got ${String(refused)}`);
         expect(refused.reason).to.eq('tenant_unavailable');
         expect(refused.message).to.contain(`tenant "${tenant}"`);
         expect(refused.cause).to.be.instanceOf(TenantUnavailable);
+        expect(Object.keys(refused)).to.not.include('cause');
       }
     }
+    expect(called).to.eq(0);
   });
 
   it('runs a message for an active tenant in that tenant', async () => {
@@ -229,9 +236,17 @@ describe('TenantQueueHook', () => {
         void logged.push({ level, args });
     Object.defineProperty(watched, 'Log', { value: { warn: record('warn'), error: record('error') } });
 
-    const suspended = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'suspended'), async () => 'ran'));
+    let called = 0;
+    const handler = async () => {
+      called += 1;
+      return 'ran';
+    };
+
+    const suspended = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'suspended'), handler));
     (await flakyRegistry()).down = true;
-    const failed = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'acme'), async () => 'ran'));
+    const failed = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'acme'), handler));
+
+    expect(called).to.eq(0);
 
     expect(isPermanentJobFailure(suspended)).to.eq(true);
     expect(failed).to.be.instanceOf(Error).with.property('message', 'registry down');
