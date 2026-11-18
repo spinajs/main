@@ -4,7 +4,7 @@ const config = {
     allowProduction: false,
     path: '/_studio',
     ui: {} as { path?: string },
-    buffers: { traces: 1000, spansPerTrace: 2000, logs: 5000, slowQueries: 200 },
+    buffers: { traces: 1000, spansPerTrace: 2000, traceBytes: 67_108_864, logs: 5000, slowQueries: 200 },
     captureBindings: false,
     redactAttributes: ['http.request.header.authorization', 'http.request.header.cookie'],
     auth: {

@@ -46,6 +46,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/authz": "3.0.23",
     "@spinajs/authz-http": "3.0.23",
     "@spinajs/configuration": "3.0.23",
@@ -54,7 +55,8 @@
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/http": "3.0.23",
     "@spinajs/log": "3.0.23",
-    "@spinajs/manifest": "3.0.23"
+    "@spinajs/manifest": "3.0.23",
+    "@spinajs/tracing": "3.0.23"
   },
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.23",
