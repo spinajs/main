@@ -186,6 +186,10 @@ Multi-row `Model.insert([...])` backfills `auto` keys as follows:
 `Model.insert()` with an array accepts only `InsertBehaviour.None` and throws
 `insert behaviour is not supported with arrays` otherwise.
 
+`InsertOrUpdate` conflicts on one target: the primary key when the row carries it, else the one unique column the row
+carries (with several, every unique column, as before). To name the target yourself, use the builder:
+`driver.insert().into('users').values(row).onDuplicate(['Email']).update(['Name'])`.
+
 ### Descriptor inheritance
 
 - Each class owns its descriptor. A subclass inherits by copy, never by reference.

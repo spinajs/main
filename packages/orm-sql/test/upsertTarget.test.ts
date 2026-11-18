@@ -94,4 +94,24 @@ describe('model upsert conflict target', () => {
 
     expect(onDuplicate.firstCall.args[0]).to.equal(undefined);
   });
+
+  describe('static Model.insert', () => {
+    it('targets the primary key when the row carries it', async () => {
+      await UpsertAccount.insert({ Id: 7, Email: 'a@x.io', Name: 'A' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(onDuplicate.firstCall.args[0]).to.deep.equal(['Id']);
+    });
+
+    it('targets the one unique column the row carries when the key is generated', async () => {
+      await UpsertAccount.insert(new UpsertAccount({ Email: 'a@x.io', Name: 'A' }), InsertBehaviour.InsertOrUpdate);
+
+      expect(onDuplicate.firstCall.args[0]).to.deep.equal(['Email']);
+    });
+
+    it('keeps the previous default when the row carries several unique columns', async () => {
+      await UpsertAccount.insert({ Email: 'a@x.io', Login: 'a', Name: 'A' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(onDuplicate.firstCall.args[0]).to.equal(undefined);
+    });
+  });
 });

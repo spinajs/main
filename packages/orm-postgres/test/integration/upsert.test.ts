@@ -78,6 +78,20 @@ describe('postgres integration - upserts', function () {
     expect(await accounts()).to.deep.equal([{ Email: 'm@x.io', Name: 'M2' }]);
   });
 
+  it('upserts through the static insert on the key when the row carries it', async () => {
+    await PgAccount.insert({ Id: 1, Email: 's@x.io', Name: 'S' }, InsertBehaviour.InsertOrUpdate);
+    await PgAccount.insert({ Id: 1, Email: 's@x.io', Name: 'S2' }, InsertBehaviour.InsertOrUpdate);
+
+    expect(await accounts()).to.deep.equal([{ Email: 's@x.io', Name: 'S2' }]);
+  });
+
+  it('upserts through the static insert on the unique column when the key is generated', async () => {
+    await PgAccount.insert({ Email: 'u@x.io', Name: 'U' }, InsertBehaviour.InsertOrUpdate);
+    await PgAccount.insert({ Email: 'u@x.io', Name: 'U2' }, InsertBehaviour.InsertOrUpdate);
+
+    expect(await accounts()).to.deep.equal([{ Email: 'u@x.io', Name: 'U2' }]);
+  });
+
   it('ignores a duplicate model with InsertOrIgnore', async () => {
     await new PgAccount({ Email: 'i@x.io', Name: 'I' }).insert(InsertBehaviour.InsertOrIgnore);
     await new PgAccount({ Email: 'i@x.io', Name: 'I2' }).insert(InsertBehaviour.InsertOrIgnore);

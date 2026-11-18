@@ -1435,20 +1435,20 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         }),
       );
     } else {
+      generateClientSideKeys(data, description);
+      assertAssignedKeys(data, description);
+
       switch (insertBehaviour) {
         case InsertBehaviour.InsertOrIgnore:
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+          query.onDuplicate(_upsertTarget(data, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
           break;
       }
-
-      generateClientSideKeys(data, description);
-      assertAssignedKeys(data, description);
 
       if (data instanceof ModelBase) {
         query.values(data.toSql());
