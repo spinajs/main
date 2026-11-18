@@ -39,3 +39,33 @@ export class OrderDTO {
     Object.assign(this, data);
   }
 }
+
+/** `?sorting={"by":[{"column":"dueDate","order":"DESC"}]}`: earlier entries win. An object, so the query parameter is one JSON value. */
+@Schema({
+  type: 'object',
+  $id: 'spinajs.orm-http.SortingDTO',
+  additionalProperties: false,
+  properties: {
+    by: {
+      type: 'array',
+      maxItems: 16,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['column'],
+        properties: {
+          column: { type: 'string', maxLength: 128 },
+          order: { type: 'string', enum: ['ASC', 'DESC', 'asc', 'desc'] },
+        },
+      },
+    },
+  },
+})
+export class SortingDTO {
+  public by: OrderDTO[];
+
+  // The framework builds a DTO also for an absent parameter, so `data` may be undefined.
+  constructor(data?: Partial<SortingDTO>) {
+    this.by = Array.isArray(data?.by) ? data.by.map((entry) => new OrderDTO(entry)) : ((data?.by as unknown as OrderDTO[]) ?? []);
+  }
+}
