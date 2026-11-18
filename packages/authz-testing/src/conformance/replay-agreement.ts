@@ -58,6 +58,9 @@ export async function replayAgreement<T>(options: ReplayAgreementOptions<T>): Pr
       try {
         const records = [...(await run.decide())];
         if (records.length === 0) throw new Error('the scenario logged no decision');
+        // Instants have millisecond resolution: a write in the millisecond of a decision would be part of its replay.
+        const lastLogged = Math.max(...records.map((record) => Date.parse(record.loggedAt ?? record.at)));
+        while (Date.now() === lastLogged) await new Promise((resolve) => setTimeout(resolve, 1));
         const writesStart = Date.now();
         await run.write();
         for (const record of records) {
