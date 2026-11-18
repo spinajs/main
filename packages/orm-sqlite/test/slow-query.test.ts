@@ -26,7 +26,7 @@ function sqlite(): SqliteOrmDriver {
 }
 
 function slowQueries(): SlowQueryMiddleware {
-  const found = (DI.resolve(Array.ofType(QueryMiddleware)) as QueryMiddleware[]).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
+  const found = DI.resolve<QueryMiddleware>(Array.ofType(QueryMiddleware)).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
   if (!found) throw new Error('SlowQueryMiddleware is not registered');
   return found;
 }
@@ -44,7 +44,7 @@ describe('orm-sqlite slow-query capture', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(CollectingSink).as(SlowQuerySink);
-    for (const b of (await DI.resolve(Array.ofType(Bootstrapper))) as Bootstrapper[]) {
+    for (const b of await DI.resolve<Bootstrapper>(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
     await DI.resolve(Orm);

@@ -130,7 +130,21 @@ export class SlowQueryCollector extends SlowQuerySink {
 
 - Off, the capture costs two boolean checks per statement: the driver keeps no statement, binding or timestamp. `db.Explain` is read once, at the first statement; `SlowQueryMiddleware.reload()` reads it again and forgets every remembered plan.
 - The capture runs after `setImmediate`, once the result has gone back to the caller, and holds no reference to the builder. At most 100 captures (`MAX_PENDING_SLOW_QUERY_CAPTURES`) wait or run at once; a slow statement beyond that is not recorded, and the number dropped is logged with the next record.
-- A plan is attempted only for a builder with one statement in the select context, on the driver that ran it, with the statement's own bindings (databases cannot plan without them; they are not kept). A plan is remembered for 60 s per connection, `CaptureBindings` mode and fingerprint; overlapping captures of one key share one EXPLAIN, and at most `db.Explain.MaxPerMinute` EXPLAIN calls run per minute.
+- A plan is attempted only for a builder with one statement in the select context, on the driver that ran it, with the statement's own bindings (databases cannot plan without them; they are not kept). A plan is remembered for 60 s per connection, `CaptureBindings` mode and fingerprint, for at most 1000 keys; a new key at capacity drops the least recently read plan. Overlapping captures of one key share one EXPLAIN, and at most `db.Explain.MaxPerMinute` EXPLAIN calls run per minute.
+- `SlowQueryMiddleware.clock`, a `Clock` from `@spinajs/util` (default `SystemClock`), times the plan cache and the `MaxPerMinute` window. Both read it on every call, so a test can assign a `ManualClock` at any time and move it with `advance(ms)`:
+
+  ```ts
+  import { DI } from '@spinajs/di';
+  import { QueryMiddleware, SlowQueryMiddleware } from '@spinajs/orm';
+  import { ManualClock } from '@spinajs/util';
+
+  const slowQueries = DI.resolve(Array.ofType(QueryMiddleware)).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
+  const clock = new ManualClock(new Date('2026-01-01T00:00:00Z'));
+  slowQueries!.clock = clock;
+
+  // ...run the slow select, await slowQueries!.idle()...
+  clock.advance(60_000); // the remembered plan has expired: the next capture runs EXPLAIN again
+  ```
 - An EXPLAIN never runs a second statement. A statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator or an identifier with `$`, `LIKE … ESCAPE '\'`, a select wrapped in parentheses. Builder SQL binds its values and holds none of these.
 - Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped) and `raw` is `null`; with it, the driver's plan is published as it is.
 - `OrmDriver.explain()` runs outside the ambient transaction. On a driver without concurrent transactions (sqlite without a read pool, PGlite) it waits for an open transaction to end: never await it inside one. A capture made while the transaction is still open on PGlite ends with `planError`.
