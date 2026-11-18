@@ -16,7 +16,7 @@ export async function eraseCustomer(id: string): Promise<number> {
 - **Kept:** every other field (`id`, `at`, `kind`, `action`, `subject`, `actor`, ...) and `data_hash`, the hash of the payload that was there. So who did what to the subject and when stays on record, and a seal over the event still verifies ([Integrity and verification](07-integrity-and-verification.md)).
 - **Returned:** how many events this call blanked; events already blank are not counted again.
 
-Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, the subject, `data: { redacted: <count> }`) in the confirmed mode beside the events it redacted: on `source` when one is given; without one on the trail's `connection`, and on each other connection where it blanked something, with that connection's count. `verify` looks for the record in the same table on the same connection. On a `reject` trail a failure to record one throws `AuditWriteFailed` after the payloads were blanked.
+Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, the subject, `data: { redacted: <count> }`) in the confirmed mode beside the events it redacted: on `source` when one is given; without one on the trail's `connection`, and on each other connection where the subject has a row, with that connection's count. `verify` looks for the record in the same table on the same connection. On a `reject` trail a failure to record one throws `AuditWriteFailed` after the payloads were blanked.
 
 `subject` and `dataSubject` are not touched, so a subject key must not itself be personal data you have to erase.
 

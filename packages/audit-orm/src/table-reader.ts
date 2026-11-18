@@ -66,7 +66,8 @@ export class TableAuditReader extends AuditReader {
   /**
    * Without a `source`, a table without a source column is redacted on every connection that holds it, the trail's own
    * first: transactional events sit on the connection of each audited write. Every connection is looked at before
-   * anything is blanked. Another connection gets an erasure record only where something was blanked.
+   * anything is blanked. Another connection gets an erasure record where the subject has a row, so running `forget`
+   * again writes a record whose write failed the first time.
    */
   override async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
     if (source !== undefined || this.hasSourceColumn()) {
@@ -81,8 +82,13 @@ export class TableAuditReader extends AuditReader {
     yield { connection: undefined, redacted: await this.redactOn(own, trail, subject) };
     for (const driver of others) {
       const redacted = await this.redactOn(driver, trail, subject);
-      if (redacted > 0) yield { connection: driver.Options.Name, redacted };
+      if (redacted > 0 || (await this.holds(driver, trail, subject))) yield { connection: driver.Options.Name, redacted };
     }
+  }
+
+  private async holds(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject): Promise<boolean> {
+    const select: Select = driver.select().from(this.table(trail)).columns(['seq']).where('subject_type', subject.type).where('subject_id', subject.id);
+    return rowsOf(await select.take(1)).length > 0;
   }
 
   private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {

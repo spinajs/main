@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AuditNotSupported, AuditReader, AuditStore, audit, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
+import { AuditNotSupported, AuditReader, AuditStore, AuditWriteFailed, audit, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
@@ -111,6 +111,25 @@ describe('audit verification', function () {
       }
       expect(await verifyOn('sqlite')).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
       expect(await verifyOn('pglite')).to.deep.include({ intact: 1, redacted: 0, tampered: undefined });
+    });
+
+    it('writes a missing erasure record when forget runs again after the record failed', async () => {
+      setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: db.connectionName('sqlite'), integrity: 'sealed', onFailure: 'reject', retry: { attempts: 1, delay: 1 } });
+      const pglite = db.driver('pglite');
+      Reflect.set(pglite, 'insert', () => {
+        throw new Error('insert refused');
+      });
+      try {
+        await expect(forget()).to.be.rejectedWith(AuditWriteFailed);
+      } finally {
+        Reflect.deleteProperty(pglite, 'insert');
+      }
+      expect((await verifyOn('pglite')).unexplainedRedactions).to.deep.eq([1]);
+
+      await forget();
+      for (const dialect of both) {
+        expect(await verifyOn(dialect)).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
     });
   });
 
