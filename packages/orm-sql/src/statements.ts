@@ -732,7 +732,9 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
     if (this.IsWildcard) {
       _exprr = `${this._method}(${this._column})`;
     } else {
-      _exprr = `${this._method}(${this.Quoter.quote(this._column as string)})`;
+      const column = this.Quoter.quote(this._column as string);
+      // a joined table may have the same column (a count through belongs-to joins)
+      _exprr = `${this._method}(${this._tableAlias ? `${this.Quoter.quote(this._tableAlias)}.${column}` : column})`;
     }
 
     if (this._alias) {
