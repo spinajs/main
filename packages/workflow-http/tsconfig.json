@@ -36,13 +36,13 @@
       "path": "../http/tsconfig.json"
     },
     {
-      "path": "../http-swagger/tsconfig.json"
-    },
-    {
       "path": "../orm/tsconfig.json"
     },
     {
       "path": "../orm-sqlite/tsconfig.json"
+    },
+    {
+      "path": "../principal/tsconfig.json"
     },
     {
       "path": "../workflow/tsconfig.json"
