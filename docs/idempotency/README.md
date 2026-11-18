@@ -119,7 +119,7 @@ In tests, drive leases with `FakeClock` from `@spinajs/durable/testing`: registe
 | `idempotency.store` | `OrmIdempotencyStore` | class name of the store |
 | `idempotency.lease` | `30s` | lease of a claim: a duration or a positive number of milliseconds |
 | `idempotency.sweepBatch` | `500` | rows one sweep deletes at most |
-| `idempotency.sweepEvery` | `5m` | reserved for the pending builtin `idempotency.sweep` schedule; nothing in this release reads it |
+| `idempotency.sweepEvery` | `5m` | interval of the builtin `idempotency.sweep` schedule of `@spinajs/idempotency-scheduler` |
 
 The values are checked at boot: a lease that is neither a duration above zero (`500ms`, `30s`, `5m`, `2h`, `1d`) nor a
 positive integer of milliseconds, a `sweepEvery` that is not such a duration, and a `sweepBatch` below 1 fail the
@@ -128,33 +128,20 @@ Configuration.
 ## Sweeping
 
 Expired replies and claims whose lease ended stay in the table until a sweep deletes them. `IdempotencyService.sweep()`
-deletes at most `idempotency.sweepBatch` rows and answers how many; call it until it answers 0. The package registers
-no schedule of its own yet, so an app that runs `@spinajs/scheduler` declares one and sets its own `every`
-(`idempotency.sweepEvery` is not read):
+deletes at most `idempotency.sweepBatch` rows and answers how many; call it until it answers 0.
 
-```ts sample
-import { Autoinject } from '@spinajs/di';
-import { IdempotencyService } from '@spinajs/idempotency';
-import { Schedule, ScheduledTask } from '@spinajs/scheduler';
-import type { RunContext } from '@spinajs/scheduler';
+`@spinajs/idempotency` itself sweeps nothing. Without a sweep, expired rows stay in `__idempotency` (the ORM store);
+the memory store only evicts completed keys above its `maxEntries`.
 
-@Schedule('app.idempotency-sweep', { every: '5m', runOn: 'leader', overlap: 'skip' })
-export class IdempotencySweep extends ScheduledTask {
-  @Autoinject(IdempotencyService)
-  protected Idempotency: IdempotencyService;
+With `@spinajs/scheduler`, install `@spinajs/idempotency-scheduler` and import it once in the app entry:
 
-  public async execute(ctx: RunContext): Promise<{ swept: number }> {
-    let swept = 0;
-    while (!ctx.signal.aborted) {
-      const batch = await this.Idempotency.sweep();
-      swept += batch;
-      if (batch === 0) break;
-    }
-    ctx.result({ swept });
-    return { swept };
-  }
-}
+```ts
+import '@spinajs/idempotency-scheduler';
 ```
 
-`runOn: 'leader'` keeps the replicas from sweeping the same rows at once. Without the scheduler, call
-`IdempotencyService.sweep()` from whatever timer the app already has.
+It registers the builtin schedule `idempotency.sweep`, which runs every `idempotency.sweepEvery` (default `5m`) on the
+leader. Each run sweeps batch after batch until one comes back empty, stores `{ swept, batches }` as its result and
+logs one line. See [`@spinajs/idempotency-scheduler`](../idempotency-scheduler/README.md) for how to see its runs,
+trigger it and switch it off.
+
+Without that package, call `IdempotencyService.sweep()` from whatever timer the app already has, until it answers 0.
