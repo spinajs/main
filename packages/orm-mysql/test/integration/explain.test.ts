@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { asRecord, Orm, QueryContext, redactPlan } from '@spinajs/orm';
+import { Orm, QueryContext, redactPlan } from '@spinajs/orm';
+import { asPlainObject } from '@spinajs/util';
 import type { PlanNode } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
@@ -43,13 +44,13 @@ function reachable(): Promise<boolean> {
 /** mysql2's `errno` of the error or of what it wraps (`inner`, `cause`). */
 function errnos(err: unknown): number[] {
   const found: number[] = [];
-  let current = asRecord(err);
+  let current = asPlainObject(err);
   for (let depth = 0; current && depth < 6; depth++) {
     const errno = current['errno'];
     if (typeof errno === 'number') {
       found.push(errno);
     }
-    current = asRecord(current['inner'] ?? current['cause']);
+    current = asPlainObject(current['inner'] ?? current['cause']);
   }
   return found;
 }
@@ -105,7 +106,7 @@ describe('mysql explain (integration)', function () {
     await driver().explain('SELECT * FROM explain_user WHERE Name = ?', ["x'; DROP TABLE explain_user; --"]);
 
     const rows: unknown = await driver().executeOnDb('SELECT COUNT(*) AS n FROM explain_user', [], QueryContext.Select);
-    expect(Number(asRecord(Array.isArray(rows) ? rows[0] : undefined)?.['n'])).to.equal(1);
+    expect(Number(asPlainObject(Array.isArray(rows) ? rows[0] : undefined)?.['n'])).to.equal(1);
   });
 
   it('names the subqueries of a select list and of ORDER BY the way the normaliser reads them', async () => {

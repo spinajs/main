@@ -1,5 +1,6 @@
 import { InvalidArgument } from '@spinajs/exceptions';
-import { asNumber, asRecord, asString, planNode } from '@spinajs/orm';
+import { planNode } from '@spinajs/orm';
+import { asPlainObject, asString, toFiniteNumber } from '@spinajs/util';
 import type { PlanNode, QueryPlan } from '@spinajs/orm';
 
 // Keys of postgres' EXPLAIN vocabulary that go into `detail`, where the redaction sanitizes them; any other key
@@ -40,22 +41,22 @@ function node(plan: Record<string, unknown>): PlanNode {
     .filter((part): part is string => part !== undefined);
   const plans: unknown = plan['Plans'];
   const children = (Array.isArray(plans) ? plans : [])
-    .map((child) => asRecord(child))
+    .map((child) => asPlainObject(child))
     .filter((child): child is Record<string, unknown> => child !== undefined)
     .map(node);
 
   return planNode(label(plan), children, {
     detail: parts.length > 0 ? parts.join('; ') : undefined,
-    estimatedRows: asNumber(plan['Plan Rows']),
-    estimatedCost: asNumber(plan['Total Cost']),
+    estimatedRows: toFiniteNumber(plan['Plan Rows']),
+    estimatedCost: toFiniteNumber(plan['Total Cost']),
   });
 }
 
 /** One row whose `QUERY PLAN` cell is `[{ Plan }]`: `pg` parses the json type, other clients hand over the text. */
 export function normalizePostgresPlan(rows: unknown): QueryPlan {
-  const cell = asRecord(Array.isArray(rows) ? rows[0] : undefined)?.['QUERY PLAN'];
+  const cell = asPlainObject(Array.isArray(rows) ? rows[0] : undefined)?.['QUERY PLAN'];
   const document: unknown = typeof cell === 'string' ? JSON.parse(cell) : cell;
-  const plan = asRecord(asRecord(Array.isArray(document) ? document[0] : undefined)?.['Plan']);
+  const plan = asPlainObject(asPlainObject(Array.isArray(document) ? document[0] : undefined)?.['Plan']);
   if (!plan) {
     throw new InvalidArgument('unrecognised postgres EXPLAIN (FORMAT JSON) output');
   }
