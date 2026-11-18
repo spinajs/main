@@ -66,7 +66,7 @@ sequenceDiagram
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Access(permission, opts?)` | class or method | `permission`: one `Permission` or a non-empty list (any of them grants); `opts`: `AccessOptions` below | Adds the `AccessPolicy` group (AND with `opts.also`). On a class it guards every route; a route `@Access` then narrows it (AND). |
-| `@AllowAnonymous()` | class or method | none | Lets a principal with `authenticated: false` pass the authentication step of `@Access`. A request with no principal still gets 401. |
+| `@AllowAnonymous()` | class or method | none | Lets a principal with `authenticated: false` pass the authentication step of `@Access`. A request with no principal still gets 401 from `@Access`. On a method it also lifts the class's `@Policy(IsAuthenticated)` for that route: see [A public route under a class policy](#a-public-route-under-a-class-policy). |
 | `@Unscoped(reason)` | method | `reason`: non-empty string | Adds `UnscopedMiddleware`: after the policies pass, it sets `req.storage.Unscoped = reason` and records an `unscoped` audit entry. Route registration fails when neither the route nor its class has `@Access`. |
 | `@UnfilteredInput(reason)` | class or method | `reason`: non-empty string | Turns off the body field filter of the route; see [Field filters](06-field-filters.md). |
 | `@CurrentPrincipal()` | parameter | none | The request's principal; see [Principal resolution](03-principal-resolution.md). |
@@ -94,7 +94,7 @@ Each error goes through http's error handler, which answers `{ ...error fields, 
 | Status | When | Body fields |
 | --- | --- | --- |
 | 401 | No principal on an `@Access`, `HasPrincipal` or `IsAuthenticated` route. | `error: 'unauthenticated'`, `message: 'this route needs a principal'` |
-| 401 | An unauthenticated principal on an `@Access` route without `@AllowAnonymous`, or on an `IsAuthenticated` route. | `error: 'unauthenticated'`, `message: 'this route needs an authenticated principal'` |
+| 401 | An unauthenticated principal on an `@Access` route without `@AllowAnonymous`, or on an `IsAuthenticated` route (a class `IsAuthenticated` on a route with its own `@AllowAnonymous` excepted). | `error: 'unauthenticated'`, `message: 'this route needs an authenticated principal'` |
 | 403 | The `AuthzDomainResolver` names a domain no live domain bears. | `error: 'forbidden'`, `reason: { code: 'unknown_domain' }` |
 | 403 | Every permission of the rule is denied, or a conditional allow finds no row or no adapter that can load it. | `error: 'forbidden'`, `permission`, `resource`, `reason` (the deny reason without `priority` and `sortKey`, e.g. `{ code: 'no_access' }`), `trace` only when [explain](09-explain.md#trace-in-a-403) allows it |
 | 400 | An extractor finds no usable id, or a custom extractor returns `null` or `undefined`. | `message`, `fieldName` (`url parameter id`, `body.projectId`, `query parameter team` or `resource`) |
@@ -188,7 +188,9 @@ export class PayoutsController extends BaseController {
 - **Another `@Policy` group is an alternative (OR).** `@Policy(X)` next to `@Access` at the same place lets the route run when `X` alone passes. Put extra checks in `also`.
 - **A subclass replaces, never adds.** `@Access` on a subclass replaces the inherited `@Access` group of that place. A subclass without `@Access` keeps the parent's.
 - **401 comes before any model.** An anonymous request on a route without `@AllowAnonymous` never reaches the engine.
-- **`@AllowAnonymous` does not admit a missing principal.** With `authz.principals.anonymous.enabled: false` an unrecognised request has no principal and gets 401 everywhere.
+- **`@AllowAnonymous` does not admit a missing principal to `@Access`.** With `authz.principals.anonymous.enabled: false` an unrecognised request has no principal and gets 401 from every `@Access`.
+- **A method `@AllowAnonymous` lifts the class `IsAuthenticated`, and nothing else.** That `IsAuthenticated` passes on the route for every request, with or without a principal. The other policies of its own `@Policy` group still run and can refuse. An `IsAuthenticated` on the route itself (by type or by configuration key), and a class-level `@AllowAnonymous`, lift nothing.
+- **The class's other groups stop gating the lifted route.** A second class `@Policy(X)` or a class `@Access` is an alternative (OR) to the `IsAuthenticated` group, so once that group passes, the route runs whatever they decide. With `@Policy(IsAuthenticated)` and `@Access('report:read')` on the class, an `@AllowAnonymous` method is open to everybody, permission or not. Put a check that must still hold into the same group (`@Policy([IsAuthenticated, X])`) or onto the route.
 - **`@Unscoped` runs only after the policies pass.** A refused request writes no audit entry. The reason in `req.storage.Unscoped` lets authz-orm's access guard skip the route's multi-row selects that have no `.accessible()` ([Access lists](../authz-orm/01-access-lists.md)). It does not remove an `.accessible()` filter the code adds.
 - **The boot sees controllers registered before it.** A controller registered after a domain booted is checked by that domain's next boot only.
 - **Only the route's own decision is kept.** When the class `@Access` and the route `@Access` both pass, the route's decision goes to `req.storage.AuthzDecision`.
@@ -308,6 +310,34 @@ export class MeController extends BaseController {
   }
 }
 ```
+
+### A public route under a class policy
+
+`@Policy(IsAuthenticated)` on the class answers 401 to unrecognised callers on every route. `@AllowAnonymous()` on one method opens that route: the class `IsAuthenticated` passes there, even for a request without a principal.
+
+```ts sample
+import { AllowAnonymous, IsAuthenticated } from '@spinajs/authz-http';
+import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
+
+@BasePath('api')
+@Policy(IsAuthenticated)
+export class StatusController extends BaseController {
+  // 200 for everybody.
+  @Get('health')
+  @AllowAnonymous()
+  public health() {
+    return new Ok({ status: 'up' });
+  }
+
+  // 401 without an authenticated principal.
+  @Get('status')
+  public status() {
+    return new Ok({ jobs: [] });
+  }
+}
+```
+
+With `@Policy([IsAuthenticated, TenantCheck])` on the class, `TenantCheck` still runs on `health` and can refuse it; only the authentication requirement is lifted. With `@Policy(IsAuthenticated)` and a separate `@Policy(TenantCheck)` or `@Access(...)` on the class, those are alternatives to the lifted group and no longer refuse `health`.
 
 ## Related
 

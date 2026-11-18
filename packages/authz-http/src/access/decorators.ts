@@ -65,7 +65,10 @@ export function Access(permission: Permission | readonly Permission[], opts?: Ac
   }) as ClassDecorator & MethodDecorator;
 }
 
-/** Lets an unauthenticated principal (anonymous) pass the authentication part of `@Access`; without a principal the route still answers 401. */
+/**
+ * Lets an unauthenticated principal (anonymous) pass the authentication part of `@Access`; without a principal
+ * `@Access` still answers 401. On a method it also lifts the class's `IsAuthenticated` for that route.
+ */
 export function AllowAnonymous(): ClassDecorator & MethodDecorator {
   return ((target: object, propertyKey?: string | symbol) => {
     ownAccessDescriptor(target).Anonymous.set(propertyKey ?? ACCESS_CLASS, true);
