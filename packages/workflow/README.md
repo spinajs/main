@@ -21,29 +21,7 @@ The contract:
   `ctx.random()` inside a branch. Sequential code keeps its keys (`step:save#1`, `step:save#2`).
 - **A branch must make a durable call before any non-durable await.** A branch that first awaits something else (an
   HTTP call, a file read, a timer) has no identity yet: its calls are counted in the order they happen to be made.
-  Use `ctx.all`, make a durable call first, or give such branches per-item step names (`save:${id}`).
-- `ctx.all(items, fn)` and `ctx.branch(name, fn)` name a branch before it runs. Use them when a branch starts with
-  non-durable work, and when code goes on after a race:
-
-  ```ts
-  await ctx.all(items, async (item) => {
-    const price = await pricing.get(item);
-    return ctx.step('charge', () => payments.charge(item, price));
-  });
-  ```
-
-  A branch writes no journal row. `ctx.all` names its branches by index, so the order of `items` must be the same on
-  every replay. `ctx.all(items, fn, { concurrency: 4 })` runs at most four branches at a time; each item still has
-  the branch of its index. The code after `ctx.all` or `ctx.branch` goes on in the branch the caller was in when it
-  made the call. A durable call started earlier in the same synchronous turn still forks as usual: after
-  `await Promise.all([ctx.step('a', ...), ctx.branch('b', ...)])` the code is in the branch after `a`.
-- To keep a limiter of your own, wrap each task in `ctx.branch`. The branch is named before the task runs, and the
-  limiter gets its own context back when the task returns its promise:
-
-  ```ts
-  const limit = pLimit(4);
-  await Promise.all(items.map((item) => limit(() => ctx.branch(`item:${item.id}`, () => handle(ctx, item)))));
-  ```
+  Either make a durable call first, or give such branches per-item step names (`save:${id}`).
 - **What goes wrong when branches share one count.** In the case above and in the five below, several pieces of
   code number their calls together, in the order they happen to run. After a crash, a replay with other timing
   either hands one caller the journaled result of another without any error, or fails the instance with
@@ -51,17 +29,17 @@ The contract:
   compensated.
 - After `Promise.race`, `Promise.any` or a `Promise.all` that rejected, the code that follows shares a branch with the
   last call of the fan-out. If code chained to that call is still making durable calls, the two are counted together
-  by timing. Use `ctx.branch` for each side of the race, or wait for every branch (`Promise.allSettled`).
+  by timing. Put the call that has code chained to it first, or wait for every branch (`Promise.allSettled`).
 - Start concurrent durable calls in one synchronous turn. A call started later, next to one that is still running,
   is counted after it in the same branch.
 - A concurrency limiter (`p-limit`, `p-map`, a hand-written pool) starts most of its tasks later, in the context of
-  whichever task has just finished, so none of them is a branch. Use `ctx.all(items, fn, { concurrency })`, or wrap
-  each task in `ctx.branch` as shown above.
+  whichever task has just finished, so none of them is a branch. Give the steps of limited tasks per-item names.
 - A wrapper that restores the whole async context around each branch (`AsyncResource.runInAsyncScope`, a callback
-  made with `AsyncResource.bind`) hides the branches from each other; they count as one. Call `ctx.branch` inside the
-  wrapper. `AsyncLocalStorage.run()` of another store, such as a tracing span, is safe.
+  made with `AsyncResource.bind`) hides the branches from each other; they count as one. Give their steps per-item
+  names. `AsyncLocalStorage.run()` of another store, such as a tracing span, is safe.
 - Branches that all await one durable promise (`const user = ctx.step('load', ...)`, then `await user` in every
-  branch) resume as one branch. Use `ctx.all` for the branches, or give their steps per-item names.
+  branch) resume as one branch. Await that call before the fan-out and start each branch with a durable call of
+  its own, or give their steps per-item names.
 - With per-item step names every recorded result belongs to exactly one call, so the moment a call is made may
   differ between the first run and a replay.
 - A sleep that is not due, a wait without an event and a step waiting out its retry backoff do not suspend the run
