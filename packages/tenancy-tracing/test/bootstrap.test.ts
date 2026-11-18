@@ -6,7 +6,7 @@ import { resetTracing, useInMemorySpans } from '@spinajs/tracing/testing';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 
-import '../src/index.js';
+import { TenantTracingBootstrapper } from '../src/index.js';
 
 const noop = async (): Promise<void> => undefined;
 
@@ -27,9 +27,10 @@ describe('importing @spinajs/tenancy-tracing', function () {
 
   it('attaches the processor to the tracing hub once Configuration is resolved, and only once', async () => {
     expect(tracingState().hub?.size).to.eq(1);
-    const again = await createTestApp({ scope: 'child' });
+    const bootstrapper = await app.resolve(TenantTracingBootstrapper);
+    bootstrapper.bootstrap();
+    bootstrapper.bootstrap();
     expect(tracingState().hub?.size).to.eq(1);
-    await again.dispose();
   });
 
   it('keeps id-only tracing while nothing but the processor is attached', () => {
