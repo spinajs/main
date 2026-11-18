@@ -78,7 +78,7 @@ export class AuditBilling_2026_11_17_00_00_00 extends AuditTrailTableMigration {
 }
 ```
 
-**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. A configured table trail without its own `table` gets `audit_event` and therefore collides with `default`. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused.
+**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. A configured table trail without its own `table` gets `audit_event` and therefore collides with `default`. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused. The check reads the trails of the root container's configuration and the store classes registered there: trails a child container configures on its own, and a store registered through a factory, are not checked.
 
 ## Write modes
 
