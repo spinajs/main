@@ -6,6 +6,7 @@
 import { InternalLogger } from '@spinajs/internal-logger';
 /* eslint-disable prettier/prettier */
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { FrameworkConfiguration } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types.js';
@@ -102,7 +103,15 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     });
 
     const final: IConfigLike = {} as IConfigLike;
-    dbOptions.forEach((entry) => {
+    // A refused row would fail the boot after all sources ran, so it is dropped here; the order decides which of two
+    // rows valid only together is dropped.
+    _.sortBy(dbOptions, (entry) => entry.Id).forEach((entry) => {
+      const violations = this.Configuration instanceof FrameworkConfiguration ? this.Configuration.violationsAdded(entry.Slug, entry.Value, final) : [];
+      if (violations.length !== 0) {
+        InternalLogger.error({ slug: entry.Slug, violation: violations.map((v) => `${v.path} ${v.message}`).join('; ') }, 'configuration row ${slug} refused: ${violation}', 'configuration-db-source');
+        return;
+      }
+
       InternalLogger.trace({ slug: entry.Slug }, 'Loaded config ${slug} from db source', 'Configuration-db-source');
       _.set(final, entry.Slug, entry.Value);
     });

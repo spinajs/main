@@ -53,6 +53,14 @@ function assertSafePath(path: string[] | string) {
 
 const isUnresolved = (v: unknown) => v instanceof ConfigVar && (v.get() ?? null) === null;
 
+// True when one path is a prefix of the other: a module at, under or above a path.
+function overlaps(a: string[], b: string[]) {
+  const n = Math.min(a.length, b.length);
+  return _.isEqual(a.slice(0, n), b.slice(0, n));
+}
+
+const violationKey = (v: ConfigurationViolation) => `${v.schema}\u0000${v.path}\u0000${v.message}`;
+
 function withLazyVars<T extends object>(obj: T): T {
   const proxy = new Proxy(obj, {
     get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
@@ -524,11 +532,30 @@ export class FrameworkConfiguration extends Configuration {
   private schemasAt(path: string[] | string): IConfigurationSchema[] {
     if (this.ValidationSchemas === undefined || this.Loading) return [];
     const target = _.toPath(path);
-    return this.schemasOfLineage().filter((s) => {
-      const module = _.toPath(s.$configurationModule);
-      const n = Math.min(module.length, target.length);
-      return _.isEqual(module.slice(0, n), target.slice(0, n));
-    });
+    return this.schemasOfLineage().filter((s) => overlaps(_.toPath(s.$configurationModule), target));
+  }
+
+  /**
+   * The violations that merging `value` at `path` would add to the modules a schema covers there, on the tree as it is
+   * now with `over` merged into it. Changes nothing; while a source loads, the tree is what the earlier sources loaded.
+   */
+  public violationsAdded(path: string[] | string, value: unknown, over: IConfigLike = {}): ConfigurationViolation[] {
+    const target = _.toPath(path);
+    if (target.length === 0 || this.Validator === undefined) return [];
+    const schemas = this.schemasOfLineage().filter((s) => overlaps(_.toPath(s.$configurationModule), target));
+    if (schemas.length === 0) return [];
+
+    const top = _.minBy([target, ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? target;
+    const subtree = (tree: unknown) => _.set({}, top, copyForCheck(_.get(tree, top))) as Record<string, unknown>;
+    // Ajv rewrites what it checks, so each check gets a copy of its own.
+    const base = () => _.mergeWith(subtree(this.Config), subtree(over), mergeArrays);
+    const known = new Set(this.violationsIn(schemas, base()).map(violationKey));
+    return this.violationsIn(schemas, _.mergeWith(base(), _.set({}, target, copyForCheck(value)), mergeArrays)).filter((v) => !known.has(violationKey(v)));
+  }
+
+  // An absent module is checked as `{}`, so that a key the tree gets later (onLoad(), a DI value) is not blamed on a change.
+  private violationsIn(schemas: IConfigurationSchema[], root: Record<string, unknown>): ConfigurationViolation[] {
+    return schemas.flatMap((s) => (this.Validator.validate(s, _.get(root, s.$configurationModule) ?? {}) ? [] : this.failureOf(s).violations));
   }
 
   // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a
