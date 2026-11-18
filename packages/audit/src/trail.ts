@@ -1,7 +1,8 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import type { AuditFilter, AuditPinnedHead, AuditQuery, AuditReader, AuditService, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
+import type { AuditFilter, AuditPinnedHead, AuditQuery, AuditReader, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
+import type { RecordErasure } from './erasure.js';
 import { AuditConfigError, AuditNotSupported } from './errors.js';
 import { quoted } from './guards.js';
 import { auditStore } from './stores.js';
@@ -26,7 +27,7 @@ export async function listAudit(config: TrailConfig, operation: string, by: Pick
 }
 
 export class StoreAuditTrail implements AuditTrail {
-  constructor(private readonly service: AuditService, public readonly config: TrailConfig, private readonly container: IContainer = DI.RootContainer) {}
+  constructor(private readonly recordErasure: RecordErasure, public readonly config: TrailConfig, private readonly container: IContainer = DI.RootContainer) {}
 
   byActor(actor: string, query?: AuditQuery): Promise<readonly StoredAuditEvent[]> {
     return listAudit(this.config, 'byActor', { actor }, query, this.container);
@@ -49,7 +50,7 @@ export class StoreAuditTrail implements AuditTrail {
     const reader = await readerOf(this.config, 'forget', this.container);
     let total = 0;
     for await (const { connection, redacted } of reader.redactEach(this.config, subject, source)) {
-      await this.service.record({ kind: 'custom', action: 'erasure', subject, data: { redacted } }, { trail: this.config.name, mode: 'confirmed', connection });
+      await this.recordErasure(subject, redacted, { trail: this.config.name, connection });
       total += redacted;
     }
     return total;

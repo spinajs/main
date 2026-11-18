@@ -25,8 +25,10 @@ Examples of each kind:
 { kind: 'read', action: 'patient.read', subject: { type: 'patient', id: '7' }, dataSubject: 'patient:7' }
 { kind: 'action', action: 'invoice.export', outcome: 'denied', data: { format: 'pdf' } }
 { kind: 'security', action: 'login', outcome: 'failed', data: { strategy: 'local', reason: 'bad-password' } }
-{ kind: 'custom', action: 'erasure', subject: { type: 'customer', id: '9' }, data: { redacted: 3 } }
+{ kind: 'custom', action: 'contract.signed', subject: { type: 'contract', id: '9' }, data: { version: 3 } }
 ```
+
+`kind: 'custom'` with `action: 'erasure'` is reserved for the record `forget` writes ([Erasure](08-erasure.md)): `record()` refuses it with `AuditConfigError`.
 
 Values the context supplies are cut to their column widths (`AUDIT_WIDTHS`); values the input supplies are refused with `AuditConfigError` when they do not fit, so an event is valid for every store or for none.
 

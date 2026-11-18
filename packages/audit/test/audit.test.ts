@@ -120,6 +120,7 @@ const boot = (deferred: Record<string, unknown> = {}, audit: Record<string, unkn
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const actions = (...names: string[]): AuditInput[] => names.map((action) => ({ kind: 'action', action }));
+const patientOf = (id: string) => ({ type: 'patient', id });
 
 describe('audit().record', function () {
   this.timeout(15000);
@@ -334,6 +335,25 @@ describe('audit().record', function () {
     await expect(audit().record(input, { trail: 'strict', mode: 'deferred' })).to.be.rejectedWith(AuditConfigError, "audit: a deferred write cannot reject, and trail \"strict\" is written with onFailure 'reject'; use mode 'confirmed'");
     await expect(audit().record({ kind: 'action', action: '' })).to.be.rejectedWith(AuditConfigError, 'audit: action must be 1 to 128 characters');
     await expect(audit().record({ kind: 'action', action: 'x', subject: { type: 't', id: 'i'.repeat(256) } })).to.be.rejectedWith(AuditConfigError, 'audit: subject.id must be 1 to 255 characters');
+  });
+
+  it('refuses the reserved erasure pair on every write mode, and writes nothing of the call', async () => {
+    const reserved = { kind: 'custom', action: 'erasure', subject: patientOf('9'), data: { email: 'a@b.c' } } as const;
+    const REFUSED = "audit: kind 'custom' with action 'erasure' is reserved for the record AuditTrail.forget writes; record this event under another action";
+    for (const options of [{ mode: 'transactional', transaction: {} }, { mode: 'confirmed' }, { mode: 'deferred' }, {}] as const) {
+      await expect(audit().record(reserved, options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+      await expect(audit().record([{ kind: 'action', action: 'kept' }, reserved], options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+    }
+    await audit().flush();
+    expect(MemoryAuditStore.appends()).to.deep.eq([]);
+
+    // Only the pair is reserved.
+    await audit().record({ kind: 'action', action: 'erasure', subject: patientOf('9') }, { mode: 'confirmed' });
+    await audit().record({ kind: 'custom', action: 'erasure.requested', subject: patientOf('9') }, { mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => [e.kind, e.action])).to.deep.eq([
+      ['action', 'erasure'],
+      ['custom', 'erasure.requested'],
+    ]);
   });
 
   it('writes out the buffer when the service is disposed', async () => {

@@ -10,6 +10,8 @@ import { Log } from '@spinajs/log-common';
 import { auditContext } from './context.js';
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, AuditService } from './contracts.js';
 import type { AuditEvent, AuditInput, AuditStore, AuditTrail, AuditWriteMode, AuditWriteOptions, TrailConfig } from './contracts.js';
+import { ERASURE, isErasureRecord } from './erasure.js';
+import type { RecordErasure } from './erasure.js';
 import { AuditConfigError, AuditWriteFailed } from './errors.js';
 import { quoted } from './guards.js';
 import { canonicalJson } from './hash.js';
@@ -163,6 +165,12 @@ export class DefaultAuditService extends AuditService {
   private readonly joinUnknown = new Set<string>();
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
+    const inputs = isList(input) ? input : [input];
+    if (inputs.some(isErasureRecord)) throw new AuditConfigError(`audit: kind '${ERASURE.kind}' with action '${ERASURE.action}' is reserved for the record AuditTrail.forget writes; record this event under another action`);
+    return this.submit(inputs, options);
+  }
+
+  private async submit(inputs: readonly AuditInput[], options: AuditWriteOptions): Promise<void> {
     const trail = trailConfig(options.trail, this.Container);
     const { mode, onFailure } = wayOf(trail, options);
     const store = await auditStore(trail, this.Container);
@@ -170,7 +178,7 @@ export class DefaultAuditService extends AuditService {
       throw new AuditConfigError(`audit: a transactional write to trail ${quoted(trail.name)} needs a store that joins the caller's transaction, and ${store.constructor.name} does not`);
     }
 
-    const events = stamped(isList(input) ? input : [input], this.Container).map(maskOf(trail, options, this.Container));
+    const events = stamped(inputs, this.Container).map(maskOf(trail, options, this.Container));
     if (events.length === 0) return;
     if (mode === 'transactional') return this.joined(store, trail, events, options.transaction);
     if (mode === 'deferred') return this.defer(trail, store, events, options.connection);
@@ -180,7 +188,8 @@ export class DefaultAuditService extends AuditService {
   }
 
   trail(name?: string): AuditTrail {
-    return new StoreAuditTrail(this, trailConfig(name, this.Container), this.Container);
+    const recordErasure: RecordErasure = (subject, redacted, options) => this.submit([{ ...ERASURE, subject, data: { redacted } }], { ...options, mode: 'confirmed' });
+    return new StoreAuditTrail(recordErasure, trailConfig(name, this.Container), this.Container);
   }
 
   flush(): Promise<void> {

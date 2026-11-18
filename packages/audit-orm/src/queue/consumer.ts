@@ -1,4 +1,4 @@
-import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, trailConfig } from '@spinajs/audit';
+import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, isErasureRecord, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, AuditSubject, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
@@ -7,7 +7,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 
 import { isTableTrail } from '../own-tables.js';
-import { REDACTED_DATA, auditConnection, erasureRecords, exceptErasureRecords, isErasureRecord, rowsOf } from '../rows.js';
+import { REDACTED_DATA, auditConnection, erasureRecords, exceptErasureRecords, rowsOf } from '../rows.js';
 import { archiveDriver } from '../ship/archive.js';
 import { ArchiveAuditSink } from '../ship/archive-sink.js';
 import { OutboxAuditStore } from '../ship/outbox-store.js';
