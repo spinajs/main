@@ -198,10 +198,23 @@ export interface AuditVerifyReport {
   readonly earlyPrunes: readonly { readonly fromSeq: number; readonly toSeq: number }[];
 }
 
+/** What an erasure blanked on one connection, where `forget` records its `erasure` event; `connection` undefined is the trail's own. */
+export interface AuditRedaction {
+  readonly connection: string | undefined;
+  readonly redacted: number;
+}
+
 export abstract class AuditReader {
   abstract list(trail: TrailConfig, filter: AuditFilter): Promise<readonly StoredAuditEvent[]>;
   /** Blanks the payload of every event of one subject and keeps its hash; returns how many. */
   abstract redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number>;
+  /**
+   * The erasure `forget` runs: one entry per connection that needs an `erasure` record of its own, because `verify`
+   * looks for it beside the payloads it explains. By default `redact` on `source`, recorded there.
+   */
+  async redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<readonly AuditRedaction[]> {
+    return [{ connection: source, redacted: await this.redact(trail, subject, source) }];
+  }
   abstract prune(trail: TrailConfig, before: Date, source?: string): Promise<number>;
   /** Optional: recomputes the seals of the trail's table; a pinned head must be met on the chain. A reader that cannot leaves it out. */
   verify?(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;
@@ -239,7 +252,7 @@ export interface AuditTrail {
   of(subject: AuditSubject, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
   byTrace(traceId: string, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
   since(seq: number, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
-  /** Redacts one subject and records an 'erasure' event, both on `source` when one is given. */
+  /** Redacts one subject and records an 'erasure' event beside what it redacted (`AuditReader.redactEach`); returns how many events it blanked. */
   forget(subject: AuditSubject, source?: string): Promise<number>;
   /** Recomputes the seals of a sealed trail; throws AuditNotSupported when the trail is not sealed, has no reader, or its reader cannot verify. */
   verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;

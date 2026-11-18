@@ -16,7 +16,7 @@ export async function eraseCustomer(id: string): Promise<number> {
 - **Kept:** every other field (`id`, `at`, `kind`, `action`, `subject`, `actor`, ...) and `data_hash`, the hash of the payload that was there. So who did what to the subject and when stays on record, and a seal over the event still verifies ([Integrity and verification](07-integrity-and-verification.md)).
 - **Returned:** how many events this call blanked; events already blank are not counted again.
 
-Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, the subject, `data: { redacted: <count> }`) in the confirmed mode, on `source` when one is given and on the trail's `connection` otherwise, so it lies beside the events it redacted. On a `reject` trail a failure to record it throws `AuditWriteFailed` after the payloads were blanked.
+Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, the subject, `data: { redacted: <count> }`) in the confirmed mode beside the events it redacted: on `source` when one is given; without one on the trail's `connection`, and on each other connection where it blanked something, with that connection's count. `verify` looks for the record in the same table on the same connection. On a `reject` trail a failure to record one throws `AuditWriteFailed` after the payloads were blanked.
 
 `subject` and `dataSubject` are not touched, so a subject key must not itself be personal data you have to erase.
 
@@ -24,11 +24,11 @@ Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`,
 
 | Trail | `forget(subject)` | `forget(subject, source)` |
 | --- | --- | --- |
-| Table trail | The table on the trail's `connection` only. | The table on `source`. |
+| Table trail | The table on every connection that holds it (with the columns `seq`, `at` and `data_hash`), the trail's `connection` included. | The table on `source`. |
 | Shipping trail with a reader | The buffer on every connection that holds `audit_outbox`, and the destination for every source. | The buffer on `source`, and the destination's events of that source. |
 | Shipping trail without a reader, `LogAuditStore` | Refused with `AuditNotSupported`; nothing is touched. | The same. |
 
-A table trail written transactionally on several connections needs one `forget` per connection, with its `source`.
+A table trail written transactionally keeps events on the connection of each audited write, so `forget(subject)` looks for the trail table on every ORM connection before it blanks anything; a connection that cannot be looked at fails the call with nothing erased. Pass `source` to erase on one connection.
 
 ## Shipping trails
 

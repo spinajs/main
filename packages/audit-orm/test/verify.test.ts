@@ -65,6 +65,34 @@ describe('audit verification', function () {
     }
   });
 
+  it('finds the erasure record on every connection a subject was forgotten on', async () => {
+    const both = ['sqlite', 'pglite'] as const;
+    const subject = { type: 'contract', id: 'c1' };
+    setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: db.connectionName('sqlite'), integrity: 'sealed' });
+    try {
+      for (const dialect of both) {
+        await db.migrate(dialect, TABLE);
+        await new AuditSealTableMigration().down(db.driver(dialect));
+        await new AuditSealTableMigration().up(db.driver(dialect));
+      }
+      const store = DI.resolve(TableAuditStore);
+      await store.append({ trail: trailConfig('sealed'), events: [event(1, { subject }), event(2)] });
+      await store.append({ trail: trailConfig('sealed'), events: [event(3, { subject })], connection: db.connectionName('pglite') });
+      await sealAudit({ settleMs: 0 });
+
+      expect(await audit().trail('sealed').forget(subject)).to.eq(2);
+      for (const dialect of both) {
+        expect(await audit().trail('sealed').verify(db.connectionName(dialect))).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
+    } finally {
+      setTrail('sealed', undefined);
+      for (const dialect of both) {
+        await db.drop(dialect, TABLE);
+        await new AuditSealTableMigration().down(db.driver(dialect));
+      }
+    }
+  });
+
   for (const dialect of TestDb.dialects()) {
     describe(dialect, () => {
       const driver = () => db.driver(dialect);

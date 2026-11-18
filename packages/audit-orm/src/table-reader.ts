@@ -1,11 +1,13 @@
 import { AuditReader } from '@spinajs/audit';
-import type { AuditFilter, AuditPinnedHead, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
+import { distinctConnections } from './ship/services.js';
+import { trailTableOn } from './trail-tables.js';
 
 const DELETE_CHUNK = 500;
 
@@ -57,8 +59,32 @@ export class TableAuditReader extends AuditReader {
   }
 
   /** Without a `source`, a table with a source column is redacted for every source. */
-  async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
-    const update = this.driver(trail, source).update().in(this.table(trail)).update({ data: REDACTED_DATA });
+  redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+    return this.redactOn(this.driver(trail, source), trail, subject, source);
+  }
+
+  /**
+   * Without a `source`, a table without a source column is redacted on every connection that holds it, the trail's own
+   * first: transactional events sit on the connection of each audited write. Every connection is looked at before
+   * anything is blanked. Another connection gets an erasure record only where something was blanked.
+   */
+  override async redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<readonly AuditRedaction[]> {
+    if (source !== undefined || this.hasSourceColumn()) return super.redactEach(trail, subject, source);
+    const own = this.driver(trail, undefined);
+    const others: OrmDriver[] = [];
+    for (const driver of distinctConnections()) {
+      if (driver !== own && (await trailTableOn(driver, this.table(trail))) === 'trail') others.push(driver);
+    }
+    const redactions: AuditRedaction[] = [{ connection: undefined, redacted: await this.redactOn(own, trail, subject) }];
+    for (const driver of others) {
+      const redacted = await this.redactOn(driver, trail, subject);
+      if (redacted > 0) redactions.push({ connection: driver.Options.Name, redacted });
+    }
+    return redactions;
+  }
+
+  private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+    const update = driver.update().in(this.table(trail)).update({ data: REDACTED_DATA });
     if (source !== undefined && this.hasSourceColumn()) update.where('source', source);
     const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
     return RowsAffected;

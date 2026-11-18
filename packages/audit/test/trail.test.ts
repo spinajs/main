@@ -7,7 +7,7 @@ import { DI } from '@spinajs/di';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { AuditConfigError, AuditNotSupported, AuditStore, audit } from '../src/index.js';
-import type { AuditPinnedHead, AuditReader, AuditVerifyReport, TrailConfig } from '../src/index.js';
+import type { AuditPinnedHead, AuditReader, AuditRedaction, AuditSubject, AuditVerifyReport, TrailConfig } from '../src/index.js';
 import { MemoryAuditReader, MemoryAuditStore } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -30,8 +30,25 @@ class VerifyingStore extends MemoryAuditStore {
   }
 }
 
+// Erases on two connections, as a table trail whose table sits on several connections does.
+class SpreadingReader extends MemoryAuditReader {
+  override async redactEach(trail: TrailConfig, subject: AuditSubject): Promise<readonly AuditRedaction[]> {
+    return [
+      { connection: undefined, redacted: await this.redact(trail, subject) },
+      { connection: 'orders', redacted: 1 },
+    ];
+  }
+}
+
+class SpreadingStore extends MemoryAuditStore {
+  override reader(): Promise<AuditReader | undefined> {
+    return Promise.resolve(new SpreadingReader());
+  }
+}
+
 const TRAILS = {
   default: { store: 'MemoryAuditStore' },
+  spread: { store: 'SpreadingStore' },
   sealed: { store: 'VerifyingStore', integrity: 'sealed' },
   unverifiable: { store: 'MemoryAuditStore', integrity: 'sealed' },
   logged: { store: 'LogAuditStore', integrity: 'sealed' },
@@ -45,7 +62,13 @@ describe('audit().trail', function () {
 
   beforeEach(async () => {
     MemoryAuditStore.reset();
-    app = await createTestApp({ config: { logger: SILENT, audit: { trails: TRAILS } }, register: (container) => container.register(VerifyingStore).as(AuditStore) });
+    app = await createTestApp({
+      config: { logger: SILENT, audit: { trails: TRAILS } },
+      register: (container) => {
+        container.register(VerifyingStore).as(AuditStore);
+        container.register(SpreadingStore).as(AuditStore);
+      },
+    });
     await as('u1', TRACE, () =>
       audit().record(
         [
@@ -109,6 +132,15 @@ describe('audit().trail', function () {
     expect(await trail.forget({ type: 'patient', id: '99' }, 'orders')).to.eq(0);
     // The two appends of beforeEach, then one erasure without a source and one with.
     expect(MemoryAuditStore.appends().map((write) => write.connection)).to.deep.eq([undefined, undefined, undefined, 'orders']);
+  });
+
+  it('records one erasure per connection the reader erased on, and returns the sum', async () => {
+    expect(await audit().trail('spread').forget(patient)).to.eq(1);
+    const erasures = MemoryAuditStore.appends().filter((write) => write.events[0]?.action === 'erasure');
+    expect(erasures.map((write) => [write.connection, write.events[0].data])).to.deep.eq([
+      [undefined, { redacted: 0 }],
+      ['orders', { redacted: 1 }],
+    ]);
   });
 
   it('refuses a trail whose store has no reader, and an unknown trail', async () => {
