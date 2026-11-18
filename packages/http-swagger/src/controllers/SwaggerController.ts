@@ -3,12 +3,14 @@ import { Config } from '@spinajs/configuration';
 import { BaseController, BasePath, Get, Json, NotFound, TemplateResponse } from '@spinajs/http';
 import { SwaggerService } from '../swagger-service.js';
 import { ISwaggerUiConfig } from '../interfaces.js';
+import { AllowAnonymous } from '../access.js';
 
 /**
  * Controller that serves Swagger/OpenAPI documentation.
  * Provides the OpenAPI JSON spec and a Swagger UI interface.
  */
 @BasePath('docs')
+@AllowAnonymous()
 export class SwaggerController extends BaseController {
   @Autoinject()
   protected Swagger!: SwaggerService;

@@ -1,7 +1,8 @@
+import { getInheritedDescriptor } from '@spinajs/di';
 import type { IAuthzResource } from './interfaces.js';
 
 /**
- * Reads what `@spinajs/authz-http` writes through its global symbols instead of importing it:
+ * Reads and writes what `@spinajs/authz-http` keeps under its global symbols instead of importing it:
  * the barrel registers `PrincipalMiddleware`, which boots the authz domain with the server and
  * stops the server when that fails, so a swagger app without authz would break.
  * `swaggerAccess` of authz-http returns the same value (the snapshot test keeps them equal).
@@ -40,6 +41,15 @@ export interface SwaggerAccess {
   'x-authz-anonymous'?: true;
   'x-authz-unscoped'?: string;
   'x-authz-unfiltered-input'?: string;
+}
+
+const emptyDescriptor = (): AccessDescriptor => ({ Access: new Map(), Anonymous: new Map(), Unscoped: new Map(), UnfilteredInput: new Map() });
+
+/** authz-http's class-level `@AllowAnonymous()`: declares the routes public, so its unguarded-route check accepts them. */
+export function AllowAnonymous(): ClassDecorator {
+  return (target) => {
+    getInheritedDescriptor<AccessDescriptor>(target.prototype as object, ACCESS_DESCRIPTOR, emptyDescriptor).Anonymous.set(ACCESS_CLASS, true);
+  };
 }
 
 const IN = { param: 'path', body: 'body', query: 'query' } as const;
