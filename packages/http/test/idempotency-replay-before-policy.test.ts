@@ -470,10 +470,10 @@ describe('Idempotency-Key replay before the policy gate', function () {
 
       expect(first.body).to.deep.eq({ deleted: 'a', call: 1 });
       expect(other.status).to.eq(200);
-      expect(other.headers['idempotent-replayed']).to.eq(undefined);
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
       expect(other.body).to.deep.eq({ deleted: 'a', call: 2 });
-      expect([firstAgain.headers['idempotent-replayed'], firstAgain.text]).to.deep.eq(['true', first.text]);
-      expect([otherAgain.headers['idempotent-replayed'], otherAgain.text]).to.deep.eq(['true', other.text]);
+      expect([firstAgain.get('idempotent-replayed'), firstAgain.text]).to.deep.eq(['true', first.text]);
+      expect([otherAgain.get('idempotent-replayed'), otherAgain.text]).to.deep.eq(['true', other.text]);
       expect(state.actionCalls).to.eq(2);
     });
 
@@ -483,7 +483,7 @@ describe('Idempotency-Key replay before the policy gate', function () {
       const other = await remove('open/a', key, undefined, z2);
 
       expect(other.status).to.eq(200);
-      expect(other.headers['idempotent-replayed']).to.eq(undefined);
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
       expect(state.actionCalls).to.eq(2);
     });
 
@@ -493,8 +493,8 @@ describe('Idempotency-Key replay before the policy gate', function () {
       const again = await remove('a', 'zone-peek-1', 'u1', z1);
 
       expect(other.status).to.eq(403);
-      expect(other.headers['idempotent-replayed']).to.eq(undefined);
-      expect(again.headers['idempotent-replayed']).to.eq('true');
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
+      expect(again.get('idempotent-replayed')).to.eq('true');
       expect(state.policyCalls).to.eq(2);
       expect(state.actionCalls).to.eq(1);
     });

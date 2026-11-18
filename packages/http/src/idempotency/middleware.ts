@@ -150,9 +150,10 @@ export class ReplayedResponse extends Response<unknown> {
 
 /**
  * Runs the rest of the route chain at most once per Idempotency-Key, principal, route and IdempotencyScopePart parts (the
- * tenant, with @spinajs/tenancy-http), and replays the stored reply of a repeat. `@Idempotent` mounts it; `@spinajs/idempotency` is an optional peer, loaded only by onRegister, so an app
- * without `@Idempotent` routes loads neither it nor its table. An app on the ORM store imports the package itself,
- * before the boot: the Orm reads its models when it resolves.
+ * tenant, with @spinajs/tenancy-http), and replays the stored reply of a repeat. `@Idempotent` mounts it;
+ * `@spinajs/idempotency` is an optional peer, loaded only by onRegister, so an app without `@Idempotent` routes loads
+ * neither it nor its table. An app on the ORM store imports the package itself, before the boot: the Orm reads its
+ * models when it resolves.
  */
 @Injectable()
 @NewInstance()
