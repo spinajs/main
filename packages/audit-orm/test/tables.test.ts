@@ -38,7 +38,7 @@ describe('one table per trail', function () {
 
     before(async () => {
       // `reads` names another connection, but its events may sit in `audit_event` on any connection, as the default trail's do.
-      db = await TestDb.open({ trails: { reads: { connection: 'books', retentionDays: 30 }, own: { table: 'audit_own', onFailure: 'reject', retentionDays: 30 }, ghost: { store: 'BrokenStore' } } }, { connections: [BOOKS] });
+      db = await TestDb.open({ trails: { reads: { table: 'audit_event', connection: 'books', retentionDays: 30 }, own: { table: 'audit_own', onFailure: 'reject', retentionDays: 30 }, ghost: { store: 'BrokenStore' } } }, { connections: [BOOKS] });
       DI.register(BrokenStore).as(AuditStore);
       await db.migrate('sqlite', 'audit_own');
     });
@@ -75,11 +75,32 @@ describe('one table per trail', function () {
     });
   });
 
+  describe('a table trail without its own table', () => {
+    let db: TestDb;
+
+    before(async () => {
+      db = await TestDb.open({ trails: { security: { store: 'TableAuditStore' }, event: { onFailure: 'reject' } } });
+      await db.migrate('sqlite', 'audit_security');
+    });
+
+    after(async () => {
+      await db?.close();
+    });
+
+    it('writes into audit_<trail>, and is refused when that is the table of another trail', async () => {
+      await audit().record({ kind: 'custom', action: 'signed.in' }, { trail: 'security', mode: 'confirmed', onFailure: 'reject' });
+      await audit().record({ kind: 'custom', action: 'kept' }, { mode: 'confirmed', onFailure: 'reject' });
+      expect((await db.rows('sqlite', 'audit_security')).map((r) => r.action)).to.deep.eq(['signed.in']);
+      expect((await db.rows('sqlite', 'audit_event')).map((r) => r.action)).to.deep.eq(['kept']);
+      await expect(audit().record({ kind: 'custom', action: 'x' }, { trail: 'event' })).to.be.rejectedWith(AuditConfigError, 'audit: trails "default" and "event" both use table "audit_event"; give each trail its own table');
+    });
+  });
+
   describe('a trail of another store on the default table', () => {
     let db: TestDb;
 
     before(async () => {
-      db = await TestDb.open({ trails: { logged: { store: 'LogAuditStore', retentionDays: 1 } } });
+      db = await TestDb.open({ trails: { logged: { store: 'LogAuditStore', table: 'audit_event', retentionDays: 1 } } });
     });
 
     after(async () => {

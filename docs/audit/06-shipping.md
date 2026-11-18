@@ -16,7 +16,7 @@ A shipping trail does not keep its events in the application database. It buffer
 {
   "audit": {
     "trails": {
-      "shipped": { "store": "OutboxAuditStore", "sink": "ArchiveAuditSink", "reader": "ArchiveAuditReader", "archiveConnection": "audit", "table": "audit_shipped" }
+      "shipped": { "store": "OutboxAuditStore", "sink": "ArchiveAuditSink", "reader": "ArchiveAuditReader", "archiveConnection": "audit" }
     }
   }
 }
@@ -40,7 +40,7 @@ export class AuditShipped_2026_11_17_00_00_01 extends AuditArchiveTableMigration
 }
 ```
 
-The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too, so a shipping trail with an archive (`archiveConnection`) but without its own `table` (`audit_event`) collides with `default` and is refused. A shipping trail without an archive in this application (`archiveConnection` unset: shipped through a queue or a custom sink) claims no table.
+The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too. A shipping trail without `table` archives into `audit_<trail>` (`audit_shipped` above); `AuditArchiveTableMigration` creates `audit_event` unless `table()` is overridden, so override it as above. A shipping trail without an archive in this application (`archiveConnection` unset: shipped through a queue or a custom sink) claims no table.
 
 ## The shipping task
 

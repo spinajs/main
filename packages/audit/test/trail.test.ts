@@ -111,7 +111,7 @@ describe('audit().trail', function () {
   });
 
   it('verifies through the reader, and refuses a trail that is not sealed or cannot be verified here', async () => {
-    expect(await audit().trail('sealed').verify('orders')).to.include({ trail: 'sealed', connection: 'orders', table: 'audit_event', tampered: undefined });
+    expect(await audit().trail('sealed').verify('orders')).to.include({ trail: 'sealed', connection: 'orders', table: 'audit_sealed', tampered: undefined });
     expect((await audit().trail('sealed').verify(undefined, { toSeq: 7, hash: 'h' })).head).to.deep.eq({ toSeq: 7, hash: 'h' });
     await expect(audit().trail().verify()).to.be.rejectedWith(AuditNotSupported, 'audit: trail "default" is not sealed, so it has nothing to verify (audit.trails.default.integrity)');
     await expect(audit().trail('unverifiable').verify()).to.be.rejectedWith(AuditNotSupported, 'audit: the reader MemoryAuditReader of trail "unverifiable" cannot verify seals');

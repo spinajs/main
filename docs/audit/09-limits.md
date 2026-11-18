@@ -11,7 +11,7 @@ What a reader of the trail, and an operator of it, must not assume.
 - **Inside a transaction, await every `record`;** never `Promise.all` them (use `Promise.allSettled`), or a joined write may land after the transaction ended.
 - **Configuration is checked at boot, not all of it alike.** An unknown key in a trail, in `audit.deferred`, `audit.hashKey` or `audit.seal` fails the boot. An unknown key in `audit.ship` or `audit.queue` is dropped silently, so a misspelt option there keeps its default. A trail that names an unregistered store, or a table that is not migrated, fails where it is written.
 - **Hashed values** are comparable across restarts and processes only with `audit.hashKey.secret`.
-- **Tables:** one table per trail on every connection. A second trail on the same table is refused; a configured table trail without its own `table` collides with `default`. `audit_outbox` and `audit_seal` are reserved.
+- **Tables:** one table per trail on every connection. A second trail on the same table is refused. A trail without `table` uses `audit_<trail>`, and needs `table` when its name is not a plain identifier; renaming a trail leaves its old table unread. `audit_outbox` and `audit_seal` are reserved.
 
 ## Reading
 

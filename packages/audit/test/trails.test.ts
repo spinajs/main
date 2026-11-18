@@ -44,6 +44,28 @@ describe('trailConfig', function () {
     }
   });
 
+  it('gives a trail without a table the table audit_<trail>, and keeps the tables of default and history', async () => {
+    const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { default: { retentionDays: 1 }, history: { retentionDays: 1 }, billing: {}, security: { store: 'TableAuditStore' }, owned: { table: 'audit_event_owned' } } } } });
+    try {
+      expect(['default', 'history', 'billing', 'security', 'owned'].map((name) => trailConfig(name).table)).to.deep.eq(['audit_event', 'orm_history', 'audit_billing', 'audit_security', 'audit_event_owned']);
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('refuses a trail without a table whose name is not a plain identifier', async () => {
+    const longest = `t${'x'.repeat(56)}`;
+    const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { Billing: {}, 'my-trail': {}, [longest]: {}, [`${longest}x`]: {}, 'Named-Table': { table: 'audit_named' } } } } });
+    try {
+      const refused = (name: string): string => `audit: trail "${name}" has no table, and its name is not a plain identifier (^[a-z][a-z0-9_]{0,56}$) to derive audit_<trail> from; set audit.trails.${name}.table`;
+      for (const name of ['Billing', 'my-trail', `${longest}x`]) expect(() => trailConfig(name)).to.throw(AuditConfigError, refused(name));
+      expect(trailConfig(longest).table).to.eq(`audit_${longest}`);
+      expect(trailConfig('Named-Table').table).to.eq('audit_named');
+    } finally {
+      await app.dispose();
+    }
+  });
+
   it('refuses a path that would break the event, and a delay it cannot read', async () => {
     const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { bad: { omit: ['actor'] }, worse: { mask: ['kind'] }, slow: { retry: { delay: 'soon' } } } } } });
     try {

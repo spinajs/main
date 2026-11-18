@@ -200,7 +200,7 @@ describe('audit archive', function () {
     });
 
     it('refuses an archive on the table of a table trail, and keeps that trail working', async () => {
-      setTrail('shipped', shipping('archive'));
+      setTrail('shipped', shipping('archive', 'audit_event'));
       const refused = 'audit: trails "default" and "shipped" both use table "audit_event" (the archive of "shipped" on connection "archive"); give each trail its own table';
       await expect(DI.resolve(ArchiveAuditSink).deliver({ trail: 'shipped', source: 'app', events: [event(1)] })).to.be.rejectedWith(AuditConfigError, refused);
       await expect(audit().trail('shipped').since(0)).to.be.rejectedWith(AuditConfigError, refused);

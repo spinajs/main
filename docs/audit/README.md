@@ -41,7 +41,7 @@ import '@spinajs/audit-orm';
 export default {
   audit: {
     trails: {
-      billing: { table: 'audit_billing', onFailure: 'reject', retentionDays: 3650 },
+      billing: { onFailure: 'reject', retentionDays: 3650 },
     },
   },
 };
@@ -55,7 +55,7 @@ export async function paymentsBy(actor: string) {
 }
 ```
 
-The trail `billing` needs its table: extend `AuditTrailTableMigration` (see [Trails and guarantees](01-trails-and-guarantees.md#tables)). Because the trail rejects, `record` writes in the confirmed mode and throws `AuditWriteFailed` when the event cannot be stored.
+The trail `billing` writes into `audit_billing`, which it needs migrated: extend `AuditTrailTableMigration` (see [Trails and guarantees](01-trails-and-guarantees.md#tables)). Because the trail rejects, `record` writes in the confirmed mode and throws `AuditWriteFailed` when the event cannot be stored.
 
 ## Related
 
