@@ -5,6 +5,7 @@ import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz'
 import type { AuthzContribution, Permission, PermissionRefDecl } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, AccessPolicy } from '@spinajs/authz-http';
 import type { IAccessDescriptor } from '@spinajs/authz-http';
+import { AuthenticationFailed, CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { BasePolicy, Policy, RouteRegistrationException } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
@@ -32,7 +33,13 @@ function ruleHolder(permissions: readonly Permission[], domain: string): IContro
   return holder as unknown as IController;
 }
 
-type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' };
+const REFUSAL_STATUSES = new Set([401, 403]);
+
+function isRefusal(err: unknown): boolean {
+  return err instanceof AuthenticationFailed || err instanceof Forbidden || (err instanceof CodedHttpException && REFUSAL_STATUSES.has(err.status));
+}
+
+type Guard ={ kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' };
 
 /**
  * Guards one telemetry endpoint by its slot `telemetry.auth.policies.<endpoint>`, read once when
@@ -93,6 +100,24 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
         return this.guard.policy.execute(req, route, controller);
       case 'access':
         return this.guard.policy.execute(req, { ...route, Method: RULE }, this.guard.holder);
+    }
+  }
+
+  /**
+   * Whether the slot admits the request, for a route that answers everyone and shows more to some.
+   * Every refusal, and any other error of the check, reads as false: the route still answers. An error
+   * that is not a 401/403 refusal is logged, since it hides the detail from callers who hold the permission.
+   */
+  public async admits(req: Request, route: IRoute, controller: IController): Promise<boolean> {
+    if (!this.isEnabled(route, controller)) return true;
+    try {
+      await this.execute(req, route, controller);
+      return true;
+    } catch (err) {
+      if (!isRefusal(err)) {
+        this.Log.warn(err instanceof Error ? err : new Error(String(err)), 'telemetry %s: the check failed, so the caller sees the status only', this.endpoint);
+      }
+      return false;
     }
   }
 

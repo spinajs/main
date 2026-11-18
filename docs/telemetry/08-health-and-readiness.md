@@ -6,9 +6,10 @@
 
 ### Liveness
 
-1. `TelemetryController.getHealth()` reads `process.uptime()`, `process.pid` and `process.version`.
-2. It returns `{ status: 'up', startedAt, uptimeMs, pid, node }`, plus `version` when `telemetry.health.version` is set.
-3. It runs no check, so a slow dependency can never make it slow.
+1. `TelemetryController.getHealth()` asks the `telemetry.auth.policies.probeDetail` slot whether the caller sees the probe detail. By default that is a caller holding `telemetry:read`.
+2. Everyone else gets `{ status: 'up' }`. A refused or wrong credential gets the same 200, never a 401.
+3. A caller that sees the detail gets `{ status: 'up', startedAt, uptimeMs, pid, node }`, plus `version` when `telemetry.health.version` is set.
+4. It runs no check, so a slow dependency can never make it slow.
 
 ### Readiness
 
@@ -16,9 +17,11 @@
 2. `run()` takes `Checks`, every `HealthCheck` registered, injected with `@Autoinject(HealthCheck)`, and runs them all with `Promise.all`.
 3. For each check, `runOne()` races `check.check()` against a timer of `telemetry.health.timeoutMs`:
    - a result becomes `{ name, status, message, data, durationMs }`;
-   - a throw or a timeout becomes `{ name, status: 'down', message, durationMs }`; the timeout message is `health check timed out after <n>ms`.
+   - a throw becomes `{ name, status: 'down', message: 'the check threw', durationMs }`. The thrown error goes to the `telemetry` log as a warning, once per run, and never into the body;
+   - a timeout becomes `{ name, status: 'down', message: 'health check timed out after <n>ms', durationMs }`.
 4. `run()` reduces the statuses to the worst one: `down` beats `degraded` beats `up`. A status outside these three ranks as `down`, while the check's own line keeps the value it returned.
-5. `getReady()` asks `HealthCheckRunner.isFailing(status)`. `down` always fails; `degraded` fails only with `telemetry.health.failOnDegraded`. A failing report is returned as `ServiceUnavailable` (503), otherwise as `Ok` (200). The body is the report in both cases.
+5. `getReady()` asks the `telemetry.auth.policies.probeDetail` slot whether the caller sees the probe detail. For everyone else it removes `data.error` from each check's line (`withoutErrorDetail()`); the rest of `data` and the check's `message` stay.
+6. `getReady()` asks `HealthCheckRunner.isFailing(status)`. `down` always fails; `degraded` fails only with `telemetry.health.failOnDegraded`. A failing report is returned as `ServiceUnavailable` (503), otherwise as `Ok` (200). The body is the report in both cases.
 
 ```mermaid
 sequenceDiagram
@@ -49,8 +52,10 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `telemetry.health.timeoutMs` | `number` | `2000` | ms | Per-check timeout; a timed-out check is `down` |
 | `telemetry.health.failOnDegraded` | `boolean` | `false` | `true`, `false` | Answer 503 for an overall `degraded` |
-| `telemetry.health.version` | `string` | unset | any string | Added to `/telemetry/health` as `version` |
+| `telemetry.health.version` | `string` | unset | any string | Added to `/telemetry/health` as `version`, for a caller that sees the probe detail |
 | `telemetry.auth.policies.health`, `telemetry.auth.policies.ready` | `string` | `'PublicPolicy'` | see [Endpoint access](10-endpoint-access.md) | Guard of the probes |
+| `telemetry.auth.policies.probeDetail` | `string` | `'AccessPolicy'` | see [Endpoint access](10-endpoint-access.md) | Who sees the process fields of `/health` and each check's `data.error` on `/ready` |
+| `telemetry.auth.permissions.probeDetail` | `string \| string[]` | `'telemetry:read'` | registered permissions | Permission the `'AccessPolicy'` slot checks |
 
 ```ts
 export default {
@@ -91,7 +96,8 @@ export class DatabaseCheck extends HealthCheck {
       const ms = await db.ping();
       return ms > 500 ? { status: 'degraded', message: `slow ping: ${ms} ms`, data: { ms } } : { status: 'up', data: { ms } };
     } catch (err) {
-      return { status: 'down', message: (err as Error).message };
+      // the driver's text goes to data.error, which an anonymous probe does not see
+      return { status: 'down', message: 'the database does not answer', data: { error: (err as Error).message } };
     }
   }
 }
@@ -135,7 +141,8 @@ DI.register(OptionalAwareRunner).as(HealthCheckRunner);
 - A timed-out check keeps running in the background; only its result is ignored. Give `check()` its own timeout for calls that can hang.
 - `HealthCheckRunner` is a singleton, so the check list is injected once, when the runner is built for `TelemetryController`. Import your check modules before the HTTP server starts.
 - With no check registered, `/ready` answers 200 with `{ status: 'up', checks: [] }`.
-- `/health` and `/ready` are public by default: kubelet probes and load balancers cannot send a token. They expose uptime, pid, node version and, when set, the app version.
+- `/health` and `/ready` are public by default: kubelet probes and load balancers cannot send a token. An anonymous caller gets `{ status: 'up' }` from `/health`, and from `/ready` each check's status, `message` and `data` without `data.error`. A caller holding `telemetry:read` also gets uptime, pid, node version, the app version and `data.error`.
+- A check's `message` and the rest of its `data` reach every caller. Put error text from a driver or a remote service into `data.error`, or log it.
 - `ServiceUnavailable` exists because `new Ok(body, { StatusCode: 503 })` still answers 200.
 
 ## Best practices
@@ -153,6 +160,12 @@ return { status: 'UNHEALTHY' as HealthStatus };
 
 // Do
 return { status: 'down', message: 'connection refused' };
+
+// Don't: the message reaches anonymous probes
+return { status: 'down', message: (err as Error).message };
+
+// Do: data.error is shown only to a caller holding telemetry:read
+return { status: 'down', message: 'the queue does not answer', data: { error: (err as Error).message } };
 ```
 
 ## Examples

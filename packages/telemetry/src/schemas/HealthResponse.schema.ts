@@ -1,5 +1,6 @@
 const HealthResponseSchema = {
   type: 'object',
+  description: 'Every field but status is present only for a caller admitted by telemetry.auth.policies.probeDetail',
   properties: {
     status: { type: 'string', enum: ['up'], description: 'Always "up" — this endpoint runs no checks' },
     startedAt: { type: 'number', description: 'Process start, epoch ms' },

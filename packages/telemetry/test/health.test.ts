@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { HealthCheck, HealthCheckRunner, IHealthResult } from './../src/health.js';
+import { HealthCheck, HealthCheckRunner, IHealthResult, THREW_MESSAGE } from './../src/health.js';
 
 class StubCheck extends HealthCheck {
   constructor(public Name: string, private result: IHealthResult | Error, private delayMs = 0) {
@@ -25,6 +25,7 @@ function makeRunner(checks: HealthCheck[], timeoutMs = 50, failOnDegraded = fals
   // properties on the instance to shadow the inherited getters for the test.
   Object.defineProperty(anyRunner, 'TimeoutMs', { value: timeoutMs, writable: true, configurable: true });
   Object.defineProperty(anyRunner, 'FailOnDegraded', { value: failOnDegraded, writable: true, configurable: true });
+  Object.defineProperty(anyRunner, 'Log', { value: { warn: () => undefined } });
   return runner;
 }
 
@@ -62,12 +63,12 @@ describe('HealthCheckRunner', () => {
     expect(report.status).to.eq('degraded');
   });
 
-  it('treats a throwing check as down with the error message', async () => {
+  it('treats a throwing check as down with a fixed message, not the thrown one', async () => {
     const report = await makeRunner([new StubCheck('a', new Error('kaboom'))]).run();
 
     expect(report.status).to.eq('down');
     expect(report.checks[0].status).to.eq('down');
-    expect(report.checks[0].message).to.contain('kaboom');
+    expect(report.checks[0].message).to.eq(THREW_MESSAGE);
   });
 
   it('treats a check that exceeds the timeout as down', async () => {

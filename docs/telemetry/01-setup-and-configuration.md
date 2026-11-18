@@ -56,16 +56,16 @@ sequenceDiagram
 | `telemetry.perf.maxNames` | `number` | `200` | positive integer | Cap on distinct perf names, spans and events together |
 | `telemetry.health.timeoutMs` | `number` | `2000` | ms | Per-check timeout of `/telemetry/ready` |
 | `telemetry.health.failOnDegraded` | `boolean` | `false` | `true`, `false` | Answer 503 for a `degraded` overall status |
-| `telemetry.health.version` | `string` | unset | any string | App version reported by `/telemetry/health`; omitted when unset |
+| `telemetry.health.version` | `string` | unset | any string | App version reported by `/telemetry/health` to a caller that sees the probe detail; omitted when unset |
 
-The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`, `health` and `ready`. The data endpoints default to `'AccessPolicy'` with `telemetry:read`; `health` and `ready` default to `'PublicPolicy'`.
+The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`, `health` and `ready`. The data endpoints default to `'AccessPolicy'` with `telemetry:read`; `health` and `ready` default to `'PublicPolicy'`. One more key, `probeDetail`, guards no route: it decides who sees the detail of the probes (the process fields of `/telemetry/health`, each check's `data.error` on `/telemetry/ready`), by default `'AccessPolicy'` with `telemetry:read`. See [Health and readiness](08-health-and-readiness.md).
 
 The package config also sets keys outside `telemetry`:
 
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `system.dirs.controllers` | the package `controllers` directory | Mounts `MetricsController` and `TelemetryController` |
-| `authz.permissions['telemetry:read']` | `{ description }` | Registers the permission the data endpoints check |
+| `authz.permissions['telemetry:read']` | `{ description }` | Registers the permission the data endpoints and the probe detail check |
 | `authz.rbac.roles.telemetry` | `{ grants: ['telemetry:read'] }` | Role read only when `@spinajs/authz-rbac` is loaded |
 | `authz.rbac.serviceRoles['service:telemetry']` | `['telemetry']` | Gives the scrape-token principal that role |
 
