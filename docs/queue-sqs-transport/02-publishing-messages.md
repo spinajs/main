@@ -83,7 +83,7 @@ The body is the message object as JSON. A job emitted with `ResizeImageJob.emit(
 
 Every send carries `MessageAttributes` of `DataType: 'String'`, built by `toMessageAttributes(message, extra)`, in this order:
 
-1. The standard headers of `@spinajs/queue` that the message has: `x-spinajs-message-id` (from `MessageId`), then `x-retry-count`, `x-error`, `x-original-destination` and `traceparent` when they are in `Headers`.
+1. The standard headers of `@spinajs/queue` that the message has: `x-spinajs-message-id` (from `MessageId`), then `x-retry-count`, `x-error`, `x-original-destination` and `traceparent` when they are in `Headers`. `emit()` leaves out `x-retry-count`, `x-error` and `x-original-destination`, in the body too, as AMQP and STOMP do: a received message emitted again starts at attempt 0. Only the transport's own retry copies and dead letters carry them.
 2. `x-spinajs-not-before`, on a [delayed](#delays) send only. The transport writes it; the same name in `Headers` is not sent.
 3. The other `Headers` entries, in their order.
 
