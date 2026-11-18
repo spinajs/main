@@ -1,9 +1,27 @@
-import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
+import { createHash } from 'node:crypto';
+import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueHeaders, QueueMessage, readQueueHeaders } from '@spinajs/queue';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, type Message, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
+import { MAX_SQS_DELAY_MS, NOT_BEFORE_ATTRIBUTE, readMessageAttributes, toMessageAttributes } from './attributes.js';
+
+const MAX_TIMER_MS = 2 ** 31 - 1;
+// MessageGroupId and MessageDeduplicationId: 1 to 128 ASCII letters, digits or punctuation
+const SQS_ID = /^[\x21-\x7E]{1,128}$/;
+
+/** A delay as every queue transport takes it: a whole number of ms from 0 to the Node timer limit. */
+const toDelayMs = (ms: number | undefined): number => (ms === undefined || Number.isNaN(ms) ? 0 : Math.min(Math.max(0, Math.round(ms)), MAX_TIMER_MS));
+
+// hashing keeps one MessageId one deduplication id where SQS would refuse the MessageId itself
+const toDedupId = (id: string): string => (SQS_ID.test(id) ? id : createHash('sha256').update(id).digest('hex'));
+
+function groupIdValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
+}
 
 /**
  * SQS specific connection options that can be passed through the generic
@@ -34,6 +52,20 @@ export interface ISqsConnectionOptions {
   receiveErrorBackoffMaxMs?: number;
 }
 
+/** What the transport reads of a received SQS message. */
+export type SqsReceived = Pick<Message, 'Body' | 'ReceiptHandle' | 'MessageId' | 'MessageAttributes' | 'Attributes'>;
+
+export interface SqsSendOptions {
+  delayMs?: number;
+  /** Absolute deadline (epoch ms) of an `x-spinajs-not-before` re-send; wins over delayMs. */
+  notBefore?: number;
+  headers?: Record<string, string>;
+  /** FIFO: the MessageGroupId, instead of the one the routing `groupBy` gives. A dead letter keeps the group it was received in. */
+  groupId?: string;
+  /** FIFO: the MessageDeduplicationId, instead of the MessageId. A dead letter needs its own, or SQS drops it as a duplicate of the original. */
+  dedupId?: string;
+}
+
 /**
  * Tracks a live subscription. Unlike STOMP there is no broker-side subscription
  * object - a subscription here is a detached long-poll loop over one queue URL.
@@ -41,7 +73,7 @@ export interface ISqsConnectionOptions {
  * `AbortController` interrupts an in-flight ( up to WaitTimeSeconds ) ReceiveMessage
  * so unsubscribe / dispose return promptly instead of blocking on the poll.
  */
-interface ISqsSubscriptionDescriptor {
+export interface ISqsSubscriptionDescriptor {
   url: string;
   /**
    * Runs every entry of {@link handlers} in turn. Several message types can share one
@@ -114,18 +146,75 @@ export class SqsQueueClient extends QueueClient {
   }
 
   public async emit(message: IQueueMessage): Promise<void> {
-    // routing[message.Name] || defaultQueueChannel|defaultTopicChannel - for SQS
-    // these entries are queue URLs. `Name`/`Type`/`JobId` ride the JSON body so
-    // the core consumer can rehydrate the message on the receiving side.
+    // for SQS a channel is a queue URL; Name, Type and JobId ride the JSON body
     const urls = this.getChannelForMessage(message);
-    const body = JSON.stringify(message);
+    // built first: a FIFO URL without a group id throws before anything is sent
+    const inputs = urls.map((url) => this.sendParams(url, message, { delayMs: message.ScheduleDelay }));
 
     await Promise.all(
-      urls.map((QueueUrl) => {
-        this.Log.trace({ messageType: message.Type, messageName: message.Name, queueUrl: QueueUrl, connection: this.Options.name }, 'Publishing ${messageType} Name: ${messageName} to SQS queue ${queueUrl} ( ${connection} )');
-        return this.Sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: body }));
+      inputs.map((input) => {
+        this.Log.trace({ messageType: message.Type, messageName: message.Name, queueUrl: input.QueueUrl, connection: this.Options.name }, 'Publishing ${messageType} Name: ${messageName} to SQS queue ${queueUrl} ( ${connection} )');
+        return this.sendMessage(input);
       }),
     );
+  }
+
+  protected now(): number {
+    return Date.now();
+  }
+
+  protected isFifo(url: string): boolean {
+    return url.endsWith('.fifo');
+  }
+
+  protected async sendMessage(input: SendMessageCommandInput): Promise<void> {
+    await this.Sqs.send(new SendMessageCommand(input));
+  }
+
+  protected async deleteMessage(url: string, receiptHandle: string | undefined): Promise<void> {
+    await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: url, ReceiptHandle: receiptHandle }));
+  }
+
+  /** The MessageGroupId of a FIFO send: the value of the message field the routing `groupBy` names. */
+  protected groupIdOf(message: IQueueMessage): string {
+    // without the routing schema a configuration file can give any value here
+    const field: unknown = this.getRouteOption(message, 'groupBy');
+    if (typeof field !== 'string' || field.trim() === '') {
+      throw new InvalidArgument(`${message.Name}: a message sent to an SQS FIFO queue needs queue.routing.${message.Name}.groupBy, the message field whose value is the MessageGroupId`);
+    }
+
+    const id = groupIdValue(Reflect.get(message, field));
+    if (id === '') {
+      throw new InvalidArgument(`${message.Name}: the groupBy field ${field} holds no MessageGroupId ( a non-empty string or a number )`);
+    }
+    if (!SQS_ID.test(id)) {
+      throw new InvalidArgument(`${message.Name}: the groupBy field ${field} holds a MessageGroupId SQS refuses ( 1 to 128 ASCII letters, digits or punctuation )`);
+    }
+    return id;
+  }
+
+  protected sendParams(url: string, message: IQueueMessage, o: SqsSendOptions = {}): SendMessageCommandInput {
+    const params: SendMessageCommandInput = { QueueUrl: url, MessageBody: JSON.stringify(message) };
+    const headers = o.headers ?? {};
+
+    if (this.isFifo(url)) {
+      params.MessageGroupId = o.groupId ?? this.groupIdOf(message);
+      // without one SQS takes the send only on a queue with content-based deduplication
+      const dedupId = o.dedupId ?? message.MessageId;
+      if (dedupId) params.MessageDeduplicationId = toDedupId(dedupId);
+      if (toDelayMs(o.delayMs) > 0) {
+        this.Log.warn({ messageName: message.Name, queueUrl: url }, '${messageName}: the SQS FIFO queue ${queueUrl} takes no per-message delay, the message is sent without it');
+      }
+      params.MessageAttributes = toMessageAttributes(message, headers);
+      return params;
+    }
+
+    const now = this.now();
+    const delayMs = toDelayMs(o.notBefore !== undefined ? o.notBefore - now : o.delayMs);
+    const notBefore = o.notBefore ?? (delayMs > MAX_SQS_DELAY_MS ? now + delayMs : undefined);
+    if (delayMs > 0) params.DelaySeconds = Math.min(Math.ceil(delayMs / 1000), MAX_SQS_DELAY_MS / 1000);
+    params.MessageAttributes = toMessageAttributes(message, notBefore === undefined ? headers : { ...headers, [NOT_BEFORE_ATTRIBUTE]: String(notBefore) });
+    return params;
   }
 
   public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, _subscriptionId?: string, _durable?: boolean): Promise<void> {
@@ -207,6 +296,8 @@ export class SqsQueueClient extends QueueClient {
               WaitTimeSeconds: o.waitTimeSeconds ?? 20,
               MaxNumberOfMessages: o.maxMessages ?? 1,
               VisibilityTimeout: o.visibilityTimeout,
+              MessageAttributeNames: ['All'],
+              MessageSystemAttributeNames: ['ApproximateReceiveCount', 'MessageGroupId'],
             }),
             { abortSignal: desc.controller.signal },
           );
@@ -264,7 +355,7 @@ export class SqsQueueClient extends QueueClient {
    * than crashing the loop. Keeps the ack/nack contract: delete on handler success,
    * leave ( for redelivery / DLQ ) on handler failure.
    */
-  protected async handleMessage(desc: ISqsSubscriptionDescriptor, m: { Body?: string; ReceiptHandle?: string }): Promise<void> {
+  protected async handleMessage(desc: ISqsSubscriptionDescriptor, m: SqsReceived): Promise<void> {
     let parsed: unknown;
 
     try {
@@ -292,6 +383,20 @@ export class SqsQueueClient extends QueueClient {
       message.CreatedAt = DateTime.fromISO(message.CreatedAt as unknown as string);
     }
 
+    const attributes = readMessageAttributes(m.MessageAttributes);
+    message.MessageId = message.MessageId ?? attributes[QueueHeaders.MessageId];
+    const standard = readQueueHeaders(attributes);
+    if (message.Headers || Object.keys(standard).length > 0) message.Headers = { ...message.Headers, ...standard };
+
+    const notBefore = Number(attributes[NOT_BEFORE_ATTRIBUTE]);
+    const now = this.now();
+    // the transport never writes a deadline past the timer limit; a later one would be re-sent every 15 minutes for ever
+    if (!this.isFifo(desc.url) && Number.isFinite(notBefore) && notBefore > now && notBefore <= now + MAX_TIMER_MS) {
+      await this.sendMessage(this.sendParams(desc.url, message, { notBefore }));
+      await this.deleteMessage(desc.url, m.ReceiptHandle);
+      return;
+    }
+
     try {
       await desc.callback(message);
     } catch (err) {
@@ -306,7 +411,7 @@ export class SqsQueueClient extends QueueClient {
     // non-fatal ( at-least-once: SQS will simply redeliver ) and is logged
     // distinctly so it is never mistaken for a handler failure.
     try {
-      await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: desc.url, ReceiptHandle: m.ReceiptHandle }));
+      await this.deleteMessage(desc.url, m.ReceiptHandle);
       this.Log.trace({ messageType: message.Type, messageName: message.Name, queueUrl: desc.url, connection: this.Options.name }, 'Processed and acked ${messageType} Name: ${messageName} from ${queueUrl} ( ${connection} )');
     } catch (err) {
       this.Log.error({ error: err, messageName: message.Name, queueUrl: desc.url, connection: this.Options.name }, 'ack/delete failed for message ${messageName} on ${queueUrl} ( ${connection} ), it will redeliver');

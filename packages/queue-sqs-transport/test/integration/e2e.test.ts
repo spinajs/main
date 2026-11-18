@@ -8,7 +8,7 @@ import { CreateQueueCommand, DeleteQueueCommand, SQSClient } from '@aws-sdk/clie
 import '@spinajs/orm-sqlite';
 // side-effect import of the package entry, as apps do: registers SqsQueueClient
 // so the `service: 'SqsQueueClient'` connection below resolves.
-import '../src/index.js';
+import '../../src/index.js';
 import { SQS_ENDPOINT, SQS_REGION, SQS_CREDENTIALS } from './common.js';
 
 // raw SDK client used only by the harness to create / delete the localstack queue.
