@@ -1,12 +1,9 @@
-import { companionHeader, manifestHashCheck } from '../companion.js';
+import { arrowTypeParameter, companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { withUseClient } from './directive.js';
 import { typeNames, varsParameter, type HookRoute, type InfiniteHook } from './shared.js';
 
-export interface ReactQueryOptions {
-  /** File name of the client without extension, default `client`. */
-  basename?: string;
-}
+export type ReactQueryOptions = SiblingImports;
 
 const isQuery = (hook: HookRoute) => hook.route.kind === 'query';
 
@@ -19,9 +16,9 @@ const queryData = (hook: HookRoute) => (isVoid(hook) ? 'null' : hook.route.retur
 
 const queryFn = (hook: HookRoute) => `() => ${hook.callExpression}.then(${isVoid(hook) ? '() => null' : 'nullIfEmpty'})`;
 
-const NULL_IF_EMPTY = [
+const nullIfEmptyHelper = (typeParameter: string) => [
   '// The client resolves a 204 reply to undefined, which React Query rejects as query data.',
-  'const nullIfEmpty = <T>(data: T): T => data ?? (null as T);',
+  `const nullIfEmpty = ${typeParameter}(data: T): T => data ?? (null as T);`,
   '',
 ];
 
@@ -84,12 +81,12 @@ export function emitQueries(model: ClientModel, hooks: HookRoute[], options: Rea
   const lines = [
     companionHeader('react-query', model),
     ...importLine([infinite && 'infiniteQueryOptions', any && 'queryOptions', infinite && 'type InfiniteData', infinite && 'type QueryKey'], '@tanstack/react-query'),
-    ...importLine([any && 'appKeys', any && 'type AppClientError'], `./${options.basename ?? 'client'}.keys.js`),
-    ...importLine([...typeNames(queries, any ? ['AppClient'] : []), 'manifestHash'], `./${options.basename ?? 'client'}.js`, true),
+    ...importLine([any && 'appKeys', any && 'type AppClientError'], siblingSpecifier(options, '.keys')),
+    ...importLine([...typeNames(queries, any ? ['AppClient'] : []), 'manifestHash'], siblingSpecifier(options), true),
     '',
     ...manifestHashCheck(model),
     '',
-    ...(queries.some((h) => !isVoid(h)) ? NULL_IF_EMPTY : []),
+    ...(queries.some((h) => !isVoid(h)) ? nullIfEmptyHelper(arrowTypeParameter(options)) : []),
     ...(infinite ? PAGES : []),
     '/** Each factory takes the client, so a server can prefetch with a per-request one: `queryClient.prefetchQuery(appQueries.<controller>.<handler>(client, vars))`. */',
     `export const appQueries = {${controllers.length > 0 ? `\n${controllers.join('\n')}\n` : ''}};`,
@@ -167,14 +164,14 @@ const LIBRARY: [string, keyof Uses][] = [
   ['type UseMutationResult', 'mutations'], ['type UseQueryOptions', 'queries'], ['type UseQueryResult', 'queries'],
 ];
 
-function reactQueryImports(hooks: HookRoute[], basename: string): string[] {
+function reactQueryImports(hooks: HookRoute[], options: SiblingImports): string[] {
   const uses: Uses = { queries: hooks.some(isQuery), mutations: hooks.some((h) => !isQuery(h)), any: hooks.length > 0, infinite: hooks.some(isInfinite) };
   return [
     ...importLine(LIBRARY.map(([name, use]) => uses[use] && name), '@tanstack/react-query'),
-    ...importLine([uses.mutations && 'appKeys', uses.any && 'type AppClientError'], `./${basename}.keys.js`),
-    ...importLine([uses.queries && 'appQueries'], `./${basename}.queries.js`),
-    ...importLine([uses.any && 'useAppClient'], `./${basename}.react.js`),
-    ...importLine([...typeNames(hooks, []), 'manifestHash'], `./${basename}.js`, true),
+    ...importLine([uses.mutations && 'appKeys', uses.any && 'type AppClientError'], siblingSpecifier(options, '.keys')),
+    ...importLine([uses.queries && 'appQueries'], siblingSpecifier(options, '.queries')),
+    ...importLine([uses.any && 'useAppClient'], siblingSpecifier(options, '.react')),
+    ...importLine([...typeNames(hooks, []), 'manifestHash'], siblingSpecifier(options), true),
   ];
 }
 
@@ -182,7 +179,7 @@ function reactQueryImports(hooks: HookRoute[], basename: string): string[] {
 export function emitReactQuery(model: ClientModel, hooks: HookRoute[], options: ReactQueryOptions = {}): string {
   const lines = [
     companionHeader('react-query', model),
-    ...reactQueryImports(hooks, options.basename ?? 'client'),
+    ...reactQueryImports(hooks, options),
     '',
     ...manifestHashCheck(model),
     '',

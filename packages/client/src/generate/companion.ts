@@ -12,3 +12,37 @@ export function companionHeader(target: string, model: ClientModel): string {
 export function manifestHashCheck(model: ClientModel): string[] {
   return [`void (${literal(model.manifestHash)} satisfies typeof manifestHash);`];
 }
+
+export type ImportExtension = 'js' | 'ts' | 'none';
+
+export interface SiblingImports {
+  /** File name of the client without extension, default `client`; companion files are `<basename>.<target><fileExtension>`. */
+  basename?: string;
+  /** Extension of every generated file, default `.ts`. */
+  fileExtension?: '.ts' | '.mts';
+  /**
+   * How generated files import each other, default `js`: `./client.js` (`./client.mjs` next to `.mts` files) as Node's
+   * ESM resolution needs; `ts` for `allowImportingTsExtensions`; `none` (`./client`) for a bundler such as Turbopack.
+   */
+  importExtension?: ImportExtension;
+}
+
+const SPECIFIER_EXTENSIONS: Record<ImportExtension, Record<'.ts' | '.mts', string>> = {
+  js: { '.ts': '.js', '.mts': '.mjs' },
+  ts: { '.ts': '.ts', '.mts': '.mts' },
+  none: { '.ts': '', '.mts': '' },
+};
+
+/** The specifier a generated file imports its sibling `<basename><suffix>` with, eg. `siblingSpecifier(options, '.keys')`. */
+export function siblingSpecifier(options: SiblingImports, suffix = ''): string {
+  return `./${options.basename ?? 'client'}${suffix}${SPECIFIER_EXTENSIONS[options.importExtension ?? 'js'][options.fileExtension ?? '.ts']}`;
+}
+
+/** `<T>` of a generic arrow function in a generated file: `.mts` reserves the bare form, so it gets a trailing comma there. */
+export function arrowTypeParameter(options: SiblingImports): string {
+  return options.fileExtension === '.mts' ? '<T,>' : '<T>';
+}
+
+export function siblingPath(options: SiblingImports, suffix = ''): string {
+  return `${options.basename ?? 'client'}${suffix}${options.fileExtension ?? '.ts'}`;
+}

@@ -19,6 +19,10 @@ export interface TypecheckOptions {
   swr?: SwrVersion;
   /** `@tanstack/react-query` at the peer floor (5.0.0) or the pinned latest. Default latest. */
   reactQuery?: ReactQueryVersion;
+  /** Module resolution of the program, default node16 (bundler when `swr: 'floor'`). */
+  resolution?: 'node16' | 'bundler';
+  /** For files that import each other with a `.ts` extension. */
+  allowImportingTsExtensions?: boolean;
 }
 
 export type ReactQueryVersion = 'floor' | 'latest';
@@ -82,13 +86,14 @@ function checkFiles(files: Record<string, string>, options: TypecheckOptions): T
     writeFileSync(join(dir, 'package.json'), '{ "type": "module" }');
     const packageRoot = fileURLToPath(new URL('../../', import.meta.url));
     // swr 2.2.0 ships CommonJS typings only, which Node16 reads as a default import without call signatures; apps on it use a bundler.
-    const floor = options.swr === 'floor';
+    const bundler = options.swr === 'floor' || options.resolution === 'bundler';
     const program = ts.createProgram(roots, {
       strict: true,
       noEmit: true,
+      allowImportingTsExtensions: options.allowImportingTsExtensions ?? false,
       noUnusedLocals: options.noUnusedLocals ?? false,
-      module: floor ? ts.ModuleKind.ESNext : ts.ModuleKind.Node16,
-      moduleResolution: floor ? ts.ModuleResolutionKind.Bundler : ts.ModuleResolutionKind.Node16,
+      module: bundler ? ts.ModuleKind.ESNext : ts.ModuleKind.Node16,
+      moduleResolution: bundler ? ts.ModuleResolutionKind.Bundler : ts.ModuleResolutionKind.Node16,
       noUnusedParameters: options.noUnusedParameters ?? false,
       target: ts.ScriptTarget.ES2022,
       lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],

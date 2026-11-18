@@ -18,6 +18,7 @@ export interface GenerateClientFlags {
   next?: boolean;
   mocks?: boolean;
   msw?: boolean;
+  importExtension?: 'js' | 'ts' | 'none';
   check?: boolean;
 }
 
@@ -70,6 +71,7 @@ export function toFilesOptions(flags: GenerateClientFlags): Omit<GenerateClientF
     next: flags.next,
     mocks: flags.mocks,
     msw: flags.msw,
+    importExtension: flags.importExtension,
   };
 }
 
