@@ -5,12 +5,12 @@ import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import type { Log } from '@spinajs/log-common';
+import { ManualClock } from '@spinajs/util';
 import type { Builder } from '../src/builders.js';
-import { QueryMiddleware } from '../src/interfaces.js';
 import { Orm } from '../src/orm.js';
-import { LogSlowQuerySink, MAX_PENDING_SLOW_QUERY_CAPTURES, recordStatement, setStatementRecording, SlowQueryMiddleware, SlowQuerySink, statementRecording } from '../src/explain/index.js';
+import { LogSlowQuerySink, MAX_PENDING_SLOW_QUERY_CAPTURES, recordStatement, setStatementRecording, SlowQuerySink, statementRecording } from '../src/explain/index.js';
 import type { ExecutedStatement, ExplainOptions, QueryPlan, SlowQueryRecord } from '../src/explain/index.js';
-import { FakeSqliteDriver, ormApp } from './misc.js';
+import { FakeSqliteDriver, ormApp, slowQueryMiddleware as middleware } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -87,12 +87,6 @@ describe('SlowQueryMiddleware', () => {
     const d = DI.get(Orm)?.Connections.get('sqlite');
     if (!(d instanceof ExplainingDriver)) throw new Error('the sqlite connection is not the test driver');
     return d;
-  }
-
-  function middleware(): SlowQueryMiddleware {
-    const found = DI.resolve(Array.ofType(QueryMiddleware)).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
-    if (!found) throw new Error('SlowQueryMiddleware is not registered');
-    return found;
   }
 
   function enable(overrides: Partial<ExplainOptions> = {}): void {
@@ -204,12 +198,16 @@ describe('SlowQueryMiddleware', () => {
 
   it('explains the same query again once the minute has passed', async () => {
     enable();
-    const now = sinon.stub(SlowQueryMiddleware.prototype, 'now').returns(1_000);
+    const clock = new ManualClock(new Date(1_000));
+    middleware().clock = clock;
 
     await slowSelect();
-    now.returns(61_001);
+    clock.advance(59_999);
     await slowSelect();
+    expect(driver().explained).to.have.length(1);
 
+    clock.advance(1);
+    await slowSelect();
     expect(driver().explained).to.have.length(2);
   });
 

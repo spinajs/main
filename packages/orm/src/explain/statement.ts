@@ -1,4 +1,6 @@
-const QUOTED = /'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`/g;
+import { QUOTED } from './sql-tokens.js';
+
+const QUOTED_ALL = new RegExp(QUOTED.source, 'g');
 const DATA_CHANGING = /\b(?:insert|update|delete|merge|replace|create|drop|alter|truncate)\b/i;
 
 // A comment (`--`, `/*`, `#`), a dollar quote and a backslash escape can each hold a lone quote character.
@@ -17,5 +19,5 @@ export function isExplainable(sql: string): boolean {
   if (/^select\b/i.test(text)) {
     return true;
   }
-  return /^with\b/i.test(text) && !DATA_CHANGING.test(text.replace(QUOTED, "''"));
+  return /^with\b/i.test(text) && !DATA_CHANGING.test(text.replace(QUOTED_ALL, "''"));
 }

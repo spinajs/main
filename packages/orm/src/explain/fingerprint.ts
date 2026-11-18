@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { QUOTED } from './sql-tokens.js';
 
-const LITERAL_OR_QUOTED = /'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\b(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/g;
+const NUMBER = /\b(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/;
+const LITERAL_OR_QUOTED = new RegExp(`${QUOTED.source}|${NUMBER.source}`, 'g');
 const PLACEHOLDER_LIST = /\(\s*\?(?:\s*,\s*\?)*\s*\)/g;
 const ROW_LIST = /\(\?\)(?:\s*,\s*\(\?\))+/g;
 

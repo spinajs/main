@@ -6,10 +6,8 @@ import 'mocha';
 import type { Builder } from '../src/builders.js';
 import { adoptStatements, executedStatements, recordStatement, setStatementRecording, statementRecording } from '../src/explain/execution.js';
 import type { ExecutedStatement } from '../src/explain/execution.js';
-import { QueryMiddleware } from '../src/interfaces.js';
 import { Orm } from '../src/orm.js';
-import { SlowQueryMiddleware } from '../src/explain/slow-query-middleware.js';
-import { FakeSqliteDriver, ormApp } from './misc.js';
+import { FakeSqliteDriver, ormApp, slowQueryMiddleware } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -66,9 +64,7 @@ describe('executed-statement side channel', () => {
   it('gives a chunked insert the statements of every chunk', async () => {
     // a query through the pipeline sets the switch from db.Explain.Enabled
     DI.get(Configuration)?.set('db.Explain', { Enabled: true });
-    DI.resolve(Array.ofType(QueryMiddleware))
-      .find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware)
-      ?.reload();
+    slowQueryMiddleware().reload();
     const insert = connection().insert().into('users').values([{ Name: 'ann' }, { Name: 'bob' }, { Name: 'cy' }]);
     await insert;
     expect(executedStatements(insert)).to.have.length(3);

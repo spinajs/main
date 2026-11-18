@@ -1,5 +1,7 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
+import { LruTtlCache, singleFlight, SystemClock, TaskTracker } from '@spinajs/util';
+import type { Clock } from '@spinajs/util';
 import { QueryContext, QueryMiddleware } from '../interfaces.js';
 import type { QueryBuilder } from '../builders.js';
 import type { OrmDriver } from '../driver.js';
@@ -46,9 +48,12 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   @Logger('orm-slow-query')
   protected Log: Log;
 
-  private readonly remembered = new Map<string, { at: number; outcome: PlanOutcome }>();
+  /** The clock of the plan cache and the rate window. */
+  public clock: Clock = new SystemClock();
+
+  private readonly remembered = new LruTtlCache<string, PlanOutcome>({ maxEntries: MAX_REMEMBERED_FINGERPRINTS, ttlMs: MINUTE_MS, clock: { now: () => this.clock.now() } });
   private readonly planning = new Map<string, Promise<PlanOutcome>>();
-  private readonly pending = new Set<Promise<void>>();
+  private readonly captures = new TaskTracker((err) => this.Log.warn({ error: err }, 'slow query capture failed'));
   private rateWindow = { start: Number.NEGATIVE_INFINITY, count: 0 };
   private dropped = 0;
   private options: ExplainOptions | undefined;
@@ -72,21 +77,19 @@ export class SlowQueryMiddleware extends QueryMiddleware {
       return;
     }
 
-    if (this.pending.size >= MAX_PENDING_SLOW_QUERY_CAPTURES) {
+    if (this.captures.size >= MAX_PENDING_SLOW_QUERY_CAPTURES) {
       this.dropped++;
       return;
     }
 
     const at = new Date();
     const context = query.QueryContext;
-    this.defer(() => this.capture(context, statements, durationMs, at, options));
+    this.captures.defer(() => this.capture(context, statements, durationMs, at, options));
   }
 
   /** Resolves when every deferred capture has finished. */
-  public async idle(): Promise<void> {
-    while (this.pending.size > 0) {
-      await Promise.all(this.pending);
-    }
+  public idle(): Promise<void> {
+    return this.captures.drain();
   }
 
   /** Re-reads `db.Explain`, for tests and tooling that change it after the first query. A remembered plan was made under the old options, so none is kept, and `MaxPerMinute` counts from now. */
@@ -97,11 +100,6 @@ export class SlowQueryMiddleware extends QueryMiddleware {
     this.current();
   }
 
-  /** The clock of the plan cache and the rate window. */
-  public now(): number {
-    return Date.now();
-  }
-
   private current(): ExplainOptions {
     if (this.options === undefined) {
       this.options = explainOptions();
@@ -109,20 +107,6 @@ export class SlowQueryMiddleware extends QueryMiddleware {
     }
 
     return this.options;
-  }
-
-  private defer(work: () => Promise<void>): void {
-    const job: Promise<void> = this.afterResult(work).finally(() => this.pending.delete(job));
-    this.pending.add(job);
-  }
-
-  private async afterResult(work: () => Promise<void>): Promise<void> {
-    try {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      await work();
-    } catch (err) {
-      this.Log.warn({ error: err }, 'slow query capture failed');
-    }
   }
 
   private async capture(context: QueryContext, statements: readonly ExecutedStatement[], durationMs: number, at: Date, options: ExplainOptions): Promise<void> {
@@ -154,28 +138,16 @@ export class SlowQueryMiddleware extends QueryMiddleware {
   }
 
   private planFor(driver: OrmDriver, key: string, statement: ExecutedStatement, options: ExplainOptions): Promise<PlanOutcome> {
-    const now = this.now();
     const known = this.remembered.get(key);
-    if (known && now - known.at < MINUTE_MS) {
-      return Promise.resolve(known.outcome);
-    }
-
-    const running = this.planning.get(key);
-    if (running) {
-      return running;
-    }
-
-    const started = this.explain(driver, key, statement, options, now).finally(() => this.planning.delete(key));
-    this.planning.set(key, started);
-    return started;
+    return known ? Promise.resolve(known) : singleFlight(this.planning, key, () => this.explain(driver, key, statement, options));
   }
 
-  private async explain(driver: OrmDriver, key: string, statement: ExecutedStatement, options: ExplainOptions, now: number): Promise<PlanOutcome> {
+  private async explain(driver: OrmDriver, key: string, statement: ExecutedStatement, options: ExplainOptions): Promise<PlanOutcome> {
     if (typeof driver.explain !== 'function') {
       return { planError: `driver ${String(driver.Options.Driver)} cannot explain` };
     }
 
-    if (!this.takeExplainSlot(now, options.MaxPerMinute)) {
+    if (!this.takeExplainSlot(options.MaxPerMinute)) {
       return { planError: 'explain rate limit reached' };
     }
 
@@ -187,11 +159,12 @@ export class SlowQueryMiddleware extends QueryMiddleware {
       outcome = { planError: describeError(err, options.CaptureBindings) };
     }
 
-    this.remember(key, now, outcome);
+    this.remembered.set(key, outcome);
     return outcome;
   }
 
-  private takeExplainSlot(now: number, maxPerMinute: number): boolean {
+  private takeExplainSlot(maxPerMinute: number): boolean {
+    const now = this.clock.now().getTime();
     if (now - this.rateWindow.start >= MINUTE_MS) {
       this.rateWindow = { start: now, count: 0 };
     }
@@ -202,18 +175,6 @@ export class SlowQueryMiddleware extends QueryMiddleware {
 
     this.rateWindow.count++;
     return true;
-  }
-
-  private remember(key: string, at: number, outcome: PlanOutcome): void {
-    if (this.remembered.size >= MAX_REMEMBERED_FINGERPRINTS) {
-      const oldest = this.remembered.keys().next();
-      if (!oldest.done) {
-        this.remembered.delete(oldest.value);
-      }
-    }
-
-    this.remembered.delete(key);
-    this.remembered.set(key, { at, outcome });
   }
 
   private async publish(record: SlowQueryRecord): Promise<void> {

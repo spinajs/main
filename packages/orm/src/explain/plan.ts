@@ -1,24 +1,6 @@
 import { sanitizeSql } from './fingerprint.js';
 import type { PlanNode, QueryPlan } from './types.js';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
-}
-
-export function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-/** EXPLAIN output carries numbers as JSON numbers (postgres, sqlite) or as strings (mysql `cost_info`). */
-export function asNumber(value: unknown): number | undefined {
-  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN;
-  return Number.isFinite(n) ? n : undefined;
-}
-
 /** A node without the optional fields it has no value for, so plans compare with deep equality. */
 export function planNode(label: string, children: PlanNode[] = [], extra: Omit<PlanNode, 'label' | 'children'> = {}): PlanNode {
   const node: PlanNode = { label, children };
