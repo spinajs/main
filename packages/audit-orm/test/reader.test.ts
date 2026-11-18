@@ -8,6 +8,7 @@ import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { TableAuditReader, auditEventColumns, insertRows, rowsOf, storedColumns } from '../src/index.js';
 import { DIALECTS, TestDb } from '../src/testing.js';
+import { trailTableOn } from '../src/trail-tables.js';
 import type { Dialect } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -131,6 +132,28 @@ describe('TableAuditReader', function () {
       }
     });
   }
+
+  it('names a connection it cannot look at, and erases nothing', async function () {
+    if (!db.has('pglite')) this.skip();
+    const trail = trailOf('sqlite');
+    const table = tableOf('sqlite');
+    await db.migrate('sqlite', table);
+    const pglite = db.driver('pglite');
+    try {
+      await audit().record({ kind: 'data', action: 'update', subject: patient, data: { n: 1 }, at: day(1) }, { trail });
+      Reflect.set(pglite, 'tableInfo', () => Promise.reject(new Error('catalog refused')));
+      await expect(audit().trail(trail).forget(patient)).to.be.rejectedWith(`audit: forget on trail "${trail}" could not look for table ${table} on connection "${pglite.Options.Name}", so nothing was erased: catalog refused`);
+      expect((await db.rows('sqlite', table)).map((r) => r.data)).to.deep.eq(['{"n":1}']);
+    } finally {
+      Reflect.deleteProperty(pglite, 'tableInfo');
+      await db.drop('sqlite', table);
+    }
+  });
+
+  it('reads a missing table as none, also from a driver that answers null for it (MSSQL)', async () => {
+    expect(await trailTableOn({ tableInfo: () => Promise.resolve(null) }, 'audit_missing')).to.eq('none');
+    expect(await trailTableOn(db.driver('sqlite'), 'audit_missing')).to.eq('none');
+  });
 
   it('leaves a table of the trail name without the trail columns alone', async function () {
     if (!db.has('pglite')) this.skip();

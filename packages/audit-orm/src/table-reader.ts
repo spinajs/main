@@ -1,4 +1,4 @@
-import { AuditReader } from '@spinajs/audit';
+import { AuditReader, AuditWriteFailed } from '@spinajs/audit';
 import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
@@ -77,12 +77,21 @@ export class TableAuditReader extends AuditReader {
     const own = this.driver(trail, undefined);
     const others: OrmDriver[] = [];
     for (const driver of distinctConnections()) {
-      if (driver !== own && (await trailTableOn(driver, this.table(trail))) === 'trail') others.push(driver);
+      if (driver !== own && (await this.holdsTable(driver, trail))) others.push(driver);
     }
     yield { connection: undefined, redacted: await this.redactOn(own, trail, subject) };
     for (const driver of others) {
       const redacted = await this.redactOn(driver, trail, subject);
       if (redacted > 0 || (await this.holds(driver, trail, subject))) yield { connection: driver.Options.Name, redacted };
+    }
+  }
+
+  private async holdsTable(driver: OrmDriver, trail: TrailConfig): Promise<boolean> {
+    try {
+      return (await trailTableOn(driver, this.table(trail))) === 'trail';
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      throw new AuditWriteFailed(`audit: forget on trail ${JSON.stringify(trail.name)} could not look for table ${this.table(trail)} on connection ${JSON.stringify(driver.Options.Name)}, so nothing was erased: ${why}`, err);
     }
   }
 

@@ -8,6 +8,7 @@ import { Orm } from '@spinajs/orm';
 import { isTableTrail } from '../../own-tables.js';
 import { distinctConnections } from '../../ship/services.js';
 import { TableAuditStore } from '../../table-store.js';
+import { trailTableOn } from '../../trail-tables.js';
 
 const REASONS: Record<AuditTamper['reason'], string> = {
   payload: 'payload does not match its data_hash',
@@ -86,7 +87,7 @@ async function sourcesOf(name: string): Promise<Sources> {
   for (const driver of distinctConnections()) {
     const name = driver.Options.Name;
     try {
-      if (await driver.schema().tableExists(trail.table)) held.push(name);
+      if ((await trailTableOn(driver, trail.table)) === 'trail') held.push(name);
     } catch (e) {
       failed.push(`connection ${name}: ${messageOf(e)}`);
     }
