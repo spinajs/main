@@ -24,21 +24,40 @@ async function settleAll(calls: readonly (() => Promise<void>)[]): Promise<void>
   }
 }
 
+export interface HubProcessorOptions {
+  /**
+   * The processor only decorates spans that other processors record (it sets attributes in `onStart`): the hub starts
+   * it first and, while nothing else is attached, still records no span, so importing an enricher keeps id-only tracing.
+   */
+  readonly enricher?: boolean;
+}
+
 export class SpanProcessorHub implements SpanProcessor {
   // Replaced, never mutated: a detach during onEnd must not skip a sibling.
+  private enrichers: readonly SpanProcessor[] = [];
+  private sinks: readonly SpanProcessor[] = [];
   private processors: readonly SpanProcessor[] = [];
 
   public get size(): number {
     return this.processors.length;
   }
 
-  public add(processor: SpanProcessor): () => Promise<void> {
-    this.processors = [...this.processors, processor];
+  /** A processor other than an enricher is attached, so spans are worth recording. */
+  public get recording(): boolean {
+    return this.sinks.length > 0;
+  }
+
+  public add(processor: SpanProcessor, options: HubProcessorOptions = {}): () => Promise<void> {
+    if (options.enricher) this.enrichers = [...this.enrichers, processor];
+    else this.sinks = [...this.sinks, processor];
+    this.processors = [...this.enrichers, ...this.sinks];
     let attached = true;
     return async () => {
       if (!attached) return;
       attached = false;
-      this.processors = this.processors.filter((p) => p !== processor);
+      this.enrichers = this.enrichers.filter((p) => p !== processor);
+      this.sinks = this.sinks.filter((p) => p !== processor);
+      this.processors = [...this.enrichers, ...this.sinks];
       try {
         await processor.forceFlush();
       } finally {
@@ -65,6 +84,8 @@ export class SpanProcessorHub implements SpanProcessor {
 
   public shutdown(): Promise<void> {
     const detached = this.processors;
+    this.enrichers = [];
+    this.sinks = [];
     this.processors = [];
     return settleAll(detached.map((p) => () => p.shutdown()));
   }
@@ -77,7 +98,7 @@ export class HubSampler implements Sampler {
   ) {}
 
   public shouldSample(context: Context, traceId: string, spanName: string, spanKind: SpanKind, attributes: Attributes, links: Link[]): SamplingResult {
-    return this.hub.size === 0 ? NOT_RECORDED : this.delegate.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    return this.hub.recording ? this.delegate.shouldSample(context, traceId, spanName, spanKind, attributes, links) : NOT_RECORDED;
   }
 
   public toString(): string {
