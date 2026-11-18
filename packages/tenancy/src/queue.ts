@@ -7,7 +7,7 @@ import { allTenantsScope, establishTenantScope, isTenantId, tenantScope, tenantS
 
 const ALL = '*:';
 
-/** Below authz-queue's hook (order 0): the tenant is in place when that hook checks a job's `access`. */
+/** Below authz-queue's hook (order -50): the tenant is in place when that hook checks a job's `access`. */
 export const TENANT_QUEUE_HOOK_ORDER = -100;
 
 /** The tenant id, or `*:` and the URI-encoded reason for the cross-tenant scope; a tenant id never holds `*`. */
