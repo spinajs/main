@@ -69,10 +69,13 @@ class SignIn extends RouteMiddleware {
   }
 }
 
-/** Stands for the tenant scope part of @spinajs/tenancy-http: x-zone is the request's tenant. */
+/** Stands for the tenant scope part of @spinajs/tenancy-http: x-zone is the request's tenant; `unreadable` cannot be read. */
 class ZonePart extends IdempotencyScopePart {
   public partOf(store: object): string | undefined {
     const zone: unknown = Reflect.get(store, 'Zone');
+    if (zone === 'unreadable') {
+      throw new Error('zone store down');
+    }
     return typeof zone === 'string' ? `zone:${zone}` : undefined;
   }
 }
@@ -518,6 +521,24 @@ describe('Idempotency-Key replay before the policy gate', function () {
 
       expect(other.status).to.eq(200);
       expect(other.body).to.deep.eq({ deleted: 'b', call: 2 });
+    });
+
+    it('fails closed when a part cannot be read: the claim answers 500 and the route does not run', async () => {
+      const res = await remove('open/a', 'zone-unreadable-1', 'u1', { 'x-zone': 'unreadable' });
+
+      expect(res.status).to.eq(500);
+      expect(state.actionCalls).to.eq(0);
+    });
+
+    it('goes on to the policies and the claim when a part cannot be read before them, and never replays', async () => {
+      await remove('a', 'zone-unreadable-2', 'u1');
+      state.rows.add('a');
+      const res = await remove('a', 'zone-unreadable-2', 'u1', { 'x-zone': 'unreadable' });
+
+      expect(res.status).to.eq(500);
+      expect(res.get('idempotent-replayed')).to.eq(undefined);
+      expect(state.policyCalls).to.eq(2);
+      expect(state.actionCalls).to.eq(1);
     });
 
     it('keeps the key of a request outside any zone as it was without parts', async () => {

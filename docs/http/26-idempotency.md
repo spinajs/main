@@ -146,10 +146,11 @@ On any other route the policies always run, even after a `'beforePolicy'` middle
 
 Two consequences follow:
 
-- Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
-  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant is not one
-  of them: with `@spinajs/tenancy-http` the tenant is part of the key's [scope](#scope), so a request to tenant B
-  never replays a reply stored in tenant A, before the policies or on the claim path.
+- Policies that do not depend on the principal, such as an IP allowlist or MFA step-up freshness, are not evaluated
+  again on a replay. The replayed reply is the one they admitted the first time. A tenant set by
+  `@spinajs/tenancy-http` is part of the key's [scope](#scope), so a request to tenant B never replays a reply stored
+  in tenant A, before the policies or on the claim path. A tenant your own code reads from a header is not: put it in
+  the URL, or in the body with `fingerprint: 'body'`, or register an `IdempotencyScopePart` for it.
 - A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
   semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
 
@@ -167,7 +168,8 @@ in the `'beforePolicy'` stage or among the server middlewares.
 
 A key is one key per route and principal. The route is `http:<METHOD> <path>` with the route template, for example
 `/orders/:id/pay`. The principal is the authenticated principal, or `anonymous`. The same key from two users runs
-twice. All anonymous callers of a route share one key space (see [Shared scopes](#shared-scopes)).
+twice. All anonymous callers of a route share one key space, per tenant with `@spinajs/tenancy-http` (see
+[Shared scopes](#shared-scopes)).
 
 A restricted principal gets a scope of its own: its key (`principalKey`) together with its authority, which is its
 `ceiling`, `onBehalfOf` and `delegation`, `authn.impersonator` and `companions` (`idempotencyPrincipal()` of
