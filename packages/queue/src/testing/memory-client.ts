@@ -216,6 +216,8 @@ export class MemoryQueueClient extends QueueClient {
   }
 
   private execute(delivery: PendingDelivery, target: MemorySubscription, decision: DeliveryDecision): PendingDelivery[] {
+    const deadLetter = decision.action === 'dead-letter' ? `${decision.reason}, to ${decision.channel ?? 'no dead-letter channel'}` : undefined;
+    target.client.Log?.warn({ messageName: delivery.message.Name, channel: delivery.channel, action: decision.action, deadLetter }, 'Memory delivery of ${messageName} on ${channel} failed, decided ${action}');
     if (decision.action === 'ack') return [];
     if (decision.action === 'dead-letter') {
       if (decision.channel) this.deadLettered.push({ channel: decision.channel, message: delivery.message, headers: { ...decision.headers, [QueueHeaders.OriginalDestination]: delivery.channel } });

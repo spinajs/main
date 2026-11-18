@@ -8,7 +8,7 @@ import { FakeClock } from '@spinajs/durable/testing';
 import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
-import { decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
+import { CLAIM_FAILURE_REDELIVERY_MS, decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueHeaders, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
 import { MemoryBroker, wireCopy } from '../src/testing/index.js';
 import { deferred, memoryClientOf, RecordingFaults, faultsHit, T0 } from './support/outbox-env.js';
 
@@ -328,16 +328,28 @@ describe('queue: event deduplication by MessageId', function () {
   });
 
   it('redelivers an event whose claim fails, and runs it again after its reply could not be stored', async () => {
-    const env = await boot({ ...RETRIED, store: FlakyIdempotencyStore.name });
+    const env = await boot({ store: FlakyIdempotencyStore.name });
     const handled: string[] = [];
-    await env.queue.consume<PaymentCaptured>(PaymentCaptured, async (m) => void handled.push(m.PaymentId), 'ledger');
+    const retryCounts: (string | undefined)[] = [];
+    await env.queue.consume<PaymentCaptured>(
+      PaymentCaptured,
+      async (m) => {
+        handled.push(m.PaymentId);
+        retryCounts.push(m.Headers?.[QueueHeaders.RetryCount]);
+      },
+      'ledger',
+    );
 
     storeFailures.claim = new Error('database unavailable');
     await env.queue.emit(new PaymentCaptured({ PaymentId: 'p9' }));
     await env.client.deliverAll();
     expect(handled).to.deep.equal([]);
     await env.client.deliverAll();
+    expect(handled, 'the redelivery waits CLAIM_FAILURE_REDELIVERY_MS').to.deep.equal([]);
+    await env.clock.advance(CLAIM_FAILURE_REDELIVERY_MS);
+    await env.client.deliverAll();
     expect(handled).to.deep.equal(['p9']);
+    expect(retryCounts, 'a failed claim is not a counted retry').to.deep.equal(['0']);
 
     storeFailures.complete = new Error('database unavailable');
     const message = new PaymentCaptured({ PaymentId: 'p10', MessageId: '10101010-1010-4010-8010-101010101010' });

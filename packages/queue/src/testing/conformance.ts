@@ -94,7 +94,7 @@ export function describeQueueTransportConformance(name: string, factory: () => P
     this.timeout(60_000);
     for (const [title, run, needs] of CASES) {
       const reason = skip.get(title);
-      if (reason) {
+      if (reason !== undefined) {
         it.skip(`${title} (${reason})`);
         continue;
       }

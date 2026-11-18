@@ -148,14 +148,17 @@ async function retriesEventOnlyForFailingSubscriber(h: TransportHarness): Promis
   assert.deepEqual(calls, { a: 2, b: 1 }, 'one retry (maxRetries 1), to the failing subscriber only');
 }
 
-// the handler's own RedeliverLater bypasses the retry count: plan 1's frozen contract, an open owner point
+// a 250 * 2^n value, so AMQP's forced-delay bucket equals it; above two deliverAll() rounds of a real broker, below CONFORMANCE_MAX_DELAY_MS
+const FORCED_DELAY_MS = 4000;
+
+// the handler's own RedeliverLater bypasses the retry count (plan 1's contract)
 async function redeliversWhenAsked(h: TransportHarness): Promise<void> {
   const { topic } = channels(h);
   let calls = 0;
   await h.client.subscribe(
     topic,
     async () => {
-      if (++calls === 1) throw new RedeliverLater(CONFORMANCE_MAX_DELAY_MS);
+      if (++calls === 1) throw new RedeliverLater(FORCED_DELAY_MS);
     },
     'conformance-later',
   );

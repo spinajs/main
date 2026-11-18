@@ -12,7 +12,8 @@ import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 import { assertDeliveryRouting, isNonRetryableFailure } from './delivery.js';
 import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
-import { RedeliverLater } from './redeliver.js';
+import { CLAIM_FAILURE_REDELIVERY_MS, RedeliverLater } from './redeliver.js';
+import { isCrash } from './crash.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './crash.js';
@@ -429,8 +430,9 @@ export class DefaultQueueService extends QueueService {
     try {
       await service.run({ namespace: `queue:${subscriptionId}` }, message.MessageId, run, { ttl: ttlMs, toReply: () => ACK_REPLY, fromReply: () => undefined });
     } catch (error) {
-      // run() rethrows the handler's own errors: only an in-flight claim means another copy holds the key
-      if (!started && error instanceof inFlight) throw new RedeliverLater(error.retryAfterMs, error);
+      // run() rethrows the handler's own errors. Before the handler started, the dedup layer cannot tell whether the event
+      // was handled (another copy holds the key, or the claim failed), so it comes again; a crash stays a crash, unsettled
+      if (!started && !isCrash(error)) throw new RedeliverLater(error instanceof inFlight ? error.retryAfterMs : CLAIM_FAILURE_REDELIVERY_MS, error);
       throw error;
     }
   }
