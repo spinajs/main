@@ -9,6 +9,7 @@ import {
   ConfigTenantRegistry,
   MemoryTenantRegistry,
   PrincipalAttributeTenantAccess,
+  TenantIterationAborted,
   TenantRegistry,
   TenantSwitchDenied,
   TenantUnavailable,
@@ -48,15 +49,16 @@ class UnfilteredTenantRegistry extends MemoryTenantRegistry {
   }
 }
 
-/** Fails on the second pull of `list`, then would go on listing. */
+/** Fails on pull `failOnPull` of `list`, then would go on listing. */
 class FailingTenantRegistry extends MemoryTenantRegistry {
   public static readonly failure = new Error('registry down');
+  public failOnPull = 2;
 
   public override list(): AsyncIterable<TenantRecord> {
     const tenants = super.list()[Symbol.asyncIterator]();
     let pulls = 0;
     return {
-      [Symbol.asyncIterator]: () => ({ next: () => (++pulls === 2 ? Promise.reject(FailingTenantRegistry.failure) : tenants.next()) }),
+      [Symbol.asyncIterator]: () => ({ next: () => (++pulls === this.failOnPull ? Promise.reject(FailingTenantRegistry.failure) : tenants.next()) }),
     };
   }
 }
@@ -74,6 +76,15 @@ class UnreadableTenantRegistry extends MemoryTenantRegistry {
       },
     };
   }
+}
+
+async function abortOf(run: Promise<unknown>): Promise<TenantIterationAborted> {
+  const error = await run.then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  if (!(error instanceof TenantIterationAborted)) throw new Error(`expected TenantIterationAborted, got ${String(error)}`);
+  return error;
 }
 
 const reasonOf = (work: Promise<unknown>): Promise<string> =>
@@ -270,7 +281,8 @@ describe('tenancy services', () => {
         { concurrency: 2 },
       );
 
-      await expect(run).to.be.rejectedWith(FailingTenantRegistry.failure);
+      const aborted = await abortOf(run);
+      expect(aborted.cause).to.eq(FailingTenantRegistry.failure);
       expect(finished).to.deep.eq(['a']);
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(started).to.deep.eq(['a']);
@@ -282,9 +294,38 @@ describe('tenancy services', () => {
       (await memory()).add({ id: 'a' });
       const started: string[] = [];
 
-      await expect(forEachTenant(async (tenant) => void started.push(tenant.id))).to.be.rejectedWith(UnreadableTenantRegistry.failure);
+      const aborted = await abortOf(forEachTenant(async (tenant) => void started.push(tenant.id)));
+      expect(aborted.cause).to.eq(UnreadableTenantRegistry.failure);
+      expect(aborted.report).to.deep.eq({ total: 1, succeeded: 1, failed: [] });
       expect(started).to.deep.eq(['a']);
     });
+
+    for (const concurrency of [1, 3]) {
+      it(`keeps the report of the tenants that ran when the registry fails after them, at concurrency ${concurrency}`, async () => {
+        await app.dispose();
+        app = await tenancyApp({ registry: 'FailingTenantRegistry' }, (container) => container.register(FailingTenantRegistry).as(TenantRegistry));
+        const registry = await memory();
+        if (!(registry instanceof FailingTenantRegistry)) throw new Error('expected the failing registry');
+        for (const id of ['a', 'b', 'c', 'd']) registry.add({ id });
+        registry.failOnPull = 3;
+        const failure = new Error('disk full');
+
+        const aborted = await abortOf(
+          forEachTenant(
+            async (tenant) => {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              if (tenant.id === 'b') throw failure;
+            },
+            { concurrency },
+          ),
+        );
+
+        expect(aborted.cause).to.eq(FailingTenantRegistry.failure);
+        expect(aborted.message).to.eq('forEachTenant stopped after 2 tenant(s) because the registry failed; the registry error is the cause');
+        expect(aborted.message).to.not.contain(FailingTenantRegistry.failure.message);
+        expect(aborted.report).to.deep.eq({ total: 2, succeeded: 1, failed: [{ tenant: 'b', error: failure }] });
+      });
+    }
 
     it('runs from the cross-tenant scope and refuses to run inside one tenant', async () => {
       const report = await runAcrossTenants('nightly billing', () => forEachTenant(async () => undefined));
