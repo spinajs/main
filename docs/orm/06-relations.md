@@ -146,6 +146,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 ## Important behaviour
 
 - **A `where()` in a belongs-to populate callback filters the parent rows.** The relation query is merged into the parent query. Wrap conditions in `whereOnJoin()` to put them in the `LEFT JOIN ... ON` clause instead.
+- **An `orWhere()` in a populate callback stays inside the callback's conditions.** When the conditions of a belongs-to callback contain an OR they are merged into the parent query as one parenthesized group: `where('Id', 1)` with a populate of `Name = 'a' OR Name = 'b'` compiles to `Id = 1 AND ( Name = 'a' OR Name = 'b' )`. A callback that starts with `orWhere()` is grouped too, so it no longer ORs against the parent's conditions. Conditions of a nested populate are joined to the group with AND. The same grouping applies to the target conditions of a many-to-many populate in its junction query.
 - Joins added inside a belongs-to populate callback nest inside that relation's `LEFT JOIN`. They do not filter parent rows.
 - Has-many and many-to-many run one extra query per relation, not per owner. When the parent query returns no rows, the extra query is skipped.
 - Belongs-to columns are aliased with the connection's `AliasSeparator` (default `$`, so `$Customer$.Name`). See [Connections](./01-connections.md).
