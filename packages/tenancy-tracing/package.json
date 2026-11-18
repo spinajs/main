@@ -1,0 +1,61 @@
+{
+  "name": "@spinajs/tenancy-tracing",
+  "version": "3.0.23",
+  "description": "Tenant of the current scope on every SpinaJS span: a span processor that sets spina.tenant.id, attached to the tracing hub on import",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\" --exit",
+    "lint": "cd ../.. && npm run lint -- packages/tenancy-tracing"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "tenancy",
+    "multi-tenant",
+    "tracing",
+    "opentelemetry"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/tenancy": "3.0.23",
+    "@spinajs/tracing": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/testing": "3.0.23"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}
