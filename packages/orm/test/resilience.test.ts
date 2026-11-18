@@ -58,8 +58,8 @@ class FakeResilientDriver extends OrmDriver {
     });
   }
 
-  protected setState(state: ConnectionState): void {
-    super.setState(state);
+  protected setState(state: ConnectionState, lost?: boolean): void {
+    super.setState(state, lost);
     this.states.push(state);
   }
 

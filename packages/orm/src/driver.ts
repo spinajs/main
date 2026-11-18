@@ -168,8 +168,11 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
   /**
    * Records a state transition and logs it. Repeat transitions to the same state are ignored.
+   *
+   * @param lost - the connection went away rather than being closed by `disconnect()`; a lost one is logged at warn,
+   * a closed one at debug. Ignored for every state other than `Disconnected`
    */
-  protected setState(state: ConnectionState): void {
+  protected setState(state: ConnectionState, lost = false): void {
     if (this._state === state) {
       return;
     }
@@ -180,8 +183,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     const fields = { connection: this.Options.Name, state, previousState: previous };
     if (state === ConnectionState.Connected) {
       this.Log.info(fields, STATE_CHANGE_TEMPLATE);
-    } else if (state === ConnectionState.Degraded || state === ConnectionState.Disconnected) {
+    } else if (state === ConnectionState.Degraded || (state === ConnectionState.Disconnected && lost)) {
       this.Log.warn(fields, STATE_CHANGE_TEMPLATE);
+    } else if (state === ConnectionState.Disconnected) {
+      this.Log.debug(fields, STATE_CHANGE_TEMPLATE);
     } else {
       this.Log.trace(fields, STATE_CHANGE_TEMPLATE);
     }
@@ -248,7 +253,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       }
     }
 
-    this.setState(ConnectionState.Disconnected);
+    this.setState(ConnectionState.Disconnected, true);
     throw lastError;
   }
 
