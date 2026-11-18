@@ -15,14 +15,13 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
    2. For each entry in parallel, `DbConfigValueConverter.toDB()` turns `defaultValue` into canonical text for `exposeOptions.type`.
    3. `DbConfig.insert(row, InsertBehaviour.InsertOrIgnore)` writes the row. An existing `Slug` is left untouched.
    4. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type` and `Required` when any differs from the code. `Value`, `Default` and `Watch` are written by the insert only, so an existing row keeps them.
-   5. Entries with `watch: true` join the watched set and the watch timer starts. See [Watching options](03-watching-options.md).
+   5. The watch timer starts. It polls the rows whose `Watch` column is set, see [Watching options](03-watching-options.md).
    6. Database errors are logged as `Failed to persist exposed config options to db`, not thrown. The bootstrapper then asks the database again whether the table exists; when it does not, late registrations are skipped again (step 5) and the next ready event sweeps once more.
 4. **After the sweep**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
    1. `normalizeFileEntryOptions()` runs synchronously, so a misdeclared file entry throws out of the `@Config` decorator or `DI.register()` call.
    2. The row is inserted and its metadata synced as in step 3.
    3. The stored row is read back and `Configuration.set(path, row.Value ?? defaultValue)` updates the live configuration. A row whose `Exposed` flag an admin cleared is left out, as the source does.
-   4. With `watch: true` the slug joins the watched set and arms the timer if it was idle.
-   5. Errors are logged as `Failed to sync exposed config option ... with db`, not thrown.
+   4. Errors are logged as `Failed to sync exposed config option ... with db`, not thrown.
 5. Registrations made before the sweep are skipped by the step 4 handler and handled in step 3.
 
 The values themselves reach the configuration through the [database source](01-database-source.md) on `Configuration.load()`, or through step 4.3 for late registrations.
@@ -58,7 +57,7 @@ These options are added to `IConfigEntryOptions` of `@spinajs/configuration-comm
 | | | `exposeOptions.label?: string` | Stored in `Label`, max 64 characters. |
 | | | `exposeOptions.description?: string` | Stored in `Description`, max 256 characters. |
 | | | `exposeOptions.meta?: IConfigurationEntryMeta` | Stored as JSON in `Meta`: `min`, `max`, `minDate`, `maxDate`, `oneOf`, `manyOf`, `file`. |
-| | | `exposeOptions.watch?: boolean` | Stored in `Watch` when the row is inserted; `true` polls the option, see [Watching options](03-watching-options.md). |
+| | | `exposeOptions.watch?: boolean` | Stored in `Watch` when the row is inserted; the column then decides whether the row is polled, see [Watching options](03-watching-options.md). |
 | | | `defaultValue` (from `@spinajs/configuration`) | Seeds `Value` and `Default` in canonical text when the row is inserted. |
 | | | `required` (from `@spinajs/configuration`) | Stored in `Required`. Not enforced by this package. |
 

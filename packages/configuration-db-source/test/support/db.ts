@@ -5,7 +5,7 @@ import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Configuration } from '@spinajs/configuration';
 
-import { DbConfig, DbConfigSourceBotstrapper } from '../../src/index.js';
+import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from '../../src/index.js';
 import { asSystem } from '../../src/system.js';
 
 type SetConfig = (path: readonly string[], value: unknown) => void;
@@ -39,13 +39,12 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
 
   const bootstrapper = new DbConfigSourceBotstrapper();
   bootstrapper.authzDomain = domain;
-  const watched = (bootstrapper as unknown as { watchedSlugs: Set<string> }).watchedSlugs;
+  (bootstrapper as unknown as { Converter: DbConfigValueConverter }).Converter = await DI.resolve(DbConfigValueConverter);
 
   return {
     async seed(rows) {
       for (const r of rows) {
         await asSystem(() => DbConfig.insert({ Slug: r.path, Value: r.value, Group: 'test', Type: 'string', Watch: true, Exposed: true }), domain);
-        watched.add(r.path);
       }
     },
     poll: () => bootstrapper.refreshWatched(),

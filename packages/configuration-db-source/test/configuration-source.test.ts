@@ -198,6 +198,9 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   afterEach(async () => {
+    // every beforeEach starts another watch timer; without this they all keep polling the next test's database
+    DI.emit('di.dispose');
+
     const orm = await db();
     orm.dispose();
 
@@ -313,44 +316,21 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect(c.get('late-watch')).to.equal('b');
   });
 
-  it('Should arm the watch timer from the first watched slug registered after ORM resolve, when nothing was watched at resolve time', async () => {
-    const c = await cfg();
+  it('Should run the watch timer once the table is ready, although no option declares watch', async () => {
+    // A configuration of its own: the instance the suite bootstraps polls the shared one and would mask this timer.
+    const polled = new Map<string, unknown>();
+    const isolated = { get: (path: string) => polled.get(path), set: (path: string, value: unknown) => polled.set(path, value) };
 
-    // A bootstrapper instance of its own, deliberately not wired through DI.register/DI.on:
-    // the shared instance the suite's beforeEach bootstraps is already armed (the `Test`
-    // class registers watched vars at module load), so routing this scenario through the
-    // real `di.registered.__configuration_property__` broadcast would also reach that
-    // already-armed listener, which would refresh our slug on its own and mask a broken
-    // arm(). Calling the real (unstubbed) private methods directly on a fresh instance
-    // keeps `watchedSlugs`/`armWatchTimer` isolated while still exercising production code.
     const bootstrapper = new DbConfigSourceBotstrapper();
-    const internals = bootstrapper as unknown as {
-      Converter: DbConfigValueConverter;
-      startWatchTimer(container: IContainer): void;
-      syncConfigOption(v: { path: string; options: Record<string, unknown> }): Promise<void>;
-    };
+    const internals = bootstrapper as unknown as { Converter: DbConfigValueConverter; startWatchTimer(container: IContainer): void };
     internals.Converter = await DI.resolve(DbConfigValueConverter);
+    internals.startWatchTimer({ get: () => isolated } as unknown as IContainer);
 
-    // simulates ORM resolve with nothing watched yet - no timer should be armed
-    internals.startWatchTimer({ get: () => c } as unknown as IContainer);
-
-    // simulates the first watched option registered after startup
-    await internals.syncConfigOption({
-      path: 'isolated-late-watch',
-      options: {
-        expose: true,
-        defaultValue: 'a',
-        exposeOptions: { type: 'string', group: 'db-config', watch: true },
-      },
-    });
-
-    expect(c.get('isolated-late-watch')).to.equal('a');
-
-    await DbConfig.update({ Value: 'b' }).where('Slug', 'isolated-late-watch');
+    await DbConfig.insert({ Slug: 'db-only-watch', Value: 'b', Group: 'db-config', Type: 'string', Watch: true, Exposed: true });
 
     await wait(3000);
 
-    expect(c.get('isolated-late-watch')).to.equal('b');
+    expect(polled.get('db-only-watch')).to.equal('b');
   });
 
   it('Should keep the value of a row that is not exposed out of the config on late sync and watch', async () => {

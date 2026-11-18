@@ -6,7 +6,7 @@ import { Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike
 import { InternalLogger } from '@spinajs/internal-logger';
 import { testHost } from '@spinajs/authz-testing';
 
-import { DbConfig, DbConfigSourceBotstrapper } from '../src/index.js';
+import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from '../src/index.js';
 import { bootDb, DbHandle } from './support/db.js';
 
 const LIMIT = 'pollRefused.limit';
@@ -70,9 +70,9 @@ describe('watch poll with a row the configuration refuses', function () {
     await DbConfig.insert({ Slug: TITLE, Value: 'new', Group: 'test', Type: 'string', Watch: true, Exposed: true });
 
     bootstrapper = new DbConfigSourceBotstrapper();
-    const internals = bootstrapper as unknown as { configuration: Configuration; watchedSlugs: Set<string> };
+    const internals = bootstrapper as unknown as { Converter: DbConfigValueConverter; configuration: Configuration };
+    internals.Converter = await DI.resolve(DbConfigValueConverter);
     internals.configuration = config;
-    internals.watchedSlugs.add(LIMIT).add(TITLE);
   });
 
   afterEach(() => {
@@ -128,6 +128,18 @@ describe('watch poll with a row the configuration refuses', function () {
     await DbConfig.update({ Value: '25' }).where('Slug', LIMIT);
     await bootstrapper.refreshWatched();
     expect(config.get(LIMIT)).to.equal(25);
+  });
+
+  it('tries a refused row again once only its Type changed', async () => {
+    // read as json the text is an object, which the string schema refuses
+    await DbConfig.update({ Value: '{"a":1}', Type: 'json' }).where('Slug', TITLE);
+    await bootstrapper.refreshWatched();
+    expect(config.get(TITLE)).to.equal('old');
+
+    await DbConfig.update({ Type: 'string' }).where('Slug', TITLE);
+    await bootstrapper.refreshWatched();
+
+    expect(config.get(TITLE)).to.equal('{"a":1}');
   });
 
   it('logs the refusal again once the row was applied in between', async () => {
