@@ -83,23 +83,34 @@ export function executionCopy<Q extends object>(query: Q): Q {
   return copy as Q;
 }
 
+// Keyed by the statement, not by a builder: a many-to-many junction query takes over every statement of its target
+// query, and only the groups the target had from its nested relations may leave the junction's group.
+const relationGroups = new WeakSet<IQueryStatement>();
+
+/** Marks `group` as the AND group a nested relation's conditions arrived in when merged into another query. */
+export function markRelationGroup(group: IQueryStatement): void {
+  relationGroups.add(group);
+}
+
 /**
  * Moves the where statements of `copy`, an {@link executionCopy}, into one AND group, so an OR among them cannot
- * widen a key filter ANDed after it. HAVING statements stay where they are. The source query is not changed.
+ * widen a key filter ANDed after it. HAVING statements and the groups of nested relations stay beside the group:
+ * `( a OR b ) AND ( nested )`, not `( a OR b AND ( nested ) )`. The source query is not changed.
  */
 export function groupWhereStatements(copy: ISelectQueryBuilder): void {
   const statements = copy.Statements;
   const isAggregate = (s: IQueryStatement) => (s as { IsAggregate?: boolean }).IsAggregate === true;
-  const conditions = statements.filter((s) => !isAggregate(s));
+  const staysBeside = (s: IQueryStatement) => isAggregate(s) || relationGroups.has(s);
+  const conditions = statements.filter((s) => !staysBeside(s));
   if (conditions.length === 0) {
     return;
   }
 
-  const aggregates = statements.filter(isAggregate);
+  const beside = statements.filter(staysBeside);
   statements.length = 0;
   // adopted, not rebound: the recursive CTE clones the copy, and a moved Lazy must keep its own context
   copy.where(function () {
     (this as WhereBuilder<unknown>).adopt(conditions);
   });
-  statements.push(...aggregates);
+  statements.push(...beside);
 }

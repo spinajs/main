@@ -25,7 +25,7 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { executionCopy, runCloneHooks } from './internal.js';
+import { executionCopy, markRelationGroup, runCloneHooks } from './internal.js';
 import type { BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -542,6 +542,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
       const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
       this._markMerged([statement]);
+      markRelationGroup(statement);
       this._statements.push(statement);
     }
 
