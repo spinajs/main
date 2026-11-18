@@ -1,13 +1,57 @@
-# Release notes — orm-http, http-swagger: list queries (negated operators, multi-column sorting, aggregates, includes, readList)
+# Release notes — orm-http: list scope, column projection, deeper filter groups
 
 ## Packages
 
 `@spinajs/orm-http`, `@spinajs/http-swagger`. No breaking changes.
 
+## New
+
+- `readList(model, request, options)` takes `scope` (restricts the count, the page and the aggregates alike, e.g. with
+  `.accessible()`), `columns` (a projection that also refuses filters, sorts, groups and measures on hidden columns) and
+  `signal` (checked before each statement). See
+  [Lists and includes](docs/orm-http/12-lists-and-includes.md#scope-projection-and-cancellation).
+- `@FilterGroupDepth(n)` lets a model's filter schema nest groups up to `MAX_FILTER_GROUP_DEPTH` (4) levels; without it
+  the schema is unchanged. `filterSchemaFor(columns, model?, maxDepth?)` takes the depth as its third argument. See
+  [Filtering](docs/orm-http/03-filtering.md#nested-groups).
+- The OpenAPI document describes a filter value as any number, not only an integer: a float or decimal column already
+  took a decimal value.
+- Documented semantics: literal LIKE values, null columns and negated operators, `empty`, `count` with a column, null and
+  empty groups, page size limits. See [Filtering](docs/orm-http/03-filtering.md#semantics),
+  [Pagination and ordering](docs/orm-http/05-pagination-and-order.md#limits) and
+  [Aggregates](docs/orm-http/11-aggregates.md#semantics).
+
+# Release notes — orm-http, http-swagger: list queries (negated operators, multi-column sorting, aggregates, includes, readList)
+
+## Packages
+
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No API is removed; check the points below before upgrading.
+
 ## Behaviour note
 
 - A model that marks a relation `@Includable()` makes `@FromModel` refuse every other relation in `?include=` with
   `400`. A model with no `@Includable` relation keeps populating any relation named, as before.
+
+## What to check before upgrading
+
+- A filter group that carries `"not": true` is now negated. Before, the group schema did not know `not`, so the flag
+  was accepted and ignored, and the group matched as written; the same request now answers the rows the group does not
+  match. Search clients that send `not` on a group, and drop it where it was never meant.
+- `FilterableOperators` gains `nlike`, `nb-like`, `ne-like`, `empty` and `nempty`. Code that keeps an exhaustive
+  `Record<FilterableOperators, …>` or an exhaustive `switch` over it stops compiling until it handles the five new
+  operators.
+- `MAX_FILTERS` (100) now counts the conditions and groups of a filter at every depth, not only the top-level list. A
+  request whose nested groups add up to more than 100 entries is refused with `400`.
+- `readList` refuses a `scope` that returns a promise with `InvalidOption`: what an async scope adds after an `await`
+  would miss the statement. A scope that returns the builder, such as `(q) => q.where(...)`, is unaffected.
+- `@Aggregate(Model)` over a model with no `@Groupable` and no `@Aggregatable` column answered `500` to every request,
+  because its schema did not compile; it now counts rows and answers `400` to a request that names a column.
+  `Model.aggregateSchema()` of such a model compiles.
+- The OpenAPI description of the `aggregate` query parameter moves from `schema` to `content['application/json']`, as
+  the server reads one JSON string, and carries the limits the server validates: `additionalProperties: false`,
+  `maxItems`, `uniqueItems` and lower-case `order`. Regenerate clients built from the document: they sent the object
+  exploded into `?groupBy=…&measures=…`. `registerOpenApiParamType` takes an optional `contentType` on a header, query,
+  path or cookie description, which documents the value under `content` instead of `schema`; registrations without it
+  are unchanged.
 
 ## New
 

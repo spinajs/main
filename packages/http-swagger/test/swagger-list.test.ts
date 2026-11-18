@@ -8,7 +8,7 @@ import '../src/index.js';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
 type Schema = { $ref?: string; type?: string; required?: string[]; enum?: string[]; const?: string; properties?: Record<string, Schema>; items?: Schema & { anyOf?: Schema[] } };
-type Param = { name: string; in: string; required?: boolean; description?: string; schema: Schema };
+type Param = { name: string; in: string; required?: boolean; description?: string; schema?: Schema; content?: Record<string, { schema: Schema }> };
 
 describe('Swagger: orm-http list parameters and response', function () {
   this.timeout(30000);
@@ -43,22 +43,41 @@ describe('Swagger: orm-http list parameters and response', function () {
   const parameter = (name: string) => operation().parameters.find((p) => p.name === name)!;
   const resolve = (schema: Schema): Schema => (schema.$ref ? spec.components.schemas[schema.$ref.split('/').pop()!] : schema);
 
-  // A registered parameter type is emitted with `schema`, not `content` ( registeredParameter in openapi-builder.ts ).
-  it('documents aggregate as an optional JSON query parameter', () => {
+  const aggregateSchema = () => parameter('aggregate').content!['application/json'].schema;
+
+  // The server parses one JSON string; under `schema` a generated client would send ?groupBy=…&measures=… instead.
+  it('documents aggregate as an optional query parameter holding one JSON string', () => {
     const aggregate = parameter('aggregate');
     expect(aggregate.in).to.equal('query');
     expect(aggregate.required ?? false).to.equal(false);
     expect(aggregate.description).to.contain('Group columns');
-    expect(aggregate.schema).to.be.an('object');
+    expect(aggregate).to.not.have.property('schema');
+    expect(Object.keys(aggregate.content!)).to.deep.equal(['application/json']);
+    expect(aggregateSchema().type).to.equal('object');
   });
 
   it('names the groupable columns and the functions each column allows', () => {
-    const schema = parameter('aggregate').schema;
+    const schema = aggregateSchema();
     expect(schema.properties!.groupBy.items!.enum).to.have.members(['status', 'customerId']);
 
     const measures = schema.properties!.measures.items!.anyOf!;
     const amount = measures.find((m) => m.properties!.column?.const === 'amount' || m.properties!.column?.enum?.[0] === 'amount')!;
     expect(amount.properties!.fn.enum).to.have.members(['sum', 'avg']);
+  });
+
+  it('documents the limits the server validates the aggregate with', () => {
+    const schema = aggregateSchema() as Schema & Record<string, unknown>;
+    const property = (name: string) => schema.properties![name] as Schema & Record<string, unknown>;
+    const measures = property('measures').items!.anyOf! as (Schema & Record<string, unknown>)[];
+    const order = property('order').items! as Schema & Record<string, unknown>;
+
+    expect(schema.additionalProperties).to.equal(false);
+    expect(property('groupBy')).to.include({ maxItems: 8, uniqueItems: true });
+    expect(property('measures')).to.include({ minItems: 1, maxItems: 16 });
+    expect(measures.every((measure) => measure.additionalProperties === false)).to.equal(true);
+    expect(property('order').maxItems).to.equal(24);
+    expect(order.additionalProperties).to.equal(false);
+    expect(order.properties!.order.enum).to.have.members(['ASC', 'DESC', 'asc', 'desc']);
   });
 
   it('documents include as a query parameter listing the includable relations', () => {

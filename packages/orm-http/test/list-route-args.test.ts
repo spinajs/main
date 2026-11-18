@@ -40,4 +40,22 @@ describe('@Aggregate route argument', function () {
   it('answers 400 for malformed JSON', async () => {
     expect(await get('{"measures":')).to.have.status(400);
   });
+
+  describe('over a model without @Groupable or @Aggregatable columns', () => {
+    const ofCustomers = (aggregate: unknown) => req().get('lq/customers/aggregate').set('Accept', 'application/json').query({ aggregate: JSON.stringify(aggregate) });
+
+    it('counts its rows', async () => {
+      const response = await ofCustomers({ measures: [{ name: 'n', fn: 'count' }] });
+      expect(response).to.have.status(200);
+      expect((response.body as { aggregates: unknown }).aggregates).to.deep.equal([{ n: 3 }]);
+    });
+
+    it('answers 400 for a group column', async () => {
+      expect(await ofCustomers({ groupBy: ['Name'], measures: [{ name: 'n', fn: 'count' }] })).to.have.status(400);
+    });
+
+    it('answers 400 for a counted column', async () => {
+      expect(await ofCustomers({ measures: [{ name: 'n', fn: 'count', column: 'Name' }] })).to.have.status(400);
+    });
+  });
 });

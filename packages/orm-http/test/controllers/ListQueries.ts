@@ -3,7 +3,7 @@ import { Aggregate, Include } from '../../src/decorators.js';
 import { FromModel } from '../../src/index.js';
 import { IAggregateRequest } from '../../src/interfaces.js';
 import { readAggregateRows } from '../../src/aggregate.js';
-import { Order } from '../list-fixture.js';
+import { Customer, Order } from '../list-fixture.js';
 
 @BasePath('lq')
 export class ListQueries extends BaseController {
@@ -13,6 +13,12 @@ export class ListQueries extends BaseController {
       return new Ok({ aggregates: null });
     }
     const rows = await Order.query().aggregate(aggregate).asRaw<Record<string, unknown>[]>();
+    return new Ok({ aggregates: readAggregateRows(rows, aggregate) });
+  }
+
+  @Get('customers/aggregate')
+  public async customerAggregate(@Aggregate(Customer) aggregate: IAggregateRequest) {
+    const rows = await Customer.query().aggregate(aggregate).asRaw<Record<string, unknown>[]>();
     return new Ok({ aggregates: readAggregateRows(rows, aggregate) });
   }
 

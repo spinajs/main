@@ -54,6 +54,7 @@ sequenceDiagram
 | `@Filterable({ operators, query?, aggregate?, value? })` | Model property | `IFilterableOptions`: the same three, and `value`, the JSON schema of one filter value | As above; `value` replaces the value type read from the column. |
 | `@Filterable(Model)` | Model property | a model class | Copies that model's filterable columns as `<property>.<column>`. |
 | `@Filter(ModelOrColumns)` | Route method parameter | a model class, or `IColumnFilter[]` | Reads, parses and validates an `IFilterRequest`. |
+| `@FilterGroupDepth(depth)` | Model class | `depth`: 1 to `MAX_FILTER_GROUP_DEPTH` (4) | Lets the model's filter schema nest groups `depth` levels deep instead of one. |
 
 ### Operators
 
@@ -145,7 +146,7 @@ The validator coerces types: `"3"` for an integer column reaches the query as `3
 
 ### The generated schema
 
-`Model.filterSchema()` and `filterSchemaFor(columns, model?)` return, for `Title` (`eq`, `like`) and an integer `Views` (`gt`):
+`Model.filterSchema()` and `filterSchemaFor(columns, model?, maxDepth?)` return, for `Title` (`eq`, `like`) and an integer `Views` (`gt`):
 
 ```json
 {
@@ -171,6 +172,7 @@ The validator coerces types: `"3"` for an integer column reaches the query as `3
             "required": ["filters"],
             "properties": {
               "op": { "type": "string", "enum": ["and", "or"] },
+              "not": { "type": "boolean" },
               "filters": { "type": "array", "items": { "type": "object", "anyOf": ["<the column items above>"], "allOf": ["<the value rules below>"] } }
             }
           }
@@ -189,9 +191,61 @@ The validator coerces types: `"3"` for an integer column reaches the query as `3
 ```
 
 - The `anyOf` items admit a known column with one of its operators. The `allOf` rules check `Value`; `Value` appears only under a `then`, which is what keeps coercion to the matching column.
-- Groups nest one level in the schema. `.filter()` itself walks any depth.
+- Groups nest one level in the schema unless the model has `@FilterGroupDepth(n)`; see [Nested groups](#nested-groups). `.filter()` itself walks any depth.
 - A model with no `@Filterable` column returns `{}` from `filterSchema()` and `[]` from `filterColumns()`.
 - `FILTER_OPERATOR_GROUPS` maps every `FilterableOperators` member to its group.
+
+### Nested groups
+
+A group holds conditions. To let it hold groups of its own, put `@FilterGroupDepth(n)` on the model:
+
+```ts sample
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { FilterGroupDepth, Filterable } from '@spinajs/orm-http';
+
+@FilterGroupDepth(2)
+@Connection('default')
+@Model('orders')
+export class Order extends ModelBase<Order> {
+  @Primary()
+  public Id: number;
+
+  @Filterable(['gte'])
+  public Amount: number;
+
+  @Filterable(['eq'])
+  public Status: string;
+
+  @Filterable(['nlike', 'isnull'])
+  public Note: string;
+}
+```
+
+With depth 2 a client can send "amount at least 60, and either paid or a note without `urgent`, a missing note included":
+
+```json
+{ "filters": [
+  { "Column": "Amount", "Operator": "gte", "Value": 60 },
+  { "op": "or", "filters": [
+    { "Column": "Status", "Operator": "eq", "Value": "paid" },
+    { "op": "or", "filters": [
+      { "Column": "Note", "Operator": "nlike", "Value": "urgent" },
+      { "Column": "Note", "Operator": "isnull" } ] } ] } ] }
+```
+
+| Depth | A request may send |
+| --- | --- |
+| 1 (no decorator) | conditions, and groups of conditions |
+| 2 | groups inside those groups |
+| 3, 4 | one more level each |
+
+- A model without `@FilterGroupDepth` gets exactly the one-level schema.
+- `not` is allowed on a group at every level.
+- The schema is unrolled to the depth, not recursive. `MAX_FILTER_GROUP_DEPTH` (4) is the ceiling; the decorator throws above it, and `filterSchemaFor(columns, model, depth)` throws `InvalidOption`.
+- `@Filter([...columns])` stays one level. A handler that needs more builds the schema with `filterSchemaFor(columns, undefined, depth)`.
+- The bound is the schema that `@Filter` validates against. `.filter()` and `readList` walk whatever they are handed.
+- A relation or aggregate column is still refused inside a negated group or an `or`, at any depth.
+- The OpenAPI document describes the conditions of a filter, not its groups, at any depth.
 
 ## Services and extension points
 
@@ -216,10 +270,23 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 - `@Filterable` on a property without a column creates a virtual column. It is never selected or written; filter on it with a custom `query`.
 - `like`, `b-like` and `e-like` and their negations bind a `LikeLiteral` from `@spinajs/orm`. A custom `query` gets the raw value and does its own escaping; see [Custom filter columns](07-custom-filter-columns.md).
 
+## Semantics
+
+- **The like family is literal.** `like`, `b-like`, `e-like`, `nlike`, `nb-like` and `ne-like` escape `%`, `_` and the escape character `~` with `~` and bind the pattern with `ESCAPE '~'`, on every SQL driver; MSSQL also escapes `[`. `like` with the value `%` matches only the rows that contain a percent sign.
+- **A null column matches no comparison.** SQL's three-valued logic leaves a row whose column is null out of `neq`, `nin`, `like`, `nlike`, `nb-like` and `ne-like` alike. To keep such rows, OR the condition with `isnull` in a group, as below. Inside another group this needs `@FilterGroupDepth(2)` on the model; see [Nested groups](#nested-groups).
+- **`empty` is null or `''`, nothing else.** Text of spaces alone is not empty on SQLite and PostgreSQL. MSSQL, and MySQL with a `PAD SPACE` collation, ignore trailing spaces when they compare text, so there `'   '` equals `''` and matches `empty`.
+- **A filter value takes its column's type.** A float or decimal column takes a decimal value; an integer column refuses a fraction with `400` (see [Value schema](#value-schema)).
+
+"Does not contain `urgent`, a missing note included":
+
+```json
+{ "op": "or", "filters": [ { "Column": "Note", "Operator": "nlike", "Value": "urgent" },
+                           { "Column": "Note", "Operator": "isnull" } ] }
+```
+
 ## Limits
 
 - Case sensitivity and accent folding are not operators: text comparison follows the column's collation. A case-insensitive or accent-insensitive search needs a column or collation that compares that way.
-- `empty` compares with `= ''`: text of spaces alone is not empty where the database compares exactly (SQLite, PostgreSQL).
 
 ## Best practices
 

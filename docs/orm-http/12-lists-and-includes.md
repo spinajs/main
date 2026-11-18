@@ -33,7 +33,65 @@ A list endpoint answers one page of rows, the number of rows the filter matches,
 | | `aggregate` | `IAggregateRequest`, as `@Aggregate` hands it. |
 | | `include` | Relation names already checked, as `@Include` hands them. |
 | `options` | `defaultLimit`, `maxLimit`, `invalid` | As for `readPage`. |
-| | `fallbackSort` | The last sort; default the primary key ascending. |
+| | `fallbackSort` | The last sort; default the first primary key column ascending. |
+| | `scope`, `columns`, `signal` | See [Scope, projection and cancellation](#scope-projection-and-cancellation). |
+
+## Scope, projection and cancellation
+
+`readList` takes three options for a caller that wraps it, such as a query service that applies row security:
+
+| Option | Type | Effect |
+| --- | --- | --- |
+| `scope` | `(query: SelectQueryBuilder) => void` | Runs on each statement the list builds (the count, the page, the aggregates), before the request's filter. What it adds becomes one bracketed condition ANDed with the filter, so `total`, `rows` and `aggregates` all describe the scoped rows, and an `or` in the request cannot widen them. |
+| `columns` | `readonly string[]` | The only columns `rows` answer, plus the primary key. A request that filters (at any depth), sorts, groups or measures by another column is refused with a `400` naming it, so a hidden column cannot be probed. |
+| `signal` | `AbortSignal` | Checked before each statement; an aborted signal rejects with `CanceledException` from `@spinajs/util`, its `cause` the signal's reason. |
+
+```ts sample
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Filterable, IListRequest, readList } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('orders')
+export class Order extends ModelBase<Order> {
+  @Primary()
+  public Id: number;
+
+  public TenantId: number;
+
+  @Filterable(['eq'])
+  public Status: string;
+
+  @Filterable(['gt', 'lt'])
+  public Amount: number;
+}
+
+export async function listOrders(request: IListRequest, tenantId: number) {
+  return readList(Order, request, {
+    scope: (query) => {
+      query.where('TenantId', tenantId);
+    },
+    columns: ['Status', 'Amount'],
+    signal: AbortSignal.timeout(5_000),
+    maxLimit: 1000,
+  });
+}
+```
+
+With `@spinajs/authz-orm`, the scope can carry row security. `.accessible()` marks the builder; the access plan is made when each statement runs, for the principal of the current request:
+
+```ts
+await readList(Order, request, { scope: (query) => query.accessible('order.read') });
+```
+
+### Limits
+
+- The ORM cannot cancel a statement or give it a timeout, so after an abort the statement in flight runs to its end and the next one does not start. On PostgreSQL a connection-wide `statement_timeout` can be set through `PGOPTIONS` (for example `-c statement_timeout=5000`), which the driver passes on with its connection options; there is no timeout per query.
+- `include` cannot be combined with `columns`: a relation answers columns of another model that the projection does not govern. Run two lists if you need both.
+- `columns` names columns of the model's table. A relation path (`Customer.Name`) or a filter-only column cannot be listed, so a projection refuses filters on them. A name that is no column throws `InvalidOption`.
+- `scope` runs once per statement: three times for a list with aggregates. Keep it free of side effects.
+- `scope` restricts the rows of the listed model only; it is not applied to the relations `include` loads. An included relation answers every related row the listed rows point at, unless something outside `readList` restricts that relation's queries. Mark a relation `@Includable` only when every reader of the listed rows may see all of its related rows; otherwise leave it out and load it with a list of its own, under its own scope.
+- Every statement is built, and every refusal made, before the first one runs.
+- `readList` does not validate the filter against the model's schema; that is `@Filter`'s job, and it is where the group depth is bounded.
 
 ## Typed responses
 

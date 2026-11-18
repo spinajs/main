@@ -16,7 +16,7 @@ The package extends `@spinajs/orm` in three ways: statics bound onto every model
 | Static | Returns |
 | --- | --- |
 | `filterColumns()` | `[{ column, operators, query }]` for every filterable column; `[]` when none. |
-| `filterSchema()` | JSON schema of an `IFilterRequest` over those columns; `{}` when none. |
+| `filterSchema()` | JSON schema of an `IFilterRequest` over those columns; `{}` when none. It nests groups as deep as the model's `@FilterGroupDepth` allows, one level without it; `filterSchemaFor(columns, model?, maxDepth = 1)` builds the same schema from a column list. |
 | `filter(request?)` | `Promise` of the rows: a new select builder with `filter(request.filters, request.op)` applied, awaited. |
 | `sortableColumns()` | The `@Sortable` columns; with none, the filterable columns of the model's own table. See [Pagination and ordering](05-pagination-and-order.md#multi-column-sorting). |
 | `aggregateColumns()` | `{ groupable, aggregatable }`: the `@Groupable` columns and the functions of each `@Aggregatable` column. |

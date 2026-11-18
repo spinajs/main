@@ -93,6 +93,13 @@ GET /orders/summary?aggregate={"groupBy":["Status"],"measures":[{"name":"total",
 - No date buckets (by day, month) and no `HAVING` on a measure.
 - `readList` answers the aggregates of the same filter next to a page of rows; see [Lists and includes](12-lists-and-includes.md).
 
+## Semantics
+
+- `count` without a column counts rows. `count` with a column counts the rows where that column is not null; an empty string counts.
+- `groupBy` keeps null and the empty string apart: they are two groups, answered as `null` and `""`.
+- Where a null group sorts is the database's: SQLite puts it first in ascending order, PostgreSQL last.
+- Under `readList`'s `columns` option, only the answered columns can be grouped or measured; see [Lists and includes](12-lists-and-includes.md#scope-projection-and-cancellation).
+
 ## Related
 
 - [Filtering](03-filtering.md): the filter an aggregate is computed over.

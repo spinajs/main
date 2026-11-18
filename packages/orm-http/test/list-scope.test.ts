@@ -94,6 +94,32 @@ describe('readList options: scope, columns, signal', function () {
       );
       expect(seen).to.deep.equal([Order, Order, Order]);
     });
+
+    it('takes a scope that returns the builder, which is thenable too', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- returning the thenable builder is the case under test
+      const answer = await readList(Order, {}, { scope: (query) => query.where('CustomerId', 2) });
+      expect(ids(answer.rows)).to.deep.equal([3, 4]);
+    });
+
+    it('refuses an async scope before any statement runs', async () => {
+      const prototype = SelectQueryBuilder.prototype as unknown as { selectCount: (...args: unknown[]) => Promise<number> };
+      const selectCount = prototype.selectCount;
+      let counted = false;
+      prototype.selectCount = function (this: unknown, ...args: unknown[]) {
+        counted = true;
+        return selectCount.apply(this, args);
+      };
+
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises -- the async scope is the case under test
+        const error = await refusal({}, { scope: async (query) => ofCustomer2(query) });
+        expect(error).to.be.instanceOf(InvalidOption);
+        expect(error.message).to.contain('scope');
+        expect(counted).to.equal(false);
+      } finally {
+        prototype.selectCount = selectCount;
+      }
+    });
   });
 
   describe('columns', () => {

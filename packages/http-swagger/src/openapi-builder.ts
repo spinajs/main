@@ -1047,13 +1047,14 @@ ${line}` : line;
   }
 
   private registeredParameter(description: Exclude<OpenApiParamDescription, { in: 'body' }>, name: string, doc?: ParamDoc): IOpenApiParameter {
+    // describe() may return one shared object, and the built document is handed out for editing.
+    const schema = structuredClone(description.schema);
     return {
       name,
       in: description.in,
       description: doc?.description ?? description.description,
       required: description.in === 'path' || description.required === true,
-      // describe() may return one shared object, and the built document is handed out for editing.
-      schema: structuredClone(description.schema),
+      ...(description.contentType ? { content: { [description.contentType]: { schema } } } : { schema }),
     };
   }
 

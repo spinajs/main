@@ -5,7 +5,7 @@ import { ICompilerOutput, SortOrder } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { IAggregateRequest, IFilterEntry } from '../src/interfaces.js';
 import { MAX_AGGREGATE_ROWS, readAggregateRows } from '../src/aggregate.js';
-import { bootListFixture, compileSchema, Order } from './list-fixture.js';
+import { bootListFixture, compileSchema, Customer, Order } from './list-fixture.js';
 
 async function run(spec: IAggregateRequest, filters?: IFilterEntry[]): Promise<Record<string, unknown>[]> {
   const query = Order.query().filter(filters).aggregate(spec);
@@ -110,6 +110,26 @@ describe('aggregate()', function () {
     expect(validate({ measures: [{ name: 'n', fn: 'median', column: 'Amount' }] })).to.equal(false);
     expect(validate({ measures: [] })).to.equal(false);
     expect(validate({ measures: [{ name: 'n', fn: 'count' }], extra: true })).to.equal(false);
+  });
+
+  describe('a model without @Groupable or @Aggregatable columns', () => {
+    it('has a schema that compiles and accepts only a count of rows', () => {
+      const validate = compileSchema(Customer.aggregateSchema());
+
+      expect(validate({ measures: [{ name: 'n', fn: 'count' }] })).to.equal(true);
+      expect(validate({ measures: [{ name: 'n', fn: 'count', column: 'Name' }] })).to.equal(false);
+      expect(validate({ groupBy: ['Name'], measures: [{ name: 'n', fn: 'count' }] })).to.equal(false);
+    });
+
+    it('counts its rows', async () => {
+      const spec: IAggregateRequest = { measures: [{ name: 'n', fn: 'count' }] };
+      expect(readAggregateRows(await Customer.query().aggregate(spec).asRaw<Record<string, unknown>[]>(), spec)).to.deep.equal([{ n: 3 }]);
+    });
+
+    it('refuses a column, naming the missing allow-list', () => {
+      expect(() => Customer.query().aggregate({ groupBy: ['Name'], measures: [{ name: 'n', fn: 'count' }] })).to.throw(InvalidArgument, /no @Groupable column/);
+      expect(() => Customer.query().aggregate({ measures: [{ name: 'n', fn: 'count', column: 'Name' }] })).to.throw(InvalidArgument, /no @Groupable or @Aggregatable column/);
+    });
   });
 
   it('readAggregateRows turns numeric text into numbers and keeps other values', () => {

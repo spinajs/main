@@ -42,6 +42,26 @@ export class ListQueries_2026_11_13_00_00_00 extends OrmMigration {
   public async down(_connection: OrmDriver): Promise<void> {}
 }
 
+@Migration('default')
+export class ListSemantics_2026_11_14_00_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().createTable('lq_memo', (table) => {
+      table.int('Id').primaryKey().notNull();
+      table.string('Text', 64);
+      table.string('Kind', 16);
+    });
+
+    await connection.insert().into('lq_memo').values({ Id: 1, Text: '100% sure', Kind: 'a' });
+    await connection.insert().into('lq_memo').values({ Id: 2, Text: 'snake_case', Kind: 'a' });
+    await connection.insert().into('lq_memo').values({ Id: 3, Text: null, Kind: null });
+    await connection.insert().into('lq_memo').values({ Id: 4, Text: '', Kind: '' });
+    await connection.insert().into('lq_memo').values({ Id: 5, Text: '   ', Kind: '' });
+    await connection.insert().into('lq_memo').values({ Id: 6, Text: 'plain', Kind: 'a' });
+  }
+
+  public async down(_connection: OrmDriver): Promise<void> {}
+}
+
 @Connection('default')
 @Model('lq_customer')
 export class Customer extends ModelBase {
@@ -82,7 +102,21 @@ export class Order extends ModelBase {
   public Customer: SingleRelation<Customer>;
 }
 
-export const LIST_MODELS = [Order, Customer];
+@Connection('default')
+@Model('lq_memo')
+export class Memo extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @Aggregatable(['min', 'max'])
+  @Filterable(['neq', 'nin', 'like', 'nlike', 'b-like', 'nb-like', 'e-like', 'ne-like', 'empty', 'nempty', 'isnull'])
+  public Text: string;
+
+  @Groupable()
+  public Kind: string;
+}
+
+export const LIST_MODELS = [Order, Customer, Memo];
 
 /** Boots the ORM on SQLite in memory with the fixture migrated and orm-http's statics installed. */
 export async function bootListFixture(): Promise<void> {
