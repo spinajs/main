@@ -234,6 +234,16 @@ Config form only; the definition shows the task as `Task:<name>`.
 - Sends start in this order: run event, regression, paused-by-failures; delivery order depends on the transport.
 - Events are fire-and-forget: a broker that is down or hangs never delays or fails a run. On shutdown pending sends get at most `min(shutdownGrace, 5 s)`. At most 10 000 sends wait at a time; beyond that new events are dropped with one warning.
 
+**Log lines** (logger `SCHEDULER`): a failed run (`failed`, `dead`, a timed-out abort) warns once per cause, the
+cause being its error group (the same fingerprint as `listErrors`). Until the schedule succeeds again, every later
+failure with a cause that already warned goes to `debug`, also when causes alternate. At most 32 causes are kept per
+schedule; past that a new cause logs at `debug` (nothing is evicted) until the schedule succeeds again. The first
+success after failures logs one `info` line, `schedule <name> succeeded again after <n> failure(s)`, counting failed
+runs. An attempt that will be retried logs at `debug`, so a retried run warns once, when it ends `dead`. A shutdown or
+cancel abort warns as before. A pause by failures forgets the causes but keeps the count, so the first failure after a
+resume warns again and the recovery line still follows. A job that fails every 15
+seconds for an hour writes one warning, not 240. The state is per process, so each replica warns once.
+
 **Metrics** (`@spinajs/telemetry-common`, rendered by `@spinajs/telemetry`'s
 `/metrics`): `scheduler_runs_total{name,status,trigger}`,
 `scheduler_run_duration_seconds{name}`, `scheduler_step_duration_seconds{name,step}`,
