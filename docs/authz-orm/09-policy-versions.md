@@ -65,7 +65,7 @@ A write that fails after a successful read is retried; when the last retry fails
 
 ## Several nodes and rolling deploys
 
-Every node records, not a leader only. During a rolling deploy two policies run at once and each node cites its own hash; the row of each must exist. The write is idempotent: one primary-key read per new hash per process, and a unique violation from a node that wrote first counts as success. Several domains of one process with the same policy write once. The table is content-addressed and serves every domain and node that runs the same policy; it is on the `authz` connection, like `authz_change_log`, and the retention job never prunes it.
+Every node records, not a leader only. During a rolling deploy two policies run at once and each node cites its own hash; the row of each must exist. The write is idempotent: a primary-key read per new hash per process (the first hash is read twice, by the probe and by the write), and a unique violation from a node that wrote first counts as success. Several domains of one process with the same policy write once. The table is content-addressed and serves every domain and node that runs the same policy; it is on the `authz` connection, like `authz_change_log`, and the retention job never prunes it.
 
 ## `spinajs authz:compile`
 
@@ -73,15 +73,15 @@ Every node records, not a leader only. During a rolling deploy two policies run 
 spinajs authz:compile [-o authz.ir.json] [--domain <name>] [--live] [--check] [--record]
 ```
 
-The command boots the domain's `AuthzService` and compiles it as a booting app does.
+The command boots the domain's `AuthzService` and compiles it as a booting app does. It opens the app's database and runs its startup migrations first, `--check` included, so a CI job needs the database configuration; when the process has a `DecisionLog` registered, that boot also records the policy version (or warns that it cannot) as an app boot does.
 
 | Option | Meaning |
 | --- | --- |
 | `-o, --out <path>` | the file written; default `authz.ir.json`, the default `--ir` of `authz:verify` and `authz:export` |
 | `--domain <name>` | the domain compiled; default `authz.orm.domain`, else `root` |
 | `--live` | the effective policy: DB-stored ABAC policies are compiled in. Its hash is not a policy version, and the command says so |
-| `--check` | writes nothing; exit code 1 when the file is missing, not valid JSON, not a valid policy IR, or holds a different policy |
-| `--record` | also stores the policy version in `authz_policy_version` (a backfill); refused with `--live` |
+| `--check` | writes nothing; exit code 1 when the file is missing, unreadable, not valid JSON, not a valid policy IR, or holds a different policy |
+| `--record` | also stores the policy version in `authz_policy_version` (a backfill); refused with `--live` and with `--check` |
 
 The file is a bare `PolicyIR`, pretty-printed for reviewable diffs; the hash is computed over its canonical form, so formatting does not change it. The hash is printed, not stored in the file:
 
@@ -99,7 +99,7 @@ $ npx spinajs authz:compile --check
 authz:compile: /app/authz.ir.json is stale (hash 9b0e… differs from the compiled 3f1a…); run spinajs authz:compile
 ```
 
-The reason in parentheses is `missing`, `not valid JSON`, `invalid IR: <codes>` or `hash <old> differs from the compiled <new>`. A merge conflict prints `conflict <path>: <message>`; a compiled IR that fails validation prints `invalid <code> <path>: <message>` per diagnostic and writes nothing.
+The reason in parentheses is `missing`, `not readable: <error>`, `not valid JSON`, `invalid IR: <codes>` or `hash <old> differs from the compiled <new>`. A merge conflict prints `conflict <path>: <message>`; a compiled IR that fails validation prints `invalid <code> <path>: <message>` per diagnostic and writes nothing.
 
 To verify the policy as it runs, stored policies included:
 

@@ -54,7 +54,8 @@ export class IRPolicyHashSource extends PolicyHashSource {
       compiled = await compileDomainPolicy(domain, service);
     } catch (e) {
       if (!moduleNotFound(e)) throw e;
-      this.warnOnce('authz-ir', { domain }, "authz-orm: @spinajs/authz-ir is not installed; decision records of domain ${domain} carry policyHash 'unknown'");
+      // Any module a model's toIR loads can be the missing one: the error names it.
+      this.warnOnce('authz-ir', { domain, error: thrownError(e) }, "authz-orm: @spinajs/authz-ir is not installed; decision records of domain ${domain} carry policyHash 'unknown'");
       return;
     }
     const { hash, ir, canonical, conflicts } = compiled;
@@ -99,8 +100,9 @@ export class IRPolicyHashSource extends PolicyHashSource {
     try {
       return await this.write(hash, canonical);
     } catch (e) {
-      if (n < this.retryDelaysMs.length) {
-        await new Promise((resolve) => setTimeout(resolve, this.retryDelaysMs[n]).unref());
+      const delay = this.retryDelaysMs.at(n);
+      if (delay !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, delay).unref());
         return this.attempt(hash, canonical, n + 1);
       }
       // A later domain boot tries again.
