@@ -492,7 +492,12 @@ export class SqlJoinStatement extends JoinStatement {
       // per-statement AND/OR connectors are honoured here too.
       const compiled = new SqlWhereCompiler().where(this._whereBuilder);
       if (compiled.expression && compiled.expression !== '') {
-        onExpression += ` AND ${compiled.expression}`;
+        // A query callback adds conditions next to the callback's own group, so an OR there
+        // would escape the key match: `pk = fk AND ( a ) OR b`. Read after compiling: a lazy
+        // build may append statements.
+        const conditions = (this._whereBuilder.Statements as WhereStatement[]).filter((x) => !x.IsAggregate);
+        const bracketed = conditions.length === 1 && WhereQueryStatement.isGroup(conditions[0]);
+        onExpression += bracketed ? ` AND ${compiled.expression}` : ` AND ( ${compiled.expression} )`;
         if (Array.isArray(compiled.bindings)) {
           onBindings.push(...compiled.bindings);
         }

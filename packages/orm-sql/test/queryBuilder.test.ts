@@ -946,6 +946,64 @@ describe('Relations query builder', () => {
     expect(result.bindings).to.deep.equal(['foo', 5, 1]);
   });
 
+  it('brackets an orWhere of a leftJoin callback inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .leftJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+        this.where('RelationProperty', 'foo').orWhere('Id', 5);
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( `$RelationModel2$`.`RelationProperty` = ? OR `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
+  it('brackets an orWhere of an innerJoin callback inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .innerJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+        this.where('RelationProperty', 'foo').orWhere('Id', 5);
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` INNER JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( `$RelationModel2$`.`RelationProperty` = ? OR `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
+  it('brackets an orWhere of a join query callback inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .leftJoin(
+        'Relation',
+        function (this: IWhereBuilder<RelationModel2>) {
+          this.where('RelationProperty', 'foo');
+        },
+        function (this: ISelectQueryBuilder<RelationModel2>) {
+          this.orWhere('Id', 5);
+        },
+      )
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( ( `$RelationModel2$`.`RelationProperty` = ? ) OR `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
+  it('brackets an orWhere of a join options callback inside ON', () => {
+    const result = RelationModel.where('Id', 1)
+      .innerJoin({
+        joinModel: RelationModel2,
+        sourceTablePrimaryKey: 'relation_id',
+        joinTableForeignKey: 'Id',
+        callback: function (this: IWhereBuilder<RelationModel2>) {
+          this.where('RelationProperty', 'foo');
+        },
+        queryCallback: function (this: ISelectQueryBuilder<RelationModel2>) {
+          this.where('Id', 5).orWhere('Id', 6);
+        },
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` INNER JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( ( `$RelationModel2$`.`RelationProperty` = ? ) AND `$RelationModel2$`.`Id` = ? OR `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.bindings).to.deep.equal(['foo', 5, 6, 1]);
+  });
+
   it('left join with callback stays a LEFT JOIN', () => {
     // regression: the join callback must not fold its condition into the main
     // WHERE, which would turn this LEFT JOIN into an effective inner join.
