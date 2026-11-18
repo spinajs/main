@@ -4,6 +4,7 @@ import 'mocha';
 import { AUDIT_WIDTHS, AuditConfigError, audit, trailConfig } from '@spinajs/audit';
 import type { AuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { FrameworkLogger } from '@spinajs/log';
 import { QueueService } from '@spinajs/queue';
 import '@spinajs/queue/testing';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, OutboxAuditStore, shipAudit } from '../src/index.js';
@@ -24,6 +25,19 @@ class RemoteArchiveMigration extends AuditArchiveTableMigration {
 }
 
 const wire = (e: AuditEvent): WireAuditEvent => ({ ...e, at: e.at.toISOString() });
+
+// The audit warn lines written while `run` runs, as [fields, message].
+async function auditWarnings(run: () => Promise<void>): Promise<unknown[][]> {
+  const lines: unknown[][] = [];
+  const own = Object.getOwnPropertyDescriptor(FrameworkLogger.prototype, 'warn');
+  Object.defineProperty(FrameworkLogger.prototype, 'warn', { value: (...args: unknown[]) => void lines.push(args), configurable: true, writable: true });
+  try {
+    await run();
+  } finally {
+    if (own) Object.defineProperty(FrameworkLogger.prototype, 'warn', own);
+  }
+  return lines.filter(([, message]) => typeof message === 'string' && message.startsWith('audit:'));
+}
 
 describe('audit queue sink', function () {
   this.timeout(60000);
@@ -195,6 +209,25 @@ describe('audit queue sink', function () {
       await shipAudit({ trail: 'remote' });
       await audit().trail('remote').forget(c1);
       expect((await archived()).filter((r) => r.action === 'erasure').map((r) => r.data)).to.deep.eq(['{"redacted":1}', '{"redacted":0}']);
+    });
+
+    it("forgets a subject of one shipping application by its connection name, recording the erasure on the trail's connection", async () => {
+      await arrive(event(1, { subject: c1 }), event(2));
+      await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'other', Events: [wire(event(3, { subject: c1 }))] }));
+
+      const warnings = await auditWarnings(async () => {
+        expect(await audit().trail('remote').forget(c1, 'app')).to.eq(1);
+      });
+      // This service buffers its own events, so a source that names none of its connections may be a typo.
+      expect(warnings).to.deep.eq([[{ trail: 'remote', source: 'app' }, 'audit: forget on trail ${trail} names source ${source}, which is no connection of this application: no buffer here was blanked, only the events the destination files under ${source}']]);
+      expect([await data(event(1).id), await data(event(2).id), await data(event(3).id)]).to.deep.eq(['', '{"version":2}', '{"version":3}']);
+
+      // Buffered on the trail's connection, where the consumer looks for pending erasures.
+      await arrive(event(7, { subject: c1 }));
+      expect(await data(event(7).id)).to.eq('');
+      await shipAudit({ trail: 'remote' });
+      const erasure = (await archived()).find((r) => r.action === 'erasure');
+      expect([erasure?.source, erasure?.data]).to.deep.eq([db.connectionName('sqlite'), '{"redacted":1}']);
     });
 
     it('blanks what arrives of a subject whose erasure this service has not shipped yet', async () => {
