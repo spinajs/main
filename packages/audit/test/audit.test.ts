@@ -81,6 +81,8 @@ const TRAILS = {
   strict: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 }, mask: ['data.args.password'] },
   twice: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
   flaky: { store: 'FlakyStore', retry: { attempts: 2, delay: 1 } },
+  sleepy: { store: 'FlakyStore', retry: { attempts: 3, delay: '1s' } },
+  sleepyStrict: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 3, delay: '1s' } },
   slow: { store: 'SlowStore', retry: { attempts: 3, delay: 1 } },
   slowStrict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
@@ -148,6 +150,13 @@ describe('audit().record', function () {
     expect(event.data).to.deep.eq({ version: 2 });
     expect(event.id).to.match(/^[0-9a-f-]{36}$/);
     expect(event.at).to.be.instanceOf(Date);
+  });
+
+  it('cuts what the context supplies to its column width', async () => {
+    const request = { Principal: { type: 'user', id: 'u'.repeat(200) }, realIp: '1'.repeat(100) };
+    await (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>).run(request, () => audit().record(actions('wide'), { mode: 'confirmed' }));
+    const [event] = MemoryAuditStore.events();
+    expect([event.actor, event.origin]).to.deep.eq([`user:${'u'.repeat(95)}`, '1'.repeat(64)]);
   });
 
   it('flushes the deferred buffer in the background', async () => {
@@ -234,6 +243,22 @@ describe('audit().record', function () {
     expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "default" could not record 1 event(s) in the transaction of the audited write', 'MemoryAuditStore: failing as asked']);
     expect(MemoryAuditStore.appends()).to.have.length(1);
     await expect(audit().record({ kind: 'data', action: 'update' }, { mode: 'transactional' })).to.be.rejectedWith(AuditConfigError, 'audit: a transactional write to trail "default" needs options.transaction');
+  });
+
+  it('passes an audit error the store raises in a transactional write through unchanged', async () => {
+    FlakyStore.down = true;
+    try {
+      for (const failure of [new AuditWriteFailed('audit: the store gave up'), new AuditConfigError('audit: no ORM connection "nope"')]) {
+        FlakyStore.failure = failure;
+        const raised: unknown = await audit()
+          .record({ kind: 'data', action: 'update' }, { trail: 'flaky', mode: 'transactional', transaction: {} })
+          .catch((e: unknown) => e);
+        expect(raised).to.eq(failure);
+      }
+      expect(FlakyStore.calls).to.eq(2);
+    } finally {
+      FlakyStore.failure = new Error('store down');
+    }
   });
 
   it('refuses a transactional write to a store that cannot join the transaction', async () => {
@@ -352,6 +377,24 @@ describe('audit(): confirmed deadline', function () {
       ['warn', 'slow', 'confirmed', 'continue', stored],
     ]);
     expect(SlowStore.calls).to.eq(2);
+  });
+
+  it('logs a confirmed write whose deadline fires between two tries as lost, after the tries it made', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    FlakyStore.calls = 0;
+    FlakyStore.down = true;
+    try {
+      const failed: unknown = await audit()
+        .record(actions('a'), { trail: 'sleepyStrict' })
+        .catch((e: unknown) => e);
+      expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "sleepyStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+      await audit().record(actions('b'), { trail: 'sleepy', mode: 'confirmed' });
+      expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'sleepy', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
+      expect(FlakyStore.calls).to.eq(2);
+    } finally {
+      FlakyStore.down = false;
+    }
   });
 
   it('gives a write that joins the caller no deadline: it settles with the caller', async () => {
