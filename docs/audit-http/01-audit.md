@@ -53,6 +53,7 @@ own. The order is: the options of the declaration, then the first matching rule,
 | `maxBodyBytes` | `16384` | A body larger than this, by its `Content-Length` or as JSON after redaction, is left out; `bodyTruncated` holds its size. |
 | `trail` | `default` | The trail the events are written to, a name of `audit.trails`. |
 | `action` | the route name, `http:<METHOD> <mounted path>` | The event's `action`. Set on a route it is used as it is. Set for several routes at once (on a controller, in a global entry, in `audit.http`) it is a prefix: each route records `<action>.<method name>`, so their events stay apart. |
+| `abortWaitMs` | `30000` | How long the event of a request the client went away from waits for the action to end, in milliseconds (0 to 2147483647). See [A request the client went away from](#a-request-the-client-went-away-from). |
 | `rules` | none | `audit.http` only. Per-route `action` and `trail`, see [Rules](#rules). |
 
 A key `audit.http` does not know (a misspelt `trial`) fails the boot. A trail that does not exist, a trail whose
@@ -146,7 +147,7 @@ The trail's own `omit`, `mask` and `hash` paths run after this redaction, on the
 | --- | --- |
 | `kind` | `action`. |
 | `action` | See `action` under [Configuration](#configuration). |
-| `outcome` | `ok` for a reply without an error; `denied` for a refusal of the [policy gate](../http/13-policies.md); `failed` for any other error reply, a policy that crashed (a 500) included; `attempt` for the event a `reject` trail confirms before the route runs (see [Trails and failure](#trails-and-failure)). |
+| `outcome` | `ok` for a reply without an error; `denied` for a refusal of the [policy gate](../http/13-policies.md); `failed` for any other error reply, a policy that crashed (a 500) included; `attempt` for the event a `reject` trail confirms before the route runs (see [Trails and failure](#trails-and-failure)), and for a request the client went away from whose action had not ended within `abortWaitMs`. |
 | `at` | When the request reached the middleware. |
 | `actor`, `onBehalfOf` | `actor` is the effective principal and `onBehalfOf` its impersonator, both stamped by the audit context when the event is recorded. |
 | `origin` | The client address: `ClientIp` of `@spinajs/authn-http`, else `realIp` of `@spinajs/http`. |
@@ -160,7 +161,7 @@ The trail's own `omit`, `mask` and `hash` paths run after this redaction, on the
 | `method`, `url` | The request method and the redacted URL. |
 | `status` | The sent status. Unset when the client went away before the headers were sent, and on an `attempt`. |
 | `ms` | Time from the middleware's `onBefore` to the end of the response. |
-| `aborted` | `true` when the client went away before the response finished. |
+| `aborted` | `true` when the client went away before the response finished. The outcome is then the action's, see [A request the client went away from](#a-request-the-client-went-away-from). |
 | `requestId` | From `req.storage`, set by `RequestId`. |
 | `query`, `body`, `bodyTruncated` | See [Redaction](#redaction) and `maxBodyBytes`. |
 | `error` | The error an error reply answered: a policy refusal, a middleware's refusal, an exception of the action, a throwing `onAfter`. `name` always; `message` only when the error is not answered as a 500 (a mapped 4xx, eg. `Forbidden`), cut to 200 characters. The message of a 500 can carry internals or quote input (a `SyntaxError`, a driver error with bound values): find it in the `http` log by `requestId`. |
@@ -177,9 +178,23 @@ what every later middleware refuses. It records nothing for:
 - a request answered before routing: a server middleware's refusal, a 404, a static file;
 - a request refused or answered by a `'beforePolicy'` middleware that runs before `Audit` ([entry order](../http/14-route-middlewares.md#entered-middlewares)).
 
-A request the client went away from is recorded once the connection closed, with `data.aborted: true`, possibly while
-the action is still running. Its `outcome` does not tell whether the action completed: read `aborted`, not `outcome`,
-for these events.
+### A request the client went away from
+
+When the client goes away before the response finished, the action may still run: `POST /payments` can commit a
+second after the client dropped. `Audit` waits for the action to end (`ctx.settled` of the
+[finish hook](../http/14-route-middlewares.md)), for at most `abortWaitMs`, and records the event with
+`data.aborted: true`:
+
+| The action | `outcome` |
+| --- | --- |
+| ends with a result after the client left | `ok` |
+| throws, or stops on the abort signal | `failed` with `data.error`; `denied` for a refusal of the policy gate |
+| is still running after `abortWaitMs` | `attempt`: the result is unknown |
+
+`status` and `ms` are taken when the connection closed, so `status` stays unset unless the headers had been sent.
+The wait holds no timer that keeps the process alive. When the http server begins to close (`http.server.closing`),
+every pending wait ends at once and its event is recorded as `attempt`. On a `reject` trail the event is the one
+outcome that follows the confirmed attempt.
 
 ## Trails and failure
 
@@ -229,7 +244,8 @@ export default {
 
 ### Shutdown
 
-Deferred events wait in the audit service of the container that resolved the controllers, one service per container.
+A request the client went away from and whose action still runs is recorded as `attempt` when the http server begins
+to close (see [A request the client went away from](#a-request-the-client-went-away-from)). Deferred events wait in the audit service of the container that resolved the controllers, one service per container.
 They are written when that container is disposed; disposing the root container disposes its children first, so
 `DI.dispose()` at shutdown writes them all. `audit().flush()` reaches only the root's service: an application that
 resolves its server in a child container flushes with `audit(container).flush()` on that container, or disposes it.

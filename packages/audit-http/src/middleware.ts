@@ -15,7 +15,7 @@ import { isStringArray } from '@spinajs/util';
 import { captureBody, describeError, isEmptyObject, redactPathParams } from './capture.js';
 import type { IAuditError } from './capture.js';
 import { ruleFor, rulesOf } from './match.js';
-import { DEFAULT_AUDIT_REDACT, DEFAULT_MAX_BODY_BYTES } from './options.js';
+import { DEFAULT_ABORT_WAIT_MS, DEFAULT_AUDIT_REDACT, DEFAULT_MAX_BODY_BYTES, MAX_ABORT_WAIT_MS } from './options.js';
 import type { IAuditHttpConfig, IAuditOptions, IAuditRule } from './options.js';
 
 interface IAuditSettings {
@@ -24,6 +24,7 @@ interface IAuditSettings {
   sensitive: (key: string) => boolean;
   includeBody: boolean;
   maxBodyBytes: number;
+  abortWaitMs: number;
 }
 
 interface IAuditState {
@@ -88,8 +89,45 @@ function actionOf(declared: string | undefined, own: boolean, rule: IAuditRule |
   return name.slice(0, AUDIT_WIDTHS.action);
 }
 
-function outcomeOf(aborted: boolean, error: IAuditError | undefined, res: Res): AuditOutcome {
-  if (aborted) return 'failed';
+function abortWaitOf(declared: number | undefined, configured: number | undefined): number {
+  const value = declared ?? configured ?? DEFAULT_ABORT_WAIT_MS;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_ABORT_WAIT_MS) {
+    throw new InvalidOption(`Audit: abortWaitMs must be a whole number of milliseconds, 0 to ${MAX_ABORT_WAIT_MS}`);
+  }
+  return value;
+}
+
+type Settlement = Awaited<IFinishContext['settled']>;
+
+interface IClosingWatch {
+  readonly ends: Set<() => void>;
+  readonly listener: () => void;
+}
+
+// One listener per container, held only while a wait is pending: every mount of Audit is an instance of its own.
+const closingWatches = new WeakMap<IContainer, IClosingWatch>();
+
+/** Calls `end` when the http server of `container` begins to close; the returned function stops watching. */
+function onServerClosing(container: IContainer, end: () => void): () => void {
+  let watch = closingWatches.get(container);
+  if (!watch) {
+    const ends = new Set<() => void>();
+    watch = { ends, listener: () => ends.forEach((e) => e()) };
+    container.on('http.server.closing', watch.listener);
+    closingWatches.set(container, watch);
+  }
+
+  const { ends, listener } = watch;
+  ends.add(end);
+  return () => {
+    ends.delete(end);
+    if (ends.size > 0) return;
+    container.removeListener('http.server.closing', listener);
+    closingWatches.delete(container);
+  };
+}
+
+function outcomeOf(error: IAuditError | undefined, res: Res): AuditOutcome {
   if (error === undefined) return 'ok';
   // the policy gate marks its stage before it refuses (a later stage overwrites the mark); its 500 is a crash, not a refusal
   return stageOf(res) === 'policy' && res.statusCode < 500 ? 'denied' : 'failed';
@@ -150,6 +188,7 @@ export class Audit extends RouteMiddleware {
       sensitive: sensitiveKeyMatcher(redact),
       includeBody: options.includeBody ?? cfg.includeBody ?? true,
       maxBodyBytes,
+      abortWaitMs: abortWaitOf(options.abortWaitMs, cfg.abortWaitMs),
     });
   }
 
@@ -196,18 +235,39 @@ export class Audit extends RouteMiddleware {
     const target = this.target;
     if (!state || !target) return;
 
-    const data = compact({
-      ...this.request(ctx, state),
-      status: !aborted || res.headersSent ? res.statusCode : undefined,
-      ms: Math.round((performance.now() - state.started) * 100) / 100,
-      aborted: aborted ? true : undefined,
-      error: state.error,
-    });
-    const event: AuditInput = { kind: 'action', action: target.action, outcome: outcomeOf(aborted, state.error, res), at: state.at, data };
+    // taken when the connection closed, before the wait for an action that may run on
+    const status = !aborted || res.headersSent ? res.statusCode : undefined;
+    const ms = Math.round((performance.now() - state.started) * 100) / 100;
+    const outcome = aborted ? await this.abortedOutcome(ctx, state) : outcomeOf(state.error, res);
+
+    const data = compact({ ...this.request(ctx, state), status, ms, aborted: aborted ? true : undefined, error: state.error });
+    const event: AuditInput = { kind: 'action', action: target.action, outcome, at: state.at, data };
     // The response is finished, so the outcome can no longer stop anything: a failed write is logged by the audit
     // service, also on a rejecting trail, where it leaves an attempt without an outcome.
     const options: AuditWriteOptions = target.rejecting ? { trail: target.trail, mode: 'confirmed', onFailure: 'continue' } : { trail: target.trail, onFailure: 'continue' };
     await audit(this.Container).record(event, options);
+  }
+
+  /** The client went away: the outcome of the action once it ended, `attempt` when it did not end within `abortWaitMs` or the server began to close. */
+  protected async abortedOutcome({ res, settled }: IFinishContext, state: IAuditState): Promise<AuditOutcome> {
+    const settlement = await this.settledWithin(settled);
+    if (!settlement) return 'attempt';
+    if (settlement.error !== undefined) state.error ??= describeError(settlement.error);
+    return outcomeOf(state.error, res);
+  }
+
+  protected async settledWithin(settled: Promise<Settlement>): Promise<Settlement | undefined> {
+    let giveUp!: () => void;
+    const givenUp = new Promise<undefined>((resolve) => (giveUp = () => resolve(undefined)));
+    const timer = setTimeout(giveUp, this.Settings.abortWaitMs);
+    timer.unref();
+    const unwatch = onServerClosing(this.Container, giveUp);
+    try {
+      return await Promise.race([settled, givenUp]);
+    } finally {
+      clearTimeout(timer);
+      unwatch();
+    }
   }
 
   protected targetOf(route: IRoute, path: string): Omit<IAuditTarget, 'rejecting'> {

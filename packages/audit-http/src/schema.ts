@@ -1,9 +1,11 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
+import { MAX_ABORT_WAIT_MS } from './options.js';
+
 const names = { type: 'array', items: { type: 'string', minLength: 1 } };
 
 // propertyNames, not additionalProperties: the configuration's removeAdditional would drop a misspelt key silently
-const KEYS = ['methods', 'redact', 'includeBody', 'maxBodyBytes', 'trail', 'action', 'rules'];
+const KEYS = ['methods', 'redact', 'includeBody', 'maxBodyBytes', 'trail', 'action', 'abortWaitMs', 'rules'];
 
 // No defaults: the middleware lays the options of each mount over audit.http, and a default here would read as a configured value.
 export const AUDIT_HTTP_CONFIGURATION_SCHEMA = {
@@ -19,6 +21,12 @@ export const AUDIT_HTTP_CONFIGURATION_SCHEMA = {
     maxBodyBytes: { type: 'integer', minimum: 0, description: 'A larger body, as JSON after redaction, is left out and only its size recorded. Default 16384.' },
     trail: { type: 'string', minLength: 1, description: 'The audit trail the events are written to (audit.trails.<name>). Default "default".' },
     action: { type: 'string', minLength: 1, description: 'A prefix for the action of every route: <action>.<method name>. Unset, the action is the route name.' },
+    abortWaitMs: {
+      type: 'integer',
+      minimum: 0,
+      maximum: MAX_ABORT_WAIT_MS,
+      description: 'How long the event of a request the client went away from waits for the action to end; past it, or when the server begins to close, the outcome is "attempt". Default 30000.',
+    },
     rules: {
       type: 'array',
       description: 'Per-route action and trail where Audit is mounted: the first entry whose match fits the mounted path wins. A rule does not mount Audit.',

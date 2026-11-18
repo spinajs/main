@@ -12,10 +12,15 @@ export interface IAuditOptions {
   trail?: string;
   /** The action of the events. Default the route name, `http:<METHOD> <mounted path>`. Set for several routes at once (a controller, a global entry, `audit.http`) it is a prefix: `<action>.<method name>`. */
   action?: string;
+  /** How long the event of a request the client went away from waits for its action; past it the outcome is `attempt`. Default 30000. */
+  abortWaitMs?: number;
 }
 
 export const DEFAULT_AUDIT_REDACT = ['password', 'token', 'secret', 'authorization', 'cookie', 'card'];
 export const DEFAULT_MAX_BODY_BYTES = 16384;
+export const DEFAULT_ABORT_WAIT_MS = 30000;
+// setTimeout fires at once for a longer delay
+export const MAX_ABORT_WAIT_MS = 2147483647;
 
 /** One `audit.http.rules` entry: where `Audit` is mounted, routes that match get this action or trail. */
 export interface IAuditRule {
