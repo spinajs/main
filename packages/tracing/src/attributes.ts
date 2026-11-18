@@ -22,4 +22,5 @@ export const SpinaAttr = {
   Step: 'spina.scheduler.step',
   Resumed: 'spina.scheduler.resumed',
   SocketCommand: 'spina.socket.command',
+  Tenant: 'spina.tenant.id',
 } as const;

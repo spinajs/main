@@ -7,7 +7,7 @@
 1. `LogContext` resolves the DI singleton `AsyncLocalStorage` from `node:async_hooks` on every call. `@spinajs/http` runs each action inside the same instance with `req.storage` as the store.
 2. `LogBotstrapper.bootstrap()` calls `setLogContextProvider(() => scalarContext(LogContext.active()))`.
 3. `createLogMessageObject()` calls the provider for every entry and merges the result at the **lowest** precedence: core fields, logger variables and call fields override it. A provider that throws is ignored.
-4. `scalarContext()` keeps only `string`, `number`, `boolean` and `bigint` values, plus `Principal` rendered as `type:id`. Objects, arrays, dates, `null` and functions are dropped.
+4. `scalarContext()` keeps only `string`, `number`, `boolean` and `bigint` values, plus `Principal` rendered as `type:id` and `Tenant` rendered as the tenant id. Objects, arrays, dates, `null` and functions are dropped.
 5. In `@spinajs/http`, the `RequestId` middleware sets `requestId`, continues an inbound `traceparent` (or starts a trace) with `newTraceContext()`, stores `traceId` and `spanId` in `req.storage`, and sends `traceparent` and `x-request-id` response headers.
 
 ```mermaid
@@ -72,6 +72,7 @@ export async function bootApp(): Promise<void> {
 - On Node, without `LogBotstrapper.bootstrap()`, the provider stays the default `() => ({})`: `LogContext` still works for your own reads, but entries get no ambient fields.
 - Only scalars reach entries. Pass objects as call fields.
 - `Principal` (set by authentication) is rendered as `type:id`; `%` and `:` in `type` are percent-encoded and control characters escaped, so an id cannot forge a log line.
+- `Tenant` (the scope `@spinajs/tenancy` sets) is rendered as the tenant id, or `*` while code runs across all tenants; without that package the field never appears.
 - `set()` mutates the store object, which inside a request is `req.storage`; other code reading `req.storage` sees the key.
 - `with()` copies the store: keys set inside it are lost when it returns. `set()` inside `with()` changes only the copy.
 - Callbacks registered outside a context (eg. an `EventEmitter` listener added at boot) run without it; wrap them with `LogContext.bind()` when they are registered inside one.
