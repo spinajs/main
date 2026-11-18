@@ -5,9 +5,11 @@ import chaiAsPromised from 'chai-as-promised';
 import { ESLint } from 'eslint';
 import 'mocha';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
+import { Log } from '@spinajs/log-common';
 import { fileURLToPath } from 'node:url';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrationGuard, OrmMigrator, Primary, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, IMigrationRecord, InsertQueryBuilder, MIGRATION_TABLE_NAME, Migration, MigrationTransactionMode, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrationGuard, OrmMigrator, Primary, resolveMigrationTool, SelectQueryBuilder, TableExistsQueryBuilder, TableQueryBuilder, UpdateQueryBuilder } from '../src/index.js';
 import { migrateTestDatabase } from '../src/testing/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
@@ -175,6 +177,30 @@ describe('@spinajs/orm/testing migrateTestDatabase()', function () {
     expect(extractModelDescriptor(types.TestModel)!.Columns.map((c) => c.Name)).to.include('Id');
     expect(seeded).to.deep.equal(['A_2026_01_01_00_00_00']);
     expect(container.get(Orm)).to.equal(orm);
+  });
+
+  it('migrateTestDatabase() signals orm.migrated on the container of the Orm once the run and its seeds are done', async () => {
+    const signals: Array<{ container: unknown; orm: unknown; applied: string[]; seeded: string[] }> = [];
+    container.on('orm.migrated', (c: unknown, orm: unknown, applied: OrmMigration[]) => {
+      signals.push({ container: c, orm, applied: applied.map((m) => m.constructor.name), seeded: [...seeded] });
+    });
+
+    const { orm } = await migrateTestDatabase(container);
+
+    expect(signals).to.deep.equal([{ container, orm, applied: ['A_2026_01_01_00_00_00'], seeded: ['A_2026_01_01_00_00_00'] }]);
+  });
+
+  it('migrateTestDatabase() resolves with what it applied when a listener of orm.migrated throws, and logs the failure', async () => {
+    // the helper reuses this cached migrator, so its logger can be watched before the run
+    const error = sinon.spy(Reflect.get(await resolveMigrationTool(container), 'Log') as Log, 'error');
+    container.on('orm.migrated', () => {
+      throw new Error('listener failed');
+    });
+
+    const { executed } = await migrateTestDatabase(container);
+
+    expect(executed.map((m) => m.constructor.name)).to.deep.equal(['A_2026_01_01_00_00_00']);
+    expect(error.calledOnce && error.calledWithMatch(sinon.match({ error: sinon.match({ message: 'listener failed' }) }), 'A listener of orm.migrated failed')).to.equal(true);
   });
 
   it('migrateTestDatabase({ seed: false }) migrates without running data()', async () => {

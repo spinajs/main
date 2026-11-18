@@ -45,10 +45,18 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   /** What the last `bootstrap()` registered on DI; removed on `di.dispose` and by the next `bootstrap()`. */
   private listeners: Array<[string, (...args: unknown[]) => void]> = [];
 
+  /** The table check and sweep the last signal started; never rejects. */
+  private lastSignal: Promise<void> = Promise.resolve();
+
+  /** The inserts of the sweep in progress or done; a later signal waits for them instead of sweeping again. */
+  private sweep: Promise<void> = Promise.resolve();
+
   public async bootstrap(): Promise<void> {
     registerConfigurationSchema(CONFIGURATION_SCHEMA);
     this.unbind();
     this.tableReady = false;
+    this.sweep = Promise.resolve();
+    this.lastSignal = Promise.resolve();
 
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // Until the configuration table is ready those vars are handled by the sweep in
@@ -70,18 +78,12 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     });
 
     // The Orm resolves once its migrations are applied, so the table exists then unless the connection's Migration.Check
-    // is 'warn' or 'off', or the Orm is a migration tool's ( it resolves before it migrates ): that boot syncs nothing.
-    this.listen('di.resolved.Orm', (container: unknown, orm: unknown) => {
-      void (async () => {
-        try {
-          if (await this.tableExists(orm as Orm)) {
-            this.syncExposedOptions(container as IContainer);
-          }
-        } catch (err) {
-          InternalLogger.error({ error: err }, 'Failed to check the configuration table', LOG_CHANNEL);
-        }
-      })();
-    });
+    // is 'warn' or 'off'. A migration tool's Orm resolves before it migrates; its OrmMigrator signals orm.migrated after.
+    const onOrm = (container: unknown, orm: unknown) => {
+      this.lastSignal = this.sweepIfTableExists(container as IContainer, orm as Orm);
+    };
+    this.listen('di.resolved.Orm', onOrm);
+    this.listen('orm.migrated', onOrm);
 
     this.listen('di.dispose', () => this.unbind());
   }
@@ -93,6 +95,14 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     }
 
     this.listeners = [];
+  }
+
+  /**
+   * Settles once the exposed options a resolved Orm or a finished migration run swept are written to the table, or the
+   * sweep failed and was logged. Resolves at once when no such signal came since `bootstrap()`.
+   */
+  public whenSwept(): Promise<void> {
+    return this.lastSignal;
   }
 
   private listen(event: string, listener: (...args: unknown[]) => void): void {
@@ -111,10 +121,24 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     return await driver.schema().tableExists(descriptor.TableName);
   }
 
-  /** Persists every exposed option registered so far and starts the watch timer; once per process. */
-  private syncExposedOptions(container: IContainer): void {
+  private async sweepIfTableExists(container: IContainer, orm: Orm): Promise<void> {
     if (this.tableReady) {
-      return;
+      return this.sweep;
+    }
+
+    try {
+      if (await this.tableExists(orm)) {
+        await this.syncExposedOptions(container);
+      }
+    } catch (err) {
+      InternalLogger.error({ error: err }, 'Failed to check the configuration table', LOG_CHANNEL);
+    }
+  }
+
+  /** Persists every exposed option registered so far and starts the watch timer; once per process. */
+  private async syncExposedOptions(container: IContainer): Promise<void> {
+    if (this.tableReady) {
+      return this.sweep;
     }
 
     this.tableReady = true;
@@ -127,15 +151,22 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
     // insert all exposed config options (InsertOrIgnore - safe to repeat)
-    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch(async (err) => {
-      InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
+    const inserted = Promise.all(vars.map((v) => this.saveConfigOptions(v)));
+    this.sweep = (async () => {
+      try {
+        await inserted;
+      } catch (err) {
+        InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
 
-      // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again
-      const orm = container.get(Orm);
-      this.tableReady = orm ? await this.tableExists(orm).catch(() => false) : false;
-    });
+        // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again
+        const orm = container.get(Orm);
+        this.tableReady = orm ? await this.tableExists(orm).catch(() => false) : false;
+      }
+    })();
 
     this.startWatchTimer(container);
+
+    return this.sweep;
   }
 
   /**

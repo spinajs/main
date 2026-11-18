@@ -45,9 +45,10 @@ export class OrmMigrator extends AsyncService {
    * Applies the pending migrations, re-reads the table info of the models their statements touched, then runs their
    * `data()`; `fake` records them and seeds nothing. What `migrate-up` runs.
    * All of it holds one migration lock per connection, so a second run waits for the seeds too.
+   * Once the locks are released it emits `orm.migrated` ( container, orm, applied migrations ) on the Orm's container.
    */
   public async migrate(options: IOrmMigrateOptions = {}): Promise<OrmMigration[]> {
-    return await this.Runner.withRunLock(options.connection, async () => {
+    const applied = await this.Runner.withRunLock(options.connection, async () => {
       const { executed, touched } = await this.Runner.up(options.name, { ...options, locked: true });
 
       // wireRelations() reads no column info, so the relations wired by the Orm's resolve stay valid
@@ -62,6 +63,16 @@ export class OrmMigrator extends AsyncService {
 
       return executed;
     }, options.name);
+
+    // the Orm resolves before a migration tool migrates, so listeners of di.resolved.Orm found no tables yet
+    try {
+      this.Orm.Container.emit('orm.migrated', this.Orm.Container, this.Orm, applied);
+    } catch (err) {
+      // the run is committed by now; a listener's failure must not turn it into a failed migrate()
+      this.Log.error({ error: err }, 'A listener of orm.migrated failed');
+    }
+
+    return applied;
   }
 
   /**
