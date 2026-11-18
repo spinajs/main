@@ -1,5 +1,5 @@
-import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
-import { AggregateFunction, FilterableOperators, IAggregateColumns, IColumnFilter, IFilterableOptions } from './interfaces.js';
+import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorDescriptor, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
+import { AggregateFunction, FilterableOperators, IAggregateColumns, IColumnFilter, IFilterableOptions, MAX_FILTER_GROUP_DEPTH } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
@@ -57,6 +57,19 @@ export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[])
 
 function propertyDecorator(record: (model: IModelDescriptor, propertyKey: string) => void): PropertyDecorator {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => record(model, propertyKey)) as PropertyDecorator;
+}
+
+/**
+ * Lets a filter request over this model nest groups `depth` levels deep instead of one. The builder walks any
+ * depth, so the schema is the only bound.
+ */
+export function FilterGroupDepth(depth: number): ClassDecorator {
+  if (!Number.isSafeInteger(depth) || depth < 1 || depth > MAX_FILTER_GROUP_DEPTH) {
+    throw new Error(`FilterGroupDepth takes an integer from 1 to ${MAX_FILTER_GROUP_DEPTH}, got ${depth}`);
+  }
+  return extractDecoratorDescriptor((model: IModelDescriptor) => {
+    model.FilterGroupDepth = depth;
+  }) as ClassDecorator;
 }
 
 /** Lets a list be sorted by this column. A model with no `@Sortable` is sortable by its filterable table columns. */

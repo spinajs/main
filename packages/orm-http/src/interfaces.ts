@@ -172,3 +172,6 @@ export interface IAggregateColumns {
 }
 
 export type FilterableOperators ='eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set' | 'nlike' | 'nb-like' | 'ne-like' | 'empty' | 'nempty';
+
+/** Deepest nesting of filter groups a model may opt in to with `@FilterGroupDepth`. */
+export const MAX_FILTER_GROUP_DEPTH = 4;
