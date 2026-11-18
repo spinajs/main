@@ -32,7 +32,7 @@ What a reader of the trail, and an operator of it, must not assume.
 ## Erasure
 
 - A shipping trail without a reader cannot be erased from the shipping application.
-- `forget(subject)` on a table trail erases on every connection that holds the trail table, so it fails, with nothing erased, when one connection cannot be looked at; `forget(subject, source)` erases on that one connection only.
+- `forget(subject)` on a table trail erases on every connection that holds the trail table, so it fails, with nothing erased, when one connection cannot be looked at, and a failure while erasing leaves the connections after it unerased (those before it stay erased and recorded); `forget(subject, source)` erases on that one connection only.
 - One delivery's window: a payload erased while its delivery was under way may sit at the destination until the next shipping run handles those rows.
 - Across a queue the erasure boundary is only as exact as the recording applications' clocks; `forget(subject, source)` in a receiving service leaves a window until its next shipping run.
 - A blanked payload with its `data_hash` kept and a lawful erasure look alike; only the `erasure` event tells them apart.

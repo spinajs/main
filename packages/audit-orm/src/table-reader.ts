@@ -68,19 +68,21 @@ export class TableAuditReader extends AuditReader {
    * first: transactional events sit on the connection of each audited write. Every connection is looked at before
    * anything is blanked. Another connection gets an erasure record only where something was blanked.
    */
-  override async redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<readonly AuditRedaction[]> {
-    if (source !== undefined || this.hasSourceColumn()) return super.redactEach(trail, subject, source);
+  override async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
+    if (source !== undefined || this.hasSourceColumn()) {
+      yield* super.redactEach(trail, subject, source);
+      return;
+    }
     const own = this.driver(trail, undefined);
     const others: OrmDriver[] = [];
     for (const driver of distinctConnections()) {
       if (driver !== own && (await trailTableOn(driver, this.table(trail))) === 'trail') others.push(driver);
     }
-    const redactions: AuditRedaction[] = [{ connection: undefined, redacted: await this.redactOn(own, trail, subject) }];
+    yield { connection: undefined, redacted: await this.redactOn(own, trail, subject) };
     for (const driver of others) {
       const redacted = await this.redactOn(driver, trail, subject);
-      if (redacted > 0) redactions.push({ connection: driver.Options.Name, redacted });
+      if (redacted > 0) yield { connection: driver.Options.Name, redacted };
     }
-    return redactions;
   }
 
   private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {

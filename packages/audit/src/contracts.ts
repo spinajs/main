@@ -209,11 +209,12 @@ export abstract class AuditReader {
   /** Blanks the payload of every event of one subject and keeps its hash; returns how many. */
   abstract redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number>;
   /**
-   * The erasure `forget` runs: one entry per connection that needs an `erasure` record of its own, because `verify`
-   * looks for it beside the payloads it explains. By default `redact` on `source`, recorded there.
+   * The erasure `forget` runs, one connection at a time: `forget` records each yielded redaction's `erasure` event,
+   * beside the payloads it explains where `verify` looks for it, before the next connection is blanked. By default
+   * `redact` on `source`, recorded there.
    */
-  async redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<readonly AuditRedaction[]> {
-    return [{ connection: source, redacted: await this.redact(trail, subject, source) }];
+  async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
+    yield { connection: source, redacted: await this.redact(trail, subject, source) };
   }
   abstract prune(trail: TrailConfig, before: Date, source?: string): Promise<number>;
   /** Optional: recomputes the seals of the trail's table; a pinned head must be met on the chain. A reader that cannot leaves it out. */

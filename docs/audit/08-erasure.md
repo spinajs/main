@@ -28,7 +28,7 @@ Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`,
 | Shipping trail with a reader | The buffer on every connection that holds `audit_outbox`, and the destination for every source. | The buffer on `source`, and the destination's events of that source. |
 | Shipping trail without a reader, `LogAuditStore` | Refused with `AuditNotSupported`; nothing is touched. | The same. |
 
-A table trail written transactionally keeps events on the connection of each audited write, so `forget(subject)` looks for the trail table on every ORM connection before it blanks anything; a connection that cannot be looked at fails the call with nothing erased. Pass `source` to erase on one connection.
+A table trail written transactionally keeps events on the connection of each audited write, so `forget(subject)` looks for the trail table on every ORM connection before it blanks anything; a connection that cannot be looked at fails the call with nothing erased. It then blanks one connection at a time and records that connection's `erasure` event before it goes on, so a failure on one connection leaves those before it blanked and recorded, and the rest untouched. Pass `source` to erase on one connection.
 
 ## Shipping trails
 

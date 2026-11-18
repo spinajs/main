@@ -32,11 +32,9 @@ class VerifyingStore extends MemoryAuditStore {
 
 // Erases on two connections, as a table trail whose table sits on several connections does.
 class SpreadingReader extends MemoryAuditReader {
-  override async redactEach(trail: TrailConfig, subject: AuditSubject): Promise<readonly AuditRedaction[]> {
-    return [
-      { connection: undefined, redacted: await this.redact(trail, subject) },
-      { connection: 'orders', redacted: 1 },
-    ];
+  override async *redactEach(trail: TrailConfig, subject: AuditSubject): AsyncGenerator<AuditRedaction> {
+    yield { connection: undefined, redacted: await this.redact(trail, subject) };
+    yield { connection: 'orders', redacted: 1 };
   }
 }
 
