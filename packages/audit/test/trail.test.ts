@@ -126,10 +126,18 @@ describe('audit().trail', function () {
       ['update', true, {}],
       ['erasure', false, { redacted: 2 }],
     ]);
+    // Forgotten again: nothing is left to blank, and the first erasure record stays as evidence.
+    expect(await trail.forget(patient)).to.eq(0);
+    expect((await trail.of(patient)).map((e) => [e.action, e.data])).to.deep.eq([
+      ['patient.read', {}],
+      ['update', {}],
+      ['erasure', { redacted: 2 }],
+      ['erasure', { redacted: 0 }],
+    ]);
 
     expect(await trail.forget({ type: 'patient', id: '99' }, 'orders')).to.eq(0);
-    // The two appends of beforeEach, then one erasure without a source and one with.
-    expect(MemoryAuditStore.appends().map((write) => write.connection)).to.deep.eq([undefined, undefined, undefined, 'orders']);
+    // The two appends of beforeEach, then two erasures without a source and one with.
+    expect(MemoryAuditStore.appends().map((write) => write.connection)).to.deep.eq([undefined, undefined, undefined, undefined, 'orders']);
   });
 
   it('records one erasure per connection the reader erased on, and returns the sum', async () => {

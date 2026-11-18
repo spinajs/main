@@ -24,7 +24,8 @@ export class MemoryAuditReader extends AuditReader {
   }
 
   redact(trail: TrailConfig, subject: AuditSubject): Promise<number> {
-    const hit = rows.filter((r) => r.trail === trail.name && r.event.subject?.type === subject.type && r.event.subject?.id === subject.id);
+    const erasure = (e: StoredAuditEvent): boolean => e.kind === 'custom' && e.action === 'erasure';
+    const hit = rows.filter((r) => r.trail === trail.name && r.event.subject?.type === subject.type && r.event.subject?.id === subject.id && !r.event.redacted && !erasure(r.event));
     for (const row of hit) row.event = { ...row.event, data: {}, redacted: true };
     return Promise.resolve(hit.length);
   }
