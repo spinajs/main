@@ -219,7 +219,10 @@ export const POPULATE_GROUP_CASES = [
           this.where('Name', 'tech').orWhere('Name', 'news');
         }),
       );
-      return junction.map((r) => Number(r.PostId)).sort((a, b) => a - b);
+      // the driver nests the junction columns of a target row under JunctionModel
+      return junction
+        .map(({ JunctionModel: j }) => (typeof j === 'object' && j !== null && 'PostId' in j ? Number(j.PostId) : NaN))
+        .sort((a, b) => a - b);
     },
   }),
   defineCase({

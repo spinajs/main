@@ -533,22 +533,32 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   /**
    * Like {@link mergeStatements}, but the WHERE statements `filter` keeps arrive as one AND group, so an
-   * `orWhere()` among them cannot widen this query past its own conditions. Aggregate statements compile
-   * into HAVING, which a WHERE group would drop, so they stay flat.
+   * `orWhere()` among them cannot widen this query past its own conditions. Aggregate statements, which a WHERE
+   * group would drop, and the groups `builder` took over from its nested relations stay flat beside it.
    */
   public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
-    const isAggregate = (s: IQueryStatement) => 'IsAggregate' in s && s.IsAggregate === true;
-    this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
-
-    const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
-    if (grouped.length === 0) {
-      return;
+    const grouped = builder._statements.filter((s) => filter(s) && builder._ownsCondition(s));
+    if (grouped.length > 0) {
+      const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
+      const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
+      this._markMerged([statement]);
+      this._statements.push(statement);
     }
 
-    const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
-    const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
-    this._markMerged([statement]);
-    this._statements.push(statement);
+    this.mergeStatements(builder, (s) => filter(s) && !builder._ownsCondition(s));
+  }
+
+  /**
+   * Whether `statement` goes into this builder's group when another query merges it as one: not an aggregate, which
+   * HAVING reads at the top level only, and not the AND group a nested relation merged in, which an `orWhere()` of
+   * this builder would capture inside the group (`a OR b AND ( nested )`).
+   */
+  private _ownsCondition(statement: IQueryStatement): boolean {
+    if ('IsAggregate' in statement && statement.IsAggregate === true) {
+      return false;
+    }
+
+    return !(this._merged.has(statement) && WhereQueryStatement.isGroup(statement) && statement.Boolean === WhereBoolean.AND);
   }
 
   private _markMerged(statements: IQueryStatement[]) {
