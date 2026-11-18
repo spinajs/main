@@ -215,11 +215,11 @@ describe('audit queue sink', function () {
       await arrive(event(1, { subject: c1 }), event(2));
       await archiveAuditBatch(new AuditBatchRecorded({ Trail: 'remote', Source: 'other', Events: [wire(event(3, { subject: c1 }))] }));
 
+      // The archive holds events of app: a known application, nothing to warn about.
       const warnings = await auditWarnings(async () => {
         expect(await audit().trail('remote').forget(c1, 'app')).to.eq(1);
       });
-      // This service buffers its own events, so a source that names none of its connections may be a typo.
-      expect(warnings).to.deep.eq([[{ trail: 'remote', source: 'app' }, 'audit: forget on trail ${trail} names source ${source}, which is no connection of this application: no buffer here was blanked, only the events the destination files under ${source}']]);
+      expect(warnings).to.deep.eq([]);
       expect([await data(event(1).id), await data(event(2).id), await data(event(3).id)]).to.deep.eq(['', '{"version":2}', '{"version":3}']);
 
       // Buffered on the trail's connection, where the consumer looks for pending erasures.
@@ -228,6 +228,15 @@ describe('audit queue sink', function () {
       await shipAudit({ trail: 'remote' });
       const erasure = (await archived()).find((r) => r.action === 'erasure');
       expect([erasure?.source, erasure?.data]).to.deep.eq([db.connectionName('sqlite'), '{"redacted":1}']);
+    });
+
+    it('warns when the source names neither a connection here nor anything the archive holds', async () => {
+      await arrive(event(1, { subject: c1 }));
+      const warnings = await auditWarnings(async () => {
+        expect(await audit().trail('remote').forget(c1, 'ap')).to.eq(0);
+      });
+      expect(warnings).to.deep.eq([[{ trail: 'remote', source: 'ap' }, 'audit: forget on trail ${trail} names source ${source}, which is neither a connection of this application nor a source the destination holds events of; nothing was erased under it']]);
+      expect(await data(event(1).id)).to.eq('{"version":1}');
     });
 
     it('blanks what arrives of a subject whose erasure this service has not shipped yet', async () => {
