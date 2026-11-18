@@ -127,6 +127,21 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       expect(kinds(await diff(driver, models))).to.deep.equal(['addIndex rt11_members']);
     });
 
+    it('notes an expression index that holds the name of a declared index (MIG007) and proposes nothing', async () => {
+      await driver.schema().createTable('rt12_members', (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.text('Email');
+      });
+      await driver.schema().raw('CREATE INDEX "ix_rt12_members_Email" ON rt12_members (lower("Email"))');
+      const models = [model('Member', 'rt12_members', [id(), col('Email', { family: 'text', inferred: true })], { indexes: [{ columns: ['Email'], unique: false }] })];
+
+      const result = await diff(driver, models);
+      expect(kinds(result)).to.deep.equal([]);
+      expect(result.diagnostics.filter((d) => d.code === 'MIG007')).to.deep.equal([
+        { code: 'MIG007', severity: 'info', message: 'index ix_rt12_members_Email on rt12_members is an expression or prefix index and cannot be compared; check it by hand' },
+      ]);
+    });
+
     it('lists the columns no model declares (MIG002, MIG004) and never drops them', async () => {
       await driver.schema().createTable('rt3_accounts', (table) => {
         table.int('Id').primaryKey().autoIncrement();
