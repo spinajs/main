@@ -30,6 +30,7 @@ const TRAILS = {
   kept: { connection: 'sqlite', table: 'audit_kept', onFailure: 'reject' },
   probed: { store: 'ProbeStore', connection: 'sqlite', table: 'audit_probed', retentionDays: 30 },
   archived: { store: 'ProbeStore', connection: 'sqlite', table: 'audit_archived', retentionDays: 30, archiveConnection: 'sqlite' },
+  unread: { store: 'LogAuditStore', retentionDays: 30 },
 };
 
 // Notes the source of every prune it is asked for and deletes nothing.
@@ -121,6 +122,30 @@ describe('audit retention', function () {
     ProbeReader.pruned = [];
     await pruneAudit({ now: NOW, trail: 'archived' });
     expect(ProbeReader.pruned).to.deep.eq([undefined]);
+  });
+
+  it('deletes the old events of a trail on every connection that holds its table', async function () {
+    if (!db.has('pglite')) this.skip();
+    await db.migrate('pglite', 'audit_short');
+    try {
+      await audit().record({ kind: 'action', action: 'old', at: ago(31) }, { trail: 'short' });
+      await audit().record(
+        [
+          { kind: 'action', action: 'old', at: ago(31) },
+          { kind: 'action', action: 'new', at: NOW },
+        ],
+        { trail: 'short', connection: db.connectionName('pglite') },
+      );
+      expect(await pruneAudit({ now: NOW, trail: 'short' })).to.eq(2);
+      expect(await db.rows('sqlite', 'audit_short')).to.have.length(0);
+      expect((await db.rows('pglite', 'audit_short')).map((r) => r.action)).to.deep.eq(['new']);
+    } finally {
+      await db.drop('pglite', 'audit_short');
+    }
+  });
+
+  it('keeps everything of a trail whose store has no reader', async () => {
+    expect(await pruneAudit({ now: NOW, trail: 'unread' })).to.eq(0);
   });
 
   it('the scheduled task prunes and reports the count', async () => {
