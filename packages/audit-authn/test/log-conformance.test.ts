@@ -74,6 +74,10 @@ function appConfiguration(audit: Record<string, unknown>): Class<Configuration> 
   };
 }
 
+// The line the recorder writes for a failed login, on the logger `audit.<trail>`.
+const FAILED_LOGIN = /^warn audit\.\S+ audit \S+ security login failed /;
+const failedLoginLines = (): number => lines.filter((l) => FAILED_LOGIN.test(l)).length;
+
 /** Writes out the recorder's buffer after each login, so a case reads the lines its logins caused. */
 class FlushingAuthnService extends AuthnService {
   constructor(private readonly inner: AuthnService, private readonly recorder: AuthnAuditRecorder) {
@@ -81,11 +85,11 @@ class FlushingAuthnService extends AuthnService {
   }
 
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
-    try {
-      return await this.inner.authenticate(c, ctx);
-    } finally {
-      await this.recorder.flush();
-    }
+    const written = failedLoginLines();
+    const result = await this.inner.authenticate(c, ctx).finally(() => this.recorder.flush());
+    // The A21/log case counts the lines of every logger, so it would also pass on lines the recorder did not write.
+    if (result.status === 'failure' && failedLoginLines() === written) throw new Error('the recorder logged no line for a failed login');
+    return result;
   }
 
   completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
