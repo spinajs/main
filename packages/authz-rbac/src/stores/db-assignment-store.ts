@@ -16,7 +16,7 @@ import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
 import type { ListWindow } from './queries.js';
-import { AssignmentRecord, recordValues, toDateTime } from './records.js';
+import { AssignmentRecord, VersionRecord, recordValues, toDateTime } from './records.js';
 import type { AssignmentFields } from './records.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
@@ -59,6 +59,8 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   protected Orm: Orm;
 
   readonly name: string = 'DbAssignmentStore';
+
+  protected readonly records = [AssignmentRecord, VersionRecord];
 
   protected readonly maxListLimit: number = ASSIGNMENT_LIST_MAX_LIMIT;
 

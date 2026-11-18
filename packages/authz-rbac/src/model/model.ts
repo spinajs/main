@@ -8,6 +8,8 @@ import type { IContainer } from '@spinajs/di';
 import { AdminRuleStore } from '../admin/ports.js';
 import { RbacOptions } from '../host/options.js';
 import { rbacStoreOptions, registerRbacServices } from '../host/wire.js';
+import { isDbRbacStore } from '../stores/db-store.js';
+import type { RbacStoreKind } from '../stores/defaults.js';
 import type { Assignment, AssignmentStore, AssignmentSubject, LinkStore, MembershipStore, RoleStore, RuleDef, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, liveAssignments, rbacTables, rbacState, readRbacInput, runRbacPipeline } from './evaluate.js';
@@ -122,6 +124,7 @@ export class RbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     if (!this.opts) await this.wire(ctx.container);
+    await refuseUnreachableStores(this.opts);
     for (const ext of this.extensions) await ext.init?.(ctx);
     if (!this.opts.subjects) this.defaultResolver = new RbacSubjectResolver({ groupPrincipal: groupPrincipalConfig(ctx) });
     const version = await this.opts.roles.version();
@@ -520,6 +523,23 @@ function serviceRoles(ctx: ModelInitContext, graph: RoleGraph): ReadonlyMap<stri
     out.set(key, Object.freeze([...roles]));
   }
   return out;
+}
+
+/**
+ * A DB store whose connection or tables are missing would pass the boot and then fail every check
+ * closed (model_error), so the boot is refused, naming each store and what it misses.
+ */
+async function refuseUnreachableStores(opts: RbacModelOptions): Promise<void> {
+  const rules = opts.rules === undefined ? [] : Array.isArray(opts.rules) ? opts.rules : [opts.rules];
+  const stores: [RbacStoreKind, unknown][] = [['roles', opts.roles], ['assignments', opts.assignments], ...rules.map((r): [RbacStoreKind, unknown] => ['rules', r]), ['links', opts.links], ['membership', opts.membership]];
+  const problems: string[] = [];
+  for (const [kind, store] of stores) {
+    if (!isDbRbacStore(store)) continue;
+    const problem = await store.storageProblem();
+    if (problem) problems.push(`${store.constructor.name} (authz.rbac.stores.${kind}): ${problem}`);
+  }
+  if (problems.length === 0) return;
+  throw new AuthzConfigError(`The RBAC database stores cannot reach their tables. ${problems.join('. ')}. With roles in config only and no database, name the in-memory stores instead: authz.rbac.stores.assignments: ['MemoryAdminAssignmentStore'] and authz.rbac.stores.links: ['MemoryLinkStore'] (or []), each class registered in DI under its name`);
 }
 
 /** The config roles read at init must still be assignable at GLOBAL in a reloaded graph. */

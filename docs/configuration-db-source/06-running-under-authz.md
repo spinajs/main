@@ -12,8 +12,9 @@ Without that call, the queries run directly, with whatever principal is current.
 4. For an opted-in domain, `asSystem()` waits for that domain's `AuthzService`:
    - If `authz(domain)` already returns a service, it is used at once.
    - Otherwise it waits for `di.resolved.AuthzService`. For `root`, the http server normally boots the service after it registered its controllers.
-   - For `root` only: after 15 s without that event, it logs `AuthzService not booted ... (no http server?)` and resolves `AuthzService` itself.
+   - For `root` only: after 15 s without that event, it resolves `AuthzService` itself. The first time, it logs `AuthzService not booted ... (no http server?)`.
    - All queries waiting for one domain share one wait: one `di.resolved.AuthzService` listener and one timer, however many queries are pending. The listener is removed once the wait ends, by the event or by the timer.
+   - If that boot is refused (for example the authz tables do not exist yet), every query sharing the wait fails and the next query starts a new wait. The refusal is logged once, as `AuthzService of domain root refused to boot for the configuration source`; the same refusal on later polls is not logged again.
 5. It runs `fn` inside `service.runAs(SYSTEM, 'config-poll', fn)`. The caller's principal is restored afterwards.
 
 `ConfiguratioDbSource` does **not** go through `asSystem()`: it reads the table with a raw driver query, before any authz service exists.
@@ -29,13 +30,14 @@ Without that call, the queries run directly, with whatever principal is current.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Opt-in | `requireSystemPrincipal(domain)` / `resetSystemPrincipal()`, module-level set | empty set (no guarding) | none | Call `requireSystemPrincipal()` in your own bootstrapper when you guard `DbConfig` yourself. `resetSystemPrincipal()` clears every opt-in; use it in tests. |
+| Opt-in | `requireSystemPrincipal(domain)` / `resetSystemPrincipal()`, module-level set | empty set (no guarding) | none | Call `requireSystemPrincipal()` in your own bootstrapper when you guard `DbConfig` yourself. `resetSystemPrincipal()` clears every opt-in and forgets which self-boot warning and refusal were logged; use it in tests. |
 | Domain | `authzDomain` property of the `DbConfigSourceBotstrapper` singleton | `'root'` | any domain | Subclass the bootstrapper, see [Customizing the bootstrapper](09-customizing-the-bootstrapper.md). |
 
 ## Important behaviour
 
 - **Writes start late in a guarded app.** Inserts and polls wait until the domain's `AuthzService` is resolved. With an http server this is when the server boots it. The sweep of exposed options waits too, before its first insert, so an app does not need to delay it until authz is up.
 - **Apps without an http server wait 15 s.** A worker or CLI that guards `DbConfig` logs a warning and boots `AuthzService` itself after 15 s.
+- **A refused boot is retried on every poll and logged once.** A migration or worker process that guards `DbConfig` before `migrate-up` created the authz tables logs one error per distinct cause. Polls keep failing quietly until the boot succeeds, then deliver values again. A boot refused for a new reason is logged again.
 - **A slow http app loses checks.** If an http app takes longer than 15 s to boot authz, the package boots it first. Controllers registered after that miss the boot-time check of their `@Access` permissions.
 - **Non-root domains never time out.** For a domain other than `root` there is no fallback timer: the queries wait until that domain's service is resolved.
 - **Opting in is global per domain.** `requireSystemPrincipal()` keeps state in the module; every bootstrapper using that domain is affected.

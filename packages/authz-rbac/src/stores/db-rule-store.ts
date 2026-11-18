@@ -15,7 +15,7 @@ import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
 import type { ListWindow } from './queries.js';
-import { RuleRecord, RuleSubjectRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import { RuleRecord, RuleSubjectRecord, VersionRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { RuleFields, RuleSubjectFields } from './records.js';
 import { toRuleRows } from './rule-rows.js';
 import type { RuleSubjectList } from './rule-rows.js';
@@ -58,6 +58,8 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   protected Orm: Orm;
 
   readonly name: string = 'DbRuleStore';
+
+  protected readonly records = [RuleRecord, RuleSubjectRecord, VersionRecord];
 
   protected readonly maxListLimit: number = RULE_LIST_MAX_LIMIT;
 

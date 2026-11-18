@@ -32,6 +32,33 @@ export function gatewayPrincipal(userId: string, roles: readonly string[]): Prin
 
 Hand the principal to authz the way your HTTP layer expects. In `@spinajs/authz-http` that means a principal source: see [principal sources](../authz-http/04-principal-sources.md).
 
+## Config-only roles, no database
+
+An app without user accounts often keeps its roles and service roles in config and has no table to store assignments in. `RbacModel` reads assignments and share links from database stores by default, and a domain whose database stores have no `authz` connection or no tables refuses to boot. Name the in-memory stores instead, and register each class under its name:
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { MemoryAdminAssignmentStore, MemoryLinkStore } from '@spinajs/authz-rbac';
+
+DI.register(MemoryAdminAssignmentStore).asSelf();
+DI.register(MemoryLinkStore).asSelf();
+
+export default {
+  authz: {
+    permissions: { 'gateway:read': {} },
+    models: ['RbacModel'],
+    rbac: {
+      roles: { reader: { grants: ['gateway:read'] } },
+      // keys are principal keys, <type>:<id>
+      serviceRoles: { 'service:gateway': ['reader'] },
+      stores: { assignments: ['MemoryAdminAssignmentStore'], links: ['MemoryLinkStore'] },
+    },
+  },
+};
+```
+
+`links: []` turns share links off instead. Details: [Database storage, config-only roles](../authz-rbac/02-database-storage.md#config-only-roles-no-database).
+
 ## With authn installed
 
 With `@spinajs/authn` installed, `@spinajs/authz-http` also ends a session's access-event streams when authn reports that the session ended. The root entry registers `AuthzHttpAuthnBootstrapper`. When the app runs its bootstrappers, it loads `@spinajs/authz-http/authn`, which registers `SseSessionEndSink` as an `AuthnEventSink`. Without authn, the bootstrapper does nothing.

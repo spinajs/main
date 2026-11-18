@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { RbacModel, RbacOptions } from '../../src/index.js';
+import { MemoryAdminAssignmentStore, MemoryLinkStore, RbacModel, RbacOptions } from '../../src/index.js';
 import type { RbacExtension, RegisterRbacOptions } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -24,7 +24,12 @@ describe('RbacModel under authz.models', () => {
 
   beforeEach(() => {
     container = DI.child();
-    container.register(testHost.instance(new testHost.TestConfiguration())).as(Configuration);
+    // No database here, and the default DB stores refuse to boot without their tables.
+    const configuration = new testHost.TestConfiguration();
+    configuration.set(['authz', 'rbac', 'stores'], { assignments: ['MemoryAdminAssignmentStore'], links: ['MemoryLinkStore'] });
+    container.register(testHost.instance(configuration)).as(Configuration);
+    container.register(MemoryAdminAssignmentStore).asSelf();
+    container.register(MemoryLinkStore).asSelf();
   });
 
   afterEach(async () => {
