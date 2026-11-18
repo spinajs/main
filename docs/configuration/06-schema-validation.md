@@ -183,6 +183,9 @@ void main();
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.
 - An unconfigured module gets its defaults only when `{}` passes the schema. With a `required` key and no default, the module stays `undefined` and only a warning is logged; the boot does not fail.
+- Defaults inside a nested object are filled only when that object exists. An absent nested object is not validated, so its properties get no defaults and `get()` returns `undefined` for them. Give every nested object whose properties have defaults `default: {}`: the `{}` is set first and then filled. Every level needs it; `default: {}` on `smtp` alone leaves `smtp.tls` absent. See [Patterns and antipatterns](#patterns-and-antipatterns).
+- A nested object with `default: {}` and a `required` key makes that key mandatory: a module without the object is a violation, and an unconfigured module stays `undefined` because `{}` no longer passes.
+- `default` at the schema root fails the boot with a plain `Error` (`strict mode: default is ignored in the schema root`). It is not needed: an unconfigured module is validated as `{}`.
 - `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change (see [Runtime changes](#runtime-changes)). A refused change throws `InvalidConfiguration` and is not applied.
 - A schema registered in an ancestor container applies to a child's configuration. A schema registered in a child does not apply to the parent's.
 - Two different schemas with the same `$id` count as one: the first one found (nearest container first, or first registered) is used and the other is ignored.
@@ -210,6 +213,14 @@ protected RetryCount: number;
 // { $configurationModule: 'mailer', properties: { retryCount: { type: 'integer', default: 3 } } }
 @Config('mailer.retryCount')
 protected RetryCount: number;
+```
+
+```ts
+// Don't: with no `mailer.smtp` in the config, get('mailer.smtp.port') is undefined
+const smtp = { type: 'object', properties: { port: { type: 'integer', default: 587 } } };
+
+// Do: `default: {}` creates the object, then its defaults fill it: { smtp: { port: 587 } }
+const smtp = { type: 'object', default: {}, properties: { port: { type: 'integer', default: 587 } } };
 ```
 
 ```ts
