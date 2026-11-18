@@ -1,6 +1,6 @@
 # `@spinajs/internal-logger`
 
-A logger for framework packages that run before the real logger exists. `InternalLogger` buffers messages until `Configuration` is resolved and a logger is registered under `__log__`, then forwards them. Messages still buffered when Node is about to exit go to the console.
+A logger for framework packages that run before the real logger exists. `InternalLogger` buffers messages until `Configuration` is resolved and a logger is registered under `__log__`, then forwards them. Messages still buffered when Node is about to exit, or when the `Configuration` boot is refused, go to the console.
 
 It exists so `@spinajs/configuration` and its sources can log without importing `@spinajs/log`, which depends on configuration. It is **not** an application logger: it has no targets, rules or level filtering of its own. Application code uses `@spinajs/log`.
 

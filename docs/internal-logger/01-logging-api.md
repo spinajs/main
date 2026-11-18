@@ -56,6 +56,7 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 | --- | --- |
 | `InternalLogger.write(err, message, level, name, vars, ...args)` | Builds an entry with an explicit `LogLevel` and extra `vars`, then routes it |
 | `InternalLogger.writeLogEntry(entry)` | Routes a ready `ILogEntry`; the logger name is read from `entry.Variables.logger` |
+| `InternalLogger.flush()` | Empties the buffer now instead of at exit; see [Buffer flush and exit dump](02-buffer-flush-and-exit-dump.md#how-it-works) |
 
 ## Services and extension points
 

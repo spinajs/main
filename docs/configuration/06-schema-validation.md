@@ -11,7 +11,7 @@ At boot, in `FrameworkConfiguration.resolve()`:
 3. For each schema, **`checkModule()`** reads the value at `$configurationModule`:
    - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path. Otherwise a warning is logged and the path stays unset.
    - anything else (`null` included): validates a deep copy first. Only when the copy passes is the stored value validated in place, which applies defaults and coercion.
-4. Violations of all schemas are logged and thrown together as `InvalidConfiguration`. The configuration's resolve rejects and DI does not cache it.
+4. Violations of all schemas are logged and thrown together as `InvalidConfiguration`. The configuration's resolve rejects and DI does not cache it. Before it rejects, it calls `InternalLogger.flush()`. At the app's first boot no logger can start without a configuration, so the buffered startup lines, one `Invalid configuration at <path> ( schema <schema> ): <message>` line per violation among them, go to the console right away. This needs the `InternalLogger` bootstrapper to have run (see [Buffer flush and exit dump](../internal-logger/02-buffer-flush-and-exit-dump.md)).
 
 After boot, `registerConfigurationSchema(schema, container)`:
 
@@ -181,6 +181,7 @@ void main();
 - Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
 - A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
+- A refused first boot prints its violations to the console before the resolve rejects (when the root `Configuration` and a `__log__` logger are already up, as for a later child configuration, they go to that logger instead), so they appear even when the entry point calls `process.exit()` in its `catch`. Without the `InternalLogger` bootstrapper run first, nothing is printed and only the thrown `InvalidConfiguration` carries them.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.
 - An unconfigured module gets its defaults only when `{}` passes the schema. With a `required` key and no default, the module stays `undefined` and only a warning is logged; the boot does not fail.
 - `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change (see [Runtime changes](#runtime-changes)). A refused change throws `InvalidConfiguration` and is not applied.

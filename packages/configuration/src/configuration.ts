@@ -282,6 +282,8 @@ export class FrameworkConfiguration extends Configuration {
     } catch (e) {
       // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
+      // No logger comes up without a Configuration, and the exit dump never runs when the app calls process.exit().
+      InternalLogger.flush();
       throw e;
     }
   }

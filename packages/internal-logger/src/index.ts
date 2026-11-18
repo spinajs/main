@@ -109,15 +109,7 @@ export class InternalLogger extends Bootstrapper {
   private exitDumpAttached = false;
 
   public bootstrap(): void {
-    const write = () => {
-      const pending = InternalLogger.LogBuffer;
-      InternalLogger.LogBuffer = [];
-      pending.forEach((entry) => {
-        if (!writeLogEntry(entry, entry.Variables.logger)) {
-          InternalLogger.writeInternal(entry);
-        }
-      });
-    };
+    InternalLogger.Bootstrapped = this;
 
     // We must wait for configuration to load
     // becouse log is dependent on it
@@ -125,11 +117,11 @@ export class InternalLogger extends Bootstrapper {
     // write all buffered messages to it
     if (DI.has(Configuration)) {
       // if we botstrapped before logger
-      write();
+      InternalLogger.deliverBuffer();
     } else {
       // if not wait for event to occur
       DI.once("di.resolved.Configuration", () => {
-        write();
+        InternalLogger.deliverBuffer();
       });
     }
 
@@ -140,16 +132,46 @@ export class InternalLogger extends Bootstrapper {
       process.on("beforeExit", () => {
         // when application is about to exit, write all messages to console
         // if buffer is not empty it mean, that we cannot write to normal logger
-
-        InternalLogger.LogBuffer.forEach((entry) => {
-          const loggedAt = DateTime.fromJSDate(InternalLogger.LoggedAt.get(entry) ?? new Date());
-          const vars = { ...entry.Variables, datetime: (fmt?: string) => loggedAt.toFormat(fmt ?? DefaultDateTimeFormat) };
-          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(vars, "${datetime} ${level} ${message} ${error:message} (" + entry.Variables.logger + ")")));
-        });
-        InternalLogger.LogBuffer = [];
+        this.dumpBuffer();
       });
     }
   }
+
+  /**
+   * Empties the buffer now instead of at exit: entries go to `__log__` when `Configuration` is resolved, the rest to
+   * the console. For a boot that fails before `Configuration` resolves; does nothing before `bootstrap()` ran.
+   */
+  public static flush(): void {
+    const bootstrapped = InternalLogger.Bootstrapped;
+    if (bootstrapped === undefined) return;
+    if (DI.has(Configuration)) InternalLogger.deliverBuffer();
+    bootstrapped.dumpBuffer();
+  }
+
+  private static deliverBuffer() {
+    const pending = InternalLogger.LogBuffer;
+    InternalLogger.LogBuffer = [];
+    pending.forEach((entry) => {
+      if (!writeLogEntry(entry, entry.Variables.logger)) {
+        InternalLogger.writeInternal(entry);
+      }
+    });
+  }
+
+  /**
+   * Prints the buffered entries to the console and empties the buffer. Runs on `beforeExit` and from `flush()`;
+   * override it to save the leftovers elsewhere as well, then call `super.dumpBuffer()`.
+   */
+  protected dumpBuffer(): void {
+    InternalLogger.LogBuffer.forEach((entry) => {
+      const loggedAt = DateTime.fromJSDate(InternalLogger.LoggedAt.get(entry) ?? new Date());
+      const vars = { ...entry.Variables, datetime: (fmt?: string) => loggedAt.toFormat(fmt ?? DefaultDateTimeFormat) };
+      this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(vars, "${datetime} ${level} ${message} ${error:message} (" + entry.Variables.logger + ")")));
+    });
+    InternalLogger.LogBuffer = [];
+  }
+
+  private static Bootstrapped: InternalLogger | undefined;
 
   protected static LogBuffer: ILogEntry[] = [];
 
