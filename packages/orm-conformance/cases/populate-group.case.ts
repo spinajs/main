@@ -193,18 +193,25 @@ export const POPULATE_GROUP_CASES = [
     order: 'ordered',
     run: async ({ driver }) => {
       // ( Bob post OR Hello ) AND author: under the OR, `Bob post OR Hello AND author` reads Bob post for any author
-      const titles = async (author: string) => {
-        const [, children] = await rawRows(driver, () =>
-          CfUser.where('Id', 2).populate('Posts', function () {
-            this.where('Title', 'Bob post').orWhere('Title', 'Hello');
-            this.populate('Author', function () {
-              this.where('Name', author);
-            });
-          }),
-        );
+      const query = (author: string) =>
+        CfUser.where('Id', 2).populate('Posts', function () {
+          this.where('Title', 'Bob post').orWhere('Title', 'Hello');
+          this.populate('Author', function () {
+            this.where('Name', author);
+          });
+        });
+      const titles = async (run: () => PromiseLike<unknown>) => {
+        const [, children] = await rawRows(driver, run);
         return children.map((r) => String(r.Title)).sort();
       };
-      return { none: await titles('zzz'), bob: await titles('bob') };
+      const executed = query('zzz');
+      const none = await titles(() => executed);
+      return {
+        none,
+        noneCloneBefore: await titles(() => query('zzz').clone()),
+        noneCloneAfter: await titles(() => executed.clone()),
+        bob: await titles(() => query('bob')),
+      };
     },
   }),
   defineCase({
@@ -281,7 +288,7 @@ export const POPULATE_GROUP_EXPECTED: Readonly<Record<string, unknown>> = {
   'populate-group-second-populate': [1, 2, 3],
   'populate-group-relation-column': [1, 2, 3],
   'populate-group-has-many-key-filter': ['Bob post'],
-  'populate-group-has-many-nested-outside-or': { none: [], bob: ['Bob post'] },
+  'populate-group-has-many-nested-outside-or': { none: [], noneCloneBefore: [], noneCloneAfter: [], bob: ['Bob post'] },
   'populate-group-count': 1,
   'populate-group-stream': [1],
   'populate-group-many-to-many-key-filter': [3],
