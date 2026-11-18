@@ -3,6 +3,7 @@ export * from './plan.js';
 export * from './fingerprint.js';
 export * from './statement.js';
 export * from './execution.js';
+export * from './raw-sql.js';
 export * from './options.js';
 export * from './sink.js';
 export * from './slow-query-middleware.js';

@@ -28,10 +28,11 @@ const REDACTED: QueryPlan = { dialect: 'sqlite', root: { label: 'QUERY PLAN', ch
 
 /** Records the statement the test queued, the way SqlDriver.execute does: the fake compilers produce no SQL. */
 class ExplainingDriver extends FakeSqliteDriver {
-  public static next: Pick<ExecutedStatement, 'sql' | 'bindings' | 'durationMs'> = { sql: 'SELECT 1', bindings: [], durationMs: 0 };
+  public static next: Pick<ExecutedStatement, 'sql' | 'bindings' | 'durationMs' | 'rawSql'> = { sql: 'SELECT 1', bindings: [], durationMs: 0, rawSql: true };
   /** Set by a test to stand in for a read replica: the next statement is recorded as run there. */
   public static ranOn: ExplainingDriver | undefined;
   public explained: string[] = [];
+  public explainedRawSql: Array<boolean | undefined> = [];
 
   public execute(builder: Builder<unknown>): Promise<unknown[]> {
     const ranOn = ExplainingDriver.ranOn ?? this;
@@ -40,8 +41,9 @@ class ExplainingDriver extends FakeSqliteDriver {
     return Promise.resolve([]);
   }
 
-  public explain(sql: string): Promise<QueryPlan> {
+  public explain(sql: string, _bindings: unknown[], rawSql?: boolean): Promise<QueryPlan> {
     this.explained.push(sql);
+    this.explainedRawSql.push(rawSql);
     return Promise.resolve(PLAN);
   }
 }
@@ -96,13 +98,13 @@ describe('SlowQueryMiddleware', () => {
     middleware().reload();
   }
 
-  async function run(sql = SELECT, durationMs = 300): Promise<void> {
-    ExplainingDriver.next = { sql, bindings: [7], durationMs };
+  async function run(sql = SELECT, durationMs = 300, rawSql = true): Promise<void> {
+    ExplainingDriver.next = { sql, bindings: [7], durationMs, rawSql };
     await driver().select().from('users');
   }
 
-  async function slowSelect(sql = SELECT, durationMs = 300): Promise<void> {
-    await run(sql, durationMs);
+  async function slowSelect(sql = SELECT, durationMs = 300, rawSql = true): Promise<void> {
+    await run(sql, durationMs, rawSql);
     await middleware().idle();
   }
 
@@ -146,11 +148,36 @@ describe('SlowQueryMiddleware', () => {
     expect(JSON.stringify(record)).to.not.contain('ann');
   });
 
+  it('explains a builder-made select whose text the caller-written check would refuse', async () => {
+    enable();
+    await slowSelect('SELECT * FROM "price$list" WHERE "Tag" = ?', 300, false);
+
+    expect(driver().explained).to.deep.equal(['SELECT * FROM "price$list" WHERE "Tag" = ?']);
+    expect(driver().explainedRawSql).to.deep.equal([false]);
+    expect(records()[0].plan).to.deep.equal(REDACTED);
+  });
+
+  it('never explains caller-written SQL the text check refuses', async () => {
+    enable();
+    await slowSelect('SELECT * FROM "price$list" WHERE "Tag" = ?', 300, true);
+
+    expect(driver().explained).to.deep.equal([]);
+    expect(records()).to.have.length(1);
+    expect(records()[0]).to.not.have.property('plan');
+    expect(records()[0]).to.not.have.property('planError');
+  });
+
+  it('tells the driver that a statement holds caller-written SQL', async () => {
+    enable();
+    await slowSelect();
+    expect(driver().explainedRawSql).to.deep.equal([true]);
+  });
+
   it('records a slow INSERT without a plan and without calling explain', async () => {
     enable();
     const insert = driver().insert().into('users');
 
-    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['ann'], durationMs: 300, driver: driver() });
+    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['ann'], rawSql: false, durationMs: 300, driver: driver() });
     middleware().afterQueryExecution(insert);
     await middleware().idle();
 
@@ -164,8 +191,8 @@ describe('SlowQueryMiddleware', () => {
     enable();
     const insert = driver().insert().into('users');
 
-    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['ann'], durationMs: 150, driver: driver() });
-    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['bob'], durationMs: 150, driver: driver() });
+    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['ann'], rawSql: false, durationMs: 150, driver: driver() });
+    recordStatement(insert, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: ['bob'], rawSql: false, durationMs: 150, driver: driver() });
     middleware().afterQueryExecution(insert);
     await middleware().idle();
 

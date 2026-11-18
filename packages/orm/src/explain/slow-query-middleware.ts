@@ -125,7 +125,7 @@ export class SlowQueryMiddleware extends QueryMiddleware {
       ...(options.CaptureBindings ? { bindings: statements.flatMap((s) => s.bindings) } : {}),
     };
 
-    if (statements.length === 1 && context === QueryContext.Select && isExplainable(first.sql)) {
+    if (statements.length === 1 && context === QueryContext.Select && (!first.rawSql || isExplainable(first.sql))) {
       Object.assign(record, await this.planFor(driver, planKey(record, options), first, options));
     }
 
@@ -153,7 +153,7 @@ export class SlowQueryMiddleware extends QueryMiddleware {
 
     let outcome: PlanOutcome;
     try {
-      const plan = await driver.explain(statement.sql, statement.bindings);
+      const plan = await driver.explain(statement.sql, statement.bindings, statement.rawSql);
       outcome = { plan: options.CaptureBindings ? plan : redactPlan(plan, driver.ansiQuotedIdentifiers()) };
     } catch (err) {
       outcome = { planError: describeError(err, options.CaptureBindings) };
