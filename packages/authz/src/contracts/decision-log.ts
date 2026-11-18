@@ -14,6 +14,11 @@ export interface PrincipalFactsRecord {
   companions?: string[];
 }
 
+/**
+ * The read set in the tagged form `inputsHash` hashed, so a stored copy re-hashes to it: `undefined` is `"<undefined>"`,
+ * a non-finite number `"<number:NaN>"`, a bigint `"<bigint>"` (its value is not kept), a Date its ISO string, a cycle
+ * `"<cycle>"`. A string equal to a tag reads the same as the value it stands for.
+ */
 export interface CapturedInputs extends DecisionReadSet {
   /** The exact strings `inputsHash` hashed for the principal and the actor. */
   principalState: string | null;
@@ -42,7 +47,10 @@ export interface DecisionRecord {
   modelVersions: Record<string, string>;
   /** SHA-256 (hex) of the canonical inputs the decision read. */
   inputsHash: string;
-  /** Authorization facts of the principal and actor, without attributes and authn; on every record. */
+  /**
+   * Authorization facts of the principal and actor, without attributes and authn. Absent on records logged before they
+   * existed, and when a principal's facts exceed 4 KB, form a delegation cycle or hold a malformed field.
+   */
   facts?: { principal: PrincipalFactsRecord; actor?: PrincipalFactsRecord };
   /** Wall clock when the tap recorded (ISO); `at` may be the caller's `env.now`. Replay's T. */
   loggedAt?: string;
