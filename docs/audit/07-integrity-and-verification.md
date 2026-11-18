@@ -70,7 +70,7 @@ export async function checkBilling(loggedHead: { toSeq: number; hash: string }):
 | `unsealed` | Events after the last seal. |
 | `staleUnsealed` | Of those, events whose `at` is older than the sealing window. |
 | `head` | The last seal that verified (`toSeq`, `hash`). |
-| `uncovered` | Rows inside a sealed range that their seal does not cover: `late` (committed after its range was sealed, or inserted into it later; the two look the same) or `pruned` (written into a range retention removed). Their content is protected by no seal. |
+| `uncovered` | Rows inside a sealed range that their seal does not cover: `late` (committed after its range was sealed, or inserted into it later with an earlier `at`; the two look the same) or `pruned` (written into a range retention removed). Their content is protected by no seal. |
 | `unexplainedRedactions` | Seqs of erased payloads that no vouched-for `erasure` event of their subject, at or after them, explains ([below](#erasure-records)). |
 | `earlyPrunes` | Seals marked pruned that this application's retention does not explain: pruned younger than the trail's `retentionDays`, or with no `retentionDays` at all. |
 
