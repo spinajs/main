@@ -54,3 +54,14 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
 export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[]) {
   return Route(Parameter('FilterModelRouteArg', null, model));
 }
+
+function propertyDecorator(record: (model: IModelDescriptor, propertyKey: string) => void): PropertyDecorator {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => record(model, propertyKey)) as PropertyDecorator;
+}
+
+/** Lets a list be sorted by this column. A model with no `@Sortable` is sortable by its filterable table columns. */
+export function Sortable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.SortableColumns ??= new Set<string>()).add(propertyKey);
+  });
+}

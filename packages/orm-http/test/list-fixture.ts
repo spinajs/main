@@ -9,7 +9,7 @@ import '@spinajs/log';
 import { TestConfiguration } from './common.js';
 import '../src/extension.js';
 import '../src/builders.js';
-import { Filterable } from '../src/decorators.js';
+import { Filterable, Sortable } from '../src/decorators.js';
 import { installFilterStatics } from './filter-statics.js';
 
 @Migration('default')
@@ -55,15 +55,18 @@ export class Customer extends ModelBase {
 @Model('lq_order')
 export class Order extends ModelBase {
   @Primary()
+  @Sortable()
   @Filterable(['eq', 'in'])
   public Id: number;
 
   @Filterable(['eq', 'in'])
   public CustomerId: number;
 
+  @Sortable()
   @Filterable(['eq', 'neq', 'in'])
   public Status: string;
 
+  @Sortable()
   @Filterable(['eq', 'gt', 'gte', 'lt', 'lte'])
   public Amount: number;
 
