@@ -23,6 +23,7 @@ import {
 import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
+import { findNonFinite } from './non-finite.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
@@ -67,15 +68,18 @@ function withLazyVars<T extends object>(obj: T): T {
 }
 
 // A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
-// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
-function copyForCheck(value: unknown): unknown {
+// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference. With `unwrap`, a
+// lazy-var proxy becomes a copy of its target instead, so a walk over the copy loads no var.
+function copyForCheck(value: unknown, unwrap = false): unknown {
   return _.cloneDeepWith(value, function copy(v: unknown): unknown {
     const target = typeof v === 'object' && v !== null ? LAZY_TARGETS.get(v) : undefined;
-    if (target) return withLazyVars(_.cloneDeepWith(target, copy));
+    if (target) return unwrap ? _.cloneDeepWith(target, copy) : withLazyVars(_.cloneDeepWith(target, copy));
     if (Object.prototype.toString.call(v) === '[object Object]' && !_.isPlainObject(v)) return v;
     return undefined;
   });
 }
+
+const nonFiniteError = (instancePath: string): ErrorObject => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' });
 
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
@@ -543,8 +547,9 @@ export class FrameworkConfiguration extends Configuration {
     const violations: ConfigurationViolation[] = [];
     for (const s of schemas) {
       const value = _.get(root, s.$configurationModule);
-      if (value === undefined || this.Validator.validate(s, value)) continue;
-      const r = this.failureOf(s);
+      const refusal = value === undefined ? undefined : this.refusalOf(s, value);
+      if (refusal === undefined) continue;
+      const r = this.failureOf(s, refusal);
       errors.push(...r.errors);
       violations.push(...r.violations);
     }
@@ -597,16 +602,24 @@ export class FrameworkConfiguration extends Configuration {
     // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
     // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
     // value whose copy passes gets its defaults and coercion.
-    if (this.Validator.validate(s, copyForCheck(config)) && this.validateInPlace(s, config)) {
-      return { errors: [], violations: [] };
-    }
-
-    return this.failureOf(s);
+    const refusal = this.refusalOf(s, copyForCheck(config)) ?? (this.validateInPlace(s, config) ? undefined : this.lastErrors());
+    return refusal === undefined ? { errors: [], violations: [] } : this.failureOf(s, refusal);
   }
 
-  // The violations of the last failed this.Validator.validate(s, ...) call.
-  private failureOf(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+  // undefined when `value` passes. Ajv coerces a string such as '1e999' to a non-finite number and then skips every
+  // numeric limit on it, so a value that passes is also walked for one.
+  private refusalOf(s: IConfigurationSchema, value: unknown): ErrorObject[] | undefined {
+    if (!this.Validator.validate(s, value)) return this.lastErrors();
+    const paths = findNonFinite(copyForCheck(value, true), true);
+    return paths.length === 0 ? undefined : paths.map(nonFiniteError);
+  }
+
+  private lastErrors(): ErrorObject[] {
     const errors: ErrorObject[] = this.Validator.errors ?? [];
+    return errors;
+  }
+
+  private failureOf(s: IConfigurationSchema, errors: ErrorObject[]): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
     const schema = schemaNameOf(s);
     let violations = toViolations(s.$configurationModule, schema, errors);
     if (violations.length === 0) {

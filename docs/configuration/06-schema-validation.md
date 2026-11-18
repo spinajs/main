@@ -10,7 +10,7 @@ At boot, in `FrameworkConfiguration.resolve()`:
 2. **`validate()`** collects the `__configurationSchema__` values of the configuration's container and of every ancestor, nearest first. Schemas that are the same object, or share an `$id`, count once.
 3. For each schema, **`checkModule()`** reads the value at `$configurationModule`:
    - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path. Otherwise a warning is logged and the path stays unset.
-   - anything else (`null` included): validates a deep copy first. Only when the copy passes is the stored value validated in place, which applies defaults and coercion.
+   - anything else (`null` included): validates a deep copy first, then walks the copy for a non-finite number. Only when the copy passes both is the stored value validated in place, which applies defaults and coercion.
 4. Violations of all schemas are logged and thrown together as `InvalidConfiguration`. The configuration's resolve rejects and DI does not cache it.
 
 After boot, `registerConfigurationSchema(schema, container)`:
@@ -179,6 +179,7 @@ void main();
 ## Important behaviour
 
 - Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
+- **A validated module never holds a non-finite number.** A string that coerces to one (`'Infinity'`, `'-Infinity'`, `'1e999'`, often an environment variable) is a violation at its path with the message `must be a finite number`; Ajv alone would accept it and skip `minimum`, `maximum` and every other number rule. The check walks the whole validated module, so a literal `Infinity` or `NaN` a JS config file puts under a key the schema does not type is refused too. `ConfigVar`s the schema does not read are not loaded for it. The walk is `findNonFinite()`, the same one `@spinajs/validation` runs on request data.
 - A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.

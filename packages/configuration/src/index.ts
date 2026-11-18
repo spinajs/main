@@ -11,4 +11,5 @@ export * from './schemas.js';
 export * from './helpers.js';
 export * from './fp.js';
 export * from './lib-dirs.js';
+export * from './non-finite.js';
 export { merge, mergeArrays } from './util-common.js';
