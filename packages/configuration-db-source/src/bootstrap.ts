@@ -12,7 +12,7 @@ import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntry
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
-import { asSystem } from './system.js';
+import { asSystem, systemReady } from './system.js';
 
 /**
  * watch interval, default 3 min
@@ -128,8 +128,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
-    // insert all exposed config options (InsertOrIgnore - safe to repeat)
-    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch(async (err) => {
+    // insert all exposed config options (InsertOrIgnore - safe to repeat); a guarded app's sweep starts once authz is up
+    void systemReady(this.authzDomain).then(() => Promise.all(vars.map((v) => this.saveConfigOptions(v)))).catch(async (err) => {
       InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
 
       // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again

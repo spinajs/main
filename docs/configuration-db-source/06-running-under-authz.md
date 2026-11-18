@@ -13,6 +13,7 @@ Without that call, the queries run directly, with whatever principal is current.
    - If `authz(domain)` already returns a service, it is used at once.
    - Otherwise it waits for `di.resolved.AuthzService`. For `root`, the http server normally boots the service after it registered its controllers.
    - For `root` only: after 15 s without that event, it logs `AuthzService not booted ... (no http server?)` and resolves `AuthzService` itself.
+   - All queries waiting for one domain share one wait: one `di.resolved.AuthzService` listener and one timer, however many queries are pending. The listener is removed once the wait ends, by the event or by the timer.
 5. It runs `fn` inside `service.runAs(SYSTEM, 'config-poll', fn)`. The caller's principal is restored afterwards.
 
 `ConfiguratioDbSource` does **not** go through `asSystem()`: it reads the table with a raw driver query, before any authz service exists.
@@ -33,7 +34,7 @@ Without that call, the queries run directly, with whatever principal is current.
 
 ## Important behaviour
 
-- **Writes start late in a guarded app.** Inserts and polls wait until the domain's `AuthzService` is resolved. With an http server this is when the server boots it.
+- **Writes start late in a guarded app.** Inserts and polls wait until the domain's `AuthzService` is resolved. With an http server this is when the server boots it. The sweep of exposed options waits too, before its first insert, so an app does not need to delay it until authz is up.
 - **Apps without an http server wait 15 s.** A worker or CLI that guards `DbConfig` logs a warning and boots `AuthzService` itself after 15 s.
 - **A slow http app loses checks.** If an http app takes longer than 15 s to boot authz, the package boots it first. Controllers registered after that miss the boot-time check of their `@Access` permissions.
 - **Non-root domains never time out.** For a domain other than `root` there is no fallback timer: the queries wait until that domain's service is resolved.

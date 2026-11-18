@@ -12,11 +12,12 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 
    The sweep reads every `__configuration_property__` entry with `expose: true`:
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
-   2. For each entry in parallel, `DbConfigValueConverter.toDB()` turns `defaultValue` into canonical text for `exposeOptions.type`.
-   3. `DbConfig.insert(row, InsertBehaviour.InsertOrIgnore)` writes the row. An existing `Slug` is left untouched.
-   4. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type`, `Watch`, `Required` and `Default` when any differs from the code. `Value` is never rewritten.
-   5. Entries with `watch: true` join the watched set and the watch timer starts. See [Watching options](03-watching-options.md).
-   6. Database errors are logged as `Failed to persist exposed config options to db`, not thrown. The bootstrapper then asks the database again whether the table exists; when it does not, late registrations are skipped again (step 5) and the next ready event sweeps once more.
+   2. In an app that guards the table, the sweep waits once for the domain's `AuthzService` before it writes anything. See [Running under authz](06-running-under-authz.md).
+   3. For each entry in parallel, `DbConfigValueConverter.toDB()` turns `defaultValue` into canonical text for `exposeOptions.type`.
+   4. `DbConfig.insert(row, InsertBehaviour.InsertOrIgnore)` writes the row. An existing `Slug` is left untouched.
+   5. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type`, `Watch`, `Required` and `Default` when any differs from the code. `Value` is never rewritten.
+   6. Entries with `watch: true` join the watched set and the watch timer starts. See [Watching options](03-watching-options.md).
+   7. Database errors are logged as `Failed to persist exposed config options to db`, not thrown. The bootstrapper then asks the database again whether the table exists; when it does not, late registrations are skipped again (step 5) and the next ready event sweeps once more.
 4. **After the sweep**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
    1. `normalizeFileEntryOptions()` runs synchronously, so a misdeclared file entry throws out of the `@Config` decorator or `DI.register()` call.
    2. The row is inserted and its metadata synced as in step 3.
