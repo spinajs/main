@@ -31,7 +31,7 @@ const passes = (d: Decision): boolean => d.allowed && (d.residual.op === 'true' 
  */
 @Injectable(QueueMessageHook)
 export class AuthzQueueHook extends QueueMessageHook {
-  /** Below the default order (0): on emit it writes `Initiator` after every app hook, whatever the import order. */
+  /** On emit it writes `Initiator` after every hook of a higher order, the default 0 included, whatever the import order. */
   public override readonly order: number = -50;
 
   /** The authz domain whose principal is stamped and whose `runAs` the handler uses. */

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
-import type { HarnessSession, SetupContext, World } from '@spinajs/authz-testing';
+import type { HarnessSession, QueueMessage, SetupContext, World } from '@spinajs/authz-testing';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { QueueHeaders, QueueMessageHook } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
@@ -99,10 +99,7 @@ describe('AuthzQueueHook in the hook chain', () => {
   const harness = queueHarness();
   let session: HarnessSession;
 
-  const emitAsAlice = async (job: string): Promise<IQueueMessage> => {
-    const message = await (session.authz as unknown as AuthzService).runAs(alice, 'test', () => session.lane!.queue!.emit(job));
-    return message as unknown as IQueueMessage;
-  };
+  const emitAsAlice = (job: string): Promise<QueueMessage> => (session.authz as unknown as AuthzService).runAs(alice, 'test', () => session.lane!.queue!.emit(job));
 
   before(() => harness.beforeAll?.());
   after(() => harness.afterAll?.());
@@ -152,10 +149,10 @@ describe('AuthzQueueHook in the hook chain', () => {
 
     try {
       const message = await runInTenant('acme', () => emitAsAlice('orderedAsInitiator'));
-      expect(message.Headers?.[QueueHeaders.Tenant]).to.eq('acme');
+      expect(message.Headers).to.deep.include({ [QueueHeaders.Tenant]: 'acme' });
       expect(message.Initiator).to.deep.include({ type: 'user', id: 'alice' });
 
-      const run = await session.lane!.queue!.handle(message as never);
+      const run = await session.lane!.queue!.handle(message);
       expect(run.principal.id).to.eq('alice');
       expect(trace).to.deep.eq(['app.beforeEmit', 'authz.beforeEmit', 'tenant.beforeEmit', 'tenant.aroundHandle', 'authz.aroundHandle', 'app.aroundHandle']);
       expect(inApp).to.deep.eq([{ tenant: { kind: 'tenant', tenant: { id: 'acme' } }, principal: 'alice' }]);
