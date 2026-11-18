@@ -176,14 +176,16 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
     assert.deepStrictEqual(await w.sessions.storage.storedKeys(), [], 'the reissued session is revoked');
   });
 
-  it('a revocation that fails is logged and the operation still answers AuthnListenerFailed', async () => {
+  it('a revocation that fails is logged, the told events still go out as listener_failed, and the operation still answers AuthnListenerFailed', async () => {
     const log = new WarnLog();
-    const w = build([new FailingListener(true)], false, log);
+    const events = new RecordingEventListener();
+    const w = build([new FailingListener(true), events], false, log);
     w.sessions.revoke = () => Promise.reject(new Error('issuer down'));
 
     await assert.rejects(login(w), AuthnListenerFailed);
 
     assert.ok(log.lines.some((l) => l.includes('could not be revoked')), log.lines.join('\n'));
+    assert.deepStrictEqual(summary(events), [['login', 'failure', 'listener_failed']]);
   });
 
   it('logs a failing listener that does not block', async () => {
@@ -205,6 +207,31 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
 
     assert.deepStrictEqual(summary(events), [['token.use', 'success', undefined]]);
     assert.ok(log.lines.some((l) => l.includes('FailingListener')), log.lines.join('\n'));
+  });
+
+  it('a blocking listener that never answers does not hold a token request; settled() waits for it', async () => {
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    const hung = new (class HungListener extends AuthnEventListener {
+      public override get blocking(): boolean {
+        return true;
+      }
+
+      on(): Promise<void> {
+        return answered;
+      }
+    })();
+    const w = build([hung]);
+
+    const r = await w.service.authenticate({ kind: 'bearer', token: BOB_TOKEN }, { now: new Date(), purpose: 'request', ip: IP });
+    assert.strictEqual(r.status, 'success');
+
+    let settled = false;
+    const waiting = w.service.settled().then(() => (settled = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.strictEqual(settled, false, 'settled() waits for the listener');
+    release();
+    await waiting;
   });
 
   it('names the event of a key strategy key.use, as the core does', async () => {
