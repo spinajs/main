@@ -131,7 +131,7 @@ describe('@Deadline', () => {
     expect(ctx.storage.signal).to.be.instanceOf(AbortSignal);
     expect(ctx.storage.deadline).to.be.within(before + 50, Date.now() + 50);
 
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
     await sleep(100);
     expect(ctx.storage.signal!.aborted).to.eq(false);
   });
@@ -149,7 +149,7 @@ describe('@Deadline', () => {
     expect(ctx.storage.deadline).to.be.lessThan(first);
     expect(ctx.storage.signal).to.eq(signal);
 
-    new DeadlineMiddleware(1).onFinish({ ...ctx, aborted: false });
+    new DeadlineMiddleware(1).onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
   });
 
   it('refuses a deadline that is not a positive number', () => {

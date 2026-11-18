@@ -42,7 +42,7 @@ function context(req: any, res: any, extra: Partial<IMiddlewareContext> = {}): I
 }
 
 function finished(ctx: IMiddlewareContext, aborted = false): IFinishContext {
-  return { ...ctx, aborted };
+  return { ...ctx, aborted, settled: Promise.resolve({}) };
 }
 
 describe('TelemetryMiddleware — onBefore / onFinish', () => {

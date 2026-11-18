@@ -61,7 +61,7 @@ Every hook is optional; a middleware implements only those it needs.
 | --- | --- |
 | `IMiddlewareContext` | `req`, `res`, `storage` (the same object as `req.storage`), and for a route middleware `route`, `controller` and `path` (`http:<METHOD> <mounted path>`) |
 | `IReplyContext` | `IMiddlewareContext` plus `response: Response` (the reply about to be sent; a hook may replace it) and `error?: unknown` (the error the reply answers, when it is an error reply) |
-| `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) |
+| `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) and `settled: Promise<{ error?: unknown }>` (resolves when the action ended, with the error it threw; see below) |
 | `IRouteInvocation` | `IMiddlewareContext` with `route`, `controller` and `path` always set |
 
 A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing and get only a [best-effort match](15-server-middlewares.md#the-route-before-routing).
@@ -582,6 +582,7 @@ The route documentation says so too:
 - `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, the `proceed()` outcome of an enclosing `onAround`, the reply `@Idempotent` stores and the client get the change; headers a hook adds, other than `Content-Type`, `Location` and `ETag`, are left out of the outcome's `reply` and of the stored reply.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`). A streamed reply (SSE, a pipe) the client closed is `aborted` too, although its status and headers were sent: `ctx.res.headersSent` is then `true`.
+- `ctx.settled` resolves once the action ended, with `error` set when it threw. After `aborted` the response is gone but the action runs on: `await ctx.settled` to learn whether it committed. A request whose action did not run (a policy or `onBefore` refusal, an early answer, a replay, a client gone before an `onAround` could proceed) resolves once the chain answered or stopped without it, with the error it answered. A deadline 504 sent in place of a running action does not resolve it: the action does. It is the same promise for every hook of the request, and it never rejects. An `onFinish` that waits on it should bound the wait: an action may never end.
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
 
 ## Migrating from the positional hooks

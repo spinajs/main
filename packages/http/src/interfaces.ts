@@ -930,6 +930,12 @@ export interface IReplyContext extends IMiddlewareContext {
 export interface IFinishContext extends IMiddlewareContext {
   /** The client went away before the response finished. */
   readonly aborted: boolean;
+  /**
+   * Resolves once the action ended, with the error it threw; for a request whose action did not run, once the chain
+   * answered or stopped without it, with the error it answered (a refusal). After `aborted` the response is gone and the
+   * action may still run. Resolves once per request, the same promise for every hook, and never rejects.
+   */
+  readonly settled: Promise<{ readonly error?: unknown }>;
 }
 
 /** What an around middleware gets for one request. */

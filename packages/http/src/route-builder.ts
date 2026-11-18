@@ -21,7 +21,7 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { answeredAsServerError, errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { actionEnded, actionStarted, answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import { routeChainName } from './route-index.js';
 import type { ErrorReplier, IReplaysBeforePolicy } from './reply-pipeline.js';
 
@@ -320,6 +320,7 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
       next();
       return;
     }
+    actionStarted(res);
     try {
       await storage.run(req.storage, async () => {
         const parent = context.active();
@@ -330,6 +331,7 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
           result = await context.with(trace.setSpan(parent, span), () => invokeAction(controller, route, req, res, next, derived));
         } catch (err) {
           endFailedRouteSpan(span, err);
+          actionEnded(res, { error: err });
           next(err);
           return;
         }
@@ -337,10 +339,12 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
         // next() runs outside context.with: the OTel context still carries the server span here, so the reply pipeline
         // and the __handle_response__ log lines correlate to the server span, not to the ended route span.
         span.end();
+        actionEnded(res);
         res.locals.response = result;
         next();
       });
     } catch (err) {
+      actionEnded(res, { error: err });
       next(err);
     }
   };

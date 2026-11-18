@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import type { HttpMiddleware, IActionLocalStoregeContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
+import type { HttpMiddleware, IActionLocalStoregeContext, IFinishContext, IMiddlewareContext, IReplyContext, IRouteInvocation, Request, Response, ResponseFunction } from './interfaces.js';
 import { markStage, noteRouteError } from './errors/on-error.js';
 import { excludeFromCapture, responseCaptureOf } from './response-capture.js';
 import type { IRouteMatch, RouteIndex } from './route-index.js';
@@ -81,7 +81,15 @@ interface IReplyState {
   routedServer?: IMiddlewareContext;
   /** Where the server hooks' context looks up the route before routing. */
   routes?: RouteIndex;
+  /** The action handler runs: only its end settles the request. */
+  acting?: boolean;
+  settlement?: Settlement;
+  /** Made when the first onFinish context is, so a request no onFinish asks about allocates no promise. */
+  settled?: Promise<Settlement>;
+  resolveSettled?: (settlement: Settlement) => void;
 }
+
+type Settlement = Awaited<IFinishContext['settled']>;
 
 const STATE = Symbol('replyPipeline');
 
@@ -174,6 +182,39 @@ export function answeredErrorOf(res: express.Response): unknown {
   return (res.locals as Record<symbol, IReplyState | undefined> | undefined)?.[STATE]?.answered?.error;
 }
 
+const settlementOf = (error: unknown): Settlement => (error === undefined ? {} : { error });
+
+function settleRequest(state: IReplyState, settlement: Settlement): void {
+  if (state.settlement) return;
+  state.settlement = settlement;
+  state.resolveSettled?.(settlement);
+}
+
+function settledOf(state: IReplyState): Promise<Settlement> {
+  return (state.settled ??= state.settlement ? Promise.resolve(state.settlement) : new Promise<Settlement>((resolve) => (state.resolveSettled = resolve)));
+}
+
+/** Called by the action handler before it extracts the arguments: from now on only {@link actionEnded} settles the request. */
+export function actionStarted(res: express.Response): void {
+  stateOf(res).acting = true;
+}
+
+/** The action handler ended; `failure` holds what it threw. */
+export function actionEnded(res: express.Response, failure?: { error: unknown }): void {
+  const state = stateOf(res);
+  state.acting = false;
+  settleRequest(state, failure ? { error: failure.error } : {});
+}
+
+function settleUnlessActing(state: IReplyState, error: unknown): void {
+  if (!state.acting) settleRequest(state, settlementOf(error));
+}
+
+/** The chain answered or stopped without the action: settles the request with `error`, unless the action runs. */
+export function endedWithoutAction(res: express.Response, error?: unknown): void {
+  settleUnlessActing(stateOf(res), error);
+}
+
 /** Called by HttpServer's first handler: the server hooks of the request get the route `routes` matches. */
 export function lookUpRoutesIn(res: express.Response, routes: RouteIndex): void {
   stateOf(res).routes = routes;
@@ -246,6 +287,8 @@ function watchFinish(res: express.Response, state: IReplyState): void {
 
   const settle = (aborted: boolean) => {
     state.aborted = aborted;
+    // a response that finished while no action runs is the chain's whole answer; after an abort the chain may go on
+    if (!aborted) settleUnlessActing(state, state.answered?.error);
     return state.entered.slice();
   };
 
@@ -290,7 +333,7 @@ function runFinish(state: IReplyState, entries: readonly IEntered[], aborted: bo
   for (const entry of innerFirst(entries, 'onFinish')) {
     const failed = (error: unknown) => httpLog().error({ error, middleware: nameOf(entry.middleware) }, 'onFinish of ${middleware} failed');
     try {
-      const result = inScope(state, entry, () => entry.middleware.onFinish!(extendContext(hookContext(state, entry), { aborted })));
+      const result = inScope(state, entry, () => entry.middleware.onFinish!(extendContext(hookContext(state, entry), { aborted, settled: settledOf(state) })));
       if (isThenable(result)) {
         result.then(undefined, failed);
       }
@@ -358,6 +401,7 @@ export function sendReplyInPlace(req: express.Request, res: express.Response, re
 async function send(req: express.Request, res: express.Response, state: IReplyState, response: Response, options: IDeliverOptions): Promise<void> {
   let current = response;
   let error = options.error;
+  settleUnlessActing(state, error);
 
   const pending = (state.pending ??= innerFirst(state.entered, 'onAfter'));
   let watch: IHeaderWatch | undefined;

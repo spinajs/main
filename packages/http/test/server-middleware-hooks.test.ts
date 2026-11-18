@@ -613,7 +613,7 @@ describe('Server middleware hooks: aborted requests', () => {
     const lines = recording(mw, { Enabled: true });
     const ctx = ctxOf();
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: true });
+    mw.onFinish({ ...ctx, aborted: true, settled: Promise.resolve({}) });
 
     expect(lines).to.have.length(1);
     expect(lines[0][0]).to.include({ aborted: true, requestId: 'r1' });
@@ -626,7 +626,7 @@ describe('Server middleware hooks: aborted requests', () => {
     const ctx = ctxOf();
     Object.defineProperty(ctx.res, 'headersSent', { value: true });
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: true });
+    mw.onFinish({ ...ctx, aborted: true, settled: Promise.resolve({}) });
 
     expect(lines).to.have.length(1);
     expect(lines[0][0]).to.include({ aborted: true, status: 200, requestId: 'r1' });
@@ -638,8 +638,8 @@ describe('Server middleware hooks: aborted requests', () => {
     const lines = recording(mw, { Enabled: true, ThresholdMs: 0 });
     const ctx = ctxOf();
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: true });
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: true, settled: Promise.resolve({}) });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
 
     expect(lines).to.have.length(1);
   });

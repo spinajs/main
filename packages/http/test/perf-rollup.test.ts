@@ -44,7 +44,7 @@ describe("PerfRollup middleware", () => {
     // a measurement recorded during the "action" bumps the scope
     ctx.req.storage.perf.byName["orm.query"] = { count: 3, totalMs: 30, maxMs: 12 };
 
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
 
     expect(sink.rollups).to.have.length(1);
     expect(sink.rollups[0].requestId).to.eq("r1");
@@ -57,7 +57,7 @@ describe("PerfRollup middleware", () => {
     const ctx = ctxOf("/x/42?token=Zq7perfTokenRw3", 404, "r3");
 
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
 
     expect(sink.rollups).to.have.length(1);
     expect(sink.rollups[0].labels).to.deep.include({ method: "GET", route: "/x/42", status: 404 });
@@ -68,7 +68,7 @@ describe("PerfRollup middleware", () => {
     const ctx = ctxOf("/x/42", 200, "r2", "http:GET /x/:id");
 
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
 
     expect(sink.rollups).to.have.length(1);
     expect(sink.rollups[0].labels).to.deep.include({ method: "GET", route: "/x/:id", status: 200 });
@@ -79,7 +79,7 @@ describe("PerfRollup middleware", () => {
     const ctx = ctxOf("/x", 200, "r4");
 
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: true });
+    mw.onFinish({ ...ctx, aborted: true, settled: Promise.resolve({}) });
 
     expect(sink.rollups).to.have.length(0);
   });
