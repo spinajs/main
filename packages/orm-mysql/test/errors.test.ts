@@ -2,7 +2,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ConstraintViolation, OrmException, QueryContext, UniqueViolation } from '@spinajs/orm';
+import { ConstraintViolation, DataException, OrmException, QueryContext, UniqueViolation } from '@spinajs/orm';
 import { MySqlOrmDriver } from '../src/index.js';
 import { mapMySqlError } from '../src/errors.js';
 
@@ -45,6 +45,24 @@ describe('mapMySqlError', () => {
 
     expect(err).to.be.instanceOf(OrmException);
     expect(err).to.not.be.instanceOf(ConstraintViolation);
+    expect(err).to.not.be.instanceOf(DataException);
+  });
+
+  it('maps sqlState class 22 to DataException', () => {
+    const native = Object.assign(new Error("Out of range value for column 'n' at row 1"), { errno: 1264, code: 'ER_WARN_DATA_OUT_OF_RANGE', sqlState: '22003' });
+
+    expect(mapMySqlError(native, at, 'SELECT', [])).to.be.instanceOf(DataException);
+  });
+
+  // what MySQL 8 answers to `WHERE datetime_column > '10000-01-01 00:00:00.000'`
+  it('maps ER_WRONG_VALUE, which MySQL reports with sqlState HY000, to DataException', () => {
+    const native = Object.assign(new Error("Incorrect DATETIME value: '10000-01-01 00:00:00.000'"), { errno: 1525, code: 'ER_WRONG_VALUE', sqlState: 'HY000' });
+    const err = mapMySqlError(native, { Name: 'mysql', Host: 'db', User: 'app' }, 'SELECT', ['10000-01-01 00:00:00.000']);
+
+    expect(err).to.be.instanceOf(DataException);
+    expect(err.message).to.contain('1525');
+    expect(err.message).to.not.contain('10000');
+    expect(err.cause).to.eq(native);
   });
 });
 

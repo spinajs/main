@@ -78,6 +78,18 @@ export class ConstraintViolation extends OrmException {
   }
 }
 
+/**
+ * The database refused a value of the statement: SQLSTATE class 22 (out of range, invalid text representation, invalid
+ * encoding) or the driver's equivalent. The native error is `inner`; its message is not repeated, because it quotes the
+ * refused value and errors reach logs and spans.
+ */
+export class DataException extends OrmException {
+  constructor(message: string, driver?: Partial<IDriverOptions>, query?: string, bindings?: unknown, inner?: unknown) {
+    super(message, driver, query, bindings, inner);
+    this.message = message;
+  }
+}
+
 /** A model or connection was used before an Orm created its connections. */
 export class OrmNotResolved extends OrmException {}
 

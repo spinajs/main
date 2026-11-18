@@ -162,6 +162,7 @@ graphify-out/
 !/docs/http-socket-example/
 !/docs/http-swagger/
 !/docs/idempotency/
+!/docs/idempotency-scheduler/
 !/docs/internal-logger/
 !/docs/intl/
 !/docs/intl-http/

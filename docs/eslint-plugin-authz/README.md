@@ -1,6 +1,6 @@
 # `@spinajs/eslint-plugin-authz`
 
-ESLint rules for SpinaJS authorization. `@spinajs/authz/require-accessible` reports multi-row queries on `@AccessResource` models that run without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(...)`. `@spinajs/authz/require-access` reports an http route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or on its class. `@spinajs/authz/no-raw-request` reports a controller that takes `@Req()`/`@Res()` or calls `bodyField()`, so its input skips route-argument validation.
+ESLint rules for SpinaJS authorization. `@spinajs/authz/require-accessible` reports multi-row queries on `@AccessResource` models that run without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(SYSTEM, reason)`. `@spinajs/authz/require-access` reports an http route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or on its class. `@spinajs/authz/no-raw-request` reports a controller that takes `@Req()`/`@Res()` or calls `bodyField()`, so its input skips route-argument validation.
 
 It does **not** change or fix queries, and it does **not** check writes. It does **not** run on ESLint 8 or read `.eslintrc` files: it targets ESLint 9 or 10 with a flat config. It is the edit-time half of a check whose run-time half is the `@spinajs/authz-orm` query guard, which is off in production ([The runtime guard](../authz-orm/07-runtime-guard.md)).
 

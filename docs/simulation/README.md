@@ -46,6 +46,14 @@ against the directory `npm run sim` was started in. A seed whose database work n
 Replicas interleave only between settle points, never inside one `tickOnce()`, so a compare-and-set guard that
 is missing between a read and the write that depends on it is not found by the simulation.
 
+## Profiling
+
+`npm run sim -- --suite <name> --seeds <n> --profile` (or `SIM_PROFILE=1`) prints, per seed, the wall-clock time of
+the app boot (and whether the database came from migrations or from the template copy), the rest of the suite's
+build, the step loop, quiescence, invariant checks, database settles (with their count) and shutdown, and the number
+of ticks. The times are exclusive: a settle inside the step loop counts as settle, not as steps, so the phases add up
+to the seed's total. Profiles are not part of the trace, so a profiled seed replays exactly like an unprofiled one.
+
 ## Suites
 
 | Suite | Actors | Faults | Invariants |
