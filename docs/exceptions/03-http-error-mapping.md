@@ -10,7 +10,7 @@ The mapping code lives in `@spinajs/http`; this page covers it from the exceptio
 2. **Handler setup.** `HttpServer.start()` calls `ErrorHandlerMiddleware.after()`, which runs `__handle_error__()`. It reads the map once with `DI.get('__http_error_map__')`, plus `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`.
 3. **A request fails.** A controller, route argument or middleware throws or calls `next(err)`. `NotFoundMiddleware` calls `next(new ResourceNotFound(...))` for an unmatched route.
 4. **Body-parser failures.** An invalid JSON body answers 400 with the fixed message `request body is not valid JSON`. A `verify` hook failure keeps its mapped answer when the thrown class is mapped; otherwise it answers 400 with `request body was refused`. These two fixed answers use the response mapped for `BadRequest`.
-5. **Error body.** Otherwise the handler builds `{ ...err, message: err.message }`: every own enumerable field of the exception plus its message. Outside production it adds `stack`. It logs the error at `error` level.
+5. **Error body.** Otherwise the handler builds `{ ...err, message: err.message }`: every own enumerable field of the exception plus its message. Outside production it adds `stack`. In production an error answered by `ServerError` (step 7, or mapped to it) gets `{ message: 'Internal server error' }` instead. It logs the error at `error` level in every environment.
 6. **Lookup.** `__resolve_error_response__(map, err)` walks from `err.constructor` up the prototype chain and returns the response class of the first name found in the map.
 7. **No match.** The handler logs a warning (`Error type X dont have assigned http response`) and uses `ServerError` (500).
 8. **Answer.** It runs `new ResponseClass(errorBody).execute(req, res)`. The response renders JSON, or its pug `_template` for an HTML client, with its `_errorCode` as the status.
@@ -46,7 +46,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `configuration.isProduction` | `boolean` | `false` when the `Configuration` service is missing | `true`, `false` | `true` leaves `stack` out of the error body. |
+| `configuration.isProduction` | `boolean` | `false` when the `Configuration` service is missing | `true`, `false` | `true` leaves `stack` out of the error body, and answers a 500 from `ServerError` with `{ message: 'Internal server error' }` only. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` flags | `1 \| 2` (`JSON \| HTML`) | `HttpAcceptHeaders.JSON` (1), `HttpAcceptHeaders.HTML` (2), or both | When it includes `HTML`, an HTML client gets `http.FatalTemplate` in the last-resort case. |
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page with a ticket number | HTML with an optional `{ticket}` placeholder | Page sent when rendering the mapped response itself fails. |
 
@@ -137,7 +137,7 @@ HandleException(InvalidOperation)(Conflict);
 
 - Lookup is by class **name**. Two classes with the same name share one entry, and a minifier that renames classes breaks the lookup.
 - The most specific mapped class wins: an exact entry for `InvoiceLocked` beats the inherited `Forbidden` entry.
-- Every own enumerable field of the exception goes into the response body, in production too: `inner`, `fieldName`, `errorCode`, and fields such as `OrmException`'s `query` and `bindings`. Only `stack` depends on `configuration.isProduction`.
+- Every own enumerable field of the exception goes into the response body, in production too: `inner`, `fieldName`, `errorCode`, and fields such as `OrmException`'s `query` and `bindings`. The exception is a production 500 from `ServerError`: its body is `{ message: 'Internal server error' }` only. Outside production `stack` is added as well.
 - The map lives in the DI root container cache. `DI.clearCache()` wipes it, and nothing re-runs the import-time registrations, so every error then answers 500.
 - The handler holds the map instance it read at start. Entries added later to that same map still apply.
 - The mapped response gets only the error body; the handler passes no `IResponseOptions`. Set headers by overriding `execute()`.
