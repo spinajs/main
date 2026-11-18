@@ -5,8 +5,9 @@ import { readFileSync } from 'node:fs';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { asRecord, Orm, QueryContext } from '@spinajs/orm';
+import { Orm, QueryContext } from '@spinajs/orm';
 import type { PlanNode, QueryPlan } from '@spinajs/orm';
+import { asPlainObject } from '@spinajs/util';
 import { normalizeSqlitePlan, SqliteOrmDriver } from './../src/index.js';
 import { ConnectionConf } from './common.js';
 import '@spinajs/log';
@@ -27,7 +28,7 @@ const rejection = (promise: Promise<unknown>): Promise<unknown> =>
 
 async function userCount(): Promise<number> {
   const rows: unknown = await sqlite().executeOnDb('SELECT COUNT(*) AS n FROM explain_user', [], QueryContext.Select);
-  return Number(asRecord(Array.isArray(rows) ? rows[0] : undefined)?.['n']);
+  return Number(asPlainObject(Array.isArray(rows) ? rows[0] : undefined)?.['n']);
 }
 
 describe('orm-sqlite explain', () => {

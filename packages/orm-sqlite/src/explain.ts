@@ -1,5 +1,6 @@
-import { asNumber, asRecord, asString, planNode } from '@spinajs/orm';
+import { planNode } from '@spinajs/orm';
 import type { PlanNode, QueryPlan } from '@spinajs/orm';
+import { asPlainObject, asString, toFiniteNumber } from '@spinajs/util';
 
 /** `SCAN t` / `SEARCH t` keep the table in the label and move the access path to the detail. */
 function sqliteNode(text: string): PlanNode {
@@ -16,17 +17,17 @@ export function normalizeSqlitePlan(rows: unknown): QueryPlan {
   const byId = new Map<number, PlanNode>();
 
   for (const entry of Array.isArray(rows) ? rows : []) {
-    const row = asRecord(entry);
+    const row = asPlainObject(entry);
     if (!row) {
       continue;
     }
 
     const node = sqliteNode(asString(row['detail']) ?? '');
-    const id = asNumber(row['id']);
+    const id = toFiniteNumber(row['id']);
     if (id !== undefined) {
       byId.set(id, node);
     }
-    (byId.get(asNumber(row['parent']) ?? 0) ?? root).children.push(node);
+    (byId.get(toFiniteNumber(row['parent']) ?? 0) ?? root).children.push(node);
   }
 
   return { dialect: 'sqlite', root, raw: rows };
