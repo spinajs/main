@@ -1,7 +1,7 @@
 import { AuthzConfigError, isPermission } from '@spinajs/authz';
 import type { Permission, ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryExtension, RelationType, SelectQueryBuilder, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
+import { DeleteQueryExtension, JoinStatement, RelationType, SelectQueryBuilder, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
 import type { QueryBuilder, QueryExtension } from '@spinajs/orm';
 
 import { marksOf, setMarks } from '../marker.js';
@@ -67,19 +67,25 @@ function requireResource(builder: object, what: string): void {
   if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${typeof model === 'function' && model.name ? model.name : 'no model'})`);
 }
 
-/** Why a mark on this relation query would never run: the query that executes is another builder, without the mark. */
-function notExecuted(builder: object): string | undefined {
-  const relation = builder instanceof SelectQueryBuilder ? builder.Owner : undefined;
-  if (relation === undefined) return undefined;
-  const { Name, Type, Recursive } = relation.Descriptor;
-  if (Type === RelationType.One && !Recursive) return `relation "${Name}" is a belongsTo: its query is merged into the parent query and never runs on its own`;
-  if (Type === RelationType.ManyToMany) return `relation "${Name}" is many-to-many: its junction query runs instead of this one`;
+const POPULATE_INSTEAD = 'Instead, filter the parent query, populate through a hasMany relation, or load the related rows with their own .accessible() query';
+
+/** Why a mark on this builder would not filter what the query returns, or undefined when it does. */
+function markIgnored(builder: object): string | undefined {
+  const owner = builder instanceof SelectQueryBuilder ? builder.Owner : undefined;
+  if (owner === undefined) return undefined;
+  // A join callback's builder is owned by its JoinStatement, which the Owner type does not admit.
+  if (owner instanceof JoinStatement) return 'in a join callback: the join query is merged into the parent query and never runs on its own, so the call would have no effect. Instead, filter the parent query or load the joined rows with their own .accessible() query';
+  const { Name, Type, Recursive } = owner.Descriptor;
+  const relation = `in a populate callback: relation "${Name}"`;
+  if (Recursive) return `${relation} is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
+  if (Type === RelationType.One) return `${relation} is a belongsTo: its query is merged into the parent query and never runs on its own, so the call would have no effect. ${POPULATE_INSTEAD}`;
+  if (Type === RelationType.ManyToMany) return `${relation} is many-to-many: its junction query runs instead of this one, so the call would have no effect. ${POPULATE_INSTEAD}`;
   return undefined;
 }
 
 function requireOwnQuery(builder: object, what: string): void {
-  const why = notExecuted(builder);
-  if (why !== undefined) throw new AuthzConfigError(`${what} in a populate callback: ${why}, so the call would have no effect. Instead, filter the parent query, populate through a hasMany relation, or load the related rows with their own .accessible() query`);
+  const why = markIgnored(builder);
+  if (why !== undefined) throw new AuthzConfigError(`${what} ${why}`);
 }
 
 function envOf(opts: WithAccessOptions | undefined, what: string): { env?: Readonly<Record<string, unknown>> } {

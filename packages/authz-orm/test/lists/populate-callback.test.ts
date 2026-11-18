@@ -5,7 +5,7 @@ import sinon from 'sinon';
 import { AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { BelongsTo, HasMany, HasManyToMany, ModelBase, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, HasMany, HasManyToMany, ModelBase, Recursive, Relation, SingleRelation } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -24,7 +24,10 @@ type Q = PromiseLike<ModelBase[]> & {
   withAccess(p: string[]): Q;
   withFields(p: string): Q;
   populate(relation: string, callback: (this: Q) => void): Q;
+  leftJoin(relation: string, on: (this: Q) => void, queryCallback: (this: Q) => void): Q;
+  where(column: string, value: unknown): Q;
 };
+type ListPopulate = { populate(callback: (this: Q) => void): Promise<void> };
 type M = Omit<typeof ModelBase, 'query'> & { query(): Q };
 
 const marks: Record<string, (q: Q, permission: string) => void> = {
@@ -50,6 +53,7 @@ describe('authz marks in a populate callback', function () {
   const undo: (() => void)[] = [];
   let Campaign: M;
   let Note: M;
+  let Branch: M;
 
   before(async () => {
     db = await TestDb.open({ postgres: false });
@@ -64,7 +68,21 @@ describe('authz marks in a populate callback', function () {
     const service = await (await testHost.domains()).service('root');
     sinon.stub(service, 'accessPlan').resolves(green);
     await createAncestorTable(db, 'sqlite');
+    const Label = await db.define({
+      name: 'Label',
+      columns: { flag: 'TEXT', tag_id: 'TEXT' },
+      rows: [
+        { id: 'l1', flag: 'green', tag_id: 'r1' },
+        { id: 'l2', flag: 'red', tag_id: 'r1' },
+      ],
+      decorate: (c) => AccessResource('label')(c),
+    });
+    class TagLabels extends ModelBase {
+      @HasMany(Label, { foreignKey: 'tag_id', primaryKey: 'id' })
+      public labels!: Relation<ModelBase, ModelBase>;
+    }
     const Tag = await db.define({
+      base: TagLabels,
       name: 'Tag',
       columns: { flag: 'TEXT' },
       rows: [
@@ -73,7 +91,18 @@ describe('authz marks in a populate callback', function () {
       ],
       decorate: (c) => AccessResource('tag')(c),
     });
+    class TagLink extends ModelBase {
+      @BelongsTo(Tag, 'tag_id', 'id')
+      public tag!: SingleRelation<ModelBase>;
+    }
+    class TagTree extends ModelBase {
+      @Recursive()
+      @BelongsTo(Tag, 'tag_id', 'id')
+      public tag!: SingleRelation<ModelBase>;
+    }
+    Branch = (await db.define({ base: TagTree, name: 'Branch', columns: { tag_id: 'TEXT' } })) as M;
     const CampaignTag = await db.define({
+      base: TagLink,
       name: 'CampaignTag',
       columns: { campaign_id: 'TEXT', tag_id: 'TEXT' },
       rows: [
@@ -81,10 +110,6 @@ describe('authz marks in a populate callback', function () {
         { id: 'j2', campaign_id: 'c1', tag_id: 'r1' },
       ],
     });
-    class TagLink extends ModelBase {
-      @BelongsTo(Tag, 'tag_id', 'id')
-      public tag!: SingleRelation<ModelBase>;
-    }
     const Offer = await db.define({
       base: TagLink,
       name: 'Offer',
@@ -174,6 +199,65 @@ describe('authz marks in a populate callback', function () {
         });
       }),
     ).to.throw(AuthzConfigError, /relation "tag" is a belongsTo/);
+  });
+
+  it('.accessible() on a belongsTo reached through a dotted path throws', () => {
+    expect(() =>
+      Campaign.query().populate('offers.tag', function () {
+        this.accessible('tag:read');
+      }),
+    ).to.throw(AuthzConfigError, /relation "tag" is a belongsTo/);
+  });
+
+  it('.accessible() filters a hasMany relation under a belongsTo', async () => {
+    const rows = await as(() =>
+      Note.query().populate('tag.labels', function () {
+        this.accessible('label:read');
+      }),
+    );
+    const tags = rows.map((n) => (n as unknown as { tag: { Value: ModelBase } }).tag.Value);
+    expect(listOf(tags, 'labels')).to.deep.equal([['l1']]);
+  });
+
+  it('.accessible() on a recursive belongsTo throws: its descendants would not be filtered', () => {
+    expect(() =>
+      Branch.query().populate('tag', function () {
+        this.accessible('tag:read');
+      }),
+    ).to.throw(AuthzConfigError, /relation "tag" is recursive/);
+  });
+
+  it('.accessible() in a join callback throws and names the join, not a populate', () => {
+    let err: unknown;
+    try {
+      Note.query().leftJoin(
+        'tag',
+        function () {
+          this.where('flag', 'green');
+        },
+        function () {
+          this.accessible('tag:read');
+        },
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).to.be.instanceOf(AuthzConfigError);
+    expect((err as Error).message).to.match(/in a join callback/).and.not.to.match(/populate/);
+  });
+
+  it("a many-to-many list's populate() callback throws: the list loads through its junction model's belongsTo", async () => {
+    const [campaign] = await as(() => Campaign.query().where('id', 'c1'));
+    let err: unknown;
+    try {
+      await (campaign as unknown as { tags: ListPopulate }).tags.populate(function () {
+        this.accessible('tag:read');
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).to.be.instanceOf(AuthzConfigError);
+    expect((err as Error).message).to.match(/relation "tag" is a belongsTo/);
   });
 
   it('the message says what to do instead', () => {
