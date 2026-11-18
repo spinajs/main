@@ -1,10 +1,13 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedSessionSettingsCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported } from '@spinajs/orm';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported, QueryBuilder, recordStatement, statementRecording } from '@spinajs/orm';
 import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
+import { markSpanErrorType } from '@spinajs/tracing';
+import { endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
+import type { StatementTarget } from './tracing.js';
 import { DateTime } from 'luxon';
 
 export * from './compilers.js';
@@ -72,29 +75,52 @@ export abstract class SqlDriver extends OrmDriver {
         return (async () => {
           const results: unknown[] = [];
           for (const c of compiled) {
-            this.logQuery(c.expression!, c.bindings!, builder);
-
-            results.push(
-              await Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
-                labels,
-                fields: { sql: c.expression, bindings: c.bindings },
-              }),
-            );
+            results.push(await this.executeStatement(builder, c.expression ?? '', c.bindings ?? [], labels));
           }
           return results;
         })() as Promise<any>;
-      } else {
-        this.logQuery(compiled.expression!, compiled.bindings!, builder);
-
-        return Perf.measure('orm.query', () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
-          labels,
-          fields: { sql: compiled.expression, bindings: compiled.bindings },
-        });
       }
+
+      return this.executeStatement(builder, compiled.expression ?? '', compiled.bindings ?? [], labels);
     } catch (err: any) {
       this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during query execution, model: ${model}, context: ${context}');
       throw err;
     }
+  }
+
+  /** One compiled statement: the query log, the `orm.query` perf span, the `db.query` trace span and, while a reader asked for it, the statement record. */
+  protected async executeStatement(builder: Builder<unknown>, sql: string, bindings: unknown[], labels: Record<string, string>): ReturnType<SqlDriver['executeOnDb']> {
+    this.logQuery(sql, bindings, builder);
+
+    const span = startStatementSpan(sql, this.statementTarget(builder));
+    const recorded = statementRecording();
+    const started = recorded ? performance.now() : 0;
+
+    try {
+      const result = await Perf.measure('orm.query', () => this.executeOnDb(sql, bindings, builder.QueryContext), {
+        labels,
+        fields: { sql, bindings },
+      });
+
+      if (recorded) {
+        recordStatement(builder, { sql, bindings, durationMs: performance.now() - started, driver: this, ...spanIds(span) });
+      }
+      endStatementSpan(span, result);
+      return result;
+    } catch (err) {
+      failStatementSpan(span, err);
+      throw err;
+    }
+  }
+
+  private statementTarget(builder: Builder<unknown>): StatementTarget {
+    return {
+      driver: String(this.Options.Driver ?? 'unknown'),
+      connection: String(this.Options.Name),
+      context: builder.QueryContext,
+      table: builder instanceof QueryBuilder && builder.Table ? builder.Table : undefined,
+      ansiQuotedIdentifiers: this.ansiQuotedIdentifiers(),
+    };
   }
 
   public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {
@@ -108,23 +134,32 @@ export abstract class SqlDriver extends OrmDriver {
     this.logQuery(expression, bindings, builder);
 
     const rows = this.executeStreamOnDb(expression, bindings, options)[Symbol.asyncIterator]();
+    const span = startStatementSpan(expression, this.statementTarget(builder));
+    let returned = 0;
     let next: IteratorResult<unknown> | undefined;
     try {
-      // the cursor opens on the first read, which is what the span measures
+      // the cursor opens on the first read, which is what the perf span measures
       next = await Perf.measure('orm.query', () => rows.next(), {
         labels: { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) },
         fields: { sql: expression, bindings },
       });
       while (next.done !== true) {
+        returned++;
         yield next.value;
         next = await rows.next();
       }
     } catch (err) {
+      markSpanErrorType(span, err);
       this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during stream execution, model: ${model}, context: ${context}');
       throw err;
     } finally {
-      if (next?.done !== true) {
-        await rows.return?.();
+      try {
+        if (next?.done !== true) {
+          await rows.return?.();
+        }
+      } finally {
+        span.setAttribute('db.response.returned_rows', returned);
+        span.end();
       }
     }
   }

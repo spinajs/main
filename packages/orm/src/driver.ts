@@ -12,6 +12,7 @@ import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, S
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException, StreamNotSupported } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
+import { IdentifierQuoter } from './quoting.js';
 import type { IntervalUnit } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './resilience.js';
@@ -91,6 +92,19 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public get CurrentTransaction(): ITransactionContext | undefined {
     return this.TransactionStorage.getStore();
+  }
+
+  private _ansiQuotedIdentifiers: boolean | undefined;
+
+  /** Whether `"name"` is an identifier on this connection (postgres) and not a string, as in MySQL's default mode. */
+  public ansiQuotedIdentifiers(): boolean {
+    if (this._ansiQuotedIdentifiers === undefined) {
+      // a driver built outside DI (a test double) has no container and no quoter
+      const quoter = this.Container?.hasRegistered(IdentifierQuoter) ? this.Container.resolve<IdentifierQuoter>(IdentifierQuoter) : undefined;
+      this._ansiQuotedIdentifiers = quoter?.quote('x').startsWith('"') === true;
+    }
+
+    return this._ansiQuotedIdentifiers;
   }
 
   constructor(options: T) {
