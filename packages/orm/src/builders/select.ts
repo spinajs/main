@@ -25,7 +25,7 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { runCloneHooks, runMergeHooks } from './internal.js';
+import { isRelationGroup, markRelationGroup, runCloneHooks, runMergeHooks } from './internal.js';
 import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -354,6 +354,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       if (merged) {
         builder._merged.add(c);
       }
+      if (isRelationGroup(s)) {
+        markRelationGroup(c);
+      }
       return c;
     };
 
@@ -572,6 +575,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
       const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
       this._markMerged([statement]);
+      markRelationGroup(statement);
       this._statements.push(statement);
     }
 
@@ -593,21 +597,23 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   /**
    * Wraps the WHERE statements this query has so far into one AND group, so that an OR among them cannot widen a
-   * condition added afterwards. HAVING statements stay where they are: a WHERE group would drop them.
+   * condition added afterwards. HAVING statements, which a WHERE group would drop, and the groups of nested relations
+   * stay beside the group: `( a OR b ) AND ( nested )`, not `( a OR b AND ( nested ) )`.
    */
   public groupWhere(): this {
-    const conditions = this._statements.filter((s) => !isAggregate(s));
+    const staysBeside = (s: IQueryStatement) => isAggregate(s) || isRelationGroup(s);
+    const conditions = this._statements.filter((s) => !staysBeside(s));
     if (conditions.length === 0) {
       return this;
     }
 
-    const aggregates = this._statements.filter(isAggregate);
+    const beside = this._statements.filter(staysBeside);
     this._statements = [];
     // adopted, not rebound: a recursive CTE clones this query again, and a moved Lazy must keep its own context
     this.where(function () {
       (this as WhereBuilder<unknown>).adopt(conditions);
     });
-    this._statements.push(...aggregates);
+    this._statements.push(...beside);
 
     return this;
   }

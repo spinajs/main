@@ -62,3 +62,16 @@ export function setMergeHooks(hooks: readonly MergeHook[]): void {
 export function runMergeHooks(source: QueryBuilder, target: QueryBuilder): void {
   for (const hook of mergeHooks) hook(source, target);
 }
+
+// Keyed by the statement, not by a builder: a many-to-many junction query takes over every statement of its target
+// query, and only the groups the target had from its nested relations may leave the junction's group.
+const relationGroups = new WeakSet<IQueryStatement>();
+
+/** Marks `group` as the AND group a nested relation's conditions arrived in when merged into another query. */
+export function markRelationGroup(group: IQueryStatement): void {
+  relationGroups.add(group);
+}
+
+export function isRelationGroup(statement: IQueryStatement): boolean {
+  return relationGroups.has(statement);
+}
