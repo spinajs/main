@@ -26,8 +26,7 @@ type KnownState = Extract<KeyState, { known: true }>;
 const sameSubject = (a: TupleSubjectRef, b: TupleSubjectRef): boolean => a.type === b.type && a.id === b.id && a.relation === b.relation;
 
 /**
- * The relationships as they were at `at`, rebuilt per key from current rows and the changelog (section 3.3 of the L3
- * plan). A read whose history is incomplete for any candidate key throws `TupleSourceGap` with the subjects it could
+ * The relationships as they were at `at`, rebuilt per key from current rows and the changelog. A read whose history is incomplete for any candidate key throws `TupleSourceGap` with the subjects it could
  * establish; `reads` records every key resolved and where its state came from.
  */
 export class HistoricalTupleSource implements TupleSource {

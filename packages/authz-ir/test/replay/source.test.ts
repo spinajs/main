@@ -378,7 +378,7 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf((async () => { for await (const _ of s.reverse(user('u1'), 'editor', 'doc')) void _; })())).gaps).to.have.length(1);
   });
 
-  describe('reads beside writes (3.2)', () => {
+  describe('reads beside writes', () => {
     it('sees a removal logged after the scan', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);

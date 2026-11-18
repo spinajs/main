@@ -1,6 +1,6 @@
 export const STORED_POLICY_PREFIX = 'stored:';
 
-/** The opaque term that stands for the policy a database store held; replay (L3) splices that policy in at its place. */
+/** The opaque term that stands for the policy a database store held; decision replay splices that policy in at its place. */
 export function storedPolicyName(model: string, store: string): string {
   return `${STORED_POLICY_PREFIX}${encodeURIComponent(model)}:${encodeURIComponent(store)}`;
 }

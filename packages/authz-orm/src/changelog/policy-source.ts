@@ -23,7 +23,7 @@ const NOT_RECORDED: Promise<undefined> = Promise.resolve(undefined);
 
 const moduleNotFound = (e: unknown): boolean => e instanceof Error && 'code' in e && e.code === 'ERR_MODULE_NOT_FOUND';
 
-/** The hash of the config policy IR each domain booted with (G9, G14), stored in authz_policy_version by every node. */
+/** The hash of the config policy IR each domain booted with, stored in authz_policy_version by every node. */
 @Singleton()
 @Injectable(PolicyHashSource)
 export class IRPolicyHashSource extends PolicyHashSource {
@@ -44,7 +44,7 @@ export class IRPolicyHashSource extends PolicyHashSource {
   }
 
   async prepare(domain: string, service: AuthzService): Promise<void> {
-    // A re-boot in mode 'off' or a failing compile must not leave the previous boot's snapshot behind (D9).
+    // A re-boot in mode 'off' or a failing compile must not leave the previous boot's snapshot behind.
     this.snapshots.delete(domain);
     const mode = policyVersionMode();
     if (mode === 'off') return;

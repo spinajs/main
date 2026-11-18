@@ -32,7 +32,7 @@ export const replayWindow = (record: DecisionRecord, limits: { clockSkewMs: numb
 
 const missing = (input: string, reason: string, key?: string): ReplayMissing => (key === undefined ? { input, reason } : { input, reason, key });
 
-/** Rule 1 of section 3.6 where it needs no policy: a record the replay cannot rebuild a check from. */
+/** Rule 1 of `replayVerdict` where it needs no policy: a record the replay cannot rebuild a check from. */
 export function recordProblems(record: DecisionRecord, truncated: readonly string[]): ReplayMissing[] {
   const malformed = malformedField(record);
   if (malformed !== undefined) return [missing('record', `the record is malformed: ${malformed}`)];

@@ -240,7 +240,7 @@ describe('DbDecisionReplay', function () {
         expect(report.missing.map((m) => m.key)).to.include('column:doc');
       });
 
-      // A set read cannot enumerate a tuple or assignment deleted by raw SQL after T (R1); a column read knows its one key.
+      // A set read cannot enumerate a tuple or assignment deleted by raw SQL after T; a column read knows its one key.
       for (const [what, sql] of [
         ['updated', (t: string) => `UPDATE ${t} SET folder_id = 'f2' WHERE id = 'd1'`],
         ['deleted', (t: string) => `DELETE FROM ${t} WHERE id = 'd1'`],

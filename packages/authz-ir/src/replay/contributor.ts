@@ -96,8 +96,7 @@ export interface AttributeLeafImage {
 }
 
 /**
- * Serves the leaves of scope attribute nodes for the captured-state check of replay (section 3.5 of the L3 plan): it
- * serves values, not relations, so it is no `HistoryContributor`. Changes of the kind carry `AttributeLeafImage`s.
+ * Serves the leaves of scope attribute nodes for the captured-state check of replay: it serves values, not relations, so it is no `HistoryContributor`. Changes of the kind carry `AttributeLeafImage`s.
  */
 export interface AttributeHistoryContributor {
   readonly kind: 'attribute';

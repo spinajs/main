@@ -25,7 +25,7 @@ describe('replay properties', function () {
     );
   });
 
-  // P1, R1 rule: with writes that escaped the log, a known state is still the true one.
+  // P1: with writes that escaped the log, a known state is still the true one.
   it('stateAt answers the true state or a gap when writes escaped the log', () => {
     let known = 0;
     fc.assert(
