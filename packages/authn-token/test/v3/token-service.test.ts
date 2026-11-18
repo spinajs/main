@@ -6,7 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { AuthnEventListener, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnListenerFailed, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventListener, kitHooks } from '@spinajs/authn-testing';
@@ -55,6 +55,25 @@ class ThrowingTokenSink extends AuthnEventListener {
 class HangingTokenSink extends AuthnEventListener {
   public on(_event: AuthnEvent): Promise<void> {
     return new Promise(() => undefined);
+  }
+}
+
+/** Blocking, and refuses every success event: each stoppable operation rejects with AuthnListenerFailed. */
+class StoppingTokenSink extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  public async on(event: AuthnEvent): Promise<void> {
+    if (event.outcome === 'success') {
+      throw new Error('trail down');
+    }
+  }
+}
+
+class UnrevokableTokens extends DbTokenService {
+  protected override revokeRow(): Promise<AccessToken | null> {
+    return Promise.reject(new Error('database down'));
   }
 }
 
@@ -1379,6 +1398,65 @@ describe('DbTokenService', function () {
 
       expect(Date.now() - started).to.be.below(2000);
       expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
+    });
+
+    describe('a token.create a blocking listener stopped', () => {
+      const servicePath = ['authn', 'token', 'generation', 'service'];
+      let plaintext: string;
+      let savedService: unknown;
+
+      beforeEach(() => {
+        savedService = config().get(servicePath);
+        DI.register(FixedTokenProvider).as(AccessTokenGenerationProvider);
+        config().set(servicePath, 'FixedTokenProvider');
+        // The stored hash is unique, so each case mints its own.
+        plaintext = `spt_${randomUUID().replaceAll('-', '')}${'s'.repeat(11)}`;
+        FixedTokenProvider.plaintext = plaintext;
+      });
+
+      afterEach(() => {
+        config().set(servicePath, savedService);
+        DI.unregister(FixedTokenProvider);
+        DI.uncache(FixedTokenProvider);
+      });
+
+      const stoppedCreate = async (service: DbTokenService, a: IdentityRef): Promise<unknown> =>
+        service.create(a, { name: 'pat', kind: 'pat', expiresAt: at(DAY) }, ctx()).then(
+          () => expect.fail('create resolved'),
+          (e: unknown) => e,
+        );
+
+      const failureOf = (a: IdentityRef) => {
+        const [event] = sink.all();
+        const id = (event?.data as { token?: unknown } | undefined)?.token;
+        expect(sink.all()).to.deep.equal([{ type: 'token.create', at: NOW, outcome: 'failure', reason: 'listener_failed', identity: a, data: { token: id, kind: 'pat' } }]);
+        return String(id);
+      };
+
+      it('revokes the row, so the minted token does not authenticate, and publishes the failure', async () => {
+        tokens = await build({ auditor: AuthnAudit.over([new StoppingTokenSink(), sink]) });
+        const a = await owner();
+
+        const err = await stoppedCreate(tokens, a);
+        expect(err).to.be.instanceOf(AuthnListenerFailed);
+        expect((err as AuthnListenerFailed).status).to.equal(503);
+
+        const id = failureOf(a);
+        expect((await row(id)).RevokedAt?.toMillis()).to.equal(NOW.getTime());
+        expect(await validate(plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+        expect(await tokens.list(a)).to.deep.equal([]);
+      });
+
+      it('keeps the 503 and still publishes the failure when the revocation fails', async () => {
+        const unrevokable = await tokenServiceOver({ identities, profiles, auditor: AuthnAudit.over([new StoppingTokenSink(), sink]), type: UnrevokableTokens });
+        const warned: unknown[] = [];
+        Object.defineProperty(unrevokable, 'Log', { value: { warn: (fields: unknown) => warned.push(fields) } });
+        const a = await owner();
+
+        expect(await stoppedCreate(unrevokable, a)).to.be.instanceOf(AuthnListenerFailed);
+        const id = failureOf(a);
+        expect(warned).to.deep.equal([{ token: id, errorClass: 'Error' }]);
+      });
     });
   });
 
