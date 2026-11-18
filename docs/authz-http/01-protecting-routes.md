@@ -16,7 +16,7 @@ At module load:
 At boot:
 
 1. `AccessContributor` (an `AuthzContributor`) lists, for each domain that boots, the permissions every registered controller names in an `@Access` of that domain, with the resource type when one is known.
-2. The domain's boot fails when a permission is not registered in `authz.permissions` or is checked on a type outside its types. For the root domain the boot runs when the HTTP server starts listening, and a failed boot stops the server ([Principal resolution](03-principal-resolution.md#how-it-works)).
+2. The domain's boot fails when a permission is not registered in `authz.permissions` or is checked on a type outside its types. For the root domain the boot runs when the HTTP server starts listening, and a failed boot stops the server, sets exit code 1 and emits `authz.boot.failed` ([Principal resolution](03-principal-resolution.md#how-it-works)).
 
 Per request:
 

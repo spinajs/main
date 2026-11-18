@@ -10,7 +10,9 @@ At startup:
 
 1. `HttpServer` resolves `PrincipalMiddleware` as a `ServerMiddleware` (`Order` 10, `PRINCIPAL_MIDDLEWARE_ORDER`). `resolve()` sorts the injected `PrincipalSource`s by `order`.
 2. It waits for the `http.server.listening` event, then resolves the root `AuthzService`, which boots the root domain. The boot runs after the controllers registered, so the `@Access` permission check sees all of them.
-3. When the root domain cannot boot, the middleware logs the error and stops the HTTP server: a bad authz configuration never serves requests.
+3. When the root domain cannot boot, or `authz.http.unguardedRoutes` is `'throw'` and a route is unguarded ([Unguarded routes](10-access-metadata-and-openapi.md#unguarded-routes)), the middleware logs the error, stops the HTTP server, sets `process.exitCode = 1` and emits `authz.boot.failed` on the root container with the error. A bad authz configuration never serves requests.
+
+`HttpServer.start()` has already resolved when the boot fails, and the exit code alone does not end a process that something still holds open (a connection pool, the scheduler, a timer). Exit from a listener ([Stop the process when authz cannot boot](#stop-the-process-when-authz-cannot-boot)), or run the boot yourself before `start()` ([Check the authz configuration without listening](#check-the-authz-configuration-without-listening)).
 
 Per request, `PrincipalMiddleware.onBefore()`:
 
@@ -85,9 +87,16 @@ The package augments http's `IActionLocalStoregeContext` (the type of `req.stora
 | `AccessDomainArg` | `RouteArgs`, `@Injectable()`, `SupportedType` `'AccessDomainArg'` | `AccessDomainArg` | | The argument of `@AccessDomain()`: `resolveAuthzDomain(req, authz.http.access.domain)`. Not meant to be replaced; change the domain with an `AuthzDomainResolver` instead. |
 | `AccessEpochMiddleware` | `ServerMiddleware` list, `Order` 11 | `AccessEpochMiddleware` | | See [Client access API](07-client-access-api.md). |
 
+### Events
+
+| Event | Emitted on | Arguments | When |
+| --- | --- | --- | --- |
+| `authz.boot.failed` | the root container (`DI.on(...)`) | the error: `AuthzConfigError` or the boot's own error | The root domain failed to boot, or the unguarded routes check threw, after the server started listening. `process.exitCode` is `1` by then. |
+
 ## Important behaviour
 
 - **Every request waits for the root domain.** The first requests after start wait for its boot; a failed boot answers 500 and stops the server.
+- **A failed boot does not end the process by itself.** It sets exit code 1 and emits `authz.boot.failed`; a process with open handles keeps running without HTTP until a listener exits.
 - **A source error fails every request**, guarded or not: the middleware runs before routing. A source should return `null` for credentials it does not recognise.
 - **The principal is frozen per request.** A login or role switch inside the request does not change `req.storage.Principal`; the next request picks the new one.
 - **Anonymous is on by default.** Turn it off for an API without public routes, so an unrecognised caller is 401, not "anonymous".
@@ -145,6 +154,44 @@ export class ProjectsController extends BaseController {
   }
 }
 ```
+
+### Stop the process when authz cannot boot
+
+The middleware has logged the error before the event; the listener only ends the process, so a supervisor sees the failure and restarts or reports it.
+
+```ts sample
+import { DI } from '@spinajs/di';
+
+DI.on('authz.boot.failed', () => process.exit(1));
+```
+
+### Check the authz configuration without listening
+
+The same checks the middleware runs on `http.server.listening`, in the order the server reaches them. Use it in a test per environment configuration, or in `main.ts` before `HttpServer.start()` so a bad configuration never starts the server. Resolve `Controllers` before `AuthzService`: the boot checks the `@Access` permissions of the registered controllers only, so without them a typo in `@Access` boots fine.
+
+```ts sample
+import { AuthzService } from '@spinajs/authz';
+import { UnguardedRoutesReport } from '@spinajs/authz-http';
+import { Configuration } from '@spinajs/configuration';
+import { Bootstrapper, DI } from '@spinajs/di';
+import { fsService } from '@spinajs/fs';
+import { Controllers } from '@spinajs/http';
+
+/** Rejects with an AuthzConfigError that lists every problem of the loaded configuration. */
+export async function checkAuthz(): Promise<void> {
+  for (const b of DI.resolve(Array.ofType(Bootstrapper))) {
+    await b.bootstrap();
+  }
+  await DI.resolve(Configuration);
+  await DI.resolve(fsService);
+  await DI.resolve(Controllers);
+
+  (await DI.resolve(UnguardedRoutesReport)).run();
+  await DI.resolve(AuthzService);
+}
+```
+
+`PrincipalMiddleware` reuses the root `AuthzService` booted here; the server does not boot it a second time.
 
 ## Related
 
