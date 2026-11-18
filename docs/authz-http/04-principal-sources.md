@@ -13,7 +13,7 @@ Shipped sources:
 
 | Source | `name` | `order` | Answers |
 | --- | --- | --- | --- |
-| `ServicePrincipalSource` | `service` | 40 | `{ type: 'service', id: <name>, authenticated: true, source: 'service', attributes }` when a configured header holds one of the service's tokens |
+| `ServicePrincipalSource` | `service` | 40 | `{ type: 'service', id: <name>, authenticated, source: 'service', attributes }` when a configured header holds one of the service's tokens; `authenticated` is the entry's, default `true` |
 | `AuthnPrincipalSource` | `authn` | 50 | `req.storage.AuthnPrincipal`, the principal authn-http resolved from a session, token or key; `null` for none or a session still waiting for MFA |
 | `LinkPrincipalSource` | `link` | 110 | a share link principal when the request carries a link token |
 
@@ -33,6 +33,7 @@ Shipped sources:
 | `authz.http.services[].header` | `string` | required | non-empty header name | The header that carries the token. |
 | `authz.http.services[].token` | `string \| string[]` | required | non-empty string, or a non-empty list of them | Accepted tokens; list several to rotate without downtime. |
 | `authz.http.services[].attributes` | `object` | `{}` | any object | Copied, frozen, to `principal.attributes`; conditions read them as `principal.*`. |
+| `authz.http.services[].authenticated` | `boolean` | `true` | `true`, `false` | `false` makes `principal.authenticated` false. The service keeps the permissions your model grants it, but `IsAuthenticated` and an `@Access` without `@AllowAnonymous` answer 401 to it. Use it for a credential meant for a few routes only, such as a scrape token. |
 
 ```ts
 export default {
@@ -49,7 +50,7 @@ export default {
 
 AJV checks `authz.http.*` at boot and fails with the full path of a malformed value. Keep tokens out of config files with a [config var protocol](../configuration/05-config-var-protocols.md).
 
-`@spinajs/telemetry` appends its own entries here: a non-empty `telemetry.auth.token` becomes the `telemetry` service on `x-metrics-token` and on `Authorization: Bearer <token>`.
+`@spinajs/telemetry` appends its own entries here: a non-empty `telemetry.auth.token` becomes the `telemetry` service on `x-metrics-token` and on `Authorization: Bearer <token>`, with `authenticated: false`, so the token reads the telemetry endpoints and no `IsAuthenticated` route of the app.
 
 ## Services and extension points
 

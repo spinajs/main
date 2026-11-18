@@ -9,6 +9,8 @@ export interface ServiceEntry {
   /** Several for rotation. */
   readonly token: string | readonly string[];
   readonly attributes?: Readonly<Record<string, unknown>>;
+  /** Default true. False: the principal holds its permissions but fails `IsAuthenticated` and `@Access` without `@AllowAnonymous`. */
+  readonly authenticated?: boolean;
 }
 
 /** A service entry as ServicePrincipalSource matches it. */
@@ -18,6 +20,7 @@ export interface ServicePrincipalConfig {
   readonly header: string;
   readonly tokens: readonly string[];
   readonly attributes: Readonly<Record<string, unknown>>;
+  readonly authenticated: boolean;
 }
 
 export interface LinksConfig {
@@ -66,6 +69,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
           header: nonEmpty,
           token: { anyOf: [serviceToken, { type: 'array', minItems: 1, items: serviceToken }] },
           attributes: { type: 'object' },
+          authenticated: { type: 'boolean' },
         },
       },
     },
@@ -118,5 +122,6 @@ export function servicePrincipals(services: readonly ServiceEntry[]): ServicePri
     header: s.header.toLowerCase(),
     tokens: typeof s.token === 'string' ? [s.token] : s.token,
     attributes: Object.freeze({ ...(s.attributes ?? {}) }),
+    authenticated: s.authenticated !== false,
   }));
 }

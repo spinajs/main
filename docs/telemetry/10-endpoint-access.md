@@ -11,7 +11,7 @@ Each telemetry endpoint has a slot in `telemetry.auth.policies`. The slot `'Acce
    - any other value: finds a `BasePolicy` registered under that class name and resolves it synchronously.
 3. A slot that cannot be honoured throws `RouteRegistrationException`, so the route, and the whole controller, never registers.
 4. Per request, `execute()`:
-   - `'AccessPolicy'`: `AccessPolicy.execute()` checks whether the principal holds any of the permissions on the permission's type-level resource. No principal answers 401 `unauthenticated`; a principal without the permission answers 403 `forbidden`, naming the permission. The decision lands in `req.storage.AuthzDecision`.
+   - `'AccessPolicy'`: `AccessPolicy.execute()` checks whether the principal holds any of the permissions on the permission's type-level resource. No principal, or an unauthenticated one such as the anonymous principal, answers 401 `unauthenticated`; the one exception is the [scrape token](12-scrape-token.md)'s `service:telemetry`, which goes on to the permission check. A principal without the permission answers 403 `forbidden`, naming the permission. The decision lands in `req.storage.AuthzDecision`.
    - named policy: delegates `isEnabled()` and `execute()` to it.
 5. At authz domain boot, `TelemetryAccessContributor.contribute(domain)` returns every permission of every `'AccessPolicy'` slot when `domain` equals `telemetry.auth.domain`. An unregistered permission fails the domain boot with `AuthzConfigError`, naming the permission and its key.
 

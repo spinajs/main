@@ -15,8 +15,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typ
 /**
  * Hands a non-empty `telemetry.auth.token` to authz-http's ServicePrincipalSource: appends to
  * `authz.http.services` the `telemetry` service on the `x-metrics-token` header and on
- * `Authorization: Bearer <token>`. An entry named `telemetry` the app configured wins, and the
- * token key is then ignored. Runs again without adding duplicates.
+ * `Authorization: Bearer <token>`, unauthenticated, so the token reads the telemetry endpoints and
+ * no `IsAuthenticated` route of the app. An entry named `telemetry` the app configured wins, and
+ * the token key is then ignored. Runs again without adding duplicates.
  */
 export function bridgeTelemetryToken(cfg: Pick<Configuration, 'get' | 'set'>, log?: { info(message: string): void }): void {
   const token = cfg.get<unknown>(['telemetry', 'auth', 'token']);
@@ -35,8 +36,8 @@ export function bridgeTelemetryToken(cfg: Pick<Configuration, 'get' | 'set'>, lo
   // ServicePrincipalSource compares a header's whole value, and stock Prometheus scrape configs
   // send only `Authorization: Bearer <token>`, so the Bearer form is an entry of its own.
   const entries = [
-    { name: TELEMETRY_SERVICE, header: 'x-metrics-token', token },
-    { name: TELEMETRY_SERVICE, header: 'authorization', token: `Bearer ${token}` },
+    { name: TELEMETRY_SERVICE, header: 'x-metrics-token', token, authenticated: false },
+    { name: TELEMETRY_SERVICE, header: 'authorization', token: `Bearer ${token}`, authenticated: false },
   ];
   for (const e of entries) bridged.add(e);
   cfg.set(SERVICES, [...services, ...entries]);
