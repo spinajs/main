@@ -138,7 +138,12 @@ The build records the `http.routes.middlewares` of its configuration as `globalR
 
 A controller's or route's `middlewares` are listed in source order; the runtime applies decorators bottom-up, so it mounts one list in reverse. `options` are the literal arguments of `@Middleware(Type, ...options)`, the constructor options. A decorator that mounts its own middleware (`@Accepts`, `@BotCheck`, `@Idempotent`, ...) records `decoratorArgs`, its own literal arguments, which need not be the constructor options (`@Consumes('a', 'b')` passes `[['a', 'b']]`, `@Idempotent` fills in defaults). Either field is omitted when an argument is not a plain JSON literal in the source.
 
-`@Idempotent` written more than once on one method is one entry. The runtime replaces the gate in place and applies decorators bottom-up, so it keeps a single gate with the options of the top decorator, mounted where the bottom one stood; the manifest records that entry, with the top decorator's `decoratorArgs`, at the bottom one's place in the list. A subclass that redeclares a route with its own `@Idempotent` replaces the inherited entry the same way.
+A route behind `@Idempotent` of `@spinajs/http` also carries `idempotency: { required }`, read from its
+`IdempotencyMiddleware` entry. `required` is the decorator's literal `required` option. It is `false` when the option is
+absent or the argument is not a literal; the compiler then reports the argument as `CMP001`. An inherited route keeps
+its base's value unless the subclass redeclares the method with its own `@Idempotent`. Every other route has no such
+key, so a manifest of an app without `@Idempotent` routes is byte for byte what it was before the field existed, hash
+included. `manifestVersion` stays 2. Generators read this field; they do not search `middlewares`.
 
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 

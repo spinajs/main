@@ -96,6 +96,28 @@ describe('inheritController', () => {
     expect(merged.routes[0].middlewares).to.deep.equal([idempotent(5), { type: 'Audit', options: [] }, { type: 'Trace', options: [] }]);
   });
 
+  it('takes idempotency from the @Idempotent of a redeclared route, and keeps the inherited one otherwise', () => {
+    const gate = (required: boolean) => ({ type: 'IdempotencyMiddleware', decoratorArgs: [{ required }] });
+    const gated = controller('Gated', {
+      basePath: 'g',
+      mountPath: 'g',
+      routes: [
+        route('create', '', { method: 'post', middlewares: [gate(false)], idempotency: { required: false } }),
+        route('list', ''),
+        route('save', '', { method: 'post', middlewares: [gate(true)], idempotency: { required: true } }),
+      ],
+    });
+    const overrides: RouteOverride[] = [
+      { handler: 'list', params: [], policies: [], middlewares: [gate(true)], source: src('src/Child.ts') },
+      { handler: 'save', params: [], policies: [], middlewares: [], source: src('src/Child.ts') },
+    ];
+    const merged = inheritController(gated, controller('Child', { basePath: 'c', mountPath: 'c' }), overrides);
+    expect(merged.routes.map((r) => [r.handler, r.idempotency])).to.deep.equal([
+      ['create', { required: false }],
+      ['list', { required: true }],
+      ['save', { required: true }],
+    ]);
+  });
   it('takes the top of stacked own @Idempotent, the one the runtime applies last', () => {
     const idempotent = (ttl: string) => ({ type: 'IdempotencyMiddleware', decoratorArgs: [{ ttl }] });
     const ancestor = controller('Base', { routes: [route('save', '', { middlewares: [idempotent('24h'), { type: 'Audit', options: [] }] })] });
