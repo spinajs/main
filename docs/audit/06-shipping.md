@@ -40,7 +40,7 @@ export class AuditShipped_2026_11_17_00_00_01 extends AuditArchiveTableMigration
 }
 ```
 
-The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too, so a shipping trail without its own `table` (`audit_event`) collides with `default` and is refused.
+The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too, so a shipping trail with an archive (`archiveConnection`) but without its own `table` (`audit_event`) collides with `default` and is refused. A trail shipped through a queue without an archive in this application claims no table.
 
 ## The shipping task
 

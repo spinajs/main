@@ -25,8 +25,6 @@ Where a trail is sealed:
 - a shipping trail without an archive in this application: nowhere here; the service that holds its archive seals it. A buffer is never sealed;
 - a trail whose store keeps no table (`LogAuditStore`): refused, reported in `failed` and logged.
 
-Two trails that name one table share its seals.
-
 ## What a seal covers
 
 Each event enters a seal through `eventDigest`: SHA-256 over `id`, `at` as epoch milliseconds, `kind`, `action`, the subject type and id, `outcome`, `actor`, `onBehalfOf`, `traceId`, `origin`, `tenant`, `decisionId`, `idempotencyKey`, `dataSubject`, `source` (archives only; `null` elsewhere and for every absent field) and `data_hash`. `data_hash` is `payloadHash(data)`, the SHA-256 of the payload's canonical JSON (members sorted by UTF-16 code units, as RFC 8785), written on every row. `seq` enters through the order of the digests. A seal's hash is `sealHash(previous, digests)`: SHA-256 of the previous seal's hash and the digests, one per line. A seal covers the range `(previous to_seq, to_seq]` and records how many events it saw.
