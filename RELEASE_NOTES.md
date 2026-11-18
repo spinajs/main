@@ -1,3 +1,28 @@
+# Release notes — orm: an orWhere in a belongs-to populate callback cannot widen the query
+
+## Security fix
+
+- `@spinajs/orm`: the conditions of a belongs-to populate callback were appended flat to the parent query's WHERE,
+  so `populate('Order', function () { this.where(a).orWhere(b) })` compiled to `WHERE <caller> AND a OR b`. The `OR`
+  widened the query past the caller's own conditions and past any condition a `beforeQueryExecution` middleware
+  added, such as an `@spinajs/authz-orm` `.accessible()` access plan: a principal could read rows its policy denies.
+  The callback's conditions now arrive as one parenthesised AND group: `WHERE <caller> AND ( a OR b )`. A nested
+  belongs-to populate's conditions sit inside the group of their parent relation. Aggregate conditions, which compile
+  into HAVING, stay where they were. A callback without `orWhere` returns the same rows as before; only the SQL text
+  gains the parentheses.
+
+## New
+
+- `@spinajs/orm`: `WhereBuilder.adopt(statements)` appends statements built on another builder. A clone copies them
+  without rebinding them to the copy, so they keep reading the builder they were built on: its alias, the parents
+  `outer()` walks, and the context of a `Lazy` callback. `ISelectQueryBuilder.mergeStatementsAsGroup()` merges a
+  builder's WHERE statements as such a group.
+
+## Known
+
+- `@spinajs/authz-orm`: `.accessible()` called inside a belongs-to or many-to-many populate callback has no
+  effect: the relation's own query never runs, so the related rows are not filtered. Only a has-many populate filters.
+
 # Release notes — orm-http: list scope, column projection, deeper filter groups
 
 ## Packages
@@ -69,30 +94,6 @@
   `listResponseSchema` type the answer. See [Lists and includes](docs/orm-http/12-lists-and-includes.md).
 - `@spinajs/http-swagger` documents the `@Aggregate` and `@Include` arguments as query parameters naming the model's
   allowed columns, functions and relations.
-# Release notes — orm: an orWhere in a belongs-to populate callback cannot widen the query
-
-## Security fix
-
-- `@spinajs/orm`: the conditions of a belongs-to populate callback were appended flat to the parent query's WHERE,
-  so `populate('Order', function () { this.where(a).orWhere(b) })` compiled to `WHERE <caller> AND a OR b`. The `OR`
-  widened the query past the caller's own conditions and past any condition a `beforeQueryExecution` middleware
-  added, such as an `@spinajs/authz-orm` `.accessible()` access plan: a principal could read rows its policy denies.
-  The callback's conditions now arrive as one parenthesised AND group: `WHERE <caller> AND ( a OR b )`. A nested
-  belongs-to populate's conditions sit inside the group of their parent relation. Aggregate conditions, which compile
-  into HAVING, stay where they were. A callback without `orWhere` returns the same rows as before; only the SQL text
-  gains the parentheses.
-
-## New
-
-- `@spinajs/orm`: `WhereBuilder.adopt(statements)` appends statements built on another builder. A clone copies them
-  without rebinding them to the copy, so they keep reading the builder they were built on: its alias, the parents
-  `outer()` walks, and the context of a `Lazy` callback. `ISelectQueryBuilder.mergeStatementsAsGroup()` merges a
-  builder's WHERE statements as such a group.
-
-## Known
-
-- `@spinajs/authz-orm`: `.accessible()` called inside a belongs-to or many-to-many populate callback still has no
-  effect: the relation's own query never runs, so the related rows are not filtered. Only a has-many populate filters.
 
 # Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
 
