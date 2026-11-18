@@ -66,6 +66,6 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
 
   await Promise.allSettled(Array.from({ length: concurrency }, () => worker()));
   const report: TenantRunReport = { total, succeeded: total - failed.length, failed };
-  if (broken) throw new TenantIterationAborted(`forEachTenant stopped after ${total} tenant(s): ${String(broken.error)}`, report, broken.error);
+  if (broken) throw new TenantIterationAborted(`forEachTenant stopped after ${total} tenant(s) because the registry failed; the registry error is the cause`, report, broken.error);
   return report;
 }

@@ -321,6 +321,8 @@ describe('tenancy services', () => {
         );
 
         expect(aborted.cause).to.eq(FailingTenantRegistry.failure);
+        expect(aborted.message).to.eq('forEachTenant stopped after 2 tenant(s) because the registry failed; the registry error is the cause');
+        expect(aborted.message).to.not.contain(FailingTenantRegistry.failure.message);
         expect(aborted.report).to.deep.eq({ total: 2, succeeded: 1, failed: [{ tenant: 'b', error: failure }] });
       });
     }
