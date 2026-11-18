@@ -5,7 +5,7 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
@@ -473,6 +473,28 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._markMerged(stms);
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  /**
+   * Like {@link mergeStatements}, but the WHERE statements `filter` keeps arrive as one AND group, so an
+   * `orWhere()` among them cannot widen this query past its own conditions. Aggregate statements compile
+   * into HAVING, which a WHERE group would drop, so they stay flat.
+   */
+  public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
+    const isAggregate = (s: IQueryStatement) => s instanceof WhereStatement && s.IsAggregate;
+    this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
+
+    const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
+    if (grouped.length === 0) {
+      return;
+    }
+
+    // hung under `builder`, so a clone of the group keeps resolving the merged builder's alias
+    const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>);
+    group.Statements.push(...grouped);
+    const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
+    this._markMerged([statement]);
+    this._statements.push(statement);
   }
 
   private _markMerged(statements: IQueryStatement[]) {
