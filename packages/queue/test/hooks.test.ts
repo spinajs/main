@@ -1,5 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
@@ -251,16 +252,16 @@ describe('queue message hooks', function () {
     expect(jobOptions(new Forged())).to.deep.equal({ access: [] });
   });
 
-  it('beforeEmit runs for every hook, in order, before the transport sees the message', async () => {
+  it('beforeEmit runs for every hook, outermost last, before the transport sees the message', async () => {
     await PlainJob.emit({});
 
-    expect(trace).to.deep.equal(['outer.beforeEmit', 'inner.beforeEmit']);
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit']);
     const c = await client();
     expect(c.Emitted).to.have.length(1);
     expect(c.Emitted[0].Initiator).to.deep.equal({ type: 'user', id: 'alice' });
   });
 
-  it('runs a hook of a lower order first, whenever it was registered', async () => {
+  it('nests a hook of a lower order further out and runs its beforeEmit later, whenever it was registered', async () => {
     class EarlyHook extends QueueMessageHook {
       public override readonly order: number = -1;
 
@@ -288,7 +289,60 @@ describe('queue message hooks', function () {
       DI.uncache(Array.ofType(QueueMessageHook));
     }
 
-    expect(trace).to.deep.equal(['early.beforeEmit', 'outer.beforeEmit', 'inner.beforeEmit', 'early.in', 'outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out']);
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit', 'early.beforeEmit', 'early.in', 'outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out']);
+  });
+
+  it('runs beforeEmit in the reverse of the handle chain, for mixed and for equal orders', async () => {
+    abstract class TracedHook extends QueueMessageHook {
+      protected abstract readonly label: string;
+
+      beforeEmit(): void {
+        trace.push(`${this.label}.beforeEmit`);
+      }
+
+      async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+        trace.push(`${this.label}.in`);
+        return next();
+      }
+    }
+    // The DI cache is keyed by class name, so each hook needs a class of its own.
+    class LateHook extends TracedHook {
+      public override readonly order: number = 5;
+      protected readonly label = 'late';
+    }
+    class LowHook extends TracedHook {
+      public override readonly order: number = -1;
+      protected readonly label = 'early';
+    }
+    class PeerHook extends TracedHook {
+      protected readonly label = 'peer';
+    }
+    class LastHook extends TracedHook {
+      public override readonly order: number = 5;
+      protected readonly label = 'last';
+    }
+    // Outer and Inner (order 0) were registered first.
+    const added: Class<QueueMessageHook>[] = [LateHook, LowHook, PeerHook, LastHook];
+    for (const hook of added) DI.register(hook).as(QueueMessageHook);
+    DI.uncache(Array.ofType(QueueMessageHook));
+
+    try {
+      const queue = await DI.resolve(QueueService);
+      await queue.consume(PlainJob);
+      await PlainJob.emit({});
+      const c = await client();
+      await c.deliver(c.Emitted[0]);
+    } finally {
+      for (const hook of added) {
+        DI.unregister(hook);
+        DI.uncache(hook);
+      }
+      DI.uncache(Array.ofType(QueueMessageHook));
+    }
+
+    const handled = ['early', 'outer', 'inner', 'peer', 'late', 'last'];
+    expect(trace.filter((t) => t.endsWith('.in'))).to.deep.equal(handled.map((n) => `${n}.in`));
+    expect(trace.filter((t) => t.endsWith('.beforeEmit'))).to.deep.equal([...handled].reverse().map((n) => `${n}.beforeEmit`));
   });
 
   it('a throwing beforeEmit makes emit reject and sends nothing', async () => {
@@ -296,6 +350,7 @@ describe('queue message hooks', function () {
 
     await expect(PlainJob.emit({})).to.be.rejectedWith('refused');
 
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit']);
     const c = await client();
     expect(c.Emitted).to.have.length(0);
   });

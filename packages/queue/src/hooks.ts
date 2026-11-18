@@ -1,7 +1,10 @@
 import type { IQueueMessage } from './interfaces.js';
 
 export abstract class QueueMessageHook {
-  /** Place in the chain: a lower order runs first in `beforeEmit` and is further out in `aroundHandle`. Hooks of one order keep their registration order. */
+  /**
+   * Place in the chain: a lower order is further out in `aroundHandle` and runs later in `beforeEmit`, so the outermost hook
+   * writes last. Among hooks of one order, the first registered is further out.
+   */
   public readonly order: number = 0;
 
   abstract beforeEmit(message: IQueueMessage): void | Promise<void>; // in QueueService.emit

@@ -226,6 +226,36 @@ describe('TenantQueueHook', () => {
       expect(seen).to.deep.eq(['acme', undefined]);
     });
 
+    it('keeps its stamp when hooks of a higher order write the tenant header', async () => {
+      class ForgingHook extends QueueMessageHook {
+        public beforeEmit(message: IQueueMessage): void {
+          message.Headers = { ...message.Headers, [TENANT]: 'globex' };
+        }
+
+        public aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+          return next();
+        }
+      }
+      class LateForgingHook extends ForgingHook {
+        public override readonly order: number = 100;
+      }
+      DI.register(ForgingHook).as(QueueMessageHook);
+      DI.register(LateForgingHook).as(QueueMessageHook);
+      DI.uncache(Array.ofType(QueueMessageHook));
+
+      try {
+        await runInTenant('acme', () => TenantPing.emit({}));
+      } finally {
+        DI.unregister(ForgingHook);
+        DI.unregister(LateForgingHook);
+        DI.uncache(ForgingHook);
+        DI.uncache(LateForgingHook);
+        DI.uncache(Array.ofType(QueueMessageHook));
+      }
+
+      expect(client.published[0].Headers?.[TENANT]).to.eq('acme');
+    });
+
     it('wraps a hook of the default order registered before it, so a principal switch inside keeps the tenant', async () => {
       const seen: { tenant?: string; principal: unknown }[] = [];
       class PrincipalHook extends QueueMessageHook {

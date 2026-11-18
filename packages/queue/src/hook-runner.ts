@@ -10,8 +10,9 @@ async function hooks(): Promise<QueueMessageHook[]> {
   return [...registered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 
+/** The reverse of the handle chain: the outermost hook writes last, so what it restores on handling is what it stamped. */
 export async function runBeforeEmit(message: IQueueMessage): Promise<void> {
-  for (const hook of await hooks()) {
+  for (const hook of (await hooks()).reverse()) {
     await hook.beforeEmit(message);
   }
 }

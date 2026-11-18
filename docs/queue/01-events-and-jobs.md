@@ -8,7 +8,7 @@ Emitting, from `MyJob.emit(values, options?)` or `MyEvent.emit(values, options?)
 
 1. The static `emit()` builds a plain `IQueueMessage`: `values`, then `Type`, `CreatedAt` (`values.CreatedAt` or now) and `Name` (the class name), then `options`. `QueueJob.emit()` also sets `Persistent: true` unless `values` or `options` set it.
 2. `ev(message)` resolves `QueueService` from DI and calls `emit(message)`.
-3. `DefaultQueueService.emit()` runs `beforeEmit()` of every [message hook](06-message-hooks.md), in ascending `order`, hooks of one order in registration order. A hook that throws rejects `emit()` and nothing is sent.
+3. `DefaultQueueService.emit()` runs `beforeEmit()` of every [message hook](06-message-hooks.md), in the reverse of the handling chain: the highest `order` first, hooks of one order from the last registered. A hook that throws rejects `emit()` and nothing is sent.
 4. It finds the connections the message is routed to (see [Connections and routing](02-connections-and-routing.md)). An unknown connection name throws `ConnectionNotFound`.
 5. For a job it sets `JobId` to a new UUID v4, unless the message already carries one. All routed connections get the same `JobId`.
 6. It awaits `QueueClient.emit(message)` on each connection in turn.

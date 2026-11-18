@@ -7,7 +7,7 @@ A `QueueMessageHook` runs code before every emit and around every message handle
 Emitting, in `DefaultQueueService.emit(message)`:
 
 1. It resolves `Array.ofType(QueueMessageHook)` from DI.
-2. It awaits `hook.beforeEmit(message)` for each hook, in ascending `order`; hooks of one order run in registration order. A hook may change the message.
+2. It awaits `hook.beforeEmit(message)` for each hook, in the reverse of the handling chain: the highest `order` first, and among hooks of one order the last registered first. The outermost hook on handling writes last, so what it restores is what it stamped. A hook may change the message.
 3. A hook that throws rejects `emit()`; no transport sees the message.
 
 Handling, in the consumer built by `DefaultQueueService.consume()`:
@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### Message hook: custom implementation
 
-Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Hooks of one order run in registration order. A hook must not write the `x-spinajs-tenant` header or `Initiator`: in `beforeEmit()` a hook of a higher order runs after the hooks that stamp them, and its value would win. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
+Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Among hooks of one order, the first registered is further out. On emit the chain runs backwards, so `TenantQueueHook` (`-100`) and `AuthzQueueHook` (`0`) write `x-spinajs-tenant` and `Initiator` after every hook of a higher order and after hooks of their own order registered later (see Important behaviour for the one exception). A hook of a higher order therefore cannot read those fields in `beforeEmit()`: read the ambient tenant or principal instead. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
 
 This hook carries a correlation id from the request that emitted a message to the worker that handles it, through `AsyncLocalStorage`.
 
@@ -86,6 +86,7 @@ export function currentCorrelationId(): string | undefined {
 - **`runAs` does nothing without a hook.** `@Job({ runAs })` is metadata for a hook such as `AuthzQueueHook`.
 - **`beforeEmit()` sees the object passed to `emit()`.** For the static `emit()` this is a plain object, so `jobOptions(message)` returns `{}` there; read `runAs` in `aroundHandle()`.
 - **`@Job()` options are not inherited.** `jobOptions(message)` reads the message's own class, so a subclass without a `@Job({ tenancy })` of its own is `carry`, even when its parent is `required`. Repeat the options on every job class that needs them.
+- **An order-0 hook registered before `@spinajs/authz-queue` is imported writes after `AuthzQueueHook` on emit.** Both have order `0`, so the earlier registration runs its `beforeEmit()` later, and an `Initiator` it writes wins. Give such a hook an order above `0`, or import `@spinajs/authz-queue` first.
 - **A job with a `consume()` callback goes through the chain twice**: once around `execute()`, once around the callback. A failed job goes through it a third time around `onFailed()`.
 - **`@NewInstance()` hooks are ignored.** `Array.ofType` leaves out `@NewInstance()` and factory registrations, so such a hook never runs.
 - **Hook errors are not swallowed**, except around `onFailed()`, where they are logged.
@@ -129,6 +130,9 @@ import { IQueueMessage, QueueMessageHook } from '@spinajs/queue';
 export class MaintenanceGuardHook extends QueueMessageHook {
   public static Enabled = false;
 
+  // the highest order runs first in beforeEmit, before any other hook changes the message
+  public override readonly order: number = 1000;
+
   public beforeEmit(message: IQueueMessage): void {
     if (MaintenanceGuardHook.Enabled) {
       throw new Error(`Queue is in maintenance, ${message.Name} was not sent`);
@@ -158,7 +162,6 @@ export class SlowHandlerHook extends QueueMessageHook {
   }
 }
 
-// registered first, so it runs first among hooks of the same order
 DI.register(MaintenanceGuardHook).as(QueueMessageHook);
 DI.register(SlowHandlerHook).as(QueueMessageHook);
 ```
