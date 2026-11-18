@@ -18,6 +18,14 @@ describe('idempotencyKey', () => {
   it('keeps the parts apart where plain concatenation would join them', () => {
     expect(idempotencyKey({ namespace: 'ab', principal: 'c' }, 'k')).to.not.equal(idempotencyKey({ namespace: 'a', principal: 'bc' }, 'k'));
   });
+
+  it('appends extra scope parts after the key, and keeps the earlier hash for none', () => {
+    const scope = { namespace: 'http:POST /orders', principal: 'user:7' };
+
+    expect(idempotencyKey({ ...scope, parts: ['tenant:acme'] }, 'k-1')).to.equal(sha256('["http:POST /orders","user:7","k-1","tenant:acme"]'));
+    expect(idempotencyKey({ ...scope, parts: [] }, 'k-1')).to.equal(sha256('["http:POST /orders","user:7","k-1"]'));
+    expect(idempotencyKey({ ...scope, parts: ['tenant:a', 'b'] }, 'k')).to.not.equal(idempotencyKey({ ...scope, parts: ['tenant:ab'] }, 'k'));
+  });
 });
 
 describe('fingerprintOf', () => {
