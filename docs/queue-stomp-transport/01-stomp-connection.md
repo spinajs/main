@@ -79,6 +79,7 @@ Each entry of `queue.connections` that uses this transport:
 | `queue.connections[].options.emitRetries` | `number` | `3` | `>= 0` | Publish retries after the first attempt; see [Publishing](02-publishing-messages.md). |
 | `queue.connections[].options.emitReconnectTimeout` | `number` (ms) | `60000` | `> 0` | How long a publish attempt that finds the connection down waits for the reconnect; see [Publishing](02-publishing-messages.md). |
 | `queue.connections[].options.prefetch` | `number` or numeric string | `1` | integer `>= 1` | `activemq.prefetchSize` of every subscription on the connection; see [Consuming](03-consuming-retries-and-dead-letters.md). Any other value rejects `resolve()` with `InvalidArgument`. |
+| `queue.connections[].options.virtualTopics` | `boolean` | `false` | `true`, `false` | A named subscription of `/topic/VirtualTopic.<name>` consumes `/queue/Consumer.<subscriptionId>.VirtualTopic.<name>`, and event retries go there; see [Consuming](03-consuming-retries-and-dead-letters.md#virtual-topics). Any other value rejects `resolve()` with `InvalidArgument`. |
 | `queue.connections[].options.clientIdSuffix` | `string` | env `QUEUE_INSTANCE_ID` | | Appended to the `client-id` as `<clientId>-<suffix>`; see [Client factory](05-client-factory-and-client-id.md). |
 
 `transport`, `type`, `port` and `queue` from `IQueueConnectionOptions` are not read by this transport.
@@ -169,7 +170,7 @@ export const config = {
 | `whenReady(timeoutMs?)` | `Promise<void>` | Resolves at once when connected, else on the next connect. With `timeoutMs`, rejects with `UnexpectedServerError` after that time. Rejects with `UnexpectedServerError` once `dispose()` has started. |
 | `ClientId` | `string` | The `client-id` sent to the broker: `clientId`, else `name`, plus `-<options.clientIdSuffix>` or `-<QUEUE_INSTANCE_ID>` when one is set. |
 | `Name`, `ServiceName` | `string` | The connection `name`. |
-| `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, then awaits `client.deactivate()`. |
+| `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, forgets every tracked subscription, then awaits `client.deactivate()`. Durable subscriptions stay on the broker. |
 | `describeWebSocketError(err)` | `string` | Exported helper: a one-line reason for a WebSocket error event, safe on circular socket objects. |
 
 `describeWebSocketError()` prefers the wrapped error's message and code (`connect ECONNREFUSED 127.0.0.1:61614 ( ECONNREFUSED )`), then the event's message, then `event '<type>'`, then `'unknown error'`. For `ws`'s `closed before the connection was established` it adds a hint that the WebSocket handshake never completed, which points at the URL or the network path rather than the broker.

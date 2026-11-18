@@ -2,7 +2,8 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, PermanentJobFailure, QueueMessageType } from '@spinajs/queue';
+import { Event, IQueueJob, IQueueMessage, PermanentJobFailure, QueueEvent, QueueMessageType, RedeliverLater, readQueueHeaders } from '@spinajs/queue';
+import { conformanceRouting, deadLetterBody, describeQueueTransportConformance, type TransportHarness } from '@spinajs/queue/testing';
 import { DateTime } from 'luxon';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -187,6 +188,37 @@ function jobMessage(extra: Partial<IQueueMessage> = {}): IQueueMessage {
 }
 
 const tick = () => new Promise<void>((res) => setTimeout(res, 5));
+
+function failingJob(extra: Partial<IQueueJob> = {}): IQueueJob {
+  return { ...jobMessage(), RetryCount: 0, ...extra };
+}
+
+function subscriptionOn(c: TestableStompClient, destination: string) {
+  const sub = c.fake.subscriptions.find((s) => s.destination === destination);
+  if (!sub) throw new Error(`no subscription on ${destination}`);
+  return sub;
+}
+
+async function useRouting(routing: Record<string, unknown>): Promise<void> {
+  DI.clearCache();
+  DI.register(
+    class extends FrameworkConfiguration {
+      protected onLoad(): unknown {
+        return { queue: { routing }, logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] } };
+      }
+    },
+  ).as(Configuration);
+  await DI.resolve(Configuration);
+}
+
+@Event()
+class OrderShipped extends QueueEvent {}
+
+const ORDERS = '/topic/VirtualTopic.orders';
+const BILLING_QUEUE = '/queue/Consumer.billing.VirtualTopic.orders';
+const RETRIED = { RetriedEvent: { maxRetries: 1, onEventFailure: 'retry', backoff: { kind: 'fixed', delayMs: 500 } } };
+const virtual = (extra: Record<string, unknown> = {}) => connected({ options: { virtualTopics: true }, ...extra });
+const retriedEvent = (extra: Partial<IQueueMessage> = {}) => qMessage({ Name: 'RetriedEvent', MessageId: 'm-1', ...extra });
 
 describe('stomp queue transport - unit', function () {
   beforeEach(async () => {
@@ -459,7 +491,7 @@ describe('stomp queue transport - unit', function () {
 
       const sub = c.fake.subscriptions.find((s) => s.destination === '/topic/durable');
       expect(sub!.headers['activemq.subscriptionName']).to.eq('sub-1');
-      expect(sub!.headers.id).to.eq('sub-1');
+      expect(sub!.headers.id).to.eq('sub-1@/topic/durable');
     });
   });
 
@@ -965,9 +997,9 @@ describe('stomp queue transport - unit', function () {
       c.unsubscribe('/topic/durable', true);
 
       expect(c.fake.unsubscribed).to.have.length(1);
-      expect(c.fake.unsubscribed[0].id).to.eq('sub-1');
+      expect(c.fake.unsubscribed[0].id).to.eq('sub-1@/topic/durable');
       expect(c.fake.unsubscribed[0].headers['activemq.subscriptionName']).to.eq('sub-1');
-      expect(c.subs.has('/topic/durable')).to.be.false;
+      expect(c.subs.size).to.eq(0);
     });
 
     it('forgets a durable subscription unsubscribed while disconnected and does not replay it', async () => {
@@ -1104,4 +1136,442 @@ describe('stomp queue transport - unit', function () {
       await expect(p).to.be.rejectedWith(UnexpectedServerError, /QUEUE_INSTANCE_ID/);
     });
   });
+
+  describe('subscription identity', () => {
+    class LedgerEvent extends QueueEvent {}
+    class MailerEvent extends QueueEvent {}
+
+    /** A topic hands every subscription its own copy of a message. */
+    function publishToTopic(c: TestableStompClient, destination: string) {
+      const copies = c.fake.subscriptions.filter((s) => s.destination === destination && !s.unsubscribe.called).map((s) => ({ sub: s, msg: brokerMessage(qMessage()) }));
+      copies.forEach(({ sub, msg }) => sub.callback(msg));
+      return copies.map(({ msg }) => msg);
+    }
+
+    it('keeps two subscription ids on one topic as two broker subscriptions', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/shared');
+      expect(subs.map((s) => s.id)).to.deep.equal(['sub-a@/topic/shared', 'sub-b@/topic/shared']);
+
+      subs[0].callback(brokerMessage(qMessage()));
+      await tick();
+      expect(a.calledOnce).to.equal(true);
+      expect(b.called).to.equal(false);
+    });
+
+    it('gives every message of a topic to each subscription id, and each copy to its own handler only', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+
+      const copies = [...publishToTopic(c, '/topic/shared'), ...publishToTopic(c, '/topic/shared')];
+      await tick();
+
+      expect([a.callCount, b.callCount]).to.deep.equal([2, 2]);
+      expect(copies.map((m) => m.ack.callCount)).to.deep.equal([1, 1, 1, 1]);
+    });
+
+    it('gives one subscription id on two channels two STOMP subscription ids', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/a', sinon.stub().resolves(), 'billing');
+      await c.subscribe('/topic/b', sinon.stub().resolves(), 'billing');
+      expect(c.fake.subscriptions.map((s) => s.id)).to.deep.equal(['billing@/topic/a', 'billing@/topic/b']);
+    });
+
+    it('subscribes a channel and subscription id once, whoever asks again', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/topic/shared')).to.have.length(1);
+    });
+
+    it('keeps one broker subscription for two subscription ids on a queue, so they do not split its messages', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/work', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/queue/work', sinon.stub().resolves(), 'sub-b');
+
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/work')).to.have.length(1);
+    });
+
+    it('replays each subscription id after a reconnect and routes its messages to its own handler', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+      c.fake.subscriptions.length = 0;
+
+      c.fake.simulateDrop();
+      c.fake.simulateConnect();
+
+      expect(c.fake.subscriptions.map((s) => s.id)).to.deep.equal(['sub-a@/topic/shared', 'sub-b@/topic/shared']);
+      c.fake.subscriptions[1].callback(brokerMessage(qMessage()));
+      await tick();
+      expect([a.callCount, b.callCount]).to.deep.equal([0, 1]);
+    });
+
+    it('unsubscribes every subscription of a channel', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-b');
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/shared');
+
+      c.unsubscribe('/topic/shared');
+
+      expect(subs.map((s) => s.unsubscribe.calledOnce)).to.deep.equal([true, true]);
+      expect(c.subs.size).to.equal(0);
+    });
+
+    it('unsubscribes a message class from its own subscription id only', async () => {
+      const c = await connected();
+      const ledger = sinon.stub().resolves();
+      const mailer = sinon.stub().resolves();
+      await c.subscribe(LedgerEvent, ledger, 'ledger');
+      await c.subscribe(MailerEvent, mailer, 'mailer');
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/default');
+
+      c.unsubscribe(LedgerEvent);
+
+      expect(subs.map((s) => [s.id, s.unsubscribe.called])).to.deep.equal([
+        ['ledger@/topic/default', true],
+        ['mailer@/topic/default', false],
+      ]);
+      publishToTopic(c, '/topic/default');
+      await tick();
+      expect([ledger.called, mailer.calledOnce]).to.deep.equal([false, true]);
+    });
+
+    it('removes only the durable subscription of the channel it is asked for', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/durable', sinon.stub().resolves(), 'sub-1', true);
+      await c.subscribe('/topic/other', sinon.stub().resolves(), 'sub-2', true);
+
+      c.unsubscribe('/topic/durable', true);
+
+      expect(c.fake.unsubscribed).to.deep.equal([{ id: 'sub-1@/topic/durable', headers: { 'activemq.subscriptionName': 'sub-1' } }]);
+      expect([...c.subs.values()].map((d) => d.channel)).to.deep.equal(['/topic/other']);
+    });
+
+    it('leaves no subscription behind after dispose', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-b');
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      await c.dispose();
+
+      expect(c.subs.size).to.equal(0);
+    });
+  });
+
+  describe('delivery decision', () => {
+    it('republishes a failed job with the decision headers and AMQ_SCHEDULED_DELAY, acking after the receipt', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const frame = brokerMessage(failingJob({ RetryCount: 2, MessageId: 'm-1' }));
+      subscriptionOn(c, '/queue/job').callback(frame);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/job');
+      expect(retry?.headers).to.include({ 'x-retry-count': '1', 'x-error': 'boom', 'x-spinajs-message-id': 'm-1', AMQ_SCHEDULED_DELAY: '100', persistent: 'true' });
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('dead-letters an exhausted job with x-original-destination, x-retry-count and x-error', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const frame = brokerMessage(failingJob({ RetryCount: 2, MessageId: 'm-1' }), { 'x-retry-count': '2' });
+      subscriptionOn(c, '/queue/job').callback(frame);
+      await tick();
+
+      const dead = c.fake.published.find((p) => p.destination === '/queue/dlq');
+      expect(dead?.headers).to.include({ 'x-original-destination': '/queue/job', 'x-retry-count': '2', 'x-error': 'boom', 'x-spinajs-message-id': 'm-1' });
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('dead-letters a NonRetryableError, matched by name, at once', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/job', sinon.stub().rejects(Object.assign(new Error('no'), { name: 'NonRetryableError' })));
+      subscriptionOn(c, '/queue/job').callback(brokerMessage(failingJob({ RetryCount: 5 })));
+      await tick();
+
+      expect(c.fake.published.find((p) => p.destination === '/queue/dlq')?.headers).to.include({ 'x-error': 'no', 'x-retry-count': '0' });
+      expect(c.fake.published.some((p) => p.destination === '/queue/job')).to.equal(false);
+    });
+
+    it('keeps the frame message id on the dead letter of an unparseable body', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/bad', sinon.stub().resolves());
+      subscriptionOn(c, '/queue/bad').callback(brokerMessage('not-json{', { 'x-spinajs-message-id': 'm-7' }));
+      await tick();
+
+      expect(c.fake.published.find((p) => p.destination === '/queue/dlq')?.headers).to.include({ 'x-spinajs-message-id': 'm-7', 'x-original-destination': '/queue/bad' });
+    });
+
+    it('leaves a crashed frame neither acked nor nacked', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/job', sinon.stub().rejects(Object.assign(new Error('dead'), { crash: true })));
+      const frame = brokerMessage(failingJob({ RetryCount: 3 }));
+      subscriptionOn(c, '/queue/job').callback(frame);
+      await tick();
+
+      expect(frame.ack.called).to.equal(false);
+      expect(frame.nack.called).to.equal(false);
+      expect(c.fake.published).to.have.length(0);
+    });
+
+    it('retries an event consumed from a queue channel into that channel', async () => {
+      await useRouting(RETRIED);
+      const c = await connected();
+      await c.subscribe('/queue/events', sinon.stub().rejects(new Error('boom')), 'billing');
+      const frame = brokerMessage(retriedEvent());
+      subscriptionOn(c, '/queue/events').callback(frame);
+      await tick();
+
+      expect(c.fake.published.map((p) => p.destination)).to.deep.equal(['/queue/events']);
+      expect(c.fake.published[0].headers).to.include({ 'x-retry-count': '1', 'x-error': 'boom', AMQ_SCHEDULED_DELAY: '500', 'x-spinajs-message-id': 'm-1' });
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('republishes a RedeliverLater on a named subscription of a queue channel, and never nacks it', async () => {
+      const c = await virtual();
+      await c.subscribe('/queue/events', sinon.stub().rejects(new RedeliverLater(5000)), 'billing');
+      const frame = brokerMessage(qMessage({ MessageId: 'm-3' }));
+      subscriptionOn(c, '/queue/events').callback(frame);
+      await tick();
+
+      expect(c.fake.published.map((p) => p.destination)).to.deep.equal(['/queue/events']);
+      expect(c.fake.published[0].headers).to.include({ AMQ_SCHEDULED_DELAY: '5000', 'x-spinajs-message-id': 'm-3' });
+      expect(frame.nack.called).to.equal(false);
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('subscribes a message class whose retried events are routed to a queue channel', async () => {
+      await useRouting({ OrderShipped: { channel: '/queue/orders', maxRetries: 1, onEventFailure: 'retry' } });
+      const c = await connected();
+      await c.subscribe(OrderShipped, sinon.stub().resolves());
+      expect(c.fake.subscriptions.map((s) => s.destination)).to.deep.equal(['/queue/orders']);
+    });
+  });
+
+  describe('virtual topics', () => {
+    it('rejects resolve() for an options.virtualTopics that is not a boolean', async () => {
+      const c = new TestableStompClient(options({ options: { virtualTopics: 'yes' } }));
+      await expect(c.resolve()).to.be.rejectedWith(InvalidArgument);
+    });
+
+    it('declares RedeliversFailedEvents only with virtual topics', async () => {
+      expect((await connected()).RedeliversFailedEvents).to.equal(false);
+      expect((await virtual()).RedeliversFailedEvents).to.equal(true);
+    });
+
+    it('subscribes a named subscriber of a virtual topic to its consumer queue, without a durable subscription name', async () => {
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().resolves(), 'billing', true);
+
+      expect(c.fake.subscriptions.map((s) => s.destination)).to.deep.equal([BILLING_QUEUE]);
+      expect(subscriptionOn(c, BILLING_QUEUE).headers).to.not.have.property('activemq.subscriptionName');
+    });
+
+    it('subscribes an unnamed subscriber to the topic itself', async () => {
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().resolves());
+      expect(c.fake.subscriptions.map((s) => s.destination)).to.deep.equal([ORDERS]);
+    });
+
+    it('retries an event into its consumer queue only', async () => {
+      await useRouting(RETRIED);
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().rejects(new Error('billing fails')), 'billing');
+      const frame = brokerMessage(retriedEvent());
+      subscriptionOn(c, BILLING_QUEUE).callback(frame);
+      await tick();
+
+      expect(c.fake.published.map((p) => p.destination)).to.deep.equal([BILLING_QUEUE]);
+      expect(c.fake.published[0].headers).to.include({ 'x-retry-count': '1', 'x-error': 'billing fails', AMQ_SCHEDULED_DELAY: '500', 'x-spinajs-message-id': 'm-1' });
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('retries a job consumed from a consumer queue into that queue', async () => {
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().rejects(new Error('boom')), 'billing');
+      subscriptionOn(c, BILLING_QUEUE).callback(brokerMessage(failingJob({ RetryCount: 1 })));
+      await tick();
+
+      expect(c.fake.published.map((p) => p.destination)).to.deep.equal([BILLING_QUEUE]);
+    });
+
+    it('republishes a RedeliverLater into the consumer queue with its delay', async () => {
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().rejects(new RedeliverLater(5000)), 'billing');
+      const frame = brokerMessage(qMessage({ MessageId: 'm-2' }));
+      subscriptionOn(c, BILLING_QUEUE).callback(frame);
+      await tick();
+
+      expect(c.fake.published.map((p) => p.destination)).to.deep.equal([BILLING_QUEUE]);
+      expect(c.fake.published[0].headers).to.include({ AMQ_SCHEDULED_DELAY: '5000', 'x-spinajs-message-id': 'm-2' });
+      expect(c.fake.published[0].headers).to.not.have.property('x-retry-count', '1');
+      expect(frame.ack.calledOnce).to.equal(true);
+    });
+
+    it('nacks a RedeliverLater on a subscription without a consumer queue, and never acks it', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/plain', sinon.stub().rejects(new RedeliverLater(5000)));
+      const frame = brokerMessage(qMessage());
+      subscriptionOn(c, '/topic/plain').callback(frame);
+      await tick();
+
+      expect(frame.nack.calledOnce).to.equal(true);
+      expect(frame.ack.called).to.equal(false);
+      expect(c.fake.published).to.have.length(0);
+    });
+
+    it('refuses to subscribe a message class whose route retries events where there is no consumer queue', async () => {
+      await useRouting({ OrderShipped: { channel: '/topic/plain', maxRetries: 1, onEventFailure: 'retry' } });
+      const plain = await connected();
+      await expect(plain.subscribe(OrderShipped, sinon.stub().resolves(), 'billing')).to.be.rejectedWith(InvalidArgument, /onEventFailure/);
+      expect(plain.fake.subscriptions).to.have.length(0);
+
+      await useRouting({ OrderShipped: { channel: ORDERS, maxRetries: 1, onEventFailure: 'retry' } });
+      const unnamed = await virtual();
+      await expect(unnamed.subscribe(OrderShipped, sinon.stub().resolves())).to.be.rejectedWith(InvalidArgument, /onEventFailure/);
+
+      const named = await virtual();
+      await named.subscribe(OrderShipped, sinon.stub().resolves(), 'billing');
+      expect(named.fake.subscriptions.map((s) => s.destination)).to.deep.equal([BILLING_QUEUE]);
+    });
+
+    it('drops, with nothing republished, an event whose retry meets a raw subscription without a consumer queue', async () => {
+      await useRouting(RETRIED);
+      const c = await connected();
+      await c.subscribe('/topic/plain', sinon.stub().rejects(new Error('boom')));
+      const frame = brokerMessage(retriedEvent());
+      subscriptionOn(c, '/topic/plain').callback(frame);
+      await tick();
+
+      expect(frame.ack.calledOnce).to.equal(true);
+      expect(c.fake.published).to.have.length(0);
+    });
+
+    it('refuses, with virtual topics, a named subscription of a plain topic and a subscription id that is not one path element', async () => {
+      const c = await virtual();
+      await expect(c.subscribe('/topic/plain', sinon.stub().resolves(), 'billing')).to.be.rejectedWith(InvalidArgument, /VirtualTopic/);
+      await expect(c.subscribe(ORDERS, sinon.stub().resolves(), 'billing.eu')).to.be.rejectedWith(InvalidArgument, /subscriptionId/);
+      expect(c.fake.subscriptions).to.have.length(0);
+    });
+
+    it('refuses a subscription id with a comma, which ActiveMQ would split into a composite destination', async () => {
+      const c = await virtual();
+      await expect(c.subscribe(ORDERS, sinon.stub().resolves(), 'x,/queue/Consumer.other')).to.be.rejectedWith(InvalidArgument, /subscriptionId/);
+      await expect(c.subscribe(ORDERS, sinon.stub().resolves(), 'x,/queue/other')).to.be.rejectedWith(InvalidArgument, /subscriptionId/);
+      expect(c.fake.subscriptions).to.have.length(0);
+    });
+
+    it('stops consuming a consumer queue on unsubscribe, without a durable UNSUBSCRIBE', async () => {
+      const c = await virtual();
+      await c.subscribe(ORDERS, sinon.stub().resolves(), 'billing', true);
+      const sub = subscriptionOn(c, BILLING_QUEUE);
+
+      c.unsubscribe(ORDERS, true);
+
+      expect(sub.unsubscribe.calledOnce).to.equal(true);
+      expect(c.fake.unsubscribed).to.have.length(0);
+      expect(c.subs.size).to.equal(0);
+    });
+  });
+
+  describeQueueTransportConformance('stomp (fake broker)', fakeBrokerHarness);
 });
+
+type FakeSubscription = FakeStompClient['subscriptions'][number];
+type BrokerFrame = ReturnType<typeof brokerMessage>;
+interface StoredFrame {
+  // a topic copy belongs to one subscription, a queue frame to whoever consumes the queue
+  sub?: FakeSubscription;
+  queue?: string;
+  body: string;
+  headers: Record<string, string>;
+  at: number;
+}
+
+/**
+ * ActiveMQ as the conformance cases see it: a topic copies a frame to each subscription and, for VirtualTopic.X, to each
+ * Consumer.*.VirtualTopic.X queue that has a consumer; a queue hands a frame to one consumer; AMQ_SCHEDULED_DELAY waits
+ * on a counter clock; a frame neither acked nor nacked stays with its consumer.
+ */
+async function fakeBrokerHarness(): Promise<TransportHarness> {
+  await useRouting(conformanceRouting());
+  const c = await virtual({ defaultQueueChannel: '/queue/conf', defaultTopicChannel: '/topic/VirtualTopic.conf', defaultQueueDeadLetterChannel: '/queue/conf.dlq' });
+  let now = 0;
+  let routed = 0;
+  const stored: StoredFrame[] = [];
+  const held: { item: StoredFrame; frame: BrokerFrame }[] = [];
+  const live = () => c.fake.subscriptions.filter((s) => !s.unsubscribe.called);
+  const consumerOf = (item: StoredFrame) => item.sub ?? live().find((s) => s.destination === item.queue);
+  const topicOfConsumerQueue = (queue: string) => /^\/queue\/Consumer\.[^.]+\.(VirtualTopic\..+)$/.exec(queue)?.[1];
+
+  const route = () => {
+    for (const p of c.fake.published.slice(routed)) {
+      const sent: Record<string, string> = p.headers;
+      const headers = Object.fromEntries(Object.entries(sent).filter(([name]) => name !== 'receipt'));
+      const at = now + Number(headers.AMQ_SCHEDULED_DELAY ?? 0);
+      if (!p.destination.startsWith('/topic/')) {
+        stored.push({ queue: p.destination, body: p.body, headers, at });
+        continue;
+      }
+      const subscribed = new Set(live().map((s) => s.destination));
+      live()
+        .filter((s) => s.destination === p.destination)
+        .forEach((sub) => stored.push({ sub, body: p.body, headers, at }));
+      [...subscribed].filter((queue) => `/topic/${topicOfConsumerQueue(queue)}` === p.destination).forEach((queue) => stored.push({ queue, body: p.body, headers, at }));
+    }
+    routed = c.fake.published.length;
+  };
+
+  const deliverRound = async (): Promise<boolean> => {
+    route();
+    const due = stored.filter((item) => item.at <= now && consumerOf(item));
+    for (const item of due) {
+      stored.splice(stored.indexOf(item), 1);
+      const frame = brokerMessage(item.body, { ...item.headers, destination: item.queue ?? item.sub?.destination ?? '' });
+      held.push({ item, frame });
+      consumerOf(item)?.callback(frame);
+    }
+    await tick();
+    return due.length > 0 || c.fake.published.length > routed;
+  };
+
+  return {
+    client: c,
+    async deliverAll() {
+      for (let round = 0; round < 50; round++) {
+        if (!(await deliverRound())) return;
+      }
+    },
+    async advance(ms) {
+      now += ms;
+    },
+    async injectRaw(queue, body) {
+      stored.push({ queue, body, headers: {}, at: now });
+    },
+    async redeliverUnsettled() {
+      for (const { item, frame } of held.splice(0)) {
+        if (!frame.ack.called && !frame.nack.called) stored.push({ ...item, at: now });
+      }
+    },
+    async deadLetters(channel) {
+      route();
+      const dead = stored.filter((item) => item.queue === channel);
+      dead.forEach((item) => stored.splice(stored.indexOf(item), 1));
+      return dead.map((item) => ({ message: deadLetterBody(item.body), headers: readQueueHeaders(item.headers) }));
+    },
+    dispose: () => c.dispose(),
+  };
+}

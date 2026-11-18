@@ -42,14 +42,15 @@ export default {
 | Key | Meaning | Default |
 |---|---|---|
 | `options.prefetch` | Max unacked messages the broker delivers to this connection (`activemq.prefetchSize`). A worker sets it to its slot count so it never holds more jobs than it can run. Applies to every subscription on the connection, so keep job queues and event topics on separate connections if they need different values. An invalid value (not a positive integer) rejects at `resolve()`. | `1` |
-| `retryDelay` | Base delay in ms; retry n waits `retryDelay * 2^(n-1)` | `0` |
+| `retryDelay` | Base delay in ms when the route has no `backoff`; retry n waits `retryDelay * 2^(n-1)` | `0` |
+| `options.virtualTopics` | A named subscription of `/topic/VirtualTopic.<name>` consumes `/queue/Consumer.<subscriptionId>.VirtualTopic.<name>`, so failed events can be retried for that subscriber only. | `false` |
 | `options.clientIdSuffix` | Appended to the STOMP client-id ( `<clientId>-<suffix>` ). ActiveMQ refuses two connections with one client-id, so every replica needs a stable unique suffix. Falls back to env `QUEUE_INSTANCE_ID`. | unset |
 | `clientId` | Base client-id. The DI factory keeps an explicit value, otherwise it uses `<app.name>-<APP_ENV>-<name>`. | derived |
 | `options.emitReconnectTimeout` | How long ( ms ) an emit attempt caught by a dropped connection waits for the reconnect. | `60000` |
 | `options.receiptTimeout` | How long ( ms ) to wait for the broker RECEIPT of a publish, retry or dead letter. | `5000` |
 | `options.emitRetries` | Publish retries ( exponential backoff ) before an emit rejects. | `3` |
 
-Retries: a failed job is retried `RetryCount` times (set on the job), or, when the job has none, `routing.<Job>.maxRetries` times, then moved to its dead-letter channel.
+Retries: a failure is decided by `@spinajs/queue`'s `decideDelivery()`. A failed job is retried `RetryCount` times (set on the job), or, when the job has none, `routing.<Job>.maxRetries` times, then moved to its dead-letter channel; a failed event is dropped unless its route says `onEventFailure: 'retry'`.
 
 ```js
 queue: {

@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, isPermanentJobFailure, readQueueHeaders, withoutTransportHeaders } from '@spinajs/queue';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsProvider, QueueClient, QueueHeaders, QueueMessage, QueueMessageType, UnparseableMessageError, decideDelivery, isCrash, isJob, readQueueHeaders, resolveDeliveryPolicy, retryCountOf, unparseableMessage, withoutTransportHeaders, type DeliveryDecision } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -72,12 +72,8 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 4000;
 const DEFAULT_PREFETCH = 1;
-
-/**
- * STOMP header carrying the number of times a job has already been retried.
- * Set by this transport when it reschedules a failed job.
- */
-const RETRY_COUNT_HEADER = QueueHeaders.RetryCount;
+const TOPIC_PREFIX = '/topic/';
+const VIRTUAL_TOPIC_PREFIX = '/topic/VirtualTopic.';
 
 /** SEND frame headers stompjs or the broker own; stompjs spreads the frame headers over `destination`. */
 const FRAME_HEADERS = new Set(['destination', 'receipt', 'transaction', 'content-length', 'content-type', 'message-id', 'subscription', 'ack']);
@@ -92,7 +88,7 @@ const FRAME_HEADERS = new Set(['destination', 'receipt', 'transaction', 'content
 interface ISubscriptionDescriptor {
   channel: string;
 
-  // runs every handler in `handlers`: one broker subscription per channel serves all of them,
+  // runs every handler in `handlers`: one broker subscription per subscription key serves all of them,
   // because on a queue a second subscription would split the messages between the two
   callback: (e: IQueueMessage) => Promise<void>;
 
@@ -100,6 +96,8 @@ interface ISubscriptionDescriptor {
   handlers: Map<string | Constructor<QueueMessage>, (e: IQueueMessage) => Promise<void>>;
   subscriptionId?: string;
   durable?: boolean;
+  // under virtual topics: the queue a named topic subscription consumes instead of the topic
+  queue?: string;
 
   // current live subscription handle, valid only while connected
   active?: Stomp.StompSubscription;
@@ -122,6 +120,7 @@ interface IStompTransportOptions {
   emitReconnectTimeout?: number;
   emitRetries?: number;
   prefetch?: unknown;
+  virtualTopics?: unknown;
 }
 
 interface IReadyWaiter {
@@ -145,6 +144,7 @@ export class StompQueueClient extends QueueClient {
 
   protected Disposing = false;
   protected PrefetchSize = DEFAULT_PREFETCH;
+  protected VirtualTopics = false;
 
   /** Publisher-side resilience: retry each receipt-confirmed publish with backoff so a transient
    * broker hiccup / receipt timeout doesn't fail the emit. Duplicates are handled by consumer dedup. */
@@ -257,6 +257,19 @@ export class StompQueueClient extends QueueClient {
     return value;
   }
 
+  protected readVirtualTopics(): boolean {
+    const raw = this.TransportOptions?.virtualTopics;
+    if (raw === undefined) {
+      return false;
+    }
+
+    if (typeof raw !== 'boolean') {
+      throw new InvalidArgument(`Queue connection ${this.Options.name}: options.virtualTopics must be a boolean, got ${JSON.stringify(raw)}`);
+    }
+
+    return raw;
+  }
+
   public async resolve() {
     // createWebSocket() runs inside stompjs's un-awaited connect loop, where a throw would be
     // an unhandled rejection and leave this promise pending
@@ -265,6 +278,7 @@ export class StompQueueClient extends QueueClient {
     }
 
     this.PrefetchSize = this.readPrefetch();
+    this.VirtualTopics = this.readVirtualTopics();
 
     this.Log.info({ host: this.Options.host, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
@@ -424,6 +438,9 @@ export class StompQueueClient extends QueueClient {
       w.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
     }
 
+    // the live subscriptions end with the socket; deactivate() sends no UNSUBSCRIBE, so durable ones stay on the broker
+    this.Subscriptions.clear();
+
     if (!this.Client) {
       return;
     }
@@ -453,11 +470,9 @@ export class StompQueueClient extends QueueClient {
   public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, removeDurable = false) {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
-    channels.forEach((c) => {
-      const desc = this.Subscriptions.get(c);
-
-      if (!desc) {
-        return;
+    for (const [key, desc] of [...this.Subscriptions]) {
+      if (!channels.includes(desc.channel)) {
+        continue;
       }
 
       // a string drops the whole channel, a message class only its own handler
@@ -468,32 +483,89 @@ export class StompQueueClient extends QueueClient {
       }
 
       if (desc.handlers.size > 0) {
-        return;
+        continue;
       }
 
-      if (!this.Connected) {
-        // the live subscription went away with the socket; UNSUBSCRIBE cannot be sent without one
-        if (desc.durable && removeDurable) {
-          this.Log.warn({ subscriptionId: desc.subscriptionId, channel: c }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
-        }
-      } else if (desc.durable && removeDurable && desc.subscriptionId) {
-        // delete the broker-side durable subscription, not just stop consuming.
-        // ActiveMQ removes a durable sub when UNSUBSCRIBE carries its subscription name.
-        this.Client.unsubscribe(desc.subscriptionId, { 'activemq.subscriptionName': desc.subscriptionId });
-        this.Log.info({ subscriptionId: desc.subscriptionId, channel: c }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
-      } else {
-        desc.active?.unsubscribe();
+      this.endSubscription(desc, removeDurable);
+      this.Subscriptions.delete(key);
+    }
+  }
+
+  /** Ends the live subscription of a descriptor nobody handles any more. */
+  protected endSubscription(desc: ISubscriptionDescriptor, removeDurable: boolean) {
+    const frameId = this.frameIdOf(desc);
+
+    if (desc.queue && removeDurable) {
+      this.Log.warn({ queue: desc.queue, channel: desc.channel }, 'Stopped consuming ${queue}; the consumer queue of ${channel} stays on the broker and keeps collecting messages until it is deleted there');
+    }
+
+    if (!this.Connected) {
+      // the live subscription went away with the socket; UNSUBSCRIBE cannot be sent without one
+      if (!desc.queue && desc.durable && removeDurable) {
+        this.Log.warn({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
+      }
+    } else if (!desc.queue && desc.durable && removeDurable && desc.subscriptionId && frameId) {
+      // delete the broker-side durable subscription, not just stop consuming.
+      // ActiveMQ removes a durable sub when UNSUBSCRIBE carries its subscription name.
+      this.Client.unsubscribe(frameId, { 'activemq.subscriptionName': desc.subscriptionId });
+      this.Log.info({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
+    } else {
+      desc.active?.unsubscribe();
+    }
+  }
+
+  /** Topic subscriptions with different subscription ids are separate broker subscriptions; everything else shares the channel's. */
+  protected subscriptionKey(channel: string, subscriptionId?: string): string {
+    return channel.startsWith(TOPIC_PREFIX) && subscriptionId ? `${channel}#${subscriptionId}` : channel;
+  }
+
+  /** stompjs routes a MESSAGE frame by the SUBSCRIBE id, so two subscriptions of one connection never share one. */
+  protected frameIdOf(desc: ISubscriptionDescriptor): string | undefined {
+    return desc.subscriptionId ? `${desc.subscriptionId}@${desc.channel}` : undefined;
+  }
+
+  /** ActiveMQ's virtual-topic convention: a named subscriber of VirtualTopic.X consumes the queue Consumer.<id>.VirtualTopic.X. */
+  protected consumerQueueOf(channel: string, subscriptionId?: string): string | undefined {
+    if (!this.VirtualTopics || !subscriptionId || !channel.startsWith(VIRTUAL_TOPIC_PREFIX)) {
+      return undefined;
+    }
+
+    return `/queue/Consumer.${subscriptionId}.VirtualTopic.${channel.slice(VIRTUAL_TOPIC_PREFIX.length)}`;
+  }
+
+  /** Refuses, when the subscription is made, what the failure path could not execute later. */
+  protected assertSubscribable(channelOrMessage: string | Constructor<QueueMessage>, channels: string[], subscriptionId?: string): void {
+    const topics = channels.filter((c) => c.startsWith(TOPIC_PREFIX));
+
+    if (this.VirtualTopics && subscriptionId && topics.length > 0) {
+      // ActiveMQ splits a destination on ',' into a composite destination
+      if (/[.*>,]/.test(subscriptionId)) {
+        throw new InvalidArgument(`subscriptionId ${subscriptionId} names an ActiveMQ consumer queue under options.virtualTopics, so it cannot contain '.', '*', '>' or ','`);
       }
 
-      this.Subscriptions.delete(c);
-    });
+      const plain = topics.filter((c) => !c.startsWith(VIRTUAL_TOPIC_PREFIX));
+      if (plain.length > 0) {
+        throw new InvalidArgument(`With options.virtualTopics a named topic subscription consumes a queue, which only a /topic/VirtualTopic.* channel has; ${plain.join(', ')} is not one ( connection ${this.Options.name} )`);
+      }
+    }
+
+    if (!_.isString(channelOrMessage) && this.getRouteOption(channelOrMessage, 'onEventFailure') === 'retry') {
+      const stranded = topics.filter((c) => !this.consumerQueueOf(c, subscriptionId));
+      if (stranded.length > 0) {
+        throw new InvalidArgument(
+          `queue.routing.${channelOrMessage.name}.onEventFailure is 'retry', but ${stranded.join(', ')} on connection ${this.Options.name} has no consumer queue to retry into: set options.virtualTopics, give the subscription a subscriptionId and route the event to a /topic/VirtualTopic.* channel, or route it to a /queue/ channel`,
+        );
+      }
+    }
   }
 
   public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
+    this.assertSubscribable(channelOrMessage, channels, subscriptionId);
 
     channels.forEach((c) => {
-      const existing = this.Subscriptions.get(c);
+      const key = this.subscriptionKey(c, subscriptionId);
+      const existing = this.Subscriptions.get(key);
 
       if (existing?.handlers.has(channelOrMessage)) {
         this.Log.warn({ channel: c }, 'Channel ${channel} already subscribed !');
@@ -517,8 +589,9 @@ export class StompQueueClient extends QueueClient {
         handlers,
         subscriptionId,
         durable,
+        queue: this.consumerQueueOf(c, subscriptionId),
       };
-      this.Subscriptions.set(c, desc);
+      this.Subscriptions.set(key, desc);
 
       // if already connected subscribe now, otherwise it will be applied on next onConnect
       if (this.Client?.connected) {
@@ -536,17 +609,19 @@ export class StompQueueClient extends QueueClient {
   protected applySubscription(desc: ISubscriptionDescriptor) {
     const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': `${this.PrefetchSize}` };
 
-    if (desc.subscriptionId) {
-      headers.id = desc.subscriptionId;
+    const frameId = this.frameIdOf(desc);
+    if (frameId) {
+      headers.id = frameId;
     }
 
-    if (desc.durable) {
+    // a consumer queue is durable by nature and takes no subscription name
+    if (desc.durable && !desc.queue) {
       // durable subscriptions require a stable name ( guarded in subscribe() )
       headers['activemq.subscriptionName'] = desc.subscriptionId!;
     }
 
     desc.active = this.Client.subscribe(
-      desc.channel,
+      desc.queue ?? desc.channel,
       (message) => {
         let qMessage: IQueueMessage;
 
@@ -554,7 +629,7 @@ export class StompQueueClient extends QueueClient {
           qMessage = JSON.parse(message.body);
         } catch (err) {
           this.Log.error({ error: err, channel: desc.channel }, 'Cannot parse message body on channel ${channel}');
-          this.handleUnparseableMessage(message, desc.channel, err);
+          this.handleUnparseableMessage(message, desc, err);
           return;
         }
 
@@ -589,110 +664,93 @@ export class StompQueueClient extends QueueClient {
     if (qMessage.Headers || Object.keys(standard).length > 0) qMessage.Headers = { ...qMessage.Headers, ...standard };
   }
 
-  /**
-   * Handles a message whose consumer callback rejected.
-   *
-   * Events ( fire-and-forget ) are logged and acked ( dropped ) - the queue model
-   * does not retry them. Jobs are retried up to their RetryCount by re-publishing
-   * to the same channel with an incremented retry header ( and optional backoff ),
-   * then dead-lettered once retries are exhausted, or at once for a `PermanentJobFailure`.
-   */
+  /** A crash stands for a dead consumer: nothing is settled, and the broker redelivers when the connection drops. */
   protected handleFailedMessage(message: Stomp.IMessage, qMessage: IQueueMessage, desc: ISubscriptionDescriptor, err: unknown) {
-    const reason = (err as Error)?.message ?? String(err);
+    if (isCrash(err)) {
+      this.Log.error({ error: err, channel: desc.channel, messageName: qMessage.Name }, 'The consumer of ${messageName} on ${channel} crashed; the frame stays unsettled until the connection drops');
+      return;
+    }
 
-    // events are not retried or tracked - drop them
-    if (qMessage.Type !== QueueMessageType.Job) {
-      this.Log.warn({ channel: desc.channel, messageName: qMessage.Name, reason }, 'Event handler failed on channel ${channel}, dropping message ${messageName}. ${reason}');
+    const decision = decideDelivery(qMessage, retryCountOf(message.headers), err, resolveDeliveryPolicy(this, qMessage));
+    this.executeDecision(message, qMessage, desc, decision);
+  }
+
+  protected executeDecision(message: Stomp.IMessage, qMessage: IQueueMessage, desc: ISubscriptionDescriptor, decision: DeliveryDecision) {
+    if (decision.action === 'ack') {
+      if (decision.dropped) {
+        this.Log.warn({ channel: desc.channel, messageName: qMessage.Name, reason: decision.reason }, 'Event handler failed on channel ${channel}, dropping message ${messageName}. ${reason}');
+      }
       this.settle(message, 'ack');
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
-    const attempt = Number(message.headers?.[RETRY_COUNT_HEADER] ?? '0');
-
-    if (attempt < maxRetries && !isPermanentJobFailure(err)) {
-      const nextAttempt = attempt + 1;
-      const delay = this.retryBackoff(nextAttempt);
-
-      const headers: Stomp.StompHeaders = {
-        persistent: 'true',
-        'content-type': 'application/json',
-        [RETRY_COUNT_HEADER]: `${nextAttempt}`,
-      };
-
-      // preserve app-relevant delivery headers across the retry republish.
-      // NOTE: original AMQ_SCHEDULED_* are intentionally dropped - the backoff delay below
-      // replaces scheduling for the retry ( we don't want to re-run a cron on a retry ).
-      if (qMessage.Priority) {
-        headers.priority = `${qMessage.Priority}`;
-      }
-      if ((qMessage as IQueueJob).JobId) {
-        headers['correlation-id'] = (qMessage as IQueueJob).JobId!;
-      }
-      if (qMessage.MessageId) {
-        headers[QueueHeaders.MessageId] = qMessage.MessageId;
-      }
-
-      if (delay > 0) {
-        headers['AMQ_SCHEDULED_DELAY'] = `${delay}`;
-      }
-
-      // ack the original only once the broker confirmed the rescheduled delivery to the same channel
-      this.sendWithReceipt(desc.channel, message.body, headers)
-        .then(() => {
-          this.settle(message, 'ack');
-          this.Log.warn({ jobName: qMessage.Name, channel: desc.channel, attempt: nextAttempt, maxRetries, delay, reason }, 'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}');
-        })
-        .catch((retryErr) => {
-          this.Log.error({ error: retryErr, jobName: qMessage.Name, channel: desc.channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
-          this.settle(message, 'nack');
-        });
-
+    if (decision.action === 'dead-letter') {
+      this.deadLetter(message, decision.channel, { ...decision.headers, [QueueHeaders.OriginalDestination]: desc.channel });
       return;
     }
 
-    // retries exhausted - route to dead-letter
-    this.deadLetter(message, this.getDeadLetterChannelForMessage(qMessage), desc.channel, reason, attempt, qMessage.MessageId);
+    // a republish to a topic reaches every subscriber, so without a consumer queue a topic takes back a job only
+    const target = desc.queue ?? (!desc.channel.startsWith(TOPIC_PREFIX) || qMessage.Type === QueueMessageType.Job ? desc.channel : undefined);
+    if (!target) {
+      if (decision.forced) {
+        // never acked; a NACK does not redeliver on ActiveMQ, the frame goes to the broker's dead-letter queue
+        this.Log.error({ channel: desc.channel, messageName: qMessage.Name }, '${messageName} on ${channel} asked for a later delivery, but this topic subscription has no consumer queue to redeliver into; nacking it');
+        this.settle(message, 'nack');
+        return;
+      }
+
+      this.Log.error({ channel: desc.channel, messageName: qMessage.Name }, 'Event ${messageName} on ${channel} cannot be retried without options.virtualTopics and a subscriptionId; dropping it');
+      this.settle(message, 'ack');
+      return;
+    }
+
+    // AMQ_SCHEDULED_* of the original are not copied: the delay below replaces them, and a cron must not run again on a retry
+    const headers: Stomp.StompHeaders = { persistent: 'true', 'content-type': 'application/json', ...decision.headers };
+    if (qMessage.Priority) {
+      headers.priority = `${qMessage.Priority}`;
+    }
+    if (isJob(qMessage) && qMessage.JobId) {
+      headers['correlation-id'] = qMessage.JobId;
+    }
+    if (decision.delayMs > 0) {
+      headers.AMQ_SCHEDULED_DELAY = `${decision.delayMs}`;
+    }
+
+    // ack the original only once the broker confirmed the rescheduled copy
+    this.sendWithReceipt(target, message.body, headers)
+      .then(() => {
+        this.settle(message, 'ack');
+        this.Log.warn({ messageName: qMessage.Name, channel: target, attempt: decision.attempt, delay: decision.delayMs, reason: decision.headers[QueueHeaders.Error] }, '${messageName} failed on ${channel}, retry ${attempt} scheduled in ${delay}ms. ${reason}');
+      })
+      .catch((retryErr) => {
+        this.Log.error({ error: retryErr, messageName: qMessage.Name, channel: target }, 'Failed to reschedule ${messageName} on ${channel}, nacking instead');
+        this.settle(message, 'nack');
+      });
+  }
+
+  /** A body that is not JSON has no type and no route: it goes to the connection's dead-letter channel. */
+  protected handleUnparseableMessage(message: Stomp.IMessage, desc: ISubscriptionDescriptor, err: unknown) {
+    const stand = unparseableMessage();
+    const frameId = message.headers?.[QueueHeaders.MessageId];
+    const decision = decideDelivery(frameId ? { ...stand, MessageId: frameId } : stand, 0, new UnparseableMessageError(err), resolveDeliveryPolicy(this, stand));
+    this.executeDecision(message, stand, desc, decision);
   }
 
   /**
-   * Handles a message whose body could not be parsed as JSON. It cannot be retried
-   * ( we don't know its type ), so it is dead-lettered or nacked.
+   * Publishes the message to the dead-letter channel and acks the original once the broker confirmed. Without a
+   * dead-letter channel the message is dropped ( acked ) with a warning: a poison message is never nack-looped.
    */
-  protected handleUnparseableMessage(message: Stomp.IMessage, channel: string, err: unknown) {
-    const reason = (err as Error)?.message ?? String(err);
-    this.deadLetter(message, this.Options.defaultQueueDeadLetterChannel, channel, reason);
-  }
+  protected deadLetter(message: Stomp.IMessage, dlq: string | undefined, headers: Record<string, string>) {
+    const channel = headers[QueueHeaders.OriginalDestination];
+    const reason = headers[QueueHeaders.Error];
 
-  /**
-   * Publishes a failed message to the given dead-letter channel and acks the original
-   * to unblock the source queue. When no dead-letter channel is configured the message is
-   * dropped ( acked ) with a warning - we never nack-loop a poison message forever.
-   */
-  protected deadLetter(message: Stomp.IMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number, messageId: string | undefined = message.headers?.[QueueHeaders.MessageId]) {
     if (!dlq) {
-      // retries are already exhausted here; nacking would just redeliver into another exhausted
-      // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
-      this.Log.warn({ channel, reason }, 'Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}');
+      this.Log.warn({ channel, reason }, 'Message failed on channel ${channel} and no dead-letter channel is configured - dropping. ${reason}');
       this.settle(message, 'ack');
       return;
     }
 
-    const headers: Stomp.StompHeaders = {
-      persistent: 'true',
-      'content-type': 'application/json',
-      [QueueHeaders.OriginalDestination]: channel,
-      [QueueHeaders.Error]: reason,
-    };
-
-    if (attempt !== undefined) {
-      headers[RETRY_COUNT_HEADER] = `${attempt}`;
-    }
-    if (messageId) {
-      headers[QueueHeaders.MessageId] = messageId;
-    }
-
-    this.sendWithReceipt(dlq, message.body, headers)
+    this.sendWithReceipt(dlq, message.body, { persistent: 'true', 'content-type': 'application/json', ...headers })
       .then(() => {
         this.settle(message, 'ack');
         this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
@@ -701,6 +759,11 @@ export class StompQueueClient extends QueueClient {
         this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
         this.settle(message, 'nack');
       });
+  }
+
+  /** Only a consumer queue can take a later delivery; a NACK goes to the broker's dead-letter queue. */
+  public get RedeliversFailedEvents(): boolean {
+    return this.VirtualTopics;
   }
 
   /**
@@ -721,15 +784,6 @@ export class StompQueueClient extends QueueClient {
         'Cannot ${how} message on ${destination} ( ${connection} ), the broker will redeliver it',
       );
     }
-  }
-
-  /**
-   * Exponential backoff ( ms ) for the given retry attempt, based on `Options.retryDelay`.
-   * Returns 0 ( immediate redelivery ) when no base delay is configured.
-   */
-  protected retryBackoff(attempt: number): number {
-    const base = this.Options.retryDelay ?? 0;
-    return base > 0 ? base * 2 ** (attempt - 1) : 0;
   }
 
   /**

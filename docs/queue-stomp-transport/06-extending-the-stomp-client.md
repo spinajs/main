@@ -67,14 +67,19 @@ Protected hooks, in the order they run:
 | `resolve()` (public) | once, at boot | builds the client, installs handlers, connects | log, add metrics, adjust `this.Client` after `super.resolve()` |
 | `createClient(config)` | once, in `resolve()` | `new Client(config)` from `@stomp/stompjs` | return a fake for tests, or a client with extra handlers |
 | `createWebSocket()` | before every connect attempt | `new WebSocket(host, protocols)` from `ws` | TLS client certificates, proxies, handshake headers |
-| `applySubscription(desc)` | on `subscribe()` while connected, and for every subscription on each connect | `client-individual` ack, prefetch `1`, ActiveMQ durable name | change subscription headers; it also wires parsing, ack and failure handling, so prefer the hooks below |
+| `subscriptionKey(channel, subscriptionId?)` | on `subscribe()` | `<channel>#<subscriptionId>` for a named topic subscription, else the channel | share or split broker subscriptions differently |
+| `consumerQueueOf(channel, subscriptionId?)` | on `subscribe()` | with `options.virtualTopics`, `/queue/Consumer.<subscriptionId>.VirtualTopic.<name>` for a named subscription of `/topic/VirtualTopic.<name>`, else none | another consumer-queue naming convention |
+| `assertSubscribable(channelOrMessage, channels, subscriptionId?)` | on `subscribe()`, before anything is recorded | refuses a bad `subscriptionId` or plain topic under virtual topics, and `onEventFailure: 'retry'` without a consumer queue | add your own boot checks; call `super` |
+| `endSubscription(desc, removeDurable)` | on `unsubscribe()`, for a subscription left without handlers | UNSUBSCRIBE; with `removeDurable`, removes a durable subscription by name, or logs that a consumer queue stays | extra cleanup; call `super` |
+| `frameIdOf(desc)` | on `applySubscription()` and on `unsubscribe(…, true)` | `<subscriptionId>@<channel>`, or none without a `subscriptionId` | keep it unique per connection: `stompjs` routes MESSAGE frames by it |
+| `applySubscription(desc)` | on `subscribe()` while connected, and for every subscription on each connect | `client-individual` ack, prefetch `1`, STOMP id from `frameIdOf()`, ActiveMQ durable name | change subscription headers; it also wires parsing, ack and failure handling, so prefer the hooks below |
 | `publishMessage(message)` | on `emit()` and when flushing buffered emits | routing, header mapping, one pipeline run per channel | change the message or headers before `super` |
 | `publishWithReceipt(channel, body, headers, message)` | per channel and attempt | receipt watch with `ReceiptTimeout` | stamp headers on every frame; see [Publishing](02-publishing-messages.md#message-to-frame-custom-headers) |
 | `ReceiptTimeout` (getter) | per attempt | `receiptTimeout ?? options.receiptTimeout ?? 5000` | compute it per connection |
-| `handleFailedMessage(message, qMessage, desc, err)` | handler rejected | drop events, retry jobs, then dead-letter | change the policy; see [Consuming](03-consuming-retries-and-dead-letters.md#failure-policy-custom-implementation) |
-| `retryBackoff(attempt)` | per job retry | `retryDelay × 2^(attempt − 1)` | cap, jitter, fixed delay |
-| `handleUnparseableMessage(message, channel, err)` | body is not JSON | dead-letter to `defaultQueueDeadLetterChannel` | quarantine elsewhere |
-| `deadLetter(message, dlq, channel, reason, attempt?)` | retries exhausted or poison body | publish with diagnostics headers, ack | alert, store, add headers; call `super` |
+| `handleFailedMessage(message, qMessage, desc, err)` | handler rejected | leave a crash unsettled, otherwise `decideDelivery()` | change the error the decision sees; see [Consuming](03-consuming-retries-and-dead-letters.md#failure-policy-custom-implementation) |
+| `executeDecision(message, qMessage, desc, decision)` | after every decision | ack, republish to the retry target, or `deadLetter()` | observe or count decisions; call `super` |
+| `handleUnparseableMessage(message, desc, err)` | body is not JSON | dead-letter to `defaultQueueDeadLetterChannel` | quarantine elsewhere |
+| `deadLetter(message, dlq, headers)` | retries exhausted, a non-retryable error, or a poison body | publish with the decision headers and `x-original-destination`, ack | alert, store, add headers; call `super` |
 | `flushPendingEmits()` | on each connect | publish every buffered emit | add ordering or a buffer limit |
 | `flushReadyWaiters()` | on each connect | resolve `whenReady()` callers | |
 | `getChannelForMessage(message)`, `getDeadLetterChannelForMessage(message)` (public, from `QueueClient`) | on emit, subscribe and failure | `queue.routing`, then connection defaults | tenant prefixes, computed routes |
@@ -85,7 +90,7 @@ Protected state a subclass can read:
 | --- | --- | --- |
 | `Options` | `QueueClient` (public) | The connection entry, custom keys included |
 | `Client` | `StompQueueClient` | The `stompjs` client, set in `resolve()` |
-| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by channel, each with the handlers of every message class on it, replayed on connect |
+| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by `subscriptionKey()`, each with the handlers of every message class on it, replayed on connect, cleared by `dispose()` |
 | `PendingEmits` | `StompQueueClient` | Emits buffered while disconnected |
 | `ReadyWaiters` | `StompQueueClient` | Pending `whenReady()` settlers: called with no argument on connect, with an error on `dispose()` |
 | `Disposing` | `StompQueueClient` | `true` once `dispose()` has started |
@@ -176,10 +181,10 @@ DI.register(async (container: IContainer, options: IQueueConnectionOptions) => {
 
 ## Best practices
 
-- Override the narrowest hook: `retryBackoff()` before `handleFailedMessage()`, `publishWithReceipt()` before `publishMessage()`, `createWebSocket()` before `createClient()`.
+- Prefer configuration to a hook: the route `backoff` sets the retry delay. Override the narrowest hook: `publishWithReceipt()` before `publishMessage()`, `createWebSocket()` before `createClient()`.
 - Call `super` first in `resolve()` and add your logic after it; call `super` last in `deadLetter()` only when your step must run before the message leaves.
 - Read custom settings from `this.Options` through an interface that extends `IQueueConnectionOptions`, so the connection entry stays the one place to configure a connection.
-- Name subclasses after what they add (`MutualTlsStompClient`, `CappedRetryStompClient`) and use them only on the connections that need them.
+- Name subclasses after what they add (`MutualTlsStompClient`, `AlertingStompClient`) and use them only on the connections that need them.
 
 ## Patterns and antipatterns
 
@@ -292,7 +297,7 @@ export async function invoiceJobIsPersistentAndCorrelated() {
 
 - [STOMP connection](01-stomp-connection.md): the boot flow the hooks run in.
 - [Publishing messages](02-publishing-messages.md): `buildEmitPipeline()`, `publishMessage()`, `publishWithReceipt()`.
-- [Consuming, retries and dead letters](03-consuming-retries-and-dead-letters.md): `handleFailedMessage()`, `retryBackoff()`, `deadLetter()`.
+- [Consuming, retries and dead letters](03-consuming-retries-and-dead-letters.md): `handleFailedMessage()`, `executeDecision()`, `deadLetter()`; the retry delay is the route `backoff`.
 - [Client factory and client id](05-client-factory-and-client-id.md): factories for subclasses.
 - [`@spinajs/queue`](../queue/README.md): the `QueueClient` contract for a transport written from scratch.
 - [`@spinajs/di`](../di/04-lifetimes.md): `@PerInstanceCheck()` and other lifetimes.

@@ -45,7 +45,8 @@ activemq.password=<long random>
 ```
 
 The broker config must keep `schedulerSupport="true"`. Without it, retry backoff and `ScheduleDelay` are
-**silently ignored**, and messages arrive immediately. The scheduler store lives under the data volume
+**silently ignored**, and messages arrive immediately. A `RedeliverLater` ( an in-flight duplicate or a failed
+dedup claim ) then comes back at once, in a loop, because it is not counted as a retry. The scheduler store lives under the data volume
 ( `data/localhost/scheduler` ), so scheduled messages survive a broker restart.
 
 ## App config
@@ -69,10 +70,24 @@ queue: {
 ```
 
 - STOMP `/queue/x` is the ActiveMQ queue named `x`. That is the name the console and Jolokia show.
-- Retry n waits `retryDelay * 2^(n-1)` with **no cap**. With `retryDelay: 5000` and `maxRetries: 10`, the last wait is about 43 min.
+- Without a route `backoff`, retry n waits `retryDelay * 2^(n-1)` with **no cap**. With `retryDelay: 5000` and `maxRetries: 10`,
+  the last wait is about 43 min. Set `backoff: { kind: 'exponential', delayMs: 5000, maxDelayMs: 600000 }` on the route to cap it.
 - Keep jobs and events on separate connections: prefetch applies per connection.
 - Several job types may share one channel. Each still only runs its own messages. `stopConsuming()` on a
   shared channel stops every consumer of that channel.
+
+## Virtual topics
+
+ActiveMQ Classic copies every message sent to `VirtualTopic.<name>` into each queue named
+`Consumer.<id>.VirtualTopic.<name>` ( the default `virtualDestinationInterceptor`, pattern `Consumer.*.VirtualTopic.>`;
+the reference config does not turn it off ). A consumer queue exists from its first consumer on and then keeps
+collecting messages, also while nobody consumes it.
+
+With `options: { virtualTopics: true }` on a connection, a subscription with a `subscriptionId` on
+`/topic/VirtualTopic.<name>` consumes `/queue/Consumer.<subscriptionId>.VirtualTopic.<name>`. Replicas that share
+the `subscriptionId` compete for its messages, and failed events and `RedeliverLater` are republished into that
+queue with `AMQ_SCHEDULED_DELAY`, so only that subscriber sees them again. Remove a consumer queue that is no
+longer used in the console or with Jolokia ( `removeQueue` ); `unsubscribe()` only stops consuming it.
 
 ## Replicas
 
@@ -101,8 +116,9 @@ message that names `QUEUE_INSTANCE_ID`.
   held and sent after the reconnect. A drop mid-publish waits up to `options.emitReconnectTimeout` ( default
   60 s ) per attempt.
 - A failed job is acked only after the broker confirmed its retry ( or dead letter ). If that confirmation does
-  not arrive within `receiptTimeout`, the original is NACKed instead ( see "Dead letters" ). A late receipt can
-  then leave both the retry and the NACKed original in flight, so the job may run once more.
+  not arrive within `receiptTimeout`, the original is NACKed instead ( see "Dead letters" ). After a late receipt
+  the retry runs, and the NACKed original sits in the broker DLQ ( or is discarded if non-persistent ); it runs
+  again only if someone moves it back.
 
 ## Memory and disk
 
@@ -119,10 +135,16 @@ message that names `QUEUE_INSTANCE_ID`.
 Messages can end up in two places:
 
 1. **App DLQs**: `deadLetterChannel` / `defaultQueueDeadLetterChannel`. The transport sends a job here after
-   its last failed attempt, with headers `x-original-destination`, `x-error` and `x-retry-count`. The row in
-   `queue_jobs` is `dead`, and `LastError` holds the message.
-2. **Broker DLQs**: `DLQ.<queue>`. The broker routes a message here when the transport NACKs it, which happens
-   when a retry or dead-letter publish could not be confirmed.
+   its last failed attempt, or on the first failure of a `NonRetryableError`, with headers `x-original-destination`,
+   `x-error`, `x-retry-count` and `x-spinajs-message-id`. The row in `queue_jobs` is `dead`, and `LastError` holds
+   the message. An event routed with `onEventFailure: 'retry'` comes here when its retries run out.
+2. **Broker DLQs**. The transport NACKs a message when a retry or dead-letter publish could not be confirmed,
+   and for a `RedeliverLater` on a topic subscription without a consumer queue. A NACK is never a redelivery: the
+   reference config has no redelivery plugin. A persistent message goes to `DLQ.<queue>` for a queue ( the
+   reference `individualDeadLetterStrategy` on `queue=">"` ) and to the shared `ActiveMQ.DLQ` for a topic. A
+   non-persistent message, which is every event emitted without `Persistent: true`, is **discarded**: the
+   strategies default to `processNonPersistent="false"`. To keep such events, emit them persistent, or set
+   `processNonPersistent="true"` on the `deadLetterStrategy` and add one to the `topic=">"` policy entry.
 
 Inspect ( console at `http://127.0.0.1:8161/admin/queues.jsp`, or Jolokia ):
 
