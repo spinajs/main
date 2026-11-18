@@ -738,9 +738,6 @@
     }
   },
   "packages/authn/test/audit/authn-audit.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "promise/param-names": {
       "count": 4
     }
@@ -771,7 +768,7 @@
   },
   "packages/authn/test/contracts/audit.test.ts": {
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/authn/test/contracts/boundary.test.ts": {
