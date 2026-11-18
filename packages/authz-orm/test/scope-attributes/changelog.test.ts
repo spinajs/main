@@ -6,7 +6,7 @@ import type { AuthzTx, ChangeRecord, ResourceRef } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 import { createHash } from 'node:crypto';
 
-import { DbScopeAttributeStore, attributeChangeKey } from '../../src/index.js';
+import { DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, attributeChangeKey } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createScopeAttributeTables, dropScopeAttributeTables } from '../support/scope-attributes.js';
@@ -89,6 +89,27 @@ describe('DbScopeAttributeStore changelog', function () {
           ['remove', keyOf('org:o1', 'a.b'), leaf('a.b', 0), null],
           ['add', keyOf('org:o1', 'a'), leaf('a', 'x'), null],
         ]);
+      });
+
+      it('setting a path under a shallower leaf removes that leaf and adds the new one', async () => {
+        await inTx((tx) => store.write(o1, { set: { a: 'x' }, remove: [] }, ALICE, tx));
+        const logged = await loggedAfter(() => inTx((tx) => store.write(o1, { set: { 'a.b': 1 }, remove: [] }, ALICE, tx)));
+        expect(logged.map(shape)).to.have.deep.members([
+          ['remove', keyOf('org:o1', 'a'), leaf('a', 'x'), null],
+          ['add', keyOf('org:o1', 'a.b'), leaf('a.b', 1), null],
+        ]);
+      });
+
+      it('a path removed and set in one write is one put', async () => {
+        await inTx((tx) => store.write(o1, { set: { c: 2 }, remove: [] }, ALICE, tx));
+        const logged = await loggedAfter(() => inTx((tx) => store.write(o1, { set: { c: 3 }, remove: ['c'] }, ALICE, tx)));
+        expect(logged.map(shape)).to.deep.equal([['put', keyOf('org:o1', 'c'), leaf('c', 3), leaf('c', 2)]]);
+      });
+
+      it('a forget logs a leaf whose stored value does not parse without a value', async () => {
+        await driver.insert().into(SCOPE_ATTRIBUTE_TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '{not json', value_text: null, value_num: null, updated_by: 'sql', updated_at: new Date() });
+        const logged = await loggedAfter(() => inTx((tx) => store.forget(o1, tx)));
+        expect(logged.map(shape)).to.deep.equal([['remove', keyOf('org:o1', 'bad'), { scope: 'org:o1', path: 'bad' }, null]]);
       });
 
       it('a forget logs one removal per leaf with its value, and nothing for an empty node', async () => {
