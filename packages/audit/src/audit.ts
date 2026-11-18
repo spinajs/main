@@ -252,11 +252,11 @@ export class DefaultAuditService extends AuditService {
     const events = group.map((p) => p.event);
     const { timeoutMs, blockCeilingMs } = deferredConfig(this.Container);
     const since = this.blocked.get(key);
-    if (since !== undefined && Date.now() - since < blockCeilingMs) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
+    if (since !== undefined && performance.now() - since < blockCeilingMs) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
     if (since !== undefined) {
       this.blocked.delete(key);
       this.late.delete(key);
-      this.report('error', { trail: trail.name, connection, blockedMs: Date.now() - since }, UNORDERED);
+      this.report('error', { trail: trail.name, connection, blockedMs: Math.round(performance.now() - since) }, UNORDERED);
     }
     const limit = deadline(timeoutMs);
     const flight = { appending: false, tries: 0 };
@@ -278,7 +278,7 @@ export class DefaultAuditService extends AuditService {
   private block(key: string, trail: TrailConfig, connection: string | undefined): void {
     // A late append that settled meanwhile has already unblocked the target; a block set now would never be lifted.
     if (!this.late.has(key)) return;
-    this.blocked.set(key, Date.now());
+    this.blocked.set(key, performance.now());
     this.report('warn', { trail: trail.name, connection }, BLOCKED);
   }
 
