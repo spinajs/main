@@ -148,7 +148,7 @@ describe('TelemetryMiddleware — before() / finish handler', () => {
     expect(Object.keys(store.Timeline.toJSON())).to.have.length(1);
   });
 
-  it('falls back to req.path when no matched route is available', () => {
+  it('labels a request with no matched route <unmatched>, never with its raw path', () => {
     const { mw, spies } = makeMiddleware();
     const req = fakeReq({ path: '/raw' });
     const res = fakeRes(404);
@@ -156,7 +156,7 @@ describe('TelemetryMiddleware — before() / finish handler', () => {
     mw.before()(req, res, sinon.spy());
     res.finish();
 
-    expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '/raw', status: '404' });
+    expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '<unmatched>', status: '404' });
   });
 
   it('balances in-flight when the client aborts and only close fires', () => {
