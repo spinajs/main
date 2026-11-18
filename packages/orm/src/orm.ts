@@ -57,9 +57,12 @@ function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor):
   return declared.map((c) => ({ ...c }));
 }
 
+function missingTablesList(missing: IMissingModelTable[]): string {
+  return missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`).join('; ');
+}
+
 function missingTablesMessage(missing: IMissingModelTable[]): string {
-  const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
-  return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
+  return `Missing tables (db.StrictTableCheck): ${missingTablesList(missing)}. Create them (run their migrations) or set db.StrictTableCheck to false`;
 }
 
 export class Orm extends AsyncService {
@@ -268,7 +271,12 @@ export class Orm extends AsyncService {
       throw new OrmException(missingTablesMessage(missing));
     }
 
-    this.warnMissingTables(missing);
+    if (this.MigrationGuard.Enabled) {
+      this.warnMissingTables(missing);
+    } else if (missing.length > 0) {
+      const template = missing.length === 1 ? '1 model table does not exist yet; the migrations this tool runs may create it: ${list}' : '${count} model tables do not exist yet; the migrations this tool runs may create them: ${list}';
+      this.Log.warn({ count: missing.length, list: missingTablesList(missing), tables: missing }, template);
+    }
 
     this.wireRelations();
     this.applyModelMixins();

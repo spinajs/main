@@ -1,29 +1,20 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, Primary, resolveMigrationTool } from '../src/index.js';
-import { FakeSqliteDriver } from './misc.js';
+import { Connection, extractModelDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, Primary, resolveMigrationTool } from '../src/index.js';
+import { TableSetDriver } from './misc.js';
 
 const expect = chai.expect;
 
 const CONNECTION = 'strict-check';
 const ALIAS = 'strict-check-alias';
 
-/** Tables the fake database holds; tableInfo() answers null for any other, as every real driver does. */
-const TABLES = new Set<string>();
+const TABLES = TableSetDriver.Tables;
 
 /** db.StrictTableCheck of the next boot; undefined leaves the key out. */
 let strictSetting: boolean | undefined;
-
-class StrictCheckDriver extends FakeSqliteDriver {
-  public async tableInfo(table: string): Promise<IColumnDescriptor[]> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- a missing table answers null like a real driver, which the abstract signature does not declare
-    return TABLES.has(table) ? [] : (null as any);
-  }
-}
 
 class StrictCheckConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -103,7 +94,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     TABLES.clear();
     strictSetting = undefined;
     DI.register(StrictCheckConf).as(Configuration);
-    DI.register(StrictCheckDriver).as('strict-check-driver');
+    DI.register(TableSetDriver).as('strict-check-driver');
   });
 
   afterEach(() => {
