@@ -79,6 +79,13 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`authz-http`](authz-http/README.md), [`authz-http-admin`](authz-http-admin/README.md), [`authz-orm`](authz-orm/README.md), [`authz-fs`](authz-fs/README.md), [`authz-queue`](authz-queue/README.md), [`authz-testing`](authz-testing/README.md), [`authz-convert`](authz-convert/README.md), [`eslint-plugin-authz`](eslint-plugin-authz/README.md) | Integrations, tooling and the 2.x converter |
 | [`users`](users/README.md), [`users-http`](users-http/README.md), [`teams`](teams/README.md), [`teams-http`](teams-http/README.md) | User accounts, teams and groups |
 
+## Audit trail
+
+| Package | What it covers |
+| --- | --- |
+| [`@spinajs/audit`](audit/README.md) | One event shape, named trails, write modes, masking, reading and erasure; [limits](audit/09-limits.md) |
+| [`@spinajs/audit-orm`](audit/01-trails-and-guarantees.md#tables) | Trail tables, `Model.audit()`, retention, [shipping](audit/06-shipping.md), [sealing and `spinajs audit:verify`](audit/07-integrity-and-verification.md) |
+
 ## Messaging, email and templates
 
 | Package | What it covers |
