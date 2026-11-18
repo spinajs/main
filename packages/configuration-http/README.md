@@ -20,6 +20,24 @@ Full documentation: [`docs/configuration-http`](../../docs/configuration-http/RE
 - [File validators](../../docs/configuration-http/06-file-validators.md)
 - [Customizing the upload service](../../docs/configuration-http/07-upload-service-customization.md)
 
+## Setup
+
+Installing the package turns it on. `@spinajs/configuration` merges the config of every installed `@spinajs/*`
+package, so the routes, the two permissions and the `admin.configuration` role below are there in any app with the
+package in `node_modules`, whether the app imports it or not. Import the package before the bootstrappers run:
+
+```ts
+import '@spinajs/configuration-http';
+// ... bootstrappers, Configuration
+await DI.resolve(Orm);
+```
+
+The import registers `ConfigurationHttpBootstrapper`, which makes `DbConfig` the `configuration` access resource
+and calls `requireSystemPrincipal()`. The controller module imports it too, but the controller scan runs after the
+app ran its bootstrappers, and nothing runs a bootstrapper registered later. The import also brings in
+`@spinajs/configuration-db-source` and `@spinajs/authz-orm`, whose models the Orm binds only when they are
+registered before it resolves. A model imported later throws `OrmException: Model DbConfig is not bound to the Orm`.
+
 ## Endpoints
 
 | Method | Path                   | Permission             | Description                                     |

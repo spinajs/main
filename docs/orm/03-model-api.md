@@ -32,7 +32,7 @@ sequenceDiagram
 
 ### Static methods
 
-Every method below is bound by `Orm`. Before `Orm` resolves, or on a class without `@Model()`, the `ModelBase` stub throws `Not implemented`.
+Every method below is bound by `Orm` when it resolves, for the models registered by then. Before `Orm` resolves, on a class without `@Model()`, or on a model imported after `Orm` resolved, the `ModelBase` stub throws an `OrmException`: `Model <Name> is not bound to the Orm ...`.
 
 | Method | Returns | Behaviour |
 | --- | --- | --- |

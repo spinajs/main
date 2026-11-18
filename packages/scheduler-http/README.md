@@ -13,6 +13,20 @@ The package configuration adds its controllers to `system.dirs.controllers`, dec
 permissions in `authz.permissions` and, for apps that load `@spinajs/authz-rbac`, grants all of them to `admin`
 through the `admin.scheduler` sub-role.
 
+Installing the package turns it on. `@spinajs/configuration` merges the config of every installed `@spinajs/*`
+package, so the routes and permissions above are there in any app with the package in `node_modules`, whether the
+app imports it or not. The controllers use the models of `@spinajs/scheduler`, and the Orm binds only the models
+registered before it resolves. Import `@spinajs/scheduler` before `Orm` resolves:
+
+```ts
+import '@spinajs/scheduler';
+// ... bootstrappers, Configuration
+await DI.resolve(Orm);
+```
+
+Otherwise the scheduler service fails when a controller first resolves it, with
+`OrmException: Model ScheduleModel is not bound to the Orm`.
+
 ## Configuration
 
 | Key | Default | Meaning |

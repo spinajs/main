@@ -71,6 +71,12 @@ process metrics are wired automatically. Set the scrape token, load the package
 barrel, and give `service:telemetry` the `telemetry:read` permission (with
 `@spinajs/authz-rbac` the package config does that; see Roles).
 
+Installing the package turns its routes on. `@spinajs/configuration` merges the config of every installed
+`@spinajs/*` package, so the controllers, the `telemetry:read` permission and the `telemetry` role come with the
+package being in `node_modules`, whether the app imports it or not. The perf bridge, the default process metrics
+and the scrape token are wired by the package's bootstrappers, which run only when the package was imported before
+them: `import '@spinajs/telemetry'` before the app runs its bootstrappers. The package declares no ORM models.
+
 ```ts
 // configuration
 {
