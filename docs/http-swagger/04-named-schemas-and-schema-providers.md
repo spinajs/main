@@ -108,10 +108,17 @@ The document gets two components: `Payment` (the response shape, used by both `2
 
 ## Important behaviour
 
-- `convertJsonSchema()` keeps only `type`, `format`, `description`, `enum`, `const` (as a one-value `enum`), `required`, `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `nullable`, `items`, `properties`, `additionalProperties`, `oneOf`, `anyOf`, `allOf` and `example`. Everything else, such as `default`, `title`, `minItems` or `$ref`, is dropped.
+- `convertJsonSchema()` keeps only `type`, `format`, `description`, `enum`, `const` (as a one-value `enum`), `required`, `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `nullable`, `items`, `properties`, `additionalProperties`, `oneOf`, `anyOf`, `allOf`, `example` and `default`. Everything else, such as `title` or `minItems`, is dropped.
+- A validation keyword whose value is an ajv `$data` reference (`minimum: { $data: '1/from' }`) is left out: OpenAPI has no way to point at another field of the data. The validator still applies it. In `default` and `example` such an object is a literal value and is kept.
+- A `$ref` to another schema's `$id` (`items: { $ref: 'app.LogEntry' }`) becomes a `$ref` to a component. The component is, in order:
+  1. the one of a type the providers know by that name;
+  2. the one of the `@Schema` class whose schema declares that `$id`;
+  3. a component built from the schema the validator holds under that `$id` (a schema file). It is named after the `$id`, or, when the `$id` holds characters a component key cannot (`/`, `:`, `#`), after the `$id` with those replaced by `_` plus a short hash of the `$id`.
+
+  A `$ref` nothing knows, or one that starts with `#`, is left out, and the keywords beside it are kept.
 - `type: ['string', 'null']` becomes a `oneOf`, because OpenAPI 3.0 has no type arrays. An `enum` without `type` takes the type of its first value.
 - Only `items` and `properties` are walked for tags; a tag inside `oneOf`, `anyOf`, `allOf` or `additionalProperties` stays unresolved.
-- Parameters are not walked: a named type on a query or path parameter is not turned into a `$ref`.
+- Parameters are not walked: a named type on a query or path parameter is not turned into a `$ref`. A `$ref` by `$id` inside a parameter's schema is resolved all the same, since `convertJsonSchema()` resolves it.
 - The builder writes into the schema objects it walks. Return a fresh object from `getSchema()` on every call, or one route's expansion rewrites the schema another route gets.
 - A schema that cannot be serialized to JSON counts as "flavours differ", which costs one extra component and never merges two contracts.
 
