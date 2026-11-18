@@ -118,6 +118,19 @@ describe('inheritController', () => {
       ['save', { required: true }],
     ]);
   });
+  it('takes the top of stacked own @Idempotent, the one the runtime applies last', () => {
+    const idempotent = (ttl: string) => ({ type: 'IdempotencyMiddleware', decoratorArgs: [{ ttl }] });
+    const ancestor = controller('Base', { routes: [route('save', '', { middlewares: [idempotent('24h'), { type: 'Audit', options: [] }] })] });
+    const override: RouteOverride = {
+      handler: 'save',
+      params: [],
+      policies: [],
+      middlewares: [idempotent('2h'), { type: 'Trace', options: [] }, idempotent('1h')],
+      source: src('src/Sub.ts', 4),
+    };
+    const merged = inheritController(ancestor, controller('Sub'), [override]);
+    expect(merged.routes[0].middlewares).to.deep.equal([idempotent('2h'), { type: 'Audit', options: [] }, { type: 'Trace', options: [] }]);
+  });
 
   it('carries every field of an overridden route it does not merge', () => {
     const inherited = { ...route('get', ':id'), future: { kept: true } } as RouteEntry;

@@ -21,7 +21,7 @@ const registry = (defs: readonly PermissionInput[]): PermissionRegistryImpl => {
 type Extra = Partial<Omit<RoleDef, 'name' | 'grants'>>;
 const role = (name: string, grants: readonly (string | GrantDef)[] = [], extra: Extra = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', ...extra, grants: grants.map((g) => (typeof g === 'string' ? { permission: g } : g)) });
 
-/** The RBAC part of the impact summary §3.3 config. */
+/** The RBAC part of the impact summary §3.3 config; `fixtures/invoice.ir.json` is what rbacToIR emits for it, not the section's text. */
 const ROLES = [role('invoice.viewer', ['invoice:read'], { assignable: false }), role('accountant', ['invoice:approve'], { extends: ['invoice.viewer'], scopeTypes: ['org'] }), role('clerk', [{ permission: 'invoice:read', relation: 'owner' }])];
 const PERMISSIONS: PermissionInput[] = [{ name: 'invoice:read', list: true }, { name: 'invoice:approve' }, { name: 'project:read' }];
 
@@ -84,6 +84,10 @@ describe('authz-rbac: rbacToIR', () => {
     const source = world(ir).add({ type: 'project', id: 'p1' }, 'frozen', user('ann'));
     expect(await truth(ir, 'ann', 'invoice:read', source)).to.equal('deny');
     expect(await truth(ir, 'ann', 'invoice:approve', source)).to.equal('allow');
+    const narrowed = async (roles: string[]): Promise<Truth> => (await new IREvaluator(ir, source).check({ principal: { ...user('ann'), ceiling: { roles } }, permission: 'invoice:read', resource: i1 })).truth;
+    expect(await narrowed(['accountant'])).to.equal('deny');
+    expect(await narrowed(['accountant', 'frozen'])).to.equal('deny');
+    expect(await narrowed(['frozen'])).to.equal('deny');
   });
 
   it('makes what it cannot express opaque, so the answer is unknown instead of a guess', async () => {
