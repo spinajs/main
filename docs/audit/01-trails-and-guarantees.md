@@ -64,7 +64,7 @@ Configuring a built-in trail overrides its options one by one. Without `@spinajs
 
 ### Tables
 
-`AuditTrailTableMigration` creates a trail table: `seq` (bigint, autoincrement), the event columns `id` to `data_hash`, and indexes on `(subject_type, subject_id, seq)`, `(actor, seq)`, `trace_id` and `at`. `data` is `LONGTEXT` on MySQL, `TEXT` on Postgres and sqlite, `NVARCHAR(MAX)` on MSSQL. The package migrates `audit_event` on `default`; for another table or connection, extend the migration:
+`AuditTrailTableMigration` creates a trail table: `seq` (bigint, autoincrement), the event columns `id` to `data_hash`, and indexes on `(subject_type, subject_id, seq)`, `(actor, seq)`, `trace_id` and `at`. `data` is `LONGTEXT` on MySQL, `TEXT` on Postgres and sqlite, `NVARCHAR(MAX)` on MSSQL. Every text column, `data` included, is declared `exact()`, whatever the database's default: `utf8mb4` with `utf8mb4_bin` on MySQL, `COLLATE "C"` on Postgres, `NVARCHAR` with `Latin1_General_100_BIN2` on MSSQL. So every character is stored as given, and `ABC` and `abc` are different subjects, actors and traces. The buffer, archive and seal tables of [Shipping](06-shipping.md) and [Integrity and verification](07-integrity-and-verification.md) are declared the same way. The package migrates `audit_event` on `default`; for another table or connection, extend the migration:
 
 ```ts sample
 import { AuditTrailTableMigration } from '@spinajs/audit-orm';
