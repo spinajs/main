@@ -34,6 +34,17 @@ class UpsertLogin extends ModelBase {
   public Name: string;
 }
 
+@Connection('sqlite')
+@Model('upsert_uuid')
+class UpsertUuid extends ModelBase {
+  @Primary({ generated: 'uuid' })
+  public Id: string;
+
+  public Email: string;
+
+  public Name: string;
+}
+
 function driver(): SqliteOrmDriver {
   return db().Connections.get('sqlite') as SqliteOrmDriver;
 }
@@ -51,6 +62,7 @@ describe('sqlite static Model.insert(InsertOrUpdate) conflict target', function 
     // a TEXT key gets an autoindex, so sqlite reports it Unique next to Email
     await driver().executeOnDb('CREATE TABLE upsert_code (Code TEXT PRIMARY KEY, Email TEXT UNIQUE, Name TEXT)', [], QueryContext.Schema);
     await driver().executeOnDb('CREATE TABLE upsert_login (Id INTEGER PRIMARY KEY AUTOINCREMENT, Email TEXT UNIQUE, Login TEXT UNIQUE, Name TEXT)', [], QueryContext.Schema);
+    await driver().executeOnDb('CREATE TABLE upsert_uuid (Id TEXT PRIMARY KEY, Email TEXT UNIQUE, Name TEXT)', [], QueryContext.Schema);
     await db().reloadTableInfo();
   });
 
@@ -75,5 +87,12 @@ describe('sqlite static Model.insert(InsertOrUpdate) conflict target', function 
     await UpsertLogin.insert({ Email: 'a@x.io', Name: 'B' }, InsertBehaviour.InsertOrUpdate);
 
     expect((await UpsertLogin.all()).map((r) => [r.Email, r.Name])).to.deep.equal([['a@x.io', 'B']]);
+  });
+
+  it('upserts on the unique column when the uuid key is generated, not supplied', async () => {
+    await UpsertUuid.insert({ Email: 'a@x.io', Name: 'A' }, InsertBehaviour.InsertOrUpdate);
+    await UpsertUuid.insert({ Email: 'a@x.io', Name: 'B' }, InsertBehaviour.InsertOrUpdate);
+
+    expect((await UpsertUuid.all()).map((r) => [r.Email, r.Name])).to.deep.equal([['a@x.io', 'B']]);
   });
 });

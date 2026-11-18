@@ -187,7 +187,9 @@ Multi-row `Model.insert([...])` backfills `auto` keys as follows:
 `insert behaviour is not supported with arrays` otherwise.
 
 `InsertOrUpdate` conflicts on one target: the primary key when the row carries it, else the one unique column the row
-carries (with several, every unique column, as before). To name the target yourself, use the builder:
+carries (with several, every unique column, as before). A `uuid` key that static `Model.insert(plainObject)` generates
+does not count as carried; a model instance has its `uuid` key from construction, so `row.insert()` and
+`Model.insert(instance)` target that key. To name the target yourself, use the builder:
 `driver.insert().into('users').values(row).onDuplicate(['Email']).update(['Name'])`.
 
 ### Descriptor inheritance
