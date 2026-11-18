@@ -10,6 +10,7 @@ import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowA
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
 import { COMPENSATION_SEQ_BASE, type Journal, type StepRow } from './journal.js';
+import { Lineage } from './lineage.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
@@ -71,6 +72,8 @@ export interface Op {
   name: string;
   key: string;
   seq: number;
+  /** Its number among the calls of its branch. A compensation takes no key from the lineage and has none. */
+  call?: number;
   /** Results delivered to run() before this call. */
   after: number;
   /** Set once the operation's result is journaled. */
@@ -149,7 +152,7 @@ export class ActivationContext implements WorkflowContext {
   protected sealed = false;
 
   protected seq = 0;
-  protected occurrences = new Map<string, number>();
+  protected readonly lineage = new Lineage();
   protected inflight = new Set<Promise<unknown>>();
   /** Blocking operations that cannot finish in this activation; their promises stay pending until the park or the end. */
   protected parked: ((err: unknown) => void)[] = [];
@@ -173,7 +176,7 @@ export class ActivationContext implements WorkflowContext {
     this.version = i.Version;
     this.input = i.Input ?? null;
     this.signal = init.signal;
-    this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
+    this.gate = new ReplayGate(init.journal.rows(), (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
     init.signal.addEventListener(
       'abort',
       () => {
@@ -273,6 +276,11 @@ export class ActivationContext implements WorkflowContext {
     void run.then(settled, settled);
   }
 
+  /** Runs `run()` in this activation's root branch. */
+  public enter<T>(fn: () => T): T {
+    return this.lineage.run(fn);
+  }
+
   /** Waits for every operation still in flight, e.g. the sibling of a suspended `Promise.all`; parked ones are abandoned. */
   public async drain(): Promise<void> {
     this.closed = true;
@@ -329,12 +337,10 @@ export class ActivationContext implements WorkflowContext {
     const problem = identifierProblem(name, MAX_NAME);
     if (problem) throw new InvalidArgument(`${kind} name ${problem}, got ${JSON.stringify(name.slice(0, 40))}`);
     this.assertLive();
-    const base = `${kind}:${name}`;
-    const occurrence = (this.occurrences.get(base) ?? 0) + 1;
-    this.occurrences.set(base, occurrence);
-    const op: Op = { kind, name, key: `${base}#${occurrence}`, seq: ++this.seq, after: this.gate.delivered };
+    const { key, call } = this.lineage.take(`${kind}:${name}`, kind !== 'marker');
+    const op: Op = { kind, name, key, seq: ++this.seq, call, after: this.gate.delivered };
     try {
-      this.init.journal.check(op.seq, op.key, op.after);
+      this.init.journal.check(op.key, call);
     } catch (err) {
       this.interrupt({ kind: 'nondeterminism', error: err as NonDeterminismError });
       throw err;
@@ -819,7 +825,7 @@ export class ActivationContext implements WorkflowContext {
     if (this.sealed && op.kind !== 'compensate') throw new WorkflowAborted(this.abortReason());
     await this.fault('workflow.before-journal', op.key);
     const { store, journal, clock, epoch } = this.init;
-    if (journal.causal && !Number.isInteger(op.after)) throw new InvalidOperation(`'${op.key}' has no Meta.after: the journal would lose its causality metadata`);
+    if (!Number.isInteger(op.after)) throw new InvalidOperation(`'${op.key}' has no Meta.after: the replay gate could not place its result`);
     const final = s.status === 'succeeded' || s.status === 'failed';
     const kept = s.meta === undefined ? journal.get(op.key)?.Meta : s.meta;
     const row = await this.guarded(() => {
@@ -827,7 +833,7 @@ export class ActivationContext implements WorkflowContext {
       return store.fenced(this.instanceId, epoch, now, async () => {
         if (claim && !(await claim())) return null;
         // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order.
-        const meta: StepMeta = { ...kept, after: op.after, ...(final ? { order: journal.nextOrder() } : {}) };
+        const meta: StepMeta = { ...kept, after: op.after, ...(op.call === undefined ? {} : { call: op.call }), ...(final ? { order: journal.nextOrder() } : {}) };
         op.order = meta.order;
         return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
       });

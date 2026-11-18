@@ -459,7 +459,7 @@ export class WorkflowEngine extends AsyncService implements IInstanceCheck {
   protected async execute(ctx: ActivationContext, definition: RegisteredWorkflow, signal: AbortSignal): Promise<Outcome> {
     const workflow = await Promise.resolve(DI.resolve(definition.target));
     // a synchronous throw from run() is a rejected run like any other
-    const work = new Promise<unknown>((resolve) => resolve(workflow.run(ctx)));
+    const work = new Promise<unknown>((resolve) => resolve(ctx.enter(() => workflow.run(ctx))));
     ctx.observe(work);
     const outcome = await this.settle(work, signal, ctx.suspended, ctx.mode === 'run');
     if (outcome.kind === 'error' && isCrash(outcome.error)) ctx.crash(outcome.error);

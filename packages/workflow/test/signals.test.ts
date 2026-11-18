@@ -96,7 +96,7 @@ describe('signals and waitForEvent', () => {
     const { id } = await service.start('sg-approve', null);
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'WaitingFor', 'WakeAt', 'ClaimedBy')).to.deep.equal({ Status: 'waiting', WaitingFor: 'approved', WakeAt: null, ClaimedBy: null });
-    expect(pick((await stepsOf(id))[0], 'Key', 'Status', 'Meta')).to.deep.equal({ Key: 'wait:approved#1', Status: 'pending', Meta: { timeoutAt: null, after: 0 } });
+    expect(pick((await stepsOf(id))[0], 'Key', 'Status', 'Meta')).to.deep.equal({ Key: 'wait:approved#1', Status: 'pending', Meta: { timeoutAt: null, after: 0, call: 1 } });
     await service.signal(id, 'approved', { ok: true });
     expect(pick(await instance(id), 'Status', 'WaitingFor', 'WakeAt')).to.deep.equal({ Status: 'running', WaitingFor: null, WakeAt: null });
     await r1.tick();

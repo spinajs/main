@@ -236,9 +236,9 @@ export class DefaultWorkflowService extends WorkflowService {
       const rows = await WorkflowStepModel.where('InstanceId', instanceId);
       // a retried pass leaves the step failure it undoes alone
       for (const step of compensation ? rows.filter((s) => s.Kind === 'compensate' && s.Status === 'failed') : unobservedFailures(rows)) {
-        // a fresh attempt budget and no stale backoff; Meta.after keeps the journal causal for the replay
-        const after = step.Meta?.after;
-        await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after } }).where('Id', step.Id);
+        // a fresh attempt budget and no stale backoff; the replay gate reads Meta.after and the replay check Meta.call
+        const { after, call } = step.Meta ?? {};
+        await WorkflowStepModel.update({ Status: 'retrying', Attempt: 0, Meta: after === undefined ? null : { after, ...(call === undefined ? {} : { call }) } }).where('Id', step.Id);
       }
     });
   }

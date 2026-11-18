@@ -40,6 +40,8 @@ export interface StepMeta {
   after?: number;
   /** Delivery position among the instance's results; a replay hands them back in this order. */
   order?: number;
+  /** The call's number among the calls of its branch, from 1; a replay finds the recorded call by it. */
+  call?: number;
 }
 
 export interface WorkflowOptions {
