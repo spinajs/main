@@ -7,6 +7,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Clock, DbClock, DurableSystemClock, FaultInjector, parseDuration } from '@spinajs/durable';
 import { IdempotencyKeyReuse, IdempotencyLeases, IdempotencyService, IdempotencyStore as LeasedIdempotencyStore, OrmIdempotencyStore, fingerprintOf, idempotencyKey, idempotencyPrincipal, isCrash } from '@spinajs/idempotency';
 import type { IdempotencyClaim, IdempotencyHandle, IdempotencyHeld, StoredReply } from '@spinajs/idempotency';
+import { IdempotencyScopePart, idempotencyScopeParts } from '@spinajs/http';
 import { SocketException } from '@spinajs/http-socket-common';
 import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketIdempotencyConfig } from './interfaces.js';
 import type { SocketConnection } from './connection.js';
@@ -318,6 +319,9 @@ export class SocketIdempotency {
   @Autoinject()
   protected Errors: SocketErrorMapper;
 
+  @Autoinject(Array.ofType(IdempotencyScopePart))
+  protected ScopeParts: IdempotencyScopePart[];
+
   @Autoinject(Clock)
   protected Timers: Clock;
 
@@ -357,15 +361,17 @@ export class SocketIdempotency {
 
   /**
    * A clientId is not a secret, so a stored reply must never reach another principal, nor a narrower credential of the
-   * same one: idempotency runs before the policies, which enforce a ceiling or an impersonation's limits.
+   * same one: idempotency runs before the policies, which enforce a ceiling or an impersonation's limits. The
+   * IdempotencyScopePart parts (the tenant) come from the connection's context, which the handshake fixed.
    */
   public scope(connection: SocketConnection, key: string): string {
     const principal = idempotencyPrincipal(connection.principal);
+    const parts = idempotencyScopeParts(this.ScopeParts, connection.context);
     // a 3.x store keeps the 3.x key, so a reply it stored before the upgrade still replays
     if (this.Store instanceof LegacySocketIdempotencyStore) {
-      return [principal, connection.clientId, key].map(encodeURIComponent).join(':');
+      return [principal, connection.clientId, key, ...parts].map(encodeURIComponent).join(':');
     }
-    return idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principal, connection.clientId]) }, key);
+    return idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principal, connection.clientId]), parts }, key);
   }
 
   /**

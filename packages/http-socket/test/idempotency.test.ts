@@ -6,7 +6,7 @@ import { SocketException } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Unauthenticated } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { BasePolicy } from '@spinajs/http';
+import { BasePolicy, IdempotencyScopePart } from '@spinajs/http';
 import { Command, Payload, Signal, SocketController, SocketPolicy } from '../src/decorators.js';
 import type { ISocketPolicyRequest } from '../src/policies.js';
 import { ELSEWHERE_RETRY_AFTER_MS, IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from '../src/idempotency.js';
@@ -512,6 +512,26 @@ describe('SocketIdempotency', () => {
     }
     expect(legacy.scope(full, 'k')).to.equal('user%3Aidem-u1:c1:k');
     expect(leased.scope(full, 'k')).to.equal(idempotencyKey({ namespace: 'socket', principal: JSON.stringify(['user:idem-u1', 'c1']) }, 'k'));
+  });
+
+  it("adds the registered IdempotencyScopePart parts of the connection's context, and keeps the keys of a context without any", () => {
+    class ZonePart extends IdempotencyScopePart {
+      public partOf(store: object): string | undefined {
+        const zone: unknown = Reflect.get(store, 'Zone');
+        return typeof zone === 'string' ? `zone:${zone}` : undefined;
+      }
+    }
+    const withParts = <T extends object>(idem: T) => Object.defineProperty(idem, 'ScopeParts', { value: [new ZonePart()] });
+    const conn = (context: Record<string, unknown>) => ({ principal: IDEM_USER, clientId: 'c1', context }) as unknown as SocketConnection;
+    const leased = withParts(idempotency(new LeasedMemoryStore() as unknown as IdempotencyStore));
+    const legacy = withParts(idempotency(new MemoryIdempotencyStore()));
+    const principal = JSON.stringify(['user:idem-u1', 'c1']);
+
+    expect(leased.scope(conn({ Zone: 'z1' }), 'k')).to.equal(idempotencyKey({ namespace: 'socket', principal, parts: ['zone:z1'] }, 'k'));
+    expect(leased.scope(conn({ Zone: 'z1' }), 'k')).to.not.equal(leased.scope(conn({ Zone: 'z2' }), 'k'));
+    expect(leased.scope(conn({}), 'k')).to.equal(idempotencyKey({ namespace: 'socket', principal }, 'k'));
+    expect(legacy.scope(conn({ Zone: 'z1' }), 'k')).to.equal('user%3Aidem-u1:c1:k:zone%3Az1');
+    expect(legacy.scope(conn({}), 'k')).to.equal('user%3Aidem-u1:c1:k');
   });
   const live = () => new AbortController().signal;
 
