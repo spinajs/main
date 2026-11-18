@@ -13,15 +13,15 @@ interface TypedOption {
   /** The canonical text of the value already in the row. */
   readonly stored: string;
   readonly value: unknown;
+  /** The code's default in a later release; it must not reach the existing row. */
   readonly newDefault: unknown;
-  readonly newDefaultStored: string;
 }
 
 const OPTIONS: readonly TypedOption[] = [
-  { name: 'json', type: 'json', stored: '{"a":1}', value: { a: 1 }, newDefault: { a: 2, b: [1, 2] }, newDefaultStored: '{"a":2,"b":[1,2]}' },
-  { name: 'many-of', type: 'manyOf', stored: '["a"]', value: ['a'], newDefault: ['b', 'c'], newDefaultStored: '["b","c"]' },
-  { name: 'number', type: 'number', stored: '1', value: 1, newDefault: 5, newDefaultStored: '5' },
-  { name: 'boolean', type: 'boolean', stored: 'false', value: false, newDefault: true, newDefaultStored: 'true' },
+  { name: 'json', type: 'json', stored: '{"a":1}', value: { a: 1 }, newDefault: { a: 2, b: [1, 2] } },
+  { name: 'many-of', type: 'manyOf', stored: '["a"]', value: ['a'], newDefault: ['b', 'c'] },
+  { name: 'number', type: 'number', stored: '1', value: 1, newDefault: 5 },
+  { name: 'boolean', type: 'boolean', stored: 'false', value: false, newDefault: true },
 ];
 
 async function stored(driver: OrmDriver, slug: string): Promise<StoredRow | undefined> {
@@ -29,8 +29,9 @@ async function stored(driver: OrmDriver, slug: string): Promise<StoredRow | unde
 }
 
 /**
- * Exposed options whose row predates a release: the sync rewrites their metadata and Default through an instance
- * update, the configuration panel writes Value the same way. Both go through the column converters of `DbConfig`.
+ * Exposed options whose row predates a release: the sync rewrites their metadata through an instance update, which
+ * writes the kept Value and Default back; the configuration panel writes Value the same way. Both go through the
+ * column converters of `DbConfig`.
  */
 export function typedRowCases(prefix: string, driverOf: () => Promise<OrmDriver>, settle: () => Promise<void>): void {
   // Exposed options stay registered for the whole run; a prefix per suite keeps one suite's rows out of the other's boot.
@@ -54,12 +55,12 @@ export function typedRowCases(prefix: string, driverOf: () => Promise<OrmDriver>
     for (const o of OPTIONS) {
       const row = await stored(driver, slug(o.name));
       expect(row?.Label, `${o.name} metadata`).to.equal('Fresh label');
-      expect(row?.Default, `${o.name} stored Default`).to.equal(o.newDefaultStored);
+      expect(row?.Default, `${o.name} stored Default`).to.equal(o.stored);
       expect(row?.Value, `${o.name} stored Value`).to.equal(o.stored);
 
       const model = await DbConfig.where('Slug', slug(o.name)).firstOrFail();
       expect(model.Value, `${o.name} Value`).to.deep.equal(o.value);
-      expect(model.Default, `${o.name} Default`).to.deep.equal(o.newDefault);
+      expect(model.Default, `${o.name} Default`).to.deep.equal(o.value);
       expect(config.get(slug(o.name)), `${o.name} in the configuration`).to.deep.equal(o.value);
     }
   });

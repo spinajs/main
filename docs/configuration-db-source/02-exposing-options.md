@@ -1,6 +1,6 @@
 # Exposing options
 
-`@Config(path, { expose: true, exposeOptions })` declares an option that lives in the `configuration` table. The package inserts a row for it once, keeps the row's metadata in sync with the code, and never overwrites a `Value` an admin changed.
+`@Config(path, { expose: true, exposeOptions })` declares an option that lives in the `configuration` table. The package inserts a row for it once, keeps the row's metadata in sync with the code, and never overwrites the `Value`, `Default` or `Watch` an admin changed.
 
 Use it for settings an operator changes at runtime: sender addresses, limits, feature flags, templates.
 
@@ -14,7 +14,7 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
    2. For each entry in parallel, `DbConfigValueConverter.toDB()` turns `defaultValue` into canonical text for `exposeOptions.type`.
    3. `DbConfig.insert(row, InsertBehaviour.InsertOrIgnore)` writes the row. An existing `Slug` is left untouched.
-   4. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type`, `Watch`, `Required` and `Default` when any differs from the code. `Value` is never rewritten.
+   4. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type` and `Required` when any differs from the code. `Value`, `Default` and `Watch` are written by the insert only, so an existing row keeps them.
    5. Entries with `watch: true` join the watched set and the watch timer starts. See [Watching options](03-watching-options.md).
    6. Database errors are logged as `Failed to persist exposed config options to db`, not thrown. The bootstrapper then asks the database again whether the table exists; when it does not, late registrations are skipped again (step 5) and the next ready event sweeps once more.
 4. **After the sweep**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
@@ -58,8 +58,8 @@ These options are added to `IConfigEntryOptions` of `@spinajs/configuration-comm
 | | | `exposeOptions.label?: string` | Stored in `Label`, max 64 characters. |
 | | | `exposeOptions.description?: string` | Stored in `Description`, max 256 characters. |
 | | | `exposeOptions.meta?: IConfigurationEntryMeta` | Stored as JSON in `Meta`: `min`, `max`, `minDate`, `maxDate`, `oneOf`, `manyOf`, `file`. |
-| | | `exposeOptions.watch?: boolean` | Stored in `Watch`; `true` polls the row, see [Watching options](03-watching-options.md). |
-| | | `defaultValue` (from `@spinajs/configuration`) | Seeds `Value` and `Default` in canonical text. |
+| | | `exposeOptions.watch?: boolean` | Stored in `Watch` when the row is inserted; `true` polls the option, see [Watching options](03-watching-options.md). |
+| | | `defaultValue` (from `@spinajs/configuration`) | Seeds `Value` and `Default` in canonical text when the row is inserted. |
 | | | `required` (from `@spinajs/configuration`) | Stored in `Required`. Not enforced by this package. |
 
 ### Row written per option
@@ -68,9 +68,9 @@ These options are added to `IConfigEntryOptions` of `@spinajs/configuration-comm
 | --- | --- | --- | --- |
 | `Slug` | `path` | yes | match key |
 | `Value` | `toDB(defaultValue)` | yes | never |
-| `Default` | `toDB(defaultValue)` | yes | yes |
+| `Default` | `toDB(defaultValue)` | yes | never |
 | `Group`, `Label`, `Description`, `Meta`, `Type` | `exposeOptions` | yes | yes |
-| `Watch` | `exposeOptions.watch ?? false` | yes | yes |
+| `Watch` | `exposeOptions.watch ?? false` | yes | never |
 | `Required` | `required` | yes | yes |
 | `Exposed` | `true` | yes | never |
 
@@ -121,9 +121,9 @@ export async function senderOf(channel: string): Promise<string> {
 
 - **The table gates everything.** Nothing is written until the `Orm` resolved on a database whose `configuration` table exists.
 - **One sweep per `bootstrap()`.** The first `di.resolved.Orm` that finds the table sweeps; later ones do nothing, unless the sweep failed on a table that does not exist.
-- **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value` and `Exposed`.
+- **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value`, `Default`, `Watch` and `Exposed`.
 - **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug`. A custom table without it gets a duplicate row per restart.
-- **`Default` is overwritten.** A changed `defaultValue` in code updates `Default` on the next start, never `Value`.
+- **`Default` and `Watch` are written once.** A `defaultValue` or `watch` flag changed in code in a later release reaches only rows inserted from then on. An existing row keeps its `Default` and `Watch`, whether an admin changed them or not; update the row in a migration to change them.
 - **Column limits apply.** A `Slug` longer than 64 characters or a `Group` longer than 32 fails the insert on strict databases; the error is logged, not thrown.
 - **Missing `type` fails the insert.** `Type` is `NOT NULL`; the insert error is logged and the option keeps its `defaultValue`.
 - **Late sync respects `Exposed`.** Step 4.3 skips a row whose `Exposed` flag an admin cleared, so the configuration keeps the value it had.
@@ -149,11 +149,11 @@ protected Retries: number;
 ```
 
 ```ts
-// Don't: rely on InsertOrIgnore to push a new default to running installations
+// Don't: rely on the start-up sync to push a new default to running installations
 @Config('billing.vatRate', { defaultValue: 0.23, expose: true, exposeOptions: { type: 'float' } })
 
-// Do: write the new value explicitly, in a migration or an admin action
-await DbConfig.update({ Value: '0.23' }).where('Slug', 'billing.vatRate');
+// Do: write the new value and default explicitly, in a migration or an admin action
+await DbConfig.update({ Value: '0.23', Default: '0.23' }).where('Slug', 'billing.vatRate');
 ```
 
 ## Examples

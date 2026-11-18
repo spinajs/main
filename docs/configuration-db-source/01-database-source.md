@@ -77,10 +77,10 @@ Created by the migration `configuration_db_source_2022_02_08_01_13_00` on the `d
 | `Id` | `int`, primary key, auto increment | Row id. |
 | `Slug` | `string(64)`, not null, unique | Config path, the same string passed to `@Config()` and `Configuration.get()`. |
 | `Value` | `text` | Current value in canonical text form, converted by `Type`. |
-| `Default` | `text` | The `defaultValue` declared in code, in canonical text form. |
+| `Default` | `text` | The `defaultValue` declared in code when the row was inserted, in canonical text form. Later starts keep it. |
 | `Required` | `boolean`, default `0` | Copied from `@Config({ required })`. Informational. |
 | `Exposed` | `boolean`, not null, default `0` | Only rows with this flag reach the configuration. |
-| `Watch` | `boolean`, not null, default `0` | Copied from `exposeOptions.watch`. Informational: polling follows the code declaration, not this column. |
+| `Watch` | `boolean`, not null, default `0` | Copied from `exposeOptions.watch` when the row was inserted; later starts keep it. Informational: polling follows the code declaration, not this column. |
 | `Group` | `string(32)` | Display grouping for admin UIs. Not part of the path. |
 | `Label` | `string(64)` | Human-readable name. |
 | `Description` | `string(256)` | Help text. |
