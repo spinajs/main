@@ -21,7 +21,7 @@ Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`,
 
 `subject` and `dataSubject` are not touched, so a subject key must not itself be personal data you have to erase.
 
-A subject is matched by its exact spelling: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC` alone. One exception: MySQL's `utf8mb4_bin` and MSSQL's binary collation ignore trailing spaces, so there `'abc'` and `'abc '` are one subject and are erased together. Postgres and sqlite tell them apart.
+A subject is matched by its exact spelling: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC` alone. One exception: MySQL's `utf8mb4_bin` and MSSQL's binary collation ignore trailing spaces, so there `'abc'` and `'abc '` are one subject and are erased together. The `erasure` record names the spelling `forget` was given, so `verify` then reports the events of `'abc '` as unexplained redactions. Postgres and sqlite tell them apart.
 
 ## Which connections
 
