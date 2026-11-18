@@ -1,3 +1,4 @@
+import { Exception } from '@spinajs/exceptions';
 import { Schedule, ScheduledTask } from '@spinajs/scheduler';
 import type { RunContext } from '@spinajs/scheduler';
 
@@ -32,7 +33,7 @@ export class AuditRetentionTask extends ScheduledTask {
 
 export const AUDIT_SHIP_SCHEDULE = 'audit.ship';
 
-export class AuditShipError extends Error {}
+export class AuditShipError extends Exception {}
 
 /** Ships buffered audit events every 10 seconds on the leader; a `scheduler.schedules` entry of the same name overrides the timing. */
 @Schedule(AUDIT_SHIP_SCHEDULE, { every: '10s', runOn: 'leader', overlap: 'skip', misfire: 'run-once', timeout: '10m' })
@@ -47,7 +48,7 @@ export class AuditShipTask extends ScheduledTask {
 
 export const AUDIT_SEAL_SCHEDULE = 'audit.seal';
 
-export class AuditSealError extends Error {}
+export class AuditSealError extends Exception {}
 
 /**
  * Seals the sealed trails every 60 seconds on the leader; a run seals what was already there one settle time earlier,

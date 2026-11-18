@@ -312,7 +312,7 @@ describe('audit sealing', function () {
         expect(await new AuditSealTask().execute(ctx)).to.deep.eq({ sealed: 1, failed: [] });
 
         await new AuditSealTableMigration().down(driver());
-        await expect(new AuditSealTask().execute(ctx)).to.be.rejectedWith(AuditSealError, `audit: sealing failed for sealed@${connection()}`);
+        await expect(new AuditSealTask().execute(ctx)).to.be.rejectedWith(AuditSealError, `audit: sealing failed for sealed@${connection()}`).and.eventually.have.property('name', 'AuditSealError');
         expect(results).to.have.length(2);
       });
     });
