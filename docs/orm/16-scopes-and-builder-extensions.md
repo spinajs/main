@@ -28,8 +28,20 @@ The way `@spinajs/orm-http` (`.filter()`), `@spinajs/intl-orm` (`.translate()`) 
 1. Declare the method with module augmentation of `ISelectQueryBuilder<T>` (and `IUpdateQueryBuilder<T>` / `IDeleteQueryBuilder<T>` when it applies to writes).
 2. Write a subclass of the base for the builder you extend, `SelectQueryExtension`, `UpdateQueryExtension`, `DeleteQueryExtension` or `InsertQueryExtension`, with a `name` and the `methods`, and register it with `@Injectable(<that base>)`. A method for several builders is several classes sharing one `methods` object. `defineQueryExtension({ name, target, methods, onClone })` builds such a class from a plain object and picks the base from `target`; register it with `DI.register(MyExtension).as(SelectQueryExtension)` (or the matching base).
 3. `Orm.resolve()` installs every registered extension once, before it opens a connection. Every builder of that class then has the methods: model queries, relation queries, `driver.select()` and clones.
-4. A method runs with `this` set to the builder. `this.state()` gives it the builder's model, relations, container, owner relation and connection.
+4. A method runs with `this` set to the builder. `this.state()` gives it the builder's model, relations, container, owner relation, connection and `execution`, which says how the builder reaches the database (see the table below).
 5. `onClone(source, clone)` runs whenever a select builder is cloned, so state the extension keeps per builder can follow the copy.
+
+`state().execution` of a builder:
+
+| Value | Which builder | What happens to it |
+| --- | --- | --- |
+| `{ kind: 'own' }` | a model query, `driver.select()`, a hasMany relation query, the junction query of a many-to-many relation | Sent as a statement of its own. Query middlewares run on it. |
+| `{ kind: 'merged', into: 'parent', relation }` | the query inside a belongsTo `populate()` callback | Never sent. Its conditions, columns and sorts are folded into the query it was populated on, which joins the table. |
+| `{ kind: 'merged', into: 'junction', relation }` | the query inside a many-to-many `populate()` callback | Never sent. It is folded into the junction query, which is the statement that runs. |
+| `{ kind: 'merged', into: 'join' }` | the query of a join's third argument | Never sent. Its columns go to the query that declared the join, its conditions to the ON clause. |
+| `{ kind: 'recursive', relation }` | the query inside a `@Recursive` relation's `populate()` callback | Sent as a recursive CTE. Its WHERE picks the rows the recursion starts from; the rows the recursion adds are not filtered by it. |
+
+`relation` is the relation's descriptor (`Name`, `Type`, `TargetModel`, ...). A clone and an execution copy read the same value as their source.
 
 ### Builder subclass
 
@@ -54,6 +66,8 @@ The way `@spinajs/orm-http` (`.filter()`), `@spinajs/intl-orm` (`.translate()`) 
 - An extension whose class extends another registered extension's class replaces it. That is how you change a method a package adds.
 - `SelectQueryBuilder.clone()` always builds a plain `SelectQueryBuilder` and copies only the core fields. A subclass type is lost on clone unless you override `clone()`; extension state follows the copy through `onClone`.
 - `clone()` runs no query middleware, so a clone keeps exactly what the original declared.
+- No query middleware ever sees a builder whose `state().execution.kind` is `merged`: `beforeQueryExecution` runs for the statement it was folded into. State an extension keeps on such a builder for a middleware to read is lost, so a method that sets it has to refuse the call there (throw), as `@spinajs/authz-orm` does for `.accessible()` in a belongsTo `populate()` callback.
+- A relation class of your own that folds its query into another builder overrides the protected `relationQueryExecution()` of `NativeOrmRelation`. The default is `{ kind: 'own' }`.
 
 ## Best practices
 

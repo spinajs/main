@@ -16,6 +16,7 @@ import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { registerRelation } from './relation-registry.js';
 import { cloneOwnedBy } from './builders/internal.js';
+import type { BuilderExecution } from './extensions.js';
 
 
 /**
@@ -141,7 +142,7 @@ export abstract class NativeOrmRelation extends OrmRelation {
     this._targetModel = this._description.TargetModel;
     this._targetModelDescriptor = _paramCheck(() => extractModelDescriptor(this._targetModel), `Model ${this._targetModel?.name} does not have model descriptor set`);
     this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection!]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
-    this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this]);
+    this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this, true, this.relationQueryExecution()]);
     this._separator = this._driver.Options.AliasSeparator ?? '';
 
     if (this._driver.Options.Database) {
@@ -150,6 +151,11 @@ export abstract class NativeOrmRelation extends OrmRelation {
   }
 
   public abstract compile(): void;
+
+  /** How this relation's query reaches the database. A relation that folds its query into another builder overrides it. */
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'own' };
+  }
 
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
     const copy = super.cloneFor(query, owner) as this;
@@ -183,6 +189,10 @@ export class BelongsToRelation extends NativeOrmRelation {
     selectableColumns(this._targetModelDescriptor).forEach((c) => {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
+  }
+
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'merged', into: 'parent', relation: this._description };
   }
 
   public compile() {
@@ -254,6 +264,10 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
     selectableColumns(this._targetModelDescriptor).forEach((c) => {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
+  }
+
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'recursive', relation: this._description };
   }
 
   public compile() {
@@ -369,6 +383,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
 
   public get RelationQuery() {
     return this._relationQuery;
+  }
+
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'merged', into: 'junction', relation: this._description };
   }
 
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
