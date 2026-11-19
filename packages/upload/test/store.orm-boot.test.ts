@@ -24,6 +24,8 @@ async function freshProcess(migrate: boolean): Promise<Record<string, unknown>> 
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
     "import { UploadStore } from '@spinajs/upload';",
     'class Config extends FrameworkConfiguration {',
+    // The test is written against no package config; the file sources would load every installed @spinajs package's.
+    '  loadSources() { this.Sources = []; }',
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.UPLOAD_CLI_DB }], Aliases: { upload: 'default' } };",

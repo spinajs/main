@@ -18,6 +18,11 @@ function sqlite(name, filename) {
 }
 
 class ReplicaConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  loadSources() {
+    this.Sources = [];
+  }
+
   onLoad() {
     return {
       app: { name: 'queue-it-replica' },
