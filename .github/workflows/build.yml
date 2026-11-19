@@ -95,6 +95,9 @@ jobs:
       - name: package exports and types ( publint, attw )
         run: npm run check:packages
 
+      - name: no two DI classes share a name
+        run: npm run check:di-names
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
