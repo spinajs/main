@@ -114,12 +114,13 @@ export function staticKind(checker: ts.TypeChecker, call: ts.CallExpression): Bu
 }
 
 /**
- * A call on a traced builder ran the query when any part of what it gives back is untyped, or is no followed builder
- * and can be awaited or iterated asynchronously.
+ * A call on a traced builder ran the query when its result says nothing (no part, as an unconstrained type parameter),
+ * or any part is untyped, or is no followed builder and can be awaited or iterated asynchronously.
  */
 export function runsQuery(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
   const result = checker.getTypeAtLocation(call);
-  return isUntyped(result) || partsOf(checker, result).some((part) => isUntyped(part) || (queryKind(checker, part) === undefined && (isAwaitable(checker, part) || isAsyncIterable(checker, part))));
+  const parts = partsOf(checker, result);
+  return isUntyped(result) || parts.length === 0 || parts.some((part) => isUntyped(part) || (queryKind(checker, part) === undefined && (isAwaitable(checker, part) || isAsyncIterable(checker, part))));
 }
 
 /** `x.runAs(SYSTEM, reason, fn)`: the member called is marked `@spinajs run-as` and its principal `@spinajs system-principal`. */

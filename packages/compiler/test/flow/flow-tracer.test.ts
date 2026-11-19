@@ -182,7 +182,7 @@ describe('flow: effects and the tracer across calls', () => {
   const named = (calls: ts.CallExpression[], member: string): ts.CallExpression =>
     calls.find((c) => ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === member)!;
 
-  it('a call runs the query when a part of its result is no builder and is awaitable, async-iterable or untyped', () => {
+  it('a call runs the query when a part of its result is no builder and is awaitable, async-iterable or untyped, or the type says nothing', () => {
     expect(runsQuery(checker, named(callsOf('streamed'), 'stream'))).to.equal(true);
     expect(runsQuery(checker, named(callsOf('paged'), 'paginate'))).to.equal(true);
     expect(runsQuery(checker, named(callsOf('thenned'), 'then'))).to.equal(true);
@@ -192,6 +192,8 @@ describe('flow: effects and the tracer across calls', () => {
     expect(runsQuery(checker, callsOf('open')[0])).to.equal(false);
     expect(runsQuery(checker, callsOf('mixed')[0])).to.equal(true);
     expect(runsQuery(checker, callsOf('maybeLater')[0])).to.equal(true);
+    expect(runsQuery(checker, callsOf('unconstrained')[0])).to.equal(true);
+    expect(runsQuery(checker, named(callsOf('withScopes'), 'where'))).to.equal(false);
   });
 
   it("an app's subclass of a builder and an open conditional type over one are builders; an insert builder is not followed", () => {
