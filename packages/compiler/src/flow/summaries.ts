@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { EXECUTING_MEMBERS, builderOf, effectKey, isSystemRunAs, literalReason, runKey } from './authz-effects.js';
+import { builderOf, effectKey, isSystemRunAs, literalReason, runKey, runsQuery } from './authz-effects.js';
 import type { AuthzEffect, BuilderKind, EffectScope, FunctionSummary, PathStep, ReturnedBuilder, SystemRun } from './authz-effects.js';
 import { isFunctionLike, parametersOf } from './call-graph.js';
 import type { CallGraph, CallTarget, FunctionLike } from './call-graph.js';
@@ -256,12 +256,12 @@ class FunctionAnalysis {
     return { kind, model: value.model, scoped: { ...value.scoped }, ...(param === undefined ? {} : { param }), ...(variants.length > 1 ? { variants } : {}) };
   }
 
-  /** The pending builder `expr` runs by calling one of its executing members (`q.first()`). */
+  /** The pending builder `expr` runs by a call on it whose result shows the query ran (`q.first()`, `q.stream()`). */
   private memberExecution(expr: ts.Expression): QueryValue | undefined {
     const e = unwrap(expr);
-    if (!ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression) || !EXECUTING_MEMBERS.has(e.expression.name.text)) return undefined;
+    if (!ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression)) return undefined;
     const receiver = this.tracer.traced(e.expression.expression);
-    return receiver?.pending === true ? receiver.value : undefined;
+    return receiver?.pending === true && runsQuery(this.checker, e) ? receiver.value : undefined;
   }
 
   private isPromise(expr: ts.Expression): boolean {

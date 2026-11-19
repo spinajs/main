@@ -1484,14 +1484,17 @@ export interface IBuilder<T> extends PromiseLike<T> {
   execute(): Promise<T>;
 }
 
+/** @spinajs query update */
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
   increment(column: DeclaredColumn<Unbox<T>>, by?: number): this;
   increment<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, by?: number): this;
 }
 
+/** @spinajs query delete */
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
+/** @spinajs query select */
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
@@ -1528,6 +1531,7 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   forShare(): this;
   get RowLock(): RowLockMode | undefined;
+  /** @spinajs copy */
   clone(): this;
 
   /**
