@@ -7,7 +7,7 @@ import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { testHost } from '@spinajs/authz-testing';
 
-import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from '../src/index.js';
+import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter, DbConfigWatcher } from '../src/index.js';
 
 const SLUG = 'sweepAfterMigration.limit';
 
@@ -46,8 +46,9 @@ describe('exposed options after migrateTestDatabase', function () {
   });
 
   afterEach(async () => {
-    // stops the watch timer the sweep started and removes the bootstrapper's listeners
-    DI.emit('di.dispose');
+    await DI.get(DbConfigWatcher)?.dispose();
+    DI.uncache(DbConfigWatcher);
+    bootstrapper.unbind();
 
     await DI.get(Orm)?.dispose();
     DI.uncache(OrmMigrator);

@@ -1,4 +1,5 @@
 export * from './bootstrap.js';
+export { DbConfigWatcher } from './watcher.js';
 export * from './source.js';
 export * from './types.js';
 export * from './file.js';

@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import '@spinajs/log';
 
-import { DbConfigSourceBotstrapper } from './../src/index.js';
+import { DbConfigSourceBotstrapper, DbConfigWatcher } from './../src/index.js';
 
 const EVENTS = ['di.registered.__configuration_property__', 'di.resolved.Orm', 'orm.migrated'];
 
@@ -23,8 +23,8 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** A container holding one exposed option and an Orm whose `configuration` table does not exist. */
-function containerWithoutTable(): IContainer {
+/** A container holding one exposed option, an Orm whose `configuration` table does not exist, and `watcher`. */
+function containerWithoutTable(watcher: DbConfigWatcher): IContainer {
   const orm = {
     Connections: new Map([['default', { schema: () => ({ tableExists: async () => false }) }]]),
   };
@@ -32,6 +32,7 @@ function containerWithoutTable(): IContainer {
 
   return {
     get: (key: unknown) => (key === Orm ? orm : key === Configuration ? { get: () => undefined, set: () => undefined } : vars),
+    resolve: () => watcher,
   } as unknown as IContainer;
 }
 
@@ -92,15 +93,20 @@ describe('DbConfigSourceBotstrapper failed sweep', function () {
       throw new Error('no such table: configuration');
     };
 
-    const container = containerWithoutTable();
-    internals(bootstrapper).syncExposedOptions(container);
-    await wait(50);
+    const watcher = new DbConfigWatcher();
+    const container = containerWithoutTable(watcher);
+    try {
+      internals(bootstrapper).syncExposedOptions(container);
+      await wait(50);
 
-    expect(internals(bootstrapper).tableReady, 'the table the failed sweep wrote to does not exist').to.equal(false);
+      expect(internals(bootstrapper).tableReady, 'the table the failed sweep wrote to does not exist').to.equal(false);
 
-    internals(bootstrapper).syncExposedOptions(container);
-    await wait(50);
+      internals(bootstrapper).syncExposedOptions(container);
+      await wait(50);
 
-    expect(saves).to.equal(2);
+      expect(saves).to.equal(2);
+    } finally {
+      await watcher.dispose();
+    }
   });
 });

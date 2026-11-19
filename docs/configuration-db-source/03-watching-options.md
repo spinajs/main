@@ -6,13 +6,13 @@ The column decides, not the code. `exposeOptions.watch` only seeds `Watch` when 
 
 ## How it works
 
-1. When the `configuration` table is ready, `DbConfigSourceBotstrapper` sweeps the exposed options into it and starts the watch timer. The timer starts whether or not any option declares `watch: true`. See [Exposing options](02-exposing-options.md).
+1. When the `configuration` table is ready, `DbConfigSourceBotstrapper` sweeps the exposed options into it and starts the watch timer. The timer starts whether or not any option declares `watch: true`. The sweep starts on `di.resolved.Orm` or `orm.migrated`, or from `bootstrap()` itself when the `Orm` is already resolved at that point: an application that resolves the `Orm` before its bootstrappers run gets its exposed options written and the watch started from `bootstrap()`. See [Exposing options](02-exposing-options.md).
 2. `startWatchTimer()` reads the `__config_watch_interval__` DI value once. A missing or `0` value means 3 minutes (180 000 ms).
 3. Each tick calls `refreshWatched()`: `DbConfig.select().asRaw()`, through `asSystem()` when [authz guarding](06-running-under-authz.md) is on. Rows whose `Watch` or `Exposed` flag is not set are dropped in memory, so the filter does not depend on how a driver stores booleans. The rows are read raw, so a row that is not watched is never converted.
 4. For each kept row, `DbConfigValueConverter.fromDB()` turns the stored `Value` text into a value of the row's `Type`, and `isConfigValueEqual(configuration.get(row.Slug), value)` compares it with the live one. `DateTime` values compare by instant, arrays and objects deeply.
 5. A changed value is written with `Configuration.set(row.Slug, value)`, and the root DI container emits `configuration.db.changed` (`CONFIGURATION_DB_CHANGED_EVENT`) with `(slug, previous, next)`; `next` is the value read back from the configuration, after its schemas applied. A value that cannot be read as its `Type`, or that the configuration refuses, is skipped and the poll goes on with the next row; that row is not tried again until its `Value` changes.
 6. The next tick is scheduled only after this one settles, so a slow query never overlaps the next. Database errors are logged as `Failed to refresh watched config values from db` and the timer keeps going.
-7. `di.dispose` stops the timer.
+7. The timer belongs to the `DbConfigWatcher` service, because `Container.dispose()` reaches only `Service` instances. The bootstrapper resolves the watcher in the container that resolved the `Orm`, when the sweep starts the timer, so it comes after the `Orm` in that container's cache. `Container.dispose()` disposes services in reverse resolution order: it disposes the watcher first, which ends the timer and waits for a poll in flight, and closes the `Orm` after that. A watcher runs one timer at most: a sweep that runs again (after a failed one) replaces the timer instead of adding a second.
 
 ## Configuration
 
@@ -34,6 +34,7 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 | Poll interval | DI value `'__config_watch_interval__'`, shape `{ value: number }` | not registered (180 000 ms) | any number of milliseconds | `DI.register({ value: ms }).asValue('__config_watch_interval__')` before `Orm` resolves. |
 | Poll | `DbConfigSourceBotstrapper.refreshWatched()`, public method of the singleton bootstrapper | runs on the timer | call it yourself | `(await DI.resolve(DbConfigSourceBotstrapper)).refreshWatched()` forces a poll now; see the example below. When a subclass replaced the bootstrapper, resolve the subclass instead, or register it `.as(DbConfigSourceBotstrapper)` so this call reaches it. Subclassing: [Customizing the bootstrapper](09-customizing-the-bootstrapper.md). |
 | Change event | DI event `CONFIGURATION_DB_CHANGED_EVENT` (`'configuration.db.changed'`) on the root container, listener `(slug: unknown, previous: unknown, next: unknown)`; narrow the arguments, `DI.on` takes `(...args: unknown[]) => void` | emitted by `refreshWatched()` after it wrote a changed value | none | `DI.on(CONFIGURATION_DB_CHANGED_EVENT, (slug, previous, next) => ...)`; see [Customizing the bootstrapper](09-customizing-the-bootstrapper.md#rebuild-the-mail-transport-after-the-smtp-host-changed). |
+| Watch timer | `DbConfigWatcher`, a `SyncService`, `@Injectable()`, one instance per DI container; its public API is `dispose()` | `DbConfigWatcher` | a subclass of `DbConfigWatcher` | Stop the watch with `await DI.resolve(DbConfigWatcher).dispose()`; the container's `dispose()` does it by itself. Replace it with `DI.register(MyWatcher).as(DbConfigWatcher)` before `Orm` resolves, where `MyWatcher` extends `DbConfigWatcher`. Do not resolve or inject it before the `Orm`: the bootstrapper's own resolve is what puts it after the `Orm`. |
 | Change comparison | `isConfigValueEqual(a, b)`, exported function | lodash `isEqualWith` plus `DateTime` instant comparison | none | Not pluggable; call it in your own code to compare config values the same way. |
 
 ## Important behaviour
@@ -41,7 +42,15 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 - **The `Watch` column decides what is watched.** A row with `Watch` = `1` is polled although the code declares no `watch`; a row with `Watch` = `0` is not, although the code declares `watch: true`. The change takes effect on the next tick, without a restart.
 - **`watch` in code seeds the column once.** A `watch` flag changed in code in a later release reaches only rows inserted from then on. Update existing rows in a migration to change them.
 - **Rows no code declares are polled too.** The poll reads the table, not the options the running code declared: a watched, exposed row left over from a removed option is still written into the configuration. Clear its `Watch` or `Exposed` flag, or delete it.
-- **The timer always runs.** Once the table is ready there is one query per interval, even when no row is watched.
+- **The timer always runs.** Once the table is ready there is one query per interval, even when no row is watched, until the watcher is disposed.
+- **Disposing the watcher ends the watch until the next `bootstrap()`.** After `dispose()` no poll is scheduled. A later sweep (a migration signal, or a sweep after a failed one) still writes the exposed rows, but starts no timer.
+- **A poll in flight applies nothing once the watcher is disposed.** This holds for a poll started by the timer or by hand, also when `bootstrap()` runs before its query returns. The same happens when the container is disposed.
+- **The promise of `dispose()` settles once a poll the timer was running has finished.** From then on nothing of the earlier polls is applied, and no `configuration.db.changed` is raised for them. If you do not await it, the poll in flight may still run its own code to the end.
+- **A `refreshWatched()` you call after `dispose()` polls and applies as usual.**
+- **A new `bootstrap()` watches again.** It drops a disposed watcher from the cache. When the `Orm` is already resolved, as in a running application, it sweeps at once and starts a fresh timer; otherwise the next `Orm` resolve or migration run does. A timer that replaces a running one waits for that timer's poll in flight before it counts down, so two polls never overlap.
+- **Resolved before the `Orm`, the watcher is disposed after it.** If application code resolves or injects `DbConfigWatcher` before the `Orm` resolves, the container closes the `Orm` first. A poll in flight then fails, is logged as `Failed to refresh watched config values from db` and applies nothing; the dispose still completes.
+- **Container dispose waits for a poll in flight.** During a database outage it waits as long as that query takes to fail.
+- **An `Orm` in a child container starts no timer.** The bootstrapper listens on the root container, so it does not hear an `Orm` resolved in a child.
 - **The interval is fixed at startup.** Changing `__config_watch_interval__` after the exposed options were swept into the table does nothing until the next process start.
 - **One query per tick.** The whole `configuration` table is read with a single query and filtered on `Watch` and `Exposed` in memory.
 - **Hidden rows are not polled into the config.** A watched row with `Exposed` = `0` is skipped until the flag is set again.
@@ -112,6 +121,30 @@ export async function enableCheckoutV2(): Promise<void> {
 ```
 
 `DI.resolve(DbConfigSourceBotstrapper)` returns the same singleton the bootstrap phase ran, so `refreshWatched()` writes into the configuration its timer updates. That holds while the base class is registered, or a subclass that replaced it is registered `.as(DbConfigSourceBotstrapper)`; after a plain `DI.unregister(DbConfigSourceBotstrapper)` for a subclass, resolve the subclass or add that registration, see [Customizing the bootstrapper](09-customizing-the-bootstrapper.md#how-it-works).
+
+### Stop the watch and start it again
+
+A maintenance job pauses the poll while it rewrites many rows, then lets the application watch again.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { DbConfigSourceBotstrapper, DbConfigWatcher } from '@spinajs/configuration-db-source';
+
+export async function withoutWatch(work: () => Promise<void>): Promise<void> {
+  // settles once a poll in flight has finished; nothing of it is applied afterwards
+  await DI.resolve(DbConfigWatcher).dispose();
+
+  await work();
+
+  // the Orm is resolved, so bootstrap() sweeps at once and starts a fresh timer
+  const bootstrapper = await DI.resolve(DbConfigSourceBotstrapper);
+  await bootstrapper.bootstrap();
+}
+```
+
+`DI.resolve(DbConfigSourceBotstrapper)` reaches the bound bootstrapper while the base class is registered, or a subclass that replaced it is registered `.as(DbConfigSourceBotstrapper)`; otherwise resolve the subclass, see [Customizing the bootstrapper](09-customizing-the-bootstrapper.md#how-it-works).
+
+Disposing the container ends the watch by itself: there is nothing to stop at shutdown.
 
 ### Start watching an option without a deploy
 

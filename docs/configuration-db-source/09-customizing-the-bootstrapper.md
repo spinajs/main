@@ -23,11 +23,11 @@ Members meant for subclasses and callers:
 | `authzDomain` | public property | `'root'` | Domain whose `AuthzService` runs the queries when [authz guarding](06-running-under-authz.md) is on. |
 | `bootstrap()` | public method | subscribes to DI events | Override and call `super.bootstrap()` to add your own setup. |
 | `unbind()` | public method | removes the DI subscriptions of `bootstrap()`; `di.dispose` calls it | Call it to stop syncing without disposing the container. |
-| `whenSwept()` | public method | settles once the sweep of exposed options, started by a `di.resolved.Orm` or `orm.migrated` signal, has written its rows or failed; at once when no signal came since `bootstrap()` | Await it in a test before reading the rows of exposed options. |
-| `refreshWatched()` | public method | one poll of the rows whose `Watch` column is set; emits `configuration.db.changed` `(slug, previous, next)` on the root container for each value it changed | Call it to apply database changes now; listen to the event to act on a change, or override and call `super` to act after each poll. |
+| `whenSwept()` | public method | settles once the sweep of exposed options has written its rows or failed; the sweep is started by a `di.resolved.Orm` or `orm.migrated` signal, or by `bootstrap()` itself when the `Orm` is already resolved; at once when no sweep started since `bootstrap()` | Await it in a test before reading the rows of exposed options. |
+| `refreshWatched()` | public method | one poll of the rows whose `Watch` column is set; a call made after the `DbConfigWatcher` was disposed polls and applies as usual, a call still running when it is disposed applies nothing; emits `configuration.db.changed` `(slug, previous, next)` on the root container for each value it changed | Call it to apply database changes now; listen to the event to act on a change, or override and call `super` to act after each poll. |
 | `Converter` | protected `DbConfigValueConverter`, `@Autoinject` | the DI singleton | Read in a subclass; replace it through DI, see [Custom value converter](08-custom-value-converter.md). |
 
-The insert, metadata sync and timer methods are `private`: a subclass cannot change them.
+The insert, metadata sync and timer methods are `private`: a subclass cannot change them. The timer itself runs in the `DbConfigWatcher` service; to stop the watch, dispose that service, see [Watching options](03-watching-options.md#stop-the-watch-and-start-it-again).
 
 ### Exposing bootstrapper: custom implementation
 
@@ -57,7 +57,7 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 ## Important behaviour
 
 - **Two bootstrappers mean double work.** Without `DI.unregister(DbConfigSourceBotstrapper)`, both instances subscribe: every exposed option is inserted twice (the second is ignored) and two watch timers poll.
-- **`bootstrap()` must run once.** Each call adds another pair of DI listeners.
+- **`bootstrap()` can run again.** Each call first removes the DI listeners of the previous one, subscribes again and resets the sweep state. When the `Orm` is already resolved it sweeps at once; otherwise the next `di.resolved.Orm` or `orm.migrated` does. It does not stop a running watch timer; the sweep replaces it, and a watcher disposed by hand is replaced by a fresh one.
 - **The base class is not the bound instance once it is replaced.** After `DI.unregister(DbConfigSourceBotstrapper)`, `DI.resolve(DbConfigSourceBotstrapper)` builds a separate instance; `refreshWatched()` and `whenSwept()` on it do not reach the bootstrapper that runs the timer, and its queries run in the authz domain `root`, not the subclass's. Resolve the subclass, or register it `.as(DbConfigSourceBotstrapper)`.
 - **`refreshWatched()` before `Orm` resolves does nothing useful.** The `DbConfig` model is not ready until then: the poll logs `Failed to refresh watched config values from db` and changes nothing.
 - **`refreshWatched()` never throws.** Database errors are logged and the method returns.
