@@ -5,8 +5,10 @@ import sinon from 'sinon';
 import { AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
+import { NewInstance } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
 import { BelongsTo, HasMany, HasManyToMany, ManyToManyRelation, ModelBase, Recursive, Relation, SelectQueryBuilder, SingleRelation } from '@spinajs/orm';
-import type { IOrmRelation } from '@spinajs/orm';
+import type { IOrmRelation, OrmDriver } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -276,5 +278,51 @@ describe('authz marks in a populate callback', function () {
         this.accessible('tag:read');
       }),
     ).to.throw(AuthzConfigError, /filter the parent query, populate through a hasMany relation, or load the related rows with their own \.accessible\(\) query/);
+  });
+
+  describe('with a builder subclass that drops the execution argument', () => {
+    @NewInstance()
+    class LegacySelectQueryBuilder<T = unknown> extends SelectQueryBuilder<T> {
+      constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>, owner?: IOrmRelation, applyMiddlewares = true) {
+        super(container, driver, model, owner, applyMiddlewares);
+      }
+    }
+
+    let unregister: () => void;
+
+    before(() => {
+      unregister = testHost.registerInRoot(SelectQueryBuilder, LegacySelectQueryBuilder);
+    });
+
+    after(async () => {
+      unregister();
+      await testHost.resetRoot();
+    });
+
+    it('.accessible() on a recursive relation still throws', () => {
+      let inner: unknown;
+      const keep = (builder: unknown): void => {
+        inner = builder;
+      };
+      Branch.query().populate('tag', function () {
+        keep(this);
+      });
+      expect(inner).to.be.instanceOf(LegacySelectQueryBuilder);
+      expect(inner instanceof LegacySelectQueryBuilder ? inner.state().execution.kind : undefined).to.equal('own');
+
+      expect(() =>
+        Branch.query().populate('tag', function () {
+          this.accessible('tag:read');
+        }),
+      ).to.throw(AuthzConfigError, /relation "tag" is recursive/);
+    });
+
+    it('.accessible() on a hasMany relation is still accepted', () => {
+      expect(() =>
+        Campaign.query().populate('offers', function () {
+          this.accessible('offer:read');
+        }),
+      ).not.to.throw();
+    });
   });
 });

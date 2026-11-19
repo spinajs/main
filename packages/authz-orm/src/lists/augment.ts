@@ -73,14 +73,20 @@ function manyToMany(relationName: string): string {
   return `in a populate callback: relation "${relationName}" is many-to-many: its junction query runs instead of this one, so the call would have no effect. ${POPULATE_INSTEAD}`;
 }
 
+function recursive(relationName: string): string {
+  return `in a populate callback: relation "${relationName}" is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
+}
+
 /** Why a mark on this builder would not filter what the query returns, or undefined when it does. */
 function markIgnored(builder: QueryBuilder): string | undefined {
   const { execution, owner } = builder.state();
   if (execution.kind === 'own') {
-    // The junction query of a many-to-many relation runs on its own but selects from the junction table.
-    return owner?.Descriptor.Type === RelationType.ManyToMany ? manyToMany(owner.Descriptor.Name) : undefined;
+    // Fallback on the owner relation: the junction query of a many-to-many relation runs on its own but selects from the junction table, and a builder subclass that drops the constructor's execution argument reads 'own' for a recursive relation query.
+    if (owner?.Descriptor.Type === RelationType.ManyToMany) return manyToMany(owner.Descriptor.Name);
+    if (owner?.Descriptor.Recursive === true) return recursive(owner.Descriptor.Name);
+    return undefined;
   }
-  if (execution.kind === 'recursive') return `in a populate callback: relation "${execution.relation.Name}" is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
+  if (execution.kind === 'recursive') return recursive(execution.relation.Name);
   if (execution.into === 'join') return 'in a join callback: the join query is merged into the parent query and never runs on its own, so the call would have no effect. Instead, filter the parent query or load the joined rows with their own .accessible() query';
   if (execution.into === 'parent') return `in a populate callback: relation "${execution.relation.Name}" is a belongsTo: its query is merged into the parent query and never runs on its own, so the call would have no effect. ${POPULATE_INSTEAD}`;
   return manyToMany(execution.relation.Name);
