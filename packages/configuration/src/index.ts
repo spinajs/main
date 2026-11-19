@@ -13,3 +13,4 @@ export * from './fp.js';
 export * from './lib-dirs.js';
 export * from './non-finite.js';
 export { merge, mergeArrays } from './util-common.js';
+export { chooseEnvironment, type ChosenEnvironment } from './util.js';
