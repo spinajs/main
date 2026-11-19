@@ -7,9 +7,12 @@ import type { ModelBase } from './model.js';
 import type { IOrmRelation } from './relations.js';
 
 /**
- * How a builder's content reaches the database. `own`: sent as a statement of its own. `merged`: never sent; folded
+ * How a builder's content reaches the database. `own`: built as a statement of its own. `merged`: never sent; folded
  * into the builder its relation was populated on (`parent`), a many-to-many junction query (`junction`) or a join
  * (`join`). `recursive`: sent as a recursive CTE whose WHERE picks the start rows only, not the rows the recursion adds.
+ *
+ * `own` is not a promise that query middlewares see the builder: one that is used as a sub-query (`whereExist`,
+ * `whereIn`) is compiled into the outer statement and still reads `own`.
  */
 export type BuilderExecution =
   | { readonly kind: 'own' }

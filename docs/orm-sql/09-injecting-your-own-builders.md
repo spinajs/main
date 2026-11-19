@@ -35,7 +35,7 @@ Constructor signatures to keep:
 
 | Class | Constructor |
 | --- | --- |
-| `SelectQueryBuilder` | `(container, driver, model?, owner?, applyMiddlewares = true)` |
+| `SelectQueryBuilder` | `(container, driver, model?, owner?, applyMiddlewares = true, execution?)` |
 | `InsertQueryBuilder`, `UpdateQueryBuilder`, `DeleteQueryBuilder` | `(container, driver, model)` |
 | `IndexQueryBuilder`, `TruncateTableQueryBuilder`, `SchemaQueryBuilder` | `(container, driver)` |
 
@@ -51,7 +51,7 @@ Constructor signatures to keep:
 
 ## Best practices
 
-- Keep the base constructor; add no required constructor parameters.
+- Keep the base constructor; add no required constructor parameters. A constructor of your own passes every argument to `super`: the ORM hands relation and join builders their `execution` as the last argument, and a subclass that drops it makes every merged builder read `{ kind: 'own' }` (see [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md)).
 - Override `clone()`: call `super.clone()`, restore your prototype, copy your own fields.
 - Declare your methods on `ISelectQueryBuilder<T>` with module augmentation so model statics expose them with types.
 - Register the subclass once, at startup, before `Orm` resolves, in the same module that declares it.
@@ -78,9 +78,9 @@ public clone(): this {
 // Don't: a required extra parameter shifts every argument DI passes
 constructor(container: IContainer, tenant: string, driver: OrmDriver) { ... }
 
-// Do: keep the base signature; read extra context from DI or from the driver
-constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true) {
-  super(container, driver, model, owner, applyMiddlewares);
+// Do: take what the base takes and pass all of it on; read extra context from DI or from the driver
+constructor(...args: ConstructorParameters<typeof SelectQueryBuilder>) {
+  super(...args);
 }
 ```
 
