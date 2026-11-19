@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
-import { SelectQueryBuilder } from '@spinajs/orm';
-import type { ICompilerOutput } from '@spinajs/orm';
+import { defineQueryExtension, SelectQueryBuilder, SelectQueryExtension } from '@spinajs/orm';
+import type { BuilderExecution, ICompilerOutput } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
@@ -120,13 +120,32 @@ describe('SelectQueryBuilder.clone() of a query with a join callback', function 
     const statements = () => [query.getColumns(), query.JoinStatements, relationQuery.getColumns(), relationQuery.JoinStatements].map((list) => [...list]);
     const before = statements();
 
-    compiled(query.clone());
-    compiled(query.clone().clone());
+    expect(compiled(query.clone())).to.deep.equal(sql);
+    expect(compiled(query.clone().clone())).to.deep.equal(sql);
 
     const after = statements();
     expect(after.map((list) => list.length)).to.deep.equal(before.map((list) => list.length));
     after.forEach((list, i) => expect(list).to.have.ordered.members(before[i]));
     expect(compiled(query)).to.deep.equal(sql);
+  });
+
+  it('a clone of a query whose populate callback joins, taken before the first compile, compiles the statement of its source', () => {
+    const query = select(
+      UowOrderItem.query().populate('Order', function () {
+        this.leftJoin<UowClient>(
+          UowClient,
+          function () {
+            this.where('Name', 'acme');
+          },
+          function () {
+            this.select('Name', 'ClientName');
+          },
+        );
+      }),
+    );
+    const clone = compiled(query.clone());
+
+    expect(clone).to.deep.equal(compiled(query));
   });
 
   it('cloning a query a join was merged into leaves the builder it came from as it was', () => {
@@ -163,5 +182,73 @@ describe('SelectQueryBuilder.clone() of a query with a join callback', function 
     query.where('Total', 10);
     expect(compiled(query).expression).to.contain('`Total` = ?');
     expect(compiled(clone)).to.deep.equal(before);
+  });
+
+  it('a clone of a query with a where-only join callback compiles the statement of its source', () => {
+    const query = UowOrder.query()
+      .select('Id')
+      .select('Total')
+      .leftJoin<UowClient>(UowClient, function () {
+        this.where('Name', 'acme');
+      });
+    const clone = compiled(query.clone());
+
+    expect(clone).to.deep.equal(compiled(query));
+  });
+
+  it('a sort set in the join callback is the same in the clone', () => {
+    const query = UowOrder.query()
+      .select('Id')
+      .leftJoin<UowClient>(
+        UowClient,
+        function () {
+          this.where('Name', 'acme');
+        },
+        function () {
+          this.select('Name', 'ClientName').order('ClientName');
+        },
+      );
+    const clone = compiled(query.clone());
+    const source = compiled(query);
+
+    expect(source.expression).to.contain('ORDER BY');
+    expect(clone).to.deep.equal(source);
+  });
+
+  describe('with a query extension', () => {
+    let merges = 0;
+    const clones: BuilderExecution[] = [];
+    const CloneRecorder = defineQueryExtension({
+      name: 'test.clone-join-recorder',
+      target: 'select',
+      methods: {},
+      onMerge() {
+        merges++;
+      },
+      onClone(_source, clone) {
+        clones.push(clone.state().execution);
+      },
+    });
+
+    before(() => {
+      DI.register(CloneRecorder).as(SelectQueryExtension);
+    });
+
+    after(() => {
+      DI.unregister(CloneRecorder);
+    });
+
+    it('cloning runs no merge hook and announces the copy of the join builder through onClone', () => {
+      merges = 0;
+      clones.length = 0;
+
+      const query = withClientJoin();
+      expect(merges).to.equal(1);
+
+      query.clone().clone();
+      expect(merges).to.equal(1);
+      expect(clones).to.have.length(4);
+      expect(clones.filter((e) => e.kind === 'merged' && e.into === 'join')).to.have.length(2);
+    });
   });
 });

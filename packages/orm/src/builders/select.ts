@@ -25,7 +25,7 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { executionCopy, JOIN_BUILDER, runCloneHooks, runMergeHooks } from './internal.js';
+import { executionCopy, runCloneHooks, runMergeHooks } from './internal.js';
 import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -396,10 +396,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const joined = new Map<IQueryStatement, IQueryStatement>();
     this._joinStatements.forEach((s, i) => {
       const copy = copies[i];
-      const from = s instanceof JoinStatement ? s[JOIN_BUILDER] : undefined;
-      const to = copy instanceof JoinStatement ? copy[JOIN_BUILDER] : undefined;
-      if (from && to) {
-        from._columns.forEach((c, k) => joined.set(c, to._columns[k]));
+      if (s instanceof JoinStatement && copy instanceof JoinStatement) {
+        s.columnCopiesIn(copy).forEach((to, from) => joined.set(from, to));
       }
     });
     return joined;

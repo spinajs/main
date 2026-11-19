@@ -38,9 +38,6 @@ export function isSelectQuery(value: unknown): value is ISelectQueryBuilder {
   return value instanceof QueryBuilder && (value as unknown as { _method: QueryMethod })._method === QueryMethod.SELECT;
 }
 
-// Kept out of the package exports: SelectQueryBuilder.clone() reads a join's own builder through it.
-export const JOIN_BUILDER: unique symbol = Symbol('JoinStatement builder');
-
 type CloneHook = (source: QueryBuilder, clone: QueryBuilder) => void;
 
 // Set by Orm.resolve() from the registered query extensions; select.ts reads them here because

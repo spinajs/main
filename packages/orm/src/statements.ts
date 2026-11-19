@@ -11,7 +11,6 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
 import { noteRawSql } from './explain/raw-sql.js';
 import type { BuilderExecution } from './extensions.js';
-import { JOIN_BUILDER } from './builders/internal.js';
 
 const MERGED_INTO_JOIN: BuilderExecution = { kind: 'merged', into: 'join' };
 
@@ -355,8 +354,19 @@ export abstract class JoinStatement extends QueryStatement {
 
   public abstract build(): IQueryStatementResult;
 
-  public get [JOIN_BUILDER](): SelectQueryBuilder | undefined {
-    return this._whereBuilder;
+  /**
+   * For `SelectQueryBuilder.clone()`: the columns this join's builder gave the query it was merged into, each paired
+   * with the same column of `copy`, the clone of this statement.
+   */
+  public columnCopiesIn(copy: JoinStatement): Map<IQueryStatement, IQueryStatement> {
+    const copies = new Map<IQueryStatement, IQueryStatement>();
+    if (this._whereBuilder === undefined || copy._whereBuilder === undefined) {
+      return copies;
+    }
+
+    const to = copy._whereBuilder.getColumns();
+    this._whereBuilder.getColumns().forEach((c, k) => copies.set(c, to[k]));
+    return copies;
   }
 
   /**
