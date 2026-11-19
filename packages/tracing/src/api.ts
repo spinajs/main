@@ -34,12 +34,23 @@ export function markSpanError(span: Span, error: unknown): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: exception.message });
 }
 
-export async function withSpan<T>(name: string, options: SpanOptions, fn: (span: Span) => T | Promise<T>): Promise<T> {
+export function errorTypeOf(error: unknown): string {
+  return error instanceof Error ? error.constructor.name : typeof error;
+}
+
+/** For a span around user code: driver and validation errors embed bindings and payloads in their message. */
+export function markSpanErrorType(span: Span, error: unknown): void {
+  const type = errorTypeOf(error);
+  span.setAttribute('error.type', type);
+  span.setStatus({ code: SpanStatusCode.ERROR, message: type });
+}
+
+export async function withSpan<T>(name: string, options: SpanOptions, fn: (span: Span) => T | Promise<T>, recordError: (span: Span, error: unknown) => void = markSpanErrorType): Promise<T> {
   const span = tracer().startSpan(name, options);
   try {
     return await context.with(trace.setSpan(context.active(), span), fn, undefined, span);
   } catch (err) {
-    markSpanError(span, err);
+    recordError(span, err);
     throw err;
   } finally {
     span.end();

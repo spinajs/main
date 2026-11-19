@@ -19,7 +19,7 @@ export default defineConfig(
       // The Next.js fixture's build output and generated client.
       'fixtures/*/.next/**',
       'fixtures/*/generated/**',
-      // A Vite + ckit app: its @coderush/* imports only resolve where ckit is linked; its own typecheck covers it.
+      // A Vite + ckit app: its @coderush/* imports only resolve where ckit is linked; packages/studio-ui/eslint.config.mjs lints it there.
       'packages/studio-ui/**',
       // Their tsconfig.json does not include test/, so the typed rules have no program for it.
       'packages/{di,exceptions,fs-onedrive,orm-threading,session-provider-redis,templates-csv,threading,util}/test/**',

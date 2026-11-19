@@ -96,12 +96,25 @@ function compareClientName(b: RouteRef, h: RouteRef): Finding[] {
   return before === after ? [] : [{ breaking: false, detail: `client method ${before} renamed to ${after}: generated hooks and query keys change` }];
 }
 
+function compareIdempotency(b: RouteEntry, h: RouteEntry): Finding[] {
+  const before = b.idempotency;
+  const after = h.idempotency;
+  if (before === undefined) {
+    if (after === undefined) return [];
+    return [after.required ? { breaking: true, detail: '@Idempotent added with a required Idempotency-Key' } : { breaking: false, detail: '@Idempotent added' }];
+  }
+  if (after === undefined) return [{ breaking: true, detail: '@Idempotent removed: a retried request runs again' }];
+  if (before.required === after.required) return [];
+  return [after.required ? { breaking: true, detail: 'Idempotency-Key is now required' } : { breaking: false, detail: 'Idempotency-Key is no longer required' }];
+}
+
 function compareRoute(b: RouteRef, h: RouteRef, base: Manifest, head: Manifest): Finding[] {
   return [
     ...compareClientName(b, h),
     ...compareParams(b.route, h.route, clientName(h), base, head),
     ...compareTypes(b.route.returnType, h.route.returnType, 'response', 'response', base, head),
     ...comparePagination(b.route, h.route),
+    ...compareIdempotency(b.route, h.route),
   ];
 }
 

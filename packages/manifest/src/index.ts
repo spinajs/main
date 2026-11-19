@@ -12,6 +12,7 @@ export * from './scan-files.js';
 export * from './runtime.js';
 export * from './route-path.js';
 export * from './inheritance.js';
+export * from './route-idempotency.js';
 export * from './socket-contract.js';
 export * from './runtime-types.js';
 export * from './realpath.js';

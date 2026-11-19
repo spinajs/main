@@ -12,12 +12,15 @@ import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, P
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './converters.js';
+import { normalizePostgresPlan } from './explain.js';
+import type { QueryPlan } from '@spinajs/orm';
 
 export * from './compilers.js';
 export * from './expressions.js';
 export * from './statements.js';
 export * from './errors.js';
 export * from './converters.js';
+export * from './explain.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
@@ -209,6 +212,10 @@ export class PostgresOrmDriver extends SqlDriver {
     return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
   }
 
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizePostgresPlan(await this.runExplain('EXPLAIN (FORMAT JSON)', sql, bindings, rawSql));
+  }
+
   protected isRetryableError(err: unknown): boolean {
     // Inside a transaction the connection carried uncommitted state. Reconnecting and
     // replaying one statement would silently apply it OUTSIDE the transaction.
@@ -365,7 +372,7 @@ export class PostgresOrmDriver extends SqlDriver {
       insertIdIsFirstOfBatch: false,
       concurrentTransactions: true,
       nativeJson: true,
-      // pg-cursor submits to a real pg client; a subclass that puts a pool-shaped adapter here (PGlite) pages by keyset instead
+      // pg-cursor submits to a real pg client; PGlite's pool adapter is not one, and PgliteOrmDriver brings its own cursor
       streaming: this.Pool instanceof pg.Pool,
     };
   }

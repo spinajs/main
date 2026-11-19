@@ -133,8 +133,8 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | `columns(names)` | Replaces the column list. |
 | `clearColumns()` | Empties the column list. |
 | `distinct()` | `SELECT DISTINCT`. Throws `InvalidOperation` when the column list is empty or starts with `*`. |
-| `min` / `max` / `sum` / `avg(column, as?)` | Adds an aggregate column. |
-| `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as` and drops the populated relations that have not compiled yet. Conditions inside a populate callback do not narrow the count; filter the root query or use `whereExist()`. |
+| `min` / `max` / `sum` / `avg(column, as?)` | Adds an aggregate column. On an aliased query the column is qualified with the alias (``SUM(`u`.`age`)``). |
+| `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as`. A belongs-to populate stays as its LEFT JOIN, so its callback conditions narrow the count as they narrow the rows; other populated relations (one-to-many, many-to-many) load in selects of their own and are dropped, so their callback conditions do not narrow it. Use `whereExist()` to count owners that have a matching child. |
 | `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the count as a `number` on every driver, or `0`. |
 | `asRaw<T>()` | Executes and resolves with the driver rows, skipping builder middlewares and hydration. |
 | `getColumns()` | The column statements. |

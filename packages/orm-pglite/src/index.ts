@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite, type PGliteOptions } from '@electric-sql/pglite';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionState, OrmException, SqlDialect, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
+import { ConnectionState, OrmException, QueryContext, SqlDialect, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
 import { PostgresOrmDriver, pgEscapeIdentifier } from '@spinajs/orm-postgres';
 import type pg from 'pg';
 
@@ -35,7 +36,36 @@ export interface IPgliteDriverOptions {
 export class PgliteOrmDriver extends PostgresOrmDriver {
   public supportedFeatures(): ISupportedFeature {
     // One session: a second outermost transaction waits for the first instead of for the client it holds.
-    return { ...super.supportedFeatures(), concurrentTransactions: false };
+    // pg-cursor needs a socket client, so the parent reports no streaming for this pool; executeStreamOnDb is PGlite's own cursor.
+    return { ...super.supportedFeatures(), concurrentTransactions: false, streaming: true };
+  }
+
+  /**
+   * A WITH HOLD cursor outlives the statement that declares it, so the one session is free between batches and the
+   * loop body may query it (a batched populate does). PGlite materializes the whole result when the DECLARE commits.
+   */
+  public async *executeStreamOnDb(stmt: string, params: unknown[], options: { batchSize: number }): AsyncGenerator<unknown> {
+    // Per stream, not per driver: connections that share one instance (Options.Shared) share its cursor names.
+    const cursor = `spinajs_stream_${randomUUID().replaceAll('-', '')}`;
+
+    await this.executeOnDb(`DECLARE ${cursor} NO SCROLL CURSOR WITH HOLD FOR ${stmt}`, params, QueryContext.Select);
+    let failed = false;
+    try {
+      for (;;) {
+        const rows: unknown[] = await this.executeOnDb(`FETCH ${options.batchSize} FROM ${cursor}`, [], QueryContext.Select);
+        if (rows.length === 0) {
+          return;
+        }
+        yield* rows;
+      }
+    } catch (err) {
+      failed = true;
+      throw err;
+    } finally {
+      const closed: Promise<unknown> = this.executeOnDb(`CLOSE ${cursor}`, [], QueryContext.Select);
+      // the FETCH error is the one to report: a CLOSE that fails after it must not replace it
+      await (failed ? closed.catch(() => undefined) : closed);
+    }
   }
 
   public async connect(): Promise<OrmDriver> {

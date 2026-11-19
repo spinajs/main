@@ -1,6 +1,6 @@
 # Observability
 
-The socket server writes one debug line per command and per stream, publishes Prometheus metrics through `@spinajs/telemetry-common`, and carries an inbound `traceparent` into the handler's call store.
+The socket server writes one debug line per command and per stream, publishes Prometheus metrics through `@spinajs/telemetry-common`, and runs every dispatched command under an OpenTelemetry SERVER span that continues an inbound `traceparent`.
 
 ## How it works
 
@@ -11,7 +11,16 @@ The socket server writes one debug line per command and per stream, publishes Pr
 3. `SocketDispatcher.streamEnded()` runs once per stream: logs `socket stream <name> <outcome> <n> chunks <ms>ms connection <id>` and increments `socket_streams_total{command, code}` (`ok` or the `fail` code).
 4. `trackConnection()` raises the `socket_connections` gauge on connect and lowers it on disconnect.
 5. `socketMetrics()` defines the metrics once per `Metrics` service; when `Metrics` cannot be resolved it returns `null` and nothing is published. A failing log line or metric never costs a reply.
-6. A command's `traceparent` (W3C) seeds `newTraceContext()`; `traceId` and `spanId` land in the call's AsyncLocalStorage store with `requestId`, `connectionId`, `clientId` and `socketCall`.
+6. `SocketDispatcher.createContext()` starts a SERVER span `socket <command>` on the `@spinajs/tracing` tracer, a child of the request's `traceparent` (W3C) or the root of a new trace. A name the registry does not know becomes `socket _OTHER`, so a client cannot mint span names; the name it sent is in the `spina.socket.command` attribute. Middlewares, the handler and the stream's source run with the span active. A command refused before it is dispatched (a malformed frame, an id already in flight, a refusal during shutdown) gets no span; it is counted only in the metrics (step 2). A rate-limited command does get one: the rate stage answers it inside the pipeline. If an external SDK's propagator or sampler throws, the command runs untraced, with the ids of a new trace, and the server logs an error.
+7. The span's `traceId` and `spanId` land in the call's AsyncLocalStorage store with `requestId`, `connectionId`, `clientId` and `socketCall`, so log lines and policies carry the span's ids. With tracing not started (`tracing.enabled: false`, or no tracing bootstrapper) the span is a no-op and the ids are minted as before: the inbound trace id with a new span id, or a new trace; never zeros.
+8. A reply with `ok: false` sets the span's status to ERROR and `error.type` to the wire error code (`internal`, `not_found`, ...). The error's message never reaches the span: it can quote the payload. The span ends after the reply is sent and any stream it opened has ended.
+
+| Span attribute | Value |
+| --- | --- |
+| `spina.socket.command` | the command name the client sent |
+| `error.type` | the wire error code, on a failed reply only |
+
+No payload, argument value or error message is written to the span.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -77,7 +86,7 @@ DI.register(SlowCommandDispatcher).as(SocketDispatcher);
 
 - Alert on `socket_commands_total{code="internal"}` and look the `errorId` up in the logs.
 - Watch `socket_commands_total{code="resource_exhausted"}` to tune [limits](13-limits.md).
-- Send `traceparent` from the client to tie socket calls to the rest of a trace.
+- Run an OpenTelemetry SDK in the client to tie socket calls to the rest of a trace: `@spinajs/http-socket-client` sends the active span as `traceparent` (see [Commands](../http-socket-client/02-commands.md)).
 
 ## Patterns and antipatterns
 
