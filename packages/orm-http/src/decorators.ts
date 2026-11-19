@@ -1,5 +1,5 @@
-import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
-import { FilterableOperators, IColumnFilter, IFilterableOptions } from './interfaces.js';
+import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorDescriptor, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
+import { AggregateFunction, FilterableOperators, IAggregateColumns, IColumnFilter, IFilterableOptions, MAX_FILTER_GROUP_DEPTH } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
@@ -53,4 +53,62 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
 
 export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[]) {
   return Route(Parameter('FilterModelRouteArg', null, model));
+}
+
+function propertyDecorator(record: (model: IModelDescriptor, propertyKey: string) => void): PropertyDecorator {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => record(model, propertyKey)) as PropertyDecorator;
+}
+
+/**
+ * Lets a filter request over this model nest groups `depth` levels deep instead of one. The builder walks any
+ * depth, so the schema is the only bound.
+ */
+export function FilterGroupDepth(depth: number): ClassDecorator {
+  if (!Number.isSafeInteger(depth) || depth < 1 || depth > MAX_FILTER_GROUP_DEPTH) {
+    throw new Error(`FilterGroupDepth takes an integer from 1 to ${MAX_FILTER_GROUP_DEPTH}, got ${depth}`);
+  }
+  return extractDecoratorDescriptor((model: IModelDescriptor) => {
+    model.FilterGroupDepth = depth;
+  }) as ClassDecorator;
+}
+
+/** Lets a list be sorted by this column. A model with no `@Sortable` is sortable by its filterable table columns. */
+export function Sortable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.SortableColumns ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** Lets an aggregate request group by this column. Grouping lists a column's distinct values, so it is opt-in. */
+export function Groupable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.GroupableColumns ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** Lets an aggregate request apply these functions to this column. */
+export function Aggregatable(functions: AggregateFunction[]): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    if (!functions || functions.length === 0) {
+      throw new Error(`Aggregatable decorator on ${model.Name} model, property ${propertyKey} must name at least one function`);
+    }
+    (model.AggregatableColumns ??= new Map<string, AggregateFunction[]>()).set(propertyKey, [...functions]);
+  });
+}
+
+/** Lets a request load this relation through `include`. */
+export function Includable(): PropertyDecorator {
+  return propertyDecorator((model, propertyKey) => {
+    (model.IncludableRelations ??= new Set<string>()).add(propertyKey);
+  });
+}
+
+/** The relations the request asks to load (`?include=A,B`), each checked against the model's `@Includable` relations. */
+export function Include(model: Constructor<ModelBase> | string[]) {
+  return Route(Parameter('IncludeModelRouteArg', null, model));
+}
+
+/** The request's `aggregate` value (query string or body), validated against what the model lets a request group and measure. */
+export function Aggregate(model: Constructor<ModelBase> | IAggregateColumns) {
+  return Route(Parameter('AggregateModelRouteArg', null, model));
 }

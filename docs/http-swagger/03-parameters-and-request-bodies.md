@@ -106,9 +106,11 @@ A route argument of your own (a `RouteArgs` subclass, see [Custom route argument
    - `in: 'path'`: the path parameter of the placeholder `name` (else the argument name), always required. A name that is no placeholder of the route fails the build, and so does a second argument for one placeholder;
    - `in: 'body'`: the whole `requestBody`, with `content: { [contentType]: { schema } }`, `required` from the description (default `true`), and the argument's `@param` text as its description.
 
+A header, query, path or cookie description may also name a `contentType`. The parameter is then documented with `content: { [contentType]: { schema } }` instead of `schema`, which tells a generated client to send the value as one encoded text, for example `?spec={"a":1}` for `contentType: 'application/json'`. Without it, an object schema in the query would be read as form style, exploded into `?a=1`. Leave it out for a plain value; a registration without it is documented with `schema`, as before. orm-http's `@Aggregate` argument is registered this way.
+
 ```ts
 export type OpenApiParamDescription =
-  | { in: 'header' | 'query' | 'path' | 'cookie'; name?: string; required?: boolean; description?: string; schema: object }
+  | { in: 'header' | 'query' | 'path' | 'cookie'; name?: string; required?: boolean; description?: string; schema: object; contentType?: string }
   | { in: 'body'; contentType: string; required?: boolean; description?: string; schema: object };
 
 export function registerOpenApiParamType(type: string, describe: (param: IRouteParameter) => OpenApiParamDescription | OpenApiParamDescription[]): void;
