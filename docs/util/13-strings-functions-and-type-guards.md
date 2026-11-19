@@ -1,6 +1,6 @@
 # Strings, functions and type guards
 
-Small helpers for strings, dates, deferred, cached and maybe-async function calls, and type guards that narrow `unknown` values.
+Small helpers for strings, dates, deferred, cached and maybe-async function calls, type guards that narrow `unknown` values, and readers that pull typed fields out of untyped data.
 
 ## How it works
 
@@ -61,6 +61,16 @@ Small helpers for strings, dates, deferred, cached and maybe-async function call
 | `isFiniteNumber(v)` | A number other than `NaN` and `±Infinity` |
 | `isNonNegativeInt(v)` | A safe integer `>= 0` |
 
+### Readers for untyped data
+
+Each reader returns the value when it has the expected shape, otherwise `undefined`. Chain them with `?.` to read optional fields of parsed JSON, such as `EXPLAIN` output, without casts.
+
+| Function | Returns |
+| --- | --- |
+| `asPlainObject(v)` | `v` when it is a non-null object that is not an array, otherwise `undefined` |
+| `asString(v)` | `v` when it is a string, `''` included, otherwise `undefined` |
+| `toFiniteNumber(v)` | A finite number from a number or a numeric string, surrounding whitespace allowed: `' 12.25 '` gives `12.25`, `'1e3'` gives `1000`. A blank string, `'12 rows'`, `NaN`, `±Infinity` (also `'Infinity'`) and any other type give `undefined` |
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
@@ -94,11 +104,34 @@ console.log(grossPrice(p), grossPrice({ ...p }), loadVatTable() === loadVatTable
 - `Lazy.call` runs the callback every time; it does not cache. Combine it with `once` for a lazily computed value.
 - `truncateWords` joins the kept words with single spaces when it truncates; it returns the string unchanged otherwise.
 - `truncate` with `length` not larger than the suffix returns part of the suffix only.
+- `isFiniteNumber('1')` is `false`, while `toFiniteNumber('1')` is `1`: the guard checks the type, the reader converts a numeric string.
+- `toFiniteNumber` converts with `Number`, so `'0x1A'` gives `26` and `'1_000'` gives `undefined`.
 
 ## Best practices
 
 - Use `memoize` for pure functions with a small, bounded key space; for anything else use a cache with eviction.
 - Pass `isDefined` to `filter` instead of `(x) => x != null`; the result type then loses `null` and `undefined`.
+- Read external JSON with `asPlainObject`, `asString` and `toFiniteNumber` instead of an `as` cast; a field of the wrong shape then reads as `undefined` instead of failing later.
+
+## Examples
+
+### Read the cost of a MySQL `EXPLAIN FORMAT=JSON` plan
+
+MySQL prints costs as strings, so `toFiniteNumber` reads them where `isFiniteNumber` would refuse.
+
+```ts sample
+import { asPlainObject, asString, toFiniteNumber } from '@spinajs/util';
+
+const explain: unknown = JSON.parse(
+  '{"query_block":{"select_id":1,"cost_info":{"query_cost":"12.25"},"table":{"table_name":"orders","access_type":"ALL"}}}',
+);
+
+const block = asPlainObject(asPlainObject(explain)?.query_block);
+const cost = toFiniteNumber(asPlainObject(block?.cost_info)?.query_cost);
+const table = asString(asPlainObject(block?.table)?.table_name);
+
+console.log(table, cost); // orders 12.25
+```
 
 ## Related
 

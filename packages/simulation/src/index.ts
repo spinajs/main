@@ -11,3 +11,4 @@ export * from './simulate.js';
 export { SimFailureError } from './harness.js';
 export * from './suite.js';
 export * from './cli.js';
+export * from './profile.js';

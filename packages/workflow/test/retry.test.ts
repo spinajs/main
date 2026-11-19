@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { computeBackoff, NonRetryableError } from '@spinajs/durable';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { normalizeRetry, unitHash, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowStepFailed } from '../src/index.js';
+import { branchId, normalizeRetry, unitHash, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowStepFailed } from '../src/index.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import type { FakeClock } from '@spinajs/durable/testing';
@@ -255,8 +255,8 @@ describe('step retries', () => {
     await r1.tick();
     expect((await instance(id)).WakeAt).to.equal(T0 + 10_000);
     expect((await stepsOf(id)).map((s) => [s.Key, s.Status, s.Meta])).to.deep.equal([
-      ['step:slow#1', 'retrying', { wakeAt: T0 + 30_000, after: 0 }],
-      ['step:fast#1', 'retrying', { wakeAt: T0 + 10_000, after: 0 }],
+      ['step:slow#1', 'retrying', { wakeAt: T0 + 30_000, after: 0, call: 1 }],
+      ['step:fast#1', 'retrying', { wakeAt: T0 + 10_000, after: 0, call: 2 }],
     ]);
     clock.set(T0 + 10_000);
     await r1.tick();
@@ -295,7 +295,7 @@ describe('step retries', () => {
       [
         ['step:late#1', 'retrying'],
         ['step:a#1', 'succeeded'],
-        ['step:c#1', 'succeeded'],
+        [`step:c#1@${branchId('', 'step:a#1')}`, 'succeeded'],
       ],
     ]);
     delivered = [];

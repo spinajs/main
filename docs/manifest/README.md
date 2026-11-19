@@ -138,6 +138,13 @@ The build records the `http.routes.middlewares` of its configuration as `globalR
 
 A controller's or route's `middlewares` are listed in source order; the runtime applies decorators bottom-up, so it mounts one list in reverse. `options` are the literal arguments of `@Middleware(Type, ...options)`, the constructor options. A decorator that mounts its own middleware (`@Accepts`, `@BotCheck`, `@Idempotent`, ...) records `decoratorArgs`, its own literal arguments, which need not be the constructor options (`@Consumes('a', 'b')` passes `[['a', 'b']]`, `@Idempotent` fills in defaults). Either field is omitted when an argument is not a plain JSON literal in the source.
 
+A route behind `@Idempotent` of `@spinajs/http` also carries `idempotency: { required }`, read from its
+`IdempotencyMiddleware` entry. `required` is the decorator's literal `required` option. It is `false` when the option is
+absent or the argument is not a literal; the compiler then reports the argument as `CMP001`. An inherited route keeps
+its base's value unless the subclass redeclares the method with its own `@Idempotent`. Every other route has no such
+key, so a manifest of an app without `@Idempotent` routes is byte for byte what it was before the field existed, hash
+included. `manifestVersion` stays 2. Generators read this field; they do not search `middlewares`.
+
 A build with `--no-schemas` records `schemaDerivation: false`. Its socket contracts then have no payload schemas, so a boot in `require` fails naming them and `prefer` logs one warning; see [the contract table](../http-socket/02-controllers.md). `off` and a manifest without the field stay silent.
 
 **Run it from the folder the app runs from.** `system.dirs` is usually computed from `process.cwd()`, so the build warns with `CLI001` when that is not the `tsconfig` folder. It is a warning and not a refusal, because an app that runs from its build folder gets the right dirs only from there. A configured dir of the app with no source folder behind it gets `CMP008`, so a partly wrong working directory shows as more than per-class warnings. Paths are compared physically, so a release folder behind a symlink maps either way, and `manifest.app.root` holds the physical path. A manifest carried from one release folder to the next keeps pointing at the old one while that folder exists: set `SPINAJS_MANIFEST_ROOT` in such a layout.
@@ -151,6 +158,34 @@ A direct call of `buildAppManifest` without `effectiveDirs` marks nothing.
 The `authz` section lists what the build can read about authorization. `resources`: each model that is an access resource (its own `@AccessResource`, its nearest registered base class, or a literal `registerAccessResource(Model, type, options)` call, also on another package's model) with its relation columns. `permissions`: the `<type>:read|create|update|delete` permissions the ORM adapter registers. `entryPoints`: every route, socket command and event, queue job (`job:<Class>`), literal `consume(Event, handler)` call (`event:<Class>`), schedule and CLI command, with its access as OR-of-AND policy groups: the class and handler scopes combined as the runtime combines them, and an `AccessPolicy` group listing its permissions; `system` is the `@SystemTask(reason)` of the class. `ignores`: every `// spinajs-authz-ignore AUTHZxxx: <reason>` comment. `findings` is empty until the flow pass lands.
 
 `ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet; an app manifest with an `authz` section says so with the info diagnostic `AUTHZ010`.
+
+### Tenancy facts
+
+The `tenancy` section holds what a build can read about tenants. A fragment has it only when the package declares something: a tenant model, the tenancy of an entry point, an escape or an ignore comment. An application in which no package does, and that does not mount `TenantMiddleware` on every route, has no section, and its manifest is what it was before.
+
+| Member | Content |
+| --- | --- |
+| `models` | Each tenant model by `ModelEntry.id`, with what `@Tenant(options)` or `registerTenantModel(Model, options)` states: `isolation` (`row` or `schema`), `column` (the name of the model's tenant column, or `false` for none) and `rls`. An absent member is the `tenancy.orm.*` default of the application. The same object is `ModelEntry.tenant`. The column itself is a property of the model and is listed with its other columns |
+| `entryPoints` | Every route, socket command and event, queue handler, schedule and CLI command, under the `id` it has in `authz.entryPoints`, with its `tenancy`, what it `declared` and, for `@AllTenants(reason)`, the `reason` |
+| `escapes` | Every `.acrossTenants(reason)` on a query builder and every `runAcrossTenants(reason, fn)` call, with the `reason` and, for a builder, the class name of its `model` when the function shows which model the builder is rooted at |
+| `ignores` | Every `// spinajs-tenancy-ignore TENxxx: <reason>` comment |
+
+`tenancy` is the tenant scope the handler starts in:
+
+| Value | Scope | Declared by |
+| --- | --- | --- |
+| `required` | one tenant | `@TenantRoute()`, `@Job({ tenancy: 'required' })` |
+| `each` | one run per active tenant, each in its own | `@Schedule(name, { tenancy: 'each' })` |
+| `all` | every tenant, with a reason | `@AllTenants(reason)` |
+| `none` | no scope is guaranteed | `@NoTenant()`, `tenancy: 'none'`, `@Job({ tenancy: 'carry' })`, or nothing at all |
+
+`carry` is `none` because the handler gets a scope only when the emitter had one (`DECLARED_ENTRY_TENANCY` is the table). An entry point that declares nothing has no `declared` member and is `none`: nothing gives it a scope. The one exception is a route of an application whose `http.routes.middlewares` holds `TenantMiddleware`: that mount requires a tenant on every route that does not say otherwise, so such a route is `required`. The build sees the mount in the configuration it runs with (`Manifest.globalRouteMiddlewares`); a build without configuration, and the fragment of a single package, cannot see it and record `none`. A socket handler runs in the tenant of its connection when the handshake named one, which a build cannot see either, so it is `none` too. A `reason` that is absent means the argument was not a string literal written in place.
+
+The decorators decide; the `TenantMiddleware` reference they leave in a route's `middlewares` is a record of the mount and is not read back. A hand-written `@Middleware(TenantMiddleware, { tenancy: 'none' })` is therefore not a declaration. Under the global mount such a route, or a route of a controller that mounts it so, stays `none` rather than `required`: its own mount replaces the global entry at run time, and the build does not read which declaration it carries.
+
+`mergeFragments` concatenates the sections, dependencies first. Once one package has a section, or the global mount is there, the merged one lists the entry points of every package: a fragment without a section contributes those of its `authz.entryPoints`, as entry points that declare nothing. A model another package registers (`registerTenantModel(JobModel)`) gets `ModelEntry.tenant` in the merged manifest unless it states its own.
+
+A tool that reads the section uses the same rules the merge does: `entryTenancies(manifest)` returns the entry points of a manifest, those of `authz.entryPoints` as undeclared when it has no section (`defaultEntryPoints`); `undeclaredTenancy(kind, globalMount)` is the tenancy of an entry point that declares nothing, and the merge passes `false` for a route that mounts `TenantMiddleware` itself or through its controller; `mountsTenantMiddleware(manifest.globalRouteMiddlewares)` tells whether the global mount is there, by the name `TENANT_MIDDLEWARE`.
 
 ### Route pagination
 

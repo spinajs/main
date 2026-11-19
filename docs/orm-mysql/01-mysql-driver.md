@@ -69,6 +69,10 @@ The `mysql2` error is `inner` on every one of them. `UniqueViolation` and `Const
 - `SqlDatetimeValueConverter` (from `@spinajs/orm-sql`) writes an instant as the UTC wall clock with milliseconds, `yyyy-MM-dd HH:mm:ss.SSS`, which `DATETIME(3)` and `TIMESTAMP(3)` columns keep exactly. See [Value converters and defaults](../orm-sql/05-value-converters-and-defaults.md).
 - `driver.now()` returns `RawQuery('UTC_TIMESTAMP(3)')` (`MySqlNowExpression`): the database's current instant in UTC, whatever the session zone.
 
+### Query plans
+
+`driver.explain(sql, bindings)` runs `EXPLAIN FORMAT=JSON` on one `SELECT` or `WITH` statement and returns a `QueryPlan` built by `normalizeMysqlPlan`. `mysql2` writes the bindings into the statement text, as for every statement, so the plan prints them as literals; the slow-query capture replaces them with `?`. The statement itself never runs (no `ANALYZE`), and the EXPLAIN uses a pool connection of its own, outside the transaction in scope. See [Plans: mysql](../orm/13-observability-and-resilience.md#plans-mysql).
+
 ## Configuration
 
 Connection keys are listed in [Connections](../orm/01-connections.md#configuration). This table says what `MySqlOrmDriver` does with each.

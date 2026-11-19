@@ -5,6 +5,11 @@ import type { Permission } from '@spinajs/authz';
 /** The accepting state: the principal is the object the path reached, or any principal after a wildcard. */
 export const ACCEPT = '$accept';
 
+/** The accepting state of a rewrite that holds for every principal: `{ intersection: [] }`, what ABAC compiles a policy to. */
+export const ANYONE = '$anyone';
+
+export const isAccepting = (state: string): boolean => state === ACCEPT || state === ANYONE;
+
 /** A tuple shape a path consumes: `X#R@Y`, `X#R@Y#S` (subject set), `X#R@U:*` (wildcard), with an optional caveat. */
 export interface Letter {
   readonly object: TypeName;
@@ -16,7 +21,7 @@ export interface Letter {
 }
 
 export interface Edge {
-  /** A `type#name` state or `ACCEPT`. */
+  /** A `type#name` state, `ACCEPT` or `ANYONE`. */
   readonly to: string;
   readonly via: 'direct' | 'computed' | 'ttu';
   /** The relation the edge moves to (`computed`) or reads (`direct`, `ttu`). */
@@ -31,7 +36,7 @@ export interface Edge {
 }
 
 export interface HolderRef {
-  readonly kind: 'role' | 'relation' | 'public';
+  readonly kind: 'role' | 'relation' | 'public' | 'anyone';
   readonly type: TypeName;
   readonly relation: RelationName;
   readonly role?: string;
@@ -39,6 +44,7 @@ export interface HolderRef {
 
 export function holderKey(h: HolderRef): string {
   if (h.kind === 'role') return `role:${h.role!}@${h.type}`;
+  if (h.kind === 'anyone') return `anyone:${h.type}#${h.relation}`;
   return `${h.kind === 'public' ? 'public:' : ''}${h.type}#${h.relation}`;
 }
 
@@ -117,6 +123,7 @@ export class RewriteAutomaton {
     else if ('computed' in r) out.edges.push({ to: stateKey(typeName, r.computed), via: 'computed', type: typeName, relation: r.computed, stored: false, conditional });
     else if ('tupleToUserset' in r) this.arrow(out, typeName, type, r.tupleToUserset.tupleset, r.tupleToUserset.computed, conditional);
     else if ('union' in r) for (const c of r.union) this.rewrite(out, typeName, type, self, c, conditional);
+    else if ('intersection' in r && r.intersection.length === 0) out.edges.push({ to: ANYONE, via: 'computed', type: typeName, relation: self, stored: false, conditional });
     else if ('intersection' in r) for (const c of r.intersection) this.rewrite(out, typeName, type, self, c, true);
     else if ('exclusion' in r) this.rewrite(out, typeName, type, self, r.exclusion.base, true);
     else if ('caveat' in r) this.rewrite(out, typeName, type, self, r.of, true);

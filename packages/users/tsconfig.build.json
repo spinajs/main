@@ -27,6 +27,9 @@
       "path": "../authz-queue/tsconfig.build.json"
     },
     {
+      "path": "../authz-workflow/tsconfig.build.json"
+    },
+    {
       "path": "../authz-rbac/tsconfig.build.json"
     },
     {
