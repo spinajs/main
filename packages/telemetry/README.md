@@ -248,8 +248,9 @@ Once `TelemetryMiddleware` is active, every request is timed (with
 | `http_request_duration_ms` | histogram | `method`, `route`, `status` |
 | `http_requests_in_flight` | gauge | — |
 
-The `route` label is the **matched** route path (`req.route.path`); every request
-no route matched is labelled `<unmatched>`, so cardinality stays bounded. The prefix (`http`) and duration buckets
+The `route` label is the **matched** route path: the mounted path from `ctx.path`, else
+the Express `req.route.path`; every request no route matched is labelled `<unmatched>`,
+so cardinality stays bounded. The prefix (`http`) and duration buckets
 are **configuration**, not code — do not subclass just to change them:
 
 ```ts
