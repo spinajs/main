@@ -7997,7 +7997,7 @@
   },
   "packages/telemetry/src/middleware.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/telemetry/src/policies/TelemetryAccessPolicy.ts": {
