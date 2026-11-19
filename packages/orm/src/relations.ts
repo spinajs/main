@@ -2,7 +2,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { RelationType } from './interfaces.js';
 import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
-import type { IQueryStatement } from './statements.js';
+import { JoinStatement } from './statements.js';
 import { NewInstance, DI, Inject, Container } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 
@@ -209,8 +209,12 @@ export class BelongsToRelation extends NativeOrmRelation {
     // PARENT rows survive - an INNER JOIN there drops campaigns whose client misses the
     // filter - and two populates of the same model would collide on the synthesised alias.
     const separator = this._targetModelDescriptor.Driver?.Options.AliasSeparator ?? '';
-    const nestedJoins = (this._relationQuery as any)._joinStatements.splice(0) as IQueryStatement[];
-    nestedJoins.forEach((j) => (j as any).nestUnder?.(this.Alias, separator));
+    const nestedJoins = this._relationQuery.JoinStatements.splice(0);
+    for (const join of nestedJoins) {
+      if (join instanceof JoinStatement) {
+        join.nestUnder(this.Alias, separator);
+      }
+    }
 
     this._query.leftJoin({
       joinTable: this._targetModelDescriptor.TableName,
@@ -221,13 +225,12 @@ export class BelongsToRelation extends NativeOrmRelation {
       joinTableDriver: this._targetModelDescriptor.Driver!,
       onStatements: onStatements.length ? onStatements : undefined,
       nestedJoins: nestedJoins.length ? nestedJoins : undefined,
-    } as any)
+    });
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
     // merge relation builder into parent, but skip join-scoped conditions ( routed to ON above )
-    // todo: fix this cast
-    (this._query as any).mergeBuilder(this._relationQuery, false);
+    this._query.mergeBuilder(this._relationQuery, false);
     // grouped: compile() runs after every beforeQueryExecution hook, so a flat orWhere would escape what they added
     this._query.mergeStatementsAsGroup(this._relationQuery, (s) => !s.OnJoin);
 
@@ -262,8 +265,6 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
     }
 
     this._relationQuery.Relations.forEach((r) => r.compile());
-    // todo: fix this cast
-    // (this._query as any).mergeBuilder(this._relationQuery);
     this._query.middleware(new BelongsToRelationRecursiveMiddleware(this._relationQuery, this._description, this._targetModelDescriptor));
 
     this._compiled = true;
@@ -449,7 +450,7 @@ export class ManyToManyRelation extends NativeOrmRelation {
         joinTableDatabase: this._targetModelDescriptor.Driver?.Options.Database,
         joinTableForeignKey: this._description.PrimaryKey,
         joinTableDriver: this._targetModelDescriptor.Driver!,
-      } as any
+      }
     )
 
 
@@ -466,9 +467,8 @@ export class ManyToManyRelation extends NativeOrmRelation {
       Recursive: false,
     };
 
-    // todo fix this cast
-    (this._joinQuery as any).mergeBuilder(this._relationQuery);
-    (this._joinQuery as any).mergeRelations(this._relationQuery);
+    this._joinQuery.mergeBuilder(this._relationQuery);
+    this._joinQuery.mergeRelations(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor, this._description));
 
