@@ -259,6 +259,7 @@ export interface IOpenApiSchema {
   anyOf?: IOpenApiSchema[];
   allOf?: IOpenApiSchema[];
   example?: unknown;
+  default?: unknown;
 }
 
 export interface IOpenApiComponents {

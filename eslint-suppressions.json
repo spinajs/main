@@ -4151,14 +4151,11 @@
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 14
     },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-enum-comparison": {
       "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 53
+      "count": 10
     },
     "complexity": {
       "count": 7

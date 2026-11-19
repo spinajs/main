@@ -1,6 +1,7 @@
-import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
+import { createHash } from 'node:crypto';
+import { Autoinject, ClassInfo, DI, NewInstance, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
-import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { DataValidator, SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
 import {
@@ -224,6 +225,44 @@ function availablePlaceholders(placeholders: string[]): string {
   return placeholders.length > 0 ? `Available placeholders: ${placeholders.join(', ')}.` : 'The route declares no path placeholders at all.';
 }
 
+/** The keywords ajv reads a `$data` reference in; elsewhere (`default`, `example`) `{ $data }` is a literal value. */
+const DATA_KEYWORDS = new Set([
+  'const',
+  'enum',
+  'format',
+  'formatMaximum',
+  'formatMinimum',
+  'formatExclusiveMaximum',
+  'formatExclusiveMinimum',
+  'maximum',
+  'minimum',
+  'exclusiveMaximum',
+  'exclusiveMinimum',
+  'multipleOf',
+  'maxLength',
+  'minLength',
+  'pattern',
+  'maxItems',
+  'minItems',
+  'uniqueItems',
+  'maxProperties',
+  'minProperties',
+  'required',
+]);
+
+/**
+ * A components key for a schema `$id`: the id itself when it is a valid key, else the id with the invalid characters
+ * replaced and a hash of the whole id appended, so `a/b` and `a_b` never share a component whatever order they come in.
+ */
+function componentKeyOf(id: string): string {
+  const key = id.replace(/[^A-Za-z0-9._-]/g, '_');
+  return key === id ? key : `${key}-${createHash('sha256').update(id).digest('hex').slice(0, 8)}`;
+}
+
+function isDataReference(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && typeof (value as { $data?: unknown }).$data === 'string';
+}
+
 // Each build documents the current controllers with the current config; a cached builder
 // would carry the previous build's paths, tags and components into the next one.
 @NewInstance()
@@ -242,6 +281,9 @@ export class OpenApiBuilder {
 
   @Autoinject(SchemaProvider)
   protected SchemaProviders!: SchemaProvider[];
+
+  @Autoinject()
+  protected Validator!: DataValidator;
 
   constructor(config: ISwaggerConfig) {
     this.config = config;
@@ -1218,10 +1260,20 @@ ${line}` : line;
   /**
    * Convert a JSON Schema object to an OpenAPI schema, mapping known keywords.
    */
-  private convertJsonSchema(jsonSchema: any): IOpenApiSchema {
-    if (!jsonSchema || typeof jsonSchema !== 'object') {
+  private convertJsonSchema(source: any, kind: SchemaKind = 'request'): IOpenApiSchema {
+    if (!source || typeof source !== 'object') {
       return { type: 'string' };
     }
+
+    // An ajv reference to another schema's `$id`; a `#` pointer is relative to the ajv schema, not to this document.
+    const external = (source as { $ref?: unknown }).$ref;
+    if (typeof external === 'string' && !external.startsWith('#')) {
+      const ref = this.registerSchemaById(external, kind);
+      if (ref) return { $ref: ref };
+    }
+
+    // ajv's `$data` (a JSON pointer into the validated data) has no OpenAPI form, so that keyword is left out.
+    const jsonSchema: Record<string, any> = Object.fromEntries(Object.entries(source as object).filter(([k, v]) => !(DATA_KEYWORDS.has(k) && isDataReference(v))));
 
     const result: IOpenApiSchema = {};
 
@@ -1246,13 +1298,13 @@ ${line}` : line;
     if (jsonSchema.nullable) result.nullable = jsonSchema.nullable;
 
     if (jsonSchema.items) {
-      result.items = this.convertJsonSchema(jsonSchema.items);
+      result.items = this.convertJsonSchema(jsonSchema.items, kind);
     }
 
     if (jsonSchema.properties) {
       result.properties = {};
       for (const [k, v] of Object.entries(jsonSchema.properties)) {
-        result.properties[k] = this.convertJsonSchema(v);
+        result.properties[k] = this.convertJsonSchema(v, kind);
       }
     }
 
@@ -1264,17 +1316,17 @@ ${line}` : line;
     if (typeof jsonSchema.additionalProperties === 'boolean') {
       result.additionalProperties = jsonSchema.additionalProperties;
     } else if (jsonSchema.additionalProperties) {
-      result.additionalProperties = this.convertJsonSchema(jsonSchema.additionalProperties);
+      result.additionalProperties = this.convertJsonSchema(jsonSchema.additionalProperties, kind);
     }
 
     if (Array.isArray(jsonSchema.oneOf)) {
-      result.oneOf = jsonSchema.oneOf.map((s: any) => this.convertJsonSchema(s));
+      result.oneOf = jsonSchema.oneOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (Array.isArray(jsonSchema.anyOf)) {
-      result.anyOf = jsonSchema.anyOf.map((s: any) => this.convertJsonSchema(s));
+      result.anyOf = jsonSchema.anyOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (Array.isArray(jsonSchema.allOf)) {
-      result.allOf = jsonSchema.allOf.map((s: any) => this.convertJsonSchema(s));
+      result.allOf = jsonSchema.allOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (jsonSchema.const !== undefined) {
       // OAS 3.0 has no `const` — emit single-value enum.
@@ -1282,6 +1334,8 @@ ${line}` : line;
       if (!result.type) result.type = typeof jsonSchema.const;
     }
     if (jsonSchema.example !== undefined) result.example = jsonSchema.example;
+    const defaultValue = (jsonSchema as { default?: unknown }).default;
+    if (defaultValue !== undefined) result.default = defaultValue;
 
     // If only enum is present with no type, infer type from first enum value
     if (!result.type && result.enum && result.enum.length > 0) {
@@ -1620,9 +1674,48 @@ ${line}` : line;
     const schemas = (components.schemas ??= {});
 
     // Expand nested named tags into their own components.
-    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved), kind);
+    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved, kind), kind);
 
     return ref;
+  }
+
+  /**
+   * Registers the schema an ajv `$ref` names by its `$id` and returns the component `$ref`; undefined when nothing
+   * knows that `$id`. A type the providers know by that name, or the `@Schema` class declaring that `$id`, keeps its
+   * class-named component, so a reference by `$id` and one by class name share it. Else the validator's schema
+   * (a schema file) becomes a component named after the `$id`.
+   */
+  private registerSchemaById(id: string, kind: SchemaKind): string | undefined {
+    const className = this.schemaClassWithId(id);
+    const byName = this.registerNamedComponent(id, kind) ?? (className ? this.registerNamedComponent(className, kind) : undefined);
+    if (byName) {
+      return byName;
+    }
+
+    const schema = this.Validator?.getSchema(id);
+    if (!schema) {
+      return undefined;
+    }
+
+    const componentName = componentKeyOf(id);
+    const ref = `#/components/schemas/${componentName}`;
+    if (!this.registeredComponents.has(componentName)) {
+      this.registeredComponents.add(componentName);
+      const schemas = ((this.document.components ??= {}).schemas ??= {});
+      schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(schema, kind), kind);
+    }
+
+    return ref;
+  }
+
+  /** Name of the `@Schema` class whose schema declares `$id: id`. */
+  private schemaClassWithId(id: string): string | undefined {
+    for (const [name, schema] of DI.get<Map<string, { $id?: unknown }>>('__schemas__') ?? []) {
+      if (schema?.$id === id) {
+        return name;
+      }
+    }
+    return undefined;
   }
 
   /**
