@@ -92,6 +92,18 @@ export interface PrincipalTeams {
   readonly groups: readonly (GroupView & { readonly roles: readonly string[] })[];
 }
 
+/** A principal holding the asked roles at a team, directly or as a member of a set holding them there. */
+export interface Teammate {
+  readonly subject: PrincipalRef;
+  readonly roles: readonly string[];
+}
+
+/** One team of `teamsOf`; `members` never holds the principal asked about. */
+export interface Teammates {
+  readonly teamId: string;
+  readonly members: readonly Teammate[];
+}
+
 export interface PurgeReport {
   readonly purged: readonly string[];
   /** The due teams whose purge failed; the next run retries them. */
@@ -125,6 +137,11 @@ export abstract class TeamService {
   abstract grant(actor: Principal, subject: TeamSubject, role: string, scope: ResourceRef): Promise<void>;
   abstract revoke(actor: Principal, subject: TeamSubject, role: string, scope: ResourceRef): Promise<void>;
   abstract teamsOf(principal: PrincipalRef): Promise<PrincipalTeams>;
+  /**
+   * The other principals of each team of `teamsOf(principal)` holding one of `roles` (default `team.member`) at the
+   * team. Like teamsOf it reads the principal's own data, so it checks nothing and no ceiling narrows it.
+   */
+  abstract teammatesOf(principal: PrincipalRef, opts?: { readonly roles?: readonly string[] }): Promise<readonly Teammates[]>;
 }
 
 export abstract class GroupService {
