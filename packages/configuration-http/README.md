@@ -44,7 +44,7 @@ registered before it resolves. A model imported later throws `OrmException: Mode
 | ------ | ---------------------- | ---------------------- | ----------------------------------------------- |
 | GET    | `/configuration`       | `configuration:read`   | List all entries (optional `?group=` filter)    |
 | GET    | `/configuration/:slug` | `configuration:read`   | Get a single entry by slug                      |
-| PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`) |
+| PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`, which also need `configuration:manage`) |
 
 Every route is guarded by `@Access` (`@spinajs/authz-http`): 401 without a principal, 403 without the
 permission. The checks are type-level. Row limits come from the ORM: the package registers `DbConfig` as the
@@ -123,8 +123,9 @@ already exists on the provider is refused.
 
 ## Permissions
 
-The package declares `configuration:read` and `configuration:update` (both with field sets) and the
-role `admin.configuration`, which holds both. It is not assignable; `admin` extends it. No other role
+The package declares `configuration:read` and `configuration:update` (both with field sets),
+`configuration:manage` (needed to change `Default` or `Watch`) and the role `admin.configuration`, which
+holds all three. It is not assignable; `admin` extends it. No other role
 gets access, because values can hold secrets.
 
 All routes use `fields: 'filter'`: a grant with `fields.read` hides the other fields (for example
