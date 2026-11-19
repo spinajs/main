@@ -50,7 +50,7 @@ export default {
 
 ### Run the commands without the bin
 
-Every command is a DI class with an `execute(options)` method. Resolve `Configuration` first, then the command, and read `process.exitCode` afterwards.
+Every command is a DI class with an `execute(options)` method. Resolve `Configuration` first, then the command, and read `process.exitCode` afterwards. `MigrateUpCommand.execute()` also resolves with its result, including a model left without its table; see [Applying migrations](01-applying-migrations.md#options).
 
 ```ts sample
 import { DI } from '@spinajs/di';
