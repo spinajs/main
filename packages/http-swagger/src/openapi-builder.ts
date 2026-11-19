@@ -1583,7 +1583,7 @@ ${line}` : line;
 
   /**
    * Swaps named-type nodes for a reusable component `$ref`, registering each component once.
-   * Walks `items` and `properties` so nested types are expanded too.
+   * Walks `items`, `properties`, `oneOf`, `anyOf` and `allOf` so nested types are expanded too.
    *
    * `kind` says which side of the wire this subtree describes and is carried down the whole
    * walk — a relation nested in a response is still a response. It defaults to 'request'

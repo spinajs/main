@@ -5,7 +5,7 @@ A type name in the documentation (`@returns {InvoiceDto}`, a DTO argument, a mod
 ## How it works
 
 1. **Tag.** A named type arrives as a bare tag: `{ type: 'object', description: '<Name>' }`, or the same without `type`, with no `format`, `properties`, `items`, `enum`, `oneOf`, `anyOf` or `allOf`. `{Name}` type strings, class-typed arguments without `@Schema`, named return types and ORM relation properties produce it. A node that describes itself is never a tag, even when its description reads like a class name.
-2. **Walk.** `OpenApiBuilder.expandNamedSchemas()` walks request bodies (`request` flavour) and response bodies (`response` flavour), descending into `items` and `properties`.
+2. **Walk.** `OpenApiBuilder.expandNamedSchemas()` walks request bodies (`request` flavour) and response bodies (`response` flavour), descending into `items`, `properties`, `oneOf`, `anyOf` and `allOf`.
 3. **Lookup.** `resolveNamedSchema()` asks the providers:
    - `response` flavour: the first non-`undefined` `getResponseSchema(name)`, else the first non-`undefined` `getSchema(name)`;
    - `request` flavour: the first non-`undefined` `getSchema(name)`.
@@ -117,7 +117,7 @@ The document gets two components: `Payment` (the response shape, used by both `2
 
   A `$ref` nothing knows, or one that starts with `#`, is left out, and the keywords beside it are kept.
 - `type: ['string', 'null']` becomes a `oneOf`, because OpenAPI 3.0 has no type arrays. An `enum` without `type` takes the type of its first value.
-- Only `items` and `properties` are walked for tags; a tag inside `oneOf`, `anyOf`, `allOf` or `additionalProperties` stays unresolved.
+- `items`, `properties`, `oneOf`, `anyOf` and `allOf` are walked for tags; a tag inside `additionalProperties` stays unresolved.
 - Parameters are not walked: a named type on a query or path parameter is not turned into a `$ref`. A `$ref` by `$id` inside a parameter's schema is resolved all the same, since `convertJsonSchema()` resolves it.
 - The builder writes into the schema objects it walks. Return a fresh object from `getSchema()` on every call, or one route's expansion rewrites the schema another route gets.
 - A schema that cannot be serialized to JSON counts as "flavours differ", which costs one extra component and never merges two contracts.
