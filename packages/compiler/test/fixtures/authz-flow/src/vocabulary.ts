@@ -1,6 +1,6 @@
 import type { DeleteQueryBuilder, IDeleteQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, InsertQueryBuilder, SelectQueryBuilderC, UpdateQueryBuilder } from '@spinajs/orm';
 import { SelectQueryBuilder } from '@spinajs/orm';
-import { SYSTEM, authz } from '@spinajs/authz';
+import { SYSTEM, authz, type DefaultAuthzService } from '@spinajs/authz';
 import type { Invoice } from './models.js';
 import { Invoice as InvoiceModel } from './models.js';
 
@@ -16,9 +16,29 @@ export declare const insert: InsertQueryBuilder;
 export const scoped = (q: ISelectQueryBuilder<Invoice>) => q.accessible('invoice:read').unscoped('vocabulary');
 export const copied = (q: ISelectQueryBuilder<Invoice>, c: SelectQueryBuilder<Invoice>) => [q.clone(), c.clone()];
 export const systemRun = () => authz().runAs(SYSTEM, 'vocabulary', async () => 1);
+export declare const host: DefaultAuthzService;
+export const hostRun = () => host.runAs(SYSTEM, 'vocabulary', async () => 1);
+export const scopedEach = () => [
+  iSelect.accessible('invoice:read'), iSelect.unscoped('vocabulary'),
+  select.accessible('invoice:read'), select.unscoped('vocabulary'),
+  iUpdate.accessible('invoice:read'), iUpdate.unscoped('vocabulary'),
+  update.accessible('invoice:read'), update.unscoped('vocabulary'),
+  iDelete.accessible('invoice:read'), iDelete.unscoped('vocabulary'),
+  del.accessible('invoice:read'), del.unscoped('vocabulary'),
+];
 
 /** An app's own builder subclass is a select builder through its base. */
 export class PagedInvoices extends SelectQueryBuilder<InvoiceModel> {}
+
+/** An app's subclass that overrides `clone()`, and an interface that redeclares it. */
+export class Paged<T> extends SelectQueryBuilder<T> {
+  public override clone(): this {
+    return super.clone();
+  }
+}
+export interface ClonedQuery extends ISelectQueryBuilder<InvoiceModel[]> {
+  clone(): this;
+}
 
 /** An app's own `accessible()` scopes nothing: it is not the authz-orm member. */
 export interface LooseQuery extends ISelectQueryBuilder<InvoiceModel> {
@@ -90,6 +110,18 @@ export class Vocabulary {
   }
   unconstrained<R>(q: ISelectQueryBuilder<InvoiceModel>) {
     return anything<R>(q);
+  }
+  async viaOverride(q: Paged<InvoiceModel[]>) {
+    q.clone().accessible('invoice:read');
+    return await q.all();
+  }
+  overriddenClone(q: Paged<InvoiceModel[]>) {
+    q.clone().accessible('invoice:read');
+    return q;
+  }
+  redeclaredClone(q: ClonedQuery) {
+    q.clone().accessible('invoice:read');
+    return q;
   }
   withScopes() {
     return InvoiceModel.where('Status', 'open');

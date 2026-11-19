@@ -52,6 +52,16 @@ describe('flow: effects and the tracer across calls', () => {
     expect(systemRuns('InvoiceService.overdue')).to.deep.equal([]);
   });
 
+  it('a system run needs the marked runAs and the marked principal: an own runAs or an own SYSTEM is none', () => {
+    const runAs = (name: string): boolean[] =>
+      nodes(fn(name), ts.isCallExpression)
+        .filter((c) => ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === 'runAs')
+        .map((c) => isSystemRunAs(c, checker));
+    expect(runAs('Lookalikes.ownRunAs')).to.deep.equal([false]);
+    expect(runAs('Lookalikes.ownSystem')).to.deep.equal([false]);
+    expect(runAs('Lookalikes.real')).to.deep.equal([true]);
+  });
+
   it('a builder-typed parameter is a pending builder that remembers its index', () => {
     const tracer = trace('InvoiceService.withAge', new Map());
     const traced = tracer.traced(returned('InvoiceService.withAge'));
@@ -202,6 +212,11 @@ describe('flow: effects and the tracer across calls', () => {
     expect(builderOf(checker, checker.getTypeAtLocation(paged.name!))?.kind).to.equal('select');
     expect(builderOf(checker, checker.getTypeAtLocation(callsOf('open')[0]))?.kind).to.equal('select');
     expect(builderOf(checker, checker.getTypeAtLocation(insert))).to.equal(undefined);
+  });
+
+  it('a clone() that overrides or redeclares a marked one is a copy, so scoping it leaves the builder unscoped', () => {
+    expect(returnedScope('Vocabulary.overriddenClone')).to.deep.equal([true, UNSCOPED]);
+    expect(returnedScope('Vocabulary.redeclaredClone')).to.deep.equal([true, UNSCOPED]);
   });
 
   it("scoping and copying are read from the member's marker, so an app's own accessible() scopes nothing", () => {

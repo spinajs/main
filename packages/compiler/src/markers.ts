@@ -30,6 +30,7 @@ export function symbolMarker(checker: ts.TypeChecker, symbol: ts.Symbol | undefi
   return undefined;
 }
 
+/** Answers for `type` as given and its bases: a caller splits a union or intersection first. */
 export function typeMarker(checker: ts.TypeChecker, type: ts.Type, role: string): string | undefined {
   const seen = new Set<ts.Symbol>();
   const visit = (current: ts.Type): string | undefined => {
