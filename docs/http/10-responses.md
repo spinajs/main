@@ -62,7 +62,7 @@ Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `StatusCode` | `HTTP_STATUS_CODE` | Overrides the class status. |
+| `StatusCode` | `HTTP_STATUS_CODE` | Overrides the class status. The enum has every standard 2xx, 3xx, 4xx and 5xx code except 418 (unused) and 510 (obsoleted), and the deprecated or unused 305 and 306, eg. `UNPROCESSABLE_CONTENT` 422 or `GONE` 410, so a number literal such as `422` also type-checks. |
 | `Headers` | `{ Name, Value }[]` | Response headers. |
 | `Coockies` | `{ Name, Value, Options }[]` | Cookies; note the spelling. `Options.signed: true` signs with `http.cookie.secret`. |
 
