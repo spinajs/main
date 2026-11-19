@@ -219,7 +219,7 @@ describe('StrategyRegistry', function () {
     it('fails on an unknown service name with ServiceNotFound, naming the entry', async () => {
       const error = await boot([LOCAL, entry('ghost', 'NoSuchStrategy')]).catch((e: unknown) => e);
       expect(error).to.be.instanceOf(ServiceNotFound);
-      expect((error as Error).message).to.equal('authn.strategies entry "ghost": no AuthenticationStrategy is registered as service "NoSuchStrategy"');
+      expect((error as Error).message).to.match(/^authn\.strategies entry "ghost": no AuthenticationStrategy is registered as service "NoSuchStrategy" \(registered: .*"LocalPassword".*\)$/);
       expect(DI.has(StrategyRegistry)).to.equal(false);
     });
 

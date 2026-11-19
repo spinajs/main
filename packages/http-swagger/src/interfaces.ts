@@ -70,6 +70,8 @@ export interface IMethodDocumentation {
   /** `@body {Type} description`, for a route that reads its JSON body without a body route argument. */
   body?: IBodyDocumentation;
   responses?: Record<string, IResponseDocumentation>;
+  /** `@produces <media-type>`, once per tag: the media types of the route's 2xx responses, in place of JSON. */
+  produces?: string[];
   examples?: IExampleDocumentation[];
   tags?: string[];
   deprecated?: boolean;
@@ -259,6 +261,7 @@ export interface IOpenApiSchema {
   anyOf?: IOpenApiSchema[];
   allOf?: IOpenApiSchema[];
   example?: unknown;
+  default?: unknown;
 }
 
 export interface IOpenApiComponents {

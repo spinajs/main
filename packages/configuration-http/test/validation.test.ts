@@ -33,8 +33,19 @@ describe('formatValidationErrors', () => {
     expect(formatValidationErrors('Value', [err('/Value', 'must be string'), err('/Value', 'must be string')])).to.equal('Value must be string');
   });
 
-  it('falls back to a generic message', () => {
-    expect(formatValidationErrors('Default', [err('/Default')])).to.equal('Default is invalid');
+  it('names the expected type of a type error that has no message', () => {
+    const typeErr = (type: string | string[]) => ({ ...err('/Value/limit'), keyword: 'type', params: { type } }) as IValidationError;
+    expect(formatValidationErrors('Value', [typeErr('integer')])).to.equal('Value/limit must be integer');
+    expect(formatValidationErrors('Value', [typeErr(['integer', 'null'])])).to.equal('Value/limit must be integer,null');
+  });
+
+  it('names the broken constraint of an error that has no message', () => {
+    const limitErr = { ...err('/Value'), keyword: 'maximum', params: { comparison: '<=', limit: 25 } } as IValidationError;
+    expect(formatValidationErrors('Value', [limitErr])).to.equal('Value must be <= 25');
+  });
+
+  it('falls back to the keyword of an unknown rule, and to a generic message without errors', () => {
+    expect(formatValidationErrors('Default', [err('/Default')])).to.equal('Default must pass "x" keyword validation');
     expect(formatValidationErrors('Default', [])).to.equal('invalid value for Default');
     expect(formatValidationErrors('Default', null)).to.equal('invalid value for Default');
   });

@@ -1,6 +1,7 @@
-import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
+import { createHash } from 'node:crypto';
+import { Autoinject, ClassInfo, DI, NewInstance, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
-import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { DataValidator, SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
 import {
@@ -122,6 +123,51 @@ const STREAM_RESPONSE_MEDIA_TYPES: Record<string, string> = {
   SseResponse: 'text/event-stream',
 };
 
+// RFC 9110 media type: type/subtype, then `; name=value` parameters whose value is a token or a quoted string.
+const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const MEDIA_TYPE = new RegExp(`^${TOKEN}/${TOKEN}(\\s*;\\s*${TOKEN}=(?:${TOKEN}|"(?:[^"\\\\]|\\\\.)*"))*$`);
+
+/** The `@produces` values of a route, or undefined without the tag; a value that is not a media type fails the build. */
+function producedMediaTypes(values: string[] | undefined, where: string): string[] | undefined {
+  if (!values?.length) return undefined;
+  for (const value of values) {
+    // A response has one concrete type: a range such as text/* is what a client asks for, not what a route sends.
+    if (!MEDIA_TYPE.test(value) || /^\*\/|^[^;]*\/\*(\s*;|$)/.test(value)) {
+      throw new InvalidArgument(`${where}: @produces \`${value}\` is not a media type such as text/csv or application/json`);
+    }
+  }
+  return values;
+}
+
+/** JSON and XML bodies are described by the documented schema; OpenAPI uses the same schema for both. */
+function isStructured(mediaType: string): boolean {
+  const base = mediaType.split(';')[0].trim().toLowerCase();
+  return base === 'application/json' || base.endsWith('+json') || base === 'application/xml' || base === 'text/xml' || base.endsWith('+xml');
+}
+
+/**
+ * The content of a success response. Without `@produces` it is what it always was: the file or stream media type of a
+ * framework response class, else JSON. With it, one entry per media type: a file or stream class keeps its own schema,
+ * JSON and XML get the documented one, other text a string and anything else a binary string.
+ */
+function successContent(
+  produces: string[] | undefined,
+  download: Record<string, { schema: IOpenApiSchema }> | undefined,
+  documented: () => IOpenApiSchema,
+): Record<string, { schema: IOpenApiSchema }> {
+  if (!produces) return download ?? { 'application/json': { schema: documented() } };
+
+  const fixed = download ? Object.values(download)[0].schema : undefined;
+  let schema: IOpenApiSchema | undefined;
+  return Object.fromEntries(
+    produces.map((mediaType) => {
+      if (fixed) return [mediaType, { schema: { ...fixed } }];
+      if (isStructured(mediaType)) return [mediaType, { schema: (schema ??= documented()) }];
+      return [mediaType, { schema: mediaType.trim().toLowerCase().startsWith('text/') ? { type: 'string' } : { type: 'string', format: 'binary' } }];
+    }),
+  );
+}
+
 /**
  * Mapping from ParameterType to OpenAPI 'in' location
  */
@@ -224,6 +270,44 @@ function availablePlaceholders(placeholders: string[]): string {
   return placeholders.length > 0 ? `Available placeholders: ${placeholders.join(', ')}.` : 'The route declares no path placeholders at all.';
 }
 
+/** The keywords ajv reads a `$data` reference in; elsewhere (`default`, `example`) `{ $data }` is a literal value. */
+const DATA_KEYWORDS = new Set([
+  'const',
+  'enum',
+  'format',
+  'formatMaximum',
+  'formatMinimum',
+  'formatExclusiveMaximum',
+  'formatExclusiveMinimum',
+  'maximum',
+  'minimum',
+  'exclusiveMaximum',
+  'exclusiveMinimum',
+  'multipleOf',
+  'maxLength',
+  'minLength',
+  'pattern',
+  'maxItems',
+  'minItems',
+  'uniqueItems',
+  'maxProperties',
+  'minProperties',
+  'required',
+]);
+
+/**
+ * A components key for a schema `$id`: the id itself when it is a valid key, else the id with the invalid characters
+ * replaced and a hash of the whole id appended, so `a/b` and `a_b` never share a component whatever order they come in.
+ */
+function componentKeyOf(id: string): string {
+  const key = id.replace(/[^A-Za-z0-9._-]/g, '_');
+  return key === id ? key : `${key}-${createHash('sha256').update(id).digest('hex').slice(0, 8)}`;
+}
+
+function isDataReference(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && typeof (value as { $data?: unknown }).$data === 'string';
+}
+
 // Each build documents the current controllers with the current config; a cached builder
 // would carry the previous build's paths, tags and components into the next one.
 @NewInstance()
@@ -242,6 +326,9 @@ export class OpenApiBuilder {
 
   @Autoinject(SchemaProvider)
   protected SchemaProviders!: SchemaProvider[];
+
+  @Autoinject()
+  protected Validator!: DataValidator;
 
   constructor(config: ISwaggerConfig) {
     this.config = config;
@@ -490,7 +577,7 @@ ${line}` : line;
       description: methodDoc?.description,
       deprecated: methodDoc?.deprecated,
       parameters: [],
-      responses: this.buildResponses(methodDoc),
+      responses: this.buildResponses(methodDoc, `${controllerName}.${methodName} (${String(route.Type).toUpperCase()} ${fullPath})`),
       // Per-operation security: undefined = inherit global, [] = public, [...] = explicit schemes
       security: methodDoc?.security,
     };
@@ -618,7 +705,8 @@ ${line}` : line;
         const ok = operation.responses['200'];
         if (ok && !ok.$ref) {
           ok.content ??= { 'application/json': {} };
-          content = ok.content['application/json'] ??= {};
+          const produced = methodDoc.produces?.length ? Object.values(ok.content)[0] : undefined;
+          content = produced ?? (ok.content['application/json'] ??= {});
         }
       }
       if (content) {
@@ -1218,10 +1306,20 @@ ${line}` : line;
   /**
    * Convert a JSON Schema object to an OpenAPI schema, mapping known keywords.
    */
-  private convertJsonSchema(jsonSchema: any): IOpenApiSchema {
-    if (!jsonSchema || typeof jsonSchema !== 'object') {
+  private convertJsonSchema(source: any, kind: SchemaKind = 'request'): IOpenApiSchema {
+    if (!source || typeof source !== 'object') {
       return { type: 'string' };
     }
+
+    // An ajv reference to another schema's `$id`; a `#` pointer is relative to the ajv schema, not to this document.
+    const external = (source as { $ref?: unknown }).$ref;
+    if (typeof external === 'string' && !external.startsWith('#')) {
+      const ref = this.registerSchemaById(external, kind);
+      if (ref) return { $ref: ref };
+    }
+
+    // ajv's `$data` (a JSON pointer into the validated data) has no OpenAPI form, so that keyword is left out.
+    const jsonSchema: Record<string, any> = Object.fromEntries(Object.entries(source as object).filter(([k, v]) => !(DATA_KEYWORDS.has(k) && isDataReference(v))));
 
     const result: IOpenApiSchema = {};
 
@@ -1246,13 +1344,13 @@ ${line}` : line;
     if (jsonSchema.nullable) result.nullable = jsonSchema.nullable;
 
     if (jsonSchema.items) {
-      result.items = this.convertJsonSchema(jsonSchema.items);
+      result.items = this.convertJsonSchema(jsonSchema.items, kind);
     }
 
     if (jsonSchema.properties) {
       result.properties = {};
       for (const [k, v] of Object.entries(jsonSchema.properties)) {
-        result.properties[k] = this.convertJsonSchema(v);
+        result.properties[k] = this.convertJsonSchema(v, kind);
       }
     }
 
@@ -1264,17 +1362,17 @@ ${line}` : line;
     if (typeof jsonSchema.additionalProperties === 'boolean') {
       result.additionalProperties = jsonSchema.additionalProperties;
     } else if (jsonSchema.additionalProperties) {
-      result.additionalProperties = this.convertJsonSchema(jsonSchema.additionalProperties);
+      result.additionalProperties = this.convertJsonSchema(jsonSchema.additionalProperties, kind);
     }
 
     if (Array.isArray(jsonSchema.oneOf)) {
-      result.oneOf = jsonSchema.oneOf.map((s: any) => this.convertJsonSchema(s));
+      result.oneOf = jsonSchema.oneOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (Array.isArray(jsonSchema.anyOf)) {
-      result.anyOf = jsonSchema.anyOf.map((s: any) => this.convertJsonSchema(s));
+      result.anyOf = jsonSchema.anyOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (Array.isArray(jsonSchema.allOf)) {
-      result.allOf = jsonSchema.allOf.map((s: any) => this.convertJsonSchema(s));
+      result.allOf = jsonSchema.allOf.map((s: any) => this.convertJsonSchema(s, kind));
     }
     if (jsonSchema.const !== undefined) {
       // OAS 3.0 has no `const` — emit single-value enum.
@@ -1282,6 +1380,8 @@ ${line}` : line;
       if (!result.type) result.type = typeof jsonSchema.const;
     }
     if (jsonSchema.example !== undefined) result.example = jsonSchema.example;
+    const defaultValue = (jsonSchema as { default?: unknown }).default;
+    if (defaultValue !== undefined) result.default = defaultValue;
 
     // If only enum is present with no type, infer type from first enum value
     if (!result.type && result.enum && result.enum.length > 0) {
@@ -1419,8 +1519,9 @@ ${line}` : line;
    * Build response definitions from JSDoc @returns and @response tags.
    * Only responses explicitly documented in JSDoc are included.
    */
-  private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, IOpenApiResponse> {
+  private buildResponses(methodDoc: IMethodDocumentation | undefined, where: string): Record<string, IOpenApiResponse> {
     const responses: Record<string, IOpenApiResponse> = {};
+    const produces = producedMediaTypes(methodDoc?.produces, where);
 
     // When the JSDoc explicitly documents a non-200 success (e.g. `@response 202`)
     // and there is no explicit `@returns` tag (returns carries only the
@@ -1439,10 +1540,10 @@ ${line}` : line;
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: download ?? { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
+        content: successContent(produces, download, () => this.expandNamedSchemas(schema, 'response')),
       };
     } else if (!hasExplicit2xx) {
-      responses['200'] = { description: 'Successful response' };
+      responses['200'] = { description: 'Successful response', ...(produces ? { content: successContent(produces, undefined, () => ({})) } : {}) };
     }
 
     if (methodDoc?.responses) {
@@ -1453,11 +1554,18 @@ ${line}` : line;
         // across the whole document.
         if (resp.type) {
           const download = this.fileResponseContent({ type: resp.type });
+          const type = resp.type;
 
           responses[statusCode] = {
             description: resp.description,
-            content: download ?? { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
+            content: successContent(statusCode.startsWith('2') ? produces : undefined, download, () => this.expandNamedSchemas(this.inferSchemaFromString(type), 'response')),
           };
+          continue;
+        }
+
+        // A CSV or PDF body has no type to put in braces; 204 and 205 never carry a body.
+        if (produces && statusCode.startsWith('2') && statusCode !== '204' && statusCode !== '205') {
+          responses[statusCode] = { description: resp.description, content: successContent(produces, undefined, () => ({})) };
           continue;
         }
 
@@ -1529,7 +1637,7 @@ ${line}` : line;
 
   /**
    * Swaps named-type nodes for a reusable component `$ref`, registering each component once.
-   * Walks `items` and `properties` so nested types are expanded too.
+   * Walks `items`, `properties`, `oneOf`, `anyOf` and `allOf` so nested types are expanded too.
    *
    * `kind` says which side of the wire this subtree describes and is carried down the whole
    * walk — a relation nested in a response is still a response. It defaults to 'request'
@@ -1620,9 +1728,48 @@ ${line}` : line;
     const schemas = (components.schemas ??= {});
 
     // Expand nested named tags into their own components.
-    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved), kind);
+    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved, kind), kind);
 
     return ref;
+  }
+
+  /**
+   * Registers the schema an ajv `$ref` names by its `$id` and returns the component `$ref`; undefined when nothing
+   * knows that `$id`. A type the providers know by that name, or the `@Schema` class declaring that `$id`, keeps its
+   * class-named component, so a reference by `$id` and one by class name share it. Else the validator's schema
+   * (a schema file) becomes a component named after the `$id`.
+   */
+  private registerSchemaById(id: string, kind: SchemaKind): string | undefined {
+    const className = this.schemaClassWithId(id);
+    const byName = this.registerNamedComponent(id, kind) ?? (className ? this.registerNamedComponent(className, kind) : undefined);
+    if (byName) {
+      return byName;
+    }
+
+    const schema = this.Validator?.getSchema(id);
+    if (!schema) {
+      return undefined;
+    }
+
+    const componentName = componentKeyOf(id);
+    const ref = `#/components/schemas/${componentName}`;
+    if (!this.registeredComponents.has(componentName)) {
+      this.registeredComponents.add(componentName);
+      const schemas = ((this.document.components ??= {}).schemas ??= {});
+      schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(schema, kind), kind);
+    }
+
+    return ref;
+  }
+
+  /** Name of the `@Schema` class whose schema declares `$id: id`. */
+  private schemaClassWithId(id: string): string | undefined {
+    for (const [name, schema] of DI.get<Map<string, { $id?: unknown }>>('__schemas__') ?? []) {
+      if (schema?.$id === id) {
+        return name;
+      }
+    }
+    return undefined;
   }
 
   /**

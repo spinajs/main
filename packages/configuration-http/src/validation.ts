@@ -1,6 +1,7 @@
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '@spinajs/configuration-db-source';
 import type { DbConfig } from '@spinajs/configuration-db-source';
 import type { DataValidator, IValidationError } from '@spinajs/validation';
+import { constraintMessage, joinMessages } from './error-messages.js';
 
 /** A plain JSON Schema fragment. */
 type JsonSchema = Record<string, unknown>;
@@ -23,8 +24,7 @@ export const VALUE_SCHEMAS: Record<ConfigurationEntryType, JsonSchema> = {
   number: { type: 'integer' },
   float: { type: 'number' },
   range: { type: 'number' },
-  // a real boolean or the canonical / numeric string forms the converter understands
-  boolean: { anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['0', '1', 'true', 'false'] }] },
+  boolean: { type: 'boolean' },
   date: { type: 'string', format: 'date' },
   time: { type: 'string', format: 'time' },
   datetime: { type: 'string', format: 'date-time' },
@@ -96,12 +96,8 @@ function typeSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta
  * into a single 400 message.
  */
 export function formatValidationErrors(field: string, errors: IValidationError[] | null): string {
-  const messages = (errors ?? []).map((e) =>
-    `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim(),
-  );
-
-  // with allErrors on, the type schema and the registered schema report the same failure from both allOf branches
-  return [...new Set(messages)].join('; ') || `invalid value for ${field}`;
+  const messages = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${constraintMessage(e)}`);
+  return joinMessages(messages) || `invalid value for ${field}`;
 }
 
 /**
@@ -122,6 +118,9 @@ export class SchemaCompileError extends Error {
  * Validates one `Value` / `Default` of an entry against its type, its meta and the schema registered
  * under the slug, if any. The value is wrapped in an object so a bare null / scalar never confuses
  * `tryValidate`'s schema-vs-data overload. Returns the formatted errors, `null` when valid.
+ *
+ * Validated without type coercion, whatever `validation.coerceTypes` says: the caller stores the value
+ * as sent, and a converted one ( `"0x15"` for a number ) could not be read back as the entry type.
  */
 export function validateEntryValue(
   validator: DataValidator,
@@ -140,6 +139,7 @@ export function validateEntryValue(
   const [isValid, errors] = validator.tryValidate(
     { type: 'object', properties: { [field]: schema }, required: [field] },
     { [field]: value },
+    { coerceTypes: false },
   );
 
   return isValid ? null : formatValidationErrors(field, errors);

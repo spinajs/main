@@ -6,7 +6,7 @@
 
 1. **Config merge.** `@spinajs/configuration` loads every config file and merges arrays by concatenation, so `system.dirs.cli` collects the entries of this package, of every other `@spinajs/*` package and of your app.
 2. **Listing.** `Cli.Commands` is a property decorated `@ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')` from `@spinajs/reflection`. Reading it the first time:
-   - drops duplicate directories and skips a missing one with the warning `Directory ... not exists`;
+   - drops duplicate directories and skips a missing one with `Directory ... not exists`, at `debug` for a package's directory under `node_modules` and at `warn` for one of your app's (see [Loading classes from directories](../reflection/01-loading-classes-from-directories.md#how-it-works));
    - globs every `.ts` and `.js` file below each directory, recursively, except `.d.ts`;
    - imports each file (`import()` in ESM mode, `require()` otherwise; a registered `'__module_loader__'` takes precedence);
    - returns one `ClassInfo { file, name, type }` per exported class of each file, **without** instantiating it. Constants and arrow functions are not listed.

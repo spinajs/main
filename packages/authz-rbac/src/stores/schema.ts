@@ -3,6 +3,7 @@ import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
 import { DEFAULT_MAX_SET_DEPTH, MAX_SET_DEPTH_LIMIT } from '../membership/closure.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
+import { SERVICE_ROLES_KEY } from '../model/service-roles-key.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 /** The shortest authz.rbac.links.secret, the HMAC key of share link tokens. */
@@ -154,7 +155,8 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     // create() used to trim; a padded name now fails the boot instead.
     defaultRoles: roleList,
     anonymousRoles: { ...roleList, default: [] },
-    serviceRoles: { type: 'object', additionalProperties: roleList, default: {} },
+    // A bare id or a wildcard would match no principal and grant nothing, silently.
+    serviceRoles: { type: 'object', propertyNames: { type: 'string', pattern: SERVICE_ROLES_KEY.source }, additionalProperties: roleList, default: {} },
     stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList, membership: stringList } },
     cache: {
       type: 'object',

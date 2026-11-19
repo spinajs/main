@@ -48,7 +48,7 @@ sequenceDiagram
 | `Connected` (`'connected'`) | The last statement or probe succeeded. |
 | `Degraded` (`'degraded'`) | A probe failed or a reconnect is in progress. Queries are still attempted. |
 
-Each transition is logged once on the driver's logger (`orm-driver-<Name>`): `Connected` at `info`, `Degraded` and `Disconnected` at `warn`, `Connecting` at `trace`.
+Each transition is logged once on the driver's logger (`orm-driver-<Name>`) as `connection <Name> is <state> (was <previous>)`: `Connected` at `info`, `Degraded` at `warn`, `Connecting` at `trace`. `Disconnected` is logged at `warn` when the retry loop gives up, and at `debug` when `disconnect()` closes the connection (`Orm.dispose()`, a migration tool closing its `Orm`). A driver tells the two apart through the second argument of the protected `setState(state, lost = false)`: `withReconnect()` passes `true`, a driver's own `disconnect()` passes nothing.
 
 ### Published metrics
 

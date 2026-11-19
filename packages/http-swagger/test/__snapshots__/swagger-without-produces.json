@@ -1,0 +1,2814 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Test Pet Store API",
+    "version": "2.0.0",
+    "description": "A test API for swagger generation\n\n## Policies\n\nThe following policies are applied to one or more operations. Each policy runs before the route handler and may reject the request.\n\n### <a id=\"policy-authorizedtestpolicy\"></a>`AuthorizedTestPolicy`\n\nVerifies that the caller's session is fully authorized.\nRejects unauthenticated requests with a 401.\n\n### <a id=\"policy-offhourstestpolicy\"></a>`OffHoursTestPolicy`\n\nAllows requests only outside of business hours.\nUseful for batch endpoints that should never run during peak load.\n\n### <a id=\"policy-undocumentedtestpolicy\"></a>`UndocumentedTestPolicy`\n\n_No description available — add JSDoc to the policy class._"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4557",
+      "description": "Test server"
+    }
+  ],
+  "paths": {
+    "/access/inherited": {
+      "get": {
+        "operationId": "AccessController_inherited",
+        "tags": [
+          "AccessTests"
+        ],
+        "summary": "Route without its own",
+        "description": "**Access:** requires `test:read` on `test`",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-authz-permission": [
+          "test:read"
+        ],
+        "x-authz-resource": {
+          "type": "test"
+        }
+      }
+    },
+    "/access/{id}": {
+      "get": {
+        "operationId": "AccessController_readOne",
+        "tags": [
+          "AccessTests"
+        ],
+        "summary": "Route with its own",
+        "description": "**Access:** requires `test:update` on `test`, and the controller requires `test:read`",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-authz-permission": [
+          "test:update"
+        ],
+        "x-authz-controller-permission": [
+          "test:read"
+        ],
+        "x-authz-resource": {
+          "type": "test"
+        }
+      },
+      "delete": {
+        "operationId": "AccessController_remove",
+        "tags": [
+          "AccessTests"
+        ],
+        "summary": "Route that lets anonymous callers through the authentication step.",
+        "description": "**Access:** requires `test:delete` on `test`, and the controller requires `test:read` (anonymous allowed)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "401": {
+            "description": "Sign in first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not yours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "x-authz-permission": [
+          "test:delete"
+        ],
+        "x-authz-controller-permission": [
+          "test:read"
+        ],
+        "x-authz-resource": {
+          "type": "test"
+        },
+        "x-authz-anonymous": true
+      }
+    },
+    "/access": {
+      "post": {
+        "operationId": "AccessController_create",
+        "tags": [
+          "AccessTests"
+        ],
+        "summary": "Route accepting alternative permissions in a non-root domain.",
+        "description": "**Access:** requires `test:create` or `test:import` on `test`, and the controller requires `test:read`",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-authz-permission": [
+          "test:create",
+          "test:import"
+        ],
+        "x-authz-controller-permission": [
+          "test:read"
+        ],
+        "x-authz-resource": {
+          "type": "test"
+        },
+        "x-authz-domain": "tenant"
+      }
+    },
+    "/body-tag/login": {
+      "post": {
+        "operationId": "BodyTagController_login",
+        "tags": [
+          "BodyTag"
+        ],
+        "summary": "Log in",
+        "responses": {
+          "200": {
+            "description": "The session answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyTagAnswerDto"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "description": "The credentials",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BodyTagLoginDto"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/body-tag/untyped": {
+      "post": {
+        "operationId": "BodyTagController_untyped",
+        "tags": [
+          "BodyTag"
+        ],
+        "summary": "Untyped body tag",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/body-tag/declared": {
+      "post": {
+        "operationId": "BodyTagController_declared",
+        "tags": [
+          "BodyTag"
+        ],
+        "summary": "A body argument wins over the tag",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/errors/{id}": {
+      "get": {
+        "operationId": "ErrorResponsesController_lookup",
+        "tags": [
+          "ErrorResponseTests"
+        ],
+        "summary": "Endpoint documenting most common error codes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/errors/inline-typed/{id}": {
+      "get": {
+        "operationId": "ErrorResponsesController_inlineTyped",
+        "tags": [
+          "ErrorResponseTests"
+        ],
+        "summary": "Endpoint documenting a typed response that should stay inline (NOT a $ref).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Custom inline error string",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/errors/clean": {
+      "get": {
+        "operationId": "ErrorResponsesController_clean",
+        "tags": [
+          "ErrorResponseTests"
+        ],
+        "summary": "Endpoint with no documented error responses — should still get the default 200.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/errors/named-typed/{id}": {
+      "get": {
+        "operationId": "ErrorResponsesController_namedTyped",
+        "tags": [
+          "ErrorResponseTests"
+        ],
+        "summary": "Endpoint documenting a NAMED typed error response — should expand into a",
+        "description": "`$ref` to `#/components/schemas/TestErrorEnvelopeDto`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Not found sample": {
+                    "summary": "Not found sample",
+                    "value": {
+                      "error": {
+                        "code": "NOT_FOUND",
+                        "message": "no such thing"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Named error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestErrorEnvelopeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/errors/named-body": {
+      "post": {
+        "operationId": "ErrorResponsesController_namedBody",
+        "tags": [
+          "ErrorResponseTests"
+        ],
+        "summary": "Request body documented via a named DTO type — should expand into a `$ref`.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "description": "The envelope payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestErrorEnvelopeDto"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/single": {
+      "post": {
+        "operationId": "FileController_single",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Single uploaded file.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/many": {
+      "post": {
+        "operationId": "FileController_many",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Several files under one field, via",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/array-typed": {
+      "post": {
+        "operationId": "FileController_arrayTyped",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "An array-typed",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/csv": {
+      "post": {
+        "operationId": "FileController_csv",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "An upload the action receives already PARSED - the request still carries a file.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rows": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/json-upload": {
+      "post": {
+        "operationId": "FileController_jsonUpload",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Same, for a JSON upload.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/with-fields": {
+      "post": {
+        "operationId": "FileController_withFields",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "A file alongside ordinary form fields.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/form-only": {
+      "post": {
+        "operationId": "FileController_formOnly",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "A plain multipart form with no file at all - must NOT be documented as binary.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "form": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/form-with-file": {
+      "post": {
+        "operationId": "FileController_formWithFile",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "A `@Form()` DTO next to a file. `FromForm` hydrates the DTO from the form's ROOT fields, so",
+        "description": "`comment` / `state` travel as top-level parts and the parameter's name never appears on the\nwire - the document has to say the same.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "attachment": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "closed"
+                    ]
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/download": {
+      "get": {
+        "operationId": "FileController_download",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Downloads a file.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/download-untyped": {
+      "get": {
+        "operationId": "FileController_downloadUntyped",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Downloads a file with no declared mime type.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/archive": {
+      "get": {
+        "operationId": "FileController_archive",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Downloads a zip archive.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/export": {
+      "get": {
+        "operationId": "FileController_exportJson",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "Sends JSON as a download rather than as a body.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/plain": {
+      "get": {
+        "operationId": "FileController_plain",
+        "tags": [
+          "FileTests"
+        ],
+        "summary": "An ordinary JSON route, to prove the file handling does not leak into it.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/filter/pets": {
+      "get": {
+        "operationId": "FilterController_pets",
+        "tags": [
+          "FilterTests"
+        ],
+        "summary": "Route whose filter envelope is derived from FilterablePet's",
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "op",
+                    "filters"
+                  ],
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "and",
+                        "or"
+                      ],
+                      "example": "and"
+                    },
+                    "filters": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "Column",
+                              "Value",
+                              "Operator"
+                            ],
+                            "properties": {
+                              "Column": {
+                                "type": "string",
+                                "enum": [
+                                  "name"
+                                ],
+                                "example": "name"
+                              },
+                              "Value": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                ],
+                                "description": "Scalar or array value matching the column type"
+                              },
+                              "Operator": {
+                                "type": "string",
+                                "enum": [
+                                  "eq",
+                                  "like"
+                                ],
+                                "example": "eq"
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "Column",
+                              "Value",
+                              "Operator"
+                            ],
+                            "properties": {
+                              "Column": {
+                                "type": "string",
+                                "enum": [
+                                  "age"
+                                ],
+                                "example": "age"
+                              },
+                              "Value": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                ],
+                                "description": "Scalar or array value matching the column type"
+                              },
+                              "Operator": {
+                                "type": "string",
+                                "enum": [
+                                  "gt",
+                                  "lt",
+                                  "eq"
+                                ],
+                                "example": "gt"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/frommodel/{id}": {
+      "get": {
+        "operationId": "FromModelController_getSlide",
+        "tags": [
+          "FromModelTests"
+        ],
+        "summary": "The argument name IS the placeholder - the only implicit binding the strict",
+        "description": "resolver accepts.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The slide loaded from the database",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "FromModelSlide.SlideId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/frommodel/scoped/{owner}/slides/{id}": {
+      "get": {
+        "operationId": "FromModelController_getScopedSlide",
+        "tags": [
+          "FromModelTests"
+        ],
+        "summary": "Two placeholders, each declared by an argument of its own name.",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "The account the slide belongs to",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The slide loaded from the database",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "FromModelSlide.SlideId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/frommodel/tickets/{ticket}": {
+      "delete": {
+        "operationId": "FromModelController_deleteTicket",
+        "tags": [
+          "FromModelTests"
+        ],
+        "summary": "paramField names the placeholder the value is read from at runtime, so the",
+        "description": "argument name is free to differ from it.",
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "FromModelTicket.Uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/frommodel/archive/{year}/slides/{id}": {
+      "get": {
+        "operationId": "FromModelController_getArchivedSlide",
+        "tags": [
+          "FromModelTests"
+        ],
+        "summary": "A placeholder no argument declares. The backend compiles with",
+        "description": "`noUnusedParameters`, so a handler that never reads `:year` cannot declare an\nargument for it - the placeholder is carried by the URL template alone and the\ndocument must still describe it.",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "FromModelSlide.SlideId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/frommodel/by-query": {
+      "get": {
+        "operationId": "FromModelController_findSlide",
+        "tags": [
+          "FromModelTests"
+        ],
+        "summary": "Non-default paramType - the key travels in the query string, not the path.",
+        "parameters": [
+          {
+            "name": "slideId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "FromModelSlide.SlideId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/list/orders": {
+      "get": {
+        "operationId": "ListController_orders",
+        "tags": [
+          "ListTests"
+        ],
+        "summary": "List orders",
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "description": "Relations to load with each row",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "customer"
+                ]
+              }
+            }
+          },
+          {
+            "name": "aggregate",
+            "in": "query",
+            "description": "Group columns and measures over the filtered rows",
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "measures"
+                  ],
+                  "properties": {
+                    "groupBy": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "status",
+                          "customerId"
+                        ]
+                      }
+                    },
+                    "measures": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 16,
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "name",
+                              "fn",
+                              "column"
+                            ],
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+                              },
+                              "fn": {
+                                "type": "string",
+                                "enum": [
+                                  "sum",
+                                  "avg"
+                                ]
+                              },
+                              "column": {
+                                "type": "string",
+                                "enum": [
+                                  "amount"
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "name",
+                              "fn"
+                            ],
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+                              },
+                              "fn": {
+                                "type": "string",
+                                "enum": [
+                                  "count"
+                                ]
+                              },
+                              "column": {
+                                "type": "string",
+                                "enum": [
+                                  "status",
+                                  "customerId",
+                                  "amount"
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "order": {
+                      "type": "array",
+                      "maxItems": 24,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "column"
+                        ],
+                        "properties": {
+                          "column": {
+                            "type": "string",
+                            "maxLength": 128
+                          },
+                          "order": {
+                            "type": "string",
+                            "enum": [
+                              "ASC",
+                              "DESC",
+                              "asc",
+                              "desc"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of rows, the total and the aggregates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListedOrderListDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pets": {
+      "get": {
+        "operationId": "PetController_listPets",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "List all pets",
+        "description": "Returns a paginated list of all available pets in the store.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of pet objects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "examples": {
+                  "Successful response": {
+                    "summary": "Successful response",
+                    "value": [
+                      {
+                        "id": 1,
+                        "name": "Buddy",
+                        "type": "dog"
+                      },
+                      {
+                        "id": 2,
+                        "name": "Whiskers",
+                        "type": "cat"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "PetController_createPet",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Create a new pet",
+        "description": "Adds a new pet to the store inventory.",
+        "responses": {
+          "200": {
+            "description": "The created pet object with assigned ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "description": "The pet data to create",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "examples": {
+                "Create pet request": {
+                  "summary": "Create pet request",
+                  "value": {
+                    "name": "Rex",
+                    "type": "dog",
+                    "age": 3
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pets/{id}": {
+      "get": {
+        "operationId": "PetController_getPet",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Get a pet by ID",
+        "description": "Retrieves detailed information about a specific pet.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The unique pet identifier",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A pet object with full details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "put": {
+        "operationId": "PetController_updatePet",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Update an existing pet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The pet ID to update",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated pet object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "description": "Updated pet data",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "PetController_deletePet",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Delete a pet",
+        "description": "Removes a pet from the store.",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The pet ID to delete",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "PetController_patchPet",
+        "tags": [
+          "Pets",
+          "Admin"
+        ],
+        "summary": "Partially update a pet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The pet ID",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The patched pet object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "description": "Fields to update",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pets/find/{name}": {
+      "get": {
+        "operationId": "PetController_findPet",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Find a pet by name (demonstrates return type inference)",
+        "description": "Returns availability status for a named pet.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The pet name to search for",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "available": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "available"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pets/available": {
+      "get": {
+        "operationId": "PetController_listAvailable",
+        "tags": [
+          "Pets"
+        ],
+        "summary": "List available pets (demonstrates array return type inference)",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by pet type",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "number"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "type"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policies/inherited": {
+      "get": {
+        "operationId": "PolicyController_inherited",
+        "tags": [
+          "PolicyTests"
+        ],
+        "summary": "Route inherits controller-level policy only.",
+        "description": "**Policies applied:**\n- [`AuthorizedTestPolicy`](#policy-authorizedtestpolicy) (controller) — Verifies that the caller's session is fully authorized.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "x-policies": [
+          "AuthorizedTestPolicy"
+        ]
+      }
+    },
+    "/policies/combined": {
+      "get": {
+        "operationId": "PolicyController_combined",
+        "tags": [
+          "PolicyTests"
+        ],
+        "summary": "Route adds an extra route-level policy on top of the controller-level one.",
+        "description": "**Policies applied:**\n- [`AuthorizedTestPolicy`](#policy-authorizedtestpolicy) (controller) — Verifies that the caller's session is fully authorized.\n- [`OffHoursTestPolicy`](#policy-offhourstestpolicy) — Allows requests only outside of business hours.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "x-policies": [
+          "AuthorizedTestPolicy",
+          "OffHoursTestPolicy"
+        ]
+      }
+    },
+    "/policies/undocumented": {
+      "get": {
+        "operationId": "PolicyController_undocumented",
+        "tags": [
+          "PolicyTests"
+        ],
+        "summary": "Route applies a policy with no JSDoc — exercises the fallback description.",
+        "description": "**Policies applied:**\n- [`AuthorizedTestPolicy`](#policy-authorizedtestpolicy) (controller) — Verifies that the caller's session is fully authorized.\n- [`UndocumentedTestPolicy`](#policy-undocumentedtestpolicy)",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "x-policies": [
+          "AuthorizedTestPolicy",
+          "UndocumentedTestPolicy"
+        ]
+      }
+    },
+    "/raw-uploads/{upload}/parts/{part}": {
+      "put": {
+        "operationId": "RawUploadController_putPart",
+        "tags": [
+          "RawUploads"
+        ],
+        "summary": "Stores one part of an upload.",
+        "parameters": [
+          {
+            "name": "upload",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "part",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "content-digest",
+            "in": "header",
+            "description": "RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "description": "Raw bytes of the part",
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/raw-uploads/{upload}/content": {
+      "put": {
+        "operationId": "RawUploadController_putContent",
+        "tags": [
+          "RawUploads"
+        ],
+        "summary": "Replaces the whole content in one request.",
+        "parameters": [
+          {
+            "name": "upload",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "content-digest",
+            "in": "header",
+            "description": "RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rel/create": {
+      "post": {
+        "operationId": "RelationController_create",
+        "tags": [
+          "Relation"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "author": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Reference to RefTarget by Uuid. Must match an existing record (404 if not found).",
+                    "x-relation": {
+                      "model": "RefTarget",
+                      "by": "Uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/uploads/{upload}": {
+      "head": {
+        "operationId": "ScopedUploadsController_offset",
+        "tags": [
+          "ScopedUploads"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "get": {
+        "operationId": "ScopedUploadsController_state",
+        "tags": [
+          "ScopedUploads"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/projects/{project}/uploads/{upload}/parts/{part}": {
+      "put": {
+        "operationId": "ScopedUploadsController_putPart",
+        "tags": [
+          "ScopedUploads"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upload",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "part",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "content-digest",
+            "in": "header",
+            "description": "RFC 9530 digest of the request body, e.g. `sha-256=:<base64>:`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/uploads/summary/all": {
+      "get": {
+        "operationId": "ScopedUploadsController_summary",
+        "tags": [
+          "ScopedUploads"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/status/health": {
+      "get": {
+        "operationId": "StatusController_health",
+        "tags": [
+          "Status"
+        ],
+        "summary": "Health check endpoint",
+        "responses": {
+          "200": {
+            "description": "Health status object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status/version": {
+      "get": {
+        "operationId": "StatusController_version",
+        "tags": [
+          "System"
+        ],
+        "summary": "Get application version",
+        "responses": {
+          "200": {
+            "description": "Version string",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/streams/ticks": {
+      "get": {
+        "operationId": "StreamController_ticks",
+        "tags": [
+          "Streams"
+        ],
+        "summary": "Live ticks",
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream of ticks",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/ok/{id}": {
+      "get": {
+        "operationId": "TypedController_okTyped",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "Get a typed pet via Ok<T>",
+        "description": "Demonstrates inline object schema inference through the Ok<T> wrapper.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The pet ID",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "available": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "available"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/ok-array": {
+      "get": {
+        "operationId": "TypedController_okArrayTyped",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "List typed pets via Ok<T[]>",
+        "description": "Demonstrates array schema inference through the Ok<T[]> wrapper.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "number"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/json/{id}": {
+      "get": {
+        "operationId": "TypedController_jsonTyped",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "Get a typed pet via Json<T>",
+        "description": "Demonstrates inline object schema inference through the Json<T> wrapper.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The pet ID",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/created": {
+      "post": {
+        "operationId": "TypedController_createdTyped",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "Create a typed pet via Created<T>",
+        "description": "Demonstrates inline object schema inference through the Created<T> wrapper.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/paginated": {
+      "get": {
+        "operationId": "TypedController_paginated",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "List pets with DTO pagination parameter",
+        "description": "Demonstrates schema extraction from a",
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "description": "Pagination options",
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/profile": {
+      "get": {
+        "operationId": "TypedController_profile",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "Get current user profile (requires authentication)",
+        "description": "Returns profile data for the logged-in user.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "name"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/typed/returns-named-array": {
+      "get": {
+        "operationId": "TypedController_returnsNamedArray",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "List pets documented as a named array",
+        "description": "The `[]` has to survive as an array schema whose items reference the DTO component;\ndocumenting the list as a bare object made a client reject every response.",
+        "responses": {
+          "200": {
+            "description": "Every pet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TypedPetDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/returns-primitive-array": {
+      "get": {
+        "operationId": "TypedController_returnsPrimitiveArray",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "List pet names",
+        "responses": {
+          "200": {
+            "description": "Pet names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/typed/public-status": {
+      "get": {
+        "operationId": "TypedController_publicStatus",
+        "tags": [
+          "TypedTests"
+        ],
+        "summary": "Public endpoint — no authentication required",
+        "description": "Returns server status.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/docs/swagger.json": {
+      "get": {
+        "operationId": "SwaggerController_getSpec",
+        "tags": [
+          "Swagger"
+        ],
+        "summary": "Returns the OpenAPI 3.0 JSON specification.",
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/docs": {
+      "get": {
+        "operationId": "SwaggerController_getUI",
+        "tags": [
+          "Swagger"
+        ],
+        "summary": "Serves the Swagger UI HTML page rendered via Pug template.",
+        "responses": {
+          "200": {
+            "description": "HTML page with Swagger UI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "ssid",
+        "description": "Session cookie set after login"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message"
+          },
+          "code": {
+            "type": "integer",
+            "description": "HTTP status code (when present)"
+          },
+          "stack": {
+            "type": "object",
+            "description": "Stack trace — dev environments only",
+            "nullable": true
+          }
+        }
+      },
+      "BodyTagPendingDto": {
+        "type": "object",
+        "required": [
+          "MfaRequired"
+        ],
+        "properties": {
+          "MfaRequired": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BodyTagLoginDto": {
+        "type": "object",
+        "required": [
+          "login",
+          "password"
+        ],
+        "properties": {
+          "login": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "BodyTagAnswerDto": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BodyTagPendingDto"
+          },
+          {
+            "$ref": "#/components/schemas/BodyTagLoginDto"
+          }
+        ]
+      },
+      "TestErrorEnvelopeDto": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "example": {
+          "error": {
+            "code": "NOT_FOUND",
+            "message": "no such thing"
+          },
+          "requestId": "req-1"
+        }
+      },
+      "ListedOrderListDto": {
+        "type": "object",
+        "required": [
+          "rows",
+          "total"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "aggregates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "TypedPetDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Unauthorized — valid authentication required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden — caller lacks the required permission",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Malformed request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflict with existing resource",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Unexpected server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "AccessTests",
+      "description": "Demonstrates"
+    },
+    {
+      "name": "BodyTag",
+      "description": "Routes that read their JSON body from `@Req()` and name its type with `@body`."
+    },
+    {
+      "name": "ErrorResponseTests",
+      "description": "Exercises every documented standard error response so we can verify the\nbuilder emits `$ref` to reusable `components.responses.*` entries."
+    },
+    {
+      "name": "FileTests",
+      "description": "Uploads and downloads, the two halves of the API surface that does not travel as JSON.\n\nAn uploaded file is `type: string, format: binary` in OpenAPI, and a download is a binary\nresponse body - neither is inferable from the TypeScript type, which is an interface\n(`IUploadedFile`, erased to `Object`) on the way in and a framework `Response` subclass on\nthe way out."
+    },
+    {
+      "name": "FilterTests",
+      "description": "Demonstrates the JSON filter envelope built from an orm model's filterable columns."
+    },
+    {
+      "name": "FromModelTests",
+      "description": "Routes that load a model straight from the primary key carried by the URL."
+    },
+    {
+      "name": "ListTests",
+      "description": "Demonstrates orm-http's list arguments and a typed list response."
+    },
+    {
+      "name": "Pets",
+      "description": "Pet store management controller.\nProvides CRUD operations for managing pets."
+    },
+    {
+      "name": "PolicyTests",
+      "description": "Demonstrates"
+    },
+    {
+      "name": "RawUploads",
+      "description": "Raw-body uploads: the request body is the bytes themselves, not JSON or multipart."
+    },
+    {
+      "name": "Relation"
+    },
+    {
+      "name": "ScopedUploads",
+      "description": "Inherits its routes from an abstract base outside the controllers dirs, under a"
+    },
+    {
+      "name": "Status",
+      "description": "Health check and status endpoints."
+    },
+    {
+      "name": "Streams",
+      "description": "Live event streams."
+    },
+    {
+      "name": "TypedTests",
+      "description": "Test controller for generic response type inference.\nExercises Ok<T>, Json<T>, Created<T>, and"
+    },
+    {
+      "name": "Swagger",
+      "description": "Controller that serves Swagger/OpenAPI documentation.\nProvides the OpenAPI JSON spec and a Swagger UI interface."
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ]
+}

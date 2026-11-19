@@ -12,6 +12,7 @@ import { ScheduleRunSucceeded } from './events/ScheduleRunSucceeded.js';
 import { schedulerCounter, schedulerGauge, schedulerHistogram, schedulerMetrics } from './metrics.js';
 import type { RunModel } from './models/RunModel.js';
 import { iso } from './run/events.js';
+import { computeFingerprint } from './tracking/fingerprint.js';
 
 export interface FinishedRunInfo {
   status: RunStatus;
@@ -43,6 +44,10 @@ export class SchedulerSignals {
   /** Bounds the memory a long broker outage can hold when the transport buffers instead of failing. */
   protected maxPending = 10_000;
   protected dropped = 0;
+  /** Per schedule in this process: the causes that warned and the failed runs since the last success. */
+  protected failing = new Map<string, { causes: Set<string>; failures: number }>();
+  /** Past this many distinct causes in one failing streak, a new cause is logged like a repeat. */
+  protected maxCauses = 32;
 
   /** Events not sent because `maxPending` sends were already in flight. */
   public get droppedEvents(): number {
@@ -74,8 +79,11 @@ export class SchedulerSignals {
     const text = `run ${run.Id} of ${run.Schedule} ended ${info.status}${
       info.durationMs !== null ? ` after ${info.durationMs} ms` : ''
     }`;
-    if (info.error) this.Log.warn(`${text}: ${info.error.name}: ${info.error.message}`);
-    else this.Log.info(text);
+    const line = info.error ? `${text}: ${info.error.name}: ${info.error.message}` : text;
+    if (info.countsAsFailure) this.failed(run.Schedule, info.error, line);
+    else if (info.error) this.Log.warn(line);
+    else this.Log.info(line);
+    if (info.status === 'succeeded') this.recovered(run.Schedule);
     this.measure((m) => {
       schedulerCounter(m, 'runs_total').inc({ name: run.Schedule, status: info.status, trigger: run.Trigger });
       if (info.durationMs !== null) {
@@ -117,7 +125,8 @@ export class SchedulerSignals {
   }
 
   public retrying(run: RunModel, nextAttemptAt: number, error: StructuredError | null): Promise<void> {
-    this.Log.warn(
+    // the run has not failed yet; its final outcome is the line that warns
+    this.Log.debug(
       `run ${run.Id} of ${run.Schedule} attempt ${run.Attempt} failed${
         error ? ` (${error.message})` : ''
       }; retrying at ${new Date(nextAttemptAt).toISOString()}`,
@@ -159,8 +168,35 @@ export class SchedulerSignals {
 
   public pausedByFailures(schedule: string, consecutiveFailures: number): Promise<void> {
     this.Log.warn(`schedule ${schedule} paused after ${consecutiveFailures} consecutive failures`);
+    // the first failure after the operator resumes it warns again; the count is kept for the recovery line
+    this.failing.get(schedule)?.causes.clear();
     this.send(() => SchedulePausedByFailures.emit({ Schedule: schedule, ConsecutiveFailures: consecutiveFailures }));
     return Promise.resolve();
+  }
+
+  /** A cause is its error group's fingerprint; each warns once until the schedule succeeds again. */
+  protected failed(schedule: string, error: StructuredError | null, line: string): void {
+    let state = this.failing.get(schedule);
+    if (!state) this.failing.set(schedule, (state = { causes: new Set(), failures: 0 }));
+    state.failures++;
+    if (!error) {
+      this.Log.info(line);
+      return;
+    }
+    const cause = computeFingerprint(schedule, error);
+    if (state.causes.has(cause) || state.causes.size >= this.maxCauses) {
+      this.Log.debug(line);
+      return;
+    }
+    state.causes.add(cause);
+    this.Log.warn(line);
+  }
+
+  protected recovered(schedule: string): void {
+    const known = this.failing.get(schedule);
+    if (!known) return;
+    this.failing.delete(schedule);
+    this.Log.info(`schedule ${schedule} succeeded again after ${known.failures} failure(s)`);
   }
 
   protected measure(record: (m: MetricMap) => void): void {

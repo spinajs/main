@@ -3,6 +3,72 @@ import { TypedArray } from './array.js';
 import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
 import { IChainRegistration, IContainer } from './interfaces.js';
 import { Class, Factory } from './types.js';
+import { BindException } from './exceptions.js';
+
+const sourceOf = (type: Class<unknown>) => Function.prototype.toString.call(type);
+
+/**
+ * A package loaded twice ( a linked checkout, an install in two places ) evaluates its classes again: another
+ * identity, the same source. Two different classes whose source is identical cannot be told from such a copy.
+ */
+function isSameClass(a: Class<unknown>, b: Class<unknown>) {
+  return a === b || sourceOf(a) === sourceOf(b);
+}
+
+const shorten = (text: string) => (text.length > 80 ? `${text.slice(0, 77)}...` : text);
+
+/**
+ * The text before the class body; a `{` inside the heritage clause, eg. `extends mixin({ ... })`, is not the body.
+ * Brackets inside string literals are counted too, so when no body brace is found the first line stands in.
+ */
+function declarationOf(source: string) {
+  let depth = 0;
+  let end = -1;
+  for (let i = 0; i < source.length; i++) {
+    const c = source.charAt(i);
+    if (c === '(' || c === '[') {
+      depth++;
+    } else if (c === ')' || c === ']') {
+      depth--;
+    } else if (c === '{' && depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  const head = end === -1 ? source.split('\n')[0] : source.slice(0, end);
+  return shorten(head.replace(/\s+/g, ' ').trim());
+}
+
+function describeBoth(registered: Class<unknown>, refused: Class<unknown>) {
+  const [a, b] = [sourceOf(registered), sourceOf(refused)];
+  const [headA, headB] = [declarationOf(a), declarationOf(b)];
+  if (headA !== headB) {
+    return `registered: ${headA}; refused: ${headB}`;
+  }
+
+  const [linesA, linesB] = [a, b].map((s) => s.split('\n').map((l) => l.trim()));
+  const count = Math.max(linesA.length, linesB.length);
+  let at = 0;
+  while (at < count && linesA.at(at) === linesB.at(at)) {
+    at++;
+  }
+  if (at === count) {
+    return `both ${headA}, they differ in whitespace only`;
+  }
+  const line = (lines: string[]) => {
+    const text = lines.at(at);
+    return text === undefined ? 'the end of the class' : `"${shorten(text)}"`;
+  };
+  return `both ${headA}, they differ at line ${at + 1}: registered has ${line(linesA)}, refused has ${line(linesB)}`;
+}
+
+function duplicateName(key: string, registered: Class<unknown>, refused: Class<unknown>) {
+  const name = getTypeName(refused);
+  return new BindException(
+    `Two different classes named ${name} cannot both be registered as ${key} (${describeBoth(registered, refused)}). ` +
+      `Give one of them another name. To replace a registered class, register the new class under another name: DI.register(New${name}).as(${name}).`,
+  );
+}
 
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
@@ -60,8 +126,13 @@ export class Registry {
         // all would return 'Function' type
         if (isFactory(type)) {
           value.push(type);
-        } else if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
-          value.push(type);
+        } else {
+          const registered = value.find((v) => getTypeName(v) === getTypeName(type));
+          if (!registered) {
+            value.push(type);
+          } else if (isConstructor(type) && isConstructor(registered) && !isSameClass(registered, type)) {
+            throw duplicateName(tname, registered, type);
+          }
         }
       } else {
         this.registry.set(tname, [type]);

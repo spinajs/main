@@ -16,7 +16,7 @@ const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 const sameToken = (presented: string, expected: string) => timingSafeEqual(digest(presented), digest(expected));
 
 function servicePrincipal(s: ServicePrincipalConfig): Principal {
-  return Object.freeze({ type: 'service', id: s.name, authenticated: true, source: 'service', attributes: s.attributes });
+  return Object.freeze({ type: 'service', id: s.name, authenticated: s.authenticated, source: 'service', attributes: s.attributes });
 }
 
 /**

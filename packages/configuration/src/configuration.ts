@@ -23,6 +23,7 @@ import {
 import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
+import { findNonFinite } from './non-finite.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
@@ -53,6 +54,14 @@ function assertSafePath(path: string[] | string) {
 
 const isUnresolved = (v: unknown) => v instanceof ConfigVar && (v.get() ?? null) === null;
 
+// True when one path is a prefix of the other: a module at, under or above a path.
+function overlaps(a: string[], b: string[]) {
+  const n = Math.min(a.length, b.length);
+  return _.isEqual(a.slice(0, n), b.slice(0, n));
+}
+
+const violationKey = (v: ConfigurationViolation) => `${v.schema}\u0000${v.path}\u0000${v.message}`;
+
 function withLazyVars<T extends object>(obj: T): T {
   const proxy = new Proxy(obj, {
     get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
@@ -67,15 +76,18 @@ function withLazyVars<T extends object>(obj: T): T {
 }
 
 // A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
-// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
-function copyForCheck(value: unknown): unknown {
+// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference. With `unwrap`, a
+// lazy-var proxy becomes a copy of its target instead, so a walk over the copy loads no var.
+function copyForCheck(value: unknown, unwrap = false): unknown {
   return _.cloneDeepWith(value, function copy(v: unknown): unknown {
     const target = typeof v === 'object' && v !== null ? LAZY_TARGETS.get(v) : undefined;
-    if (target) return withLazyVars(_.cloneDeepWith(target, copy));
+    if (target) return unwrap ? _.cloneDeepWith(target, copy) : withLazyVars(_.cloneDeepWith(target, copy));
     if (Object.prototype.toString.call(v) === '[object Object]' && !_.isPlainObject(v)) return v;
     return undefined;
   });
 }
+
+const nonFiniteError = (instancePath: string): ErrorObject => ({ keyword: 'type', instancePath, schemaPath: '#', params: { type: 'finite number' }, message: 'must be a finite number' });
 
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
@@ -282,6 +294,8 @@ export class FrameworkConfiguration extends Configuration {
     } catch (e) {
       // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
+      // No logger comes up without a Configuration, and the exit dump never runs when the app calls process.exit().
+      InternalLogger.flush();
       throw e;
     }
   }
@@ -524,10 +538,32 @@ export class FrameworkConfiguration extends Configuration {
   private schemasAt(path: string[] | string): IConfigurationSchema[] {
     if (this.ValidationSchemas === undefined || this.Loading) return [];
     const target = _.toPath(path);
-    return this.schemasOfLineage().filter((s) => {
-      const module = _.toPath(s.$configurationModule);
-      const n = Math.min(module.length, target.length);
-      return _.isEqual(module.slice(0, n), target.slice(0, n));
+    return this.schemasOfLineage().filter((s) => overlaps(_.toPath(s.$configurationModule), target));
+  }
+
+  /**
+   * The violations that merging `value` at `path` would add to the modules a schema covers there, on the tree as it is
+   * now with `over` merged into it. Changes nothing; while a source loads, the tree is what the earlier sources loaded.
+   */
+  public violationsAdded(path: string[] | string, value: unknown, over: IConfigLike = {}): ConfigurationViolation[] {
+    const target = _.toPath(path);
+    if (target.length === 0 || this.Validator === undefined) return [];
+    const schemas = this.schemasOfLineage().filter((s) => overlaps(_.toPath(s.$configurationModule), target));
+    if (schemas.length === 0) return [];
+
+    const top = _.minBy([target, ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? target;
+    const subtree = (tree: unknown) => _.set({}, top, copyForCheck(_.get(tree, top))) as Record<string, unknown>;
+    // Ajv rewrites what it checks, so each check gets a copy of its own.
+    const base = () => _.mergeWith(subtree(this.Config), subtree(over), mergeArrays);
+    const known = new Set(this.violationsIn(schemas, base()).map(violationKey));
+    return this.violationsIn(schemas, _.mergeWith(base(), _.set({}, target, copyForCheck(value)), mergeArrays)).filter((v) => !known.has(violationKey(v)));
+  }
+
+  // An absent module is checked as `{}`, so that a key the tree gets later (onLoad(), a DI value) is not blamed on a change.
+  private violationsIn(schemas: IConfigurationSchema[], root: Record<string, unknown>): ConfigurationViolation[] {
+    return schemas.flatMap((s) => {
+      const refusal = this.refusalOf(s, _.get(root, s.$configurationModule) ?? {});
+      return refusal === undefined ? [] : this.failureOf(s, refusal).violations;
     });
   }
 
@@ -543,8 +579,9 @@ export class FrameworkConfiguration extends Configuration {
     const violations: ConfigurationViolation[] = [];
     for (const s of schemas) {
       const value = _.get(root, s.$configurationModule);
-      if (value === undefined || this.Validator.validate(s, value)) continue;
-      const r = this.failureOf(s);
+      const refusal = value === undefined ? undefined : this.refusalOf(s, value);
+      if (refusal === undefined) continue;
+      const r = this.failureOf(s, refusal);
       errors.push(...r.errors);
       violations.push(...r.violations);
     }
@@ -597,16 +634,24 @@ export class FrameworkConfiguration extends Configuration {
     // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
     // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
     // value whose copy passes gets its defaults and coercion.
-    if (this.Validator.validate(s, copyForCheck(config)) && this.validateInPlace(s, config)) {
-      return { errors: [], violations: [] };
-    }
-
-    return this.failureOf(s);
+    const refusal = this.refusalOf(s, copyForCheck(config)) ?? (this.validateInPlace(s, config) ? undefined : this.lastErrors());
+    return refusal === undefined ? { errors: [], violations: [] } : this.failureOf(s, refusal);
   }
 
-  // The violations of the last failed this.Validator.validate(s, ...) call.
-  private failureOf(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+  // undefined when `value` passes. Ajv coerces a string such as '1e999' to a non-finite number and then skips every
+  // numeric limit on it, so a value that passes is also walked for one.
+  private refusalOf(s: IConfigurationSchema, value: unknown): ErrorObject[] | undefined {
+    if (!this.Validator.validate(s, value)) return this.lastErrors();
+    const paths = findNonFinite(copyForCheck(value, true), true);
+    return paths.length === 0 ? undefined : paths.map(nonFiniteError);
+  }
+
+  private lastErrors(): ErrorObject[] {
     const errors: ErrorObject[] = this.Validator.errors ?? [];
+    return errors;
+  }
+
+  private failureOf(s: IConfigurationSchema, errors: ErrorObject[]): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
     const schema = schemaNameOf(s);
     let violations = toViolations(s.$configurationModule, schema, errors);
     if (violations.length === 0) {

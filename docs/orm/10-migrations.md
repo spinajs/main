@@ -82,7 +82,7 @@ export async function bootOrMigrate(): Promise<Orm> {
 
    (one line in the real message; split here for reading).
 6. A throw in step 3 or 5 makes `Orm.resolve()` close its connections and reject with that error. The `Orm` is not cached.
-7. `Orm.resolve()` reads the table info of every registered model once. With `db.StrictTableCheck` on (the default) and the guard enabled, one `OrmException` names every registered model, on any connection, whose table is missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`. The `Orm` closes its connections and is not cached. A disabled guard skips this check, and each missing table is logged as a warning instead.
+7. `Orm.resolve()` reads the table info of every registered model once. With `db.StrictTableCheck` on (the default) and the guard enabled, one `OrmException` names every registered model, on any connection, whose table is missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`. The `Orm` closes its connections and is not cached. A disabled guard skips this check and logs one warning that lists every missing table instead.
 8. It wires relations and installs the model statics. The `Orm` is cached. No migration and no `data()` runs.
 
 ```mermaid

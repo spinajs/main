@@ -226,8 +226,8 @@ describe('telemetry json api', function () {
   });
 
   describe('GET /telemetry/health', () => {
-    it('returns liveness info', async () => {
-      const res = await json('telemetry/health');
+    it('returns liveness info to a caller holding telemetry:read', async () => {
+      const res = await guarded('telemetry/health');
 
       expect(res).to.have.status(200);
       expect(res.body.status).to.eq('up');
