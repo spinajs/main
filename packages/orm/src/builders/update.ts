@@ -16,6 +16,7 @@ import { WhereBuilder } from './where.js';
 
 export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> { }
 
+/** @spinajs query update */
 @NewInstance()
 export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**
