@@ -89,7 +89,7 @@ export class CacheClearCommand extends CliCommand { /* spinajs cache clear */ }
 
 | Member | Kind | Called by | Default |
 | --- | --- | --- | --- |
-| `execute(...args)` | abstract, async | the commander action | none; required |
+| `execute(...args)` | abstract, async; returns `Promise<unknown>`, so a command may resolve with a result for in-process callers. The bin ignores it | the commander action | none; required |
 | `onCreation(command)` | hook | parent's `preSubcommand`, before parsing | no-op |
 | `onPreAction(thisCommand, actionCommand)` | hook | commander `preAction` | no-op |
 | `onPostAction(thisCommand, actionCommand)` | hook | commander `postAction` | no-op |
@@ -156,14 +156,15 @@ Register the replacement before `Cli.resolve()` dispatches, in your own entry po
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { MigrateUpCommand, IMigrateUpCommandOptions } from '@spinajs/orm-cli';
+import { MigrateUpCommand, IMigrateUpCommandOptions, IMigrateUpResult } from '@spinajs/orm-cli';
 
 /** Runs the shipped `migrate-up` and appends an audit line. */
 export class AuditedMigrateUpCommand extends MigrateUpCommand {
-  public async execute(options: IMigrateUpCommandOptions): Promise<void> {
+  public async execute(options: IMigrateUpCommandOptions): Promise<IMigrateUpResult | void> {
     const startedAt = new Date().toISOString();
-    await super.execute(options);
+    const result = await super.execute(options);
     console.log(`[audit] migrate-up started ${startedAt} by ${process.env.USER ?? 'unknown'}, fake=${options.fake === true}`);
+    return result;
   }
 }
 

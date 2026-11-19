@@ -26,11 +26,12 @@ It does **not** create or delete entries and does **not** change `Slug`, `Group`
 1. `@Access('configuration:update', { fields: 'filter' })` checks the route permission. Body fields outside the update grant's `fields.write` are stripped, or answered with 400 when `authz.fields.write.mode` is `reject`.
 2. The body is validated against the `UpdateConfigDto` schema (`configuration.http.updateConfigDTO`): `Value` is required, `Watch` is a boolean.
 3. `entryFor()` loads the row as `SYSTEM` and checks **both** `configuration:read` and `configuration:update` on it. A refusal answers `404`.
-4. `validateEntryValue()` checks `Value`, then `Default` when sent, against the entry `Type`, `Meta` and the schema registered under the slug ([Value validation](02-value-validation.md)). A failure answers `400` with `{ error: { message } }`.
-5. A `SchemaCompileError` is logged and answers `500` with `configuration schema '<slug>' is invalid`.
-6. The controller assigns `Value`, `Default` and `Watch`; `DbConfigValueConverter` turns them into the canonical stored string on update.
-7. `updateEntry()` runs `entry.update()`. When a change was pending and zero rows were affected, it throws `ConfigWriteRefused` (403): the row left the caller's update scope between the check and the write.
-8. The response is `200` with the stored entry, filtered by the update decision's `fields.read`.
+4. When the body has `Default` or `Watch`, `authz().assert(caller, 'configuration:manage', { type: 'configuration', id }, entry)` checks the row. A refusal answers `403`, before any value is validated.
+5. `validateEntryValue()` checks `Value`, then `Default` when sent, against the entry `Type`, `Meta` and the schema registered under the slug ([Value validation](02-value-validation.md)). A failure answers `400` with `{ error: { message } }`.
+6. A `SchemaCompileError` is logged and answers `500` with `configuration schema '<slug>' is invalid`.
+7. The controller assigns `Value`, `Default` and `Watch`; `DbConfigValueConverter` turns them into the canonical stored string on update.
+8. `updateEntry()` runs `entry.update()`. When a change was pending and zero rows were affected, it throws `ConfigWriteRefused` (403): the row left the caller's update scope between the check and the write.
+9. The response is `200` with the stored entry, filtered by the update decision's `fields.read`.
 
 ```mermaid
 sequenceDiagram
@@ -45,6 +46,7 @@ sequenceDiagram
   A->>Ctl: update(caller, slug, dto)
   Ctl->>Z: runAs(SYSTEM) load by Slug
   Ctl->>Z: can(read), can(update) on the row
+  Ctl->>Z: assert(manage) on the row, when Default / Watch is sent
   Ctl->>V: validateEntryValue(Value / Default)
   Ctl->>DB: entry.update()
   Ctl-->>C: 200 entry (fields.read of the update decision)
@@ -56,7 +58,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `GET` | `/configuration` | `configuration:read` | `200`, array of entries | `401`, `403` |
 | `GET` | `/configuration/:slug` | `configuration:read` | `200`, one entry | `401`, `403`, `404` |
-| `PATCH` | `/configuration/:slug` | `configuration:update` (route), `configuration:read` + `configuration:update` (row) | `200`, the updated entry | `400`, `401`, `403`, `404`, `500` |
+| `PATCH` | `/configuration/:slug` | `configuration:update` (route), `configuration:read` + `configuration:update` (row), `configuration:manage` (row) for `Default` / `Watch` | `200`, the updated entry | `400`, `401`, `403`, `404`, `500` |
 
 Query parameter of the list: `group` (string, optional), compared with `Group`.
 
@@ -65,8 +67,8 @@ Query parameter of the list: `group` (string, optional), compared with `Group`.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `Value` | depends on `Type` | yes | New value, in its JSON form: a string for `date`, an array for `manyOf` and `*-range`, an object for `json`. |
-| `Default` | depends on `Type` | no | New default, validated like `Value`. |
-| `Watch` | `boolean` | no | Whether the running app reloads this entry on the watch poll. |
+| `Default` | depends on `Type` | no | New default, validated like `Value`. Needs `configuration:manage`. |
+| `Watch` | `boolean` | no | Whether the running app reloads this entry on the watch poll. Needs `configuration:manage`. |
 
 ### Response entry
 
@@ -92,6 +94,7 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 | `400` | Body field outside `fields.write` (reject mode), or DTO schema failure | authz-http / http error body |
 | `401` | No principal | authz-http error body |
 | `403` | No route permission; list refused by the list plan; `ConfigWriteRefused` | authz-http error body |
+| `403` | Body with `Default` or `Watch` and no `configuration:manage` on the row | `{ message: "Access denied: configuration:manage on configuration:<id> (<reason>)" }` |
 | `404` | Unknown slug, or the row check refused it | `configuration entry <slug> not found` |
 | `500` | The slug schema cannot be compiled | `{ error: { message: "configuration schema '<slug>' is invalid" } }` |
 
@@ -116,6 +119,7 @@ Permissions and roles are on the [Access control](04-access-control.md) page.
 - The list returns every row of the table the caller may read, exposed or not; there is no `Exposed` filter.
 - `PATCH` writes to the database only. The running app picks the value up on the db-source watch poll, and only for entries with `Watch = true`.
 - `PATCH` needs `configuration:read` on the row as well as `configuration:update`, because the response carries the entry. A principal with update only gets `404`.
+- Sending `Default` or `Watch` at all needs `configuration:manage` on the row, even when the value equals the stored one. Without it the whole request answers `403` and nothing is written; a body with `Value` alone needs only `configuration:update`.
 - A row refused by the row check answers `404`, not `403`; the route-level check still answers `403`.
 - `PATCH` never moves or deletes files of `type: 'file'` entries. Use [`ConfigFileUploads.commit`](05-file-uploads.md) to point a file entry at a stored file.
 - `Default` is optional: when it is not sent, the stored `Default` stays as it is.
@@ -152,7 +156,7 @@ Content-Type: application/json
 { "Id": 2, "Slug": "app.maxUsers", "Value": "50", "Default": "5", "Watch": true, "Type": "number", "Meta": { "min": 1, "max": 100 }, "Group": "app" }
 ```
 
-A `Value` of `999` answers `400`, and the stored value stays `"50"`.
+The body sets `Default` and `Watch`, so the caller needs `configuration:manage` as well; without it the request answers `403`. A `Value` of `999` answers `400`, and the stored value stays `"50"`.
 
 ### Expose an option with bounds the API enforces
 

@@ -12,6 +12,18 @@ export interface IMigrateUpCommandOptions {
   dryRun?: boolean;
 }
 
+/** What `execute()` resolves with, for a caller that runs the command in-process instead of through the bin. */
+export interface IMigrateUpResult {
+  /** The migrations the run applied, or recorded as applied with `--fake`; empty for `--dry-run`. */
+  applied: OrmMigration[];
+
+  /**
+   * Set after a full run when db.StrictTableCheck finds a registered model without its table, so the application
+   * will not boot. Its message names each such model and table.
+   */
+  tableCheckError?: OrmException;
+}
+
 /**
  * Runs `OrmMigrator.migrate()`, the deploy step an application's boot checks for: the pending migrations, a re-read of
  * the table info they touched, then their `data()` seeds ( none with `--fake` or `--skip-seed` ).
@@ -26,12 +38,17 @@ export class MigrateUpCommand extends CliCommand {
   @Logger('ORM-CLI')
   protected Log: Log;
 
-  public async execute(options: IMigrateUpCommandOptions): Promise<void> {
+  /**
+   * The bin reads `process.exitCode` instead, which a failed table check still sets. `void` in the result type keeps
+   * subclasses that override this with `Promise<void>` compiling; an override must return the inherited result,
+   * otherwise an in-process caller gets nothing back, which does not mean success.
+   */
+  public async execute(options: IMigrateUpCommandOptions): Promise<IMigrateUpResult | void> {
     const migrator = await resolveCliMigrator();
 
     if (options.dryRun) {
       await this.printPlan(migrator, options);
-      return;
+      return { applied: [] };
     }
 
     const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection, skipSeed: options.skipSeed });
@@ -41,8 +58,13 @@ export class MigrateUpCommand extends CliCommand {
 
     // A run narrowed by --name or --connection says nothing about the tables of the migrations it left out.
     if (!options.name && !options.connection) {
-      await this.checkModelTables(orm, options.fake);
+      const tableCheckError = await this.checkModelTables(orm, options.fake);
+      if (tableCheckError) {
+        return { applied: executed, tableCheckError };
+      }
     }
+
+    return { applied: executed };
   }
 
   /** `--dry-run`: the plan on stdout, like `migrate-status`, and exit code 1 when something would run or is blocked. */
@@ -99,9 +121,11 @@ export class MigrateUpCommand extends CliCommand {
 
   /**
    * The application boot this step precedes refuses a model whose table is missing (db.StrictTableCheck), so the
-   * step fails here, after the migrations it applied, rather than at the first start.
+   * step fails here, after the migrations it applied, rather than at the first start. Resolves with the check's
+   * error, which `execute()` returns as `tableCheckError`; an override must return it too, for the same reason as on
+   * `execute()`.
    */
-  protected async checkModelTables(orm: Orm, fake?: boolean): Promise<void> {
+  protected async checkModelTables(orm: Orm, fake?: boolean): Promise<OrmException | void> {
     // The boot already warned about every missing table of a lenient configuration.
     if (!orm.StrictTableCheck) {
       return;
@@ -116,6 +140,7 @@ export class MigrateUpCommand extends CliCommand {
 
       this.Log.error({ reason: err.message }, fake ? 'Migrations are recorded as applied ( --fake ), but the application will not boot: ${reason}' : 'Migrations are applied, but the application will not boot: ${reason}');
       process.exitCode = 1;
+      return err;
     }
   }
 

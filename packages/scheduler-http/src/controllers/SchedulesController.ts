@@ -1,6 +1,6 @@
 import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Post, SseResponse } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
-import { parseSseEventId } from '@spinajs/scheduler';
+import { isTerminalStatus, parseSseEventId } from '@spinajs/scheduler';
 
 import { SchedulerControllerBase } from '../scheduler-controller.js';
 import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RUN } from '../permissions.js';
@@ -50,11 +50,15 @@ export class SchedulesController extends SchedulerControllerBase {
    * Run a schedule now
    * Validates `params` against the schedule's parameter schema and queues a manual run that records the
    * caller as `triggeredBy`. A run in progress answers 409 with its id; with `force` the run is queued
-   * behind it instead. With `wait` the request is held until the run ends and answers 200 with the run.
+   * behind it instead. With `wait` the request is held until the run ends, at most
+   * `scheduler.http.runWaitTimeout` ms ( 30 s by default ); the loop that runs it may be on another replica. A run
+   * that ended answers 200 with the run in a final status. When the time runs out first the answer is 202 with
+   * the run not finished yet ( `queued`, `running`, `retrying` or `emitted`, `finishedAt` null ).
    * @security cookieAuth
    * @param name Schedule name
    * @returns {ISchedulerRunAccepted} Run id and the run, when the request waited
-   * @response 202 {ISchedulerRunAccepted} Run queued
+   * @response 200 {ISchedulerRunAccepted} With `wait`: the run ended; `run` is in a final status
+   * @response 202 {ISchedulerRunAccepted} Run queued; with `wait`, the wait timed out and `run` is not finished yet
    * @response 400 Invalid body, or params rejected by the schedule's schema
    * @response 401 Unauthorized — authenticated caller required
    * @response 403 Forbidden — scheduler:run required
@@ -68,11 +72,12 @@ export class SchedulesController extends SchedulerControllerBase {
     const result = await this.Scheduler.runNow(name, {
       params: dto.params,
       force: dto.force ?? false,
-      wait: dto.wait ?? false,
+      // bounded: the service refuses an unbounded wait in a process whose own loop is not started
+      wait: dto.wait ? { timeoutMs: this.RunWaitTimeoutMs } : false,
       triggeredBy: this.triggeredBy(),
     });
 
-    return result.run ? new Ok(result) : new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+    return result.run && isTerminalStatus(result.run.status) ? new Ok(result) : new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
   }
 
   /**

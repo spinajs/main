@@ -31,6 +31,7 @@ import {
   ScheduleInfo,
   ScheduleNotFound,
   SchedulePaused,
+  SchedulerNotRunning,
   SchedulerService,
   SubscribeOptions,
   SubscribeTarget,
@@ -247,6 +248,9 @@ export class DefaultSchedulerService extends SchedulerService {
 
     const busy = await this.busyRunId(def, now);
     if (busy && !o.force) throw new RunConflict(`schedule '${name}' already has run ${busy} in progress`, busy);
+
+    // loops of other replicas are invisible from here, so without a local one only a bounded wait can end
+    if (o.wait === true && !activeSchedulers().some((s) => s.isStarted())) throw new SchedulerNotRunning(name);
 
     const forced = def.runOn === 'all' || (!!busy && def.overlap === 'skip');
     const run = await this.createQueuedRun(def, { trigger: 'manual', triggeredBy: o.triggeredBy, params, now, forced });

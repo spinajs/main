@@ -60,11 +60,15 @@ describe('telemetry config fragment', () => {
 describe('bridgeTelemetryToken', () => {
   const services = (config: ReturnType<typeof memoryConfig>) => config.get<unknown[]>(['authz', 'http', 'services']);
 
-  it('adds service:telemetry on x-metrics-token and on Authorization: Bearer', () => {
+  it('adds an unauthenticated service:telemetry on x-metrics-token and on Authorization: Bearer', () => {
     const other = { name: 'billing', header: 'x-billing', token: 'b' };
     const config = memoryConfig({ telemetry: { auth: { token: 'secret' } }, authz: { http: { services: [other] } } });
     bridgeTelemetryToken(config);
-    expect(services(config)).to.deep.eq([other, { name: 'telemetry', header: 'x-metrics-token', token: 'secret' }, { name: 'telemetry', header: 'authorization', token: 'Bearer secret' }]);
+    expect(services(config)).to.deep.eq([
+      other,
+      { name: 'telemetry', header: 'x-metrics-token', token: 'secret', authenticated: false },
+      { name: 'telemetry', header: 'authorization', token: 'Bearer secret', authenticated: false },
+    ]);
   });
 
   it('creates authz.http.services when it is missing', () => {

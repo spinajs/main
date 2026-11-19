@@ -71,9 +71,15 @@ export interface IHttpServerConfiguration {
   };
 
   /**
-   * Http server port
+   * Http server port, or a named pipe or Unix socket path ( a string holding `/` or `\` )
    */
-  port: number;
+  port: number | string;
+
+  /**
+   * Address the server listens on, eg. `127.0.0.1` for loopback only. Not set: every interface. Not allowed with a
+   * pipe or socket path in `port`.
+   */
+  host?: string;
 
   /**
    * Middlewares used by server
@@ -119,6 +125,13 @@ export interface IHttpStaticFileConfiguration {
    * full path to folder with static content
    */
   Path: string;
+
+  /**
+   * `false` leaves the entry unmounted; absent or `true` mounts it; any other value stops the start. Read once, when
+   * the server starts and mounts its folders (so a `ConfigVar` here sees the merged configuration); a later change
+   * neither mounts nor unmounts the folder until the next start.
+   */
+  Enabled?: boolean;
 }
 
 export enum FileTypeEnum {
@@ -312,7 +325,7 @@ export interface IResponseOptions {
 }
 
 export abstract class ServerMiddleware extends AsyncService {
-  public Order!: number;
+  public Order = 0;
 
   public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
   /**

@@ -67,7 +67,7 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 
 | First argument | Example | Result |
 | --- | --- | --- |
-| `string` | `log.info('user %s logged in', userId)` | Message is a printf format; arguments fill it. |
+| `string` | `log.info('user %s logged in', userId)` | Message is a printf format; arguments fill it. An `Error` after them becomes the `error` field. |
 | `Error` | `log.error(err, 'cannot save order %d', id)` | `error` field holds the serialized error. With no message, the message is `err.message`. |
 | plain object | `log.info({ orderId, total }, 'order ${orderId} placed')` | Fields merge into the entry. The message is a template over **these fields only**, then printf arguments apply. |
 
@@ -84,7 +84,7 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 | `%j`, `%o`, `%O` | JSON, `String()` when it cannot stringify |
 | `%%` | `%`, consumes no argument |
 
-A specifier with no argument left stays as written. Arguments left after the format are appended, space-separated, objects as JSON.
+A specifier with no argument left stays as written. Arguments left after the format are appended, space-separated, objects as JSON. When the call has no error of its own (no `Error` first, no `error` field), the first `Error` among them becomes the entry's `error`, as in the error-first shape, so `log.warn('read of %s failed', file, err)` prints `err.message` through `${error:message}`. It is still appended when its JSON form is not `{}` (enumerable fields such as `InvalidArgument`'s `fieldName`, or a `toJSON()`), so nothing printed before is lost, and a text layout then shows both: `log.warn('read failed', new NotFound())` with `status = 404` prints `WARN read failed {"status":404} Exception: not found (lg)`. Only a value that passes `instanceof Error` is taken: an error from another realm or a plain object that looks like one stays an appended argument, the same rule the `error` serializer uses. An `Error` that a specifier fills stays in the message, as `{}` when it has no enumerable fields; pass it after the format arguments or first.
 
 ### Field templates
 

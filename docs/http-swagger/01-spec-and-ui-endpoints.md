@@ -191,6 +191,7 @@ export class PartnerDocsController extends BaseController {
 
 ## Important behaviour
 
+- Both controller routes are public. `SwaggerController` carries http-swagger's own class-level marker, which writes the metadata `@spinajs/authz-http` reads for `@AllowAnonymous`, so the [unguarded-routes check](../authz-http/10-access-metadata-and-openapi.md#unguarded-routes) skips them and `authz.http.unguardedRoutes: 'throw'` starts. The marker adds no policy. Set `http.swagger.enabled: false` where the document must not be public.
 - The document is built on the first request to `swagger.json`, not at boot. With `ui.pageTitle` empty, the first `GET /docs/` builds it too.
 - Turning `enabled` off does not remove the static routes: `/docs/ui` and `/docs/static` keep serving files.
 - `swagger-ui-dist` missing from every `node_modules` up the tree does not stop the boot. The static handler logs a warning and skips the route; point the `ui.*Url` keys at a CDN in that case.

@@ -12,5 +12,6 @@ export * from '@spinajs/configuration-common';
 export * from './decorators.js';
 export * from './exception.js';
 export * from './fp.js';
+export * from './non-finite.js';
 export * from './configuration.browser.js';
 export { merge, mergeArrays } from './util-common.js';

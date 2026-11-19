@@ -48,12 +48,15 @@ function makeCache(existing: boolean, entries: string[] = ['0.0.1_deadbeef', 'do
   return { cache, calls };
 }
 
+/** Stands in for the class name hash in entry names. */
+const NAME = '0123456789abcdef';
+
 /** The version prefix the instance keys under, read back off a generated key. */
 async function versionOf(cache: DefaultControllerCache, calls: IFakeFsCall[]) {
   await cache.getCache(controllerInfo());
   const key = calls.filter((c) => c.op === 'write').map((w) => w.args[0] as string)[0];
 
-  return key.replace('_deadbeef', '');
+  return key.replace(/_deadbeef_[0-9a-f]{16}$/, '');
 }
 
 function controllerInfo(): ClassInfo<BaseController> {
@@ -96,18 +99,19 @@ describe('DefaultControllerCache keying', function () {
     const paramKey = keys.find((k) => !k.startsWith('doc_'));
 
     // A real version, not the `unknown` fallback - the package must expose ./package.json for the
-    // lookup to resolve, and the source half is carried untouched alongside it.
-    expect(paramKey).to.match(/^\d+\.\d+\.\d+[^_]*_deadbeef$/);
+    // lookup to resolve, and the source hash is carried untouched alongside it, then the class name hash.
+    expect(paramKey).to.match(/^\d+\.\d+\.\d+[^_]*_deadbeef_[0-9a-f]{16}$/);
     expect(keys).to.include(`doc_${paramKey}`);
   });
 
   it('clear() removes every entry whatever version wrote it, and nothing else', async () => {
-    const entries = ['0.0.1_deadbeef', 'doc_0.0.1_deadbeef', '9.9.9_cafe', 'notes.txt', 'subdir'];
-    const { cache, calls } = makeCache(true, entries);
+    // Entries without a class name hash were written before it became part of the key.
+    const ours = [`0.0.1_deadbeef_${NAME}`, `doc_0.0.1_deadbeef_${NAME}`, '9.9.9_cafe_fedcba9876543210', '0.0.1_deadbeef', 'doc_0.0.1_deadbeef'];
+    const { cache, calls } = makeCache(true, [...ours, 'notes.txt', 'subdir', 'some_dir.bak', 'tmp_1_old', '0.0.1_deadbeef_SomeController']);
     await cache.clear();
 
     const removed = calls.filter((c) => c.op === 'rm').map((c) => c.args[0]);
-    expect(removed).to.deep.equal(['0.0.1_deadbeef', 'doc_0.0.1_deadbeef', '9.9.9_cafe']);
+    expect(removed).to.deep.equal(ours);
   });
 
   it('drops entries left by other versions on startup, keeping its own', async () => {
@@ -116,8 +120,8 @@ describe('DefaultControllerCache keying', function () {
     const probe = makeCache(false);
     const version = await versionOf(probe.cache, probe.calls);
 
-    const mine = [`${version}_deadbeef`, `doc_${version}_deadbeef`];
-    const theirs = ['0.0.1_deadbeef', 'doc_0.0.1_deadbeef'];
+    const mine = [`${version}_deadbeef_${NAME}`, `doc_${version}_deadbeef_${NAME}`];
+    const theirs = [`0.0.1_deadbeef_${NAME}`, `doc_0.0.1_deadbeef_${NAME}`, '0.0.1_deadbeef', 'doc_0.0.1_deadbeef'];
     const foreign = ['notes.txt', 'subdir'];
     const { cache, calls } = makeCache(true, [...mine, ...theirs, ...foreign]);
 
