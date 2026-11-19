@@ -15,7 +15,7 @@ import { join, normalize, resolve } from 'path';
 import { Bootstrapper, DI, IContainer, Injectable } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
+import { BaseFileSource, Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm, OrmMigrationGuard, OrmMigrator, resolveMigrationTool } from '@spinajs/orm';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter, DbConfigWatcher } from './../src/index.js';
@@ -82,6 +82,12 @@ export class ConnectionConfigSource extends ConfigurationSource {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    super.loadSources();
+    this.Sources = this.Sources.filter((s) => !(s instanceof BaseFileSource));
+  }
+
   public onLoad(): unknown {
     // connection options are provided by ConnectionConfigSource (Order 0) so the
     // db source can see them during the load loop. onLoad is merged afterwards,

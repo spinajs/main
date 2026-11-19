@@ -23,7 +23,14 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-export class ParameterStoreConf extends FrameworkConfiguration {
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
+export class ParameterStoreConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -50,7 +57,7 @@ export class ParameterStoreConf extends FrameworkConfiguration {
   }
 }
 
-export class SecretsManagerConf extends FrameworkConfiguration {
+export class SecretsManagerConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -75,7 +82,7 @@ export class SecretsManagerConf extends FrameworkConfiguration {
   }
 }
 
-export class MixedConf extends FrameworkConfiguration {
+export class MixedConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -104,7 +111,7 @@ export class MixedConf extends FrameworkConfiguration {
   }
 }
 
-export class AdvancedConf extends FrameworkConfiguration {
+export class AdvancedConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -129,7 +136,7 @@ export class AdvancedConf extends FrameworkConfiguration {
   }
 }
 
-export class CacheConf extends FrameworkConfiguration {
+export class CacheConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -149,7 +156,7 @@ export class CacheConf extends FrameworkConfiguration {
   }
 }
 
-export class FallbackConf extends FrameworkConfiguration {
+export class FallbackConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -168,7 +175,7 @@ export class FallbackConf extends FrameworkConfiguration {
   }
 }
 
-export class TreeConf extends FrameworkConfiguration {
+export class TreeConf extends NoSourcesConfiguration {
   public onLoad(): unknown {
     return {
       logger: {
@@ -385,7 +392,7 @@ describe('AWS Secrets Manager & Parameter Store Configuration Protocol', functio
   describe('Protocol Names', () => {
     it('Should use correct protocol name for parameter store', async () => {
       // Use a fresh config for this isolated test
-      class TestParamConf extends FrameworkConfiguration {
+      class TestParamConf extends NoSourcesConfiguration {
         public onLoad(): unknown {
           return {
             logger: {
@@ -423,7 +430,7 @@ describe('AWS Secrets Manager & Parameter Store Configuration Protocol', functio
 
     it('Should use correct protocol name for secrets manager', async () => {
       // Use a fresh config for this isolated test
-      class TestSecretConf extends FrameworkConfiguration {
+      class TestSecretConf extends NoSourcesConfiguration {
         public onLoad(): unknown {
           return {
             logger: {
