@@ -83,6 +83,7 @@ It is not exported from `@spinajs/cli`.
 - Only the invoked command and the commands on its dispatch path (its parents) are resolved from DI. A command whose dependencies are unavailable, eg. a database, does not break other commands. See [Commands](02-commands.md#how-it-works).
 - `process.exit()` runs right after the command resolves. Work the command started but did not await (timers, open sockets, unflushed streams) is cut off.
 - `configuration:dump` logs every configuration value, including secrets, to every configured log target.
+- The bin never imports the application's entry point. Besides its own modules it imports only the config files (step 4) and the command files of `system.dirs.cli` (step 6). A class that registers itself on import, such as an ORM driver (`@spinajs/orm-sqlite` registers `orm-driver-sqlite`) or the `@Migration()` and `@Model()` classes of a package, is missing unless a config file or a command module imports it. The application's `main.ts` and its own imports never run under the bin.
 
 ## Best practices
 
@@ -90,6 +91,7 @@ It is not exported from `@spinajs/cli`.
 - Await everything in `execute()`. The bin exits as soon as `execute()` settles.
 - Pass `--app` and `--env` to every `spinajs` call in CI, so the command reads the same config as the deployed app.
 - Use `configuration:dump -p <path>` to check what a command will read, eg. `spinajs configuration:dump -p system.dirs.cli`.
+- Import what the commands need, such as the ORM driver and every package with migrations, at the top of one of the application's config files (eg. `import '@spinajs/orm-sqlite';` in `config/db.js`), not only in `main.ts`.
 
 ## Patterns and antipatterns
 
