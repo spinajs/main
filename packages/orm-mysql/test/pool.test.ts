@@ -76,10 +76,6 @@ describe('pool options', () => {
   });
 });
 
-/**
- * A mysql2 protocol server that accepts any login and answers every query with OK, so
- * connect() can be exercised without a database.
- */
 /** The members of mysql2's server-side connection these tests use; it is not in mysql2's public typings. */
 interface FakeServerConnection {
   clientHelloReply: { charsetNumber: number; connectAttributes: Record<string, string> };
@@ -89,6 +85,10 @@ interface FakeServerConnection {
   writeError(error: { code: number; message: string }): void;
 }
 
+/**
+ * A mysql2 protocol server that accepts any login and answers every query with OK, so
+ * connect() can be exercised without a database.
+ */
 async function fakeMySqlServer() {
   const clients: FakeServerConnection[] = [];
   const statements: string[][] = [];
