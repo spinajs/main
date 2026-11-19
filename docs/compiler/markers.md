@@ -7,7 +7,7 @@ A framework package tells the compiler what one of its declarations is with a JS
 
 The compiler resolves the symbol a piece of application code uses (through imports, re-exports and, for a type, its base classes and interfaces) and reads the tag. A user declaration with the same name carries no tag and plays no role, and renaming or moving the declaration keeps its role.
 
-A value is one word. Text after it is comment text. A marker reaches other packages through the `.d.ts`, so the package must build with `removeComments` off (the repository default).
+A value is one word. Text after it is comment text. A marker reaches other packages through the `.d.ts`, so the package must build with `removeComments` off (the repository default). A package that writes markers has a `tsdoc.json` that extends the repository's root one, because typed lint reads `tsdoc.json` from the package folder.
 
 | Role | Value | On | Read by |
 |---|---|---|---|
