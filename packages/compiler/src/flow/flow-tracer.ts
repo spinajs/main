@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { builderOf, buildersOf, staticKind } from './authz-effects.js';
 import type { BuilderKind, BuilderVariant, FunctionSummary, ReturnedBuilder } from './authz-effects.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
-import { QueryTracer, chainOf, unwrap } from './query-values.js';
+import { QueryTracer, chainOf, memberMarker, scopeBy, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
 
 const CHOICES: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken]);
@@ -178,7 +178,7 @@ export class FlowTracer extends QueryTracer {
 
   /** Calls after a `clone()` change the copy, not the builder the statement starts from. */
   protected override extendBuilder(expr: ts.Expression): void {
-    const clone = chainOf(expr)?.calls.find((c) => c.name === 'clone')?.call.expression;
+    const clone = chainOf(expr)?.calls.find((c) => memberMarker(this.checker, c.call, 'copy') !== undefined)?.call.expression;
     super.extendBuilder(clone !== undefined && ts.isPropertyAccessExpression(clone) ? clone.expression : expr);
   }
 
@@ -241,7 +241,7 @@ export class FlowTracer extends QueryTracer {
     const value = this.typed(e, this.checker.getTypeAtLocation(e));
     if (value === undefined) return undefined;
     // `helper.accessible().builder()`: a call before the builder exists scopes nothing.
-    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(value, call);
+    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(this.checker, value, call);
     return { value, pending: true };
   }
 
@@ -256,7 +256,7 @@ export class FlowTracer extends QueryTracer {
     for (const [index, call] of chain.entries()) {
       const value = this.returnedBy(call);
       if (value === undefined) continue;
-      for (const outer of chain.slice(0, index)) scopeBy(value, outer);
+      for (const outer of chain.slice(0, index)) scopeBy(this.checker, value, outer);
       return { value, pending: true };
     }
     return undefined;
@@ -313,10 +313,4 @@ function assignedNames(target: ts.Expression): ts.Identifier[] {
     if (ts.isShorthandPropertyAssignment(p)) return [p.name];
     return ts.isPropertyAssignment(p) ? assignedNames(p.initializer) : ts.isSpreadAssignment(p) ? assignedNames(p.expression) : [];
   });
-}
-
-function scopeBy(value: QueryValue, call: ts.CallExpression): void {
-  const name = ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : undefined;
-  if (name === 'accessible') value.scoped.accessible = true;
-  if (name === 'unscoped') value.scoped.unscoped = true;
 }

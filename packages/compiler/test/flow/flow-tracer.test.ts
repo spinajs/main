@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import ts from 'typescript';
-import { CallGraph, FlowTracer, builderOf, createProgramFromTsconfig, isSystemRunAs, literalReason } from '../../src/index.js';
+import { CallGraph, FlowTracer, builderOf, createProgramFromTsconfig, isSystemRunAs, literalReason, memberMarker, runsQuery, scopeOf } from '../../src/index.js';
 import type { FunctionLike, FunctionSummary } from '../../src/index.js';
 
 describe('flow: effects and the tracer across calls', () => {
@@ -175,5 +175,37 @@ describe('flow: effects and the tracer across calls', () => {
   it('a destructuring assignment to a builder variable leaves it unscoped', () => {
     expect(returnedScope('DestructuredShapes.fromArray')).to.deep.equal([true, UNSCOPED]);
     expect(returnedScope('DestructuredShapes.fromObject')).to.deep.equal([true, UNSCOPED]);
+  });
+
+  const vocabularyFile = loaded.sourceFiles.find((f) => f.fileName.endsWith('/src/vocabulary.ts'))!;
+  const callsOf = (method: string): ts.CallExpression[] => nodes(fn(`Vocabulary.${method}`), ts.isCallExpression);
+  const named = (calls: ts.CallExpression[], member: string): ts.CallExpression =>
+    calls.find((c) => ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === member)!;
+
+  it('a call runs the query when a part of its result is no builder and is awaitable, async-iterable or untyped', () => {
+    expect(runsQuery(checker, named(callsOf('streamed'), 'stream'))).to.equal(true);
+    expect(runsQuery(checker, named(callsOf('paged'), 'paginate'))).to.equal(true);
+    expect(runsQuery(checker, named(callsOf('thenned'), 'then'))).to.equal(true);
+    expect(runsQuery(checker, named(callsOf('untyped'), 'first'))).to.equal(true);
+    expect(runsQuery(checker, named(callsOf('chained'), 'where'))).to.equal(false);
+    expect(runsQuery(checker, named(callsOf('chained'), 'count'))).to.equal(false);
+    expect(runsQuery(checker, callsOf('open')[0])).to.equal(false);
+    expect(runsQuery(checker, callsOf('mixed')[0])).to.equal(true);
+    expect(runsQuery(checker, callsOf('maybeLater')[0])).to.equal(true);
+  });
+
+  it("an app's subclass of a builder and an open conditional type over one are builders; an insert builder is not followed", () => {
+    const paged = nodes(vocabularyFile, ts.isClassDeclaration).find((c) => c.name?.text === 'PagedInvoices')!;
+    const insert = nodes(vocabularyFile, ts.isVariableDeclaration).find((v) => v.name.getText() === 'insert')!;
+    expect(builderOf(checker, checker.getTypeAtLocation(paged.name!))?.kind).to.equal('select');
+    expect(builderOf(checker, checker.getTypeAtLocation(callsOf('open')[0]))?.kind).to.equal('select');
+    expect(builderOf(checker, checker.getTypeAtLocation(insert))).to.equal(undefined);
+  });
+
+  it("scoping and copying are read from the member's marker, so an app's own accessible() scopes nothing", () => {
+    expect(scopeOf(checker, named(callsOf('loose'), 'accessible'))).to.equal(undefined);
+    expect(returnedScope('Vocabulary.loose')).to.deep.equal([true, UNSCOPED]);
+    expect(scopeOf(checker, named(callsOf('scopedHere'), 'accessible'))).to.equal('accessible');
+    expect(memberMarker(checker, named(callsOf('copiedHere'), 'clone'), 'copy')).to.equal('');
   });
 });
