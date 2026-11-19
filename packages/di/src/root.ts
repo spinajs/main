@@ -243,9 +243,9 @@ export async function __spinajs_require__(module: string): Promise<unknown> {
   } else {
     if (typeof require === 'undefined') {
       throw new Error(
-        "@spinajs/di: CommonJS `require` is not available in this environment ( e.g. a bundled/browser build ). " +
-          "Register a module loader under '__module_loader__' ( DI.register(loader).asValue('__module_loader__') ) " +
-          'or enable ESM mode via DI.setESMModuleSupport().',
+        '@spinajs/di: CommonJS `require` is not available in this environment. ' +
+          'In a Node ESM application call DI.setESMModuleSupport() at the top of the entry file, before the configuration resolves. ' +
+          "In a bundled or browser build register a module loader under '__module_loader__' ( DI.register(loader).asValue('__module_loader__') ).",
       );
     }
     return Promise.resolve(require(module));
