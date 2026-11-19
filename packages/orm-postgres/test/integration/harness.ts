@@ -2,6 +2,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 // Orm types its logger as the abstract Log from log-common; this import registers the concrete one.
 import '@spinajs/log';
 import { execSync } from 'node:child_process';
@@ -109,7 +110,7 @@ function suiteConnection(schema: string, options: IPgSuiteOptions): Record<strin
     Pool: { Max: 4, IdleTimeout: 5000, AcquireTimeout: 5000, ...options.pool },
     ...(options.resilience ? { Resilience: options.resilience } : {}),
     Options: { Schema: schema },
-    Migration: { Table: 'orm_migrations', OnStartup: true },
+    Migration: { Table: 'orm_migrations' },
   };
 
   return PGLITE ? { Driver: PGLITE_DRIVER, ...common } : { Driver: 'orm-driver-postgres', Host: PG.Host, Port: PG.Port, User: PG.User, Password: PG.Password, Database: PG.Database, ...common };
@@ -167,9 +168,7 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
     DI.register(PostgresOrmDriver).as('orm-driver-postgres');
   }
 
-  const migrator = (await DI.resolve(Orm)).Migrator;
-  const orm = DI.get(Orm)!;
-  await migrator.Runner.up();
+  const { orm } = await migrateTestDatabase();
   // model descriptors take their columns from the live schema
   await orm.reloadTableInfo();
   const driver = orm.Connections.get(CONNECTION) as PostgresOrmDriver;
