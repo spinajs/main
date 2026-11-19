@@ -917,15 +917,20 @@ export abstract class Response<T = any> {
 
   constructor(protected responseData?: T | Promise<T> | null, protected options?: IResponseOptions) { }
 
+  /**
+   * The status this response answers with: `options.StatusCode` when given, else the class's `_errorCode`.
+   * A subclass whose `execute()` picks another status overrides it.
+   */
+  public get statusCode(): number {
+    return this.options?.StatusCode ?? this._errorCode;
+  }
+
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
     const { httpResponse } = await import('./responses.js');
     return await httpResponse(response, this._template, {
       ...this.options,
-      // Honor an explicit caller-supplied StatusCode; fall back to the
-      // response type's semantic default (_errorCode). Previously _errorCode
-      // always won, silently ignoring options.StatusCode.
-      StatusCode: this.options?.StatusCode ?? this._errorCode,
+      StatusCode: this.statusCode,
     });
   }
 

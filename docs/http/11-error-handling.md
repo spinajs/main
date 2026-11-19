@@ -22,7 +22,7 @@ Refusals raised before routing reach the handler as mapped exceptions:
 
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
-1. It logs the error with method and URL, in every environment: at `error` when the answer is `ServerError` (unmapped, or mapped to it), at `warn` otherwise. The entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
+1. It logs the error with method, URL and `status`, in every environment. The level follows the status of the response the map picked: 401 and 404 at `debug`, any other 4xx at `warn`, everything else at `error`; an exception answered through `CodedHttpExceptionResponse` counts with the status it carries. The entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
 2. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
 3. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 1 names the failure.
 4. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
