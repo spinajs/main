@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { declarationMarker, symbolMarker, typeMarker } from '../markers.js';
+import { declarationMarker, markedType, symbolMarker } from '../markers.js';
 import { isAsyncIterable, isAwaitable } from '../type-shapes.js';
 import type { EdgeVia } from './call-graph.js';
 import { modelShape } from './query-values.js';
@@ -64,14 +64,24 @@ function partsOf(checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>
   return value === type ? [value] : partsOf(checker, value, seen);
 }
 
-/** The kind `part` is marked with. The ORM authorizes no insert, so an insert builder is not followed. */
-function queryKind(checker: ts.TypeChecker, part: ts.Type): QueryKind | undefined {
-  const marker = typeMarker(checker, part, 'query');
-  if (marker === undefined || marker === 'insert') return undefined;
+/**
+ * The kind `part` is marked with and the type arguments `part` gives the marked builder. The ORM authorizes no
+ * insert, so an insert builder is not followed.
+ */
+function markedQuery(checker: ts.TypeChecker, part: ts.Type): { kind: QueryKind; typeArguments: readonly ts.Type[] } | undefined {
+  const marked = markedType(checker, part, 'query');
+  if (marked === undefined || marked.value === 'insert') return undefined;
   // Reading an unknown value as `other` would hide every query of that builder.
-  if (!isFollowed(marker)) throw new Error(`@spinajs query: unknown value '${marker}' on ${checker.typeToString(part)} (expected select, update, delete or insert)`);
-  return marker;
+  if (!isFollowed(marked.value)) {
+    const file = marked.declaration.getSourceFile();
+    const { line } = file.getLineAndCharacterOfPosition(marked.declaration.getStart());
+    throw new Error(`${file.fileName}:${line + 1}: @spinajs query: unknown value '${marked.value}' (expected select, update, delete or insert)`);
+  }
+  return { kind: marked.value, typeArguments: marked.typeArguments };
 }
+
+const modelOf = (checker: ts.TypeChecker, argument: ts.Type | undefined): string | undefined =>
+  argument === undefined ? undefined : modelShape(checker, argument)?.model;
 
 /**
  * The builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`, a union with a
@@ -79,10 +89,11 @@ function queryKind(checker: ts.TypeChecker, part: ts.Type): QueryKind | undefine
  */
 export function builderOf(checker: ts.TypeChecker, type: ts.Type): { kind: BuilderKind; model: string | undefined } | undefined {
   for (const part of partsOf(checker, type)) {
-    const kind = queryKind(checker, part);
-    if (kind === undefined) continue;
-    const [argument] = isReference(part) ? checker.getTypeArguments(part) : [];
-    return { kind, model: argument === undefined ? undefined : modelShape(checker, argument)?.model };
+    const query = markedQuery(checker, part);
+    if (query === undefined) continue;
+    const [own] = isReference(part) ? checker.getTypeArguments(part) : [];
+    // A composed base argument (`T[]`) is not mapped, so the part's own argument names the model then, as it did before.
+    return { kind: query.kind, model: modelOf(checker, query.typeArguments[0]) ?? modelOf(checker, own) };
   }
   return undefined;
 }
@@ -106,7 +117,7 @@ export function staticKind(checker: ts.TypeChecker, call: ts.CallExpression): Bu
 export function runsQuery(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
   const result = checker.getTypeAtLocation(call);
   const parts = partsOf(checker, result);
-  return isUntyped(result) || parts.length === 0 || parts.some((part) => isUntyped(part) || (queryKind(checker, part) === undefined && (isAwaitable(checker, part) || isAsyncIterable(checker, part))));
+  return isUntyped(result) || parts.length === 0 || parts.some((part) => isUntyped(part) || (markedQuery(checker, part) === undefined && (isAwaitable(checker, part) || isAsyncIterable(checker, part))));
 }
 
 /** `x.runAs(SYSTEM, reason, fn)`: the member called is marked `@spinajs run-as` and its principal `@spinajs system-principal`. */
