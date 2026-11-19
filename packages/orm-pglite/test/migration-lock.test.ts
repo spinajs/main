@@ -6,6 +6,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import * as chai from 'chai';
 import 'mocha';
+import { PostgresMigrationLock, PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { PgliteOrmDriver } from '../src/index.js';
 
 const expect = chai.expect;
@@ -55,5 +56,16 @@ describe('PGlite migration lock', function () {
     expect(executed.map((m) => m.constructor.name)).to.deep.equal(['PgliteLockTable_2026_11_19_00_00_00']);
     expect(await driver.Container.resolve(MigrationLock, [driver])).to.be.instanceOf(TableMigrationLock);
     expect(await driver.tableInfo('pgl_lock_item')).to.not.equal(null);
+  });
+
+  it('leaves the session lock to a postgres driver of the same process, resolved before or after a PGlite driver', async () => {
+    const postgres = (name: string) => DI.child().resolve(PostgresOrmDriver, [{ Driver: 'orm-driver-postgres', Name: name, Host: '127.0.0.1', Database: 'unused' }]);
+    const before = await postgres('pg-before');
+    const pglite = await DI.child().resolve(PgliteOrmDriver, [{ Driver: 'orm-driver-pglite', Name: 'pglite-between', Filename: ':memory:' }]);
+    const after = await postgres('pg-after');
+
+    expect(await before.Container.resolve(MigrationLock, [before])).to.be.instanceOf(PostgresMigrationLock);
+    expect(await pglite.Container.resolve(MigrationLock, [pglite])).to.not.be.instanceOf(PostgresMigrationLock);
+    expect(await after.Container.resolve(MigrationLock, [after])).to.be.instanceOf(PostgresMigrationLock);
   });
 });

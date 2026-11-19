@@ -21,7 +21,7 @@ The application never migrates. `Orm.resolve()` applies no migration and runs no
 What stops working:
 
 - `Migration.OnStartup` is removed from `IDriverOptions`, and a configuration that still sets it, `true` or `false`, fails the boot.
-- `Orm.Migrator`, `orm.Migrator.ready()`, `IOrmMigratorOptions`, `OrmMigrator.MigrateOnStartup`, `boot()` and `ready()`, and `IMigrationUpOptions.force` are removed. `DI.resolve(OrmMigrator)` throws an `OrmException` naming `resolveMigrationTool()`.
+- `Orm.Migrator`, `orm.Migrator.ready()`, `IOrmMigratorOptions`, `OrmMigrator.MigrateOnStartup`, `boot()` and `ready()`, `IMigrationUpOptions.force` and `AwaitsStartupMigration` are removed. `DI.resolve(OrmMigrator)` throws an `OrmException` naming `resolveMigrationTool()`.
 - The CLI commands of `authn-keys`, `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`, `scheduler`, `upload` and `users` boot the `Orm` as an application does and refuse an unmigrated database.
 
 What to do instead:

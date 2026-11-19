@@ -22,7 +22,8 @@ class ExplainConf extends FrameworkConfiguration {
       db: {
         StrictTableCheck: false,
         Migration: { Startup: false },
-        Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql', Host: HOST, Port: PORT, User: USER, Password: PASSWORD, Database: DATABASE }],
+        // infra, transaction and uow register their @Migration('mysql') classes in the same run and apply them themselves
+        Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql', Host: HOST, Port: PORT, User: USER, Password: PASSWORD, Database: DATABASE, Migration: { Check: 'off' } }],
       },
     };
   }

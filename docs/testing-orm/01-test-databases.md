@@ -26,7 +26,7 @@ The app's boot never migrates: it checks the migrations and fails with `PendingM
 pending. `db.migrate(container)` runs `migrateTestDatabase(container)` from `@spinajs/orm/testing`: it applies the
 pending migrations and their `data()` seeds through the migration tool of that container and resolves with its Orm,
 which the app then uses. Call it after creating the app and before anything there resolves the Orm (a `resolve` list
-of `createTestApp` that reaches the Orm counts).
+of `createTestApp` that reaches the Orm counts). `db.migrate(container, { seed: false })` applies the migrations without their seeds.
 
 ## Strategies
 
@@ -60,25 +60,8 @@ is the test app's own boot and the migration run.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `dialect` | `'pglite'` | `'sqlite'` returns a `:memory:` connection. |
+| `dialect` | `'pglite'` | `'sqlite'` returns a `:memory:` connection; the app registers `@spinajs/orm-sqlite`. |
 | `connection` | `'default'` | The connection name. Migrations decorated `@Migration(name)`, and `@Migration('default')` ones when it is the default connection, apply. |
 | `migrate` | `true` | `false`: an empty schema whose boot does not check the migrations (`Migration.Check: 'off'`); `schema` strategy only, with `template` it is an `InvalidArgument`. |
 | `strategy` | `'schema'` | `'template'`: a copy of an instance migrated once per process. |
 | `configuration` | `FrameworkConfiguration` | `template` only: the configuration of the template boot. |
-
-## Upgrading from the boot migration
-
-Before, `db.config` carried `Migration: { OnStartup: true }` and the app's boot ran the migrations; seeds ran once the
-Orm was cached. Now the entry carries no `Migration` key (`{ Check: 'off' }` with `migrate: false`), and the
-migrations and seeds run when `migrate()` is called:
-
-```ts
-// before
-const db = await createTestDatabase();
-const app = await createTestApp({ config: { db: { Connections: [db.config] } }, resolve: [OrmMigrator] });
-
-// now
-const db = await createTestDatabase();
-const app = await createTestApp({ config: { db: { Connections: [db.config] } } });
-const orm = await db.migrate(app.container);
-```

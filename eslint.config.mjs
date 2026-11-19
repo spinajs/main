@@ -87,8 +87,8 @@ export default defineConfig(
   },
   {
     files: ['packages/*/src/**/*.ts'],
-    // test-support packages: what they ship is the test database a test asks for
-    ignores: ['packages/testing-orm/src/**', 'packages/simulation/src/**'],
+    // the test-support packages' database helpers: what they ship is the test database a test asks for
+    ignores: ['packages/testing-orm/src/database.ts', 'packages/simulation/src/env.ts'],
     rules: ormTestingBan(),
   },
   {
@@ -105,7 +105,7 @@ export default defineConfig(
 function ormTestingBan(...extra) {
   const message = 'Test helper: applications migrate with `npx spinajs migrate-up`.';
   // the bare subpath is a `paths` entry, so the patterns leave it out rather than report it twice
-  const deep = [String.raw`^@spinajs\/orm\/testing\/`, String.raw`^@spinajs\/orm\/lib\/[\w-]+\/testing(\/|$)`, String.raw`(^|\/)orm\/src\/testing(\/|$)`, ...extra];
+  const deep = [String.raw`^@spinajs\/orm\/testing\/`, String.raw`^@spinajs\/orm\/lib\/([\w-]+\/)?testing(\/|$)`, String.raw`(^|\/)orm\/src\/testing(\/|$)`, ...extra];
   const literal = `/${[String.raw`^@spinajs\/orm\/testing$`, ...deep].join('|')}/`;
 
   return {

@@ -8,6 +8,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import '@spinajs/log';
 import type { IDriverOptions, Orm } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
+import type { IMigrateTestDatabaseOptions } from '@spinajs/orm/testing';
 import { PgliteOrmDriver, execOnSharedPglite } from '@spinajs/orm-pglite';
 import { createTestApp } from '@spinajs/testing';
 
@@ -47,8 +48,9 @@ export interface TestDatabase {
   /**
    * Applies the pending migrations and their `data()` seeds through the migration tool of `container` and resolves with
    * its Orm; an app's boot only checks them. Call it after creating the app, before anything there resolves the Orm.
+   * `{ seed: false }` applies without the seeds.
    */
-  migrate(container: IContainer): Promise<Orm>;
+  migrate(container: IContainer, options?: IMigrateTestDatabaseOptions): Promise<Orm>;
   /** `schema`: drops the schema; call it after the app that used it is disposed. Otherwise nothing is left to clean. */
   dispose(): Promise<void>;
 }
@@ -94,8 +96,8 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   return { config: { Driver: PGLITE, Name: connection, Options: { LoadDataDir: template } }, migrate: migrateIn, dispose: () => Promise.resolve() };
 }
 
-async function migrateIn(container: IContainer): Promise<Orm> {
-  return (await migrateTestDatabase(container)).orm;
+async function migrateIn(container: IContainer, options?: IMigrateTestDatabaseOptions): Promise<Orm> {
+  return (await migrateTestDatabase(container, options)).orm;
 }
 
 function templateFor(connection: string, configuration: Class<Configuration>): Promise<string> {

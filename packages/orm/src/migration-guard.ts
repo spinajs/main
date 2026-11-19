@@ -28,8 +28,7 @@ function sortPending(items: IPendingMigration[]): IPendingMigration[] {
 
 /**
  * A runner that drops the connections the predicate rejects before their service is asked, so an `off`
- * connection is never queried. Built on call, not at module level: `migration-runner` reaches this module
- * through `orm`, so a module-level `extends MigrationRunner` would read it before it is initialised.
+ * connection is never queried.
  */
 function checkingRunner(orm: IMigrationRunnerHost, checked: (driver: OrmDriver) => boolean): MigrationRunner {
   return new (class extends MigrationRunner {
