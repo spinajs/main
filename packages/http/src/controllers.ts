@@ -2,12 +2,15 @@ import Express from 'express';
 
 import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
+import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
 import { DefaultControllerCache, parseFnParamNames, isOnDiskSource } from './cache.js';
 import { BaseController } from './base-controller.js';
 import { ControllerSource } from './controller-sources.js';
 import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
+import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
+import type { IControllerDescriptor } from './interfaces.js';
 
 export class Controllers extends AsyncService {
   /**
@@ -27,6 +30,9 @@ export class Controllers extends AsyncService {
 
   @Autoinject(Container)
   protected Container!: IContainer;
+
+  @Autoinject(Configuration)
+  protected Config!: Configuration;
 
   @Autoinject()
   protected Server!: HttpServer;
@@ -49,6 +55,36 @@ export class Controllers extends AsyncService {
    * {@link add} is idempotent.
    */
   protected RegisteredTypes: Set<Class<BaseController>> = new Set();
+
+  // One answer per type and boot: the list, resolve() and add() all ask, and a condition may resolve services.
+  private mountDecisions = new Map<Class<BaseController>, Promise<boolean>>();
+
+  /** What the `@MountWhen` condition of the type, inherited or its own, decides; `true` without one. */
+  protected isMounted(type: Class<BaseController>): Promise<boolean> {
+    let decision = this.mountDecisions.get(type);
+    if (!decision) {
+      decision = this.askMountCondition(type);
+      this.mountDecisions.set(type, decision);
+    }
+    return decision;
+  }
+
+  private async askMountCondition(type: Class<BaseController>): Promise<boolean> {
+    const condition = (Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, type.prototype) as IControllerDescriptor | undefined)?.MountWhen;
+    if (!condition) {
+      return true;
+    }
+
+    const mounted: unknown = await condition(this.Container, this.Config);
+    if (typeof mounted !== 'boolean') {
+      throw new ControllerRegistrationException(`@MountWhen of controller ${type.name} must return a boolean, got ${typeof mounted}`);
+    }
+
+    if (!mounted) {
+      this.Log.info({ controller: type.name }, 'Controller ${controller} is not mounted: its @MountWhen condition returned false');
+    }
+    return mounted;
+  }
 
   /**
    * Resolves all registered controller discovery services. Override point
@@ -82,7 +118,15 @@ export class Controllers extends AsyncService {
       }
     }
 
-    return [...byType.values(), ...untyped];
+    const typed = [...byType.values()];
+    const mounted = new Set<ClassInfo<BaseController>>();
+    await Promise.all(
+      typed.map(async (ci) => {
+        if (await this.isMounted(ci.type as Class<BaseController>)) mounted.add(ci);
+      }),
+    );
+
+    return [...typed.filter((ci) => mounted.has(ci)), ...untyped];
   }
 
   /**
@@ -101,6 +145,10 @@ export class Controllers extends AsyncService {
   public async add(type: Class<BaseController>): Promise<void> {
     if (this.RegisteredTypes.has(type)) {
       this.Log.trace({ controller: type.name }, 'Controller ${controller} already registered, skipping');
+      return;
+    }
+
+    if (!(await this.isMounted(type))) {
       return;
     }
 
@@ -216,7 +264,14 @@ export class Controllers extends AsyncService {
       this.Log.trace({ controller: ci.name, file: ci.file }, 'Controller ${controller} from ${file} registered as BaseController');
     }
 
-    const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
+    // A controller a bootstrapper registered as BaseController itself is created here even when its condition is false; it is only left unmounted.
+    const resolved = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
+    const instances: BaseController[] = [];
+    for (const instance of resolved) {
+      if (await this.isMounted(instance.constructor as Class<BaseController>)) {
+        instances.push(instance);
+      }
+    }
 
     // Report on scanned controllers that someone else derives from. Both
     // outcomes are otherwise invisible: an override leaves no trace at all, and

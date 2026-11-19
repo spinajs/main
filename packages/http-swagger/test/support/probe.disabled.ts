@@ -3,6 +3,7 @@
 import 'reflect-metadata';
 import { resolve } from 'node:path';
 import { DI } from '@spinajs/di';
+import { Controllers } from '@spinajs/http';
 import { req } from '../common.js';
 import { SwaggerController, SwaggerService } from '../../src/index.js';
 import { bootWithPackageConfig } from './package-config-boot.js';
@@ -33,6 +34,8 @@ async function get(path: string, accept: string) {
 }
 
 const out = {
+  listed: ((await DI.get(Controllers)?.Controllers) ?? []).some((c) => c.name === SwaggerController.name),
+  created: Boolean(DI.get(SwaggerController)),
   routes: DI.get(SwaggerController)?.Router?.stack.length ?? null,
   spec: await get('docs/swagger.json', 'application/json'),
   ui: await get('docs/', 'text/html'),

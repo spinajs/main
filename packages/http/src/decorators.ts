@@ -1,5 +1,5 @@
 import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, MountCondition, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
@@ -388,6 +388,24 @@ export function Accepts(accepts: HttpAcceptHeaders) {
     }
     public async onAfter(): Promise<void> {
     }
+  });
+}
+
+/**
+ * Mounts the controller only when `condition` returns `true`. `Controllers` calls it once per boot, with the container and
+ * the configuration, before it creates any controller. A controller that does not mount has no routes, is missing from
+ * `Controllers.Controllers` (and so from the OpenAPI spec), and is never created when the file scan found it.
+ *
+ * ```ts
+ * \@MountWhen((_, config) => config.get<boolean>('app.reports.enabled', false))
+ * export class ReportsController extends BaseController {}
+ * ```
+ *
+ * A subclass inherits the condition; its own `@MountWhen` replaces it.
+ */
+export function MountWhen(condition: MountCondition) {
+  return Controller((metadata: IControllerDescriptor) => {
+    metadata.MountWhen = condition;
   });
 }
 

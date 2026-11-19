@@ -2,8 +2,8 @@ import { existsSync } from 'fs';
 import { dirname } from 'path';
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { BaseController, BasePath, Get, Json, NotFound, TemplateResponse } from '@spinajs/http';
-import type { IControllerDescriptor, IHttpStaticFileConfiguration } from '@spinajs/http';
+import { BaseController, BasePath, Get, Json, MountWhen, NotFound, TemplateResponse } from '@spinajs/http';
+import type { IHttpStaticFileConfiguration } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SwaggerService } from '../swagger-service.js';
 import { ISwaggerUiConfig } from '../interfaces.js';
@@ -15,6 +15,8 @@ import { AllowAnonymous } from '../access.js';
  */
 @BasePath('docs')
 @AllowAnonymous()
+// Asks the service rather than the key, so an app's SwaggerService with its own IsEnabled decides too.
+@MountWhen(async (container) => (await container.resolve(SwaggerService)).IsEnabled)
 export class SwaggerController extends BaseController {
   @Autoinject()
   protected Swagger!: SwaggerService;
@@ -24,12 +26,6 @@ export class SwaggerController extends BaseController {
 
   @Logger('http-swagger')
   protected Log!: Log;
-
-  /** http mounts every controller it finds, so disabled docs hide their routes instead of answering 404 from them. */
-  public get Descriptor(): IControllerDescriptor {
-    const descriptor = super.Descriptor;
-    return this.Swagger.IsEnabled ? descriptor : { ...descriptor, Routes: new Map() };
-  }
 
   public async resolve(): Promise<void> {
     await super.resolve();

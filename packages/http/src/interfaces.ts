@@ -1,5 +1,7 @@
 import * as express from 'express';
 import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import type { Configuration } from '@spinajs/configuration';
 import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
@@ -965,6 +967,9 @@ export abstract class BasePolicy {
   public abstract execute(req: express.Request, action: IRoute, instance: IController): Promise<void>;
 }
 
+/** Decides whether `Controllers` mounts the controller; see `@MountWhen`. */
+export type MountCondition = (container: IContainer, config: Configuration) => boolean | Promise<boolean>;
+
 /**
  * Descriptor for controller
  */
@@ -999,6 +1004,11 @@ export interface IControllerDescriptor {
    * Controller-wide `@OnError` handlers, in declaration order. They run after the route's own.
    */
   ErrorHandlers?: IOnErrorDescriptor[];
+
+  /**
+   * Set by `@MountWhen`; no condition mounts the controller.
+   */
+  MountWhen?: MountCondition;
 
   /**
    * Absolute path of the source file that declared the controller, captured

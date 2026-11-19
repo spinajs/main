@@ -9,6 +9,8 @@ interface Answer {
 }
 
 interface Probed {
+  listed: boolean;
+  created: boolean;
   routes: number | null;
   spec: Answer;
   ui: Answer;
@@ -41,8 +43,9 @@ describe('Swagger with http.swagger.enabled: false', function () {
     override = probe('override');
   });
 
-  it('registers no docs route', () => {
-    expect(disabled.routes).to.equal(0);
+  it('does not mount the docs controller', () => {
+    expect(disabled.listed).to.equal(false);
+    expect(disabled.created).to.equal(false);
     expect(disabled.spec.status).to.equal(404);
     expect(disabled.spec.body).to.not.contain('Swagger documentation is disabled');
     expect(disabled.ui.status).to.equal(404);
@@ -55,6 +58,7 @@ describe('Swagger with http.swagger.enabled: false', function () {
   });
 
   it('serves the routes and the static files when enabled', () => {
+    expect(enabled.listed).to.equal(true);
     expect(enabled.routes).to.equal(2);
     expect(enabled.spec.status).to.equal(200);
     expect(enabled.ui.status).to.equal(200);
@@ -62,8 +66,9 @@ describe('Swagger with http.swagger.enabled: false', function () {
     expect(enabled.uiInit).to.equal(200);
   });
 
-  it('an IsEnabled override hides the routes but, with the key on, leaves the static files served', () => {
-    expect(override.routes).to.equal(0);
+  it('an IsEnabled override unmounts the controller but, with the key on, leaves the static files served', () => {
+    expect(override.listed).to.equal(false);
+    expect(override.created).to.equal(false);
     expect(override.spec.status).to.equal(404);
     expect(override.uiDist).to.equal(200);
     expect(override.uiInit).to.equal(200);
