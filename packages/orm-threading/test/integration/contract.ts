@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Mutex, mutex_acquire, mutex_create, mutex_renew } from '@spinajs/threading';
 import '@spinajs/log';
 import * as chai from 'chai';
@@ -27,7 +28,7 @@ export function mutexContract(title: string, connection: { Name: string; Driver:
           },
           db: {
             DefaultConnection: connection.Name,
-            Connections: [{ ...connection, Pool: { Max: 10 }, Migration: { Table: 'orm_migrations_mutex', OnStartup: true } }],
+            Connections: [{ ...connection, Pool: { Max: 10 }, Migration: { Table: 'orm_migrations_mutex' } }],
           },
         },
         (target: any, source: any) => (_.isArray(target) ? target.concat(source) : undefined),
@@ -47,7 +48,7 @@ export function mutexContract(title: string, connection: { Name: string; Driver:
 
     beforeEach(async () => {
       await DI.resolve(Configuration);
-      await (await DI.resolve(Orm)).Migrator.ready();
+      await migrateTestDatabase();
       await driver().executeOnDb('DELETE FROM __mutex__', [], QueryContext.Delete);
     });
 

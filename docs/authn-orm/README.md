@@ -63,7 +63,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Name: 'main',
             Driver: 'orm-driver-sqlite',
             Filename: './data/app.sqlite',
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -78,7 +77,7 @@ export async function issueResetSecret(userUuid: string): Promise<string> {
 }
 ```
 
-Importing `@spinajs/authn-orm` registers the stores, the seven models and the migration `AuthnInitial_2026_10_02_00_00_00`. `db.DefaultConnection` creates the `default` connection the models and the migration use. With `Migration.OnStartup`, resolving the `Orm` creates the tables, also when a store resolves it. With `authn.throttle.service` unset, the authn core picks `DbAuthnThrottle`, the only registered throttle besides `MemoryAuthnThrottle`.
+Importing `@spinajs/authn-orm` registers the stores, the seven models and the migration `AuthnInitial_2026_10_02_00_00_00`. `db.DefaultConnection` creates the `default` connection the models and the migration use. [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) creates the tables; the `Orm` refuses to resolve, also when a store resolves it, while the migration is pending. With `authn.throttle.service` unset, the authn core picks `DbAuthnThrottle`, the only registered throttle besides `MemoryAuthnThrottle`.
 
 ## Supported databases
 

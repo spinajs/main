@@ -1,7 +1,11 @@
 # @spinajs/orm-cli
 
-Command line front end for spinajs ORM migrations. Five commands — apply, roll back, report,
-force a state, scaffold — over `OrmMigrator` and its `Runner` in `@spinajs/orm`.
+Command line front end for spinajs ORM migrations. Six commands — apply, seed, roll back,
+report, force a state, scaffold — over `OrmMigrator` and its `Runner` in `@spinajs/orm`.
+
+`npx spinajs migrate-up` is the deploy step. The application never migrates: its `Orm.resolve()`
+fails with `PendingMigrationsException` while a migration is pending or failed, so run
+`migrate-up` before the application starts.
 
 The package is a thin wrapper on purpose. Everything that decides what a migration run means
 lives in `@spinajs/orm`; what lives here is the argument handling, the operator-facing wording
@@ -22,6 +26,7 @@ Full documentation lives in **[docs/](../../docs/orm-cli/README.md)**.
 | 06 | [The CLI migrator](../../docs/orm-cli/06-cli-orm.md) |
 | 07 | [Command discovery](../../docs/orm-cli/07-command-discovery.md) |
 | 08 | [Customizing commands](../../docs/orm-cli/08-customizing-commands.md) |
+| 09 | [Seeding](../../docs/orm-cli/09-seeding.md) |
 
 ## Install
 
@@ -44,45 +49,47 @@ import { MigrateStatusCommand } from '@spinajs/orm-cli';
 await (await DI.resolve(MigrateStatusCommand)).execute();
 ```
 
-## Running a command never migrates anything
+## The commands boot in tool mode
 
-An application's `DI.resolve(Orm)` applies the startup migrations — every pending migration on
-every connection whose `Migration.OnStartup` is on.
-For an application that is the point. For a migration tool it is a trap, twice over:
-
-- a connection holding a **failed** migration refuses every migration run, so the resolve throws
-  before the command body starts. That took down every command on the row it was invoked about,
-  including `migrate-resolve` — the one command that clears it, and the one the refusal names as
-  the remedy.
-- `migrate-status` would apply everything pending and only then report, so the deploy gate asking
-  "is this database current?" made it current, answered "yes" and exited `0`, with the DDL it was
-  meant to hold back already run.
+An application's `DI.resolve(Orm)` runs the boot check (`OrmMigrationGuard`): it refuses to
+start while any migration is pending or failed. For an application that is the point. For a
+migration tool it would be a dead end: `migrate-up` could never start on the pending migrations
+it exists to apply, `migrate-status` could not report them, and `migrate-resolve` could not reach
+the FAILED row it exists to clear.
 
 So the commands resolve the migrator through `resolveCliMigrator()`, which calls
-`resolveMigrationTool()` of `@spinajs/orm`: `OrmMigrator` with `MigrateOnStartup: false` (an
-`IOrmMigratorOptions` field), then the `Orm`. Everything else about resolving happens —
-connections, models, value converters, `OrmMigrator.Runner` — only the startup migrations are
-skipped. Nothing changes for an application that resolves its `Orm` the ordinary way.
+`resolveMigrationTool()` of `@spinajs/orm`: `OrmMigrationGuard` with `{ Enabled: false }`, then
+the `Orm`, then `OrmMigrator` over it. Everything else about resolving happens — connections,
+models, value converters, table info — only the check is skipped, and nothing is applied on the
+way in. Tool mode does not read `Migration.OnStartup` either, so `migrate-up` still runs on a
+configuration written for 3.0; the application's boot then names the key to remove. A host process
+whose application `Orm` already booted is refused with an `OrmException`; one whose boot failed
+cached nothing, so the commands run.
 
 The Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
 fresh database. A full `migrate-up` (no `--name`, no `--connection`) applies the check after its run and
 exits `1` when a registered model still has no table.
 
-Two consequences worth knowing:
+Worth knowing:
 
-- `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. The startup
-  migrations would have really applied the migrations the flag promises only to record.
 - **`migrate-up` seeds what it applies.** It runs `OrmMigrator.migrate()`: the migrations, a
-  re-read of the table info they touched, then their `data()` hooks, as an application's
-  `Orm.resolve()` applies and seeds its startup migrations. `--fake` seeds nothing.
+  re-read of the table info they touched, then their `data()` hooks. `--fake` and `--skip-seed`
+  seed nothing; `migrate-seed` reruns the seeds of applied migrations.
+- **Several `migrate-up` runs at once are safe.** Each holds one lock per connection for the whole
+  run, seeds included, so replicas that all run it in their deploy wait for each other.
+- **Other packages' commands are not in tool mode.** The CLI commands of `@spinajs/authn-keys`,
+  `authn-local`, `authn-orm`, `authn-token`, `authn-totp`, `authz-orm`, `authz-rbac`, `scheduler`,
+  `upload` and `users` boot the Orm as an application does, so they refuse an unmigrated database:
+  run `migrate-up` first.
 
 ## Commands
 
 | Command | Options | Does |
 | --- | --- | --- |
-| `migrate-up` | `-n, --name [name]`, `-c, --connection [connection]`, `-f, --fake` | Applies pending migrations on every configured connection |
+| `migrate-up` | `-n, --name [name]`, `-c, --connection [connection]`, `-f, --fake`, `--skip-seed`, `--dry-run` | Applies pending migrations on every configured connection, then their `data()` seeds |
+| `migrate-seed` | `-n, --name [name]`, `-c, --connection [connection]` | Reruns the `data()` seeds of the applied migrations |
 | `migrate-down` | `-n, --name [name]`, `-c, --connection [connection]`, `-a, --all`, `-f, --fake` | Rolls back — **the last applied batch only** unless `--all` |
-| `migrate-status` | — | Prints one line per migration per connection; the deploy gate |
+| `migrate-status` | `-c, --connection [connection]`, `--json` | Prints one line per migration per connection, with its applied-at time, and the pending list; the deploy gate |
 | `migrate-resolve` | `-n, --name [name]` (required), `--applied`, `--rolled-back` | Records the outcome of a FAILED migration |
 | `migrate-create` | `-n, --name [name]` (required), `-d, --dir [dir]`, `-c, --connection [connection]` | Scaffolds a migration file |
 
@@ -93,6 +100,8 @@ spinajs migrate-up
 spinajs migrate-up --name AddUserTable_2026_07_29_10_00_00
 spinajs migrate-up --connection reporting   # this connection only
 spinajs migrate-up --fake            # record as applied without running anything
+spinajs migrate-up --skip-seed       # apply, run no data() seeds
+spinajs migrate-up --dry-run         # print the plan, apply nothing; exit 1 when something would run
 ```
 
 Without `--name` it applies everything pending, in `(timestamp, name)` order, across every
@@ -141,15 +150,21 @@ prints a line saying exactly that before the run, so the warnings can be ignored
 
 ```bash
 spinajs migrate-status
+spinajs migrate-status --connection reporting
+spinajs migrate-status --json
 ```
 
 ```
-   STATE         BATCH  CONNECTION       MIGRATION
-   applied           1  default          AddUserTable_2026_07_29_10_00_00
-!! FAILED            0  default          AddOrderIndex_2026_07_29_11_00_00
-?? INTERRUPTED       0  default          BackfillTotals_2026_07_29_12_00_00
-   pending           -  default          AddInvoices_2026_07_30_09_00_00
+   STATE        BATCH  APPLIED AT               CONNECTION MIGRATION
+   applied          1  2026-07-29T10:00:12.000Z default    AddUserTable_2026_07_29_10_00_00
+!! FAILED           0  -                        default    AddOrderIndex_2026_07_29_11_00_00
+?? INTERRUPTED      0  -                        default    BackfillTotals_2026_07_29_12_00_00
+   pending          -  -                        default    AddInvoices_2026_07_30_09_00_00
 ```
+
+The table is followed by a summary line and the pending migrations in the order `migrate-up`
+applies them. The format is described in
+[Migration status](../../docs/orm-cli/03-migration-status.md).
 
 Output goes to stdout via `console.log`, not through the framework logger: it is this command's
 *product*, something an operator greps and a script pipes, and routing it through the log would
@@ -214,7 +229,8 @@ files are re-exported elsewhere in spinajs.
 
 | Command | `0` | non-zero |
 | --- | --- | --- |
-| `migrate-up` | migrations applied, or nothing was pending | a named run applied nothing because its connection is not configured, or it is still pending/failed; a `--connection` nothing answers to; any error from the run |
+| `migrate-up` | migrations applied, or nothing was pending; `--dry-run` with nothing to apply | a named run applied nothing because its connection is not configured, or it is still pending/failed; a full run leaves a model without its table; `--dry-run` with something to apply or a FAILED migration; a `--connection` nothing answers to; any error from the run |
+| `migrate-seed` | seeds ran, or nothing is applied | a `--name` not registered or not applied; a `--connection` nothing answers to; a `data()` hook that throws |
 | `migrate-down` | rollback completed, or nothing to roll back | a `--connection` nothing answers to; any error from the run |
 | `migrate-status` | every migration is applied | anything is pending or failed |
 | `migrate-resolve` | the state was recorded | both/neither flag given; the row is neither failed nor interrupted |
@@ -253,12 +269,10 @@ by itself proof that the failure was resolved. Check `migrate-status`.
 ## Notes
 
 - Migrations run on a resolved Orm, but a model of a table the run creates has no columns until
-  the run ends. Use the `OrmDriver` passed to `up()`; seed through models in `data()`.
+  the run re-reads the touched models, after its last `up()`. Use the `OrmDriver` passed to `up()`; seed through models in `data()`.
 - `--fake` records the outcome without executing anything, on both `migrate-up` and
   `migrate-down`. It is for a database that was changed out of band and needs the tracking table
   brought in line.
-- `migrate-status` reports every configured connection, including ones whose
-  `Migration.OnStartup` is off — hiding those would answer "nothing to see" for exactly the
-  connections somebody is most likely asking about. It has no `--connection` of its own, for the
-  same reason: the report is the deploy gate, and a gate that can be narrowed is a gate that can
-  be talked past.
+- `migrate-status` reports every configured connection unless `--connection` narrows it,
+  including ones whose `Migration.Check` is `'warn'` or `'off'`. A deploy gate should not pass
+  `--connection`: a gate that can be narrowed is a gate that can be talked past.

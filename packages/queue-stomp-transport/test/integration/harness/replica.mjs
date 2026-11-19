@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { Job, QueueJob, QueueService } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
 import '@spinajs/queue-stomp-transport';
@@ -13,7 +14,7 @@ function send(message) {
 }
 
 function sqlite(name, filename) {
-  return { Driver: 'orm-driver-sqlite', Filename: filename, Name: name, Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
+  return { Driver: 'orm-driver-sqlite', Filename: filename, Name: name, Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
 }
 
 class ReplicaConf extends FrameworkConfiguration {
@@ -66,7 +67,7 @@ async function boot() {
       DI.clearCache();
       DI.register(ReplicaConf).as(Configuration);
       await DI.resolve(Configuration);
-      await DI.resolve(OrmMigrator);
+      await migrateTestDatabase();
       return await DI.resolve(QueueService);
     } catch (err) {
       if (attempt >= 3 || !isWebSocketFailure(err)) {
