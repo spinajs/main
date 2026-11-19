@@ -47,7 +47,7 @@ Constructor signatures to keep:
 - A root registration is global: every connection, every model, every relation query gets your class.
 - Query scope methods are bound onto the instance by `createQuery()` only; your subclass methods are on the prototype and work on every DI-created instance.
 - `SelectQueryBuilderC` is an empty subclass in `@spinajs/orm`; nothing resolves it.
-- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()`.
+- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()` of their own. The one they carry comes from the `WhereBuilder` mixin and returns a plain `WhereBuilder` with their conditions, not a copy of the update or delete.
 
 ## Best practices
 
