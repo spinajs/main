@@ -3,6 +3,12 @@ import { unlinkSync } from 'fs';
 import { renderPdfToProvider, activeTempFiles } from './render.js';
 import { IRenderRequest, WorkerMessage } from './protocol.js';
 
+// The parent's module mode does not cross fork(). Only the ESM build may set it: the CommonJS build of
+// @spinajs/di compiles import() to require(), which cannot load the file:// URL ESM mode passes.
+if (typeof require === 'undefined') {
+  DI.setESMModuleSupport();
+}
+
 /**
  * Render worker entrypoint. Forked by {@link RenderPdfJob} with an IPC channel:
  * the parent sends an {@link IRenderRequest}, the worker streams `progress`
