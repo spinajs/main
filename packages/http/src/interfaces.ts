@@ -349,10 +349,14 @@ export enum HTTP_STATUS_CODE {
    */
   ACCEPTED = 202,
 
+  NON_AUTHORITATIVE_INFORMATION = 203,
+
   /**
    * ALl is ok & no content to return
    */
   NO_CONTENT = 204,
+
+  RESET_CONTENT = 205,
 
   /**
    * The server is delivering only part of the resource (byte serving) due to a range header
@@ -360,6 +364,14 @@ export enum HTTP_STATUS_CODE {
    * interrupted downloads, or split a download into multiple simultaneous streams.
    */
   PARTIAL_CONTENT = 206,
+
+  MULTI_STATUS = 207,
+
+  ALREADY_REPORTED = 208,
+
+  IM_USED = 226,
+
+  MULTIPLE_CHOICES = 300,
 
   /**
    * Resource has moved permanently to a new URL.
@@ -401,6 +413,8 @@ export enum HTTP_STATUS_CODE {
    */
   UNAUTHORIZED = 401,
 
+  PAYMENT_REQUIRED = 402,
+
   /**
    * No permission
    */
@@ -421,25 +435,71 @@ export enum HTTP_STATUS_CODE {
    */
   NOT_ALLOWED = 405,
 
+  PROXY_AUTHENTICATION_REQUIRED = 407,
+
+  REQUEST_TIMEOUT = 408,
+
   /**
    * Conflict
    */
   CONFLICT = 409,
+
+  GONE = 410,
+
+  LENGTH_REQUIRED = 411,
+
+  PRECONDITION_FAILED = 412,
 
   /**
    * Eg. too big file
    */
   ENTITY_TOO_LARGE = 413,
 
+  URI_TOO_LONG = 414,
+
   /**
    * The route does not take the request's content type
    */
   UNSUPPORTED_MEDIA_TYPE = 415,
 
+  RANGE_NOT_SATISFIABLE = 416,
+
+  EXPECTATION_FAILED = 417,
+
+  /**
+   * The request reached a server that cannot answer for its scheme and authority.
+   */
+  MISDIRECTED_REQUEST = 421,
+
+  /**
+   * Well-formed request whose content fails the semantic checks ( RFC 9110; formerly "Unprocessable Entity" ).
+   */
+  UNPROCESSABLE_CONTENT = 422,
+
+  LOCKED = 423,
+
+  FAILED_DEPENDENCY = 424,
+
+  /**
+   * The server will not process a request that might be replayed ( TLS early data ).
+   */
+  TOO_EARLY = 425,
+
+  UPGRADE_REQUIRED = 426,
+
+  /**
+   * The request must be conditional ( If-Match ), to prevent lost updates.
+   */
+  PRECONDITION_REQUIRED = 428,
+
   /**
    * Rate limit exceeded ( see ThrottleMiddleware )
    */
   TOO_MANY_REQUESTS = 429,
+
+  REQUEST_HEADER_FIELDS_TOO_LARGE = 431,
+
+  UNAVAILABLE_FOR_LEGAL_REASONS = 451,
 
   /**
    * Internal server error.
@@ -451,11 +511,25 @@ export enum HTTP_STATUS_CODE {
    */
   NOT_IMPLEMENTED = 501,
 
+  BAD_GATEWAY = 502,
+
   /**
    * The server is not ready to handle the request — a dependency is down or the
    * app is still starting up. Used by the telemetry readiness endpoint.
    */
   SERVICE_UNAVAILABLE = 503,
+
+  GATEWAY_TIMEOUT = 504,
+
+  HTTP_VERSION_NOT_SUPPORTED = 505,
+
+  VARIANT_ALSO_NEGOTIATES = 506,
+
+  INSUFFICIENT_STORAGE = 507,
+
+  LOOP_DETECTED = 508,
+
+  NETWORK_AUTHENTICATION_REQUIRED = 511,
 }
 
 /**
