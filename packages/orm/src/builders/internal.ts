@@ -3,7 +3,6 @@ import { OrmException } from '../exceptions.js';
 import { QueryMethod } from '../enums.js';
 import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
 import type { IQueryStatement } from '../statements.js';
-import type { IOrmRelation } from '../relations.js';
 import { QueryBuilder } from './base.js';
 import type { WhereBuilder } from './where.js';
 
@@ -63,15 +62,6 @@ export function setMergeHooks(hooks: readonly MergeHook[]): void {
 
 export function runMergeHooks(source: QueryBuilder, target: QueryBuilder): void {
   for (const hook of mergeHooks) hook(source, target);
-}
-
-/** A clone of a relation's query that `owner`, a copy of that relation made by `IOrmRelation.cloneFor`, owns. */
-export function cloneOwnedBy(query: ISelectQueryBuilder, owner: IOrmRelation): ISelectQueryBuilder {
-  if (!isSelectQuery(query)) {
-    throw new InvalidArgument('a relation query must be a SelectQueryBuilder to be cloned with its relation');
-  }
-
-  return (query as unknown as { _cloneOwnedBy(owner: IOrmRelation): ISelectQueryBuilder })._cloneOwnedBy(owner);
 }
 
 export const EXECUTION_LISTS = ['_statements', '_joinStatements', '_columns', '_groupStatements', '_sorts', '_relations', '_middlewares', '_queryMiddlewares'] as const;
