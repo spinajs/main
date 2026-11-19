@@ -1,7 +1,7 @@
 import type { DeleteQueryBuilder, IDeleteQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, InsertQueryBuilder, SelectQueryBuilderC, UpdateQueryBuilder } from '@spinajs/orm';
 import { SelectQueryBuilder } from '@spinajs/orm';
 import { SYSTEM, authz, type DefaultAuthzService } from '@spinajs/authz';
-import type { Invoice } from './models.js';
+import type { Invoice, Note } from './models.js';
 import { Invoice as InvoiceModel } from './models.js';
 
 export declare const iSelect: ISelectQueryBuilder<Invoice>;
@@ -31,9 +31,13 @@ export const scopedEach = () => [
 export class PagedInvoices extends SelectQueryBuilder<InvoiceModel> {}
 export class FixedInvoices extends SelectQueryBuilder<InvoiceModel[]> {}
 export class MoreFixedInvoices extends FixedInvoices {}
-/** A composed base argument is not mapped through the chain; the model is read from the subclass's own argument. */
+/** Base arguments that name no model: a composed one is not mapped, and `any` says nothing. */
 export class ListOf<T> extends SelectQueryBuilder<T[]> {}
 export declare const listOfInvoices: ListOf<InvoiceModel>;
+export class Join<L, R> extends SelectQueryBuilder<R[]> {}
+export declare const joined: Join<Note, InvoiceModel>;
+export class AnyQ<M> extends SelectQueryBuilder<any> {}
+export declare const anyNotes: AnyQ<Note>;
 
 /** An app's subclass that overrides `clone()`, and an interface that redeclares it. */
 export class Paged<T> extends SelectQueryBuilder<T> {
@@ -121,6 +125,9 @@ export class Vocabulary {
     return await q.all();
   }
   async fixedModel(q: FixedInvoices) {
+    return await q.all();
+  }
+  async joinedRows(q: Join<Note, InvoiceModel>) {
     return await q.all();
   }
   overriddenClone(q: Paged<InvoiceModel[]>) {
