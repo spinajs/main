@@ -53,6 +53,18 @@ export function runCloneHooks(source: QueryBuilder, clone: QueryBuilder): void {
   for (const hook of cloneHooks) hook(source, clone);
 }
 
+type MergeHook = (source: QueryBuilder, target: QueryBuilder) => void;
+
+let mergeHooks: readonly MergeHook[] = [];
+
+export function setMergeHooks(hooks: readonly MergeHook[]): void {
+  mergeHooks = hooks;
+}
+
+export function runMergeHooks(source: QueryBuilder, target: QueryBuilder): void {
+  for (const hook of mergeHooks) hook(source, target);
+}
+
 /** A clone of a relation's query that `owner`, a copy of that relation made by `IOrmRelation.cloneFor`, owns. */
 export function cloneOwnedBy(query: ISelectQueryBuilder, owner: IOrmRelation): ISelectQueryBuilder {
   if (!isSelectQuery(query)) {

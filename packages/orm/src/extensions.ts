@@ -42,9 +42,11 @@ export abstract class QueryExtension {
   public abstract readonly name: string;
   public abstract readonly methods: Record<string, (this: QueryBuilder, ...args: any[]) => unknown>;
   public onClone?(source: QueryBuilder, clone: QueryBuilder): void;
+  /** `source` is being folded into `target` and will not run on its own. Synchronous; a throw refuses the query. */
+  public onMerge?(source: QueryBuilder, target: QueryBuilder): void;
 }
 
-/** Methods for `SelectQueryBuilder`; `onClone` runs when a select builder is cloned. */
+/** Methods for `SelectQueryBuilder`; `onClone` runs when a select builder is cloned, `onMerge` when one is folded into another. */
 export abstract class SelectQueryExtension extends QueryExtension {}
 /** Methods for `InsertQueryBuilder`. */
 export abstract class InsertQueryExtension extends QueryExtension {}
@@ -61,6 +63,7 @@ export interface QueryExtensionDefinition {
   target: QueryTarget;
   methods: QueryExtension['methods'];
   onClone?(source: QueryBuilder, clone: QueryBuilder): void;
+  onMerge?(source: QueryBuilder, target: QueryBuilder): void;
 }
 
 const BASES: Record<QueryTarget, abstract new () => QueryExtension> = {
@@ -83,6 +86,10 @@ export function defineQueryExtension(def: QueryExtensionDefinition): Class<Query
 
     public onClone(source: QueryBuilder, clone: QueryBuilder): void {
       def.onClone?.(source, clone);
+    }
+
+    public onMerge(source: QueryBuilder, target: QueryBuilder): void {
+      def.onMerge?.(source, target);
     }
   }
 

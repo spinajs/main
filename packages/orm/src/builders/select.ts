@@ -25,7 +25,7 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { executionCopy, runCloneHooks } from './internal.js';
+import { executionCopy, runCloneHooks, runMergeHooks } from './internal.js';
 import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -493,6 +493,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
+    // First, so that a hook which refuses the merge leaves this builder as it was.
+    runMergeHooks(builder, this);
     this._markMerged(builder._columns);
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
