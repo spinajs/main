@@ -4,6 +4,7 @@ import { computeBackoff, isRetryable, parseDuration, type Clock, type DbClock, t
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
+import { markSpanErrorType, SpinaAttr, withSpan } from '@spinajs/tracing';
 import { v5 as uuidv5 } from 'uuid';
 import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowAllOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowCompensationTimeout, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
@@ -533,7 +534,7 @@ export class ActivationContext implements WorkflowContext {
     let value: T;
     if (opts.compensate) this.liveCompensable++;
     try {
-      value = await this.execute(op, fn, attempt, startedAt, opts);
+      value = await withSpan(`step ${op.name}`, { attributes: { [SpinaAttr.WorkflowStep]: op.name, [SpinaAttr.WorkflowStepAttempt]: attempt } }, () => this.execute(op, fn, attempt, startedAt, opts), markSpanErrorType);
     } catch (err) {
       throw await this.stepFailed(op, err, attempt, startedAt, retry);
     } finally {
