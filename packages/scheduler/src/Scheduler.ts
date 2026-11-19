@@ -139,6 +139,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     this.schedule(0);
   }
 
+  public isStarted(): boolean {
+    return this.running;
+  }
+
   public wake(): void {
     if (this.running && !this.stopping) this.schedule(0);
   }
