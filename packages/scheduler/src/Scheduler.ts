@@ -139,6 +139,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     this.schedule(0);
   }
 
+  public isStarted(): boolean {
+    return this.running;
+  }
+
   public wake(): void {
     if (this.running && !this.stopping) this.schedule(0);
   }
@@ -323,6 +327,30 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     // a manual run of a `runOn: 'all'` schedule is forced, but must not overlap this replica's own runs of it
     if (this.Registry.find(run.Schedule)?.runOn === 'all') return !this.runsScheduleLocally(run.Schedule);
     return run.Forced || !this.holdsScheduleLocally(run.Schedule);
+  }
+
+  /**
+   * For occurrences the application ran itself, e.g. in a start-up pass before `start()`: a due stored next run
+   * moves to the schedule's next occurrence after now, without a run row. One still ahead is kept.
+   * @returns false when nothing was due or a loop took the occurrence first
+   */
+  public async markHandled(name: string): Promise<boolean> {
+    const def = this.Registry.get(name);
+    const now = await this.Clock.sync();
+    const due = (await ScheduleModel.where('Name', name).first())?.NextRunAt ?? null;
+    if (due === null || due > now) return false;
+
+    const next = nextOccurrence(def.spec, now);
+    // conditional like the loop's own claim, so whichever writes first decides and the occurrence runs at most once
+    const moved = await ScheduleModel.update({ NextRunAt: next, UpdatedAt: now }).where('Name', name).where('NextRunAt', due);
+    if (moved.RowsAffected !== 1) return false;
+
+    this.Log.info(
+      `schedule ${name}: occurrence at ${new Date(due).toISOString()} marked handled by the application; next run ${
+        next === null ? 'none' : new Date(next).toISOString()
+      }`,
+    );
+    return true;
   }
 
   /** Claims a queued or retrying run with the normal lease rules and executes it in this process. */

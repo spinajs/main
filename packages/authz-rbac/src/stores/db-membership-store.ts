@@ -30,6 +30,8 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
 
   readonly name: string = 'DbMembershipStore';
 
+  protected readonly records = [MembershipRecord];
+
   constructor(protected readonly container: IContainer) {
     super();
   }

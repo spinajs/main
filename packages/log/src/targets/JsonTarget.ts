@@ -1,4 +1,4 @@
-import { ICommonTargetOptions, ILogEntry, LogLevelToSeverityNumber, LogTarget, safeStringify } from "@spinajs/log-common";
+import { ICommonTargetOptions, ILogEntry, LogLevel, LogLevelToSeverityNumber, LogTarget, safeStringify } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 
 /**
@@ -18,10 +18,12 @@ import { Injectable, Singleton } from "@spinajs/di";
  */
 export interface IJsonTargetOptions extends ICommonTargetOptions {
   /**
-   * Which stream to write to. A single stream is the 12-factor norm for machine
-   * logs. Default is "stdout".
+   * Which stream to write to. "stdout" ( default ) and "stderr" send every level
+   * to that one stream, the 12-factor norm for machine logs. "by-level" routes as
+   * the console target does: warn, error, fatal and security to stderr, the rest
+   * to stdout.
    */
-  stream?: "stdout" | "stderr";
+  stream?: "stdout" | "stderr" | "by-level";
 }
 
 @Singleton()
@@ -46,7 +48,8 @@ export class JsonTarget extends LogTarget<IJsonTargetOptions> {
     const line = safeStringify(record) + "\n";
 
     if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function") {
-      const out = this.Options.stream === "stderr" && process.stderr ? process.stderr : process.stdout;
+      const toStderr = this.Options.stream === "stderr" || (this.Options.stream === "by-level" && data.Level >= LogLevel.Warn);
+      const out = toStderr && process.stderr ? process.stderr : process.stdout;
       out.write(line);
     } else {
       // browser fallback

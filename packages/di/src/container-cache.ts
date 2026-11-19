@@ -14,6 +14,7 @@ export class ContainerCache {
   // Track keys currently being created synchronously
   private creatingKeys: Set<string> = new Set();
   private pendingChecked: Map<string, { options?: unknown[]; promise: Promise<unknown> }[]> = new Map();
+  private pinned: Map<string, unknown> = new Map();
 
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
@@ -35,7 +36,17 @@ export class ContainerCache {
     }
   }
 
+  /**
+   * Adds a value that `clear()` keeps, eg. a process-wide setting that must outlive `dispose()`.
+   * `remove()` drops it for good.
+   */
+  public pin(key: string, value: unknown) {
+    this.pinned.set(key, value);
+    this.cache.set(key, [value]);
+  }
+
   public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {
+    this.pinned.delete(getTypeName(key));
     if (this.has(key)) {
       this.cache.delete(getTypeName(key));
     } else if (parent && this.container.Parent) {
@@ -343,5 +354,8 @@ export class ContainerCache {
     this.creatingKeys.clear();
     this.pendingChecked.clear();
     this.addSelf();
+    for (const [key, value] of this.pinned) {
+      this.cache.set(key, [value]);
+    }
   }
 }

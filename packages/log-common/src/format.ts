@@ -17,6 +17,8 @@
  * fall back to String() ). This avoids pulling in Node's `util` module so the
  * logger is usable in the browser.
  */
+const SPECIFIER = /%[sdifjoO%]/g;
+
 export function format(f?: any, ...args: any[]): string {
   if (typeof f !== 'string') {
     // no format string: join everything space-separated
@@ -24,7 +26,7 @@ export function format(f?: any, ...args: any[]): string {
   }
 
   let argIndex = 0;
-  const str = f.replace(/%[sdifjoO%]/g, (match: string): string => {
+  const str = f.replace(SPECIFIER, (match: string): string => {
     if (match === '%%') {
       return '%';
     }
@@ -59,6 +61,23 @@ export function format(f?: any, ...args: any[]): string {
   // append remaining args space-separated
   const rest = args.slice(argIndex).map((a) => (typeof a === 'string' ? a : inspect(a)));
   return [str, ...rest].join(' ');
+}
+
+/** Number of arguments {@link format} fills into `f`'s specifiers; the rest are appended. */
+export function formatArgCount(f: unknown): number {
+  if (typeof f !== 'string') {
+    return 0;
+  }
+  return (f.match(SPECIFIER) ?? []).filter((m) => m !== '%%').length;
+}
+
+/** True when {@link format} would append `value` as `{}`, ie. dropping it loses no text. */
+export function appendsAsEmpty(value: unknown): boolean {
+  try {
+    return inspect(value) === '{}';
+  } catch {
+    return false;
+  }
 }
 
 function inspect(value: any): string {

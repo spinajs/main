@@ -20,13 +20,31 @@ Full documentation: [`docs/configuration-http`](../../docs/configuration-http/RE
 - [File validators](../../docs/configuration-http/06-file-validators.md)
 - [Customizing the upload service](../../docs/configuration-http/07-upload-service-customization.md)
 
+## Setup
+
+Installing the package turns it on. `@spinajs/configuration` merges the config of every installed `@spinajs/*`
+package, so the routes, the two permissions and the `admin.configuration` role below are there in any app with the
+package in `node_modules`, whether the app imports it or not. Import the package before the bootstrappers run:
+
+```ts
+import '@spinajs/configuration-http';
+// ... bootstrappers, Configuration
+await DI.resolve(Orm);
+```
+
+The import registers `ConfigurationHttpBootstrapper`, which makes `DbConfig` the `configuration` access resource
+and calls `requireSystemPrincipal()`. The controller module imports it too, but the controller scan runs after the
+app ran its bootstrappers, and nothing runs a bootstrapper registered later. The import also brings in
+`@spinajs/configuration-db-source` and `@spinajs/authz-orm`, whose models the Orm binds only when they are
+registered before it resolves. A model imported later throws `OrmException: Model DbConfig is not bound to the Orm`.
+
 ## Endpoints
 
 | Method | Path                   | Permission             | Description                                     |
 | ------ | ---------------------- | ---------------------- | ----------------------------------------------- |
 | GET    | `/configuration`       | `configuration:read`   | List all entries (optional `?group=` filter)    |
 | GET    | `/configuration/:slug` | `configuration:read`   | Get a single entry by slug                      |
-| PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`) |
+| PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`, which also need `configuration:manage`) |
 
 Every route is guarded by `@Access` (`@spinajs/authz-http`): 401 without a principal, 403 without the
 permission. The checks are type-level. Row limits come from the ORM: the package registers `DbConfig` as the
@@ -64,8 +82,10 @@ updates of that entry fail with a 500 and the error is logged.
 The [`@spinajs/validation`](../validation) options apply to the incoming
 value: with `useDefaults` the schema's defaults are written into object /
 array values before they are stored (so they are fixed at write time),
-`coerceTypes` coerces values, and with `removeAdditional` unknown properties
-are stripped instead of rejected.
+and with `removeAdditional` unknown properties are stripped instead of rejected.
+A value is never type converted: it must already have the entry's JSON type
+(a JSON number for `number`, a JSON boolean for `boolean`), otherwise the
+update answers 400, whatever `coerceTypes` says.
 
 ## File uploads
 
@@ -103,8 +123,9 @@ already exists on the provider is refused.
 
 ## Permissions
 
-The package declares `configuration:read` and `configuration:update` (both with field sets) and the
-role `admin.configuration`, which holds both. It is not assignable; `admin` extends it. No other role
+The package declares `configuration:read` and `configuration:update` (both with field sets),
+`configuration:manage` (needed to change `Default` or `Watch`) and the role `admin.configuration`, which
+holds all three. It is not assignable; `admin` extends it. No other role
 gets access, because values can hold secrets.
 
 All routes use `fields: 'filter'`: a grant with `fields.read` hides the other fields (for example

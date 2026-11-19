@@ -15,7 +15,7 @@ import { requireTransaction } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow } from './queries.js';
-import { LinkRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import { LinkRecord, VersionRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { LinkFields } from './records.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
 import { normaliseTags } from './tags.js';
@@ -65,6 +65,8 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
   protected Orm: Orm;
 
   readonly name: string = 'DbLinkStore';
+
+  protected readonly records = [LinkRecord, VersionRecord];
 
   protected readonly maxListLimit: number = LINK_LIST_MAX_LIMIT;
 

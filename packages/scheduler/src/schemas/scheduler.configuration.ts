@@ -25,6 +25,12 @@ export const SCHEDULER_CONFIGURATION_SCHEMA = {
       },
     },
     events: { type: 'object', properties: { pollInterval: { type: 'integer', minimum: 100 } } },
+    // read by @spinajs/scheduler-http; the `scheduler` module has this one schema
+    http: {
+      type: 'object',
+      // a Node timer longer than 2^31-1 ms fires after 1 ms
+      properties: { runWaitTimeout: { type: 'integer', minimum: 0, maximum: 2147483647 } },
+    },
     cli: {
       type: 'object',
       properties: {

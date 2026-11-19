@@ -24,7 +24,7 @@ export const LAST_EVENT_ID_SCHEMA = { type: 'string', pattern: '^\\d{1,15}$' };
   properties: {
     params: { type: 'object', description: 'Parameters, validated against the schedule params schema' },
     force: { type: 'boolean', description: 'Queue behind a run in progress instead of answering 409' },
-    wait: { type: 'boolean', description: 'Hold the request until the run ends' },
+    wait: { type: 'boolean', description: 'Hold the request until the run ends ( 200 ), at most scheduler.http.runWaitTimeout ms; a run not finished by then answers 202' },
   },
 })
 export class RunNowDto {
