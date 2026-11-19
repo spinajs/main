@@ -1,12 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, findNonFinite } from '@spinajs/configuration';
 import '@spinajs/log';
 
 import { DataValidator } from '../src/validator.js';
 import { ValidationFailed, sanitizeError } from '../src/exceptions/index.js';
-import { findNonFinite, nonFiniteErrors } from '../src/keywords.js';
+import { nonFiniteErrors } from '../src/keywords.js';
 
 function validationConfig(validation: Record<string, unknown>) {
   return class extends FrameworkConfiguration {

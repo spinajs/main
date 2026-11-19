@@ -1,6 +1,6 @@
 # Scrape token
 
-`telemetry.auth.token` lets a Prometheus scraper read the telemetry endpoints with one shared secret. At bootstrap the token becomes a header-token service principal, `service:telemetry`, in `authz.http.services`. The package config gives that principal the RBAC role `telemetry`, which grants `telemetry:read`.
+`telemetry.auth.token` lets a Prometheus scraper read the telemetry endpoints with one shared secret, and nothing else. At bootstrap the token becomes a header-token service principal, `service:telemetry`, in `authz.http.services`. The principal is not authenticated, so a route of your app guarded by `IsAuthenticated` refuses it. The package config gives it the RBAC role `telemetry`, which grants `telemetry:read`.
 
 ## How it works
 
@@ -9,9 +9,10 @@
    1. reads `telemetry.auth.token`; anything but a non-empty string ends here;
    2. reads `authz.http.services`; a value that is not an array is left for `@spinajs/authz-http` to report;
    3. when the list already holds an entry named `telemetry` that the bridge did not add, logs once that the token key is ignored and stops;
-   4. otherwise appends two entries: `{ name: 'telemetry', header: 'x-metrics-token', token }` and `{ name: 'telemetry', header: 'authorization', token: 'Bearer <token>' }`. A second run adds nothing.
-3. Per request, the `ServicePrincipalSource` of `@spinajs/authz-http` compares a header's whole value with each entry. A match makes the principal `service:telemetry`; a wrong token makes no principal, so a guarded endpoint answers 401.
-4. The `'AccessPolicy'` slot checks `telemetry:read`. With `@spinajs/authz-rbac`, `authz.rbac.serviceRoles['service:telemetry'] = ['telemetry']` gives the principal the role `telemetry`, which grants it.
+   4. otherwise appends two entries: `{ name: 'telemetry', header: 'x-metrics-token', token, authenticated: false }` and `{ name: 'telemetry', header: 'authorization', token: 'Bearer <token>', authenticated: false }`. A second run adds nothing.
+3. Per request, the `ServicePrincipalSource` of `@spinajs/authz-http` compares a header's whole value with each entry. A match makes the principal `service:telemetry` with `authenticated: false`; a wrong token makes no principal, so a guarded endpoint answers 401.
+4. The `'AccessPolicy'` slot lets `service:telemetry` through to the permission check although it is not authenticated; any other unauthenticated principal, the anonymous one included, still gets 401. The check asks for `telemetry:read`. With `@spinajs/authz-rbac`, `authz.rbac.serviceRoles['service:telemetry'] = ['telemetry']` gives the principal the role `telemetry`, which grants it.
+5. Outside telemetry, `IsAuthenticated` and an `@Access` without `@AllowAnonymous` answer 401 to the token, and an `@Access` with `@AllowAnonymous` answers 403 unless your model grants `service:telemetry` the permission.
 
 ```mermaid
 sequenceDiagram
@@ -31,7 +32,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `telemetry.auth.token` | `string` | `''` | any string; empty disables the bridge | The shared scrape token |
-| `authz.http.services` | array | `[]` | entries `{ name, header, token }` | An entry named `telemetry` here wins over `telemetry.auth.token` |
+| `authz.http.services` | array | `[]` | entries `{ name, header, token, authenticated? }` | An entry named `telemetry` here wins over `telemetry.auth.token`; give it `authenticated: false` |
 | `authz.rbac.roles.telemetry` | object | `{ grants: ['telemetry:read'] }` | role definition | Set by the package config |
 | `authz.rbac.serviceRoles['service:telemetry']` | `string[]` | `['telemetry']` | role names | Set by the package config |
 
@@ -74,15 +75,15 @@ DI.unregister(TelemetryServiceTokenBootstrapper);
 
 ### Explicit service entry: rotate tokens without downtime
 
-An explicit entry accepts several tokens, so old and new work side by side during a rotation. The bridge then ignores `telemetry.auth.token` and logs one line.
+An explicit entry accepts several tokens, so old and new work side by side during a rotation. The bridge then ignores `telemetry.auth.token` and logs one line. Set `authenticated: false` on the entry as the bridge does; without it the principal is authenticated and passes every `IsAuthenticated` route of your app.
 
 ```ts sample
 export default {
   authz: {
     http: {
       services: [
-        { name: 'telemetry', header: 'x-metrics-token', token: [process.env.METRICS_TOKEN_NEW ?? '', process.env.METRICS_TOKEN_OLD ?? ''] },
-        { name: 'telemetry', header: 'authorization', token: [`Bearer ${process.env.METRICS_TOKEN_NEW ?? ''}`, `Bearer ${process.env.METRICS_TOKEN_OLD ?? ''}`] },
+        { name: 'telemetry', header: 'x-metrics-token', token: [process.env.METRICS_TOKEN_NEW ?? '', process.env.METRICS_TOKEN_OLD ?? ''], authenticated: false },
+        { name: 'telemetry', header: 'authorization', token: [`Bearer ${process.env.METRICS_TOKEN_NEW ?? ''}`, `Bearer ${process.env.METRICS_TOKEN_OLD ?? ''}`], authenticated: false },
       ],
     },
   },
@@ -93,7 +94,7 @@ export default {
 
 - The token is read once, at bootstrap. A change needs a restart; a configuration reload drops the bridged entries, so the token gets 401 until the restart.
 - The bridge runs only when the app loads the package barrel (`import '@spinajs/telemetry'`). Without it the token grants nothing.
-- `service:telemetry` is authenticated on every route, not only the telemetry ones. A route that only asks for a signed-in principal lets it through.
+- The bridged `service:telemetry` is not authenticated. `IsAuthenticated`, and any check that asks for an authenticated principal, answers 401 to it; only the telemetry `'AccessPolicy'` slots let it through to the permission check. A slot that names another policy decides by that policy's rules, so `IsAuthenticated` there refuses the token too.
 - The Bearer form exists because stock Prometheus and OTel collector scrape configs send only `Authorization: Bearer <token>`. The header value must match exactly, `Bearer ` prefix included.
 - With the token middleware of `@spinajs/authn-http` loaded, a Bearer scrape also costs an access-token lookup and a rejected-token warning. Prefer `x-metrics-token` there.
 - Config arrays concatenate: an app cannot remove `serviceRoles['service:telemetry']` by setting `[]`.
@@ -102,7 +103,7 @@ export default {
 ## Best practices
 
 - Keep the token out of config files; set it from the environment or a secret store.
-- Grant `service:telemetry` only telemetry permissions; it is a principal on every route.
+- Grant `service:telemetry` only telemetry permissions; it is still a principal on every route, so an `@Access` route with `@AllowAnonymous` checks its permissions.
 - Send `x-metrics-token` when the scraper can set headers.
 
 ## Patterns and antipatterns
@@ -139,7 +140,7 @@ const cfg = {
 
 bridgeTelemetryToken(cfg);
 console.log(data['authz.http.services']);
-// [{ name: 'telemetry', header: 'x-metrics-token', token: 'test-token' }, { name: 'telemetry', header: 'authorization', token: 'Bearer test-token' }]
+// [{ name: 'telemetry', header: 'x-metrics-token', token: 'test-token', authenticated: false }, { name: 'telemetry', header: 'authorization', token: 'Bearer test-token', authenticated: false }]
 ```
 
 ## Related

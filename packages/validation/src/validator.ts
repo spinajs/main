@@ -233,13 +233,18 @@ export class DataValidator extends AsyncService {
    *
    * @param  schemaKeyRef - key, ref or schema object
    * @param  data - to be validated
+   * @param  options - `coerceTypes: false` validates without type coercion, as for a strict schema id
    */
-  public tryValidate(schema: object | string, data: object): [boolean, IValidationError[] | null];
-  public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
-    return this.tryValidateInternal(arguments.length > 1, schemaOrData, data);
+  public tryValidate(schema: object | string, data: object, options?: { coerceTypes?: false }): [boolean, IValidationError[] | null];
+  public tryValidate(schemaOrData: object | string, data?: object, options?: { coerceTypes?: false }): [boolean, IValidationError[] | null] {
+    return this.tryValidateInternal(arguments.length > 1, schemaOrData, data, options?.coerceTypes === false);
   }
 
-  private tryValidateInternal(hasSchemaArg: boolean, schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
+  private isStrictCall(hasSchemaArg: boolean, schemaOrData: object | string, schema: ISchemaObject): boolean {
+    return this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
+  }
+
+  private tryValidateInternal(hasSchemaArg: boolean, schemaOrData: object | string, data?: object, withoutCoercion = false): [boolean, IValidationError[] | null] {
     const target = hasSchemaArg ? data : schemaOrData;
 
     if (target === null || target === undefined) {
@@ -251,8 +256,7 @@ export class DataValidator extends AsyncService {
       return [false, [syntheticError('empty_schema', 'objects schema is not set')]];
     }
 
-    const strict = this.isStrict(schema) || (hasSchemaArg && typeof schemaOrData === 'string' && this.isStrict(schemaOrData));
-    const ajv = strict ? this.StrictValidator : this.Validator;
+    const ajv = withoutCoercion || this.isStrictCall(hasSchemaArg, schemaOrData, schema) ? this.StrictValidator : this.Validator;
     let result: unknown;
     try {
       result = ajv.validate(this.uniqueIdSchema(schema, ajv), target);

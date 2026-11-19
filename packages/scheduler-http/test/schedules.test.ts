@@ -93,10 +93,10 @@ describe('scheduler-http: schedules', function () {
       expect((fake.callsTo('runNow')[0][1] as RunNowOptions).triggeredBy.kind).to.eq('token');
     });
 
-    it('passes force and wait through', async () => {
+    it('passes force through and turns wait into a wait bounded by scheduler.http.runWaitTimeout', async () => {
       await req().post(url).set(asRole('scheduler-operator')).send({ force: true, wait: true });
 
-      expect(fake.callsTo('runNow')[0][1]).to.include({ force: true, wait: true });
+      expect(fake.callsTo('runNow')[0][1]).to.deep.include({ force: true, wait: { timeoutMs: 30000 } });
     });
 
     it('answers 200 with the run when the service waited for it', async () => {

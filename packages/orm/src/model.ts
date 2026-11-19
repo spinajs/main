@@ -53,6 +53,13 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
   callback(descriptor);
 }
 
+/** What a `ModelBase` static stub throws: `Orm.resolve()` replaces the stubs only on the models registered by then. */
+function notBound(model: { readonly name: string } | undefined): OrmException {
+  // a stub called without its class as receiver ( destructured, passed as a callback ) gets no `this`
+  const name = model?.name || '<anonymous model>';
+  return new OrmException(`Model ${name} is not bound to the Orm: the Orm binds the @Model() classes registered when it resolves and never one registered later. Import the module that declares ${name} before the Orm resolves; if no Orm has resolved yet, resolve it before using ${name}`);
+}
+
 export class ModelBase<M = unknown> implements IModelBase {
   private _container: IContainer;
 
@@ -401,25 +408,25 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public static getModelDescriptor(): IModelDescriptor {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   public static getRelationDescriptor(_relation: string): IRelationDescriptor {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
    * Clears all data in table
    */
   public static truncate() {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
    * Get all data from db
    */
   public static all<T extends typeof ModelBase>(this: T, _page?: number, _perPage?: number): SelectQueryBuilder<Array<InstanceType<T>>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -428,7 +435,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param _data - data to insert
    */
   public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | PickRelations<T> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -446,7 +453,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -455,14 +462,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param _data - data to set
    */
   public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
    * Tries to find all models with given primary keys
    */
   public static find<T extends typeof ModelBase>(this: T, _pks: any[]): Promise<Array<InstanceType<T>>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -472,7 +479,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -482,7 +489,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -490,7 +497,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -498,7 +505,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -506,14 +513,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<number>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
    * Tries to find all models in db. If not all exists, throws exception
    */
   public static findOrFail<T extends typeof ModelBase>(this: T, _pks: any[]): Promise<Array<InstanceType<T>>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -521,7 +528,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    */
   public static get<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -529,7 +536,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    */
   public static getOrFail<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -538,7 +545,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * NOTE: it checks for unique fields constraint
    */
   public static getOrNew<T extends typeof ModelBase>(this: T, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -546,7 +553,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * that dont need full ORM model to involve, or other non standard operations eg. joins or raw data queries based on this model
    */
   public static query<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -556,7 +563,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param _owner - owner model
    */
   public static populate<R extends typeof ModelBase>(_relation: string, _owner: ModelBase | number | string): ISelectQueryBuilder<Array<InstanceType<R>>> & R['_queryScopes'] {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -564,7 +571,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    */
   public static select<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
-    throw new Error('Method not implemented.');
+    throw notBound(this);
   }
 
   /**
@@ -575,7 +582,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param data - model width data to check
    */
   public static getOrCreate<T extends typeof ModelBase>(this: T, _pk: string | number | null, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -584,7 +591,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param  data - initial model data
    */
   public static create<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -594,22 +601,22 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param pk - primary key or keys
    */
   public static destroy<T extends typeof ModelBase>(this: T, _pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
    * Checks if model exists in db
    */
   public static exists(): Promise<boolean> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   public static whereExists<R extends typeof ModelBase, T extends typeof ModelBase>(this: T, _qOrR: string | ISelectQueryBuilder<T>, _func?: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   public static whereNotExists<R extends typeof ModelBase, T extends typeof ModelBase>(this: T, _qOrR: string | ISelectQueryBuilder<T>, _func?: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   /**
@@ -618,7 +625,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * Resolves with whatever the callback returned.
    */
   public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>, _options?: ITransactionOptions): Promise<R> {
-    throw new Error('Not implemented');
+    throw notBound(this);
   }
 
   constructor(data?: Partial<M>) {

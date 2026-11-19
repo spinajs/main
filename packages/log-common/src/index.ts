@@ -1,6 +1,6 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
-import { format } from "./format.js";
+import { appendsAsEmpty, format, formatArgCount } from "./format.js";
 import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
@@ -413,12 +413,52 @@ export interface ILogTargetDesc {
   filters?: LogFilter[];
 }
 
+function isError(value: unknown): value is Error {
+  try {
+    return value instanceof Error;
+  } catch {
+    // a Proxy whose getPrototypeOf trap throws
+    return false;
+  }
+}
+
+function namesError(variables: unknown): boolean {
+  return typeof variables === "object" && variables !== null && "error" in variables;
+}
+
+/**
+ * `log.warn('read failed', err)`: the first Error that no placeholder fills becomes the entry's error. It leaves the
+ * text only when it would print as `{}`; an error with enumerable fields or a `toJSON` keeps printing them.
+ */
+function trailingError(message: unknown, args: unknown[]): { error: Error; formatArgs: unknown[] } | undefined {
+  if (!args.some(isError)) {
+    return undefined;
+  }
+  const filled = formatArgCount(message);
+  for (const [i, a] of args.entries()) {
+    if (i >= filled && isError(a)) {
+      return { error: a, formatArgs: appendsAsEmpty(a) ? [...args.slice(0, i), ...args.slice(i + 1)] : args };
+    }
+  }
+  return undefined;
+}
+
 export function createLogMessageObject(err: Error | string, message: string | any[] | undefined, level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   // `log.error(err)` ( no message ) is a legal overload, and it used to render
   // an EMPTY `${message}`. Fall back to the error's own message so a bare
   // error-only call still says something.
   const sMsg = err instanceof Error ? ((message as string) ?? err.message) : !err ? (message as string) : err;
-  const tMsg = args.length !== 0 ? format(sMsg, ...args) : sMsg;
+
+  // Variables that name `error` override it below, so a trailing error is only taken when they do not.
+  let error = err instanceof Error ? err : undefined;
+  let formatArgs = args;
+  if (!error && args.length !== 0 && !namesError(variables)) {
+    const trailing = trailingError(sMsg, args);
+    if (trailing) {
+      ({ error, formatArgs } = trailing);
+    }
+  }
+  const tMsg = args.length !== 0 ? format(sMsg, ...formatArgs) : sMsg;
   const lName = logger ?? message;
 
   // Ambient async-context fields ( lowest precedence, must never throw ). The
@@ -433,7 +473,7 @@ export function createLogMessageObject(err: Error | string, message: string | an
 
   const theVars = {
     ...ctx,
-    error: err instanceof Error ? err : undefined,
+    error,
     level: ((LogLevelStrings as Record<number, string>)[level] ?? String(level)).toUpperCase(),
     logger: lName,
     message: tMsg,

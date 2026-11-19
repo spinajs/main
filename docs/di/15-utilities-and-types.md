@@ -78,9 +78,10 @@ The container also throws `InvalidArgument` and `InvalidOperation` from [`@spina
 | `Class<T>` | `Abstract<T> \| Constructor<T>`: anything usable as a key |
 | `Factory<T>` | `(container: IContainer, ...args: any[]) => T` |
 | `ClassArray<T>` | `Class<T>[]` |
-| `ResolveResult<T>` | `T extends AsyncService ? Promise<T> : T` |
-| `ResolveArrayResult<T>` | `T extends AsyncService ? Promise<T[]> : T[]` |
+| `ResolveResult<T>` | `Promise<T>` for an `AsyncService`, `T \| Promise<T>` for an `IResolvesAsync`, otherwise `T` |
+| `ResolveArrayResult<T>` | `Promise<T[]>` for an `AsyncService`, `T[] \| Promise<T[]>` for an `IResolvesAsync`, otherwise `T[]` |
 | `ResolveChainResult<T>` | `T extends AsyncService ? Promise<T[]> : T[] \| Promise<T[]>` |
+| `ResolvesAsync`, `IResolvesAsync` | Marker for a class whose resolve can give a promise without it being an `AsyncService`: `declare readonly [ResolvesAsync]: true;` |
 | `InferClass<T>`, `InferTypedArray<T>`, `InferClassOrFactory<T>` | The instance type behind a class, a list marker, or a class or factory |
 | `ResolvableObject` | `{ [key: string]: any }`: a value for `asValue` / `asMapValue` |
 | `TypedArray<R>` / `ChainArray<R>` | The classes behind `Array.ofType` / `Array.chainOf`; `Type` holds the element key |
@@ -95,7 +96,7 @@ These classes are public so tools and tests can inspect a container; the contain
 | Class | Useful members |
 | --- | --- |
 | `Registry` | `getTypes(key, parent = true)`, `getTypesChain(key)`, `hasRegistered(key, parent)`, `hasRegisteredType(key, type, parent)`, `ownsRegistration(key)`, `unregister(key, implementation?)` |
-| `ContainerCache` | Iterable as `{ key, value }`; `has(key, parent?)`, `get(key, parent?)`, `getResolutionStats()` (`{ cacheSize, activeResolutions, resolutionKeys }`) |
+| `ContainerCache` | Iterable as `{ key, value }`; `has(key, parent?)`, `get(key, parent?)`, `getResolutionStats()` (`{ cacheSize, activeResolutions, resolutionKeys }`); `pin(key, value)` adds a value that `clear()` keeps and `remove(key)` drops |
 | `Binder` | The `IBind` implementation returned by `register()` |
 
 ## Related

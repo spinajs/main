@@ -1,6 +1,6 @@
 # `@spinajs/configuration-db-source`
 
-A configuration source that reads application settings from a database table, and a bootstrapper that writes `@Config` options marked `expose: true` into that table so an admin can change them at runtime. Options marked `watch: true` are polled and pushed into the live configuration without a restart.
+A configuration source that reads application settings from a database table, and a bootstrapper that writes `@Config` options marked `expose: true` into that table so an admin can change them at runtime. Rows whose `Watch` column is set, seeded from `watch: true`, are polled and pushed into the live configuration without a restart.
 
 It does **not** ship an HTTP API or admin UI for the table: that is [`@spinajs/configuration-http`](../configuration-http/README.md). It does **not** create the table on a connection other than `default`.
 
@@ -22,7 +22,7 @@ import '@spinajs/configuration-db-source';
 | --- | --- |
 | [Database configuration source](01-database-source.md) | `ConfiguratioDbSource` loads every exposed row of the `configuration` table into the config at its `Slug` path |
 | [Exposing options](02-exposing-options.md) | `@Config(..., { expose: true })` inserts a row per option and keeps its metadata in sync |
-| [Watching options](03-watching-options.md) | `watch: true` polls the row and updates the live configuration without a restart |
+| [Watching options](03-watching-options.md) | the `Watch` column, seeded from `watch: true`, polls the row and updates the live configuration without a restart |
 | [Entry types and the value converter](04-entry-types-and-converter.md) | The 15 entry types, their stored text form, `DbConfigValueConverter` and `@DbConfigValue` |
 | [File entries and validators](05-file-entries-and-validators.md) | `type: 'file'` entries, `meta.file` options and custom `ConfigFileValidator` classes |
 | [Running under authz](06-running-under-authz.md) | `requireSystemPrincipal()` makes the package's own queries run as `SYSTEM` |

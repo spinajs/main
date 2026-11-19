@@ -60,6 +60,7 @@ sequenceDiagram
 | `RootConfig` | The whole tree. |
 | `RunApp`, `AppBaseDir`, `Env` | The app name, the apps directory and the environment from the options or the command line. |
 | `validateModule(schema)` | Checks one schema against the loaded tree; used by [`registerConfigurationSchema`](06-schema-validation.md). |
+| `violationsAdded(path, value, over?)` | The violations that merging `value` at `path` would add to the modules a schema covers there, on the tree as it is now with `over` merged in. Changes nothing, and also works on the partial tree while a source loads; a source uses it to drop a value before it can fail the boot. An absent module is checked as `{}`. |
 | `FrameworkConfiguration.checkedIn(container)` | The configuration of `container` that passed validation but is not cached by DI yet. |
 
 ## Configuration
@@ -156,7 +157,7 @@ void main();
 
 - Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win, **arrays are concatenated**. A later file cannot shorten or replace an array a package config defines; it can only append to it.
 - `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
-- Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
+- A module loaded from a file holds only the keys of the file. Its origin is logged at trace level (`Trying to load file ...`), not stored in the tree.
 - After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.
 - The `system` section is not wrapped in a proxy: a `ConfigVar` stored directly under `system` is returned as the `ConfigVar` object.

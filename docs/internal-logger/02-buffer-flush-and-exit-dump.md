@@ -11,7 +11,8 @@ The `InternalLogger` class is also a `Bootstrapper`. Its `bootstrap()` hands buf
    - not resolved: it subscribes with `DI.once('di.resolved.Configuration', ...)` and flushes when the event fires.
 4. The flush takes every buffered entry in order, resolves `DI.resolve('__log__', [entry.Variables.logger])` and calls `write(entry)` on the result. Entries for which `__log__` resolves to nothing stay in the buffer.
 5. When `process.on` exists (Node), the first `bootstrap()` call on an instance registers a `process.on('beforeExit', ...)` listener.
-6. On `beforeExit` the listener prints each remaining entry with `console.error`, `console.warn`, `console.log` or `console.debug`, coloured by level, and empties the buffer. The line layout is `${datetime} ${level} ${message} ${error:message} (<logger>)`, rendered by `format()` from `@spinajs/configuration-common`; `${datetime}` is the time the entry was buffered.
+6. On `beforeExit` the listener calls `dumpBuffer()`, which prints each remaining entry with `console.error`, `console.warn`, `console.log` or `console.debug`, coloured by level, and empties the buffer. The line layout is `${datetime} ${level} ${message} ${error:message} (<logger>)`, rendered by `format()` from `@spinajs/configuration-common`; `${datetime}` is the time the entry was buffered.
+7. `InternalLogger.flush()` empties the buffer on demand, without waiting for the exit: when `Configuration` is resolved it first delivers to `__log__` as step 4 does, then it calls `dumpBuffer()` on the instance whose `bootstrap()` ran last, as step 6 does. Before any `bootstrap()` it does nothing. `@spinajs/configuration` calls it when its boot is refused, before the resolve rejects, so the violations are printed even when the app then calls `process.exit()`.
 
 ```mermaid
 sequenceDiagram
@@ -59,11 +60,13 @@ Members meant for a subclass:
 | Member | Kind | Use |
 | --- | --- | --- |
 | `bootstrap()` | public method | Override to change when the buffer flushes or what runs on exit. Call `super.bootstrap()` to keep the default behaviour |
+| `dumpBuffer()` | protected method | Prints the buffer to the console and empties it. Runs on `beforeExit` and from `flush()`, so also on a refused `Configuration` boot. Override to save the leftovers elsewhere too; call `super.dumpBuffer()` to keep the console dump |
 | `StdConsoleCallbackMap` | protected field, `LogLevel` to console function | Override to send a level to another console method |
 | `theme` | protected field, `LogLevel` to colour function | Override to change the exit dump colours |
 | `InternalLogger.LogBuffer` | protected static array of `ILogEntry` | The shared buffer. Read and reset it through `InternalLogger`, not through the subclass name |
 | `InternalLogger.LogBufferLimit` | public static number, default `1000` | Max buffered entries; the oldest are dropped past it |
 | `InternalLogger.writeInternal(entry)` | protected static method | Pushes to the buffer. Static, so a subclass cannot intercept it for callers of `InternalLogger.*` |
+| `InternalLogger.flush()` | public static method | Empties the buffer now: to `__log__` when `Configuration` is resolved, the rest through `dumpBuffer()` of the last bootstrapped instance, so a subclass's `dumpBuffer()`, `StdConsoleCallbackMap` and `theme` apply |
 
 The static logging methods stay on `InternalLogger`: callers name the class, so a subclass changes only the bootstrap side.
 
@@ -103,7 +106,7 @@ export async function runBootstrappers() {
 
 ### Bootstrapper: extend instead of replace
 
-Keep the default flush and exit dump, and add a step. Here the leftovers are also saved to a file before the console dump runs.
+Keep the default flush and exit dump, and add a step. Here the leftovers are also saved to a file before the console dump runs. Override `dumpBuffer()`, not a `beforeExit` listener of your own: a refused `Configuration` boot dumps the buffer through `flush()` long before `beforeExit`, and an app that calls `process.exit()` never reaches `beforeExit` at all.
 
 ```ts sample
 import { appendFileSync } from 'node:fs';
@@ -113,16 +116,13 @@ import { ILogEntry } from '@spinajs/log-common';
 
 @Injectable(Bootstrapper)
 export class CrashDumpInternalLogger extends InternalLogger {
-  public bootstrap(): void {
-    // Registered before super's listener, so it sees the buffer before the console dump empties it.
-    process.on('beforeExit', () => {
-      const pending: ILogEntry[] = InternalLogger.LogBuffer;
-      for (const entry of pending) {
-        appendFileSync('startup-log.jsonl', `${JSON.stringify(entry.Variables)}\n`);
-      }
-    });
+  protected dumpBuffer(): void {
+    const pending: ILogEntry[] = InternalLogger.LogBuffer;
+    for (const entry of pending) {
+      appendFileSync('startup-log.jsonl', `${JSON.stringify(entry.Variables)}\n`);
+    }
 
-    super.bootstrap();
+    super.dumpBuffer();
   }
 }
 
@@ -134,7 +134,8 @@ DI.unregister(InternalLogger);
 - The flush runs only if something calls `bootstrap()`. Without it, buffered entries are never forwarded and never printed.
 - The flush keeps entries it cannot deliver. When `__log__` resolves to nothing at flush time, those entries stay buffered and appear in the exit dump.
 - Entries logged after the flush, while `__log__` is still unregistered, are buffered too and only appear in the exit dump.
-- `beforeExit` fires when the event loop empties. It does **not** fire on `process.exit()`, an uncaught exception or a signal, so the exit dump is skipped in those cases.
+- `beforeExit` fires when the event loop empties. It does **not** fire on `process.exit()`, an uncaught exception or a signal, so the exit dump is skipped in those cases. Call `InternalLogger.flush()` before such an exit to print what is still buffered.
+- A refused `Configuration` boot flushes the buffer before the resolve rejects: every startup line buffered so far, the violations included, is printed then, ahead of anything the app's `catch` prints. A `beforeExit` listener of your own finds the buffer empty after that; override `dumpBuffer()` instead. A second resolve that succeeds later in the same process has no buffered startup lines left to deliver.
 - `${datetime}` in the exit dump is the time the entry was buffered, not the time of printing.
 - Calling `bootstrap()` again on the same instance does not add another `beforeExit` listener.
 - In a browser (`process` undefined) no exit dump is registered; buffered entries are kept until the flush.

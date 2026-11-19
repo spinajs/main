@@ -14,10 +14,14 @@ export const RootContainer: IContainer = new Container();
  * Allows to use event listener stuff on root container
  */
 
+/**
+ * Loads modules with `import()` from now on. The mode outlives `dispose()` and `clearCache()`;
+ * `uncache('__esmMode__')` turns it off.
+ */
 export function setESMModuleSupport() {
-  RootContainer.register({
-    mjs: true,
-  }).asValue('__esmMode__');
+  const mode = { mjs: true };
+  RootContainer.Cache.pin('__esmMode__', mode);
+  RootContainer.emit('di.registered.__esmMode__', mode);
 }
 
 export function on(event: string, listener: (...args: unknown[]) => void) {
