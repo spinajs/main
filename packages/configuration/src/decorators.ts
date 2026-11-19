@@ -243,6 +243,9 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
  * `keyBy`, in list order, looked up across the container lineage. Resolved when the instance is built, so an unknown
  * service or a bad list rejects that resolve.
  *
+ * A resolve of the class then gives a promise (the first one, for a singleton). Declare
+ * `declare readonly [ResolvesAsync]: true;` (from `@spinajs/di`) in it so `DI.resolve()` is typed `T | Promise<T>`.
+ *
  * @example
  * ```ts
  * @AutoinjectNamedServices('authn.mfa.steps', MfaStep, { lineage: true, keyBy: 'name' })
@@ -319,6 +322,9 @@ export async function resolveNamedService<T>(container: IContainer, path: string
 /**
  * Injects {@link resolveNamedService} for `path` in the resolving container, when the instance is built. With
  * `optional: true` an unset `path` injects undefined.
+ *
+ * A resolve of the class then gives a promise (the first one, for a singleton). Declare
+ * `declare readonly [ResolvesAsync]: true;` (from `@spinajs/di`) in it so `DI.resolve()` is typed `T | Promise<T>`.
  *
  * @example
  * ```ts

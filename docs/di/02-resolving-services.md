@@ -61,7 +61,38 @@ sequenceDiagram
 - any dependency, at any depth, resolves to a promise, or
 - a `resolveFunc` of a [custom injection](11-custom-injection-decorators.md) returns one.
 
-The return type (`ResolveResult<T>`) only knows the first case: `T extends AsyncService ? Promise<T> : T`. A plain class with an `AsyncService` dependency is typed `T` but arrives as a `Promise`. `await` the result whenever the graph contains an async service; awaiting a plain object is harmless.
+The return type (`ResolveResult<T>`) cannot see the dependencies. It is `Promise<T>` for an `AsyncService` (a cached `AsyncService` singleton also comes back as the instance; `await` covers both), `T | Promise<T>` for a class that declares the `ResolvesAsync` marker (a promise while its dependencies resolve, the instance once it is cached), and `T` otherwise. A plain class with an async dependency is typed `T` but arrives as a `Promise`, so `DI.resolve(Worker).run()` compiles and fails at run time. Declare the marker on such a class so the types say so:
+
+```ts sample
+import { AsyncService, Autoinject, DI, ResolvesAsync } from '@spinajs/di';
+
+class MailTransport extends AsyncService {
+  public async resolve() {
+    await super.resolve(); // e.g. open a connection
+  }
+}
+
+class Worker {
+  declare readonly [ResolvesAsync]: true; // types only, nothing is emitted
+
+  @Autoinject(MailTransport) // an async dependency
+  protected Transport: MailTransport;
+
+  public run() {
+    return this.Transport.Resolved;
+  }
+}
+
+async function main() {
+  // DI.resolve(Worker).run() does not compile: the result is Worker | Promise<Worker>
+  const worker = await DI.resolve(Worker);
+  console.log(worker.run());
+}
+
+void main();
+```
+
+Which to use: extend `AsyncService` when the class has async setup of its own (its `resolve()` does the work) and no other base class; declare the marker when only a dependency is async, e.g. `@AutoinjectNamedService`, or the class already extends another base. `Array.ofType()` of a marked base is typed `T[] | Promise<T[]>` for the same reason. `await` the result whenever the graph contains an async service; awaiting a plain object is harmless.
 
 ## Constructor options
 
