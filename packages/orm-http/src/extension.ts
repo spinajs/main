@@ -1,4 +1,4 @@
-import { IColumnFilter, IFilterEntry, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
+import { AggregateFunction, IAggregateColumns, IAggregateRequest, IColumnFilter, IFilterEntry, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
 
 declare module '@spinajs/orm' {
   export interface IModelDescriptor {
@@ -6,6 +6,19 @@ declare module '@spinajs/orm' {
      * If set column is fitlerable by this operators
      */
     FilterableColumns?: Map<string, IColumnFilter<unknown>>;
+
+    /** Columns a list may be sorted by; absent means the filterable table columns. */
+    SortableColumns?: Set<string>;
+
+    GroupableColumns?: Set<string>;
+
+    AggregatableColumns?: Map<string, AggregateFunction[]>;
+
+    /** Relations a request may load through `include`; absent means the model does not restrict `@FromModel`. */
+    IncludableRelations?: Set<string>;
+
+    /** Group levels a filter request may nest (`@FilterGroupDepth`); absent means 1. */
+    FilterGroupDepth?: number;
   }
 
   export interface ISelectQueryBuilder {
@@ -20,6 +33,12 @@ declare module '@spinajs/orm' {
      * @param logicalOperator
      */
     filter(filter?: IFilterEntry[] | null, logicalOperator?: FilterableLogicalOperators, filters?: IColumnFilter<unknown>[]): this;
+
+    /**
+     * Replaces the selected columns with the group columns and measures of `spec`, groups, orders and
+     * limits. Read the rows with `asRaw()` and pass them through `readAggregateRows`.
+     */
+    aggregate(spec: IAggregateRequest, columns?: IAggregateColumns): this;
   }
 
   namespace ModelBase {
@@ -30,6 +49,16 @@ declare module '@spinajs/orm' {
     export function filterSchema(): any;
 
     export function filterColumns(): IColumnFilter<unknown>[];
+
+    /** Columns a request may sort a list of this model by. */
+    export function sortableColumns(): string[];
+
+    export function aggregateColumns(): IAggregateColumns;
+
+    /** @returns json schema of an aggregate request over this model */
+    export function aggregateSchema(): object;
+
+    export function includableRelations(): string[];
 
     /**
      *

@@ -88,4 +88,12 @@ describe('Swagger filter envelope from orm model descriptor', function () {
     expect(byColumn('name').properties.Operator.enum).to.deep.equal(['eq', 'like']);
     expect(byColumn('age').properties.Operator.enum).to.deep.equal(['gt', 'lt', 'eq']);
   });
+
+  it('documents a filter value as text, any number, a boolean or a list', () => {
+    type Variant = { properties: { Value: { oneOf: { type: string }[] } } };
+    const variants = (filterSchema() as { properties: { filters: { items: { oneOf: Variant[] } } } }).properties.filters.items.oneOf;
+    for (const variant of variants) {
+      expect(variant.properties.Value.oneOf.map((schema) => schema.type)).to.deep.equal(['string', 'number', 'boolean', 'array']);
+    }
+  });
 });

@@ -78,10 +78,13 @@ export class PrincipalMiddleware extends ServerMiddleware {
     this.rootService().catch((err: unknown) => this.halt(server, err, 'the root authz domain failed to boot'));
   };
 
+  // server.start() has already resolved, so the exit code and the event are the only signals the app gets.
   private halt(server: unknown, err: unknown, why: string): void {
     this.Log.error(err as Error, `${why}; stopping the http server`);
     const stop = (server as { stop?: () => Promise<void> } | undefined)?.stop;
     if (typeof stop === 'function') stop.call(server).catch(() => undefined);
+    process.exitCode = 1;
+    DI.emit('authz.boot.failed', err);
   }
 
   public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {

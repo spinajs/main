@@ -99,3 +99,32 @@ export function readSort(input: { column?: unknown; order?: unknown } | undefine
     order: order ? ((order as string).toUpperCase() as SortOrder) : (fallback.order ?? SortOrder.ASC),
   };
 }
+
+/** Ceiling of sort columns one request may name; the schema of `SortingDTO` states the same number. */
+export const MAX_SORT_COLUMNS = 16;
+
+/**
+ * The sorts of a `SortingDTO`, each through {@link readSort}, in the order asked, a column asked twice
+ * kept once, and `fallback` last unless it was asked: a list sorted only by columns that tie would
+ * hand the same row to two pages.
+ */
+export function readSorting(input: { by?: unknown } | undefined | null, sortable: readonly string[], fallback: { column: string; order?: SortOrder }, options: SortOptions = {}): Sort[] {
+  const invalid = options.invalid ?? throwInvalidArgument;
+  const by = input?.by ?? [];
+
+  if (!Array.isArray(by)) {
+    return invalid('by', `by must be a list of { column, order }, got ${describe(by)}`);
+  }
+  if (by.length > MAX_SORT_COLUMNS) {
+    return invalid('by', `by names ${by.length} columns, at most ${MAX_SORT_COLUMNS} are allowed`);
+  }
+
+  const sorts: Sort[] = [];
+  for (const entry of [...(by as unknown[]), fallback]) {
+    const sort = readSort(entry as { column?: unknown; order?: unknown }, sortable, fallback, options);
+    if (!sorts.some((known) => known.column === sort.column)) {
+      sorts.push(sort);
+    }
+  }
+  return sorts;
+}

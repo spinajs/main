@@ -1,4 +1,4 @@
-import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, LikeLiteral } from '@spinajs/orm';
+import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, LikeLiteral, IWhereBuilder, WhereFunction } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 import { _is_array, _min_length, _max_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -38,6 +38,27 @@ const ValidationHelpers = {
     // No validation needed for operators that don't use the Value field
   }
 };
+
+// `NOT ( … LIKE … )`: SQL leaves a null column out of both LIKE and its negation.
+function notLike(column: string, literal: LikeLiteral): WhereFunction<unknown> {
+  return function (this: IWhereBuilder<unknown>) {
+    this.whereNot(function (this: IWhereBuilder<unknown>) {
+      this.where(column, SqlOperator.LIKE, literal);
+    });
+  };
+}
+
+function isEmpty(column: string): WhereFunction<unknown> {
+  return function (this: IWhereBuilder<unknown>) {
+    this.whereNull(column).orWhere(column, SqlOperator.EQ, '');
+  };
+}
+
+function isNotEmpty(column: string): WhereFunction<unknown> {
+  return function (this: IWhereBuilder<unknown>) {
+    this.whereNotNull(column).andWhere(column, SqlOperator.NOT, '');
+  };
+}
 
 /**
  * Operator mapping with validation, AND and OR application functions
@@ -93,6 +114,32 @@ const OPERATOR_MAP: Record<FilterableOperators, {
     validate: ValidationHelpers.requireString,
     applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value))),
     applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value)))
+  },
+  'nlike': {
+    validate: ValidationHelpers.requireString,
+    applyAnd: (qb, filter) => { qb.andWhere(notLike(filter.Column, LikeLiteral.contains(String(filter.Value)))); },
+    applyOr: (qb, filter) => { qb.orWhere(notLike(filter.Column, LikeLiteral.contains(String(filter.Value)))); }
+  },
+  // Same reversed prefixes as `b-like` / `e-like`: `nb-like` is "does not end with", `ne-like` "does not start with".
+  'nb-like': {
+    validate: ValidationHelpers.requireString,
+    applyAnd: (qb, filter) => { qb.andWhere(notLike(filter.Column, LikeLiteral.endsWith(String(filter.Value)))); },
+    applyOr: (qb, filter) => { qb.orWhere(notLike(filter.Column, LikeLiteral.endsWith(String(filter.Value)))); }
+  },
+  'ne-like': {
+    validate: ValidationHelpers.requireString,
+    applyAnd: (qb, filter) => { qb.andWhere(notLike(filter.Column, LikeLiteral.startsWith(String(filter.Value)))); },
+    applyOr: (qb, filter) => { qb.orWhere(notLike(filter.Column, LikeLiteral.startsWith(String(filter.Value)))); }
+  },
+  'empty': {
+    validate: ValidationHelpers.noValidation,
+    applyAnd: (qb, filter) => { qb.andWhere(isEmpty(filter.Column)); },
+    applyOr: (qb, filter) => { qb.orWhere(isEmpty(filter.Column)); }
+  },
+  'nempty': {
+    validate: ValidationHelpers.noValidation,
+    applyAnd: (qb, filter) => { qb.andWhere(isNotEmpty(filter.Column)); },
+    applyOr: (qb, filter) => { qb.orWhere(isNotEmpty(filter.Column)); }
   },
   'between': {
     validate: ValidationHelpers.requireTwoValueArray,
@@ -176,16 +223,25 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
     // "pool = primespot AND (name LIKE x OR id LIKE x)"; flattening the group would turn that AND
     // into an OR and widen the result to every row.
     if (isFilterGroup(filter)) {
+      // A relation or aggregate column inside a negated group cannot be hoisted to the root query:
+      // hoisting would drop the negation.
+      const nestedConjunctive = levelConjunctive && !filter.not;
+
       // `function`, not an arrow: the builder hands the bracketed sub-query to the callback as
       // `this`, so an arrow would close over the outer scope and get nothing.
       const nested = function (this: any) {
-        applyFilterEntries(this, filter.filters, filter.op, columns, root, levelConjunctive);
+        applyFilterEntries(this, filter.filters, filter.op, columns, root, nestedConjunctive);
       };
+      const condition = filter.not
+        ? function (this: IWhereBuilder<unknown>) {
+            this.whereNot(nested);
+          }
+        : nested;
 
       if (useOrOperator) {
-        builder.orWhere(nested);
+        builder.orWhere(condition);
       } else {
-        builder.andWhere(nested);
+        builder.andWhere(condition);
       }
       return;
     }
@@ -255,8 +311,12 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
   return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
-/** The most conditions `filter()` takes at the top level of a request; a nested group is not counted. */
+/** The most entries `filter()` takes in one request: its conditions and groups at every depth. */
 export const MAX_FILTERS = 100;
+
+function countFilterEntries(entries: IFilterEntry[]): number {
+  return entries.reduce((counted, entry) => counted + 1 + (entry && typeof entry === 'object' && isFilterGroup(entry) && Array.isArray(entry.filters) ? countFilterEntries(entry.filters) : 0), 0);
+}
 
 /**
  * Extend where builder with filter func old style ( by prototype )
@@ -267,8 +327,9 @@ export const MAX_FILTERS = 100;
     return this;
   }
 
-  if (filters.length > MAX_FILTERS) {
-    throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
+  const entries = countFilterEntries(filters);
+  if (entries > MAX_FILTERS) {
+    throw new InvalidArgument(`Too many filters provided: ${entries}, conditions and groups at every depth. Maximum allowed: ${MAX_FILTERS}`);
   }
 
   const columns: IColumnFilter<unknown>[] = filterColumns ?? (this._model as any).filterColumns();
