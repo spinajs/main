@@ -10,7 +10,7 @@ Change how PostgreSQL connections behave without forking the package: subclass `
 4. **Select it.** `Orm.createConnections()` resolves each entry's `Driver` string:
    - a new string (`'orm-driver-postgres-tls'`) applies the subclass only to entries that name it;
    - the stock string (`@Injectable('orm-driver-postgres')` on the subclass, or `DI.register(MyDriver).as('orm-driver-postgres')` before `Orm` resolves) applies it to every PostgreSQL connection.
-5. **Errors.** A `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')` at boot. A registration made before `super.resolve()` is overwritten by it and has no effect.
+5. **Errors.** A `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registered')` at boot. A registration made before `super.resolve()` is overwritten by it and has no effect.
 
 ```mermaid
 sequenceDiagram

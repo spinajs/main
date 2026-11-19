@@ -441,7 +441,7 @@ export class Orm extends AsyncService {
       this.Log.trace({ connection: c.Name, driver: c.Driver }, 'Trying to create connection name: ${connection}, driver: ${driver}');
 
       if (!this.Container.hasRegistered(c.Driver)) {
-        throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
+        throw new OrmException(`ORM connection driver ${c.Driver} not registered`);
       }
 
       let driver: OrmDriver | null = null;

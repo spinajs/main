@@ -10,7 +10,7 @@ Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the conne
 4. **Override methods.** `connect()`, `executeOnDb()`, `isRetryableError()`, `tableInfo()`, `supportedFeatures()` and the transaction primitives are plain methods; call `super` to keep the stock behaviour.
 5. **Select.** A connection with `Driver: '<driver string>'` resolves your subclass. Or register it under the stock string with `DI.register(MyDriver).as('orm-driver-mssql')` before `Orm` resolves, and every MSSQL connection uses it.
 
-Errors: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')` at boot. A registration made before `super.resolve()` is overwritten.
+Errors: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registered')` at boot. A registration made before `super.resolve()` is overwritten.
 
 ```mermaid
 sequenceDiagram

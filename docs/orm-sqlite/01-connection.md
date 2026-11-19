@@ -202,7 +202,7 @@ export class PatientConfiguration extends FrameworkConfiguration {
 
 ## Best practices
 
-- Import the package for its side effect (`import '@spinajs/orm-sqlite'`) in the module that boots `Orm`. Without the import, `Orm` throws `ORM connection driver orm-driver-sqlite not registerd`.
+- Import the package for its side effect (`import '@spinajs/orm-sqlite'`) in the module that boots `Orm`. Without the import, `Orm` throws `ORM connection driver orm-driver-sqlite not registered`.
 - Create the database directory before `Orm` resolves, eg. with `fs.mkdirSync(dir, { recursive: true })`.
 - Use `Filename: ':memory:'` for tests; each `DI.resolve(Orm)` gets a clean database.
 - Catch `UniqueViolation` (or `ResourceDuplicated` from `@spinajs/exceptions`) for duplicates, and `ConstraintViolation` with its `kind` for other constraint failures. Do not match on `inner.code` or the message.

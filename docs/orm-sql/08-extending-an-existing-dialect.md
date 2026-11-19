@@ -10,7 +10,7 @@ Change how one shipped dialect writes SQL without writing a driver: subclass the
 4. **Select it per connection.** `Orm` resolves each connection's `Driver` string. A connection with `Driver: 'orm-driver-sqlite-reporting'` gets your subclass; connections with `Driver: 'orm-driver-sqlite'` keep the stock driver.
 5. **Or replace the dialect everywhere.** `DI.register(ReportingSqliteDriver).as('orm-driver-sqlite')` before `Orm` boots makes every SQLite connection use the subclass.
 
-Errors on the way: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')` at boot. A replacement registered before `super.resolve()` is overwritten and has no effect.
+Errors on the way: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registered')` at boot. A replacement registered before `super.resolve()` is overwritten and has no effect.
 
 ```mermaid
 sequenceDiagram

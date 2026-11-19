@@ -35,7 +35,7 @@ The bridge uses the main ORM configuration, read over IPC. See [`@spinajs/orm` c
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.Connections[].Name` | `string` | required | name of a main connection | The bridge forwards to the main connection with this name. |
-| `db.Connections[].Driver` | `string` | required | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`, `orm-driver-postgres`, `orm-driver-mysql-ssh` | Must be a token registered in the renderer; other tokens fail with `ORM connection driver ... not registerd`. |
+| `db.Connections[].Driver` | `string` | required | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`, `orm-driver-postgres`, `orm-driver-mysql-ssh` | Must be a token registered in the renderer; other tokens fail with `ORM connection driver ... not registered`. |
 
 ## Services and extension points
 
