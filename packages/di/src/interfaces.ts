@@ -257,6 +257,18 @@ export interface IResolvedInjection {
 //     resolveA: (target: any, container: IContainer) => Promise<void>;
 // }
 
+/**
+ * Marks a class whose resolve can give a promise although it is no `AsyncService`, e.g. one with an async
+ * dependency such as `@AutoinjectNamedService`. The types cannot see dependencies, so the class declares it:
+ * `declare readonly [ResolvesAsync]: true;`. Its resolve is then typed `T | Promise<T>`: a promise while the
+ * dependencies resolve, the instance once it is cached.
+ */
+export const ResolvesAsync: unique symbol = Symbol('ResolvesAsync');
+
+export interface IResolvesAsync {
+  readonly [ResolvesAsync]: true;
+}
+
 export class Service {
   protected resolved = false;
   public get Resolved(): boolean {

@@ -1,4 +1,4 @@
-import type { IContainer, AsyncService } from './interfaces.js';
+import type { IContainer, AsyncService, IResolvesAsync } from './interfaces.js';
 
 /* eslint-disable */
 export type Abstract<T> = Function & { prototype: T };
@@ -25,15 +25,17 @@ export type InferClass<T> = T extends Class<infer U> ? U : never;
 export type InferTypedArray<T> = T extends { Type: Class<infer U> | string } ? U : never;
 
 /**
- * Distributive resolve result: wraps AsyncService members in Promise.
+ * Distributive resolve result: wraps AsyncService members in Promise, although a cached AsyncService singleton
+ * comes back as the instance too (`await` covers both). An IResolvesAsync member is typed as either, because only a
+ * resolve that waits on its dependencies gives a promise; a cached instance comes back as is.
  * Distributes over union types automatically.
  */
-export type ResolveResult<T> = T extends AsyncService ? Promise<T> : T;
+export type ResolveResult<T> = T extends AsyncService ? Promise<T> : T extends IResolvesAsync ? T | Promise<T> : T;
 
 /**
  * Distributive resolve result for arrays.
  */
-export type ResolveArrayResult<T> = T extends AsyncService ? Promise<T[]> : T[];
+export type ResolveArrayResult<T> = T extends AsyncService ? Promise<T[]> : T extends IResolvesAsync ? T[] | Promise<T[]> : T[];
 
 /**
  * Extracts instance type from Class<T> or Factory<T>, distributing over unions.

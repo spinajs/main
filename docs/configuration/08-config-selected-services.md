@@ -309,7 +309,7 @@ A factory is called on every resolve and its result is not cached.
 
 ## Important behaviour
 
-- A class with `@AutoinjectNamedService` or `@AutoinjectNamedServices` resolves **asynchronously**: `DI.resolve(MyClass)` returns a promise even when the class is not an `AsyncService`. Await it.
+- A class with `@AutoinjectNamedService` or `@AutoinjectNamedServices` resolves **asynchronously**: `DI.resolve(MyClass)` returns a promise even when the class is not an `AsyncService`. Await it. The decorators cannot change the class's type, so declare `declare readonly [ResolvesAsync]: true;` (from `@spinajs/di`) in the class and `DI.resolve(MyClass)` is typed `MyClass | Promise<MyClass>`; see [Sync or async](../di/02-resolving-services.md#sync-or-async) for when to extend `AsyncService` instead.
 - `@AutoinjectNamedService(s)` resolve the configuration first when it is registered but not resolved. Do not use them in classes the configuration itself resolves (sources, protocols): the resolve would wait on itself.
 - `@AutoinjectService` needs the configuration already resolved; it throws `InvalidOperation` otherwise.
 - Lookup is per container. `@AutoinjectNamedService(s)` search the whole lineage and take the registration nearest the resolving container, so a child can override one implementation. `@AutoinjectService` uses only the nearest container that registers anything for `Type`.

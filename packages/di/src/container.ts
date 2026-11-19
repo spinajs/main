@@ -6,7 +6,7 @@ import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
-import { Class, Factory, ResolveResult } from './types.js';
+import { Class, Factory, ResolveArrayResult, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
@@ -354,8 +354,8 @@ export class Container extends EventEmitter implements IContainer {
    * @param type - what to resolve, can be class definition or factory function
    * @param options - options passed to constructor / factory
    */
-  public resolve<T>(type: Class<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T> : T;
-  public resolve<T>(type: Class<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
+  public resolve<T>(type: Class<T>, options?: unknown[], check?: boolean): ResolveResult<T>;
+  public resolve<T>(type: Class<T>, check?: boolean): ResolveResult<T>;
 
   /**
    *
@@ -370,8 +370,8 @@ export class Container extends EventEmitter implements IContainer {
    */
   public resolve<T>(type: ChainArray<T>, options?: unknown[], check?: boolean): ResolveChainResult<T>;
   public resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
-  public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
-  public resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
+  public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): ResolveArrayResult<T>;
+  public resolve<T>(type: TypedArray<T>, check?: boolean): ResolveArrayResult<T>;
 
   /**
    *
