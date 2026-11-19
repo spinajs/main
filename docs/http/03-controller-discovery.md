@@ -1,6 +1,6 @@
 # Controller discovery
 
-`ControllerSource` services tell the `Controllers` loader which controller classes exist. Two ship with the package: a directory scan and a DI registry reader. Add your own to mount controllers from a plugin manifest, behind a feature flag, or from a remote registry. `Controllers.add()` mounts one more controller after startup.
+`ControllerSource` services tell the `Controllers` loader which controller classes exist. Two ship with the package: a directory scan and a DI registry reader. Add your own to mount controllers from a plugin manifest or a remote registry. `@MountWhen` mounts a controller on a condition, and `Controllers.add()` mounts one more controller after startup.
 
 ## How it works
 
@@ -31,6 +31,30 @@ Sources only **discover**. They never create controller instances; DI does that 
 2. It registers the type as `BaseController`, resolves it, and runs `Controllers.register()`.
 3. The new router joins the shared controllers router, which already sits at a fixed place in the Express stack, so the new routes answer at once and stay before the 404 handler.
 4. When anything fails, it unregisters the type and drops the cached `BaseController` list, then rethrows; a fixed retry registers cleanly.
+
+### Mounting on a condition: `@MountWhen`
+
+`@MountWhen(condition)` mounts a controller only when `condition` returns `true`. The condition gets the root container and the `Configuration`, and may be async:
+
+```ts
+import { BaseController, BasePath, Get, MountWhen, Ok } from '@spinajs/http';
+
+@BasePath('reports')
+@MountWhen((_, config) => config.get<boolean>('app.reports.enabled', false))
+export class ReportsController extends BaseController {
+  @Get('/')
+  public list() {
+    return new Ok([]);
+  }
+}
+```
+
+1. `Controllers` asks each condition once per boot, before it creates any controller, and keeps the answer; `listControllers()`, `resolve()` and `add()` share it.
+2. A controller whose condition returns `false` is left out of `Controllers.Controllers` (and so out of the OpenAPI spec of `@spinajs/http-swagger`), registers no route, and is never created when a source listed it. `Controllers` logs `Controller <name> is not mounted: its @MountWhen condition returned false` at `info`.
+3. `add()` of such a controller returns without registering it.
+4. A condition that returns anything but a boolean fails the boot with `ControllerRegistrationException`.
+5. A subclass inherits the condition; its own `@MountWhen` replaces it.
+6. A controller a `Bootstrapper` registered as `BaseController` itself is created when `Controllers` resolves the list, even with a `false` condition; it is only left unmounted.
 
 ## Configuration
 
@@ -121,7 +145,7 @@ Keep these controllers out of `system.dirs.controllers`, or the directory scan m
 ## Best practices
 
 - Register package controllers from a `Bootstrapper` with `DI.register(MyController).as(BaseController)`, so the app does not need to list the package's directory.
-- Keep a controller whose mounting depends on configuration out of the scanned directories and hand it in through a source, as `@spinajs/authz-http` does for its explain route.
+- Put a condition on the controller with `@MountWhen` when its mounting depends on configuration or a service. Reach for a custom source only when the list of controllers itself comes from somewhere else, as the explain route of `@spinajs/authz-http` does.
 - Ship the `.d.ts` files next to the compiled controllers; the cache parses them.
 
 ## Patterns and antipatterns
