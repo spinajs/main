@@ -21,6 +21,7 @@ import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
 import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/resolver.js';
+import { serviceRolesKeyProblem } from './service-roles-key.js';
 import { SetsExtension } from './sets/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
@@ -515,6 +516,8 @@ function serviceRoles(ctx: ModelInitContext, graph: RoleGraph): ReadonlyMap<stri
   const value = ctx.config<Readonly<Record<string, readonly string[]>>>('serviceRoles', {});
   const out = new Map<string, readonly string[]>();
   for (const [key, roles] of Object.entries(value)) {
+    const keyProblem = serviceRolesKeyProblem(key);
+    if (keyProblem) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] ${keyProblem}`);
     if (!Array.isArray(roles)) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] must be an array of role names`);
     for (const role of roles) refuseConfigRole(graph, role, `authz.rbac.serviceRoles['${key}']`);
     out.set(key, Object.freeze([...roles]));

@@ -46,6 +46,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `telemetry.auth.policies.<endpoint>` | `string` | `'AccessPolicy'` for `metrics`, `stats`, `timeline`, `routes`, `perf`; `'PublicPolicy'` for `health`, `ready` | `'AccessPolicy'` or a registered `BasePolicy` class name | Guard of the endpoint |
 | `telemetry.auth.permissions.<endpoint>` | `string \| string[]` | `'telemetry:read'` for the five data endpoints | registered permissions | Any one admits |
+| `telemetry.auth.policies.probeDetail`, `telemetry.auth.permissions.probeDetail` | as above | `'AccessPolicy'`, `'telemetry:read'` | as above | Not a route: who sees the probe detail. A caller it refuses still gets the probe's answer, without the detail. An error of the check other than a 401/403 refusal is logged as a `Security` warning |
 | `telemetry.auth.domain` | `string` | `'root'` | an authz domain | Domain the checks and the contributor use |
 | `telemetry.auth.skipInDevelopment` | `boolean` | `false` | `true`, `false` | Development skip, see below |
 
@@ -97,7 +98,7 @@ Naming `'TelemetryTokenPolicy'` in a slot compares the presented token with `tel
 - A broken slot stops the whole controller from registering, probes included. The app never starts with an open route.
 - The slot is read from the container that resolves the policy. A domain or tenant child container with its own `telemetry.auth.*` guards with its own values; the contributor reads the root configuration.
 - Loading this package loads `@spinajs/authz-http`, whose `PrincipalMiddleware` stops the HTTP server when the root authz domain fails to boot.
-- The probes expose uptime, pid, node version and the app version. Guard them if that is more than you want to publish.
+- To an anonymous caller the probes show statuses only: `/telemetry/health` answers `{ status: 'up' }`, and `/telemetry/ready` leaves out each check's `data.error`. Uptime, pid, node version, the app version and `data.error` need the `probeDetail` slot, by default `telemetry:read`. Set `probeDetail` to `'PublicPolicy'` to show them to everyone.
 - A request with a principal from any authenticator passes when the principal holds the permission; the scrape token is one way to hold it.
 
 ## Best practices

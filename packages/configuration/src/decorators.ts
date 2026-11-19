@@ -222,7 +222,7 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
     }
 
     if (!registered.includes(service)) {
-      throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)}`);
+      throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)} (registered: ${registered.map(q).join(', ') || 'none'})`);
     }
 
     const instance = await container.resolveNamed(type, service);
