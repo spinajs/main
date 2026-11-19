@@ -1,6 +1,7 @@
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BaseController, BasePath, Get, Json, NotFound, TemplateResponse } from '@spinajs/http';
+import type { IControllerDescriptor } from '@spinajs/http';
 import { SwaggerService } from '../swagger-service.js';
 import { ISwaggerUiConfig } from '../interfaces.js';
 import { AllowAnonymous } from '../access.js';
@@ -17,6 +18,12 @@ export class SwaggerController extends BaseController {
 
   @Config('http.swagger.ui')
   protected UiConfig!: ISwaggerUiConfig;
+
+  /** http mounts every controller it finds, so disabled docs hide their routes instead of answering 404 from them. */
+  public get Descriptor(): IControllerDescriptor {
+    const descriptor = super.Descriptor;
+    return this.Swagger.IsEnabled ? descriptor : { ...descriptor, Routes: new Map() };
+  }
 
   /**
    * Returns the OpenAPI 3.0 JSON specification.

@@ -53,7 +53,7 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `SwaggerService` | class `SwaggerService`, `@Singleton()`; resolved by type through `@Autoinject()` in `SwaggerController`, on first use | `SwaggerService` | none | Subclass and `DI.register(Sub).as(SwaggerService)` before the first request reaches `/docs`. Override `buildSpec()`, `getSpec()` or the `IsEnabled` getter |
+| `SwaggerService` | class `SwaggerService`, `@Singleton()`; resolved by type through `@Autoinject()` in `SwaggerController`, on first use | `SwaggerService` | none | Subclass and `DI.register(Sub).as(SwaggerService)` before the controllers resolve at boot, so `SwaggerController` reads your `IsEnabled` when it decides whether to register its routes. Override `buildSpec()`, `getSpec()` or the `IsEnabled` getter |
 | `OpenApiBuilder` | class `OpenApiBuilder`, `@NewInstance()` | `OpenApiBuilder` | none | See [OpenAPI builder](07-openapi-builder.md) |
 | `SwaggerDocCache` | class `SwaggerDocCache`, `@Singleton()` | `SwaggerDocCache` | none | See [Documentation cache](08-documentation-cache.md) |
 
@@ -63,7 +63,7 @@ Members a subclass can use: `Log` (`http-swagger` logger), `ControllersService` 
 
 Override `buildSpec()` to change the document once per build: stamp a release, set servers from the environment, drop internal paths. Call `super.buildSpec()` and change the object it returns, or return a new one: `getSpec()` serves and caches what your override returns.
 
-Override `IsEnabled` to switch the docs off by a rule rather than by config. Both routes then answer `404`.
+Override `IsEnabled` to switch the docs off by a rule rather than by config. `false` when `SwaggerController` resolves registers neither route; `false` later makes both routes answer `404`. The static folders `/docs/ui` and `/docs/static` follow only the `http.swagger.enabled` key, so set it too when the override switches the docs off for good.
 
 ```ts sample
 import { DI } from '@spinajs/di';

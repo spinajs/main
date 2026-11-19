@@ -29,6 +29,9 @@ function swaggerUiDist() {
   return join(cwd(), 'node_modules', 'swagger-ui-dist');
 }
 
+// A ConfigVar is read when the server mounts the static folders, after the app's config files are merged.
+const swaggerEnabled = new ConfigVar(() => DI.get<Configuration>(Configuration)?.get<unknown>('http.swagger.enabled', true) !== false);
+
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http-swagger', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
@@ -61,10 +64,12 @@ const httpSwagger = {
       {
         Route: '/docs/ui',
         Path: swaggerUiDist(),
+        Enabled: swaggerEnabled,
       },
       {
         Route: '/docs/static',
         Path: lib('views'),
+        Enabled: swaggerEnabled,
       },
     ],
     swagger: {

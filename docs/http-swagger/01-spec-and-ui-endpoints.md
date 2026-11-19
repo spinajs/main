@@ -4,15 +4,15 @@
 
 ## How it works
 
-1. **Boot.** The package config file `config/http-swagger.ts` adds the package's `controllers` folder to `system.dirs.controllers`. `@spinajs/http` loads `SwaggerController` with every other controller, under `@BasePath('docs')` and the global `http.controllers.route.prefix`.
+1. **Boot.** The package config file `config/http-swagger.ts` adds the package's `controllers` folder to `system.dirs.controllers`. `@spinajs/http` loads `SwaggerController` with every other controller, under `@BasePath('docs')` and the global `http.controllers.route.prefix`. When `SwaggerService.IsEnabled` is `false` at that point, the controller registers no route, so `/docs/` and `/docs/swagger.json` reach the app's 404 handler.
 2. **Spec.** `GET /docs/swagger.json` runs `SwaggerController.getSpec()`:
-   - `SwaggerService.IsEnabled` is `false` → `404` with `{ error: 'Swagger documentation is disabled' }`;
+   - `SwaggerService.IsEnabled` turned `false` after the boot → `404` with `{ error: 'Swagger documentation is disabled' }`;
    - otherwise `SwaggerService.getSpec()` returns the cached document or builds it ([Swagger service](06-swagger-service.md)), sent with `Json`, so the answer is `application/json` whatever the `Accept` header says.
 3. **UI.** `GET /docs/` runs `SwaggerController.getUI()`:
    - disabled → the same `404`;
    - otherwise it renders `swagger.pug` from the `__fs_swagger_views__` file provider with five locals: `title`, `cssUrl`, `bundleUrl`, `presetUrl`, `specUrl`.
 4. **Browser.** The page loads the CSS and the two Swagger UI scripts, then `/docs/static/swagger-ui-init.js`. That script calls `SwaggerUIBundle` with the URL from `data-spec-url`, `deepLinking: true` and the `StandaloneLayout`.
-5. **Static files.** `/docs/ui` serves the `swagger-ui-dist` folder; `/docs/static` serves the package's `lib/views` folder. Both are `http.Static` entries and are **not** prefixed with `http.controllers.route.prefix`.
+5. **Static files.** `/docs/ui` serves the `swagger-ui-dist` folder; `/docs/static` serves the package's `lib/views` folder. Both are `http.Static` entries with `Enabled` following `http.swagger.enabled`, and are **not** prefixed with `http.controllers.route.prefix`.
 
 ```mermaid
 sequenceDiagram
@@ -35,12 +35,12 @@ sequenceDiagram
 | Route | Status | Body |
 | --- | --- | --- |
 | `GET /docs/swagger.json` | `200` | The OpenAPI 3.0.3 document (`IOpenApiDocument`) |
-| `GET /docs/swagger.json` | `404` | `{ "error": "Swagger documentation is disabled" }` when `http.swagger.enabled` is `false` |
+| `GET /docs/swagger.json` | `404` | The app's not-found answer when the docs are disabled at boot; `{ "error": "Swagger documentation is disabled" }` when `IsEnabled` turned `false` later |
 | `GET /docs/swagger.json` | `500` | The build failed: one line per controller that could not be documented. `SwaggerService.buildSpec()` throws `UnexpectedServerError`, which `@spinajs/http` maps to Internal Server Error |
 | `GET /docs/` | `200` | Swagger UI HTML page |
 | `GET /docs/` | `404` | Same body as above, when disabled |
-| `GET /docs/ui/*` | `200` | Files of `swagger-ui-dist` |
-| `GET /docs/static/swagger-ui-init.js` | `200` | The UI bootstrap script |
+| `GET /docs/ui/*` | `200` | Files of `swagger-ui-dist`; not served when `http.swagger.enabled` is `false` |
+| `GET /docs/static/swagger-ui-init.js` | `200` | The UI bootstrap script; not served when `http.swagger.enabled` is `false` |
 
 With `http.controllers.route.prefix: 'api'` the two controller routes become `/api/docs/swagger.json` and `/api/docs/`. The static routes stay at `/docs/ui` and `/docs/static`.
 
@@ -48,7 +48,7 @@ With `http.controllers.route.prefix: 'api'` the two controller routes become `/a
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.swagger.enabled` | `boolean` | `true` | `true`, `false` | `false` makes both routes answer `404` and `getSpec()` return `null`. Any other value, or a missing `http.swagger`, counts as enabled |
+| `http.swagger.enabled` | `boolean` | `true` | `true`, `false` | `false` registers neither route nor static folder, and `getSpec()` returns `null`. Any other value, or a missing `http.swagger`, counts as enabled |
 | `http.swagger.title` | `string` | `'API Documentation'` | any | `info.title` |
 | `http.swagger.version` | `string` | `'1.0.0'` | any | `info.version` |
 | `http.swagger.description` | `string` | `''` | Markdown | `info.description`. The builder appends a Policies section to it; see [Policies and access](05-policies-and-access.md) |
@@ -70,8 +70,8 @@ The package config also sets these keys:
 | `system.dirs.cli` | `<root>/node_modules/@spinajs/http-swagger/lib/<mjs\|cjs>/cli` | Loads `SwaggerCacheCommand` |
 | `fs.providers` `__fs_swagger_views__` | `fsNative`, `<root>/node_modules/@spinajs/http-swagger/lib/views` | Template folder of the UI page |
 | `fs.providers` `__fs_swagger_cache__` | `fsNative`, `<root>/__cache__/__swagger__` | Declared, but no code in this package reads it |
-| `http.Static` `/docs/ui` | first `node_modules/swagger-ui-dist` found walking up from `<root>` | Swagger UI assets |
-| `http.Static` `/docs/static` | `<root>/node_modules/@spinajs/http-swagger/lib/views` | `swagger-ui-init.js` |
+| `http.Static` `/docs/ui` | first `node_modules/swagger-ui-dist` found walking up from `<root>` | Swagger UI assets; `Enabled` follows `http.swagger.enabled` |
+| `http.Static` `/docs/static` | `<root>/node_modules/@spinajs/http-swagger/lib/views` | `swagger-ui-init.js`; `Enabled` follows `http.swagger.enabled` |
 
 `<root>` is `WORKSPACE_ROOT_PATH`, or the working directory when it is unset; see [Config files](../configuration/03-config-files.md).
 
@@ -193,7 +193,7 @@ export class PartnerDocsController extends BaseController {
 
 - Both controller routes are public. `SwaggerController` carries http-swagger's own class-level marker, which writes the metadata `@spinajs/authz-http` reads for `@AllowAnonymous`, so the [unguarded-routes check](../authz-http/10-access-metadata-and-openapi.md#unguarded-routes) skips them and `authz.http.unguardedRoutes: 'throw'` starts. The marker adds no policy. Set `http.swagger.enabled: false` where the document must not be public.
 - The document is built on the first request to `swagger.json`, not at boot. With `ui.pageTitle` empty, the first `GET /docs/` builds it too.
-- Turning `enabled` off does not remove the static routes: `/docs/ui` and `/docs/static` keep serving files.
+- Switching the docs on or off takes effect at the next start: the routes follow `SwaggerService.IsEnabled`, read once when `SwaggerController` resolves; the static folders follow the `http.swagger.enabled` key, read once when the server mounts them. A subclass that overrides `IsEnabled` hides the routes but not the static folders; set the key as well. Turning the docs off after the boot makes both routes answer `404` with the JSON body above, and the static folders keep serving until the next start.
 - `swagger-ui-dist` missing from every `node_modules` up the tree does not stop the boot. The static handler logs a warning and skips the route; point the `ui.*Url` keys at a CDN in that case.
 - `swagger-ui-init.js` is loaded from the fixed path `/docs/static/swagger-ui-init.js`. A custom template that keeps this script also needs that static route.
 - A failed build answers `500` with the full list of broken controllers in the message. Fix the controllers; see [Parameters and request bodies](03-parameters-and-request-bodies.md#path-parameters).
