@@ -83,6 +83,11 @@ export class Vocabulary {
     const q = InvoiceModel.where('Status', 'open');
     return (q as any).first();
   }
+  /** As `untypedFirst`, but run as a statement: nothing is returned that could count it. */
+  untypedFirstStatement(): void {
+    const q = InvoiceModel.where('Status', 'open');
+    (q as any).first();
+  }
   unconstrained<R>(q: ISelectQueryBuilder<InvoiceModel>) {
     return anything<R>(q);
   }

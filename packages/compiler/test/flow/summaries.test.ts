@@ -224,5 +224,6 @@ describe('flow: summarize', () => {
   it('a builder runs by a member the old list did not name, and through a receiver typed any', () => {
     expect(scopes('Vocabulary.streamAll')).to.deep.equal([['Invoice', 'none']]);
     expect(scopes('Vocabulary.untypedFirst')).to.deep.equal([['Invoice', 'none']]);
+    expect(scopes('Vocabulary.untypedFirstStatement')).to.deep.equal([['Invoice', 'none']]);
   });
 });
