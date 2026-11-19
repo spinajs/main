@@ -1,6 +1,7 @@
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '@spinajs/configuration-db-source';
 import type { DbConfig } from '@spinajs/configuration-db-source';
 import type { DataValidator, IValidationError } from '@spinajs/validation';
+import { constraintMessage, joinMessages } from './error-messages.js';
 
 /** A plain JSON Schema fragment. */
 type JsonSchema = Record<string, unknown>;
@@ -90,23 +91,13 @@ function typeSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta
   return schema;
 }
 
-// ajv sends no message with `validation.messages: false`; a type error still says which type is expected
-function typeMessage(error: IValidationError): string | undefined {
-  const expected = error.keyword === 'type' ? (error.params as { type?: string | string[] }).type : undefined;
-  return expected === undefined ? undefined : `must be ${[expected].flat().join(' or ')}`;
-}
-
 /**
  * Joins validator errors reported for `field` ( validated wrapped as `{ [field]: value }` )
  * into a single 400 message.
  */
 export function formatValidationErrors(field: string, errors: IValidationError[] | null): string {
-  const messages = (errors ?? []).map((e) =>
-    `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? typeMessage(e) ?? 'is invalid'}`.trim(),
-  );
-
-  // with allErrors on, the type schema and the registered schema report the same failure from both allOf branches
-  return [...new Set(messages)].join('; ') || `invalid value for ${field}`;
+  const messages = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${constraintMessage(e)}`);
+  return joinMessages(messages) || `invalid value for ${field}`;
 }
 
 /**

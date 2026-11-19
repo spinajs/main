@@ -270,7 +270,7 @@ describe('configuration-http api', function () {
     it('rejects a string value violating the registered schema and keeps the stored value', async () => {
       const res = await req().patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'ab' });
       expect(res).to.have.status(400);
-      expect(res.body.error.message).to.contain('Value');
+      expect(res.body.message).to.contain('Value');
 
       const get = await req().get('configuration/app.name').set(JSON_HEADERS);
       expect(get.body.Value).to.equal('spinajs');
@@ -291,7 +291,7 @@ describe('configuration-http api', function () {
         .set(JSON_HEADERS)
         .send({ Value: { perPage: 0 } });
       expect(res).to.have.status(400);
-      expect(res.body.error.message).to.contain('Value/perPage');
+      expect(res.body.message).to.contain('Value/perPage');
     });
 
     it('rejects a json object missing a required property', async () => {
@@ -316,7 +316,7 @@ describe('configuration-http api', function () {
         .set(JSON_HEADERS)
         .send({ Value: { perPage: 10 }, Default: { perPage: 1000 } });
       expect(res).to.have.status(400);
-      expect(res.body.error.message).to.contain('Default');
+      expect(res.body.message).to.contain('Default');
     });
 
     it('keeps type-only validation for entries without a registered schema', async () => {

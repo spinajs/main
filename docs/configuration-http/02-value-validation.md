@@ -48,8 +48,10 @@ It validates only. Converting the value into its stored string form is the job o
 `formatValidationErrors()` builds one entry per error, `<field><path> <message>`, removes duplicates and joins them with `; `:
 
 - `field` is `Value` or `Default`; `path` is the part of the ajv `instancePath` below the field, such as `/perPage`.
-- `message` is the ajv message. With the `@spinajs/validation` default `validation.messages: false`, ajv sends none: a `type` error then reads `must be <type>` (`Value must be integer`, `Value/limit must be integer or null`), any other error `is invalid` (`Value/perPage is invalid`).
+- `message` names the broken constraint in ajv's English wording, whatever `validation.messages` is set to: `Value must be <= 100`, `Value/perPage must be >= 1`, `Value must be integer`, `Value must be equal to one of the allowed values`, `Value must match format "date"`. A rule outside the ajv core and `ajv-formats` keywords reads `must pass "<keyword>" keyword validation` unless ajv sent a message.
 - No errors at all give `invalid value for <field>`.
+
+The route answers both as `400 { code, message }` (`ConfigurationUpdateRefused`): `configuration.invalid_value` for a refused value, `configuration.invalid_body` for a body that breaks the `UpdateConfigDto` schema, in the same wording, named after the body field: `Value is required`, `Watch must be boolean`.
 
 ## Configuration
 
@@ -61,11 +63,11 @@ This feature reads the `@spinajs/validation` options of `DataValidator`. They ch
 | `validation.coerceTypes` | `boolean` | `true` | `true`, `false` | Not used here: entry values are always validated without coercion, so `"50"` on a `number` entry answers `400` either way. |
 | `validation.removeAdditional` | `boolean` | `false` | `true`, `false` | Strips unknown properties of object values instead of rejecting them. |
 | `validation.allErrors` | `boolean` | `true` | `true`, `false` | Reports every error, joined into one message. |
-| `validation.messages` | `boolean` | `false` | `true`, `false` | `true` puts ajv's text into the 400 message. |
+| `validation.messages` | `boolean` | `false` | `true`, `false` | Not needed here: the 400 message names the constraint either way. With `true`, a custom keyword's own ajv message replaces `must pass "<keyword>" keyword validation`. |
 
 ```ts
 export default {
-  validation: { messages: true, removeAdditional: false },
+  validation: { removeAdditional: false },
 };
 ```
 
@@ -140,7 +142,6 @@ export class ConfigurationCheckController extends BaseController {
 ## Best practices
 
 - Put bounds that never change in `exposeOptions.meta` (`min`, `max`, `oneOf`); put structural rules for `json` values in a slug schema.
-- Turn on `validation.messages` when operators read the 400 message; the default only says which field is invalid.
 - Compare a `manyOf` value with `Meta.manyOf`, not with a hand-written `enum` in a slug schema: the type schema already adds it per item.
 
 ## Patterns and antipatterns

@@ -26,6 +26,15 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
+// `@HandleException` fills `__http_error_map__` in the DI cache once, at import: `DI.clearCache()` alone would answer every mapped exception with 500.
+export function clearDiCache(): void {
+  const errorMap = DI.get('__http_error_map__');
+  DI.clearCache();
+  if (errorMap) {
+    DI.register(errorMap).asValue('__http_error_map__');
+  }
+}
+
 // http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
 export function appPort(): number {
   const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
