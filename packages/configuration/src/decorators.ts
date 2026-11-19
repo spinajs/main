@@ -222,7 +222,7 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
     }
 
     if (!registered.includes(service)) {
-      throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)}`);
+      throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)} (registered: ${registered.map(q).join(', ') || 'none'})`);
     }
 
     const instance = await container.resolveNamed(type, service);
@@ -242,6 +242,9 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
  * Injects what {@link resolveNamedServices} gives for `path` in the resolving container: a Map keyed by each entry's
  * `keyBy`, in list order, looked up across the container lineage. Resolved when the instance is built, so an unknown
  * service or a bad list rejects that resolve.
+ *
+ * A resolve of the class then gives a promise (the first one, for a singleton). Declare
+ * `declare readonly [ResolvesAsync]: true;` (from `@spinajs/di`) in it so `DI.resolve()` is typed `T | Promise<T>`.
  *
  * @example
  * ```ts
@@ -319,6 +322,9 @@ export async function resolveNamedService<T>(container: IContainer, path: string
 /**
  * Injects {@link resolveNamedService} for `path` in the resolving container, when the instance is built. With
  * `optional: true` an unset `path` injects undefined.
+ *
+ * A resolve of the class then gives a promise (the first one, for a singleton). Declare
+ * `declare readonly [ResolvesAsync]: true;` (from `@spinajs/di`) in it so `DI.resolve()` is typed `T | Promise<T>`.
  *
  * @example
  * ```ts

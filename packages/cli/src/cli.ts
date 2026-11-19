@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Cli, CommanderError } from './index.js';
+import { runPendingBootstrappers } from './bootstrappers.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { resolveCliLog } from './cliLog.js';
 import { Log } from '@spinajs/log-common';
@@ -12,13 +13,15 @@ async function cli() {
   let log: Log | undefined;
 
   try {
+    const ran = new Set<object>();
+
     // Bootstrappers register the configuration schemas; the Configuration applies them when it boots.
-    const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
+    await runPendingBootstrappers(ran);
 
     await DI.resolve(Configuration);
+
+    // The config files are imported while the Configuration boots, and the modules they import register bootstrappers too.
+    await runPendingBootstrappers(ran);
 
     log = resolveCliLog();
 

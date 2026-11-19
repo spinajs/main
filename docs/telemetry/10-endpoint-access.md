@@ -11,7 +11,7 @@ Each telemetry endpoint has a slot in `telemetry.auth.policies`. The slot `'Acce
    - any other value: finds a `BasePolicy` registered under that class name and resolves it synchronously.
 3. A slot that cannot be honoured throws `RouteRegistrationException`, so the route, and the whole controller, never registers.
 4. Per request, `execute()`:
-   - `'AccessPolicy'`: `AccessPolicy.execute()` checks whether the principal holds any of the permissions on the permission's type-level resource. No principal answers 401 `unauthenticated`; a principal without the permission answers 403 `forbidden`, naming the permission. The decision lands in `req.storage.AuthzDecision`.
+   - `'AccessPolicy'`: `AccessPolicy.execute()` checks whether the principal holds any of the permissions on the permission's type-level resource. No principal, or an unauthenticated one such as the anonymous principal, answers 401 `unauthenticated`; the one exception is the [scrape token](12-scrape-token.md)'s `service:telemetry`, which goes on to the permission check. A principal without the permission answers 403 `forbidden`, naming the permission. The decision lands in `req.storage.AuthzDecision`.
    - named policy: delegates `isEnabled()` and `execute()` to it.
 5. At authz domain boot, `TelemetryAccessContributor.contribute(domain)` returns every permission of every `'AccessPolicy'` slot when `domain` equals `telemetry.auth.domain`. An unregistered permission fails the domain boot with `AuthzConfigError`, naming the permission and its key.
 
@@ -46,6 +46,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `telemetry.auth.policies.<endpoint>` | `string` | `'AccessPolicy'` for `metrics`, `stats`, `timeline`, `routes`, `perf`; `'PublicPolicy'` for `health`, `ready` | `'AccessPolicy'` or a registered `BasePolicy` class name | Guard of the endpoint |
 | `telemetry.auth.permissions.<endpoint>` | `string \| string[]` | `'telemetry:read'` for the five data endpoints | registered permissions | Any one admits |
+| `telemetry.auth.policies.probeDetail`, `telemetry.auth.permissions.probeDetail` | as above | `'AccessPolicy'`, `'telemetry:read'` | as above | Not a route: who sees the probe detail. A caller it refuses still gets the probe's answer, without the detail. An error of the check other than a 401/403 refusal is logged as a `Security` warning |
 | `telemetry.auth.domain` | `string` | `'root'` | an authz domain | Domain the checks and the contributor use |
 | `telemetry.auth.skipInDevelopment` | `boolean` | `false` | `true`, `false` | Development skip, see below |
 
@@ -97,7 +98,7 @@ Naming `'TelemetryTokenPolicy'` in a slot compares the presented token with `tel
 - A broken slot stops the whole controller from registering, probes included. The app never starts with an open route.
 - The slot is read from the container that resolves the policy. A domain or tenant child container with its own `telemetry.auth.*` guards with its own values; the contributor reads the root configuration.
 - Loading this package loads `@spinajs/authz-http`, whose `PrincipalMiddleware` stops the HTTP server when the root authz domain fails to boot.
-- The probes expose uptime, pid, node version and the app version. Guard them if that is more than you want to publish.
+- To an anonymous caller the probes show statuses only: `/telemetry/health` answers `{ status: 'up' }`, and `/telemetry/ready` leaves out each check's `data.error`. Uptime, pid, node version, the app version and `data.error` need the `probeDetail` slot, by default `telemetry:read`. Set `probeDetail` to `'PublicPolicy'` to show them to everyone.
 - A request with a principal from any authenticator passes when the principal holds the permission; the scrape token is one way to hold it.
 
 ## Best practices

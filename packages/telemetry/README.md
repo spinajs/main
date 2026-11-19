@@ -71,6 +71,12 @@ process metrics are wired automatically. Set the scrape token, load the package
 barrel, and give `service:telemetry` the `telemetry:read` permission (with
 `@spinajs/authz-rbac` the package config does that; see Roles).
 
+Installing the package turns its routes on. `@spinajs/configuration` merges the config of every installed
+`@spinajs/*` package, so the controllers, the `telemetry:read` permission and the `telemetry` role come with the
+package being in `node_modules`, whether the app imports it or not. The perf bridge, the default process metrics
+and the scrape token are wired by the package's bootstrappers, which run only when the package was imported before
+them: `import '@spinajs/telemetry'` before the app runs its bootstrappers. The package declares no ORM models.
+
 ```ts
 // configuration
 {
@@ -87,7 +93,7 @@ barrel, and give `service:telemetry` the `telemetry:read` permission (with
 | `GET /telemetry/timeline?buckets=N` | The timeline alone, buckets annotated with their window | `telemetry:read` |
 | `GET /telemetry/routes` | Per method+route request breakdown | `telemetry:read` |
 | `GET /telemetry/perf` | Aggregated `Perf` spans and events | `telemetry:read` |
-| `GET /telemetry/health` | Liveness — uptime, pid, node version, optional app version | public |
+| `GET /telemetry/health` | Liveness — the status; uptime, pid, node version and app version with `telemetry:read` | public |
 | `GET /telemetry/ready` | Readiness — runs every registered `HealthCheck`, 503 when any is down | public |
 
 The token is one way to hold `telemetry:read`. Send it on the `x-metrics-token`
@@ -98,9 +104,12 @@ curl -H "x-metrics-token: $METRICS_TOKEN" http://localhost:8080/metrics
 ```
 
 `/telemetry/health` and `/telemetry/ready` are public by default because kubelet
-probes and load balancers cannot send a header. They expose uptime, pid, the node
-version and — if you set `telemetry.health.version` — the app version. Give them
-an `'AccessPolicy'` slot and a permission if that is more than you want to publish.
+probes and load balancers cannot send a header. To an anonymous caller they show
+statuses only: `/telemetry/health` answers `{ status: 'up' }`, and `/telemetry/ready`
+leaves out each check's `data.error` and never carries a thrown error's message (that
+goes to the log). Uptime, pid, the node version, the app version and `data.error`
+need the `probeDetail` slot, by default `telemetry:read`. Give the probes an
+`'AccessPolicy'` slot and a permission to guard them entirely.
 
 ### Access
 
@@ -205,17 +214,19 @@ export class DatabaseCheck extends HealthCheck {
       await db.raw('select 1');
       return { status: 'up' };
     } catch (err) {
-      return { status: 'down', message: (err as Error).message };
+      return { status: 'down', message: 'the database does not answer', data: { error: (err as Error).message } };
     }
   }
 }
 ```
 
 `status` is `'up' | 'degraded' | 'down'`; a check may also return a `data` bag.
+The `message` and `data` reach anonymous probes, except `data.error`, which only a
+caller holding `telemetry:read` sees.
 Each check is raced against `telemetry.health.timeoutMs` ( default 2000 ), so a
 hung dependency cannot hang the probe — a timed-out check, or one that throws,
-counts as `down`. The overall status is the worst of them, and `/ready` answers
-503 when it is `down` ( or `degraded`, with `telemetry.health.failOnDegraded` ).
+counts as `down`. A thrown error is logged, and its line reads `the check threw`.
+The overall status is the worst of them, and `/ready` answers 503 when it is `down` ( or `degraded`, with `telemetry.health.failOnDegraded` ).
 
 ### Mounting on a bare express app
 
@@ -470,6 +481,8 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.auth.domain` | `'root'` | Authz domain the `'AccessPolicy'` slots check in |
 | `telemetry.auth.skipInDevelopment` | `false` | Skip the `'AccessPolicy'` checks; needs an explicit development env too |
 | `telemetry.collectDefaultMetrics` | `true` | Register `process_*` / `nodejs_*` metrics at bootstrap |
+| `telemetry.http.enabled` | `true` | Time requests in the request middleware; `false` leaves out the http metrics and the request statistics |
+| `telemetry.endpoints.<endpoint>.enabled` | `true` | `false` answers 404 on that endpoint to every caller, before any credential check |
 | `telemetry.prefix` | `'http'` | Metric name prefix for the http metrics |
 | `telemetry.buckets` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | Duration histogram buckets ( ms ) |
 | `telemetry.apdexThresholdMs` | `25` | Apdex satisfied threshold; tolerated is 4x |
@@ -481,12 +494,13 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.perf.maxNames` | `200` | Cap on distinct perf measurement names |
 | `telemetry.health.timeoutMs` | `2000` | Per-check timeout for `/telemetry/ready` |
 | `telemetry.health.failOnDegraded` | `false` | Serve 503 for a degraded overall status |
-| `telemetry.health.version` | unset | Version string reported by `/telemetry/health`; omitted from the response when unset |
+| `telemetry.health.version` | unset | Version string reported by `/telemetry/health` to a caller that sees the probe detail; omitted when unset |
 
 The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`,
 `health` and `ready`. Policy defaults: `'AccessPolicy'` for `metrics`,
 `stats`, `timeline`, `routes` and `perf` (permissions default to `telemetry:read`);
-`PublicPolicy` for `health` and `ready`.
+`PublicPolicy` for `health` and `ready`. `probeDetail` guards no route: it decides who
+sees the probe detail, by default `'AccessPolicy'` with `telemetry:read`.
 
 `telemetry.perf.enabled` and `telemetry.perf.maxNames` bound the **JSON** view
 only ( `InMemoryPerfSink` ). The `perf_*` Prometheus series come from a separate

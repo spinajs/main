@@ -50,7 +50,7 @@ export default {
 
 ### Run the commands without the bin
 
-Every command is a DI class with an `execute(options)` method. Resolve `Configuration` first, then the command, and read `process.exitCode` afterwards.
+Every command is a DI class with an `execute(options)` method. Resolve `Configuration` first, then the command, and read `process.exitCode` afterwards. `MigrateUpCommand.execute()` also resolves with its result, including a model left without its table; see [Applying migrations](01-applying-migrations.md#options).
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -77,7 +77,7 @@ void main();
 
 ## Important behaviour
 
-- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/<flavour>/cli`, and `Cli` warns `Directory ... not exists`.
+- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/<flavour>/cli`, and `Cli` logs `Directory ... not exists` at `debug`, because the directory is under `node_modules`. Its commands are then missing from `--help`.
 - **`<root>` is the working directory.** Start the bin from the directory that holds `node_modules`, from one level below it, or set `WORKSPACE_ROOT_PATH`.
 - **Command classes are not instantiated at discovery.** Only the invoked command resolves an `Orm`; `spinajs --help` opens no database connection.
 - **The bin exits with `process.exitCode`.** `migrate-up` and `migrate-status` report "not current" through it. A `@spinajs/cli` whose bin ends with a bare `process.exit(0)` loses it; run the classes directly in that case.

@@ -1,6 +1,6 @@
 import * as express from 'express';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 
@@ -171,7 +171,16 @@ export class TelemetryMiddleware extends ServerMiddleware {
     }
   }
 
+  /**
+   * A pass-through handler when `telemetry.http.enabled` is false: no `http_*` metric is ever
+   * defined and nothing is recorded, while a subclass that wraps `super.before()` keeps working.
+   */
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
+    // Not a @Config field: its getter throws in a middleware built with `new`, outside DI.
+    if (DI.get(Configuration)?.get<boolean>('telemetry.http.enabled', true) === false) {
+      return (_req: sRequest, _res: express.Response, next: express.NextFunction) => next();
+    }
+
     return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       try {
         this.ensureMetrics();

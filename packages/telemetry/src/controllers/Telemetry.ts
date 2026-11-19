@@ -1,11 +1,12 @@
-import { BasePath, BaseController, Get, Query, Ok } from '@spinajs/http';
+import { BasePath, BaseController, Get, Query, Ok, Req } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BadRequest } from '@spinajs/exceptions';
 
 import { TelemetryStore } from './../store.js';
 import { InMemoryPerfSink } from './../InMemoryPerfSink.js';
-import { HealthCheckRunner } from './../health.js';
+import { HealthCheckRunner, withoutErrorDetail } from './../health.js';
 import { ServiceUnavailable } from './../responses.js';
 
 // Importing the DTO barrel runs the @Schema decorators, which is what makes the
@@ -18,7 +19,7 @@ import './../dto/index.js';
 // unregistered name fails the route's registration.
 import './../policies/TelemetryTokenPolicy.js';
 import './../policies/PublicPolicy.js';
-import { TelemetryAccess } from './../policies/TelemetryAccessPolicy.js';
+import { TelemetryAccess, TelemetryAccessPolicy } from './../policies/TelemetryAccessPolicy.js';
 
 // Found by a directory scan after boot, where TelemetryBootstrapper may never run: the schema module registers itself.
 import './../schema.js';
@@ -43,6 +44,14 @@ export class TelemetryController extends BaseController {
 
   @Config('telemetry.health.version')
   protected Version: string;
+
+  protected ProbeDetail: TelemetryAccessPolicy;
+
+  public async resolve() {
+    // Resolved before the routes register, so a slot that cannot be honoured fails registration like the route slots do.
+    this.ProbeDetail = await this._container.resolve(TelemetryAccessPolicy, ['probeDetail']);
+    await super.resolve();
+  }
 
   /**
    * Lifetime request statistics plus the rolling timeline.
@@ -153,13 +162,18 @@ export class TelemetryController extends BaseController {
 
   /**
    * Liveness. Runs no checks, so it can never be made slow or flaky by a
-   * dependency — if this answers, the process is alive.
+   * dependency — if this answers, the process is alive. The process fields
+   * are shown only to a caller admitted by `telemetry.auth.policies.probeDetail`.
    *
    * @returns {HealthResponse} Process liveness information
    */
   @Get('health')
   @TelemetryAccess('health')
-  public async getHealth() {
+  public async getHealth(@Req() req: Request) {
+    if (!(await this.seesProbeDetail(req, 'getHealth'))) {
+      return new Ok({ status: 'up' });
+    }
+
     const uptimeMs = Math.round(process.uptime() * 1000);
 
     return new Ok({
@@ -176,20 +190,26 @@ export class TelemetryController extends BaseController {
 
   /**
    * Readiness. Runs every registered `HealthCheck`, each raced against
-   * `telemetry.health.timeoutMs`.
+   * `telemetry.health.timeoutMs`. A check's `data.error` is shown only to a
+   * caller admitted by `telemetry.auth.policies.probeDetail`.
    *
    * @returns {ReadyResponse} Overall readiness and the per-check results
    * @response 503 At least one check is down ( or degraded, when `telemetry.health.failOnDegraded` is set )
    */
   @Get('ready')
   @TelemetryAccess('ready')
-  public async getReady() {
-    const report = await this.Health.run();
+  public async getReady(@Req() req: Request) {
+    const [full, detail] = await Promise.all([this.Health.run(), this.seesProbeDetail(req, 'getReady')]);
+    const report = detail ? full : withoutErrorDetail(full);
 
     if (this.Health.isFailing(report.status)) {
       return new ServiceUnavailable(report);
     }
 
     return new Ok(report);
+  }
+
+  protected seesProbeDetail(req: Request, method: string): Promise<boolean> {
+    return this.ProbeDetail.admits(req, this.Descriptor.Routes.get(method)!, this);
   }
 }

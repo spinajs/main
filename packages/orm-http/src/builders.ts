@@ -166,22 +166,30 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   'in': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereIn(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereIn(filter.Column, filter.Value))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereIn(filter.Column, filter.Value);
+    })
   },
   'nin': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereNotIn(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotIn(filter.Column, filter.Value))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereNotIn(filter.Column, filter.Value);
+    })
   },
   'exists': {
     validate: ValidationHelpers.noValidation,
     applyAnd: (qb, filter) => qb.whereExist(filter.Column),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereExist(filter.Column))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereExist(filter.Column);
+    })
   },
   'n-exists': {
     validate: ValidationHelpers.noValidation,
     applyAnd: (qb, filter) => qb.whereNotExists(filter.Column),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotExists(filter.Column))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereNotExists(filter.Column);
+    })
   },
   'regexp': {
     validate: ValidationHelpers.requireString,
@@ -191,12 +199,16 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   'in-set': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereInSet(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereInSet(filter.Column, filter.Value))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereInSet(filter.Column, filter.Value);
+    })
   },
   'nin-set': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereNotInSet(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotInSet(filter.Column, filter.Value))
+    applyOr: (qb, filter) => qb.orWhere(function (this: IWhereBuilder<unknown>) {
+      this.whereNotInSet(filter.Column, filter.Value);
+    })
   }
 };
 

@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ActionContext, ErrorGroupInfo, ErrorGroupNotFound, httpStatusForError, InvalidRunParams, InvalidRunState, RunConflict, RunNotFound, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
+import { ActionContext, ErrorGroupInfo, ErrorGroupNotFound, httpStatusForError, InvalidRunParams, InvalidRunState, RunConflict, RunNotFound, ScheduleNotFound, SchedulePaused, SchedulerNotRunning } from '@spinajs/scheduler';
 
 import { asRole, bootHttp, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeSchedulerService, makeErrorGroup, makeSchedule, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
@@ -101,6 +101,7 @@ describe('scheduler-http: errors and maintenance', function () {
       ['InvalidRunParams', new InvalidRunParams('bad params', [{ path: '/file', message: 'must be string' }]), 400],
       ['InvalidRunState', new InvalidRunState('ended', 'succeeded'), 409],
       ['SchedulePaused', new SchedulePaused(SCHEDULE_NAME), 409],
+      ['SchedulerNotRunning', new SchedulerNotRunning(SCHEDULE_NAME), 409],
       ['Error', new Error('unexpected'), 500],
     ];
 

@@ -14,7 +14,7 @@ Every SQL fragment MySQL emits comes from a class registered in the driver's own
 4. **Per connection.** Builders on a connection resolve compilers and statements from that driver's container. A replacement affects only connections that use your subclass.
 5. **Selection.** `Driver: '<your string>'` picks the subclass for one connection. `@Injectable('orm-driver-mysql')` on the subclass replaces the stock driver for every connection that names `orm-driver-mysql`, because the root container also returns the last registration.
 
-Errors: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')` at boot. A registration made before `super.resolve()` is overwritten.
+Errors: a `Driver` string with no registration throws `OrmException('ORM connection driver <Driver> not registered')` at boot. A registration made before `super.resolve()` is overwritten.
 
 ```mermaid
 sequenceDiagram

@@ -31,17 +31,36 @@ Base classes give a service hooks the container calls: `resolve()` after injecti
 
 ### Who runs bootstrappers
 
-The entry point resolves the list and calls each one in order before it resolves the configuration and the app, eg. `@spinajs/cli`:
+The container never runs a bootstrapper; the entry point does. The `spinajs` bin and an application's own entry follow the same rule:
+
+1. Run the bootstrappers before `DI.resolve(Configuration)`. They register the configuration schemas, and the `Configuration` applies them when it boots, so a refused value fails the boot.
+2. Resolve the list again after `Configuration`, and run only the bootstrappers that have not run yet. The `Configuration` imports the config files while it boots, and a module that a config file imports registers its bootstrappers then.
+3. Do the same after any later step that imports modules, eg. the controller scan of `@spinajs/http`, if a module imported there registers a bootstrapper.
+
+Each bootstrapper runs once: remember the classes that ran. Repeat a pass until it finds nothing new, because a bootstrapper may import a module that registers another.
 
 ```ts
-const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
-for (const b of bootstrappers) {
-  await b.bootstrap();
+const ran = new Set<object>();
+async function runPendingBootstrappers() {
+  for (let found = true; found; ) {
+    found = false;
+    for (const b of DI.resolve(Array.ofType(Bootstrapper))) {
+      if (ran.has(b.constructor)) continue;
+      ran.add(b.constructor);
+      found = true;
+      await b.bootstrap();
+    }
+  }
 }
+
+await runPendingBootstrappers();
 await DI.resolve(Configuration);
+await runPendingBootstrappers();
 ```
 
-Bootstrappers typically register configuration schemas, process handlers or DI overrides. A bootstrapper's module must be imported before the list is resolved, or it is not in the list.
+The `spinajs` bin runs steps 1 and 2. It runs no pass after it scans `system.dirs.cli` for commands, so a bootstrapper registered by a module that only a command file imports never runs in the CLI.
+
+Bootstrappers typically register configuration schemas, process handlers or DI overrides. A bootstrapper that runs after `Configuration` and registers a schema has it checked at once: `registerConfigurationSchema()` validates it against the resolved `Configuration` and throws on a refused value.
 
 ### A custom bootstrapper and an async service
 
@@ -102,6 +121,7 @@ void start();
 - A singleton reached through `Array.ofType(T)` is cached under `T` and under its own name; `dispose()` still calls its `dispose()` once.
 - `@NewInstance()` services and factory results are never cached, so `dispose()` never reaches them.
 - After `DI.dispose()` the root registry is intact; the next resolve builds fresh instances.
+- `DI.dispose()` keeps the ESM module mode set by `DI.setESMModuleSupport()`. A full second boot in the same process is still not supported: configuration files stay in Node's module cache, so they keep the values of the first boot, and `@Config` properties are recorded at import, so the cleared cache loses them. Boot once per process, eg. one test file per process.
 
 ## Best practices
 
