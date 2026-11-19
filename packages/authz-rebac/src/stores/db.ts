@@ -120,7 +120,7 @@ async function storedKeys(keys: readonly string[]): Promise<Set<string>> {
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
  * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
- * the Orm: the app resolves the Orm before the first read.
+ * the Orm: RebacModel resolves it when its store is a DbTupleStore; any other user resolves it before the first read.
  */
 export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';

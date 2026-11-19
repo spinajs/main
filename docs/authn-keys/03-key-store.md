@@ -16,7 +16,7 @@
 
 A row becomes a frozen `KeyRecord`: `jwk` is parsed from JSON, `scope` from JSON with its `expiresAt` back to a `Date`, `created_by` from `<type>:<id>`, and every datetime to a `Date`.
 
-`OrmKeyStore` injects `Orm`. The CLI resolves only the command it runs, so the `authn:key-*` commands extend `KeyCliCommand`, which injects the `Orm`: resolving a command boots the ORM and binds the `AuthnKey` model. The boot fails while a migration is pending or failed, so run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
+`OrmKeyStore` injects `Orm`. The CLI resolves only the command it runs; an `authn:key-*` command injects `KeyRegistry`, which injects the `KeyStore`, so resolving the command boots the ORM and binds the `AuthnKey` model. A `KeyStore` of your own that queries models injects the `Orm` too. The boot fails while a migration is pending or failed, so run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
 
 `MemoryKeyStore` keeps the same contract in a `Map`. It stores frozen copies, so a caller cannot change a stored record.
 

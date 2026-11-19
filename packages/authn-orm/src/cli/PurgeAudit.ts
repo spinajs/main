@@ -1,7 +1,6 @@
 import { Autoinject } from '@spinajs/di';
 import { CliCommand, Command } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
-import { Orm } from '@spinajs/orm';
 
 import { AuthnAuditRetention } from '../audit/retention.js';
 
@@ -10,10 +9,6 @@ import { AuthnAuditRetention } from '../audit/retention.js';
 export class PurgeAudit extends CliCommand {
   @Logger('authn-orm')
   protected Log: Log;
-
-  /** Injecting the Orm boots it for exactly the command being run; the boot fails while a migration is pending (run migrate-up first). */
-  @Autoinject(Orm)
-  protected Orm: Orm;
 
   @Autoinject(AuthnAuditRetention)
   protected Retention: AuthnAuditRetention;

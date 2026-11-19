@@ -30,7 +30,7 @@ Process memory: tests, demos and small apps. `writeNow` writes synchronously and
 
 ### `DbTupleStore`
 
-`authz_rebac_tuple` on the ORM connection alias `authz` (default connection `default`, set `db.Aliases.authz` to move it). Apply the migration `AuthzRebac_2026_10_21_00_00_00` with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations). The store is built with `new`, not by DI, so it does not inject the `Orm`: resolve the `Orm` (which fails while the migration is [pending](../orm/10-migrations.md#deploying-migrations)) before its first read.
+`authz_rebac_tuple` on the ORM connection alias `authz` (default connection `default`, set `db.Aliases.authz` to move it). Apply the migration `AuthzRebac_2026_10_21_00_00_00` with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations). The store is built with `new`, not by DI, so it does not inject the `Orm`: `RebacModel.init` resolves the `Orm` from the domain's container when its store is a `DbTupleStore` (configured, registered as `TupleStore` or passed in the options). That boot fails while the migration is [pending](../orm/10-migrations.md#deploying-migrations). Code that uses the store outside the model resolves the `Orm` before its first read.
 
 | Column | Type | |
 | --- | --- | --- |

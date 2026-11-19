@@ -445,6 +445,17 @@ export class MySqlOrmDriver extends SqlDriver {
 
     const promised = connection.promise();
     await promised.connect();
+
+    const zone = this.SessionZone.Session;
+    if (zone) {
+      try {
+        await promised.query(`SET time_zone = '${zone}'`);
+      } catch (err) {
+        connection.destroy();
+        throw new Error(`could not set the session time zone of connection ${this.Options.Name} to ${zone}: ${(err as Error).message}`, { cause: err });
+      }
+    }
+
     return promised;
   }
 
