@@ -8,6 +8,7 @@ import type { IBuilderMiddleware, ICompilerOutput, IWhereBuilder } from '@spinaj
 import { Lazy } from '@spinajs/util';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db, migrations } from './common.js';
+import { has_many_1 } from './models/HasMany1.js';
 import { Location } from './models/Location.js';
 import { LocationNetwork } from './models/LocationNetwork.js';
 import { Offer } from './models/Offer.js';
@@ -43,6 +44,26 @@ function locationsWithNetworks() {
 
 function networksOf(rows: OfferLocation[]): string[] {
   return rows.map((r) => `${r.Location.Value!.Name}/${r.Location.Value!.Network.Value!.Name}`);
+}
+
+/** The SQL of every statement `run` executes, in execution order. */
+async function executedSql(run: () => PromiseLike<unknown>): Promise<Array<string | null>> {
+  const driver = db().Connections.get('sqlite')!;
+  const execute = driver.execute.bind(driver);
+  const statements: Array<string | null> = [];
+  driver.execute = async (builder) => {
+    statements.push(sql(builder));
+    const rows: unknown = await execute(builder);
+    return rows;
+  };
+
+  try {
+    await run();
+  } finally {
+    driver.execute = execute;
+  }
+
+  return statements;
 }
 
 function networkNames(offers: Offer[]): string[] {
@@ -260,6 +281,70 @@ describe('clone() of a populated query', function () {
     const refused = query('No such network');
     await refused;
     expect(await ids(refused.clone())).to.deep.equal([]);
+  });
+
+  it('keeps a nested belongsTo condition of a many-to-many target out of the callback OR', async () => {
+    const localisations = async (network: string) =>
+      (
+        await Offer.where({ Id: 1 }).populate('Localisations', function () {
+          this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
+          this.populate('Network', function () {
+            this.where('Name', network);
+          });
+        })
+      )
+        .flatMap((o) => [...o.Localisations].map((l) => l.Name))
+        .sort();
+
+    // ( Loc 1 OR Loc 2 ) AND network: under the OR, `Loc 1 OR Loc 2 AND network` keeps Loc 1 for any network
+    expect(await localisations('No such network')).to.deep.equal([]);
+    expect(await localisations('Network 1')).to.deep.equal(['Loc 1', 'Loc 2']);
+  });
+
+  it('keeps a nested belongsTo condition of a hasMany out of the callback OR', async () => {
+    const connection = db().Connections.get('sqlite')!;
+    await connection.insert().into('has_many_1').values({ Val: 'root' });
+    await connection.insert().into('owned_by_owned_by_has_many_1').values({ Val: 'leaf' });
+    await connection.insert().into('owned_by_has_many_1').values([
+      { Val: 'a', file_id: 1, has_many_1_id: 1 },
+      { Val: 'b', file_id: 1, has_many_1_id: 1 },
+      { Val: 'c', file_id: 1, has_many_1_id: 1 },
+    ]);
+    const informations = async (file: string) => {
+      const [root] = await has_many_1.where({ Id: 1 }).populate('Informations', function () {
+        this.where('Val', 'a').orWhere('Val', 'b');
+        this.populate('File', function () {
+          this.where('Val', file);
+        });
+      });
+      return [...root.Informations].map((i) => i.Val).sort();
+    };
+
+    // ( a OR b ) AND file: under the OR, `a OR b AND file` keeps a for any file
+    expect(await informations('No such file')).to.deep.equal([]);
+    expect(await informations('leaf')).to.deep.equal(['a', 'b']);
+
+    const [, children] = await executedSql(() => informations('leaf'));
+    expect(children).to.match(/WHERE \( `\$Informations\$`\.`Val` = \? OR `\$Informations\$`\.`Val` = \? \) AND \( [^()]+ \) AND `\$Informations\$`\.`has_many_1_id` IN \(\?\)/);
+  });
+
+  it('keeps an AND group the many-to-many target callback wrote after its OR inside the callback group', async () => {
+    const localisations = async (id: number) =>
+      (
+        await Offer.where({ Id: 1 }).populate('Localisations', function () {
+          this.where('Name', 'Loc 1')
+            .orWhere('Name', 'Loc 2')
+            .where(function () {
+              this.where('Id', id);
+            });
+        })
+      )
+        .flatMap((o) => [...o.Localisations].map((l) => l.Name))
+        .sort();
+
+    // `Loc 1 OR Loc 2 AND ( Id )`, as written: moved beside the group it would read `( Loc 1 OR Loc 2 ) AND ( Id )`
+    expect(await localisations(99)).to.deep.equal(['Loc 1']);
+    expect(await localisations(2)).to.deep.equal(['Loc 1', 'Loc 2']);
   });
 
   it('keeps an aggregate condition of a nested populate at the top level, where HAVING reads it', () => {
