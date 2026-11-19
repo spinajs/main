@@ -218,4 +218,11 @@ describe('flow: summarize', () => {
       expect(effectsOf(root), root).to.deep.equal(UNSCOPED_READ);
     }
   });
+
+  const scopes = (root: string) => effectsOf(root).map(([, model, scoped]) => [model, scoped]);
+
+  it('a builder runs by a member the old list did not name, and through a receiver typed any', () => {
+    expect(scopes('Vocabulary.streamAll')).to.deep.equal([['Invoice', 'none']]);
+    expect(scopes('Vocabulary.untypedFirst')).to.deep.equal([['Invoice', 'none']]);
+  });
 });

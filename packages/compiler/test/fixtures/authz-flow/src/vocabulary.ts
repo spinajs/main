@@ -70,4 +70,15 @@ export class Vocabulary {
   maybeLater(q: ISelectQueryBuilder<InvoiceModel>) {
     return rowsMaybeLater(q);
   }
+  /** `stream()` was not in the member list. */
+  async streamAll(): Promise<number> {
+    let n = 0;
+    for await (const row of InvoiceModel.where('Status', 'open').stream()) n += row ? 1 : 0;
+    return n;
+  }
+  /** The receiver is typed `any`; the traced value is still the builder. */
+  untypedFirst(): Promise<unknown> {
+    const q = InvoiceModel.where('Status', 'open');
+    return (q as any).first();
+  }
 }
