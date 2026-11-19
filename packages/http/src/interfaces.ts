@@ -71,9 +71,15 @@ export interface IHttpServerConfiguration {
   };
 
   /**
-   * Http server port
+   * Http server port, or a named pipe or Unix socket path ( a string holding `/` or `\` )
    */
-  port: number;
+  port: number | string;
+
+  /**
+   * Address the server listens on, eg. `127.0.0.1` for loopback only. Not set: every interface. Not allowed with a
+   * pipe or socket path in `port`.
+   */
+  host?: string;
 
   /**
    * Middlewares used by server
