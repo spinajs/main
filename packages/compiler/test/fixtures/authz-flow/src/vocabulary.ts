@@ -32,6 +32,8 @@ declare function keep<B extends ISelectQueryBuilder<InvoiceModel>, A extends str
 /** Results that may be a builder or rows, or rows now or later. */
 declare function builderOrRows(q: ISelectQueryBuilder<InvoiceModel>): ISelectQueryBuilder<InvoiceModel> | Promise<InvoiceModel[]>;
 declare function rowsMaybeLater(q: ISelectQueryBuilder<InvoiceModel>): Promise<InvoiceModel[]> | InvoiceModel[];
+/** A result the type says nothing about. */
+declare function anything<R>(q: ISelectQueryBuilder<InvoiceModel>): R;
 
 /** Reached from no entry point, so it adds no effect to any whole-fixture expectation. */
 export class Vocabulary {
@@ -69,5 +71,11 @@ export class Vocabulary {
   }
   maybeLater(q: ISelectQueryBuilder<InvoiceModel>) {
     return rowsMaybeLater(q);
+  }
+  unconstrained<R>(q: ISelectQueryBuilder<InvoiceModel>) {
+    return anything<R>(q);
+  }
+  withScopes() {
+    return InvoiceModel.where('Status', 'open');
   }
 }
