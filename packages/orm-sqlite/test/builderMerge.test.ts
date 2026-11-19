@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { SelectQueryExtension, defineQueryExtension } from '@spinajs/orm';
+import { QueryMiddleware, SelectQueryBuilder, SelectQueryExtension, defineQueryExtension } from '@spinajs/orm';
 import type { BuilderExecution, QueryBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -23,6 +23,7 @@ function label(execution: BuilderExecution): string {
 const modelOf = (query: QueryBuilder): string => query.Model?.name ?? 'no model';
 
 const merges: string[] = [];
+const events: string[] = [];
 let refuse = false;
 
 const MergeRecorder = defineQueryExtension({
@@ -32,8 +33,25 @@ const MergeRecorder = defineQueryExtension({
   onMerge(source, target) {
     if (refuse) throw new InvalidOperation('merge refused');
     merges.push(`${modelOf(source)} -> ${modelOf(target)}: ${label(source.state().execution)}`);
+    events.push(`onMerge ${modelOf(source)} -> ${modelOf(target)}`);
   },
 });
+
+class ExecutionRecorder extends QueryMiddleware {
+  public afterQueryCreation(): void {}
+
+  public beforeQueryExecution(query: QueryBuilder): void {
+    if (query instanceof SelectQueryBuilder) events.push(`beforeQueryExecution ${modelOf(query)}: ${label(query.state().execution)}`);
+  }
+}
+
+function expectInOrder(first: string, second: string): void {
+  const a = events.indexOf(first);
+  const b = events.indexOf(second);
+  expect(a, `${first} in ${JSON.stringify(events)}`).to.be.at.least(0);
+  expect(b, `${second} in ${JSON.stringify(events)}`).to.be.at.least(0);
+  expect(a, `${first} before ${second}`).to.be.below(b);
+}
 
 describe('QueryExtension.onMerge', function () {
   this.timeout(30000);
@@ -41,10 +59,12 @@ describe('QueryExtension.onMerge', function () {
   before(() => {
     registerUowConnection();
     DI.register(MergeRecorder).as(SelectQueryExtension);
+    DI.register(ExecutionRecorder).as(QueryMiddleware);
   });
 
   after(() => {
     DI.unregister(MergeRecorder);
+    DI.unregister(ExecutionRecorder);
   });
 
   beforeEach(async () => {
@@ -61,6 +81,7 @@ describe('QueryExtension.onMerge', function () {
       { Name: 'A1', parent_id: 1 },
     ]);
     merges.length = 0;
+    events.length = 0;
     refuse = false;
   });
 
@@ -120,5 +141,33 @@ describe('QueryExtension.onMerge', function () {
   it('reads the same rows with the hook installed', async () => {
     const [item] = await UowOrderItem.where('Id', 1).populate('Order');
     expect(item.Order.Value.Total).to.equal(10);
+  });
+
+  it('a populate is merged after beforeQueryExecution of the statement that runs', async () => {
+    await UowOrderItem.where('Id', 1).populate('Order');
+    expectInOrder('beforeQueryExecution UowOrderItem: own', 'onMerge UowOrder -> UowOrderItem');
+  });
+
+  it('a join callback is merged at the join call, before the statement runs', async () => {
+    await UowOrder.query().leftJoin<UowClient>(
+      UowClient,
+      function () {
+        this.where('Name', 'acme');
+      },
+      function () {
+        this.where('Id', 1);
+      },
+    );
+    expectInOrder('onMerge UowClient -> UowOrder', 'beforeQueryExecution UowOrder: own');
+  });
+
+  it('count() merges a belongsTo populate before beforeQueryExecution of the count statement', async () => {
+    await UowOrderItem.query().populate('Order').count();
+    expectInOrder('onMerge UowOrder -> UowOrderItem', 'beforeQueryExecution UowOrderItem: own');
+  });
+
+  it('the junction query of a many-to-many populate runs beforeQueryExecution after its merge', async () => {
+    await UowOrder.where('Id', 1).populate('Tags');
+    expectInOrder('onMerge UowTag -> UowTag', 'beforeQueryExecution UowTag: own');
   });
 });

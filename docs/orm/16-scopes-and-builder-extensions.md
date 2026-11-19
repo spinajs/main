@@ -30,7 +30,7 @@ The way `@spinajs/orm-http` (`.filter()`), `@spinajs/intl-orm` (`.translate()`) 
 3. `Orm.resolve()` installs every registered extension once, before it opens a connection. Every builder of that class then has the methods: model queries, relation queries, `driver.select()` and clones.
 4. A method runs with `this` set to the builder. `this.state()` gives it the builder's model, relations, container, owner relation, connection and `execution`, which says how the builder reaches the database (see the table below).
 5. `onClone(source, clone)` runs whenever a select builder is cloned, so state the extension keeps per builder can follow the copy.
-6. `onMerge(source, target)` runs when a select builder is folded into another one, which is the case for every builder whose `state().execution.kind` is `merged`. For a `populate()` that is when the relation compiles, once: when the query is executed, at `toDB()`, at `count()`, or when a keyset `stream()` starts. For a join callback it is the `join()` call, and again when a query with such a join is cloned. It is synchronous and runs before the target changes; a throw refuses the query.
+6. `onMerge(source, target)` runs when a select builder is folded into another one, which is the case for every builder whose `state().execution.kind` is `merged`. For a `populate()` that is when the relation compiles, once: when the query is executed, at `toDB()`, at `count()`, or when a keyset `stream()` starts. For a join callback it is the `join()` call, and again when a query with such a join is cloned. It is synchronous and runs before the columns, sorts and conditions of the merged builder reach the target; the relation has added its join to the target by then. A throw refuses the query, and a builder whose merge was refused must not be executed again. Hooks run in the order their extensions were installed, and a throw skips the hooks after it. A join callback is merged at the `join()` call, before the statement runs. A `populate()` is merged when the query compiles: for an awaited query or a cursor stream that is after `beforeQueryExecution` of the statement that runs, for `count()` it is at the call, and for a keyset stream before the first page. A many-to-many populate is merged into the junction query, which runs its query middlewares later, on a copy of that query. When a query with a join callback is cloned, the hook runs while the clone is being built, before `onClone`.
 
 `state().execution` of a builder:
 
@@ -69,8 +69,8 @@ A builder that is used as a sub-query also reads `{ kind: 'own' }`: the one a be
 - An extension whose class extends another registered extension's class replaces it. That is how you change a method a package adds.
 - `SelectQueryBuilder.clone()` always builds a plain `SelectQueryBuilder` and copies only the core fields. A subclass type is lost on clone unless you override `clone()`; extension state follows the copy through `onClone`.
 - `clone()` runs no query middleware, so a clone keeps exactly what the original declared.
-- `beforeQueryExecution` of a query middleware never sees a builder whose `state().execution.kind` is `merged`: it runs for the statement the builder was folded into. State an extension keeps on such a builder for a middleware to read is lost unless the extension refuses the call there (throw), as `@spinajs/authz-orm` does for `.accessible()` in a belongsTo `populate()` callback, or moves it to the target in `onMerge`.
-- `onMerge` cannot await. An extension that needs a database round trip for what it found on a merged builder does that work in a `QueryMiddleware` on the statement that runs.
+- `beforeQueryExecution` of a query middleware never sees a builder whose `state().execution.kind` is `merged`: it runs for the statement the builder was folded into. State an extension keeps on such a builder for a middleware to read is lost, so a method that sets it has to refuse the call there (throw), as `@spinajs/authz-orm` does for `.accessible()` in a belongsTo `populate()` callback; `onMerge` is where an extension refuses what reached the merge anyway. Moving the state to the target in `onMerge` reliably reaches a query middleware only for a join callback: a `populate()` is merged when the query compiles, which for an awaited query is after `beforeQueryExecution` of the statement that runs.
+- `onMerge` cannot await. An extension that would need a database round trip for what it finds on a merged builder refuses the query instead.
 - A relation class of your own that folds its query into another builder overrides the protected `relationQueryExecution()` of `NativeOrmRelation`. The default is `{ kind: 'own' }`.
 
 ## Best practices
@@ -79,7 +79,7 @@ A builder that is used as a sub-query also reads `{ kind: 'own' }`: the one a be
 - Type `this` as a generic `This extends MyScope` when the scope must also work on `update()` and `destroy()`; type it as `ISelectQueryBuilder<Model[]> & MyScope` when it is select-only.
 - Use a scope for one model, a query extension for a cross-model concept, and `QueryMiddleware` when callers must not be able to forget it.
 - Put the extension class in the package's entry module, next to the `declare module` block, so the type and the method load together.
-- Keep extension state in a `WeakMap` keyed by the builder, copy it in `onClone`, and decide in `onMerge` what happens to it when the builder is folded into another one: move it, or refuse.
+- Keep extension state in a `WeakMap` keyed by the builder, copy it in `onClone`, and decide in `onMerge` what happens to it when the builder is folded into another one: refuse (throw) when dropping it would change what the query returns. Moving it to the target helps only for a join callback.
 
 ## Patterns and antipatterns
 
