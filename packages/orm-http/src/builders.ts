@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, SelectQueryExtension } from '@spinajs/orm';
+import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, SelectQueryExtension, LikeLiteral } from '@spinajs/orm';
 import type { QueryBuilder } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 import { _is_array, _min_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
@@ -76,18 +76,20 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   },
   'like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}%`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}%`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.contains(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.contains(String(filter.Value)))
   },
+  // `b-like` matches values that END with the text and `e-like` values that BEGIN with it, the reverse of what the
+  // names suggest. The names are kept for compatibility: clients rely on them.
   'b-like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.endsWith(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.endsWith(String(filter.Value)))
   },
   'e-like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value)))
   },
   'between': {
     validate: ValidationHelpers.requireTwoValueArray,
