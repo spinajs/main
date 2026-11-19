@@ -43,6 +43,7 @@ export function mergeInsertResults(results: unknown[]): unknown {
   };
 }
 
+/** @spinajs query insert */
 @NewInstance()
 export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;

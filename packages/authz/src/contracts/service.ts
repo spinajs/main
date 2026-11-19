@@ -12,6 +12,7 @@ import type { AccessPlan } from './plan.js';
 export abstract class AuthzService extends AsyncService {
   abstract readonly domain: string; // 'root' or a child domain name
   abstract current(): Principal; // ALS principal, else UNATTENDED
+  /** @spinajs run-as */
   abstract runAs<T>(principal: Principal, reason: string, fn: () => Promise<T>): Promise<T>;
   abstract check(req: CheckInput): Promise<Decision>;
   abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
