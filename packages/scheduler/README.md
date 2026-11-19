@@ -141,6 +141,56 @@ metric; a data-derived name such as `` `page-${i}` `` grows the series without b
 - `overlap: 'skip'` records a `skipped` run while one is in progress; `overlap: 'queue'` keeps one `queued` run behind it. A `run-once` / `catch-up` occurrence ignores `overlap`: it waits for the schedule lease.
 - `runOn: 'all'` schedules run on every replica from local timers: still recorded as runs, no lease. They ignore `misfire` (after a stall the stale occurrence runs once, then the next after now), do not catch up, and get **no automatic retries** (a `retry` option logs a boot warning). Pause and orphaning stop them from the next tick.
 
+### Occurrences missed while the application was down
+
+The stored next run survives a restart, so the loop's first tick handles what fell into the downtime. `misfire`
+decides by lateness only: `misfire: 'skip'` drops an occurrence the loop sees more than `misfireThreshold` late, so it
+covers a downtime longer than the threshold. An occurrence missed during a shorter restart (a deploy around the top
+of the hour) is less than `misfireThreshold` late and runs as usual. No threshold value avoids both: a larger one
+widens that window, and a smaller one also drops occurrences when a tick is a little late while the application runs.
+
+An application that runs its jobs once itself at start-up, after the pass has finished and before `start()`, marks
+what was due as handled:
+
+```ts
+const scheduler = await DI.resolve(Scheduler, [{ autoStart: false }]);
+await runStartupPass(); // your own pass: runNow + scheduler.runLocally(runId) + scheduler.idle() per job
+for (const name of ['import-rates', 'refresh-cache']) {
+  if (!(await scheduler.markHandled(name))) log.info(`${name}: nothing due to skip, or a loop already took it`);
+}
+scheduler.start();
+```
+
+`markHandled(name)` moves a due stored next run to the next occurrence after now, writes no run row, and logs one
+`info` line with the occurrence it dropped and the new next run. `misfire` stays as configured for later downtimes.
+It returns `true` when it moved the next run and `false` in two cases, which it does not tell apart:
+- Nothing was due. A next run still ahead is kept, on purpose, with no window: if the pass ran the job at 10:59:58,
+  the 11:00 occurrence still runs at 11:00.
+- A loop took the occurrence first: this process's loop if it was already started, or, during a rolling deploy, a
+  replica of the previous version that is still running. That job runs or has run in addition to your pass.
+
+The scheduler fires each occurrence at most once, because both writes are conditional on the stored next run; the
+application's own pass is not counted, so the job can run twice in the second case. An application that needs to
+know lists the scheduler's runs of the job since its pass started:
+
+```ts
+const service = await DI.resolve(SchedulerService);
+const passStartedAt = new Date(); // taken before runStartupPass()
+// ... after markHandled(name) returned false:
+const { items } = await service.listRuns({ schedule: name, trigger: ['schedule', 'catch-up'], from: passStartedAt });
+if (items.length) log.warn(`${name} also ran from the schedule: ${items.map((r) => r.id).join(', ')}`);
+```
+
+It refuses an unknown name
+(`ScheduleNotFound`). It moves the next run of a paused schedule the same way. A schedule with no further occurrence
+(a past `at`) is left with no next run. `runOn: 'all'` schedules store no next run and never catch up, so it is a
+no-op for them and returns `false`.
+
+Two existing mechanisms do not fit:
+- `misfire: 'skip'` decides by lateness, see above.
+- Pausing and resuming a schedule also moves a passed next run. But `resume` also clears an operator's pause or a
+  pause by failures, resets the failure count, and writes audit entries and a health signal.
+
 ## Retries and resume
 
 - `retry.attempts` is the total number of attempts. `backoff: 'fixed'` waits `delay` (default `1m`); `'exponential'` waits `delay × 2^(attempt-1)` with ±10 % jitter, capped by `maxDelay` (default `max(delay, 1h)`).
