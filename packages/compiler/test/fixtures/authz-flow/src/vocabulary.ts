@@ -29,6 +29,11 @@ export const scopedEach = () => [
 
 /** An app's own builder subclass is a select builder through its base. */
 export class PagedInvoices extends SelectQueryBuilder<InvoiceModel> {}
+export class FixedInvoices extends SelectQueryBuilder<InvoiceModel[]> {}
+export class MoreFixedInvoices extends FixedInvoices {}
+/** A composed base argument is not mapped through the chain; the model is read from the subclass's own argument. */
+export class ListOf<T> extends SelectQueryBuilder<T[]> {}
+export declare const listOfInvoices: ListOf<InvoiceModel>;
 
 /** An app's subclass that overrides `clone()`, and an interface that redeclares it. */
 export class Paged<T> extends SelectQueryBuilder<T> {
