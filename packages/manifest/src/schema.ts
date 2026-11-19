@@ -658,6 +658,17 @@ export const manifestSchema: Record<string, any> = {
         "public": {
           "type": "string"
         },
+        "idempotency": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "required"
+          ]
+        },
         "doc": {
           "type": "object",
           "properties": {

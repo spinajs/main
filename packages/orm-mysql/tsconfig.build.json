@@ -22,6 +22,9 @@
     },
     {
       "path": "../orm-sql/tsconfig.build.json"
+    },
+    {
+      "path": "../util/tsconfig.build.json"
     }
   ]
 }

@@ -50,8 +50,8 @@ export class ReplayGate {
   protected aborted = false;
   protected stall?: TimerHandle;
 
-  constructor(rows: StepRow[], causal: boolean, protected readonly onStall: (err: NonDeterminismError) => void, protected readonly stallTimer?: StallTimer) {
-    const recorded = causal ? rows.filter((r) => r.Kind !== 'compensate') : [];
+  constructor(rows: StepRow[], protected readonly onStall: (err: NonDeterminismError) => void, protected readonly stallTimer?: StallTimer) {
+    const recorded = rows.filter((r) => r.Kind !== 'compensate');
     const ordered = recorded.filter((r) => DELIVERED_KINDS.has(r.Kind) && typeof r.Meta?.order === 'number');
     this.order = ordered.sort((a, b) => (a.Meta?.order ?? 0) - (b.Meta?.order ?? 0)).map((r) => r.Key);
     this.remaining = new Set(this.order);

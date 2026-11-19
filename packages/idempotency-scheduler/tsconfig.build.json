@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.build.tsbuildinfo",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../configuration/tsconfig.build.json" },
+    { "path": "../di/tsconfig.build.json" },
+    { "path": "../idempotency/tsconfig.build.json" },
+    { "path": "../scheduler/tsconfig.build.json" }
+  ]
+}

@@ -86,6 +86,10 @@ sequenceDiagram
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()`, after its startup migrations, when a registered model on a configured connection has no table. Not checked when the cached `OrmMigrator` was resolved with `MigrateOnStartup: false` (`resolveMigrationTool()`). |
+| `db.Explain.Enabled` | `boolean` | `false` | `true`, `false` | Record builders slower than `SlowQueryMs` to every `SlowQuerySink`; off, the driver keeps no statement, binding or timestamp. See [Slow queries](13-observability-and-resilience.md#slow-queries). |
+| `db.Explain.SlowQueryMs` | `number` | `200` | ms, `>= 0` | A builder whose statements took at least this long in total is recorded. |
+| `db.Explain.MaxPerMinute` | `integer` | `10` | `>= 0` | EXPLAIN calls per minute; past that a record carries `planError: 'explain rate limit reached'`. |
+| `db.Explain.CaptureBindings` | `boolean` | `false` | `true`, `false` | Keep bindings, the values a plan prints and the EXPLAIN error message in a record. |
 | `db.Models.Source` | `'database' \| 'manifest'` | `'database'` | `'database'`, `'manifest'` | Where model columns come from at boot. `'manifest'` (with `system.manifest.mode = 'require'`) uses `app.manifest.json` and keeps `tableInfo()` for drift checks of declared columns only. See [Model columns from the manifest](23-manifest-model-source.md). |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 

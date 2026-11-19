@@ -43,6 +43,7 @@ export * from './subject-sorter.js';
 export * from './subject-executor.js';
 export * from './unit-of-work.js';
 export * from './driver.js';
+export * from './explain/index.js';
 export * from './introspection.js';
 export * from './quoting.js';
 export * from './wrappers.js';

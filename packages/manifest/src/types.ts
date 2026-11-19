@@ -142,6 +142,7 @@ export interface RouteEntry {
   access?: string[];                 // @Access permissions (authz-http)
   allowAnonymous?: boolean;
   public?: string;                   // @Public reason (http)
+  idempotency?: { required: boolean }; // @Idempotent (http)
   doc?: { summary?: string; description?: string; tags?: string[]; deprecated?: boolean; responses?: { status: number; description?: string; type?: TypeRef }[] };
   /** Id of the controller entry that declared the route, when the controller inherits it. */
   inheritedFrom?: string;
