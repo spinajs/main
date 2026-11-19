@@ -1,8 +1,10 @@
 import * as express from 'express';
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
+import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware } from '../interfaces.js';
 import { __handle_error__ } from '../error.js';
+import { observeErrors } from '../errors/observe.js';
 
 /**
  * Last-resort error handler. Wraps the existing `__handle_error__` factory
@@ -15,6 +17,12 @@ import { __handle_error__ } from '../error.js';
  */
 @Injectable(ServerMiddleware)
 export class ErrorHandlerMiddleware extends ServerMiddleware {
+  @Logger('http')
+  protected Log!: Log;
+
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
   constructor() {
     super();
     this.Order = Number.MIN_SAFE_INTEGER - 1;
@@ -25,6 +33,6 @@ export class ErrorHandlerMiddleware extends ServerMiddleware {
   }
 
   public after(): express.ErrorRequestHandler {
-    return __handle_error__();
+    return observeErrors(__handle_error__(), this.Container, this.Log);
   }
 }
