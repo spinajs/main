@@ -119,6 +119,13 @@ export interface IHttpStaticFileConfiguration {
    * full path to folder with static content
    */
   Path: string;
+
+  /**
+   * `false` leaves the entry unmounted; absent or `true` mounts it; any other value stops the start. Read once, when
+   * the server starts and mounts its folders (so a `ConfigVar` here sees the merged configuration); a later change
+   * neither mounts nor unmounts the folder until the next start.
+   */
+  Enabled?: boolean;
 }
 
 export enum FileTypeEnum {

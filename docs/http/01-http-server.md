@@ -10,7 +10,7 @@
 4. It logs where response templates live (`__fs_http_response_templates__` file provider), or that HTML error pages are off when the provider is missing.
 5. It adds the per-path body limit gate when `http.bodyLimits` has rules (see [Body size limits](04-route-arguments.md#body-size-limits)), then the raw Express handlers from `http.middlewares`, in array order.
 6. It adds each server middleware's `before()` handler, lowest `Order` first.
-7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
+7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. An entry with `Enabled: false` is skipped without a warning, before the dedupe, so it never hides an enabled entry for the same folder; `Enabled` acts only here, at start (see [Static entries switched by configuration](#static-entries-switched-by-configuration)). A missing directory is skipped with a warning.
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
 9. **`start()`** adds each server middleware's `after()` handler once per instance, highest `Order` first, so the error handler ends up last. Then it listens on `http.port` and emits `http.server.listening`.
 10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
@@ -55,7 +55,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
 | `http.middlewares` | `express.RequestHandler[]` | `helmet(...)`, `express.json(...)`, `express.urlencoded(...)`, `express.text(...)`, `configuredCookieParser`, `compression()` | any Express handlers | Raw handlers added first, before every server middleware. Replacing the array drops the defaults. |
 | `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `16kb`, `1mb` | Per-path body limits, applied before `http.middlewares`; see [Body size limits](04-route-arguments.md#body-size-limits). |
-| `http.Static` | `{ Route: string; Path: string }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. |
+| `http.Static` | `{ Route: string; Path: string; Enabled?: boolean }[]` | `[{ Route: '/_static', Path: <package>/lib/static }]` | | Static directories. `Route` defaults to `/static` when empty. `Enabled: false` leaves the entry unmounted; `true`, `false` or absent only, read once at start; see [Static entries switched by configuration](#static-entries-switched-by-configuration). |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` (JSON and HTML) | bit flags `JSON` 1, `HTML` 2, `XML` 4 | Formats the response negotiation offers; see [Responses](10-responses.md#content-negotiation). |
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page | HTML with an optional `{ticket}` | Page sent when even the error page fails to render. |
@@ -105,6 +105,45 @@ export default {
     ],
     cookie: { secret: process.env.COOKIE_SECRET },
     Static: [{ Route: '/assets', Path: '/app/public' }],
+  },
+};
+```
+
+### Static entries switched by configuration
+
+`Enabled` keeps an entry in the list but leaves it unmounted. It is read once, when the server starts and mounts its folders; changing the value later neither mounts nor unmounts the folder until the next start.
+
+`Enabled` must be `true`, `false` or absent. Any other value, such as the string `'false'` from an environment variable, `0` or `null`, stops the start with an `InvalidOption` that names the entry's `Route` and the value's type, so a switch meant to keep a folder closed never opens it by accident. Compare an environment variable instead of passing it through: `Enabled: process.env.DEBUG_STATIC === 'true'`.
+
+A plain value is decided where the config file is written:
+
+```ts sample
+// config/http.ts
+const isProduction = process.env.APP_ENV === 'production';
+
+export default {
+  http: {
+    Static: [{ Route: '/debug', Path: '/app/debug-ui', Enabled: !isProduction }],
+  },
+};
+```
+
+To follow a key that another config file may set, give `Enabled` as a `ConfigVar` that returns a boolean. It is read when the server mounts the folders, after every config file is merged. Arrays from all files are concatenated, so the entry stays in the list either way:
+
+```ts sample
+// config/http.ts
+import { ConfigVar, Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
+
+export default {
+  http: {
+    Static: [
+      {
+        Route: '/debug',
+        Path: '/app/debug-ui',
+        Enabled: new ConfigVar(() => DI.get<Configuration>(Configuration)?.get<boolean>('app.debugUi', false) === true),
+      },
+    ],
   },
 };
 ```
