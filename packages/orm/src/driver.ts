@@ -20,6 +20,7 @@ import type { IConnectionResilienceOptions } from './resilience.js';
 import { ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
 import type { IPoolMetrics } from './metrics.js';
 import type { LiveForeignKey, LiveIndex } from './introspection.js';
+import type { QueryPlan } from './explain/types.js';
 import './hydrators.js';
 import './dehydrators.js';
 
@@ -106,6 +107,16 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
     return this._ansiQuotedIdentifiers;
   }
+
+  /**
+   * Plans a single read statement without running it. Optional: the slow-query capture records
+   * statements of a driver without it, with no plan. Runs outside the ambient transaction, so on a
+   * driver without concurrent transactions (sqlite without a read pool, PGlite) it cannot run until
+   * an open transaction ends: never await it inside one. `rawSql` says whether the statement holds
+   * caller-written SQL (`ExecutedStatement.rawSql`); a driver must refuse such text that
+   * `isExplainable` rejects, and absent, the text counts as caller-written.
+   */
+  public explain?(sql: string, bindings: unknown[], rawSql?: boolean): Promise<QueryPlan>;
 
   constructor(options: T) {
     super();

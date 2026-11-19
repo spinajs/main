@@ -22,6 +22,10 @@ describe('sanitizeSql', () => {
     expect(sanitizeSql("SELECT 'it''s', 1.5")).to.equal('SELECT ?, ?');
   });
 
+  it('replaces exponent and hex number literals whole', () => {
+    expect(sanitizeSql('SELECT * FROM t WHERE a = 1e10 AND b = 0xDEADBEEF AND c = 1.5e3 AND d = 1e-7')).to.equal('SELECT * FROM t WHERE a = ? AND b = ? AND c = ? AND d = ?');
+  });
+
   it('drops the statement from the literal that holds a backslash on, whichever way the server reads the escape', () => {
     const mysql = "SELECT * FROM `users` WHERE `Kind` = 'a' AND `Name` = 'O\\'Brien' AND `Ssn` = '123-45-6789'";
     expect(sanitizeSql(mysql)).to.equal('SELECT * FROM `users` WHERE `Kind` = ? AND `Name` = ?');

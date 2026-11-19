@@ -81,6 +81,16 @@ export function failStatementSpan(span: Span, err: unknown): void {
   span.end();
 }
 
+/** A cursor that fails to close fails the stream's span too. */
+export async function closeStreamCursor(rows: AsyncIterator<unknown>, span: Span): Promise<void> {
+  try {
+    await rows.return?.();
+  } catch (err) {
+    markSpanErrorType(span, err);
+    throw err;
+  }
+}
+
 export function spanIds(span: Span): { traceId?: string; spanId?: string } {
   const ctx = span.spanContext();
   return isSpanContextValid(ctx) ? { traceId: ctx.traceId, spanId: ctx.spanId } : {};
