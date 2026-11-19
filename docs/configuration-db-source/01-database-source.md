@@ -13,7 +13,8 @@
 7. `CheckTable()` calls `schema().tableExists(table)`. A missing table logs a warning: run the migration first.
 8. `Load()` selects every row of the table and keeps the rows whose `Exposed` value is truthy. The filter runs in memory, so it works for any boolean storage.
 9. `DbConfigValueConverter.fromDB()` converts each `Value` according to the row's `Type` column. See [Entry types](04-entry-types-and-converter.md).
-10. `Load()` returns an object built with `_.set(result, row.Slug, row.Value)`. `FrameworkConfiguration` merges it into the config.
+10. `Load()` checks each row, in `Id` order, against the configuration schemas of its module, and skips a row they refuse. See [Important behaviour](#important-behaviour).
+11. `Load()` returns an object built with `_.set(result, row.Slug, row.Value)` from the rows it kept. `FrameworkConfiguration` merges it into the config.
 
 `Load()` never throws. Every failure in steps 3 to 8 is logged on the `configuration-db-source` channel and the source returns `{}`.
 
@@ -32,6 +33,8 @@ sequenceDiagram
   S->>DB: SELECT * FROM table
   DB-->>S: rows
   S->>S: keep Exposed rows, fromDB(Value, Type)
+  S->>C: violationsAdded(Slug, Value, rows kept so far)
+  C-->>S: violations; a refused row is skipped and logged
   S-->>C: { [Slug]: Value }
 ```
 
@@ -110,6 +113,8 @@ The migration's `down()` drops the `configuration` table.
 - **`onLoad()` is too late.** `FrameworkConfiguration` merges `onLoad()` and the `__configuration__` DI values after all sources ran. Put `db.Connections` in a config file or a `StaticConfigurationSource` with a lower `Order`.
 - **Partial options are completed.** Schema defaults are applied only after all sources ran, so `Load()` fills them in itself: `{ table: 'app_settings' }` reads from the `default` connection.
 - **Database wins.** The source loads last, and a later source overrides earlier ones for the same key.
+- **A refused row is skipped, not fatal.** A row whose value the registered configuration schemas refuse does not reach the configuration, so the boot goes on with the value from the config files, or the schema default. The source logs `configuration row <Slug> refused: <violation>`, for example `configuration row heatpump.limit refused: heatpump.limit must be <= 25`, on the `configuration-db-source` channel. Correct the row in the database and restart, or call `Configuration.load()`.
+- **Rows are checked one at a time.** Each row is checked, in `Id` order, against the configuration the earlier sources loaded plus the rows already kept. A row is refused only for a violation it adds: a module that is incomplete until `onLoad()` or a `__configuration__` value fills it does not get its rows refused. Two rows that are valid only together can lose the first one: with `min: 10, max: 20` in a file and a schema that wants `max >= min`, the rows `min = 30` and then `max = 40` load as `min: 10, max: 40`, because `min = 30` is checked while `max` is still `20`. A row no schema covers is merged unchecked.
 - **`Group` is not a path segment.** A row with `Slug: 'mailer.from'` and `Group: 'mailer'` is read at `mailer.from`, never at `mailer.mailer.from`.
 - **Hidden rows stay hidden.** A row with `Exposed` = `0` is never loaded, even when its `Slug` matches a `@Config` option.
 - **Reload rereads.** `Configuration.load()` runs every source again, this one included.
