@@ -82,7 +82,7 @@ describe('permissioned signals (D7)', () => {
     TestSignalAuthorizer.decide = (principal) => principal === 'boss';
     const { id } = await service.start('au-approval', 7);
     await r1.tick();
-    expect(pick((await stepsOf(id))[0], 'Status', 'Meta')).to.deep.equal({ Status: 'pending', Meta: { timeoutAt: null, permission: 'orders:approve', resource: { order: 7 }, after: 0 } });
+    expect(pick((await stepsOf(id))[0], 'Status', 'Meta')).to.deep.equal({ Status: 'pending', Meta: { timeoutAt: null, permission: 'orders:approve', resource: { order: 7 }, after: 0, call: 1 } });
     await service.signal(id, 'approved', 'later', { principal: 'boss' });
     await r1.tick();
     expect((await instance(id)).Result).to.deep.equal({ by: 'boss', note: 'later' });

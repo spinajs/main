@@ -12,3 +12,5 @@ export class DocsController extends BaseController {
   @Access('doc:create')
   public async create(): Promise<void> {}
 }
+// spinajs-authz-ignore AUTHZ001:
+// a marker without a reason on its own line

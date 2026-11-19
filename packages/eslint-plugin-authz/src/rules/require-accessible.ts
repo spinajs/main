@@ -24,8 +24,6 @@ export const SCOPING_MEMBERS: ReadonlySet<string> = new Set(['accessible', 'unsc
 export interface RequireAccessibleOptions {
   /** Class names to treat as `@AccessResource` models: decorators do not survive into `.d.ts` files. */
   readonly resources?: readonly string[];
-  /** Any `runAs(...)` callback exempts its queries, as before 4.0; by default only `runAs(SYSTEM, reason)` does. Removed in 5.0. */
-  readonly legacyRunAsExemption?: boolean;
 }
 
 export type RequireAccessibleMessageIds = 'unscopedQuery' | 'unscopedShortcut';
@@ -39,18 +37,18 @@ const memberName = (node: TSESTree.MemberExpression): string | undefined => (!no
 const isSystem = (arg: TSESTree.Node | undefined): boolean =>
   (arg?.type === AST_NODE_TYPES.Identifier && arg.name === 'SYSTEM') || (arg?.type === AST_NODE_TYPES.MemberExpression && memberName(arg) === 'SYSTEM');
 
-/** `runAs(SYSTEM, reason, fn)`; with `anyPrincipal`, a callback of any `runAs(...)`. */
-function isRunAsCallback(fn: TSESTree.Node, anyPrincipal: boolean): boolean {
+/** The callback of `runAs(SYSTEM, reason, fn)` or `x.runAs(SYSTEM, reason, fn)`. */
+function isRunAsCallback(fn: TSESTree.Node): boolean {
   const call = fn.parent;
   if (call?.type !== AST_NODE_TYPES.CallExpression || !call.arguments.some((a) => a === fn)) return false;
   const callee = call.callee;
   const runAs = (callee.type === AST_NODE_TYPES.Identifier && callee.name === 'runAs') || (callee.type === AST_NODE_TYPES.MemberExpression && memberName(callee) === 'runAs');
-  return runAs && (anyPrincipal || isSystem(call.arguments[0]));
+  return runAs && isSystem(call.arguments[0]);
 }
 
-function insideRunAs(node: TSESTree.Node, anyPrincipal: boolean): boolean {
+function insideRunAs(node: TSESTree.Node): boolean {
   for (let n: TSESTree.Node | undefined = node.parent; n; n = n.parent) {
-    if ((n.type === AST_NODE_TYPES.ArrowFunctionExpression || n.type === AST_NODE_TYPES.FunctionExpression) && isRunAsCallback(n, anyPrincipal)) return true;
+    if ((n.type === AST_NODE_TYPES.ArrowFunctionExpression || n.type === AST_NODE_TYPES.FunctionExpression) && isRunAsCallback(n)) return true;
   }
   return false;
 }
@@ -98,17 +96,16 @@ export const requireAccessible = createRule<[RequireAccessibleOptions], RequireA
     schema: [
       {
         type: 'object',
-        properties: { resources: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true }, legacyRunAsExemption: { type: 'boolean' } },
+        properties: { resources: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
         additionalProperties: false,
       },
     ],
   },
-  defaultOptions: [{ resources: [], legacyRunAsExemption: false }],
+  defaultOptions: [{ resources: [] }],
   create(context, [options]) {
     const services = ESLintUtils.getParserServices(context);
     const checker = services.program.getTypeChecker();
     const extra = new Set(options.resources ?? []);
-    const anyRunAs = options.legacyRunAsExemption === true;
     const cache = new Map<ts.Symbol, boolean>();
 
     const classOf = (node: TSESTree.Node): ts.Symbol | undefined => {
@@ -125,7 +122,7 @@ export const requireAccessible = createRule<[RequireAccessibleOptions], RequireA
         if (!QUERY_ROOTS.has(root) && !KEY_LIST_READS.has(root) && !READ_SHORTCUTS.has(root)) return;
         if (callee.object.type !== AST_NODE_TYPES.Identifier && callee.object.type !== AST_NODE_TYPES.MemberExpression) return;
         const model = classOf(callee.object);
-        if (!isAccessResourceClass(model, checker, extra, cache) || insideRunAs(node, anyRunAs)) return;
+        if (!isAccessResourceClass(model, checker, extra, cache) || insideRunAs(node)) return;
 
         const name = context.sourceCode.getText(callee.object);
         if (!QUERY_ROOTS.has(root)) {

@@ -50,6 +50,9 @@ describe('middlewares mounted by factory decorators', () => {
       SlowThreshold: '@spinajs/http:SlowThresholdMiddleware',
       Unscoped: '@spinajs/authz-http:UnscopedMiddleware',
       IpThrottle: '@spinajs/authn-http:AuthnIpThrottleMiddleware',
+      TenantRoute: '@spinajs/tenancy-http:TenantMiddleware',
+      NoTenant: '@spinajs/tenancy-http:TenantMiddleware',
+      AllTenants: '@spinajs/tenancy-http:TenantMiddleware',
     });
     expect(FACTORY_MIDDLEWARES.IpThrottle.args).to.deep.equal([0, 2]);
   });

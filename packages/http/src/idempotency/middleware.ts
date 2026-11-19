@@ -13,11 +13,12 @@ import type { ResponseFunction } from '../interfaces.js';
 import { REPLAY_BEFORE_POLICY, sendReply } from '../reply-pipeline.js';
 import type { IReplaysBeforePolicy } from '../reply-pipeline.js';
 import { _setHeaders } from '../responses.js';
-import type { IRoute, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
+import type { IRoute, IRouteInvocation, IRouteMiddlewareDoc, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
 import { RouteClientGone, RouteRegistrationException } from '../exceptions.js';
 import type { CapturedJsonReply } from '../response-capture.js';
 import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER, parseIdempotencyKey } from './options.js';
 import type { ResolvedIdempotentOptions } from './options.js';
+import { idempotencyDocumentation } from './documentation.js';
 
 type ErrorClass = abstract new (...args: never[]) => Error;
 
@@ -210,6 +211,10 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
       isShared: idempotency.isSharedScope,
       isRandomKey: idempotency.isRandomKey,
     };
+  }
+
+  public override documentation(): IRouteMiddlewareDoc {
+    return idempotencyDocumentation(this.options.required);
   }
 
   public async onAround({ req, res }: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void> {

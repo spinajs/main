@@ -344,8 +344,8 @@ describe('saga compensation (D6)', () => {
 
   it('a run that no longer matches its journal fails with non-determinism and compensates nothing', async () => {
     await seedInstance('changed', { Workflow: 'saga-changed' });
-    await seedStep('changed', 1, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 0, order: 1 } });
-    await seedStep('changed', 2, 'step:pack#1', { Meta: { after: 1, order: 2 } });
+    await seedStep('changed', 1, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 0, order: 1, call: 1 } });
+    await seedStep('changed', 2, 'step:pack#1', { Meta: { after: 1, order: 2, call: 2 } });
     await r1.tick();
     expect(pick(await instance('changed'), 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'non-determinism' });
     expect(effects).to.deep.equal([]);

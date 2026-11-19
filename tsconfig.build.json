@@ -209,6 +209,9 @@
       "path": "packages/workflow/tsconfig.build.json"
     },
     {
+      "path": "packages/workflow-http/tsconfig.build.json"
+    },
+    {
       "path": "packages/threading/tsconfig.build.json"
     },
     {
@@ -287,6 +290,9 @@
       "path": "packages/authz-queue/tsconfig.build.json"
     },
     {
+      "path": "packages/authz-workflow/tsconfig.build.json"
+    },
+    {
       "path": "packages/authz-fs/tsconfig.build.json"
     },
     {
@@ -318,6 +324,9 @@
     },
     {
       "path": "packages/idempotency/tsconfig.build.json"
+    },
+    {
+      "path": "packages/idempotency-scheduler/tsconfig.build.json"
     },
     {
       "path": "packages/authn/tsconfig.build.json"
