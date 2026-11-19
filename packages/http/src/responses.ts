@@ -132,6 +132,31 @@ export function xmlResponse(model: any, options?: IResponseOptions, xmlOptions?:
 }
 
 /**
+ * Last resort when no template can answer, for example `serverError.pug` missing from a build that skipped
+ * copy-static: `http.FatalTemplate` for an HTML client, plain text otherwise.
+ */
+function sendFatalPage(req: express.Request, res: express.Response, failure: Record<string, unknown>): void {
+  const ticket = randomstring.generate(7);
+  DI.resolve(Log, ['http']).error({ ...failure, ticket }, 'No html template could answer, sent the fatal page, ticket: ${ticket}');
+
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+
+  const fatalTemplate = DI.get(Configuration)?.get<string>('http.FatalTemplate');
+  res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+
+  if (fatalTemplate && req.accepts('html')) {
+    res.set('Content-Type', 'text/html');
+    res.send(fatalTemplate.replace('{ticket}', ticket));
+  } else {
+    res.set('Content-Type', 'text/plain');
+    res.send(`Internal server error, ticket ${ticket}`);
+  }
+}
+
+/**
  * Sends html response & sets proper header. If template is not avaible, handles proper error rendering.
  *
  * @param file - template file path
@@ -139,26 +164,26 @@ export function xmlResponse(model: any, options?: IResponseOptions, xmlOptions?:
  * @param status - optional status code
  */
 export function htmlResponse(file: string, model: any, options?: IResponseOptions) {
-  const cfg: Configuration = DI.get(Configuration)!;
-
   return (req: express.Request, res: express.Response) => {
     if (!req.accepts('html')) {
       const f = getFs('__fs_http_response_templates__');
-      f.download('serverError.pug').then((file) => {
-        httpResponse(
-          {
-            error: {
-              message: 'invalid request content type',
-              code: 400,
+      f.download('serverError.pug')
+        .then((file) => {
+          httpResponse(
+            {
+              error: {
+                message: 'invalid request content type',
+                code: 400,
+              },
             },
-          },
-          file,
-          {
-            ...options,
-            StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
-          },
-        )(req, res);
-      });
+            file,
+            {
+              ...options,
+              StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
+            },
+          )(req, res);
+        })
+        .catch((err) => sendFatalPage(req, res, { error: err, file: 'serverError.pug' }));
 
       return;
     }
@@ -169,25 +194,14 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
     _setHeaders(res, options);
 
     _render(file, model, options?.StatusCode ? options.StatusCode : HTTP_STATUS_CODE.OK).catch((err) => {
-      const log: Log = DI.resolve(Log, ['http']);
-
-      log.warn({ error: err, file }, 'Cannot render html file ${file}');
-
       const fs = getFs('__fs_http_response_templates__');
-      fs.download('serverError.pug').then((file) => {
+      fs.download('serverError.pug')
         // try to render server error response
-        _render(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
-          const log: Log = DI.resolve(Log, ['http']);
-
-          // final fallback rendering error fails, we render embedded html error page
-          const ticketNo = randomstring.generate(7);
-
-          log.warn({ error: err2, originalError: err, ticket: ticketNo }, 'Cannot render pug file, ticket: ${ticket}, original error: ${originalError}');
-
-          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-          res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
-        });
-      });
+        .then((serverErrorFile) => _render(serverErrorFile, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR))
+        .then(() => {
+          DI.resolve(Log, ['http']).warn({ error: err, file }, 'Cannot render html file ${file}');
+        })
+        .catch((err2) => sendFatalPage(req, res, { error: err2, originalError: err, file }));
     });
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {
@@ -264,20 +278,20 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
         htmlResponse(file, model, options)(req, res);
       })
       .catch((err) => {
-        const log: Log = DI.resolve(Log, ['http']);
-
-        log.warn({ error: err, file: template }, 'Cannot render html file ${file}');
-        fs.download('serverError.pug').then((file) => {
-          // try to render server error response
-          htmlResponse(
-            file,
-            { error: err },
-            {
-              ...options,
-              StatusCode: HTTP_STATUS_CODE.INTERNAL_ERROR,
-            },
-          )(req, res);
-        });
+        fs.download('serverError.pug')
+          .then((file) => {
+            DI.resolve(Log, ['http']).warn({ error: err, file: template }, 'Cannot render html file ${file}');
+            // try to render server error response
+            htmlResponse(
+              file,
+              { error: err },
+              {
+                ...options,
+                StatusCode: HTTP_STATUS_CODE.INTERNAL_ERROR,
+              },
+            )(req, res);
+          })
+          .catch((err2) => sendFatalPage(req, res, { error: err2, originalError: err, file: template }));
       });
   };
 

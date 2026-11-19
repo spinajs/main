@@ -4499,17 +4499,11 @@
     }
   },
   "packages/http/src/responses.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-enum-comparison": {
       "count": 4
     },
     "promise/always-return": {
       "count": 5
-    },
-    "promise/catch-or-return": {
-      "count": 3
     }
   },
   "packages/http/src/route-args/FromBody.ts": {

@@ -17,7 +17,7 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
 
 1. Offers the formats enabled in `http.AcceptHeaders`, in this order: `json`, `html`, `xml`. JSON comes first so `*/*` or a missing `Accept` gets JSON.
 2. Picks the best with `req.accepts(offered)`, which honours the client's order and `q` values.
-3. **HTML**: downloads `template` from the `__fs_http_response_templates__` provider and renders it with `Templates` (pug), the data as the model. A missing template or a render error renders `serverError.pug` with status 500; when that fails too, it sends `http.FatalTemplate` with a random 7-character ticket.
+3. **HTML**: downloads `template` from the `__fs_http_response_templates__` provider and renders it with `Templates` (pug), the data as the model. A missing template or a render error renders `serverError.pug` with status 500. When that fails too, or `serverError.pug` itself is missing, it answers 500 with `http.FatalTemplate` and a random 7-character ticket, or with plain text naming the ticket for a client that does not accept HTML. It logs one `error` line on the `http` logger with the ticket. The templates reach `lib/views` through the root `copy-static` step; a package built without that step has none.
 4. **JSON**:
    - status 400 or above: runs the error [data transformer](12-data-transformers.md) named in `x-error-transform` (default `default-http-error-transform`);
    - an `x-data-transform` header: runs that data transformer;
