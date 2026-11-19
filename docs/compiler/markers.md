@@ -11,7 +11,7 @@ A value is one word. Text after it is comment text. A marker reaches other packa
 
 | Role | Value | On | Read by |
 |---|---|---|---|
-| `query` | `select`, `update`, `delete`, `insert` | an ORM query builder class or interface; subclasses inherit it | the authz flow pass (`builderOf`), which follows `select`, `update` and `delete`. Any other value than these four fails the compile. |
+| `query` | `select`, `update`, `delete`, `insert` | an ORM query builder class or interface; subclasses inherit it | the authz flow pass (`builderOf`), which follows `select`, `update` and `delete`. Any other value than these four fails the compile, with the file and line of the declaration that carries it. |
 | `copy` | none | a builder method that returns a copy of the builder (`clone()`) | the flow tracer: calls after it change the copy. A member that overrides a marked one is a copy as well |
 | `authz-scope` | `accessible`, `unscoped` | a builder method that scopes the query it is called on | the query tracers. A member that overrides a marked one scopes nothing |
 | `run-as` | none | a method `(principal, reason, fn)` that runs `fn` as `principal` | `isSystemRunAs` |

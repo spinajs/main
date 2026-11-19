@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import ts from 'typescript';
-import { createProgramFromTsconfig, declarationMarker, isAsyncIterable, isAwaitable, symbolMarker, typeMarker } from '../src/index.js';
+import { createProgramFromTsconfig, declarationMarker, isAsyncIterable, isAwaitable, markedType, symbolMarker, typeMarker } from '../src/index.js';
 
 describe('declaration markers', () => {
   const loaded = createProgramFromTsconfig('test/fixtures/markers/tsconfig.json');
@@ -45,6 +45,24 @@ describe('declaration markers', () => {
     expect(typeMarker(checker, typeOf('sub'), 'query')).to.equal('select');
     expect(typeMarker(checker, typeOf('more'), 'query')).to.equal('update');
     expect(typeMarker(checker, checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation((declared('Plain') as ts.ClassDeclaration).name!)!), 'query')).to.equal(undefined);
+  });
+
+  it('tells the declaration that carries a type marker and the type arguments the asked type gives it', () => {
+    const marked = (name: string) => {
+      const found = markedType(checker, typeOf(name), 'query');
+      if (found === undefined) return undefined;
+      const carrier = found.declaration as ts.ClassDeclaration | ts.InterfaceDeclaration;
+      return [found.value, carrier.name?.text, found.declaration.getSourceFile().fileName.split('/').at(-1), found.typeArguments.map((t) => checker.typeToString(t))];
+    };
+    expect(marked('base')).to.deep.equal(['select', 'Base', 'index.ts', ['number']]);
+    expect(marked('sub')).to.deep.equal(['select', 'Base', 'index.ts', ['number']]);
+    expect(marked('sub2')).to.deep.equal(['select', 'Base', 'index.ts', ['boolean']]);
+    expect(marked('fixed')).to.deep.equal(['select', 'Base', 'index.ts', ['string[]']]);
+    expect(marked('fixed2')).to.deep.equal(['select', 'Base', 'index.ts', ['string[]']]);
+    expect(marked('more')).to.deep.equal(['update', 'IUpd', 'index.ts', ['string']]);
+    // A composed argument keeps the carrier's own text: `T[]` is not mapped to `number[]`.
+    expect(marked('composed')).to.deep.equal(['select', 'Base', 'index.ts', ['T[]']]);
+    expect(markedType(checker, typeOf('service'), 'query')).to.equal(undefined);
   });
 
   it('tells awaitable and async-iterable results from plain ones', () => {
