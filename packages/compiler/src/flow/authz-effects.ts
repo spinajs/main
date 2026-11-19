@@ -46,7 +46,6 @@ type QueryKind = Exclude<BuilderKind, 'other'>;
 const FOLLOWED: ReadonlySet<string> = new Set(['select', 'update', 'delete']);
 const isFollowed = (value: string): value is QueryKind => FOLLOWED.has(value);
 
-const isReference = (t: ts.Type): t is ts.TypeReference => 'objectFlags' in t && typeof t.objectFlags === 'number' && (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
 const isUntyped = (t: ts.Type): boolean => (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
 
 /** `type` without `null`/`undefined`, an open type as its constraint, and unions and intersections as their members. */
@@ -91,9 +90,8 @@ export function builderOf(checker: ts.TypeChecker, type: ts.Type): { kind: Build
   for (const part of partsOf(checker, type)) {
     const query = markedQuery(checker, part);
     if (query === undefined) continue;
-    const [own] = isReference(part) ? checker.getTypeArguments(part) : [];
-    // A composed base argument (`T[]`) is not mapped, so the part's own argument names the model then, as it did before.
-    return { kind: query.kind, model: modelOf(checker, query.typeArguments[0]) ?? modelOf(checker, own) };
+    // A composed base argument (`T[]`) is not mapped, so it names no model.
+    return { kind: query.kind, model: modelOf(checker, query.typeArguments[0]) };
   }
   return undefined;
 }
