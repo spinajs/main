@@ -181,7 +181,8 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.
 - `db.Connections[].DefaultConnection: true` has no effect. Only `db.DefaultConnection` creates the `default` entry.
 - An unknown target in `db.Aliases` logs `Connection alias <alias> points at <name>, which does not exist; models and migrations on <alias> are skipped`, and boot continues. A package can therefore default an alias (`db.Aliases.authz: 'default'`) without breaking an app that has no `default` connection.
-- Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 10.
+- Model static methods (`where`, `get`, `query`, ...) work once `Orm.resolve()` has bound the model; `Orm` installs them in step 10. Until then they throw an `OrmException`: `Model <Name> is not bound to the Orm ...`.
+- Every model is registered before the `Orm` resolves. `Orm.resolve()` binds the `@Model()` classes whose modules were imported by then and never binds a model registered later, so a model imported afterwards throws the same `OrmException` on every static call. Import each module and package that declares models before `DI.resolve(Orm)`, including the packages whose controllers or services use them (an installed `@spinajs/scheduler-http` needs `@spinajs/scheduler`, for example).
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
 - Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
 - `orm.reloadTableInfo(options?: IReloadTableInfoOptions)` only warns unless passed `{ strict: true }`. `models` limits the read to those model classes; `strict` then still covers every registered model: one an earlier read recorded missing is read again, so a table created since counts as present. `OrmMigrator.migrate()` calls it with the models its migrations touched.
@@ -201,13 +202,23 @@ export async function bootstrapDatabase(): Promise<Orm> {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: model statics are installed by Orm.resolve(); this throws "Not implemented"
+// Don't: model statics are installed by Orm.resolve(); this throws "Model Invoice is not bound to the Orm"
 const unpaid = await Invoice.where('Status', 'unpaid');
 await DI.resolve(Orm);
 
 // Do
 await DI.resolve(Orm);
 const unpaid = await Invoice.where('Status', 'unpaid');
+```
+
+```ts
+// Don't: a model imported after the Orm resolved is never bound, and every static call throws
+await DI.resolve(Orm);
+const { Invoice } = await import('./models/Invoice.js');
+
+// Do: import every module that declares models first
+import { Invoice } from './models/Invoice.js';
+await DI.resolve(Orm);
 ```
 
 ```ts

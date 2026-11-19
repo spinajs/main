@@ -109,7 +109,7 @@ await driver.transaction(async () => reserveStock(orderId), { isolation: 'SERIAL
 - **`afterCommit` callbacks run outside the transaction.** `CurrentTransaction` is `undefined` inside them, and the connection is already released.
 - **The identity map lives as long as the transaction.** Every `save()` inside one transaction shares `ITransactionContext.IdentityMap`; it is discarded with the context. See [Unit of work](07-unit-of-work.md#important-behaviour).
 - **In-memory models are not rolled back.** A rollback restores the database, not model fields or snapshots set by statements that ran inside it.
-- **`ModelBase.transaction` needs a booted model.** `Orm` installs the static mixin on registered models; on a class it never registered, the call throws `Not implemented`.
+- **`ModelBase.transaction` needs a booted model.** `Orm` installs the static mixin on registered models; on a class it never registered, the call throws an `OrmException` (`Model <Name> is not bound to the Orm ...`).
 - **Isolation on a nested call is ignored.** It is still validated against `SupportedIsolationLevels`, so an unsupported level throws even when nested.
 
 ## Best practices
