@@ -131,8 +131,8 @@ export class MySqlOrmDriver extends SqlDriver {
     return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
   }
 
-  public async explain(sql: string, bindings: unknown[]): Promise<QueryPlan> {
-    return normalizeMysqlPlan(await this.runExplain('EXPLAIN FORMAT=JSON', sql, bindings));
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizeMysqlPlan(await this.runExplain('EXPLAIN FORMAT=JSON', sql, bindings, rawSql));
   }
 
   /**
