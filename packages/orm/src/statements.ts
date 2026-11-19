@@ -365,7 +365,11 @@ export abstract class JoinStatement extends QueryStatement {
     }
 
     const to = copy._whereBuilder.getColumns();
-    this._whereBuilder.getColumns().forEach((c, k) => copies.set(c, to[k]));
+    this._whereBuilder.getColumns().forEach((c, k) => {
+      if (k < to.length) {
+        copies.set(c, to[k]);
+      }
+    });
     return copies;
   }
 
