@@ -56,6 +56,11 @@ function targetsOf(log: Log): Array<{ instance: any; options: any; ranges: any }
 // Base config: one MemoryTarget-backed logger via our recording target so the
 // starting state is a single, known sink.
 class RuntimeTargetsConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },

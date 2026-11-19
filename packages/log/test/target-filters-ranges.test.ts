@@ -29,10 +29,17 @@ function targetsOf(log: Log): Array<{ instance: any; rule: any; ranges: any }> {
   return (log as any).Targets;
 }
 
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Feature A: a rule with a level WINDOW ( level..maxLevel ).
 // ---------------------------------------------------------------------------
-class LevelRangeConfiguration extends FrameworkConfiguration {
+class LevelRangeConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -74,7 +81,7 @@ describe("target-filters-ranges - level range ( maxLevel )", () => {
 // ---------------------------------------------------------------------------
 // Feature A: DISJOINT windows to the SAME target ( union, not a single min ).
 // ---------------------------------------------------------------------------
-class DisjointWindowsConfiguration extends FrameworkConfiguration {
+class DisjointWindowsConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -120,7 +127,7 @@ describe("target-filters-ranges - disjoint windows union", () => {
 // ---------------------------------------------------------------------------
 // Feature B: per-target filter isolation ( MatchFilter drop on ONE target only ).
 // ---------------------------------------------------------------------------
-class PerTargetFilterConfiguration extends FrameworkConfiguration {
+class PerTargetFilterConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -167,7 +174,7 @@ describe("target-filters-ranges - per-target filter isolation", () => {
 // ---------------------------------------------------------------------------
 // Feature B: per-target MUTATION isolation ( WhenRepeated's (xN) must not bleed ).
 // ---------------------------------------------------------------------------
-class PerTargetMutationConfiguration extends FrameworkConfiguration {
+class PerTargetMutationConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },

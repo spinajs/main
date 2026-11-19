@@ -15,6 +15,11 @@ import type { IFileTargetOptions } from "@spinajs/log-common";
  */
 export function makeConfig(activeBase: string, archiveBase: string, activeName: string, archiveName: string) {
   return class extends FrameworkConfiguration {
+    // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+    protected loadSources(): void {
+      this.Sources = [];
+    }
+
     protected onLoad() {
       return {
         logger: {
