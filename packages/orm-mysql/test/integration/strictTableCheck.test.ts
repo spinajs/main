@@ -31,6 +31,11 @@ let database = '';
 let strictSetting: boolean | undefined;
 
 class StrictMySqlConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 

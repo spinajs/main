@@ -15,6 +15,13 @@ import { IMigrateStatusCommandOptions, MigrateCreateCommand, MigrateDownCommand,
 
 const expect = chai.expect;
 
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
 /**
  * Writes one sqlite connection plus a logger wired to nothing into a configuration object.
  *
@@ -41,7 +48,7 @@ function applyConnectionConf(config: any, connection: Record<string, unknown>) {
  * One in-memory sqlite connection, named and with its own tracking table.
  */
 function connectionConf(name: string, table: string): Class<FrameworkConfiguration> {
-  return class extends FrameworkConfiguration {
+  return class extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
@@ -484,7 +491,7 @@ describe('orm-cli --connection', function () {
   const FIRST_MIGRATION = 'OrmCliConnOne_2021_07_01_00_00_00';
   const SECOND_MIGRATION = 'OrmCliConnTwo_2021_07_02_00_00_00';
 
-  class TwoConnectionConf extends FrameworkConfiguration {
+  class TwoConnectionConf extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
@@ -761,7 +768,7 @@ describe('orm-cli against a FAILED row', function () {
   let scratch = '';
   let dbFile = '';
 
-  class StartupFailedConf extends FrameworkConfiguration {
+  class StartupFailedConf extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
@@ -1417,7 +1424,7 @@ describe('migrate-status pending order across connections', function () {
   const FIRST_CONNECTION = 'orm-cli-order-one';
   const SECOND_CONNECTION = 'orm-cli-order-two';
 
-  class OrderConf extends FrameworkConfiguration {
+  class OrderConf extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
@@ -1649,7 +1656,7 @@ describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', functi
   const FIRST = 'OrmCliSeedA_2021_10_01_00_00_00';
   const SECOND = 'OrmCliSeedB_2021_10_02_00_00_00';
 
-  const Conf = class OrmCliSeedConf extends FrameworkConfiguration {
+  const Conf = class OrmCliSeedConf extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
       applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: TRACKING_TABLE } });
@@ -1795,7 +1802,7 @@ describe('migrate-up --dry-run against a FAILED migration', function () {
   const BOOM = 'OrmCliDryBoom_2021_11_01_00_00_00';
   const NEXT = 'OrmCliDryNext_2021_11_02_00_00_00';
 
-  const Conf = class OrmCliDryFailedConf extends FrameworkConfiguration {
+  const Conf = class OrmCliDryFailedConf extends NoSourcesConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
       applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: 'orm_cli_dry_failed_migrations' } });

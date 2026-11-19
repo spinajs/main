@@ -16,6 +16,11 @@ const TABLES = TableSetDriver.Tables;
 const MODEL_TABLES = ['tool_missing_first', 'tool_missing_second'];
 
 class ToolMissingConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 

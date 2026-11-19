@@ -20,6 +20,8 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     "Connection('sqlite')(Doc);",
     "Model('doc')(Doc);",
     'class Config extends FrameworkConfiguration {',
+    // The test is written against no package config; the file sources would load every installed @spinajs package's.
+    '  loadSources() { this.Sources = []; }',
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.logger = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };",

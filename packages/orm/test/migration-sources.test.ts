@@ -286,6 +286,10 @@ describe('FilesystemMigrationSource default directories - build, bare migrations
 });
 
 describe('currentBuildMigrationDir', () => {
+  let esmModeBefore: unknown;
+  before(() => (esmModeBefore = DI.get('__esmMode__')));
+  after(() => (esmModeBefore ? DI.setESMModuleSupport() : DI.uncache('__esmMode__')));
+
   it('resolves to lib/mjs/migrations when the __esmMode__ DI flag is set', () => {
     DI.clearCache();
     DI.setESMModuleSupport();

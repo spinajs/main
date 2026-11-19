@@ -18,6 +18,13 @@ const expect = chai.expect;
 
 const now = new Date();
 
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
 /**
  * One tracking row in its current shape - applied and not rolled back unless a test says
  * otherwise. `up()` skips a migration only when its row carries `FinishedAt`, so a half-filled
@@ -115,7 +122,7 @@ describe('Orm migrations', () => {
   });
 
   it('ORM should run migration in transaction scope', async () => {
-    class FakeConf extends FrameworkConfiguration {
+    class FakeConf extends NoSourcesConfiguration {
       public async resolve(): Promise<void> {
         await super.resolve();
 
@@ -299,7 +306,7 @@ describe('Orm migrations', () => {
   });
 
   it('migrate() runs the data() phase of the migrations it applied, after the Orm wired the models', async () => {
-    class FakeConf extends FrameworkConfiguration {
+    class FakeConf extends NoSourcesConfiguration {
       public async resolve(): Promise<void> {
         await super.resolve();
 
@@ -375,7 +382,7 @@ describe('Orm migrations', () => {
   });
 
   it('Should register migration programatically', async () => {
-    class FakeConf extends FrameworkConfiguration {
+    class FakeConf extends NoSourcesConfiguration {
       public async resolve(): Promise<void> {
         await super.resolve();
 
@@ -469,7 +476,7 @@ describe('Orm migrations', () => {
    */
   describe('the Orm boot and the migration tool', () => {
     /** One connection, with both mock migrations pending. */
-    class StartupConf extends FrameworkConfiguration {
+    class StartupConf extends NoSourcesConfiguration {
       public async resolve(): Promise<void> {
         await super.resolve();
 

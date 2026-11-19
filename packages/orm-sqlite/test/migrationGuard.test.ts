@@ -16,6 +16,11 @@ const FIRST = 'GuardFirst_2026_10_01_00_00_00';
 const SECOND = 'GuardSecond_2026_10_02_00_00_00';
 
 class GuardSqliteConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 

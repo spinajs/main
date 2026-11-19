@@ -16,6 +16,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function mutexContract(title: string, connection: { Name: string; Driver: string; [key: string]: unknown }) {
   class Conf extends FrameworkConfiguration {
+    // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+    protected loadSources(): void {
+      this.Sources = [];
+    }
+
     public async resolve(): Promise<void> {
       await super.resolve();
 

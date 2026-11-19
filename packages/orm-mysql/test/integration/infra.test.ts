@@ -48,6 +48,11 @@ const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';
 const CONTAINER = process.env.ORM_TEST_MYSQL_CONTAINER ?? 'spinajs-orm-test-mysql';
 
 class InfraConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 
