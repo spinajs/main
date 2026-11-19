@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect, MigrationLock } from '@spinajs/orm';
 import { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 export { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
@@ -14,6 +14,7 @@ import { ITableColumnInfo, IConstraintInfo } from './types.js';
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './converters.js';
 import { normalizePostgresPlan } from './explain.js';
 import type { QueryPlan } from '@spinajs/orm';
+import { PostgresMigrationLock } from './migration-lock.js';
 
 export * from './compilers.js';
 export * from './expressions.js';
@@ -21,6 +22,7 @@ export * from './statements.js';
 export * from './errors.js';
 export * from './converters.js';
 export * from './explain.js';
+export * from './migration-lock.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
@@ -425,6 +427,8 @@ export class PostgresOrmDriver extends SqlDriver {
     // No native scheduler in this engine, and nothing is simulated in its place.
     this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
     this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
+
+    this.Container.register(PostgresMigrationLock).as(MigrationLock);
   }
 
   /** pg.Pool publishes its bookkeeping — no private-field spelunking needed here. */
@@ -508,6 +512,33 @@ export class PostgresOrmDriver extends SqlDriver {
       this.Pool = null as any;
       throw err;
     }
+  }
+
+  /**
+   * A client of this connection outside the pool, so a pool reconnect leaves it alone. The caller ends it.
+   *
+   * @param applicationName - its `application_name`, shown in `pg_stat_activity`
+   */
+  public async openDedicatedClient(applicationName?: string): Promise<pg.Client> {
+    const client = new pg.Client({ ...this.poolConfig(), ...(applicationName ? { application_name: applicationName } : {}) });
+    // unhandled, an 'error' from an idle client's dying socket kills the process; its holder learns of it on the next query
+    client.on('error', (err) => {
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'postgres dedicated client error for ${connection}');
+    });
+
+    await client.connect();
+
+    const schema = (this.Options.Options as Record<string, unknown> | undefined)?.Schema as string | undefined;
+    if (schema) {
+      try {
+        await client.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`);
+      } catch (err) {
+        await client.end().catch(() => undefined);
+        throw err;
+      }
+    }
+
+    return client;
   }
 
   public async disconnect(): Promise<OrmDriver> {
