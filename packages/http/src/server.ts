@@ -14,6 +14,7 @@ import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
+import { isMounted } from './static-entry.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -216,7 +217,9 @@ export class HttpServer extends AsyncService {
   private _serverStaticFiles() {
     // uniqBy Path — Static entries are objects, so plain _.uniq (reference
     // equality) would never dedupe two config entries pointing at the same dir.
-    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
+    // Disabled entries are dropped before the dedupe, so one cannot hide an enabled entry for the same path.
+    const enabled = (this.HttpConfig.Static ?? []).filter(isMounted);
+    _.uniqBy(enabled, (s) => s.Path).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
         return;
