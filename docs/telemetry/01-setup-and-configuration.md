@@ -45,6 +45,8 @@ sequenceDiagram
 | `telemetry.auth.domain` | `string` | `'root'` | a non-empty authz domain name | Domain the `'AccessPolicy'` slots check in |
 | `telemetry.auth.skipInDevelopment` | `boolean` | `false` | `true`, `false` | Skip the `'AccessPolicy'` checks in an explicit development env |
 | `telemetry.collectDefaultMetrics` | `boolean` | `true` | `true`, `false` | Register prom-client `process_*` / `nodejs_*` metrics at bootstrap |
+| `telemetry.http.enabled` | `boolean` | `true` | `true`, `false` | Time requests in the request middleware; `false` leaves out every `<prefix>_*` request series and the request statistics |
+| `telemetry.endpoints.<endpoint>.enabled` | `boolean` | `true` | `true`, `false` | `false` answers 404 on that endpoint to every caller |
 | `telemetry.prefix` | `string` | `'http'` | a Prometheus name prefix | Prefix of the request metrics |
 | `telemetry.buckets` | `number[]` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | ascending ms values | Buckets of `<prefix>_request_duration_ms` |
 | `telemetry.apdexThresholdMs` | `number` | `25` | ms | Apdex satisfied threshold; tolerated is up to 4x |
@@ -129,6 +131,8 @@ export class BuildInfoBootstrapper extends Bootstrapper {
 ## Important behaviour
 
 - `telemetry.auth.token` is read once, by `TelemetryServiceTokenBootstrapper`. A change or a configuration reload needs a restart.
+- `telemetry.http.enabled` is read when `HttpServer` resolves, `telemetry.endpoints.<endpoint>.enabled` when http registers the routes. A change needs a restart.
+- `telemetry.endpoints.routes.enabled` and `telemetry.routes.enabled` are different switches: the first answers 404 on `/telemetry/routes`, the second stops recording the per-route breakdown that endpoint serves.
 - The controllers are found by the directory scan, not by the barrel. Without `import '@spinajs/telemetry'`, the endpoints still mount, but no bootstrapper is registered: no default process metrics, no `perf_*` series (`PromMetricSink` is never imported) and no token bridge.
 - Config arrays concatenate when sources merge. An app cannot shorten `telemetry.buckets` or remove `authz.rbac.serviceRoles['service:telemetry']` by setting a shorter array; it only appends.
 - `TelemetryBootstrapper` publishes each perf sink with `override: true`. A sink resolved directly before it ran is replaced in the cache, so `@Autoinject(InMemoryPerfSink)` gets the instance `Perf` writes to.
@@ -150,6 +154,20 @@ const sinks = DI.resolve(Array.ofType(PerfSink));
 ```
 
 ## Examples
+
+### Keep the Prometheus series, turn off the JSON request data
+
+```ts sample
+export default {
+  telemetry: {
+    endpoints: {
+      stats: { enabled: false },
+      timeline: { enabled: false },
+      routes: { enabled: false },
+    },
+  },
+};
+```
 
 ### Shorter timeline buckets and a release tag
 
