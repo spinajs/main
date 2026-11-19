@@ -61,6 +61,7 @@ export interface Ceiling {
 }
 
 // Singletons: the engine recognises them by identity, not by shape.
+/** @spinajs system-principal */
 export const SYSTEM: Principal = Object.freeze({
   type: 'system',
   id: 'system',
