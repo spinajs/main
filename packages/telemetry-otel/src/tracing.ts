@@ -4,8 +4,6 @@ import { Log, Logger } from '@spinajs/log';
 import { ProxyTracerProvider, Tracer, Span, SpanStatusCode, Attributes, trace } from '@opentelemetry/api';
 import { BatchSpanProcessor, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { resourceFromAttributes } from '@opentelemetry/resources';
-import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { markSpanErrorType } from '@spinajs/tracing';
 import { ensureTracing, readTracingOptions, tracingState } from '@spinajs/tracing';
 
