@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
 import { CONFIGURATION_SCHEMA } from '@spinajs/configuration-common';
+import { DEFAULT_EXPLAIN_OPTIONS } from './explain/options.js';
 
 export const ORM_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/orm.configuration.schema.json',
@@ -9,6 +10,15 @@ export const ORM_CONFIGURATION_SCHEMA = {
   properties: {
     // enum, not type: 'boolean': coerceTypes would read null and 0 as false and switch the check off
     StrictTableCheck: { enum: [true, false], default: true },
+    Explain: {
+      type: 'object',
+      properties: {
+        Enabled: { enum: [true, false], default: DEFAULT_EXPLAIN_OPTIONS.Enabled },
+        SlowQueryMs: { type: 'number', minimum: 0, default: DEFAULT_EXPLAIN_OPTIONS.SlowQueryMs },
+        MaxPerMinute: { type: 'integer', minimum: 0, default: DEFAULT_EXPLAIN_OPTIONS.MaxPerMinute },
+        CaptureBindings: { enum: [true, false], default: DEFAULT_EXPLAIN_OPTIONS.CaptureBindings },
+      },
+    },
     Models: {
       type: 'object',
       properties: {

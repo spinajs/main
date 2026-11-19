@@ -112,7 +112,7 @@ describe('DefaultControllerCache source parsing', function () {
     const controller = join(PACKAGES, 'http-swagger', 'test', 'controllers', 'PolicyController.ts');
     const policies = join(PACKAGES, 'http-swagger', 'test', 'policies', 'TestPolicies.ts');
     const cache = makeCache();
-    Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef' } });
+    Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef', hashData: async () => 'deadbeef' } });
     const entries = new Map<string, string>();
     Object.defineProperty(cache, 'CacheFS', {
       value: {

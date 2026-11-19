@@ -4,6 +4,7 @@ import { Builder } from './builders.js';
 import type { OrmDriver } from './driver.js';
 import { QueryContext, type ICompilerOutput, type SqlFragment } from './interfaces.js';
 import { Orm } from './orm.js';
+import { noteRawSql } from './explain/raw-sql.js';
 
 /** A fragment run as a select: no model and no hydration, so the rows are what the driver returns. */
 class SqlFragmentQuery<R> extends Builder<R[]> {
@@ -17,6 +18,7 @@ class SqlFragmentQuery<R> extends Builder<R[]> {
   }
 
   public toDB(): ICompilerOutput {
+    noteRawSql();
     return { expression: this.fragment.sql, bindings: [...this.fragment.bindings] };
   }
 }

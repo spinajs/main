@@ -107,17 +107,39 @@ function factoryMiddleware(d: DecoratorInfo, ctx: ExtractorContext): MiddlewareR
   return decoratorArgs ? { type: factory.type, decoratorArgs } : { type: factory.type };
 }
 
+interface DecoratedMiddleware {
+  ref: MiddlewareRef;
+  /** `@Idempotent` replaces a gate already mounted; `@Middleware(IdempotencyMiddleware, ...)` adds one. */
+  replacesGate: boolean;
+}
+
+/**
+ * Replays the decorators bottom-up, as the runtime applies them: `@Idempotent` replaces the first gate already mounted,
+ * in place (http decorators.ts). So stacked ones leave one gate: the top one's arguments, where the bottom one mounted it.
+ */
+function asMounted(decorated: DecoratedMiddleware[]): MiddlewareRef[] {
+  const gate = FACTORY_MIDDLEWARES.Idempotent.type;
+  const mounted: MiddlewareRef[] = [];
+  for (const { ref, replacesGate } of [...decorated].reverse()) {
+    const at = replacesGate ? mounted.findIndex((m) => m.type === gate) : -1;
+    if (at >= 0) mounted.splice(at, 1, ref);
+    else mounted.push(ref);
+  }
+  return mounted.reverse();
+}
+
 /** In source order; see `MiddlewareRef`. */
 export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): MiddlewareRef[] {
-  const out = decoratorsOf(node).flatMap((d): MiddlewareRef[] => {
+  const decorated = decoratorsOf(node).flatMap((d): DecoratedMiddleware[] => {
     if (d.name === 'Middleware') {
       const type = refOf(d.args[0], ctx);
       const options = literalArgs(d.args.slice(1), ctx);
-      return [options ? { type, options } : { type }];
+      return [{ ref: options ? { type, options } : { type }, replacesGate: false }];
     }
     const factory = factoryMiddleware(d, ctx);
-    return factory ? [factory] : [];
+    return factory ? [{ ref: factory, replacesGate: factory.type === FACTORY_MIDDLEWARES.Idempotent.type }] : [];
   });
+  const out = asMounted(decorated);
   if (accessOf(node, ctx).fieldsFilter) out.push({ type: 'AuthzFieldsMiddleware', options: [] });
   return out;
 }

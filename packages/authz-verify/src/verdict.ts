@@ -44,9 +44,9 @@ export async function confirm(ir: PolicyIR, scenario: Scenario, expected: Record
   return { ...scenario, ...(path === undefined ? {} : { path }), outcome: got };
 }
 
-/** `holderKey(h)`, `type#relation` of any non-public holder, `role:<name>` on any type, or `public`. */
+/** `holderKey(h)`, `type#relation` of a role or relation holder, `role:<name>` on any type, or `public` for a wildcard holder and for an anyone term. */
 export function matchesHolder(selector: string, h: HolderRef): boolean {
   if (selector === holderKey(h)) return true;
-  if (h.kind === 'public') return selector === 'public';
+  if (h.kind === 'public' || h.kind === 'anyone') return selector === 'public';
   return selector === `${h.type}#${h.relation}` || (h.kind === 'role' && selector === `role:${h.role!}`);
 }
