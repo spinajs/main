@@ -30,6 +30,16 @@ export const scopedEach = () => [
 /** An app's own builder subclass is a select builder through its base. */
 export class PagedInvoices extends SelectQueryBuilder<InvoiceModel> {}
 
+/** An app's subclass that overrides `clone()`, and an interface that redeclares it. */
+export class Paged<T> extends SelectQueryBuilder<T> {
+  public override clone(): this {
+    return super.clone();
+  }
+}
+export interface ClonedQuery extends ISelectQueryBuilder<InvoiceModel[]> {
+  clone(): this;
+}
+
 /** An app's own `accessible()` scopes nothing: it is not the authz-orm member. */
 export interface LooseQuery extends ISelectQueryBuilder<InvoiceModel> {
   accessible(note: string): this;
@@ -84,6 +94,18 @@ export class Vocabulary {
   }
   unconstrained<R>(q: ISelectQueryBuilder<InvoiceModel>) {
     return anything<R>(q);
+  }
+  async viaOverride(q: Paged<InvoiceModel[]>) {
+    q.clone().accessible('invoice:read');
+    return await q.all();
+  }
+  overriddenClone(q: Paged<InvoiceModel[]>) {
+    q.clone().accessible('invoice:read');
+    return q;
+  }
+  redeclaredClone(q: ClonedQuery) {
+    q.clone().accessible('invoice:read');
+    return q;
   }
   withScopes() {
     return InvoiceModel.where('Status', 'open');
