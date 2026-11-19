@@ -185,9 +185,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   }
 
   /**
-   * InsertOrIgnore leaves rows from an earlier release untouched, so label / group / meta / default
-   * edits in code would never reach them. Rewrites the declared columns; `Value` stays whatever an
-   * admin set.
+   * InsertOrIgnore leaves rows from an earlier release untouched, so label / group / meta edits in
+   * code would never reach them. Rewrites the declared columns; `Value`, `Default` and `Watch` are
+   * written only by the insert, so an administrator's change to them lasts.
    */
   private async syncMetadata(v: __dbCOnfigOptions): Promise<void> {
     const o = v.options.exposeOptions;
@@ -201,7 +201,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       return;
     }
 
-    const upToDate = (row.Group ?? null) === (o.group ?? null) && (row.Label ?? null) === (o.label ?? null) && (row.Description ?? null) === (o.description ?? null) && row.Type === o.type && !!row.Watch === !!o.watch && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o.meta ?? null) && isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
+    const upToDate = (row.Group ?? null) === (o.group ?? null) && (row.Label ?? null) === (o.label ?? null) && (row.Description ?? null) === (o.description ?? null) && row.Type === o.type && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o.meta ?? null);
 
     if (upToDate) {
       return;
@@ -212,9 +212,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     row.Description = o.description;
     row.Meta = o.meta;
     row.Type = o.type;
-    row.Watch = o.watch ?? false;
     row.Required = !!v.options.required;
-    row.Default = v.options.defaultValue;
 
     await asSystem(() => row.update(), this.authzDomain);
   }
