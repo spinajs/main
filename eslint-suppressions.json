@@ -3203,9 +3203,6 @@
   "packages/configuration-db-source/src/system.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    },
-    "promise/catch-or-return": {
-      "count": 1
     }
   },
   "packages/configuration-db-source/test/authz-poll.test.ts": {

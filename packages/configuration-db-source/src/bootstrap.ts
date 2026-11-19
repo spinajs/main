@@ -12,7 +12,7 @@ import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntry
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
-import { asSystem, systemReady } from './system.js';
+import { asSystem, isReportedBootRefusal, systemReady } from './system.js';
 
 /**
  * watch interval, default 3 min
@@ -128,7 +128,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     // insert all exposed config options (InsertOrIgnore - safe to repeat); a guarded app's sweep starts once authz is up
     void systemReady(this.authzDomain).then(() => Promise.all(vars.map((v) => this.saveConfigOptions(v)))).catch(async (err) => {
-      InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
+      if (!isReportedBootRefusal(err)) InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
 
       // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again
       const orm = container.get(Orm);
@@ -231,7 +231,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
       }
     } catch (err) {
-      InternalLogger.error({ error: err, path: v.path }, 'Failed to sync exposed config option ${path} with db', LOG_CHANNEL);
+      if (!isReportedBootRefusal(err)) InternalLogger.error({ error: err, path: v.path }, 'Failed to sync exposed config option ${path} with db', LOG_CHANNEL);
     }
   }
 
@@ -248,7 +248,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       // filtered in memory, as the source does, to stay driver-agnostic about how booleans are stored
       rows.filter((r) => Boolean(r.Watch) && Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
-      InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
+      if (!isReportedBootRefusal(err)) InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
     }
   }
 

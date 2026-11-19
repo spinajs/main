@@ -2,7 +2,7 @@
 
 The database stores (`DbAssignmentStore`, `DbMembershipStore`, `DbRuleStore`, `DbLinkStore`) and `DbAuthzAdminBackend` read and write the RBAC tables through ORM records. Every record and every migration lives on the ORM connection alias `authz`, which the app maps to a connection with `db.Aliases.authz`.
 
-Use it for any app that keeps assignments, links or stored rules in a database. Role definitions stay in config (`ConfigRoleStore`).
+Use it for any app that keeps assignments, links or stored rules in a database. Role definitions stay in config (`ConfigRoleStore`). An app with roles in config only and no database uses the in-memory stores instead: see [Config-only roles, no database](#config-only-roles-no-database).
 
 ## How it works
 
@@ -10,8 +10,9 @@ Use it for any app that keeps assignments, links or stored rules in a database. 
 
 1. `RbacModel.init` (through `rbacStoreOptions`) calls `registerRbacStores`, which registers the classes `authz.rbac.stores.*` names under their ports (`AssignmentStore`, `MembershipStore`, `RuleStore`, `LinkStore`) and, for the DB stores, under the `AuthzAdmin` ports (`AdminAssignmentStore`, `AdminMembershipStore`, `AdminRuleStore`, `AdminLinkStore`).
 2. Every DB store injects the `Orm` (`@Autoinject(Orm)`), so resolving a store from the domain's container resolves the `Orm` and binds the records, also in a CLI process that boots only its command.
-3. The store queries its record (`AssignmentRecord.query()...`). The record is bound to `authz`, so the query runs on the connection `db.Aliases.authz` names.
-4. A read of live rows keeps `expires_at IS NULL OR expires_at > ?`, with the `AuthzClock` instant of the store's container bound as the parameter.
+3. `RbacModel.init` then checks every DB store it got: a connection must answer to `authz`, and each table the store reads and writes must exist on it. Otherwise the domain's boot fails with one `AuthzConfigError` that names each store, its `authz.rbac.stores.*` key and what it misses. Without the check the boot would pass and every check would be denied with `model_error`.
+4. The store queries its record (`AssignmentRecord.query()...`). The record is bound to `authz`, so the query runs on the connection `db.Aliases.authz` names.
+5. A read of live rows keeps `expires_at IS NULL OR expires_at > ?`, with the `AuthzClock` instant of the store's container bound as the parameter.
 
 ### Writes
 
@@ -44,6 +45,7 @@ sequenceDiagram
 
 | Error | When |
 | --- | --- |
+| `AuthzConfigError` "The RBAC database stores cannot reach their tables. DbAssignmentStore (authz.rbac.stores.assignments): ..." | At the domain's boot: a DB store has no connection behind `authz`, or a table of it is missing (migrate-up has not run). |
 | `AuthzConfigError` "no ORM connection answers to "authz"; set db.Aliases.authz" | The alias maps to no connection. |
 | `AuthzConfigError` "the Orm is not resolved yet" | A write runs before the `Orm` resolved. |
 | `AuthzConfigError` "stores write only inside an AuthzAdmin transaction" | A store write outside a batch. |
@@ -240,6 +242,7 @@ export class ExpiringAssignmentStore extends DbAssignmentStore {
 
 - **One connection per table set.** A write whose `AuthzTx` runs on another connection than the record is refused, so data never lands where reads do not look.
 - **Lazy ORM.** The records exist only after the `Orm` boots. Import `@spinajs/authz-rbac` before the `Orm` resolves, so it binds the records.
+- **First deploy.** `migrate-up` does not boot authz, so it runs on an empty database with the default stores. A domain booted before the tables exist (a process without an http server boots authz itself, see [configuration-db-source](../configuration-db-source/README.md)) fails, and a later boot after `migrate-up` succeeds: a failed boot caches nothing.
 - **Post-boot migrations.** A migration that creates the authz tables after the ORM booted (a test that migrates by hand, with `db.MigrationCheck: 'off'`) needs `db.StrictTableCheck: false` and then `orm.reloadTableInfo({ strict: true })` before the stores read.
 - **Two clocks.** Store reads judge expiry by `AuthzClock`; `.accessible()` lists judge it by the database's now ([List filter term](01-list-filter-term.md)).
 - **Version bumps.** One admin batch bumps `authz_version` once per write, in one transaction. Do not rely on the count.
@@ -291,6 +294,36 @@ export default {
 };
 // Run `spinajs migrate-up` without --connection, so default and authz-db migrate in one run.
 ```
+
+### Config-only roles, no database
+
+Roles and service roles in config, and no table to read: name the in-memory stores, so the domain boots without an `authz` connection. The in-memory stores carry no `@Injectable()`, so the app registers each one under its class name, the name config uses.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { MemoryAdminAssignmentStore, MemoryLinkStore } from '@spinajs/authz-rbac';
+
+DI.register(MemoryAdminAssignmentStore).asSelf();
+DI.register(MemoryLinkStore).asSelf();
+
+export default {
+  authz: {
+    permissions: { 'doc:read': {} },
+    models: ['RbacModel'],
+    rbac: {
+      roles: { viewer: { grants: ['doc:read'] } },
+      serviceRoles: { 'service:lan': ['viewer'] },
+      stores: { assignments: ['MemoryAdminAssignmentStore'], links: ['MemoryLinkStore'] },
+    },
+  },
+};
+```
+
+- `authz.rbac.stores.links: []` turns share links off instead of keeping them in memory.
+- The membership store defaults to none next to a store other than `DbAssignmentStore`, and the rule store defaults to `ConfigRuleStore`, so neither needs a key.
+- Assignments written through `AuthzAdmin` live in the process and are gone after a restart.
+
+With the default DB stores and no connection behind `authz`, the boot fails and the error names this recipe.
 
 ### Create the tables in a test after the ORM booted
 
