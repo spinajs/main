@@ -20,7 +20,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | --- | --- |
 | [HTTP server](01-http-server.md) | `HttpServer`: Express app, HTTP or HTTPS listener, start and graceful stop, lifecycle events, static files, the full `http.*` configuration |
 | [Controllers and routing](02-controllers-and-routing.md) | `BaseController`, `@BasePath`, `@Get` and the other route decorators, path rules, the `Controllers` loader, overriding a package controller, startup exceptions |
-| [Controller discovery](03-controller-discovery.md) | `ControllerSource`: filesystem scan, DI registry, your own source; `Controllers.add()` at runtime |
+| [Controller discovery](03-controller-discovery.md) | `ControllerSource`: filesystem scan, DI registry, your own source; `@MountWhen` conditions; `Controllers.add()` at runtime |
 | [Route arguments](04-route-arguments.md) | `@Query`, `@Param`, `@Body`, `@Header`, `@Cookie`, `@Ip` and the rest; how values are converted, validated and hydrated; per-path body limits (`http.bodyLimits`); `@Body({ sensitive })` |
 | [Custom route arguments](05-custom-route-arguments.md) | Write a `RouteArgs` class and its decorator, or replace a built-in one |
 | [Argument hydrators](06-argument-hydrators.md) | `ArgHydrator`, `@Hydrator`, `DateTimeHydrator`: build a domain object from a raw argument |
