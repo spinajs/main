@@ -561,7 +561,10 @@ export class FrameworkConfiguration extends Configuration {
 
   // An absent module is checked as `{}`, so that a key the tree gets later (onLoad(), a DI value) is not blamed on a change.
   private violationsIn(schemas: IConfigurationSchema[], root: Record<string, unknown>): ConfigurationViolation[] {
-    return schemas.flatMap((s) => (this.Validator.validate(s, _.get(root, s.$configurationModule) ?? {}) ? [] : this.failureOf(s).violations));
+    return schemas.flatMap((s) => {
+      const refusal = this.refusalOf(s, _.get(root, s.$configurationModule) ?? {});
+      return refusal === undefined ? [] : this.failureOf(s, refusal).violations;
+    });
   }
 
   // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a

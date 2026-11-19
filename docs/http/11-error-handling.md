@@ -27,16 +27,8 @@ Refusals raised before routing reach the handler as mapped exceptions:
 3. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 1 names the failure.
 4. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
 5. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
+
 A route error is answered inside its route chain and never reaches a server middleware's `after()` error handler. [Error observers](#error-observers) see the errors of both places, including those a route error handler answers.
-
-`__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
-
-1. **Body-parser failures.** Invalid JSON answers 400 with `request body is not valid JSON`. A `verify` hook failure answers with the response mapped for the thrown class, or 400 `request body was refused` when it is not mapped. Both log at `warn` and never echo the request body.
-2. It logs the error at `error` with method and URL, in every environment; the entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
-3. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
-4. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 2 names the failure.
-5. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
-6. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
 
 ```mermaid
 sequenceDiagram
