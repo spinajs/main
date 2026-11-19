@@ -160,6 +160,8 @@
   or absent; any other value stops the start, so `'false'` from an environment variable cannot open a folder. It is
   read once at start, so a `ConfigVar` there follows the merged configuration. Before, an entry added by any config
   file could not be removed or turned off by another.
+- `@spinajs/http`: `@MountWhen((container, config) => boolean | Promise<boolean>)` mounts a controller only when the
+  condition returns `true`. An unmounted controller is not created, has no routes and is not in the OpenAPI spec.
 
 ## Fix
 
@@ -194,7 +196,7 @@
   422 (`UNPROCESSABLE_CONTENT`), 428, 502 and 504. `new Json(body, { StatusCode: 422 })` used to fail to compile and
   needed a cast; it now compiles and answers 422. No existing member changes.
 
-# Release notes — http-swagger: public routes are declared public, non-JSON responses, schema fixes
+# Release notes — http-swagger: public routes are declared public, non-JSON responses, disabled means no docs, schema fixes
 
 ## New
 
@@ -218,6 +220,14 @@
   - a `$ref` to another schema's `$id` (`items: { $ref: 'app.LogEntry' }`) now points to that schema's component
     instead of becoming `{}`;
   - `default` is kept in component schemas, as query parameters already kept it.
+- `@spinajs/http-swagger`: `http.swagger.enabled: false` now means no docs at all. `SwaggerController` is not mounted,
+  and `/docs/ui` and `/docs/static` serve no files, so every `/docs` path answers the app's normal 404. Before, the
+  routes stayed mounted (answering their own 404) and both static folders kept serving files. The static folders
+  follow the configuration key, not an override of `SwaggerService.IsEnabled`.
+- `@spinajs/http-swagger`: a missing `swagger-ui-dist` now gives one warning at start that says what it disables (the
+  Swagger UI page cannot load its files from `/docs/ui`) and how to fix it (install `swagger-ui-dist`, or point the
+  `http.swagger.ui.*Url` keys at the CDN). It replaces http's generic "static file path … not exists" line. There is
+  no warning when the docs are disabled or the UI already loads from a CDN.
 
 ## Documentation
 
@@ -340,6 +350,18 @@
   no longer compiles and `await` gives the instance. Before, such a resolve was typed as the instance and failed at
   run time. Classes without the marker are typed as before; generic code that writes out `T extends AsyncService ?
   Promise<T> : T` as a resolve's return type must use `ResolveResult<T>` instead.
+- `@spinajs/di`: when a module is loaded by path without `require` and without ESM mode, the error now tells a Node
+  ESM application first to call `DI.setESMModuleSupport()` at the top of its entry file, before the configuration
+  resolves. The module loader for bundled and browser builds is named second. Before, the message led with the bundle
+  case.
+
+# Release notes — queue-templates-pdf: PDF renders work again in an ESM application
+
+## Fix
+
+- `@spinajs/queue-templates-pdf`: in an ESM application every `RenderPdfJob` render failed with `Cannot load
+  configuration file … CommonJS require is not available`, because ESM mode does not cross into the forked render
+  worker. The ESM build of the worker now turns on ESM mode itself. The CommonJS build is unchanged.
 
 # Release notes — orm, orm-cli, orm-http, cli: clearer boot and migration messages, in / exists filters under an or group
 
