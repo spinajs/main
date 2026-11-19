@@ -1,3 +1,41 @@
+# Release notes — authz-orm: access marks in a populate callback that would not filter throw
+
+## Security fix
+
+- `@spinajs/authz-orm`: `.accessible()`, `.within()` and `.withAccess()` called in the populate callback of a
+  belongs-to or many-to-many relation were dropped without a word, so the related rows came back unfiltered: a
+  belongs-to query is merged into the parent query and a many-to-many relation runs its junction query instead. On a
+  `@Recursive` relation the recursive part of the query is built without the where, so its descendants came back
+  unfiltered. These calls now throw `AuthzConfigError` naming the relation and saying what to do instead. A
+  many-to-many list's own `populate(cb)` (`campaign.tags.populate(...)`) throws too and names the junction model's
+  belongs-to to the target, because the list loads through its junction model. The same calls in a join callback
+  (`leftJoin(relation, on, queryCallback)`) throw as well, since the join query is merged into the parent.
+
+## Behaviour change
+
+- Code that made such a call now throws: filter the parent query, populate through a has-many relation (which runs
+  its own query and keeps filtering as before), or load the related rows with their own `.accessible()` query.
+
+# Release notes — orm: an orWhere in a belongs-to populate callback cannot widen the query
+
+## Security fix
+
+- `@spinajs/orm`: the conditions of a belongs-to populate callback were appended flat to the parent query's WHERE,
+  so `populate('Order', function () { this.where(a).orWhere(b) })` compiled to `WHERE <caller> AND a OR b`. The `OR`
+  widened the query past the caller's own conditions and past any condition a `beforeQueryExecution` middleware
+  added, such as an `@spinajs/authz-orm` `.accessible()` access plan: a principal could read rows its policy denies.
+  The callback's conditions now arrive as one parenthesised AND group: `WHERE <caller> AND ( a OR b )`. A nested
+  belongs-to populate's conditions sit inside the group of their parent relation. Aggregate conditions, which compile
+  into HAVING, stay where they were. A callback without `orWhere` returns the same rows as before; only the SQL text
+  gains the parentheses.
+
+## New
+
+- `@spinajs/orm`: `WhereBuilder.adopt(statements)` appends statements built on another builder. A clone copies them
+  without rebinding them to the copy, so they keep reading the builder they were built on: its alias, the parents
+  `outer()` walks, and the context of a `Lazy` callback. `ISelectQueryBuilder.mergeStatementsAsGroup()` merges a
+  builder's WHERE statements as such a group.
+
 # Release notes — orm-http: list scope, column projection, deeper filter groups
 
 ## Packages
