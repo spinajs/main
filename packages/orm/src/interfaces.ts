@@ -1479,6 +1479,9 @@ export interface IJoinBuilder {
 
 export interface IBuilder<T> extends PromiseLike<T> {
   middleware(middleware: IBuilderMiddleware<T>): this;
+
+  /** The result middlewares registered with `middleware()`, in registration order. */
+  readonly Middlewares: readonly IBuilderMiddleware<T>[];
   toDB(): ICompilerOutput | ICompilerOutput[];
 
   /**
