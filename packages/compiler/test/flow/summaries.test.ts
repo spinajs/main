@@ -231,6 +231,10 @@ describe('flow: summarize', () => {
     expect(effectsOf('Vocabulary.fixedModel').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'Invoice', 'none']]);
   });
 
+  it('a subclass whose base argument names no model reads as an unknown model, never as its own first argument', () => {
+    expect(effectsOf('Vocabulary.joinedRows').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'unknown', 'none']]);
+  });
+
   it('scoping a copy made by an overriding clone() leaves the builder it copies unscoped', () => {
     expect(effectsOf('Vocabulary.viaOverride').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'Invoice', 'none']]);
   });

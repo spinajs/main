@@ -127,6 +127,9 @@ export class Vocabulary {
   async fixedModel(q: FixedInvoices) {
     return await q.all();
   }
+  async joinedRows(q: Join<Note, InvoiceModel>) {
+    return await q.all();
+  }
   overriddenClone(q: Paged<InvoiceModel[]>) {
     q.clone().accessible('invoice:read');
     return q;
