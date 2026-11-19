@@ -112,6 +112,7 @@
   "JunctionTable",
   "LIKE_ESCAPE_CHARACTER",
   "LazyQueryStatement",
+  "LikeLiteral",
   "LimitBuilder",
   "LimitQueryCompiler",
   "LiteralQuoter",
