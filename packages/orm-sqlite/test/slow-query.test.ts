@@ -77,10 +77,13 @@ describe('orm-sqlite slow-query capture', () => {
     expect(record.connection).to.equal('sqlite');
     expect(record).to.not.have.property('bindings');
     expect(JSON.stringify(record)).to.not.contain('secret-binding-42');
-    expect(record.planError).to.equal('driver orm-driver-sqlite cannot explain');
+    expect(record).to.not.have.property('planError');
+    expect(record.plan?.dialect).to.equal('sqlite');
+    expect(record.plan?.raw).to.equal(null);
+    expect(record.plan?.root.children.map((c) => c.label)).to.deep.equal(['SCAN explain_user']);
   });
 
-  it('attempts a plan for a builder select whose quoted table name holds a #', async () => {
+  it('plans a builder select whose quoted table name holds a #', async () => {
     DI.get(Configuration)?.set('db.Explain', { Enabled: true, SlowQueryMs: 0, MaxPerMinute: 10, CaptureBindings: false });
     slowQueries().reload();
     await sqlite().executeOnDb('CREATE TABLE `explain#tag` (Id INTEGER PRIMARY KEY)', [], QueryContext.Schema);
@@ -89,8 +92,10 @@ describe('orm-sqlite slow-query capture', () => {
     await slowQueries().idle();
 
     expect(CollectingSink.records).to.have.length(1);
-    expect(CollectingSink.records[0].sql).to.contain('explain#tag');
-    expect(CollectingSink.records[0].planError).to.equal('driver orm-driver-sqlite cannot explain');
+    const [record] = CollectingSink.records;
+    expect(record.sql).to.contain('explain#tag');
+    expect(record).to.not.have.property('planError');
+    expect(record.plan?.root.children.map((c) => c.label)).to.deep.equal(['SCAN explain#tag']);
   });
 
   it('records a select with a raw condition the text check refuses without attempting a plan', async () => {

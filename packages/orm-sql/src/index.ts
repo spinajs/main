@@ -1,10 +1,11 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedSessionSettingsCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported, QueryBuilder, recordStatement, statementRecording, trackRawSql } from '@spinajs/orm';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported, QueryBuilder, recordStatement, statementRecording, trackRawSql, isExplainable } from '@spinajs/orm';
 import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { markSpanErrorType } from '@spinajs/tracing';
 import { closeStreamCursor, endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
 import type { StatementTarget } from './tracing.js';
@@ -121,6 +122,21 @@ export abstract class SqlDriver extends OrmDriver {
       table: builder instanceof QueryBuilder && builder.Table ? builder.Table : undefined,
       ansiQuotedIdentifiers: this.ansiQuotedIdentifiers(),
     };
+  }
+
+  /**
+   * Runs `<prefix> <sql>` as a read on a connection of its own: the slow-query capture calls it on
+   * the async path of the query it explains, which may still be inside that query's transaction.
+   * A driver without concurrent transactions (sqlite without a read pool, PGlite) cannot run it
+   * until the open transaction ends, so never await it inside one. Caller-written SQL (`rawSql`) must
+   * pass `isExplainable`; SQL the builder compiled itself is planned as it is.
+   */
+  protected runExplain(prefix: string, sql: string, bindings: unknown[], rawSql = true): Promise<unknown> {
+    if (rawSql && !isExplainable(sql)) {
+      return Promise.reject(new InvalidArgument('only a single SELECT or WITH statement can be explained'));
+    }
+
+    return this.outsideTransaction(() => this.executeOnDb(`${prefix} ${sql}`, bindings, QueryContext.Select));
   }
 
   public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {

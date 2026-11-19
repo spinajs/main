@@ -219,6 +219,7 @@
   "SAFE_ENV_NAME_REGEXP",
   "SCHEMA_SYMBOL",
   "SET_DELIMITER",
+  "SLOW_QUERY_SINK_TIMEOUT_MS",
   "SchemaQueryBuilder",
   "SelectQueryBuilder",
   "SelectQueryBuilderC",

@@ -60,7 +60,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * detail, as it used to be — so the guarantee is part of the contract and every driver
    * inherits it.
    */
-  protected TransactionStorage = new AsyncLocalStorage<ITransactionContext>();
+  protected TransactionStorage = new AsyncLocalStorage<ITransactionContext | undefined>();
 
   /**
    * Isolation levels this driver honours. Empty by default: a driver that declares nothing
@@ -117,6 +117,11 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * `isExplainable` rejects, and absent, the text counts as caller-written.
    */
   public explain?(sql: string, bindings: unknown[], rawSql?: boolean): Promise<QueryPlan>;
+
+  /** Runs `fn` with no ambient transaction, so the statements it issues take a connection of their own. */
+  protected outsideTransaction<R>(fn: () => R): R {
+    return this.TransactionStorage.run(undefined, fn);
+  }
 
   constructor(options: T) {
     super();
