@@ -174,7 +174,7 @@ import { Orm } from '@spinajs/orm';
 import { DbSessionStore } from '@spinajs/session-provider-db';
 
 export async function purgeExpiredSessions(): Promise<string> {
-  // resolves the Orm, which migrates the Migration.OnStartup connections before the store queries them
+  // resolves the Orm, which fails on pending migrations: run `npx spinajs migrate-up` first
   await DI.resolve(Orm);
   const store = await DI.resolve(DbSessionStore);
   const removed = await store.cleanupExpired();

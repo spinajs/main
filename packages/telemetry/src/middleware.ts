@@ -19,6 +19,11 @@ export const DEFAULT_PREFIX = 'http';
 export const DURATION_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
 
 /**
+ * Route label of every request no route matched.
+ */
+export const UNMATCHED_ROUTE = '<unmatched>';
+
+/**
  * Storage key under `req.storage` holding the per-request start time.
  */
 const START_KEY = '__telemetryStart';
@@ -121,14 +126,15 @@ export class TelemetryMiddleware extends ServerMiddleware {
   }
 
   /**
-   * A stable, low-cardinality route label: the mounted path of the matched route, else the raw request path.
+   * A stable, low-cardinality route label: the mounted path of the matched route, else {@link UNMATCHED_ROUTE}.
+   * The raw path is never used, so a caller cannot create series at will.
    */
   protected routeLabel({ req, path }: IMiddlewareContext): string {
     // `http:<METHOD> <mounted path>`
     if (typeof path === 'string' && path.length > 0) return path.slice(path.indexOf(' ') + 1);
     const matched: unknown = (req as { route?: { path?: unknown } }).route?.path;
     if (typeof matched === 'string' && matched.length > 0) return matched;
-    return req.path ?? req.originalUrl ?? 'unknown';
+    return UNMATCHED_ROUTE;
   }
 
   public onBefore({ storage }: IMiddlewareContext): void {

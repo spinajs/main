@@ -20,8 +20,9 @@ class TwoConnections extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
-          // md_doc is created after the Orm boots.
+          // md_doc is created after the Orm boots; the migrations other files register are not applied here.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Connections: [
             { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' },
             { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'md-other' },
