@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
+import { createHash } from 'crypto';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import type { BaseController } from './base-controller.js';
@@ -109,11 +110,20 @@ export interface ITagExtractor {
 const UNKNOWN_VERSION = 'unknown';
 
 /**
- * Shape of a cache entry file: `<package version>_<content hash>`, with a `doc_` twin holding the
- * documentation. Tells this class's own files apart from anything else that ends up in the
- * directory - `fs.rm()` is recursive, so a stray subdirectory would go whole.
+ * Shape of a cache entry file: `<package version>_<content hash>_<class name hash>`, with a `doc_`
+ * twin holding the documentation. Tells this class's own files apart from anything else that ends
+ * up in the directory - `fs.rm()` is recursive, so a stray subdirectory would go whole. The class
+ * name hash is optional so that entries written before it was part of the key are still removed.
  */
-const ENTRY_NAME = /^(doc_)?[^_]+_[0-9a-f]+$/;
+const ENTRY_NAME = /^(doc_)?[^_]+_[0-9a-f]+(_[0-9a-f]{16})?$/;
+
+/**
+ * The class name is hashed rather than used as is: an export name need not be an identifier (it
+ * can be empty, hold `/` or be very long), and `Foo` and `foo` are one file on Windows and macOS.
+ */
+function classNameHash(name: string): string {
+  return createHash('sha256').update(name).digest('hex').slice(0, 16);
+}
 
 /**
  * Best-effort lookup of this package's version, the same way `@spinajs/cli` reads its own.
@@ -218,9 +228,9 @@ export class DefaultControllerCache extends AsyncService {
   /**
    * Returns parameter-name map used for route argument binding.
    *
-   * Cache entries are keyed by source-file content hash and package version, so a changed file or
-   * a changed package naturally gets a fresh entry. Missing entries are generated here, which is
-   * also how `http:controllers:cache` pre-builds them after wiping the directory.
+   * Cache entries are keyed by package version, source-file content hash and class name, so a
+   * changed file or a changed package naturally gets a fresh entry. Missing entries are generated
+   * here, which is also how `http:controllers:cache` pre-builds them after wiping the directory.
    */
   public async getCache(controller: ClassInfo<BaseController>): Promise<Record<string, string[]>> {
     // Sentinel values like `<di>` are set by Controllers.resolve() / add() for
@@ -231,12 +241,10 @@ export class DefaultControllerCache extends AsyncService {
       return this.extractParametersAtRuntime(controller);
     }
 
-    const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    // Both entries are keyed by the source hash AND the package version - see the Version field. Parameters
-    // go through the same extractAll() as the documentation, so both go stale the same way when
-    // the extractor changes.
-    const paramHash = `${this.Version}_${await this.Hasher.hash(file)}`;
-    const docHash = `doc_${paramHash}`;
+    const file = this.declarationFile(controller);
+    // Parameters go through the same extractAll() as the documentation, so both go stale the same
+    // way when the extractor changes.
+    const { paramHash, docHash } = await this.entryKeys(controller, file);
 
     const paramExists = await this.CacheFS.exists(paramHash);
     const docExists = await this.CacheFS.exists(docHash);
@@ -252,6 +260,20 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     return this.CacheFS.read(paramHash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
+  }
+
+  private declarationFile(controller: ClassInfo<BaseController>): string {
+    return resolvePath(controller.file.replace('.js', '.d.ts'));
+  }
+
+  /**
+   * Keys of both entries - package version (see the Version field), source hash and class name.
+   * The class name is needed because one file can declare several controllers, and extractAll()
+   * reads only the class it is asked for.
+   */
+  private async entryKeys(controller: ClassInfo<BaseController>, file: string): Promise<{ paramHash: string; docHash: string }> {
+    const paramHash = `${this.Version}_${await this.Hasher.hash(file)}_${classNameHash(controller.name)}`;
+    return { paramHash, docHash: `doc_${paramHash}` };
   }
 
   /** Whether `file` points at a real on-disk source we can parse. */
@@ -286,9 +308,7 @@ export class DefaultControllerCache extends AsyncService {
       return { className: controller.name, methods: {} };
     }
 
-    const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    // Same key as getCache() writes under, package version included - see the Version field.
-    const docHash = `doc_${this.Version}_${await this.Hasher.hash(file)}`;
+    const { docHash } = await this.entryKeys(controller, this.declarationFile(controller));
 
     if (!(await this.CacheFS.exists(docHash))) {
       await this.getCache(controller);

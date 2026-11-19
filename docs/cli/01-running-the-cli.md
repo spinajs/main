@@ -92,6 +92,7 @@ It is not exported from `@spinajs/cli`.
 - Await everything in `execute()`. The bin exits as soon as `execute()` settles.
 - Pass `--app` and `--env` to every `spinajs` call in CI, so the command reads the same config as the deployed app.
 - Use `configuration:dump -p <path>` to check what a command will read, eg. `spinajs configuration:dump -p system.dirs.cli`.
+- Import what the commands need, such as the ORM driver and every package with migrations, at the top of one of the application's config files (eg. `import '@spinajs/orm-sqlite';` in `config/db.js`), not only in `main.ts`.
 
 ## Patterns and antipatterns
 
