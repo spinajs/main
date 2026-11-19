@@ -39,9 +39,7 @@ async function discover(): Promise<Array<ClassInfo<OrmMigration>>> {
   DI.clearCache();
   // `FilesystemMigrationSource` loads fixture files via `DI.__spinajs_require__`, which falls back
   // to CJS `require` unless ESM mode is switched on ( the same setup every other file-discovery
-  // suite in the repo does - schema-providers.test.ts, http's controllers.test.ts... ). `asValue`
-  // registrations live in the container CACHE, so the `clearCache()` above wipes this out on every
-  // call and it must be re-applied after, not once in `before()`.
+  // suite in the repo does - schema-providers.test.ts, http's controllers.test.ts... ).
   DI.setESMModuleSupport();
   return await (await DI.resolve(FilesystemMigrationSource)).getMigrations();
 }
@@ -296,10 +294,8 @@ describe('currentBuildMigrationDir', () => {
   });
 
   it('resolves to lib/cjs/migrations when the __esmMode__ DI flag was never set', () => {
-    // no setESMModuleSupport() call after this clearCache() - the flag lives in the container
-    // cache ( see discover()'s own comment ), so this leaves it unregistered, exactly the state a
-    // consumer that never opted into ESM mode is in
-    DI.clearCache();
+    // the mode outlives clearCache(); uncache() removes it, the state of a consumer that never opted into ESM mode
+    DI.uncache('__esmMode__');
 
     expect(currentBuildMigrationDir().replace(/\\/g, '/')).to.match(/\/lib\/cjs\/migrations$/);
   });
@@ -398,8 +394,7 @@ describe('FilesystemMigrationSource import failures', () => {
     fs.writeFileSync(brokenFile, "throw new Error('boom - intentional ts import failure for log level check');\n");
 
     // inlined rather than routed through discover(): a spy needs the resolved instance, which
-    // discover() does not hand back - see its own comment for why clearCache() then
-    // setESMModuleSupport() is the required order
+    // discover() does not hand back
     DI.clearCache();
     DI.setESMModuleSupport();
     const source = await DI.resolve(FilesystemMigrationSource);

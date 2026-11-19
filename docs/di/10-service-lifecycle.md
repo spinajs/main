@@ -102,6 +102,7 @@ void start();
 - A singleton reached through `Array.ofType(T)` is cached under `T` and under its own name; `dispose()` still calls its `dispose()` once.
 - `@NewInstance()` services and factory results are never cached, so `dispose()` never reaches them.
 - After `DI.dispose()` the root registry is intact; the next resolve builds fresh instances.
+- `DI.dispose()` keeps the ESM module mode set by `DI.setESMModuleSupport()`. A full second boot in the same process is still not supported: configuration files stay in Node's module cache, so they keep the values of the first boot, and `@Config` properties are recorded at import, so the cleared cache loses them. Boot once per process, eg. one test file per process.
 
 ## Best practices
 

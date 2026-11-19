@@ -1534,6 +1534,7 @@ describe('Dependency injection', () => {
 
     DI.on('di.dispose', dispose);
     await DI.dispose();
+    DI.off('di.dispose', dispose);
 
     expect(dispose.calledOnce).to.be.true;
   });
