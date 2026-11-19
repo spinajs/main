@@ -6,6 +6,10 @@ export class Base<T> {
   constructor(readonly value: T) {}
 }
 export class Sub<T> extends Base<T> {}
+export class Sub2<U> extends Sub<U> {}
+export class Fixed extends Base<string[]> {}
+export class Fixed2 extends Fixed {}
+export class Composed<T> extends Base<T[]> {}
 export class Plain {}
 
 /** @spinajs query update */
