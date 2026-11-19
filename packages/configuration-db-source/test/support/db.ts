@@ -18,13 +18,9 @@ export interface DbHandle {
   dispose(): Promise<void>;
 }
 
-/**
- * `migrateTestDatabase()`, then the Orm's resolve signal again: the tool Orm resolved before the `configuration` table
- * existed, so the bootstrapper's sweep skipped it, as it skips an application booted with Migration.Check 'warn' or 'off'.
- */
+/** `migrateTestDatabase()`; the `orm.migrated` signal of its run is what sweeps the exposed options of a bootstrapped bootstrapper. */
 export async function migrateAndSignal(): Promise<Orm> {
   const { orm } = await migrateTestDatabase();
-  DI.emit('di.resolved.Orm', DI.RootContainer, orm);
   return orm;
 }
 

@@ -8,7 +8,7 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 
 1. `@Config(path, options)` from `@spinajs/configuration` registers `{ path, options }` in DI under the value list `__configuration_property__`. The DI container emits `di.registered.__configuration_property__`.
 2. `DbConfigSourceBotstrapper.bootstrap()` runs with the other bootstrappers. It registers the `configuration_db_source` schema and subscribes to the DI events below, dropping the subscriptions of an earlier `bootstrap()` first. It does no database work. `di.dispose` removes the subscriptions.
-3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready on `di.resolved.Orm` when `driver.schema().tableExists('configuration')` answers `true` on `DbConfig`'s connection. The `Orm` resolves only once its migrations are applied ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) creates the table), so the table exists by then. It may not when the connection's `Migration.Check` is `warn` or `off`, or when the `Orm` is a migration tool's, which resolves before it migrates: that boot sweeps nothing, so restart the app after `migrate-up`.
+3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready on `di.resolved.Orm` when `driver.schema().tableExists('configuration')` answers `true` on `DbConfig`'s connection. The `Orm` resolves only once its migrations are applied ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) creates the table), so the table exists by then. It may not when the connection's `Migration.Check` is `warn` or `off`, or when the `Orm` is a migration tool's, which resolves before it migrates. The bootstrapper therefore checks again on `orm.migrated`, which `OrmMigrator.migrate()` emits on the `Orm`'s container once a run finished: after `migrateTestDatabase()` or an app's own start-up migration the options are swept without another boot. A run in another process (`npx spinajs migrate-up` beside a running app) does not reach the app: restart it. `whenSwept()` settles once the sweep a signal started has written its rows, for a test to await.
 
    The sweep reads every `__configuration_property__` entry with `expose: true`:
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
@@ -34,8 +34,8 @@ sequenceDiagram
   participant DB as configuration table
   participant C as Configuration
   D->>DI: register { path, options } as __configuration_property__
-  B->>DI: on(di.registered...), on(di.resolved.Orm), on(di.dispose)
-  DI-->>B: di.resolved.Orm (the boot check passed)
+  B->>DI: on(di.registered...), on(di.resolved.Orm), on(orm.migrated), on(di.dispose)
+  DI-->>B: di.resolved.Orm (the boot check passed), or orm.migrated (a migration run finished)
   B->>DB: tableExists('configuration')
   B->>DB: INSERT OR IGNORE each exposed option
   B->>DB: UPDATE metadata where it differs
@@ -118,8 +118,8 @@ export async function senderOf(channel: string): Promise<string> {
 
 ## Important behaviour
 
-- **The table gates everything.** Nothing is written until the `Orm` resolved on a database whose `configuration` table exists.
-- **One sweep per `bootstrap()`.** The first `di.resolved.Orm` that finds the table sweeps; later ones do nothing, unless the sweep failed on a table that does not exist.
+- **The table gates everything.** Nothing is written until a `di.resolved.Orm` or an `orm.migrated` signal finds the `configuration` table.
+- **One sweep per `bootstrap()`.** The first `di.resolved.Orm` or `orm.migrated` that finds the table sweeps; later ones wait for that sweep and write nothing, unless it failed on a table that does not exist.
 - **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value`, `Default`, `Watch` and `Exposed`.
 - **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug`. A custom table without it gets a duplicate row per restart.
 - **`Default` and `Watch` are written once.** A `defaultValue` or `watch` flag changed in code in a later release reaches only rows inserted from then on. An existing row keeps its `Default` and `Watch`, whether an admin changed them or not; update the row in a migration to change them.

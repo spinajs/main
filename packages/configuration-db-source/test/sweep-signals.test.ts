@@ -8,7 +8,7 @@ import '@spinajs/log';
 
 import { DbConfigSourceBotstrapper } from './../src/index.js';
 
-const EVENTS = ['di.registered.__configuration_property__', 'di.resolved.Orm'];
+const EVENTS = ['di.registered.__configuration_property__', 'di.resolved.Orm', 'orm.migrated'];
 
 /** The private members these tests drive: the sweep and its inputs. */
 interface Internals {
@@ -54,7 +54,7 @@ describe('DbConfigSourceBotstrapper signals', function () {
     await DI.dispose();
   });
 
-  it('sweeps on the Orm only: neither the migrator nor the boot guard is a signal', () => {
+  it('neither resolving the migrator nor the boot guard is a signal', () => {
     DI.emit('di.resolved.OrmMigrator', DI.RootContainer, {});
     DI.emit('di.resolved.OrmMigrationGuard', DI.RootContainer, { Enabled: true });
 
