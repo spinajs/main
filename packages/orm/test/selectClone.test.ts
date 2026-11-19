@@ -45,4 +45,22 @@ describe('SelectQueryBuilder.clone()', () => {
       expect(clone.Table).to.equal(source.Table);
     });
   });
+
+  describe('groupWhere()', () => {
+    useTestApp(() => ormApp({ register: registerRelationHydrators, resolve: [Orm] }));
+
+    it('wraps the where statements so far into one group', () => {
+      const query = select(RawModel.where('Id', 1).orWhere('Id', 2));
+
+      expect(query.groupWhere()).to.equal(query);
+      expect(query.Statements).to.have.length(1);
+    });
+
+    it('leaves a query without conditions as it is', () => {
+      const query = select(RawModel.query());
+      const statements = query.Statements.length;
+
+      expect(query.groupWhere().Statements).to.have.length(statements);
+    });
+  });
 });

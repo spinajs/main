@@ -1595,6 +1595,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
 
   /** Merges `builder`'s joins, and the WHERE statements `filter` keeps as one AND group an `orWhere()` cannot widen this query through. */
   mergeStatementsAsGroup(builder: ISelectQueryBuilder, filter: (statement: IQueryStatement) => boolean): void;
+
+  /** Wraps the WHERE statements this query has so far into one AND group, so that an OR among them cannot widen a condition added afterwards. */
+  groupWhere(): this;
 }
 
 export interface ICompilerOutput {
