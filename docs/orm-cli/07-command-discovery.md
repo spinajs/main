@@ -77,7 +77,7 @@ void main();
 
 ## Important behaviour
 
-- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/<flavour>/cli`, and `Cli` warns `Directory ... not exists`.
+- **Only `lib/` is scanned.** A checkout of this package that was never built has no `lib/<flavour>/cli`, and `Cli` logs `Directory ... not exists` at `debug`, because the directory is under `node_modules`. Its commands are then missing from `--help`.
 - **`<root>` is the working directory.** Start the bin from the directory that holds `node_modules`, from one level below it, or set `WORKSPACE_ROOT_PATH`.
 - **Command classes are not instantiated at discovery.** Only the invoked command resolves an `Orm`; `spinajs --help` opens no database connection.
 - **The bin exits with `process.exitCode`.** `migrate-up` and `migrate-status` report "not current" through it. A `@spinajs/cli` whose bin ends with a bare `process.exit(0)` loses it; run the classes directly in that case.

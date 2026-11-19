@@ -60,7 +60,7 @@ void main();
 
 ### Logger: custom implementation
 
-With `@spinajs/log` loaded, the scan logs through the logger named `reflection`. Route it with a rule (see [Configuration and rules](../log/02-configuration-and-rules.md)); `trace` shows every file the scan imports, `warn` shows missing directories.
+With `@spinajs/log` loaded, the scan logs through the logger named `reflection`. Route it with a rule (see [Configuration and rules](../log/02-configuration-and-rules.md)); `trace` shows every file the scan imports, `warn` shows missing directories outside `node_modules`, and `debug` also shows a package's missing install directory under `node_modules` (see [step 4](01-loading-classes-from-directories.md#how-it-works)).
 
 ```ts
 // src/config/logger.ts in your application; `Console` is a target defined in logger.targets

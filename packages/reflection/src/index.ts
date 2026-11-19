@@ -101,6 +101,14 @@ export function ListFromFiles(filter: string, configPath: string, typeMatcher?: 
   return _listOrResolveFromFiles(filter, configPath, true, typeMatcher);
 }
 
+/**
+ * A package's config lists every place its build may be installed ( the app's node_modules and the one above it ),
+ * so one of them is missing on most runs. A directory outside node_modules is one the application configured.
+ */
+function isInstalledPackageDir(directory: string) {
+  return path.normalize(directory).split(/[\\/]/).includes('node_modules');
+}
+
 function _listOrResolveFromFiles(
   filter: string,
   configPath: string,
@@ -153,7 +161,11 @@ function _listOrResolveFromFiles(
           /* eslint-disable */
           const exists = fs.existsSync(path.normalize(d));
           if (!exists) {
-            logger.warn({ directory: d }, 'Directory ${directory} not exists');
+            if (isInstalledPackageDir(d)) {
+              logger.debug({ directory: d }, 'Directory ${directory} not exists');
+            } else {
+              logger.warn({ directory: d }, 'Directory ${directory} not exists');
+            }
           }
           return exists;
         })
