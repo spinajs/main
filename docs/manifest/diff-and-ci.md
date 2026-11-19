@@ -105,6 +105,21 @@ A route that returns the `@spinajs/http` `Page<T>` or `CursorPage<T>` carries `p
 
 Adding pagination is not breaking on its own, but the reply changes with it: an array reply that becomes `{ items, total }` is reported as breaking by the schema rules below, in the same row. A page parameter that moves to another argument or property is not compared as pagination: a removed value argument shows as a removed parameter, but a property dropped from a JSON query object is only a request schema change, which is not breaking. `item` and `size` are not compared.
 
+### Idempotency
+
+A route behind `@Idempotent` carries `idempotency` in the manifest. A client that retries with an `Idempotency-Key`
+relies on the gate, so the routes section compares it too:
+
+| Change | Breaking | Detail |
+| --- | --- | --- |
+| `@Idempotent` removed | yes | `@Idempotent removed: a retried request runs again` |
+| `@Idempotent` added with `required: true` | yes | `@Idempotent added with a required Idempotency-Key` |
+| The key became required | yes | `Idempotency-Key is now required` |
+| `@Idempotent` added, the key optional | no | `@Idempotent added` |
+| The key is no longer required | no | `Idempotency-Key is no longer required` |
+
+The other options (`ttl`, `fingerprint`, `maxReplyBytes`, `sharedScope`) are not compared.
+
 ### Schema directions
 
 Types are compared structurally through the schemas the build derived, following `$ref`, `allOf`, unions and recursive types.
@@ -169,7 +184,7 @@ The `tenancy` section compares the manifest `tenancy` sections (see [Tenancy fac
 | An entry point that declares its tenancy appears | `<kind> <id>` | no | `declares tenancy all (operator console)` |
 | An escape is added or removed | `acrossTenants <package>:<file> on <Model>`, `runAcrossTenants <package>:<file>` | no | `reason: nightly dunning report`, or `no literal reason` |
 
-An escape is matched by its file, its model and its reason, not by its line: moving code inside a file is not a change, and a reworded reason is a removal plus an addition. `all` is always shown with its reason. An entry point that disappears is reported by its own section (`routes`, `socket`, `commands`). A change that weakens isolation (a model that stops being a tenant model, a new escape, a route that goes from `required` to `none` or `all`) is listed and never fails `--fail-on breaking`.
+An escape is matched by its file, its model and its reason, not by its line: moving code inside a file is not a change, and a reworded reason is a removal plus an addition. Identical escapes in one file are counted: adding or removing more than one gives a single row with `(<n> call sites)` after the reason. `all` is always shown with its reason. An entry point that disappears is reported by its own section (`routes`, `socket`, `commands`). A change that weakens isolation (a model that stops being a tenant model, a new escape, a route that goes from `required` to `none` or `all`) is listed and never fails `--fail-on breaking`.
 
 ## Exit codes
 

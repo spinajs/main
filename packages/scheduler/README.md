@@ -17,9 +17,11 @@ schedule can pause itself after repeated failures. Everything is available throu
 npm install @spinajs/scheduler
 ```
 
-The package ships its migration (`Scheduler_2026_10_15_00_00_00`, connection
+The package ships its migrations (`Scheduler_2026_10_15_00_00_00`, and
+`Scheduler_2026_11_16_00_00_00`, which adds one nullable column for tracing; connection
 `default`), its default configuration and its CLI commands. `@spinajs/queue` (events,
-emit mode) and `@spinajs/telemetry-common` (metrics) are regular dependencies.
+emit mode), `@spinajs/telemetry-common` (metrics) and `@spinajs/tracing` (spans) are
+regular dependencies.
 
 ## Declare a schedule
 

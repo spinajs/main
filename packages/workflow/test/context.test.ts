@@ -7,7 +7,7 @@ import { Clock, FaultInjector, NonRetryableError } from '@spinajs/durable';
 import type { FakeClock } from '@spinajs/durable/testing';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { ReplayGate } from '../src/gate.js';
-import { NonDeterminismError, resolveWorkflowConfig, type ActivationContext, type Op, type StepRow, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
+import { branchId, NonDeterminismError, resolveWorkflowConfig, type ActivationContext, type Op, type StepRow, WorkflowAborted, WorkflowFailure, WorkflowStepFailed } from '../src/index.js';
 import { activation } from './support/activation.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import { TestCrash, TestFaults } from './support/faults.js';
@@ -118,7 +118,7 @@ describe('ActivationContext: steps and replay', () => {
   it('concurrent branches with different names replay at their recorded positions', async () => {
     const branch = (ctx: ActivationContext, first: string, second: string, ms: number) => ctx.step(first, () => pause(ms)).then(() => ctx.step(second, () => second));
     const r = await twice((ctx) => Promise.all([branch(ctx, 'a', 'c', 50), branch(ctx, 'b', 'd', 0)]));
-    expect((await stepsOf('c1')).map((s) => `${s.Seq}:${s.Key}`)).to.deep.equal(['1:step:a#1', '2:step:b#1', '3:step:d#1', '4:step:c#1']);
+    expect((await stepsOf('c1')).map((s) => `${s.Seq}:${s.Key}`)).to.deep.equal(['1:step:a#1', '2:step:b#1', `3:step:d#1@${branchId('', 'step:b#1')}`, `4:step:c#1@${branchId('', 'step:a#1')}`]);
     expect([r.replayed, r.unvisited]).to.deep.equal([['c', 'd'], []]);
   });
 
@@ -209,7 +209,7 @@ describe('ActivationContext: steps and replay', () => {
     await replay.ctx.step('a', () => 'a');
     const err = await rejects(replay.ctx.step('inserted', () => ++ran));
     await replay.release();
-    expect([err.message, ran, replay.ctx.interruption?.kind]).to.deep.equal(["the journal recorded 'step:b#1' at position 2, this run asked for 'step:inserted#1'", 0, 'nondeterminism']);
+    expect([err.message, ran, replay.ctx.interruption?.kind]).to.deep.equal(["the journal recorded 'step:b#1' as call 2 of its branch, this run asked for 'step:inserted#1'", 0, 'nondeterminism']);
   });
 
   it('a replay waiting for a recorded step the code no longer calls fails when the stall timer fires', async () => {
@@ -221,7 +221,7 @@ describe('ActivationContext: steps and replay', () => {
     await ((await DI.resolve(Clock)) as FakeClock).advance(60_000);
     const err = await pending;
     await replay.release();
-    expect([err.message, replay.ctx.interruption?.kind]).to.deep.equal(["the replay is waiting for 'step:x2#1', which the journal recorded and this run has not asked for", 'nondeterminism']);
+    expect([err.message, replay.ctx.interruption?.kind]).to.deep.equal([`the replay is waiting for 'step:x2#1@${branchId('', 'step:x1#1')}', which the journal recorded and this run has not asked for`, 'nondeterminism']);
   });
 
   it('replays under sinon.useFakeTimers() without waiting on a timer', async () => {
@@ -363,7 +363,7 @@ describe('ActivationContext: steps and replay', () => {
     const row = (seq: number, key: string, after: number): StepRow => ({ Id: seq, Seq: seq, Key: key, Kind: 'step', Status: 'succeeded', Attempt: 1, Result: null, ResultStored: false, Error: null, Meta: { after, order: seq } });
     const n = 5000;
     const items = Array.from({ length: n }, (_, i) => i);
-    const gate = new ReplayGate([...items.map((i) => row(i + 1, `step:fetch-${i}#1`, 0)), ...items.map((i) => row(n + i + 1, `step:save-${i}#1`, n))], true, () => undefined);
+    const gate = new ReplayGate([...items.map((i) => row(i + 1, `step:fetch-${i}#1`, 0)), ...items.map((i) => row(n + i + 1, `step:save-${i}#1`, n))], () => undefined);
     const t0 = Date.now();
     const replay = (kind: string) =>
       Promise.all(
@@ -377,7 +377,7 @@ describe('ActivationContext: steps and replay', () => {
     expect([gate.delivered, Date.now() - t0 < 2000]).to.deep.equal([2 * n, true]);
   });
 
-  it('refuses to journal a row without Meta.after into a journal that carries it', async () => {
+  it('refuses to journal a row without Meta.after', async () => {
     const h = await activation('c1');
     const ctx = h.ctx as unknown as { saveStep(op: Op, s: unknown): Promise<unknown> };
     const op: Op = { kind: 'step', name: 'x', key: 'step:x#1', seq: 1, after: Number.NaN };
@@ -394,28 +394,28 @@ describe('ActivationContext: steps and replay', () => {
     await h.release();
   });
 
-  it('another occurrence of the same name at a recorded position is non-deterministic, and stays so', async () => {
-    await seedStep('c1', 1, 'step:a#1');
-    await seedStep('c1', 2, 'step:a#2');
-    const h = await activation('c1');
-    await h.ctx.step('x', () => 1);
-    const err = await rejects(h.ctx.step('a', () => 1));
-    expect(err).to.be.instanceOf(NonDeterminismError);
-    expect(err.message).to.equal("the journal recorded 'step:a#2' at position 2, this run asked for 'step:a#1'");
-    expect([h.ctx.interruption?.kind, h.journal.unvisited()]).to.deep.equal(['nondeterminism', ['step:a#2']]);
-    expect(await rejects(h.ctx.step('a', () => 1))).to.equal(err);
-    await h.release();
-  });
-
-  it('an occurrence of a repeated name asked for at another position is non-deterministic', async () => {
-    await seedStep('c1', 1, 'step:a#1');
-    await seedStep('c1', 2, 'step:b#1');
-    await seedStep('c1', 3, 'step:a#2');
+  it('another call where the journal recorded one is non-deterministic, and stays so', async () => {
+    await seedStep('c1', 1, 'step:a#1', { Meta: { after: 0, order: 1, call: 1 } });
+    await seedStep('c1', 2, 'step:b#1', { Meta: { after: 1, order: 2, call: 2 } });
+    await seedStep('c1', 3, 'step:a#2', { Meta: { after: 2, order: 3, call: 3 } });
     const h = await activation('c1');
     await h.ctx.step('a', () => 1);
     const err = await rejects(h.ctx.step('a', () => 1));
     expect(err).to.be.instanceOf(NonDeterminismError);
-    expect(err.message).to.equal("the journal recorded 'step:a#2' at position 3, this run asked for it at 2");
+    expect(err.message).to.equal("the journal recorded 'step:b#1' as call 2 of its branch, this run asked for 'step:a#2'");
+    expect([h.ctx.interruption?.kind, h.journal.unvisited()]).to.deep.equal(['nondeterminism', ['step:b#1']]);
+    expect(await rejects(h.ctx.step('a', () => 1))).to.equal(err);
+    await h.release();
+  });
+
+  it('a repeated name asked for under another call number is non-deterministic', async () => {
+    await seedStep('c1', 1, 'step:a#1', { Meta: { after: 0, order: 1, call: 1 } });
+    await seedStep('c1', 3, 'step:a#2', { Meta: { after: 1, order: 2, call: 3 } });
+    const h = await activation('c1');
+    await h.ctx.step('a', () => 1);
+    const err = await rejects(h.ctx.step('a', () => 1));
+    expect(err).to.be.instanceOf(NonDeterminismError);
+    expect(err.message).to.equal("the journal recorded 'step:a#2' as call 3 of its branch, this run asked for it as call 2");
     await h.release();
   });
 

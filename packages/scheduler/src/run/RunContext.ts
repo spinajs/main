@@ -1,5 +1,7 @@
+import { trace } from '@opentelemetry/api';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import type { Log, LogVariables } from '@spinajs/log-common';
+import { SpinaAttr, markSpanErrorType, withSpan } from '@spinajs/tracing';
 import type {
   RunEventPayload,
   RunLogLevel,
@@ -173,8 +175,12 @@ export class RunContext {
     this.touch();
   }
 
+  public step<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
+    return withSpan(`step ${name}`, { attributes: { [SpinaAttr.Step]: name } }, () => this.runStep(name, fn, opts), markSpanErrorType);
+  }
+
   // eslint-disable-next-line complexity -- the step lifecycle (guards, resume skip, journal row, run, close) reads in order here
-  public async step<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
+  protected async runStep<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
     const outer = this.open?.name ?? this.starting;
     if (outer !== null) {
       throw new InvalidOperation(`step '${name}' started inside step '${outer}'; steps run one after another`);
@@ -190,6 +196,7 @@ export class RunContext {
     const startedAt = this.init.clock.now();
     const key = `${name}#${occurrence}`;
     if (this.init.resume?.has(key)) {
+      trace.getActiveSpan()?.setAttribute(SpinaAttr.Replayed, true);
       this.starting = name;
       try {
         return (await this.skipStep(name, seq, weight, startedAt, this.init.resume.get(key))) as T;

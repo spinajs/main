@@ -1,4 +1,4 @@
-import { ConstraintKind, ConstraintViolation, IDriverOptions, OrmException, UniqueViolation } from '@spinajs/orm';
+import { ConstraintKind, ConstraintViolation, DataException, IDriverOptions, OrmException, UniqueViolation } from '@spinajs/orm';
 
 const PG_CONSTRAINT_KINDS: Record<string, ConstraintKind> = {
   '23502': 'not_null',
@@ -14,7 +14,7 @@ function keyColumns(detail: unknown): string[] | undefined {
   return key ? key[1].split(',').map((c) => c.trim().replace(/^"(.*)"$/, '$1')) : undefined;
 }
 
-/** Maps a node-postgres error by its SQLSTATE: `23505` is a duplicate, the rest of class 23 another constraint. */
+/** Maps a node-postgres error by its SQLSTATE: `23505` is a duplicate, the rest of class 23 another constraint, class 22 a refused value. */
 export function mapPostgresError(err: unknown, driver: Partial<IDriverOptions>, query: string, bindings: unknown): Error {
   const native = err as { code?: unknown; message?: unknown; table?: unknown; constraint?: unknown; column?: unknown; detail?: unknown } | null | undefined;
   const code = typeof native?.code === 'string' ? native.code : '';
@@ -28,6 +28,10 @@ export function mapPostgresError(err: unknown, driver: Partial<IDriverOptions>, 
   if (code.startsWith('23')) {
     const column = text(native?.column);
     return new ConstraintViolation(message, PG_CONSTRAINT_KINDS[code] ?? 'other', { ...info, columns: column ? [column] : undefined }, driver, query, bindings, err);
+  }
+
+  if (code.startsWith('22')) {
+    return new DataException(`the database refused a value of the statement (SQLSTATE ${code})`, driver, query, bindings, err);
   }
 
   return new OrmException('Error executing orm command ', driver, query, bindings, err);

@@ -16,6 +16,7 @@ export * from './statements.js';
 export * from './builders.js';
 export * from './converters.js';
 export * from './expressions.js';
+export * from './explain.js';
 
 // Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
 // IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
@@ -34,6 +35,8 @@ import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter } from './converters.js';
+import type { QueryPlan } from '@spinajs/orm';
+import { normalizeSqlitePlan } from './explain.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -362,6 +365,10 @@ export class SqliteOrmDriver extends SqlDriver {
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
     return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
+  }
+
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizeSqlitePlan(await this.runExplain('EXPLAIN QUERY PLAN', sql, bindings, rawSql));
   }
 
   public async ping(): Promise<boolean> {
