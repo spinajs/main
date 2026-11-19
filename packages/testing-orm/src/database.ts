@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import type { Class } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import '@spinajs/log';
-import { Orm, OrmMigrator, type IDriverOptions } from '@spinajs/orm';
+import type { IDriverOptions, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { PgliteOrmDriver, execOnSharedPglite } from '@spinajs/orm-pglite';
 import { createTestApp } from '@spinajs/testing';
 
@@ -22,12 +23,15 @@ export interface TestDatabaseOptions {
   dialect?: 'pglite' | 'sqlite';
   /** The connection name; `@Migration(name)` migrations apply ( and `@Migration('default')` ones when it is the default connection ). Default `default`. */
   connection?: string;
-  /** Run the registered migrations. Default true. */
+  /**
+   * Default true: `migrate()` applies the registered migrations. `false`: an empty database whose boot does not check
+   * them ( `Migration.Check: 'off'` ).
+   */
   migrate?: boolean;
   /**
-   * PGlite only. `schema` ( default ): a new schema on one PGlite instance shared by the process; the app's boot runs
-   * the migrations in it. `template`: the migrations run once per process into a dumped instance, and every boot loads
-   * its own copy of the dump.
+   * PGlite only. `schema` ( default ): a new schema on one PGlite instance shared by the process; `migrate()` runs the
+   * migrations in it. `template`: the migrations run once per process into a dumped instance, and every boot loads its
+   * own copy of the dump.
    */
   strategy?: TestDatabaseStrategy;
   /**
@@ -40,6 +44,11 @@ export interface TestDatabaseOptions {
 export interface TestDatabase {
   /** The `db.Connections` entry. JSON-safe, so `createTestApp({ config })` can carry it. */
   config: Partial<IDriverOptions>;
+  /**
+   * Applies the pending migrations and their `data()` seeds through the migration tool of `container` and resolves with
+   * its Orm; an app's boot only checks them. Call it after creating the app, before anything there resolves the Orm.
+   */
+  migrate(container: IContainer): Promise<Orm>;
   /** `schema`: drops the schema; call it after the app that used it is disposed. Otherwise nothing is left to clean. */
   dispose(): Promise<void>;
 }
@@ -58,10 +67,10 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   resetFactorySequences();
   const connection = options.connection ?? 'default';
   const migrate = options.migrate ?? true;
-  const Migration = { OnStartup: migrate };
+  const unchecked = migrate ? {} : { Migration: { Check: 'off' as const } };
 
   if (options.dialect === 'sqlite') {
-    return { config: { Driver: 'orm-driver-sqlite', Name: connection, Filename: ':memory:', Migration }, dispose: () => Promise.resolve() };
+    return { config: { Driver: 'orm-driver-sqlite', Name: connection, Filename: ':memory:', ...unchecked }, migrate: migrateIn, dispose: () => Promise.resolve() };
   }
 
   const strategy = options.strategy ?? 'schema';
@@ -72,7 +81,8 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   if (strategy === 'schema') {
     const schema = `tdb_${process.pid}_${randomBytes(4).toString('hex')}`;
     return {
-      config: { Driver: PGLITE, Name: connection, Migration, Options: { Shared: TEST_PGLITE_INSTANCE, Schema: schema } },
+      config: { Driver: PGLITE, Name: connection, ...unchecked, Options: { Shared: TEST_PGLITE_INSTANCE, Schema: schema } },
+      migrate: migrateIn,
       dispose: async () => {
         await execOnSharedPglite(TEST_PGLITE_INSTANCE, `DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       },
@@ -80,8 +90,12 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   }
 
   const template = await templateFor(connection, options.configuration ?? FrameworkConfiguration);
-  // Migrations registered after the template was taken still run on the app's boot.
-  return { config: { Driver: PGLITE, Name: connection, Migration, Options: { LoadDataDir: template } }, dispose: () => Promise.resolve() };
+  // migrate() applies what was registered after the template was taken.
+  return { config: { Driver: PGLITE, Name: connection, Options: { LoadDataDir: template } }, migrate: migrateIn, dispose: () => Promise.resolve() };
+}
+
+async function migrateIn(container: IContainer): Promise<Orm> {
+  return (await migrateTestDatabase(container)).orm;
 }
 
 function templateFor(connection: string, configuration: Class<Configuration>): Promise<string> {
@@ -112,13 +126,12 @@ async function buildTemplate(connection: string, configuration: Class<Configurat
   // A root test app of its own: the first template call must come before the test's app exists.
   const app = await createTestApp({
     name: `testing-orm template ${connection}`,
-    configuration: withConnection(configuration, { Driver: PGLITE, Name: connection, Migration: { OnStartup: true } }),
+    configuration: withConnection(configuration, { Driver: PGLITE, Name: connection }),
     register: (container) => container.register(PgliteOrmDriver).as(PGLITE),
-    resolve: [OrmMigrator],
   });
 
   try {
-    const driver = (await app.resolve(Orm)).Connections.get(connection) as PgliteOrmDriver;
+    const driver = (await migrateIn(app.container)).Connections.get(connection) as PgliteOrmDriver;
     const file = join(templateDirectory(), `template-${++templateFiles}.tar`);
     writeFileSync(file, new Uint8Array(await (await driver.dumpDataDir()).arrayBuffer()));
     return file;

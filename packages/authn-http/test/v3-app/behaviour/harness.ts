@@ -3,7 +3,8 @@ import { request } from 'node:http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { ServerMiddleware } from '@spinajs/http';
@@ -299,9 +300,9 @@ async function bootTokenDb(): Promise<void> {
   const c = config();
   c.set('db', {
     DefaultConnection: DB_CONNECTION,
-    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations', OnStartup: true } }],
+    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DB_CONNECTION, Migration: { Table: 'orm_migrations' } }],
   });
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
   await tokenDb()
     .schema()
     .createTable('users', (table) => {
@@ -352,6 +353,7 @@ export async function shutdownBehaviourApp(): Promise<void> {
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   // authn-token's owner resolver holds the Orm it was built with.
   const tokens = (await import(new URL('service/index.js', TOKEN_LIB).href)) as Record<'TokenOwnerResolver' | 'UsersTableTokenOwnerResolver', Class<unknown>>;
   DI.uncache(tokens.UsersTableTokenOwnerResolver);

@@ -68,8 +68,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       void this.syncConfigOption(v);
     });
 
-    // The Orm resolves after its Migration.OnStartup migrations, so the table exists then unless the deployment has
-    // yet to migrate.
+    // The Orm resolves once its migrations are applied, so the table exists then unless the connection's Migration.Check
+    // is 'warn' or 'off', or the Orm is a migration tool's ( it resolves before it migrates ): that boot syncs nothing.
     this.listen('di.resolved.Orm', (container: unknown, orm: unknown) => {
       void (async () => {
         try {

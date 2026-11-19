@@ -22,7 +22,7 @@ class ExplainConf extends FrameworkConfiguration {
       db: {
         StrictTableCheck: false,
         Migration: { Startup: false },
-        Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql', Host: HOST, Port: PORT, User: USER, Password: PASSWORD, Database: DATABASE, Migration: { OnStartup: false } }],
+        Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql', Host: HOST, Port: PORT, User: USER, Password: PASSWORD, Database: DATABASE }],
       },
     };
   }

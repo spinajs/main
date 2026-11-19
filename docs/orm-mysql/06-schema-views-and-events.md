@@ -97,7 +97,7 @@ MySQL commits implicitly before and after `CREATE`, `ALTER`, `DROP`, `TRUNCATE` 
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Run pending migrations of this connection when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.MigrationCheck` | `string` | `fail` | `fail`, `warn`, `off` | What `Orm.resolve()` does with pending or failed migrations; `Migration.Check` overrides it per connection. See [Migrations](../orm/10-migrations.md#configuration). |
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | | Tracking table. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | Wraps migrations in a transaction; DDL still commits implicitly. |
 
