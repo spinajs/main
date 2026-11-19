@@ -29,6 +29,10 @@ export interface LooseQuery extends ISelectQueryBuilder<InvoiceModel> {
 type Keep<B, A extends string> = string extends A ? B : B & { readonly alias: A };
 declare function keep<B extends ISelectQueryBuilder<InvoiceModel>, A extends string>(q: B, as: A): Keep<B, A>;
 
+/** Results that may be a builder or rows, or rows now or later. */
+declare function builderOrRows(q: ISelectQueryBuilder<InvoiceModel>): ISelectQueryBuilder<InvoiceModel> | Promise<InvoiceModel[]>;
+declare function rowsMaybeLater(q: ISelectQueryBuilder<InvoiceModel>): Promise<InvoiceModel[]> | InvoiceModel[];
+
 /** Reached from no entry point, so it adds no effect to any whole-fixture expectation. */
 export class Vocabulary {
   async streamed(q: ISelectQueryBuilder<InvoiceModel>): Promise<number> {
@@ -59,5 +63,11 @@ export class Vocabulary {
   }
   copiedHere(q: ISelectQueryBuilder<InvoiceModel>) {
     return q.clone();
+  }
+  mixed(q: ISelectQueryBuilder<InvoiceModel>) {
+    return builderOrRows(q);
+  }
+  maybeLater(q: ISelectQueryBuilder<InvoiceModel>) {
+    return rowsMaybeLater(q);
   }
 }

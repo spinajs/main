@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { builderOf, staticKind } from './authz-effects.js';
 import type { BuilderKind, FunctionSummary } from './authz-effects.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
-import { QueryTracer, chainOf, memberMarker, scopeOf, unwrap } from './query-values.js';
+import { QueryTracer, chainOf, memberMarker, scopeBy, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
 
 const CHOICES: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken]);
@@ -168,14 +168,9 @@ export class FlowTracer extends QueryTracer {
     if (builder === undefined) return undefined;
     const value = unscopedBuilder(e, builder.model);
     // `helper.accessible().builder()`: a call before the builder exists scopes nothing.
-    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) this.scopeBy(value, call);
+    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(this.checker, value, call);
     this.meta.set(value, { kind: builder.kind, origin: e });
     return { value, pending: true };
-  }
-
-  private scopeBy(value: QueryValue, call: ts.CallExpression): void {
-    const scope = scopeOf(this.checker, call);
-    if (scope !== undefined) value.scoped[scope] = true;
   }
 
   private onBuilder(call: ts.CallExpression): boolean {
@@ -189,7 +184,7 @@ export class FlowTracer extends QueryTracer {
     for (const [index, call] of chain.entries()) {
       const value = this.returnedBy(call);
       if (value === undefined) continue;
-      for (const outer of chain.slice(0, index)) this.scopeBy(value, outer);
+      for (const outer of chain.slice(0, index)) scopeBy(this.checker, value, outer);
       return { value, pending: true };
     }
     return undefined;

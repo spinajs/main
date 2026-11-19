@@ -104,11 +104,16 @@ export function scopeOf(checker: ts.TypeChecker, call: ts.CallExpression): 'acce
   return marker === 'accessible' || marker === 'unscoped' ? marker : undefined;
 }
 
+export function scopeBy(checker: ts.TypeChecker, value: QueryValue, call: ts.CallExpression): void {
+  const scope = scopeOf(checker, call);
+  if (scope === 'accessible') value.scoped.accessible = true;
+  else if (scope === 'unscoped') value.scoped.unscoped = true;
+}
+
 function applyCalls(checker: ts.TypeChecker, value: QueryValue, calls: Chain['calls']): void {
   for (const { name, call } of calls) {
     if (name === 'populate') populatedPaths(call).forEach((path) => value.populated.add(path));
-    const scope = scopeOf(checker, call);
-    if (scope !== undefined) value.scoped[scope] = true;
+    scopeBy(checker, value, call);
   }
 }
 

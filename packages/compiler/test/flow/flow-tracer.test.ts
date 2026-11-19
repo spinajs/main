@@ -182,7 +182,7 @@ describe('flow: effects and the tracer across calls', () => {
   const named = (calls: ts.CallExpression[], member: string): ts.CallExpression =>
     calls.find((c) => ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === member)!;
 
-  it('a call runs the query when its result is no builder and is awaitable, async-iterable or untyped', () => {
+  it('a call runs the query when a part of its result is no builder and is awaitable, async-iterable or untyped', () => {
     expect(runsQuery(checker, named(callsOf('streamed'), 'stream'))).to.equal(true);
     expect(runsQuery(checker, named(callsOf('paged'), 'paginate'))).to.equal(true);
     expect(runsQuery(checker, named(callsOf('thenned'), 'then'))).to.equal(true);
@@ -190,6 +190,8 @@ describe('flow: effects and the tracer across calls', () => {
     expect(runsQuery(checker, named(callsOf('chained'), 'where'))).to.equal(false);
     expect(runsQuery(checker, named(callsOf('chained'), 'count'))).to.equal(false);
     expect(runsQuery(checker, callsOf('open')[0])).to.equal(false);
+    expect(runsQuery(checker, callsOf('mixed')[0])).to.equal(true);
+    expect(runsQuery(checker, callsOf('maybeLater')[0])).to.equal(true);
   });
 
   it("an app's subclass of a builder and an open conditional type over one are builders; an insert builder is not followed", () => {
@@ -202,6 +204,7 @@ describe('flow: effects and the tracer across calls', () => {
 
   it("scoping and copying are read from the member's marker, so an app's own accessible() scopes nothing", () => {
     expect(scopeOf(checker, named(callsOf('loose'), 'accessible'))).to.equal(undefined);
+    expect(returnedScope('Vocabulary.loose')).to.deep.equal([true, UNSCOPED]);
     expect(scopeOf(checker, named(callsOf('scopedHere'), 'accessible'))).to.equal('accessible');
     expect(memberMarker(checker, named(callsOf('copiedHere'), 'clone'), 'copy')).to.equal('');
   });
