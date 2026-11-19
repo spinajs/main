@@ -55,7 +55,7 @@ Members:
 
 | Member | Meaning |
 | --- | --- |
-| `Order: number` | Set in the constructor. Lower runs earlier in `before()` and later in `after()`. |
+| `Order: number` | Set in the constructor; `0` when not set. Lower runs earlier in `before()` and later in `after()`. |
 | `before()` | Returns `(req, res, next) => void` or `null`. |
 | `after()` | Returns a 3-argument handler, a 4-argument error handler `(err, req, res, next)`, or `null`. |
 | `resolve()` | `AsyncService` hook, runs before `before()` is called; read configuration here. |
