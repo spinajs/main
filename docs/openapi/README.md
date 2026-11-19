@@ -114,6 +114,7 @@ Parameters and request bodies follow `ParamEntry.wire`:
 | `field` body | one object request body keyed by the field names |
 | `multipart` | `multipart/form-data` object; `multiple` is an array of parts |
 | `none` | omitted (injected by the framework) |
+| `RouteEntry.idempotency` (`@Idempotent`) | header parameter `Idempotency-Key`, `required` as the route sets it, unless the route declares that header itself |
 
 A parameter without `wire` throws: the manifest was built by a compiler that does not record it. A `{name}` in the path with no matching parameter gets a required string path parameter.
 
@@ -128,6 +129,7 @@ A parameter without `wire` throws: the manifest was built by a compiler that doe
 | A route with request parameters | `400` |
 | A route with permissions that is not anonymous | `401` and `403` |
 | Status of each entry in the controller's `__http_error_map__` | That status |
+| `RouteEntry.idempotency` (`@Idempotent`) | `400`, `409` with a `Retry-After` header and `422`, each only when no row above gave that status; `Idempotent-Replayed` on the `2xx` responses |
 
 Every problem response uses `application/problem+json` and a `$ref` to `ProblemDetails`, the RFC 9457 body that `@spinajs/http` emits ([Error handling](../http/11-error-handling.md)). When the manifest holds a schema with `$id` `spinajs/http/ProblemDetails` it is used, else the `errorSchema` option, else the built-in RFC 9457 shape. Response codes are sorted. The default descriptions are `Bad request` (400), `Unauthorized` (401), `Forbidden` (403), `Not found` (404), `Conflict` (409), `Payload too large` (413), `Validation error` (422) and `Internal server error` (500).
 

@@ -77,6 +77,8 @@ export interface Ceiling {
 export declare const SYSTEM: Principal;
 export declare const UNATTENDED: Principal;
 export declare const principalKey: (p: PrincipalRef) => string;
+/** The inverse of `principalKey` for a non-empty type and id; undefined for any other string. */
+export declare function parsePrincipalKey(key: string): PrincipalRef | undefined;
 export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
 export declare const ceilingHash: (c: Ceiling | undefined) => string;
 

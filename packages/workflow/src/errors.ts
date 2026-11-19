@@ -1,4 +1,5 @@
 import { NonRetryableError } from '@spinajs/durable';
+import { InvalidOperation } from '@spinajs/exceptions';
 import type { SerializedError } from './contract.js';
 import { safeStringify } from './json.js';
 
@@ -132,3 +133,5 @@ export class WorkflowTimeout extends NonRetryableError {
     this.name = 'WorkflowTimeout';
   }
 }
+
+export class WorkflowNotRetryable extends InvalidOperation {}

@@ -1,7 +1,7 @@
 import { AuthzConfigError, isPermission } from '@spinajs/authz';
 import type { Permission, ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryExtension, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
+import { DeleteQueryExtension, JoinStatement, RelationType, SelectQueryBuilder, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
 import type { QueryBuilder, QueryExtension } from '@spinajs/orm';
 
 import { marksOf, setMarks } from '../marker.js';
@@ -67,6 +67,27 @@ function requireResource(builder: object, what: string): void {
   if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${typeof model === 'function' && model.name ? model.name : 'no model'})`);
 }
 
+const POPULATE_INSTEAD = 'Instead, filter the parent query, populate through a hasMany relation, or load the related rows with their own .accessible() query';
+
+/** Why a mark on this builder would not filter what the query returns, or undefined when it does. */
+function markIgnored(builder: object): string | undefined {
+  const owner = builder instanceof SelectQueryBuilder ? builder.Owner : undefined;
+  if (owner === undefined) return undefined;
+  // A join callback's builder is owned by its JoinStatement, which the Owner type does not admit.
+  if (owner instanceof JoinStatement) return 'in a join callback: the join query is merged into the parent query and never runs on its own, so the call would have no effect. Instead, filter the parent query or load the joined rows with their own .accessible() query';
+  const { Name, Type, Recursive } = owner.Descriptor;
+  const relation = `in a populate callback: relation "${Name}"`;
+  if (Recursive) return `${relation} is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
+  if (Type === RelationType.One) return `${relation} is a belongsTo: its query is merged into the parent query and never runs on its own, so the call would have no effect. ${POPULATE_INSTEAD}`;
+  if (Type === RelationType.ManyToMany) return `${relation} is many-to-many: its junction query runs instead of this one, so the call would have no effect. ${POPULATE_INSTEAD}`;
+  return undefined;
+}
+
+function requireOwnQuery(builder: object, what: string): void {
+  const why = markIgnored(builder);
+  if (why !== undefined) throw new AuthzConfigError(`${what} ${why}`);
+}
+
 function envOf(opts: WithAccessOptions | undefined, what: string): { env?: Readonly<Record<string, unknown>> } {
   if (opts === undefined || opts.env === undefined) return {};
   if (opts.env === null || typeof opts.env !== 'object' || Array.isArray(opts.env)) throw new AuthzConfigError(`${what}: env must be an object`);
@@ -83,6 +104,7 @@ function onNoneOf(opts: AccessibleOptions | undefined, what: string): { onNone?:
 function accessible(this: object, permission: Permission, opts?: AccessibleOptions): object {
   const what = `.accessible(${JSON.stringify(permission)})`;
   requireResource(this, what);
+  requireOwnQuery(this, what);
   if (!isPermission(permission)) throw new AuthzConfigError(`${what}: not a permission name`);
   const marks = marksOf(this) ?? {};
   if (marks.unscoped !== undefined) throw new AuthzConfigError(`${what}: .accessible() and .unscoped() exclude each other`);
@@ -115,6 +137,7 @@ function refsOf(v: unknown): readonly ResourceRef[] {
 
 function within(this: object, ref: ResourceRef | readonly ResourceRef[]): object {
   requireResource(this, '.within()');
+  requireOwnQuery(this, '.within()');
   const refs = refsOf(ref);
   const marks = marksOf(this) ?? {};
   setMarks(this, { ...marks, within: Object.freeze([...(marks.within ?? []), refs]) });
@@ -124,6 +147,7 @@ function within(this: object, ref: ResourceRef | readonly ResourceRef[]): object
 function withAccess(this: object, permissions: readonly Permission[], opts?: WithAccessOptions): object {
   const what = '.withAccess()';
   requireResource(this, what);
+  requireOwnQuery(this, what);
   if (!Array.isArray(permissions) || permissions.length === 0 || !permissions.every((p) => isPermission(p))) throw new AuthzConfigError(`${what}: needs a non-empty list of permission names`);
   const marks = marksOf(this) ?? {};
   setMarks(this, { ...marks, withAccess: Object.freeze([...new Set(permissions)]), ...envOf(opts, what) });
@@ -133,6 +157,7 @@ function withAccess(this: object, permissions: readonly Permission[], opts?: Wit
 function withFields(this: object, permission: Permission, opts?: WithAccessOptions): object {
   const what = `.withFields(${JSON.stringify(permission)})`;
   requireResource(this, what);
+  requireOwnQuery(this, what);
   if (!isPermission(permission)) throw new AuthzConfigError(`${what}: not a permission name`);
   setMarks(this, { ...(marksOf(this) ?? {}), withFields: permission, ...envOf(opts, what) });
   return this;

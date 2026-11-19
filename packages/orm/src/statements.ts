@@ -9,6 +9,7 @@ import type { ModelBase } from './model.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
+import { noteRawSql } from './explain/raw-sql.js';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -77,13 +78,19 @@ export abstract class QueryStatement implements IQueryStatement {
 
 @NewInstance()
 export abstract class RawQueryStatement extends QueryStatement {
-  protected _query: string;
+  private readonly _text: string;
   protected _bindings: any[];
+
+  // where(RawQuery) copies the text in when the query is built, so the compile marks it here, not on RawQuery.Query
+  protected get _query(): string {
+    noteRawSql();
+    return this._text;
+  }
 
   constructor(query: string, bindings?: any[]) {
     super();
 
-    this._query = query || '';
+    this._text = query || '';
     this._bindings = bindings || [];
   }
 

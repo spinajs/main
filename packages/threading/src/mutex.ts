@@ -13,7 +13,7 @@ export interface MutexLock {
   /**
    * Who is currently locked
    */
-  Tenant: string;
+  Holder: string;
 
   /**
    * Mutex state
@@ -21,7 +21,7 @@ export interface MutexLock {
   Locked: boolean;
 
   /**
-   * Epoch ms after which another tenant may take the lock. null or missing = never expires.
+   * Epoch ms after which another holder may take the lock. null or missing = never expires.
    */
   LockedUntil?: number | null;
 
@@ -43,10 +43,10 @@ export interface MutexLockOptions {
   Name: string;
 
   /**
-   * Lock holder. Defaults to config `threading.mutex.tenant`, or to the identity of the
+   * Lock holder. Defaults to config `threading.mutex.holder`, or to the identity of the
    * current process (see `processIdentity()`) when that is empty.
    */
-  Tenant?: string;
+  Holder?: string;
 
   /**
    * Lock lifetime in ms, counted from acquire or the last renew. 0 = never expires.
@@ -79,8 +79,8 @@ export abstract class Mutex {
   public abstract acquire(options: MutexLockOptions): Promise<LockResult>;
 
   /**
-   * Extends a lock held by `options.Tenant` to now + ttl. Never takes a lock.
-   * @returns false when the lock is not held by this tenant any more
+   * Extends a lock held by `options.Holder` to now + ttl. Never takes a lock.
+   * @returns false when the lock is not held by this holder any more
    */
   public abstract renew(options: MutexLockOptions): Promise<boolean>;
 

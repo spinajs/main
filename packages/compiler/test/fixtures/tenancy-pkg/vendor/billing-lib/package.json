@@ -1,0 +1,1 @@
+{ "name": "billing-lib", "version": "1.0.0", "type": "module", "types": "index.d.ts", "spinajs": { "manifest": "manifest.fragment.json" } }

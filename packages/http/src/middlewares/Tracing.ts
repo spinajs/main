@@ -17,8 +17,6 @@ import { SpinaAttr, extractTraceContext, tracer } from '@spinajs/tracing';
 import { ServerMiddleware } from '../interfaces.js';
 import type { IFinishContext, IMiddlewareContext, IRouteOutcome } from '../interfaces.js';
 import { RouteClientGone } from '../exceptions.js';
-import { routeErrorOf } from '../errors/on-error.js';
-import { answeredErrorOf } from '../reply-pipeline.js';
 
 // semconv: any other method is recorded as _OTHER, so a client cannot mint span names
 const KNOWN_METHODS: ReadonlySet<string> = new Set(['CONNECT', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'QUERY', 'TRACE']);
@@ -112,10 +110,6 @@ export class TracingMiddleware extends ServerMiddleware {
     if (res.statusCode >= 500) {
       span.setAttribute(ATTR_ERROR_TYPE, String(res.statusCode));
       span.setStatus({ code: SpanStatusCode.ERROR });
-      const error = routeErrorOf(res) ?? answeredErrorOf(res);
-      if (error !== undefined) {
-        span.recordException(error instanceof Error ? error : new Error(String(error)));
-      }
     }
     span.end();
   }
