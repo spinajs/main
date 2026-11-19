@@ -5,7 +5,7 @@ import sinon from 'sinon';
 import { AccessDenied, AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { HasMany, Relation } from '@spinajs/orm';
+import { BelongsTo, HasMany, Relation, SingleRelation } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
@@ -22,6 +22,7 @@ const alice: Principal = { type: 'user', id: 'alice', authenticated: true, sourc
 const green: AccessPlan = { kind: 'filter', permit: [{ op: 'test.flag', args: { flag: 'green' } }], deny: [] };
 
 type Q = Promise<ModelBase[]> & { accessible(p: string, o?: object): Q; unscoped(r: string): Q; where(...a: unknown[]): Q; orWhere(...a: unknown[]): Q; clone(): Q };
+type Conditions = { where(c: string, v: unknown): Conditions; orWhere(c: string, v: unknown): Conditions };
 type M = typeof ModelBase & { query(): Q; where(...a: unknown[]): Q; update(v: object): Promise<{ RowsAffected: number }> & { accessible(p: string, o?: object): Promise<{ RowsAffected: number }> }; destroy(pk?: unknown): Promise<unknown> & { accessible(p: string): Promise<unknown> } };
 
 const ids = (rows: ModelBase[]) => rows.map((r) => String((r as unknown as { id: unknown }).id)).sort();
@@ -103,6 +104,50 @@ describe('.accessible() and .unscoped()', function () {
       it("keeps the caller's where in one group: an orWhere cannot widen the plan", async () => {
         const rows = await as(() => Task.where('title', 'a').orWhere('title', 'b').accessible('task:read'));
         expect(ids(rows)).to.deep.equal(['t1']);
+      });
+
+      it('an orWhere in a belongsTo populate callback cannot widen the plan', async () => {
+        const Carrier = await db.define(
+          {
+            name: 'Carrier',
+            columns: { name: 'TEXT' },
+            rows: [
+              { id: 'c1', name: 'dhl' },
+              { id: 'c2', name: 'ups' },
+            ],
+          },
+          dialect,
+        );
+        const Shipment = (await db.define(
+          {
+            name: 'Shipment',
+            columns: { flag: 'TEXT', title: 'TEXT', carrier_id: 'TEXT' },
+            rows: [
+              { id: 's1', flag: 'green', title: 'a', carrier_id: 'c1' },
+              { id: 's2', flag: 'red', title: 'b', carrier_id: 'c2' },
+            ],
+            decorate: (c, proto) => {
+              AccessResource('task')(c);
+              // What emitDecoratorMetadata records for a `SingleRelation<…>` property.
+              Reflect.defineMetadata('design:type', SingleRelation, proto, 'carrier');
+              (BelongsTo(Carrier, 'carrier_id', 'id') as PropertyDecorator)(proto, 'carrier');
+            },
+          },
+          dialect,
+        )) as M;
+        // s2 is red, so the plan denies it whichever carrier the callback matches
+        const viaCarrier = async (query: object, carrier: string) =>
+          ids(
+            await as(() =>
+              (query as { populate(r: string, cb: (this: Conditions) => void): Q }).populate('carrier', function () {
+                this.where('name', carrier).orWhere('name', 'ups');
+              }),
+            ),
+          );
+
+        expect(await viaCarrier(Shipment.where('title', 'zzz').accessible('task:read'), 'none')).to.deep.equal([]);
+        expect(await viaCarrier(Shipment.query().accessible('task:read'), 'none')).to.deep.equal([]);
+        expect(await viaCarrier(Shipment.query().accessible('task:read'), 'dhl')).to.deep.equal(['s1']);
       });
 
       it('filters updates and deletes the same way', async () => {

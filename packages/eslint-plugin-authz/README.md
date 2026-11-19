@@ -61,8 +61,6 @@ the decorator or the class is imported or renamed.
 - `resources: string[]`: class names to treat as access resources. Decorators do not survive into `.d.ts`
   files, so models a package ships compiled (`User` from `@spinajs/users`, `JobModel` from
   `@spinajs/authz-queue`) are only found when listed here.
-- `legacyRunAsExemption: boolean` (default `false`): any `runAs(...)` callback exempts its queries, as before
-  4.0. Removed in 5.0.
 
 ### What it misses
 

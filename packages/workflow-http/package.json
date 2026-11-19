@@ -1,0 +1,72 @@
+{
+  "name": "@spinajs/workflow-http",
+  "version": "3.0.23",
+  "description": "HTTP API for @spinajs/workflow: list, inspect, start, signal, cancel and retry instances",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
+    "coverage": "c8 npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/workflow-http",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "workflow",
+    "http"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/authz": "3.0.23",
+    "@spinajs/authz-http": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/principal": "3.0.23",
+    "@spinajs/validation": "3.0.23",
+    "@spinajs/workflow": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/fs": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
+    "express": "^5.1.0"
+  },
+  "types": "./lib/index.d.ts",
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

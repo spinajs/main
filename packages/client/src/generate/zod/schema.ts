@@ -1,13 +1,15 @@
 import * as formats from '../../formats/index.js';
 import { literal, propertyKey, type TypeContext } from '../ts-type.js';
 import { child, type Diagnostics, type Location } from './diagnostics.js';
-import { dataChecks, DATA_KEYWORDS, isDataRef, locationKey } from './data-refs.js';
+import { dataChecks, DATA_KEYWORDS, isDataRef, locationKey, type DataOrder } from './data-refs.js';
 import { arrayChecks, inputChecks, rangeChecks, regexpCheck, transform, type KeywordHost } from './keywords.js';
 import { resolveMergePatch } from './merge-patch.js';
-import { call, nodesIn, reopen, UNKNOWN, use, valueCode, type Check, type Property, type ZodNode } from './print.js';
+import { call, nodesIn, reopen, UNKNOWN, use, valueCode, type Before, type Check, type Property, type ZodNode } from './print.js';
 import { isJson, isPartial, refsIn, type Json, type NamedSchema, type SchemaGraph } from './refs.js';
 
 /** Where the builder is: the node's location, the declaration it belongs to, and whether a getter already defers it. */
+export type LoopState = 'lax' | 'strict' | 'none';
+
 export interface Scope {
   at: Location;
   /** The key of the declaration being built; undefined for a schema printed inline. */
@@ -19,6 +21,19 @@ export interface Scope {
   typePath?: string;
   /** Which variant of the schemas is built; `request` when absent. */
   variant?: Variant;
+  /** The top node of a declaration: the one place the replay of Ajv's coercions is checked. */
+  top?: boolean;
+  /** Built to tell whether a value is valid, or inside a node whose replay covers it: no check of coerced infinities of its own. */
+  plain?: boolean;
+  /** Inside a `not` or the `if` of a conditional, where Ajv stops at the first keyword that fails. */
+  short?: boolean;
+  /** The data has no parent to assign into: the validation root and its combinator members. Absent: whether the pointer is empty. */
+  rooted?: boolean;
+  /**
+   * Whether the node is validated once per item or key by its parent, and how Ajv's `contains` answers an empty array there:
+   * `lax` passes it, as the schema is the loop's variable; a `not` gives its schema a variable of its own, `strict`. See `loopChild`.
+   */
+  loop?: LoopState;
 }
 
 /**
@@ -51,12 +66,90 @@ const KNOWN = new Set([
   'anyOf', 'oneOf', 'not', '$merge', '$patch', 'range', 'exclusiveRange', 'transform', 'regexp', 'uniqueItemProperties',
 ]);
 
+const ANNOTATIONS = new Set(['$id', '$schema', '$comment', 'title', 'description', 'default', 'examples', 'readOnly', 'writeOnly', 'deprecated']);
+
+// Ajv compiles no code for a schema that holds no keyword of its own, and skips an `if` whose `then` and `else` are such.
+const hasRules = (schema: unknown): boolean => isJson(schema) && Object.keys(schema).some((k) => KNOWN.has(k) && !ANNOTATIONS.has(k));
+
+// How deep a replay plan follows the keywords of a schema; one with coercions below that is left out, with ZOD005.
+const PLAN_DEPTH = 40;
+
+// The order Ajv runs the keywords of a node in (the typeless group, then the number, string, array and object groups).
+const KEYWORD_ORDER = [
+  'type', 'nullable', '$merge', '$patch', '$ref', 'const', 'enum', 'not', 'anyOf', 'oneOf', 'allOf', 'if', 'then', 'else', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+  'maxLength', 'minLength', 'pattern', 'format', 'maxItems', 'minItems', 'additionalItems', 'items', 'contains', 'uniqueItems', 'maxProperties', 'minProperties', 'required',
+  'propertyNames', 'additionalProperties', 'dependencies', 'properties', 'patternProperties',
+];
+
+const STAGE_KEYWORD: Record<string, string> = {
+  merged: '$merge', ref: '$ref', not: 'not', anyOf: 'anyOf', oneOf: 'oneOf', allOf: 'allOf', if: 'if', rest: 'additionalItems', items: 'items', contains: 'contains', extra: 'additionalProperties',
+  deps: 'dependencies', props: 'properties', patterns: 'patternProperties',
+};
+
+/** What a reader needs of the replay of the keywords before it: a function of the value, and the schemas it reads. */
+interface AfterReplay {
+  fn: string;
+  uses: ZodNode[];
+  cut?: boolean;
+}
+
+interface PlanMode {
+  rooted: boolean;
+  /** Inside a `not` or the `if` of a conditional. */
+  short: boolean;
+  /** The node carries the validity of its own schema. */
+  ok: boolean;
+}
+
+interface PlanNode {
+  schema: Json;
+  at: Location;
+  context: PlanContext;
+  mode: PlanMode;
+  scope: Scope;
+  fields: string[];
+  stages: [string, string][];
+  stage: (name: string, field: string) => void;
+  sub: (member: unknown, options: Partial<PlanMode>, ...segments: (string | number)[]) => string | undefined;
+  many: (members: unknown[], keyword: string, wantOk: boolean) => string[] | undefined;
+}
+
+interface PlanContext {
+  /** How many coercions the plan holds so far; a branch with none is left out. */
+  coercions: number;
+  scope: Scope;
+  /** Builders of the zod schemas the plan's `accepts` read, made once the plan is known to be used. */
+  pending: (() => ZodNode)[];
+  /** The `$ref` targets being followed, outermost first. */
+  stack: string[];
+  numeric: boolean;
+  /** Where the plan met `PLAN_DEPTH` above a coercion: the plan is not used. */
+  cut?: Location;
+  /** A `not`, `anyOf`, `oneOf`, `allOf` or `if` is under the plan. */
+  branching: boolean;
+  depth: number;
+}
+
 // Merge patches resolving to further merge patches: past this depth the chain is cut with ZOD003.
 const MAX_MERGE_DEPTH = 8;
 
 const STRING_KEYWORDS = ['minLength', 'maxLength', 'pattern'];
 const NUMBER_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'];
-const ARRAY_KEYWORDS = ['items', 'additionalItems', 'minItems', 'maxItems', 'uniqueItems'];
+// The keywords of one value type that a coerced value reaches after the node's applicators.
+const VALUE_KEYWORDS = ['minLength', 'maxLength', 'pattern', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'items', 'additionalItems', 'minItems', 'maxItems', 'uniqueItems', 'contains', 'format'];
+/** The types Ajv indexes `uniqueItems` by: those of an `items` schema with no object or array type. */
+function primitiveItemTypes(items: unknown): string[] | undefined {
+  if (!isJson(items)) return undefined;
+  const { type, nullable } = items;
+  const types: unknown[] = Array.isArray(type) ? [...type] : type === undefined ? [] : [type];
+  if (nullable === true && types.length > 0 && !types.includes('null')) types.push('null');
+  if (types.length === 0 || !types.every((t): t is string => typeof t === 'string' && t !== 'object' && t !== 'array')) return undefined;
+  // Only a number can be non-finite, which is what the types leave out.
+  if (!types.includes('number') && !types.includes('integer')) return undefined;
+  return types;
+}
+
+const ARRAY_KEYWORDS = ['items', 'additionalItems', 'minItems', 'maxItems', 'uniqueItems', 'contains'];
 const OBJECT_KEYWORDS = ['properties', 'required', 'additionalProperties'];
 const TYPES = ['string', 'number', 'integer', 'boolean', 'null', 'array', 'object'] as const;
 type JsonType = (typeof TYPES)[number];
@@ -77,6 +170,30 @@ const MAX_TUPLE_ITEMS = 20;
 const UNCHECKED_FORMATS = new Set(['password', 'binary', 'float', 'double']);
 
 const has = (schema: Json, keys: string[]): boolean => keys.some((k) => k in schema);
+
+const OF_TYPE: Record<JsonType, (v: unknown) => boolean> = {
+  string: (v) => typeof v === 'string',
+  number: (v) => typeof v === 'number' && Number.isFinite(v),
+  integer: (v) => typeof v === 'number' && Number.isInteger(v),
+  boolean: (v) => typeof v === 'boolean',
+  null: (v) => v === null,
+  array: Array.isArray,
+  object: isJson,
+};
+
+// A const or enum fixes the values; the node's other keywords still apply to them.
+const hasSiblings = (schema: Json): boolean =>
+  has(schema, [...STRING_KEYWORDS, ...NUMBER_KEYWORDS, ...ARRAY_KEYWORDS, ...OBJECT_KEYWORDS, 'format']) || ('type' in schema && !typeFitsValues(schema));
+
+/** Whether the `type` of a node with a `const` or `enum` admits every one of its values, so the type checks nothing more. */
+function typeFitsValues(schema: Json): boolean {
+  const declared: unknown[] = typeof schema.type === 'string' ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
+  const types = declared.filter((t): t is JsonType => (TYPES as readonly unknown[]).includes(t));
+  if (types.length !== declared.length || types.length === 0) return false;
+  if (schema.nullable === true) types.push('null');
+  const values = [...('const' in schema && !isDataRef(schema.const) ? [schema.const] : []), ...(Array.isArray(schema.enum) ? schema.enum : [])];
+  return values.every((v) => types.some((t) => OF_TYPE[t](v)));
+}
 
 // A slot schema this small is printed in every tuple; anything else is declared once.
 const isSimple = (schema: unknown): boolean => {
@@ -128,6 +245,9 @@ function withoutId(schema: unknown): unknown {
   return Object.fromEntries(Object.entries(schema).filter(([key]) => key !== '$id' && !key.startsWith('x-')));
 }
 
+// zod throws when the two sides of an intersection pass the same NaN through; the server refuses it anywhere.
+const FINITE_MESSAGE = 'must be a finite number';
+
 // A function expression, ready to be called: an arrow needs parentheses.
 const call1 = (fn: string): string => (/^[A-Za-z_$][\w$]*$/.test(fn) ? fn : `(${fn})`);
 
@@ -161,6 +281,14 @@ export class ZodBuilder {
   /** Locations of `$data` keywords a parent object checks; see `dataChecks`. */
   private readonly dataHandled = new Set<string>();
   private mergeDepth = 0;
+  /** Counts the replays that were cut (ZOD005): a node that asked for one and saw it change accepts anything. */
+  private cuts = 0;
+  /** Set by a parent just before it builds the schema it validates once per item or key: the next node built is looped. */
+  private loopChild: LoopState | undefined;
+  /** How many replays are being built inside one another. */
+  private replaysOpen = 0;
+  /** The allOf member a part was made from, to give it what the members before it left in Ajv's variable. */
+  private readonly memberOf = new WeakMap<ZodNode, { members: unknown[]; index: number }>();
 
   constructor(
     private readonly graph: SchemaGraph,
@@ -168,38 +296,98 @@ export class ZodBuilder {
     private readonly diagnostics: Diagnostics,
     /** The const a reference reads in a variant: the referenced declaration's own variant, or its request schema. */
     private readonly variantName: (entry: NamedSchema, variant: Variant) => string = (entry) => entry.name,
+    /** The declarations (`key|variant`) a pass before found cut. */
+    private readonly tainted: ReadonlySet<string> = new Set(),
   ) {}
+
+  public cutCount(): number {
+    return this.cuts;
+  }
 
   /** A whole manifest schema, or a local definition hoisted out of one; `SchemaGraph.refused` has turned away the ones Ajv refuses. */
   public root(schema: unknown, scope: Scope): ZodNode {
-    return this.node(schema, scope);
+    return this.node(schema, { ...scope, top: true });
   }
 
-  public node(schema: unknown, scope: Scope): ZodNode {
+  private intersect(a: ZodNode, b: ZodNode): ZodNode {
+    const check: Check = { kind: 'refine', fn: this.format('ajvFinite'), message: FINITE_MESSAGE };
+    // One scan at the outermost intersection of a chain is enough.
+    // It judges the value the intersection was given, not one a replay of Ajv's coercions handed on.
+    const inner = a.kind === 'call' && a.fn === 'intersection' && a.outerChecks?.length === 1 && a.outerChecks[0].kind === 'refine' && a.outerChecks[0].message === FINITE_MESSAGE ? { ...a, outerChecks: undefined } : a;
+    return { ...call('intersection', { node: inner }, { node: b }), outerChecks: [check] };
+  }
+
+  /** Ajv gives a contains in the member of a union or in a branch the memory of that member, not the loop's: not modelled. */
+  private cutLoopChild(schema: Json, scope: Scope, loop: LoopState | undefined): ZodNode | undefined {
+    if (loop !== 'lax' || !this.containsInUnion(schema, scope.at.schema)) return undefined;
+    this.diagnostics.report('ZOD005', scope.at, 'a contains in a union or a conditional of a schema validated once per item or key answers an empty array with the verdict of the one before in that member; this node accepts any value');
+    this.cuts++;
+    return this.permissive(schema);
+  }
+
+  private boolean(schema: unknown, at: Location): ZodNode {
     if (schema === true) return UNKNOWN;
     if (schema === false) return call('never');
-    if (!isJson(schema)) {
-      this.diagnostics.report('ZOD001', scope.at, 'not a JSON Schema; this node accepts any value');
-      return UNKNOWN;
-    }
+    this.diagnostics.report('ZOD001', at, 'not a JSON Schema; this node accepts any value');
+    return UNKNOWN;
+  }
+
+  public node(schema: unknown, given: Scope): ZodNode {
+    // A node is looped when its parent says so, or was and is a part of the same schema (a combinator member, a test).
+    const loop = this.loopChild;
+    const outer: Scope = { ...given, loop: loop ?? given.loop };
+    this.loopChild = undefined;
+    if (!isJson(schema)) return this.boolean(schema, outer.at);
+    const unmodelled = this.cutLoopChild(schema, outer, loop);
+    if (unmodelled) return unmodelled;
+    const rooted = outer.rooted ?? outer.at.pointer === '';
+    const scope: Scope = { ...outer, rooted, top: false };
     this.reportUnmapped(schema, scope);
-    const node = this.conjunction(this.parts(schema, scope), scope);
+    this.reportCoercionOrder(schema, scope);
+    this.reportPropertyNames(schema, scope);
+    const node = this.conjunction(this.parts(schema, scope), scope, schema);
     const input = inputChecks(schema, this.host(scope));
+    const cutMark = this.cuts;
+    // A replay that was cut leaves the coerced infinities unchecked (ZOD005); nothing else reads it.
+    const replayed = outer.top ? this.finiteChecks(schema, scope, rooted) : [];
+    const finite = this.cuts !== cutMark ? [] : replayed;
     const before = [this.coercion(schema, scope), transform(schema, this.host(scope))].filter((fn): fn is string => fn !== undefined);
     return {
       ...node,
       ...(input.length ? { inputChecks: [...(node.inputChecks ?? []), ...input] } : {}),
+      ...(finite.length ? { outerChecks: [...(node.outerChecks ?? []), ...finite] } : {}),
       ...(before.length ? { before: [...before, ...(node.before ?? [])] } : {}),
       ...(typeof schema.description === 'string' ? { description: schema.description } : {}),
     };
+  }
+
+  private looping<T>(loop: LoopState | undefined, build: () => T): T {
+    this.loopChild = loop;
+    try {
+      return build();
+    } finally {
+      this.loopChild = undefined;
+    }
   }
 
   private host(scope: Scope): KeywordHost {
     return {
       at: scope.at,
       variant: scope.variant ?? 'request',
+      short: scope.short === true,
+      loop: scope.loop ?? 'none',
+      reachesContains: (schema) => this.reachesContains(schema, scope.at.schema),
+      leftUnchecked: (at) => this.diagnostics.report('ZOD005', at, 'what this keyword reads accepts more than the server does (ZOD005); the keyword is left unchecked'),
+      cutIn: (build) => {
+        const mark = this.cuts;
+        const value = build();
+        return { value, cut: this.cuts !== mark };
+      },
       format: (name) => this.format(name),
-      subject: (schema, at) => this.subject(schema, { ...scope, at, typePath: undefined }),
+      subject: (schema, at, options) => this.looping(options?.loop, () => this.subject(schema, { ...scope, at, typePath: undefined, rooted: options?.rooted ?? scope.rooted, short: options?.short ?? scope.short, plain: true })),
+      afterIf: (schema) => this.afterIf(schema, scope),
+      afterObject: (schema) => this.afterObject(schema, scope),
+      afterItems: (schema) => this.afterItems(schema, scope, false),
       unmapped: (at, message) => this.diagnostics.report('ZOD003', at, message),
     };
   }
@@ -217,12 +405,17 @@ export class ZodBuilder {
     return node.kind === 'ref' || scope.deferred ? node : { kind: 'ref', name: this.hoist(node, scope) };
   }
 
-  /** Ajv coerces a value at the node's `type` keyword, before any other keyword of the node sees it. */
-  private coercion(schema: Json, scope: Scope): string | undefined {
+  private coercionTypes(schema: Json, scope: Scope): unknown[] | undefined {
     if (scope.variant !== 'coerced') return undefined;
     const declared: unknown[] = typeof schema.type === 'string' ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
     const types = [...declared, ...(schema.nullable === true && declared.length > 0 && !declared.includes('null') ? ['null'] : [])];
-    if (!types.some((t) => COERCED.has(t as string))) return undefined;
+    return types.some((t) => COERCED.has(t as string)) ? types : undefined;
+  }
+
+  /** Ajv coerces a value at the node's `type` keyword, before any other keyword of the node sees it. */
+  private coercion(schema: Json, scope: Scope): string | undefined {
+    const types = this.coercionTypes(schema, scope);
+    if (!types) return undefined;
     const single = types.length === 1 ? `coerce${String(types[0]).charAt(0).toUpperCase()}${String(types[0]).slice(1)}` : undefined;
     return single ? this.format(single) : `(v) => ${this.format('ajvCoerce')}(v, ${JSON.stringify(types)})`;
   }
@@ -232,18 +425,22 @@ export class ZodBuilder {
    * `z.intersection`, zod 4.4 and later ignore a key one side rejects when the other side accepts it, and the server
    * keeps the object closed. Inside a getter the parts may read later declarations, so they cannot be hoisted.
    */
-  private conjunction(parts: ZodNode[], scope: Scope): ZodNode {
+  private conjunction(parts: ZodNode[], scope: Scope, schema: Json): ZodNode {
     if (parts.length === 0) return UNKNOWN;
-    const closed = parts.find((p) => p.kind === 'object' && p.mode === 'strict');
-    if (parts.length > 1 && !closed && this.rewrites(parts, scope)) return this.sequential(parts, scope);
-    if (!closed || parts.length === 1 || scope.deferred) return parts.reduce((a, b) => call('intersection', { node: a }, { node: b }));
+    const closed = parts.find((p) => p.kind === 'object' && p.mode === 'strict') ?? parts.find((p) => p.kind === 'ref' && p.closedRef);
+    if (parts.length > 1 && !closed && this.rewrites(parts, scope)) return this.sequential(parts, scope, schema);
+    if (!closed || parts.length === 1) return parts.reduce((a, b) => this.intersect(a, b));
     const checks = parts
       .filter((p) => p !== closed)
       .map((p): Check => {
-        const schema = p.kind === 'ref' ? p.name : this.hoist(p, scope);
+        // Inside a getter the part is read inline: a hoisted one would be built before the declarations it reads.
+        if (scope.deferred) return { kind: 'refine', fn: `(v) => ${use(0)}.safeParse(v).success`, uses: [p], message: 'must match every schema of the node' };
+        const schema = p.kind === 'ref' && !p.inputChecks ? p.name : this.hoist(p, scope);
         return { kind: 'refine', fn: `(v) => ${schema}.safeParse(v).success`, message: 'must match every schema of the node' };
       });
-    return { ...closed, checks: [...(closed.checks ?? []), ...checks] };
+    // zod/mini reads the shape of a schema when a check is added to it, which would run the getter that is being defined.
+    const base: ZodNode = scope.deferred && closed.kind === 'ref' ? { kind: 'call', fn: 'lazy', args: [{ lazy: closed.name }], acceptsUndefined: closed.acceptsUndefined } : closed;
+    return { ...base, checks: [...(base.checks ?? []), ...checks] };
   }
 
   // A part that rewrites the value (coercion, `transform`) and another that passes it through give outputs zod cannot merge.
@@ -256,17 +453,63 @@ export class ZodBuilder {
    * The object parts are joined with stripped outputs, which merge, and the others check the joined value, as Ajv's
    * later keywords see what the earlier ones coerced.
    */
-  private sequential(parts: ZodNode[], scope: Scope): ZodNode {
+  private sequential(parts: ZodNode[], scope: Scope, schema: Json): ZodNode {
+    if (scope.variant === 'coerced') return this.threadedJoin(parts, scope, schema);
     const isObject = (p: ZodNode): boolean => p.kind === 'object' || p.kind === 'shape';
     const loose = (p: ZodNode): boolean => isObject(p) && (p as { mode: string }).mode === 'loose' && !p.checks?.length && !p.inputChecks?.length;
     const strip = (p: ZodNode): ZodNode => (loose(p) ? ({ ...p, mode: 'strip' } as ZodNode) : p);
     const objects = parts.filter(isObject).map(strip);
-    const base = objects.length ? objects.reduce((a, b) => call('intersection', { node: a }, { node: b })) : parts[0];
+    const base = objects.length ? objects.reduce((a, b) => this.intersect(a, b)) : parts[0];
     const others = parts.filter((p) => !isObject(p) && p !== base);
     const checks = others.map((p): Check => {
       return { kind: 'refine', fn: `(v) => ${use(0)}.safeParse(v).success`, uses: [this.usable(p, scope)], message: 'must match every schema of the node' };
     });
     return checks.length ? { ...base, checks: [...(base.checks ?? []), ...checks] } : base;
+  }
+
+  /**
+   * The parts of a coerced node. Ajv runs them on one variable: a part reads what the allOf members before it left in
+   * it (`replayLocal`), and what the node hands on is what every keyword left. So each part is a check of the value as
+   * the node was given it, and the node's value is the replay of the whole node. Nothing is merged: zod throws on two
+   * outputs that differ.
+   */
+  private threadedJoin(parts: ZodNode[], scope: Scope, schema: Json): ZodNode {
+    // A schema client.ts cannot type (a `$merge`, say) keeps the first part's own value: a custom schema would not satisfy its type.
+    if (this.typeOf(schema) === 'unknown') {
+      const rest = parts.slice(1).map((p): Check => this.threadedCheck(p, scope));
+      return rest.length ? { ...parts[0], inputChecks: [...(parts[0].inputChecks ?? []), ...rest] } : parts[0];
+    }
+    const cutMark = this.cuts;
+    const replay = this.nodeReplay(schema, scope);
+    if (this.cuts !== cutMark) return this.permissive(schema);
+    const checks = parts.map((p): Check => this.threadedCheck(p, scope));
+    const value: ZodNode = { kind: 'call', fn: 'custom', typeArg: this.typeOf(schema), acceptsUndefined: parts.every((p) => p.acceptsUndefined) };
+    return { ...value, ...(replay ? { replays: [replay] } : {}), ...(checks.length ? { inputChecks: checks } : {}) };
+  }
+
+  /** The function that hands on what Ajv's coercions in every keyword of the node leave of the value. */
+  private nodeReplay(schema: Json, scope: Scope): Before | undefined {
+    const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+    const plan = this.planned(schema, scope.at, context, { rooted: scope.rooted ?? scope.at.pointer === '', short: scope.short === true, ok: false });
+    return plan ? { fn: this.replayCall(plan, scope.short === true), uses: context.pending.map((build) => build()) } : undefined;
+  }
+
+  private threadedCheck(part: ZodNode, scope: Scope): Check {
+    const member = this.memberOf.get(part);
+    const after = member && member.index > 0 ? this.replayBefore('allOf', member.members, member.index, scope) : undefined;
+    const message = 'must match every schema of the node';
+    if (!after) return { kind: 'refine', fn: `(v) => ${use(0)}.safeParse(v).success`, uses: [this.usable(part, scope)], message };
+    const own = after.uses.length;
+    return { kind: 'refine', fn: `((after) => (v) => ${use(own)}.safeParse(after(v)).success)(${after.fn})`, uses: [...after.uses, this.usable(part, scope)], message };
+  }
+
+  /** The function that gives a branch the value `members` before it left in Ajv's variable, and the schemas it reads. */
+  private replayBefore(keyword: 'anyOf' | 'oneOf' | 'allOf', members: unknown[], index: number, scope: Scope): Before | undefined {
+    if (index === 0) return undefined;
+    const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+    const rooted = scope.rooted ?? scope.at.pointer === '';
+    const plan = this.planned({ [keyword]: members.slice(0, index) }, scope.at, context, { rooted, short: scope.short === true, ok: false });
+    return plan ? { fn: this.replayCall(plan, scope.short === true), uses: context.pending.map((build) => build()) } : undefined;
   }
 
   /** The TypeScript type of `schema`'s values, as `client.ts` declares it; for a getter's annotation. */
@@ -277,18 +520,28 @@ export class ZodBuilder {
 
   // Ajv applies every keyword of a node: each group becomes one part, and the parts are intersected.
   private parts(schema: Json, scope: Scope): ZodNode[] {
-    if ('const' in schema && !isDataRef(schema.const)) return [this.constant(schema.const)];
     const parts: ZodNode[] = [...this.mergePatch(schema, scope)];
     const nested: Scope = { ...scope, typePath: undefined };
     let objectDone = false;
     if (Array.isArray(schema.allOf)) {
       const merged = this.mergedAllOf(schema, scope);
       objectDone = merged !== undefined;
-      parts.push(...(merged ? [merged] : schema.allOf.map((m, i) => this.allOfMember(m, i, nested))));
+      const members = schema.allOf as unknown[];
+      parts.push(
+        ...(merged
+          ? [merged]
+          : members.map((m, i) => {
+              const part = this.allOfMember(m, i, nested);
+              this.memberOf.set(part, { members, index: i });
+              return part;
+            })),
+      );
     }
     if (typeof schema.$ref === 'string') parts.push(this.ref(schema.$ref, nested));
+    const fixed = 'const' in schema && !isDataRef(schema.const);
+    if (fixed) parts.push(this.constant(schema.const));
     if (Array.isArray(schema.enum)) parts.push(this.enumeration(schema.enum));
-    if (!objectDone && (!Array.isArray(schema.enum) || has(schema, [...STRING_KEYWORDS, ...NUMBER_KEYWORDS, ...ARRAY_KEYWORDS, ...OBJECT_KEYWORDS, 'format']))) {
+    if (!objectDone && (!(fixed || Array.isArray(schema.enum)) || hasSiblings(schema))) {
       const typed = this.typed(schema, scope);
       if (typed) parts.push(typed);
     }
@@ -305,7 +558,7 @@ export class ZodBuilder {
     const at = child(scope.at, 'allOf', i);
     const target = this.target(member, at, new Set());
     const closed = target && (this.closedShape(target.schema, target.at, target.seen, false) ?? this.closedObject(target.schema, target.at));
-    if (!target || !closed) return this.node(member, { ...scope, at });
+    if (!target || !closed) return this.node(member, { ...scope, plain: true, at });
     const key = target.schema === member ? undefined : this.graph.resolve((member as Json).$ref as string, at.schema);
     const entry = key === undefined ? undefined : this.graph.get(key);
     const name = entry && this.nameOf(entry, scope);
@@ -322,6 +575,16 @@ export class ZodBuilder {
         this.diagnostics.report('ZOD003', child(scope.at, key), `keyword '${key}' is unknown to the server's default Ajv; one an app adds is not mapped and is dropped`);
       }
     }
+  }
+
+  /** What `$merge` and `$patch` resolve to, as a plan reads them; one that cannot be resolved is already reported. */
+  private mergedSchemas(schema: Json, at: Location): { keyword: '$merge' | '$patch'; schema: unknown }[] {
+    if (this.mergeDepth >= MAX_MERGE_DEPTH) return [];
+    const target = (ref: string): unknown => this.graph.get(this.graph.resolve(ref, at.schema) ?? '')?.schema;
+    return (['$merge', '$patch'] as const).flatMap((keyword) => {
+      const resolved = keyword in schema ? resolveMergePatch(keyword, schema[keyword], target) : undefined;
+      return resolved && !('error' in resolved) ? [{ keyword, schema: withoutId(resolved.schema) }] : [];
+    });
   }
 
   /** `$merge` and `$patch`, resolved now, as a part next to the node's other keywords. */
@@ -348,6 +611,21 @@ export class ZodBuilder {
     return this.variantName(entry, scope.variant ?? 'request');
   }
 
+  /** Ajv inlines a reference to a schema without references, which shares the loop's variable: a compiled one does not. */
+  private inlineLooped(entry: { schema: unknown; owner: string; pointer: string }, scope: Scope): ZodNode | undefined {
+    if (scope.loop !== 'lax' && scope.loop !== 'strict') return undefined;
+    if (refsIn(entry.schema).length > 0 || !this.reachesContains(entry.schema, entry.owner)) return undefined;
+    return this.node(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } });
+  }
+
+  /** A reference to a declaration that a pass before found cut: what reads it here is cut too. */
+  private readCut(ref: string, key: string, entry: NamedSchema, scope: Scope): void {
+    const read: Variant = scope.variant === 'coerced' && this.variantName(entry, 'coerced') !== entry.name ? 'coerced' : scope.variant === 'reply' ? 'reply' : 'request';
+    if (!this.tainted.has(`${key}|${read}`)) return;
+    this.diagnostics.report('ZOD005', child(scope.at, '$ref'), `${ref} accepts more than the server does (ZOD005); so does what reads it here`);
+    this.cuts++;
+  }
+
   private ref(ref: string, scope: Scope): ZodNode {
     const key = this.graph.resolve(ref, scope.at.schema);
     const entry = key === undefined ? undefined : this.graph.get(key);
@@ -356,12 +634,44 @@ export class ZodBuilder {
       return UNKNOWN;
     }
     const acceptsUndefined = acceptsAnything(entry.schema);
+    this.readCut(ref, key, entry, scope);
+    const inlined = this.inlineLooped(entry, scope);
+    if (inlined) return inlined;
     const name = this.nameOf(entry, scope);
     if (this.graph.cyclic(scope.current, key) && !scope.deferred) {
       if (scope.state) scope.state.annotated = true;
       return { ...call('lazy', { lazy: name }), acceptsUndefined };
     }
-    return { kind: 'ref', name, acceptsUndefined };
+    const at = { schema: entry.owner, pointer: entry.pointer };
+    const closed = isJson(entry.schema) && !isPartial(entry.schema) && (this.closedShape(entry.schema, at, new Set([entry.key]), false) ?? this.closedObject(entry.schema, at)) !== undefined;
+    return { kind: 'ref', name, acceptsUndefined, ...(closed ? { closedRef: true } : {}) };
+  }
+
+  /**
+   * Whether a `contains` runs inside `schema` on the variable of the loop that validates it: directly, in a combinator
+   * member or a test, or in a reference Ajv inlines (a target with no reference in it).
+   */
+  private reachesContains(schema: unknown, owner: string, depth = 0): boolean {
+    if (!isJson(schema) || depth > 8) return false;
+    if ('contains' in schema) return true;
+    const members = ['allOf', 'anyOf', 'oneOf'].flatMap((k) => (Array.isArray(schema[k]) ? (schema[k] as unknown[]) : []));
+    const tests = ['not', 'if', 'then', 'else'].map((k) => schema[k]);
+    if ([...members, ...tests].some((m) => this.reachesContains(m, owner, depth + 1))) return true;
+    if (typeof schema.$ref !== 'string') return false;
+    const entry = this.graph.get(this.graph.resolve(schema.$ref, owner) ?? '');
+    return entry !== undefined && refsIn(entry.schema).length === 0 && this.reachesContains(entry.schema, entry.owner, depth + 1);
+  }
+
+  /** Whether a `contains` is reached through a union member or a conditional, not through `allOf`, a `not` or an inlined reference. */
+  private containsInUnion(schema: unknown, owner: string, depth = 0): boolean {
+    if (!isJson(schema) || depth > 8) return false;
+    const unions = ['anyOf', 'oneOf'].flatMap((k) => (Array.isArray(schema[k]) ? (schema[k] as unknown[]) : []));
+    if ([...unions, schema.if, schema.then, schema.else].some((m) => this.reachesContains(m, owner))) return true;
+    const through = [...(Array.isArray(schema.allOf) ? (schema.allOf as unknown[]) : []), schema.not];
+    if (through.some((m) => this.containsInUnion(m, owner, depth + 1))) return true;
+    if (typeof schema.$ref !== 'string') return false;
+    const entry = this.graph.get(this.graph.resolve(schema.$ref, owner) ?? '');
+    return entry !== undefined && refsIn(entry.schema).length === 0 && this.containsInUnion(entry.schema, entry.owner, depth + 1);
   }
 
   private constant(value: unknown): ZodNode {
@@ -389,8 +699,8 @@ export class ZodBuilder {
 
   private anyOf(members: unknown[], scope: Scope): ZodNode {
     const isNull = (m: unknown): boolean => isJson(m) && m.type === 'null' && Object.keys(m).length === 1;
-    const nodes = members.map((m, i) => ({ m, node: () => this.node(m, { ...scope, at: child(scope.at, 'anyOf', i) }) }));
-    if (scope.variant === 'coerced') return this.union(this.threaded(members, nodes.map((n) => n.node()), scope));
+    const nodes = members.map((m, i) => ({ m, node: () => this.node(m, { ...scope, plain: true, at: child(scope.at, 'anyOf', i) }) }));
+    if (scope.variant === 'coerced') return this.union(this.threaded('anyOf', members, nodes.map((n) => n.node()), scope));
     const others = nodes.filter((n) => !isNull(n.m));
     if (others.length === 1 && others.length < nodes.length) return { ...others[0].node(), nullable: true };
     const lenient = nodes.map((n) => n.node());
@@ -408,30 +718,380 @@ export class ZodBuilder {
   }
 
   /**
-   * The branches of a coerced `anyOf` or `oneOf`. Ajv coerces the value in place at each branch's `type`, a failing
-   * branch included, so a branch sees what the ones before it coerced: `'0'` failing `{ type: 'integer', minimum: 1 }`
-   * reaches the next branch as `0`, which `{ type: 'null' }` turns into `null`. Coercion inside a branch's properties
-   * is not followed: an object has no coercion of its own, so such a branch sees the value as sent.
+   * The branches of a coerced `anyOf` or `oneOf`. Ajv coerces the value in place in each branch, a failing one included,
+   * and its variable carries the change to the next branch: `'0'` failing `{ type: 'integer', minimum: 1 }` reaches the
+   * next branch as `0`, which `{ type: 'null' }` turns into `null`. Each branch is given what `replayLocal` leaves of
+   * the ones before it, nested coercions and a `not` or an `if` inside them included.
    */
-  private threaded(members: unknown[], nodes: ZodNode[], scope: Scope): ZodNode[] {
-    const steps: string[] = [];
-    return nodes.map((node, i) => {
-      const chain = steps.length ? [`(v) => ${steps.reduceRight((arg, fn) => `${call1(fn)}(${arg})`, 'v')}`] : [];
-      const coerce = this.topCoercion(members[i], scope);
-      if (coerce) steps.unshift(coerce);
-      return chain.length ? { ...node, before: [...chain, ...(node.before ?? [])] } : node;
+  private threaded(keyword: 'anyOf' | 'oneOf', members: unknown[], nodes: ZodNode[], scope: Scope): ZodNode[] {
+    const cutMark = this.cuts;
+    const entries = nodes.map((_, i) => this.replayBefore(keyword, members, i, scope));
+    // A replay that stops at its depth limit (ZOD005) leaves the whole union accepting anything: it cannot be stricter.
+    if (this.cuts !== cutMark) return [this.permissive({ [keyword]: members })];
+    return nodes.map((node, i) => (entries[i] ? { ...node, before: [entries[i], ...(node.before ?? [])] } : node));
+  }
+
+  /** A node of the TypeScript type of `schema` that accepts every value. */
+  private permissive(schema: unknown): ZodNode {
+    return { kind: 'call', fn: 'custom', typeArg: this.typeOf(schema), acceptsUndefined: true };
+  }
+
+  /**
+   * Ajv coerces in place wherever it runs a keyword, whether or not the keyword holds, and the fixed server then refuses
+   * a non-finite number left in the data; zod keeps what the branch that holds produced. The check replays Ajv's
+   * coercions over the node (`finiteAfter`). `rooted` is data with no parent to assign into: the validation root, and the
+   * members of its combinators, which share it. What a branching node holds is covered here, so its members are built
+   * `plain`, with no such check of their own.
+   */
+  private finiteChecks(schema: Json, scope: Scope, rooted: boolean): Check[] {
+    if (scope.variant !== 'coerced') return [];
+    const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+    const plan = this.planned(schema, scope.at, context, { rooted, short: false, ok: false });
+    if (!plan || !context.numeric || !context.branching) return [];
+    const fn = `${this.format('finiteReplay')}(${this.imported(plan)}, ${rooted})`;
+    return [{ kind: 'refine', fn, uses: context.pending.map((build) => build()), message: `${FINITE_MESSAGE} after coercion` }];
+  }
+
+  /** The value as the coercions in the `if` of the schema leave it, for the `then` and the `else` that read it. */
+  private afterIf(schema: Json, scope: Scope): AfterReplay | undefined {
+    if (scope.variant !== 'coerced') return undefined;
+    const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+    const cutMark = this.cuts;
+    const test = this.planned(schema.if, child(scope.at, 'if'), context, { rooted: scope.rooted ?? scope.at.pointer === '', short: true, ok: true });
+    if (this.cuts !== cutMark) return this.leftUnchecked(child(scope.at, 'if'));
+    if (!test || context.coercions === 0) return undefined;
+    const uses = context.pending.map((build) => build());
+    return this.cuts !== cutMark ? { fn: '', uses: [], cut: true } : { fn: `${this.format('replayLocal')}({ cond: { test: ${this.imported(test)} } })`, uses };
+  }
+
+  /** The keyword at `at` reads a replay that was cut: it is left unchecked, which is said where it is, not only where the replay stopped. */
+  private leftUnchecked(at: Location): AfterReplay {
+    this.diagnostics.report('ZOD005', at, 'the replay of the Ajv coercions this keyword reads was cut; the keyword is left unchecked');
+    return { fn: '', uses: [], cut: true };
+  }
+
+  /** The value as the object keywords that run before `patternProperties` left it. */
+  private afterObject(schema: Json, scope: Scope): AfterReplay | undefined {
+    // The names of the patterns say which keys `additionalProperties` leaves alone; their schemas run later.
+    const relaxed = isJson(schema.patternProperties) ? Object.entries(schema.patternProperties) : [];
+    if (relaxed.length && relaxed.every(([, value]) => value === true)) return undefined;
+    return this.afterKeywords(schema, scope, ['additionalProperties', 'dependencies', 'properties'], relaxed.length ? { patternProperties: Object.fromEntries(relaxed.map(([k]) => [k, true])) } : {});
+  }
+
+  /** The value as the items keywords left it, for `contains`, and with `contains` for `uniqueItems` that run after them. */
+  private afterItems(schema: Json, scope: Scope, withContains: boolean): AfterReplay | undefined {
+    return this.afterKeywords(schema, scope, withContains ? ['additionalItems', 'items', 'contains'] : ['additionalItems', 'items'], {});
+  }
+
+  private afterKeywords(schema: Json, scope: Scope, keywords: string[], extra: Json): AfterReplay | undefined {
+    if (scope.variant !== 'coerced') return undefined;
+    const picked: Json = { ...Object.fromEntries(keywords.filter((k) => k in schema).map((k) => [k, schema[k]])), ...extra };
+    const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+    const cutMark = this.cuts;
+    const plan = this.planned(picked, scope.at, context, { rooted: scope.rooted ?? scope.at.pointer === '', short: scope.short === true, ok: false });
+    if (this.cuts !== cutMark) return { fn: '', uses: [], cut: true };
+    if (!plan || context.coercions === 0) return undefined;
+    const uses = context.pending.map((build) => build());
+    return this.cuts !== cutMark ? { fn: '', uses: [], cut: true } : { fn: this.replayCall(plan, scope.short === true), uses };
+  }
+
+  private replayCall(plan: string, short: boolean): string {
+    return `${this.format('replayLocal')}(${this.imported(plan)}${short ? ', true' : ''})`;
+  }
+
+  /**
+   * The `ReplayPlan` of a schema: the coercions Ajv runs under it, in its order. Undefined when there are none and no
+   * validity is wanted. A `$ref` is followed (a cycle by `back`). `ok` asks for the zod schema that tells whether the node
+   * accepts a value; `short` is a subtree of a `not` or an `if`, where Ajv stops at the first keyword that fails, so
+   * the validity of what precedes each keyword is carried as well.
+   */
+  private plan(schema: unknown, at: Location, context: PlanContext, mode: PlanMode): string | undefined {
+    const { rooted, short } = mode;
+    const scope: Scope = { ...context.scope, at, typePath: undefined, rooted, short: mode.short, plain: true };
+    const accept = (member: unknown, location: Location): string => {
+      context.pending.push(() => {
+        this.replaysOpen++;
+        try {
+          return this.usable(this.node(member, { ...scope, at: location }), scope);
+        } finally {
+          this.replaysOpen--;
+        }
+      });
+      return `(v) => ${use(context.pending.length - 1)}.safeParse(v).success`;
+    };
+    const ok = mode.ok ? `ok: ${accept(schema, at)}` : undefined;
+    if (!isJson(schema) || !this.plannable(schema, scope, context)) return ok ? `{ ${ok} }` : undefined;
+    const fields: string[] = [];
+    const stages: [string, string][] = [];
+    const node: PlanNode = {
+      schema,
+      at,
+      context,
+      mode,
+      scope,
+      fields,
+      stages,
+      stage: (name, field) => {
+        fields.push(field);
+        stages.push([name, field]);
+      },
+      sub: (member, options, ...segments) => this.plan(member, child(at, ...segments), context, { rooted, short, ok: short, ...options }),
+      many: (members, keyword, wantOk) => {
+        const before = context.coercions;
+        const plans = members.map((m, i) => node.sub(m, { ok: wantOk }, keyword, i));
+        return context.coercions === before ? undefined : plans.map((p) => p ?? '{}');
+      },
+    };
+    const mark = context.coercions;
+    context.depth++;
+    try {
+      this.planCoercion(node);
+      this.planCombinators(node);
+      this.planChildren(node);
+      if (short) this.planPrefixes(schema, scope, stages, fields, accept);
+    } finally {
+      context.depth--;
+    }
+    if (ok) fields.push(ok);
+    else if (context.coercions === mark) return undefined;
+    return fields.length ? `{ ${fields.join(', ')} }` : undefined;
+  }
+
+  /** The plan of a schema, unless it met `PLAN_DEPTH`: that is reported, and the node has no plan. */
+  private planned(schema: unknown, at: Location, context: PlanContext, mode: PlanMode): string | undefined {
+    const plan = this.plan(schema, at, context, mode);
+    if (!context.cut) return plan;
+    this.cuts++;
+    this.diagnostics.report('ZOD005', context.cut, `the replay of Ajv's coercions stops ${PLAN_DEPTH} keyword levels below this node: this node and what reads it accept more than the server does: a coerced infinity under it is not refused, and a branch, a test or a count that depends on the replay is left unchecked or accepts any value`);
+    return undefined;
+  }
+
+  /** `plan`, with the formats it names imported: only a plan that is used may import them. */
+  private imported(plan: string): string {
+    if (plan.includes('coerceIn(')) this.format('coerceIn');
+    return plan;
+  }
+
+  /** Whether the keywords of `schema` are what the server runs, and the plan has not met its depth limit (that is noted). */
+  private plannable(schema: Json, scope: Scope, context: PlanContext): boolean {
+    // The server merges the closed members of an allOf into one object before it validates (`mergedAllOf`): its keywords are not these.
+    if (Array.isArray(schema.allOf) && this.closedShape(schema, scope.at, new Set()) !== undefined) return false;
+    if (context.depth <= PLAN_DEPTH) return true;
+    if (this.coercionTypes(schema, scope) !== undefined || this.coercesBelow(schema, scope, new Set())) context.cut ??= scope.at;
+    return false;
+  }
+
+  private planCoercion({ schema, scope, context, fields }: PlanNode): void {
+    const types = this.coercionTypes(schema, scope);
+    if (!types) return;
+    fields.push(`coerce: coerceIn(${JSON.stringify(types)})`);
+    context.coercions++;
+    if (this.coercedTypes(schema).includes('number')) context.numeric = true;
+  }
+
+  // The keywords that apply to the same data: the `$ref`, `not`, `anyOf`, `oneOf`, `allOf` and `if`.
+  private planCombinators(node: PlanNode): void {
+    const { schema, at, context, mode, fields, stage } = node;
+    const resolved = this.mergedSchemas(schema, at);
+    const mark = context.coercions;
+    const mergedPlans = resolved.map((m) => node.sub(m.schema, {}, m.keyword));
+    if (context.coercions !== mark) stage('merged', `merged: [${mergedPlans.map((p) => p ?? '{}').join(', ')}]`);
+    if (typeof schema.$ref === 'string') this.planRef(schema.$ref, at, context, mode, fields, (field) => stage('ref', field));
+    const list = (keyword: 'anyOf' | 'oneOf' | 'allOf', wantOk: boolean): void => {
+      const plans = Array.isArray(schema[keyword]) ? node.many(schema[keyword], keyword, wantOk) : undefined;
+      context.branching ||= plans !== undefined;
+      if (plans) stage(keyword, `${keyword}: [${plans.join(', ')}]`);
+    };
+    const not = 'not' in schema ? node.sub(schema.not, { short: true, ok: true }, 'not') : undefined;
+    context.branching ||= not !== undefined;
+    if (not) stage('not', `not: ${not}`);
+    list('anyOf', true);
+    list('oneOf', mode.short);
+    list('allOf', mode.short);
+    if (!('if' in schema) || !(hasRules(schema.then) || hasRules(schema.else))) return;
+    const before = context.coercions;
+    const test = node.sub(schema.if, { short: true, ok: true }, 'if');
+    const [then, otherwise] = [node.sub(schema.then, { ok: false }, 'then'), node.sub(schema.else, { ok: false }, 'else')];
+    if (context.coercions === before) return;
+    context.branching = true;
+    stage('if', `cond: { test: ${test}${then ? `, then: ${then}` : ''}${otherwise ? `, else: ${otherwise}` : ''} }`);
+  }
+
+  /** The validity of the keywords Ajv runs before each stage of a node in a `not` or an `if`. */
+  private planPrefixes(schema: Json, scope: Scope, stages: [string, string][], fields: string[], accept: (member: unknown, at: Location) => string): void {
+    const pre = stages.flatMap(([name]) => {
+      const keyword = STAGE_KEYWORD[name];
+      if (keyword === undefined) return [];
+      // A failed type check does not stop the keywords that apply to any type, only those of the groups after them.
+      const anyType = ['$merge', '$ref', 'not', 'anyOf', 'oneOf', 'allOf', 'if'].includes(keyword);
+      const before = KEYWORD_ORDER.slice(0, KEYWORD_ORDER.indexOf(keyword)).filter((k) => k in schema && !(anyType && (k === 'type' || k === 'nullable')));
+      if (before.length === 0) return [];
+      const prefix: Json = Object.fromEntries(before.map((k) => [k, schema[k]]));
+      // Which keys are additional, and from which item on, depends on keywords that run after: their names stay, relaxed.
+      if ('additionalProperties' in prefix) {
+        if (!('properties' in prefix) && isJson(schema.properties)) prefix.properties = Object.fromEntries(Object.keys(schema.properties).map((k) => [k, true]));
+        if (!('patternProperties' in prefix) && isJson(schema.patternProperties)) prefix.patternProperties = Object.fromEntries(Object.keys(schema.patternProperties).map((k) => [k, true]));
+      }
+      if ('additionalItems' in prefix && !('items' in prefix) && Array.isArray(schema.items)) prefix.items = schema.items.map(() => true);
+      return [`${name}: ${accept(prefix, scope.at)}`];
     });
+    if (pre.length) fields.push(`pre: { ${pre.join(', ')} }`);
+  }
+
+  private planRef(ref: string, at: Location, context: PlanContext, mode: PlanMode, fields: string[], stage: (field: string) => void): void {
+    const key = this.graph.resolve(ref, at.schema);
+    const entry = key === undefined ? undefined : this.graph.get(key);
+    if (!entry || !isJson(entry.schema)) return;
+    const compiled = refsIn(entry.schema).length > 0;
+    const open = context.stack.indexOf(entry.key);
+    if (open >= 0) {
+      stage(`ref: { back: ${context.stack.length - 1 - open} }`);
+      context.coercions++;
+      fields.push('inline: false');
+      return;
+    }
+    // A replay built inside another that follows a cyclic reference grows with every lap: it stops here (ZOD005).
+    if (this.replaysOpen > 0 && (this.graph.cyclic(context.scope.current, entry.key) || this.graph.cyclic(entry.key, entry.key)) && this.coercesBelow(entry.schema, context.scope, new Set())) {
+      context.cut ??= at;
+      return;
+    }
+    context.stack.push(entry.key);
+    const target = this.plan(entry.schema, { schema: entry.owner, pointer: entry.pointer }, context, { ...mode, ok: false });
+    context.stack.pop();
+    if (target) {
+      stage(`ref: ${target}`);
+      if (compiled) fields.push('inline: false');
+    }
+  }
+
+  // The keywords that apply to the items and the properties of the value: their data has a parent to assign into.
+  private planChildren(node: PlanNode): void {
+    const { schema, context, mode, stage } = node;
+    const child = { rooted: false, ok: mode.short };
+    // A list of plans is kept when some coercion is under it; the plans of the others only carry what stops a loop.
+    const kept = <T>(build: () => T): T | undefined => {
+      const mark = context.coercions;
+      const built = build();
+      return context.coercions === mark ? undefined : built;
+    };
+    this.planItems(node, child, kept);
+    const contains = isJson(schema.contains) ? kept(() => node.sub(schema.contains, { rooted: false, ok: true }, 'contains')) : undefined;
+    if (contains) stage('contains', `contains: ${contains}`);
+    this.planProperties(node, child, kept);
+  }
+
+  private planItems(node: PlanNode, child: Partial<PlanMode>, kept: <T>(build: () => T) => T | undefined): void {
+    const { schema, stage } = node;
+    if (Array.isArray(schema.items)) {
+      const rest = isJson(schema.additionalItems) ? node.sub(schema.additionalItems, child, 'additionalItems') : undefined;
+      if (rest) stage('rest', `rest: ${rest}`);
+      // The length of the tuple says where the rest begins, so it stays next to `additionalItems`.
+      const all = (schema.items as unknown[]).map((m, i) => node.sub(m, child, 'items', i));
+      const items = rest || all.some((p) => p !== undefined) ? all : undefined;
+      if (items) stage('items', `items: [${items.map((p) => p ?? '{}').join(', ')}]`);
+    } else if (isJson(schema.items)) {
+      const items = kept(() => node.sub(schema.items, child, 'items'));
+      if (items) stage('items', `items: ${items}`);
+    }
+  }
+
+  private planProperties(node: PlanNode, child: Partial<PlanMode>, kept: <T>(build: () => T) => T | undefined): void {
+    const { schema, stage } = node;
+    // The patterns say which keys `additionalProperties` leaves alone, so they are all kept next to it.
+    const extra = isJson(schema.additionalProperties) ? kept(() => node.sub(schema.additionalProperties, child, 'additionalProperties')) : undefined;
+    const all = isJson(schema.patternProperties)
+      ? Object.entries(schema.patternProperties).flatMap(([source, value]) => (this.validPattern(source) ? [[`new RegExp(${literal(source)}, 'u')`, node.sub(value, child, 'patternProperties', source)] as const] : []))
+      : [];
+    const patterns = extra || all.some(([, p]) => p !== undefined) ? all : [];
+    if (extra) {
+      stage('extra', `extra: ${extra}`);
+      stage('', `declared: ${JSON.stringify(Object.keys(ownProperties(schema)))}`);
+    }
+    const entries = (source: Json, segment: string, options: Partial<PlanMode>): string[] =>
+      kept(() =>
+        Object.entries(source).flatMap(([name, value]) => {
+          const p = segment === 'properties' || isJson(value) ? node.sub(value, options, segment, name) : undefined;
+          return p ? [`[${literal(name)}, ${p}]`] : [];
+        }),
+      ) ?? [];
+    const deps = isJson(schema.dependencies) ? entries(schema.dependencies, 'dependencies', { ok: node.mode.short }) : [];
+    if (deps.length) stage('deps', `deps: [${deps.join(', ')}]`);
+    const props = entries(ownProperties(schema), 'properties', child);
+    if (props.length) stage('props', `props: [${props.join(', ')}]`);
+    if (patterns.length) stage('patterns', `patterns: [${patterns.map(([re, p]) => `[${re}, ${p ?? '{}'}]`).join(', ')}]`);
   }
 
   /** The coercion at a schema's own `type`, following `$ref`: the part of a branch's in-place change the emitter models. */
-  private topCoercion(member: unknown, scope: Scope, depth = 0): string | undefined {
+  private topCoercion(member: unknown, scope: Scope): string | undefined {
+    const typed = this.typedMember(member, scope);
+    return typed && this.coercion(typed.schema, typed.scope);
+  }
+
+  /** The schema that holds the `type` Ajv coerces at `member`, following `$ref` as Ajv inlines it. */
+  private typedMember(member: unknown, scope: Scope, depth = 0): { schema: Json; scope: Scope } | undefined {
     if (!isJson(member) || depth > 8) return undefined;
-    if ('type' in member) return this.coercion(member, scope);
+    if ('type' in member) return { schema: member, scope };
     const key = typeof member.$ref === 'string' ? this.graph.resolve(member.$ref, scope.at.schema) : undefined;
     const entry = key === undefined ? undefined : this.graph.get(key);
     // Ajv inlines only a target without a $ref of its own; a compiled one coerces a copy the next branch never sees.
     if (!entry || refsIn(entry.schema).length > 0) return undefined;
-    return this.topCoercion(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } }, depth + 1);
+    return this.typedMember(entry.schema, { ...scope, at: { schema: entry.owner, pointer: entry.pointer } }, depth + 1);
+  }
+
+  /**
+   * Where a keyword reads a value that Ajv's coercion changed in place after the keyword that coerced it. Zod reads the
+   * value as sent there, so the Coerced schema can accept what the server refuses (ZOD004):
+   * - a keyword of the value's type (`minLength`, `minimum`, `items`...) or the `then` and `else` of an `if` reads what
+   *   an `if`, `anyOf`, `oneOf` or `not` schema coerced, unless the node coerced to those types first;
+   */
+  private reportCoercionOrder(schema: Json, scope: Scope): void {
+    if (scope.variant !== 'coerced') return;
+    this.reportApplicatorOrder(schema, scope);
+  }
+
+  // Ajv assigns the coerced key to a constant when it runs, so the server throws on a value with a key it coerces.
+  private reportPropertyNames(schema: Json, scope: Scope): void {
+    if (scope.variant !== 'coerced' || !isJson(schema.propertyNames)) return;
+    if (this.coercionTypes(schema.propertyNames, scope) === undefined && !this.coercesBelow(schema.propertyNames, scope, new Set())) return;
+    this.diagnostics.report('ZOD001', child(scope.at, 'propertyNames'), "propertyNames coerces its key, and Ajv then throws instead of giving a verdict: the server cannot validate an object with a key it coerces");
+  }
+
+  private reportApplicatorOrder(schema: Json, scope: Scope): void {
+    const read = has(schema, VALUE_KEYWORDS) || ('if' in schema && has(schema, ['then', 'else']));
+    if (!read) return;
+    const own = this.coercedTypes(schema);
+    const coercers: { member: unknown; at: Location }[] = [];
+    for (const keyword of ['anyOf', 'oneOf'] as const) {
+      if (Array.isArray(schema[keyword])) schema[keyword].forEach((member, i) => coercers.push({ member, at: child(scope.at, keyword, i) }));
+    }
+    if ('not' in schema) coercers.push({ member: schema.not, at: child(scope.at, 'not') });
+    for (const { member, at } of coercers) {
+      const typed = this.typedMember(member, scope);
+      const top = typed !== undefined && this.coercion(typed.schema, typed.scope) !== undefined && !this.coercedTypes(typed.schema).every((t) => own.includes(t));
+      if (!top && !this.coercesBelow(member, scope, new Set())) continue;
+      this.diagnostics.report('ZOD004', at, 'Ajv coerces the value in place in this schema, and a later keyword of the node reads the coerced value; the Coerced schema reads the value as sent');
+    }
+  }
+
+  /** Whether a coercion runs below the node: in a keyword of it, a `$ref` target or a child. */
+  private coercesBelow(schema: unknown, scope: Scope, seen: Set<string>): boolean {
+    if (!isJson(schema)) return false;
+    const children = [schema.not, schema.if, schema.then, schema.else, schema.contains, schema.additionalItems, schema.additionalProperties, ...(Array.isArray(schema.items) ? schema.items : [schema.items])];
+    for (const keyword of ['anyOf', 'oneOf', 'allOf'] as const) if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
+    for (const keyword of ['properties', 'patternProperties', 'dependencies'] as const) if (isJson(schema[keyword])) children.push(...Object.values(schema[keyword]));
+    if (typeof schema.$ref === 'string') {
+      const key = this.graph.resolve(schema.$ref, scope.at.schema);
+      const entry = key === undefined || seen.has(key) ? undefined : this.graph.get(key);
+      if (entry) children.push(entry.schema);
+      if (key !== undefined) seen.add(key);
+    }
+    return children.some((m) => isJson(m) && (this.coercionTypes(m, scope) !== undefined || this.coercesBelow(m, scope, seen)));
+  }
+
+  /** The types a node's `type` coerces to, `nullable` included, as `integer` and `number` coerce alike. */
+  private coercedTypes(schema: Json): string[] {
+    const declared: unknown[] = typeof schema.type === 'string' ? [schema.type] : Array.isArray(schema.type) ? schema.type : [];
+    return [...declared, ...(schema.nullable === true && declared.length > 0 ? ['null'] : [])].filter((t): t is string => COERCED.has(t as string)).map((t) => (t === 'integer' ? 'number' : t));
   }
 
   private union(nodes: ZodNode[]): ZodNode {
@@ -440,9 +1100,15 @@ export class ZodBuilder {
   }
 
   private oneOf(schema: Json, members: unknown[], scope: Scope): ZodNode {
-    const built = members.map((m, i) => this.node(m, { ...scope, at: child(scope.at, 'oneOf', i) }));
+    const cutMark = this.cuts;
+    const built = members.map((m, i) => this.node(m, { ...scope, plain: true, at: child(scope.at, 'oneOf', i) }));
+    // Exactly one member must hold: one that was cut accepts more than it should and would make a second one match.
+    if (this.cuts !== cutMark) {
+      this.diagnostics.report('ZOD005', child(scope.at, 'oneOf'), 'a member of this oneOf accepts more than the server does (ZOD005); so does the oneOf');
+      return this.permissive({ oneOf: members });
+    }
     // Ajv counts every branch, each on the value the ones before it coerced.
-    const nodes = scope.variant === 'coerced' ? this.threaded(members, built, scope) : built;
+    const nodes = scope.variant === 'coerced' ? this.threaded('oneOf', members, built, scope) : built;
     if (nodes.length <= 1) return nodes[0] ?? call('never');
     // A coerced tag is a pipe, whose tag values zod's discriminated union cannot read.
     const discriminator = scope.variant === 'coerced' ? undefined : this.discriminator(schema, members, nodes, scope.at.schema);
@@ -613,26 +1279,29 @@ export class ZodBuilder {
     const restSchema = Array.isArray(schema.items) ? schema.additionalItems : schema.items;
     const max = this.limit(schema, 'maxItems', scope);
     const shape = arrayShape(prefix.length, restSchema !== false, this.limit(schema, 'minItems', scope) ?? 0, max);
-    const items = prefix.map((m, i) => this.slot(m, shape.uses[i], { ...scope, at: child(scope.at, 'items', i) }));
+    const items = prefix.map((m, i) => this.looping('none', () => this.slot(m, shape.uses[i], { ...scope, at: child(scope.at, 'items', i) })));
     const restAt = child(scope.at, Array.isArray(schema.items) ? 'additionalItems' : 'items');
-    const rest = restSchema === false || shape.restUses === 0 ? undefined : this.slot(restSchema, shape.restUses, { ...scope, at: restAt });
+    const rest = restSchema === false || shape.restUses === 0 ? undefined : this.looping('lax', () => this.slot(restSchema, shape.restUses, { ...scope, at: restAt }));
     const node = this.lengths(items, rest, shape, max);
     return this.arrayKeywords(node, schema, scope);
   }
 
   private arrayKeywords(node: ZodNode, schema: Json, scope: Scope): ZodNode {
     const unique = schema.uniqueItems === true ? this.uniqueItems(schema, scope) : undefined;
-    const checks = [...(node.checks ?? []), ...arrayChecks(schema, this.host(scope)), ...(unique && !unique.asSent ? [unique.check] : [])];
-    const input = unique?.asSent ? [...(node.inputChecks ?? []), unique.check] : node.inputChecks;
+    const keywords = arrayChecks(schema, this.host(scope));
+    const read = (c: Check): boolean => c.kind === 'refine' && c.onInput === true;
+    const checks = [...(node.checks ?? []), ...keywords.filter((c) => !read(c)), ...(unique && !unique.asSent ? [unique.check] : [])];
+    const input = [...(node.inputChecks ?? []), ...keywords.filter(read), ...(unique?.asSent ? [unique.check] : [])];
     return { ...node, ...(checks.length ? { checks } : {}), ...(input?.length ? { inputChecks: input } : {}) };
   }
 
   // A slot printed in several tuples is declared once, outside any getter, as the hoisted const is read at module load.
   private slot(schema: unknown, uses: number, scope: Scope): ZodNode {
-    const inner: Scope = { ...scope, typePath: undefined };
+    const inner: Scope = { ...scope, rooted: false, typePath: undefined };
     if (schema === undefined) return UNKNOWN;
     if (uses <= 1 || isSimple(schema)) return this.node(schema, inner);
-    return { kind: 'ref', name: this.hoist(this.node(schema, { ...inner, deferred: false }), scope) };
+    const node = this.node(schema, { ...inner, deferred: false });
+    return { kind: 'ref', name: this.hoist(node, scope), acceptsUndefined: node.acceptsUndefined };
   }
 
   // Ajv checks only the positions present. client.ts types a bounded array as a union of tuples, as
@@ -648,8 +1317,10 @@ export class ZodBuilder {
   /** At least `fixed` items, the ones after the prefix checked by `rest`. */
   private openTuple(items: ZodNode[], rest: ZodNode, fixed: number, max: number | undefined): ZodNode {
     const leading = Array.from({ length: fixed }, (_, i) => items[i] ?? rest);
-    const checks: Check[] = max === undefined ? [] : [{ kind: 'refine', fn: `(a) => a.length <= ${max}`, message: `must NOT have more than ${max} items` }];
-    return { ...call('tuple', { list: leading }, { node: rest }), checks };
+    // A tuple takes a shorter array when its trailing slots accept undefined, and pads its output: the length is read as sent.
+    const short: Check[] = leading.some((n) => n.acceptsUndefined) ? [{ kind: 'refine', fn: `(a) => !Array.isArray(a) || a.length >= ${fixed}`, message: `must NOT have fewer than ${fixed} items` }] : [];
+    const long: Check[] = max === undefined ? [] : [{ kind: 'refine', fn: `(a) => a.length <= ${max}`, message: `must NOT have more than ${max} items` }];
+    return { ...call('tuple', { list: leading }, { node: rest }), checks: long, ...(short.length ? { inputChecks: short } : {}) };
   }
 
   /**
@@ -661,10 +1332,21 @@ export class ZodBuilder {
     const slots = Array.isArray(schema.items) ? [...(schema.items as unknown[]), schema.additionalItems] : [schema.items];
     const asSent = slots.some((slot) => this.mayBeLooseObject(slot, scope.at.schema));
     const message = 'must NOT have duplicate items';
-    if (!asSent) return { check: { kind: 'refine', fn: this.format('ajvUniqueItems'), message }, asSent };
+    const types = primitiveItemTypes(schema.items);
+    const unique = (v: string): string => `${this.format('ajvUniqueItems')}(${v}${types ? `, ${JSON.stringify(types)}` : ''})`;
+    if (!asSent) return { check: { kind: 'refine', fn: types ? `(a) => ${unique('a')}` : this.format('ajvUniqueItems'), message }, asSent };
+    const after = this.afterItems(schema, scope, true);
+    if (after?.cut) {
+      this.diagnostics.report('ZOD005', child(scope.at, 'uniqueItems'), 'the replay of the Ajv coercions uniqueItems reads was cut; the keyword is left unchecked');
+      return { check: { kind: 'refine', fn: '() => true', message }, asSent };
+    }
+    if (after) {
+      // Ajv compares the items once its coercions have run on them.
+      return { check: { kind: 'refine', fn: `((after) => (a) => !Array.isArray(a) || ${unique('after(a)')})(${after.fn})`, uses: after.uses, message }, asSent };
+    }
     const coerce = Array.isArray(schema.items) ? undefined : this.topCoercion(schema.items, scope);
     const items = coerce ? `a.map(${call1(coerce)})` : 'a';
-    return { check: { kind: 'refine', fn: `(a) => !Array.isArray(a) || ${this.format('ajvUniqueItems')}(${items})`, message }, asSent };
+    return { check: { kind: 'refine', fn: `(a) => !Array.isArray(a) || ${unique(items)}`, message }, asSent };
   }
 
   // Unless the schema says otherwise: a typed non-object, a closed object, or a $ref to one.
@@ -681,9 +1363,33 @@ export class ZodBuilder {
   }
 
   private object(schema: Json, scope: Scope): ZodNode {
-    const data = dataChecks(ownProperties(schema), scope.at, (name) => this.format(name), this.dataHandled);
+    const order = scope.variant === 'coerced' ? this.dataOrder(schema, scope) : undefined;
+    const data = dataChecks(ownProperties(schema), scope.at, (name) => this.format(name), this.dataHandled, order);
     const node = this.plainObject(schema, scope);
-    return data.length ? { ...node, checks: [...(node.checks ?? []), ...data] } : node;
+    if (!data.length) return node;
+    // A coerced object reads the siblings as Ajv does, from the value as sent.
+    return order ? { ...node, inputChecks: [...(node.inputChecks ?? []), ...data] } : { ...node, checks: [...(node.checks ?? []), ...data] };
+  }
+
+  private dataOrder(schema: Json, scope: Scope): DataOrder {
+    const properties = ownProperties(schema);
+    return {
+      unchecked: (at) => this.diagnostics.report('ZOD005', at, 'the replay of the Ajv coercions this keyword reads was cut; the keyword is left unchecked'),
+      holder: (name) => {
+        const types = isJson(properties[name]) ? this.coercionTypes(properties[name], scope) : undefined;
+        return types ? `${this.format('coerceLocal')}(${JSON.stringify(types)})` : undefined;
+      },
+      before: (name) => {
+        const earlier = Object.fromEntries(Object.entries(properties).slice(0, Object.keys(properties).indexOf(name)));
+        const context: PlanContext = { scope, pending: [], stack: [], numeric: false, branching: false, depth: 0, coercions: 0 };
+        const plan = this.planned({ properties: earlier }, scope.at, context, { rooted: scope.rooted ?? scope.at.pointer === '', short: false, ok: false });
+        if (!plan) return undefined;
+        const cutMark = this.cuts;
+        const uses = context.pending.map((build) => build());
+        const cut = this.cuts !== cutMark;
+        return cut ? { fn: '', uses: [], cut: true } : { fn: `${this.format('replayLocal')}(${this.imported(plan)})`, uses };
+      },
+    };
   }
 
   private plainObject(schema: Json, scope: Scope): ZodNode {
@@ -694,9 +1400,11 @@ export class ZodBuilder {
     const checks = this.requiredChecks(required, properties);
     if (isJson(schema.patternProperties)) return { kind: 'object', mode: 'loose', properties, catchall: this.patternCatchall(schema), checks };
     const additional = schema.additionalProperties;
-    const catchall = isJson(additional) ? this.node(additional, { ...scope, typePath: undefined, at: child(scope.at, 'additionalProperties') }) : undefined;
+    const catchall = isJson(additional) ? this.looping('lax', () => this.node(additional, { ...scope, rooted: false, typePath: undefined, at: child(scope.at, 'additionalProperties') })) : undefined;
     const node: ZodNode = { kind: 'object', mode: additional === false ? this.closed(checks, scope) : 'loose', properties, ...(catchall && catchall !== UNKNOWN ? { catchall } : {}) };
-    return { ...node, checks };
+    if (!catchall || catchall === UNKNOWN) return { ...node, checks };
+    const proto: Check = { kind: 'refine', fn: `${this.format('ownProtoAccepted')}((v) => ${use(0)}.safeParse(v).success)`, uses: [this.usable(catchall, scope)], message: 'must match the schema of additional properties' };
+    return { ...node, checks, inputChecks: [proto] };
   }
 
   // A reply drops what the server's closed object would reject, unless a check reads the parsed value and needs the keys.
@@ -717,8 +1425,8 @@ export class ZodBuilder {
     const getter = !scope.deferred && sources.some((s) => this.readsCycle(s.schema, s.at.schema, scope.current));
     const member = scope.typePath === undefined ? undefined : `${scope.typePath}[${literal(name)}]`;
     const objectLike = sources.length === 1 && isJson(sources[0].schema) && !has(sources[0].schema, ['allOf', 'anyOf', 'oneOf', '$ref', 'enum', 'const']);
-    const inner: Scope = { ...scope, deferred: scope.deferred || getter, typePath: member && objectLike ? `NonNullable<${member}>` : undefined };
-    const built = sources.map((s) => this.node(s.schema, { ...inner, at: s.at })).reduce((a, b) => call('intersection', { node: a }, { node: b }));
+    const inner: Scope = { ...scope, rooted: false, deferred: scope.deferred || getter, typePath: member && objectLike ? `NonNullable<${member}>` : undefined };
+    const built = sources.map((s) => this.looping('none', () => this.node(s.schema, { ...inner, at: s.at }))).reduce((a, b) => this.intersect(a, b));
     const node = this.dataConstTyped(built, sources, member, inner);
     if (!getter) return { key: name, node, optional: !required };
     // The interface's own member type cannot disagree with client.ts; a hoisted definition has no interface.

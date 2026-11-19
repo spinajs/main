@@ -76,20 +76,20 @@ describe('orm-threading', function () {
   it('Should create', async () => {
     await mutex_create({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     const m = await __mutex__.get('test');
     expect(m).to.be.not.null;
     expect(m.Name).to.eq('test');
-    expect(m.Tenant).to.eq('test-1');
+    expect(m.Holder).to.eq('test-1');
     expect(m.Locked).to.eq(false);
   });
 
   it('should delete', async () => {
     await mutex_create({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     let m = await __mutex__.get('test');
@@ -97,7 +97,7 @@ describe('orm-threading', function () {
 
     const r = await mutex_delete({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     expect(r).to.be.true;
@@ -106,15 +106,15 @@ describe('orm-threading', function () {
     expect(m).to.be.undefined;
   });
 
-  it('Should not delete if tenant not same', async () => {
+  it('Should not delete if holder not same', async () => {
     await mutex_create({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     const r = await mutex_delete({
       Name: 'test',
-      Tenant: 'test-2',
+      Holder: 'test-2',
     });
 
     expect(r).to.be.false;
@@ -126,7 +126,7 @@ describe('orm-threading', function () {
   it('Should create on acquire', async () => {
     const result = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     expect(result.Locked).to.be.true;
@@ -134,13 +134,13 @@ describe('orm-threading', function () {
     let m = await __mutex__.get('test');
     expect(m).to.be.not.null;
     expect(m.Locked).to.be.true;
-    expect(m.Tenant).to.eq('test-1');
+    expect(m.Holder).to.eq('test-1');
   });
 
   it('should acquire', async () => {
     await mutex_create({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     let m = await __mutex__.get('test');
@@ -148,7 +148,7 @@ describe('orm-threading', function () {
 
     await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     await m.refresh();
@@ -156,19 +156,19 @@ describe('orm-threading', function () {
     expect(m.Locked).to.be.true;
   });
 
-  it('Should grant a free lock to only one of two racing tenants', async () => {
-    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+  it('Should grant a free lock to only one of two racing holders', async () => {
+    await mutex_create({ Name: 'test', Holder: 'test-1' });
 
-    const results = await Promise.all([mutex_acquire({ Name: 'test', Tenant: 'test-1' }), mutex_acquire({ Name: 'test', Tenant: 'test-2' })]);
+    const results = await Promise.all([mutex_acquire({ Name: 'test', Holder: 'test-1' }), mutex_acquire({ Name: 'test', Holder: 'test-2' })]);
 
     expect(results.filter((r) => r.Locked)).to.have.length(1);
   });
 
   it('Should return the locked state and stamp Updated_at on acquire', async () => {
-    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+    await mutex_create({ Name: 'test', Holder: 'test-1' });
     const before = await __mutex__.get('test');
 
-    const r = await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+    const r = await mutex_acquire({ Name: 'test', Holder: 'test-1' });
     expect(r.Mutex.Locked).to.be.true;
 
     await before.refresh();
@@ -176,9 +176,9 @@ describe('orm-threading', function () {
   });
 
   it('Should not delete a locked mutex', async () => {
-    await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+    await mutex_acquire({ Name: 'test', Holder: 'test-1' });
 
-    const r = await mutex_delete({ Name: 'test', Tenant: 'test-1' });
+    const r = await mutex_delete({ Name: 'test', Holder: 'test-1' });
 
     expect(r).to.be.false;
     expect(await __mutex__.get('test')).to.be.not.undefined;
@@ -191,7 +191,7 @@ describe('orm-threading', function () {
   it('should release', async () => {
     const r = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     let m = await __mutex__.get('test');
@@ -203,10 +203,10 @@ describe('orm-threading', function () {
     expect(m.Locked).to.be.false;
   });
 
-  it('should not release by other tenant', async () => {
+  it('should not release by other holder', async () => {
     const r = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     let m = await __mutex__.get('test');
@@ -214,7 +214,7 @@ describe('orm-threading', function () {
 
     await mutex_release({
       Name: 'test',
-      Tenant: 'test-2',
+      Holder: 'test-2',
     });
 
     await m.refresh();
@@ -224,7 +224,7 @@ describe('orm-threading', function () {
   it('Should delete on release', async () => {
     const r = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     const m = await __mutex__.get('test');
@@ -239,13 +239,13 @@ describe('orm-threading', function () {
   it('Should get', async () => {
     const r = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     const m = await mutex_get('test');
     expect(m).to.be.not.null;
     expect(m?.Name).to.eq('test');
-    expect(m?.Tenant).to.eq('test-1');
+    expect(m?.Holder).to.eq('test-1');
 
     const m2 = await mutex_get('test2');
     expect(m2).to.be.undefined;
@@ -254,13 +254,13 @@ describe('orm-threading', function () {
   it('should wait', async () => {
     const r = await mutex_acquire({
       Name: 'test',
-      Tenant: 'test-1',
+      Holder: 'test-1',
     });
 
     setTimeout(async () => {
       await mutex_release({
         Name: 'test',
-        Tenant: 'test-1',
+        Holder: 'test-1',
       });
     }, 3000);
 
@@ -292,76 +292,76 @@ describe('orm-threading', function () {
       expect(Math.abs(now - Date.now())).to.be.lessThan(50);
     });
   });
-  describe('default tenant', () => {
-    it('Should use the process identity when Tenant is not given', async () => {
+  describe('default holder', () => {
+    it('Should use the process identity when Holder is not given', async () => {
       const r = await mutex_acquire({ Name: 'test' });
 
       expect(r.Locked).to.be.true;
       const m = await __mutex__.get('test');
-      expect(m.Tenant).to.eq(processIdentity());
+      expect(m.Holder).to.eq(processIdentity());
     });
 
     it('Should not share a lock with another replica of the same app', async () => {
       const appName = DI.get(Configuration)!.get<string>('app.name', 'spina-js');
-      await mutex_acquire({ Name: 'test', Tenant: appName });
+      await mutex_acquire({ Name: 'test', Holder: appName });
 
       const r = await mutex_acquire({ Name: 'test' });
 
       expect(r.Locked).to.be.false;
     });
 
-    it('Should use threading.mutex.tenant when configured', async () => {
-      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+    it('Should use threading.mutex.holder when configured', async () => {
+      DI.get(Configuration)!.set('threading.mutex.holder', 'fixed-holder');
 
       await mutex_acquire({ Name: 'test' });
 
       const m = await __mutex__.get('test');
-      expect(m.Tenant).to.eq('fixed-tenant');
+      expect(m.Holder).to.eq('fixed-holder');
     });
 
-    it('Should prefer an explicit Tenant over the configured one', async () => {
-      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+    it('Should prefer an explicit Holder over the configured one', async () => {
+      DI.get(Configuration)!.set('threading.mutex.holder', 'fixed-holder');
 
-      await mutex_acquire({ Name: 'test', Tenant: 'explicit' });
+      await mutex_acquire({ Name: 'test', Holder: 'explicit' });
 
       const m = await __mutex__.get('test');
-      expect(m.Tenant).to.eq('explicit');
+      expect(m.Holder).to.eq('explicit');
     });
   });
   describe('atomic acquire', () => {
-    it('Should not acquire when locked by another tenant', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+    it('Should not acquire when locked by another holder', async () => {
+      await mutex_acquire({ Name: 'test', Holder: 'test-1' });
 
-      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+      const r = await mutex_acquire({ Name: 'test', Holder: 'test-2' });
 
       expect(r.Locked).to.be.false;
-      expect(r.Mutex.Tenant).to.eq('test-1');
+      expect(r.Mutex.Holder).to.eq('test-1');
       const m = await __mutex__.get('test');
-      expect(m.Tenant).to.eq('test-1');
+      expect(m.Holder).to.eq('test-1');
     });
 
     it('Should grant exactly one of concurrent acquires on an existing mutex', async () => {
-      await mutex_create({ Name: 'test', Tenant: 'creator' });
+      await mutex_create({ Name: 'test', Holder: 'creator' });
 
-      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Holder: `replica-${i}` })));
 
       const winners = results.filter((r) => r.Locked);
       expect(winners).to.have.length(1);
       const m = await __mutex__.get('test');
-      expect(m.Tenant).to.eq(winners[0].Mutex.Tenant);
+      expect(m.Holder).to.eq(winners[0].Mutex.Holder);
     });
 
     it('Should grant exactly one of concurrent acquires on a missing mutex', async () => {
-      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Holder: `replica-${i}` })));
 
       expect(results.filter((r) => r.Locked)).to.have.length(1);
     });
 
     it('Should let the holder acquire again, and free it with one release', async () => {
-      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
-      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'test', Holder: 'test-1' })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'test', Holder: 'test-1' })).Locked).to.be.true;
 
-      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+      await mutex_release({ Name: 'test', Holder: 'test-1' });
 
       const m = await __mutex__.get('test');
       expect(m.Locked).to.be.false;
@@ -380,7 +380,7 @@ describe('orm-threading', function () {
     });
 
     it('Should store LockedUntil = now + ttl', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
 
       expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 5000);
     });
@@ -388,79 +388,79 @@ describe('orm-threading', function () {
     it('Should use threading.mutex.ttl when ttl is not given', async () => {
       DI.get(Configuration)!.set('threading.mutex.ttl', 2000);
 
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1' });
 
       expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 2000);
     });
 
     it('Should never expire with ttl 0', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 0 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 0 });
       now.resolves(T0 + 10 * 365 * 24 * 3600 * 1000);
 
-      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+      const r = await mutex_acquire({ Name: 'test', Holder: 'test-2' });
 
       expect((await mutex_get('test'))!.LockedUntil).to.be.null;
       expect(r.Locked).to.be.false;
     });
 
-    it('Should not let another tenant take a lock that has not expired', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+    it('Should not let another holder take a lock that has not expired', async () => {
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
       now.resolves(T0 + 4999);
 
-      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+      expect((await mutex_acquire({ Name: 'test', Holder: 'test-2', ttl: 5000 })).Locked).to.be.false;
     });
 
-    it('Should let another tenant take an expired lock', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+    it('Should let another holder take an expired lock', async () => {
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
       now.resolves(T0 + 5001);
 
-      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+      const r = await mutex_acquire({ Name: 'test', Holder: 'test-2', ttl: 5000 });
 
       expect(r.Locked).to.be.true;
-      expect(r.Mutex.Tenant).to.eq('test-2');
+      expect(r.Mutex.Holder).to.eq('test-2');
       expect(r.Mutex.LockedUntil).to.eq(T0 + 5001 + 5000);
     });
 
     it('Should extend the lock on renew', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
       now.resolves(T0 + 4000);
 
-      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.true;
+      expect(await mutex_renew({ Name: 'test', Holder: 'test-1', ttl: 5000 })).to.be.true;
       expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 9000);
 
       now.resolves(T0 + 6000);
-      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+      expect((await mutex_acquire({ Name: 'test', Holder: 'test-2', ttl: 5000 })).Locked).to.be.false;
     });
 
-    it('Should not renew a lock another tenant took over', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+    it('Should not renew a lock another holder took over', async () => {
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
       now.resolves(T0 + 6000);
-      await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-2', ttl: 5000 });
 
-      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+      expect(await mutex_renew({ Name: 'test', Holder: 'test-1', ttl: 5000 })).to.be.false;
     });
 
     it('Should not renew a released lock', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
-      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
+      await mutex_release({ Name: 'test', Holder: 'test-1' });
 
-      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+      expect(await mutex_renew({ Name: 'test', Holder: 'test-1', ttl: 5000 })).to.be.false;
     });
 
     it('Should clear LockedUntil on release', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
 
-      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+      await mutex_release({ Name: 'test', Holder: 'test-1' });
 
       expect((await mutex_get('test'))!.LockedUntil).to.be.null;
     });
 
     it('Should reject a negative ttl', async () => {
-      await expect(mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: -1 })).to.be.rejected;
+      await expect(mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: -1 })).to.be.rejected;
     });
 
     it('Should treat an expired lock as released in wait()', async () => {
-      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_acquire({ Name: 'test', Holder: 'test-1', ttl: 5000 });
       now.resolves(T0 + 6000);
 
       expect(await mutex_wait('test', 2000)).to.be.true;

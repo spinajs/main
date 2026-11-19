@@ -57,9 +57,24 @@ async function keepsMessageId(harness: TransportHarness): Promise<void> {
   assert.deepEqual(received[0].Headers, { 'x-conformance': 'round-trip', [QueueHeaders.MessageId]: sent.MessageId });
 }
 
+async function keepsTraceContext(harness: TransportHarness): Promise<void> {
+  const channel = channelOf(harness, QueueMessageType.Event);
+  const received: IQueueMessage[] = [];
+  await harness.client.subscribe(channel, async (m) => void received.push(m));
+
+  const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+  await harness.client.emit(conformanceMessage(QueueMessageType.Event, { Headers: { [QueueHeaders.TraceParent]: traceparent, [QueueHeaders.TraceState]: 'spina=1' } }));
+  await harness.deliverAll();
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].Headers?.[QueueHeaders.TraceParent], traceparent, 'traceparent survives the transport');
+  assert.equal(received[0].Headers?.[QueueHeaders.TraceState], 'spina=1', 'tracestate survives the transport');
+}
+
 const CASES: [string, (harness: TransportHarness) => Promise<void>][] = [
   ['acks a message whose handler succeeded', acksOnSuccess],
   ['keeps the MessageId and headers across a round trip', keepsMessageId],
+  ['keeps traceparent and tracestate across a round trip', keepsTraceContext],
 ];
 
 /** Registers a mocha `describe()` that runs the shared transport cases, each on a fresh harness from `factory`. */

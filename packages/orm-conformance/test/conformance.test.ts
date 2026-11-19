@@ -3,19 +3,21 @@ import { expect } from 'chai';
 import { readFileSync } from 'node:fs';
 
 import { CASES } from '../cases/index.js';
-import { availableTargets, compareTargets, describeVerdict, parseDivergences, runTarget, type TargetName, type TargetResults, type Verdict } from '../src/index.js';
+import { REFERENCE, availableTargets, compareTargets, describeVerdict, normalizeResult, parseDivergences, runTarget, type TargetName, type TargetResults, type Verdict } from '../src/index.js';
 
 const divergences = parseDivergences(JSON.parse(readFileSync(new URL('../divergences.json', import.meta.url), 'utf8')) as unknown, new Set(CASES.map((c) => c.name)));
 
 describe('orm conformance', function () {
   const targets = availableTargets();
   const byCase = new Map<string, Verdict[]>();
+  let reference: TargetResults | undefined;
 
   before(async () => {
     const results = new Map<TargetName, TargetResults>();
     for (const target of targets) {
       results.set(target.name, await runTarget(target, CASES));
     }
+    reference = results.get(REFERENCE);
 
     for (const verdict of compareTargets(results, divergences)) {
       byCase.set(verdict.case, [...(byCase.get(verdict.case) ?? []), verdict]);
@@ -33,6 +35,10 @@ describe('orm conformance', function () {
 
   for (const c of CASES) {
     it(c.name, () => {
+      if (c.expected !== undefined) {
+        expect(reference?.get(c.name), `${REFERENCE} reference`).to.deep.equal(normalizeResult(c.expected, { order: c.order, booleans: c.booleans }));
+      }
+
       const problems = (byCase.get(c.name) ?? []).filter((v) => v.status === 'diverges' || v.status === 'stale');
       expect(problems.map(describeVerdict)).to.deep.equal([]);
     });

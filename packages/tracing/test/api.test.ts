@@ -79,7 +79,7 @@ describe('tracing api', () => {
       expect(context.with(remote, () => activeTraceIds())).to.eq(undefined);
     });
 
-    it('records the exception and sets ERROR when the callback throws', async () => {
+    it('sets ERROR with the error class when the callback throws', async () => {
       const spans = useInMemorySpans();
       try {
         let thrown: unknown;
@@ -92,8 +92,8 @@ describe('tracing api', () => {
         }
         expect((thrown as Error).message).to.eq('boom');
         const [span] = spans.byName('fails');
-        expect(span.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'boom' });
-        expect(span.events.map((e) => e.name)).to.deep.eq(['exception']);
+        expect(span.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'Error' });
+        expect(span.events).to.deep.eq([]);
       } finally {
         await spans.detach();
       }

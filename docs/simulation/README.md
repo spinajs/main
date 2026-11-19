@@ -46,8 +46,17 @@ against the directory `npm run sim` was started in. A seed whose database work n
 Replicas interleave only between settle points, never inside one `tickOnce()`, so a compare-and-set guard that
 is missing between a read and the write that depends on it is not found by the simulation.
 
+## Profiling
+
+`npm run sim -- --suite <name> --seeds <n> --profile` (or `SIM_PROFILE=1`) prints, per seed, the wall-clock time of
+the app boot (and whether the database came from migrations or from the template copy), the rest of the suite's
+build, the step loop, quiescence, invariant checks, database settles (with their count) and shutdown, and the number
+of ticks. The times are exclusive: a settle inside the step loop counts as settle, not as steps, so the phases add up
+to the seed's total. Profiles are not part of the trace, so a profiled seed replays exactly like an unprofiled one.
+
 ## Suites
 
 | Suite | Actors | Faults | Invariants |
 |---|---|---|---|
 | `scheduler` | 3 scheduler replicas ticking one 10 s schedule whose runs sleep 1–21 s and sometimes pause past the lease | crash or 35 s delay at `scheduler.lease-renew`, pause up to 90 s | each occurrence fired once; no finished outcome rewritten and no attempt handed to another owner (sqlite triggers log every such write), every effect under the lease holder; finished runs agree with their attempts; no run left unfinished; at least one run succeeded |
+| `workflow` | 3 engine replicas, a signal sender, up to 8 order sagas (reserve → two-branch pick/pack fan-out → sleep → approval → charge → ship, 30 % told to fail) | crash at `workflow.after-step-fn`, `workflow.before-journal` and `workflow.after-journal`; 35 s delay after a step body and before a journal write (a stale owner's late write, refused by the epoch fence); extra signals; engine pause up to 90 s. Lease renewal is not exercised: `workflow.lease-renew` is never reached, since a paused replica's heartbeat does not fire and after the thaw the lease is already marked lost | step results never overwritten; every journal row holds the key its branch and call number must hold, and each fan-out row its own branch's result; no instance ends failed; compensations newest first, each with an effect (at least once); transactional effects match the journal exactly; one signal per wait, consumed with its journal row; every instance terminal, completed or compensated as its input and approval say |

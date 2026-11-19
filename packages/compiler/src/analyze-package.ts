@@ -20,6 +20,8 @@ import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
 import { accessResources } from './extractors/access-resources.js';
 import { authzSectionOf } from './extractors/authz.js';
+import { tenantModelsOf, withTenants } from './extractors/tenant-models.js';
+import { tenancyOf } from './extractors/tenancy.js';
 import { extractWorkflows } from './extractors/workflows.js';
 import { extractSqlQueries } from './extractors/sql.js';
 import { extractSqlDialects } from './extractors/sql-dialects.js';
@@ -124,7 +126,10 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const workflows = run(extractWorkflows);
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
-  const { models, resources } = accessResources(ctx, files, run(extractModels));
+  const extracted = run(extractModels);
+  const tenantModels = tenantModelsOf(ctx, files, extracted);
+  const { models: typedModels, resources } = accessResources(ctx, files, extracted);
+  const models = withTenants(typedModels, tenantModels);
   const authz = authzSectionOf(ctx, files, { controllers, socketControllers, schedules, commands, resources });
 
   const sqlQueries = run(extractSqlQueries);
@@ -159,6 +164,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
+    ...tenancyOf(ctx, files, { controllers, schedules, authz, models: tenantModels }),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

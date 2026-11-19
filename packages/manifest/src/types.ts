@@ -142,6 +142,7 @@ export interface RouteEntry {
   access?: string[];                 // @Access permissions (authz-http)
   allowAnonymous?: boolean;
   public?: string;                   // @Public reason (http)
+  idempotency?: { required: boolean }; // @Idempotent (http)
   doc?: { summary?: string; description?: string; tags?: string[]; deprecated?: boolean; responses?: { status: number; description?: string; type?: TypeRef }[] };
   /** Id of the controller entry that declared the route, when the controller inherits it. */
   inheritedFrom?: string;
@@ -244,6 +245,14 @@ export interface ModelRelation {
   junction?: { model: string; sourceKey: string; targetKey: string };
 }
 
+/** What `@Tenant(options)` or `registerTenantModel(Model, options)` states. An absent member is the app's `tenancy.orm.*` default, which the build does not know. */
+export interface ModelTenant {
+  isolation?: 'row' | 'schema';
+  /** `false`: the model has no tenant column. */
+  column?: string | false;
+  rls?: boolean;
+}
+
 export interface ModelEntry {
   id: string; className: string; tableName: string; connection?: string;
   columns: ModelColumn[];  // declared via decorators / class fields only
@@ -255,6 +264,8 @@ export interface ModelEntry {
   exhaustive?: true;
   /** The `@AccessResource` / `registerAccessResource` type, nearest registered class of the chain; omitted when the model is no access resource. */
   accessResource?: string;
+  /** Set on a tenant model: its own `@Tenant`, its nearest tenant base class, or a `registerTenantModel` call; omitted on any other model. */
+  tenant?: ModelTenant;
   source: SourceRef;
 }
 export interface MigrationEntry { id: string; className: string; connection: string; env?: string[]; file: string; mountedBy?: MountedBy; exported?: NotExported; source: SourceRef }
@@ -346,6 +357,45 @@ export interface AuthzSection {
   policyHash?: string;
 }
 
+/** The tenant scope established when the handler of an entry point starts. `each`: one run per active tenant, each in its own. `none`: no scope is guaranteed. */
+export type EntryTenancy = 'required' | 'each' | 'none' | 'all';
+
+export type TenancyEntryKind = 'route' | 'socket-command' | 'socket-event' | 'queue-handler' | 'schedule' | 'cli';
+
+/** What the source states: a decorator of `@spinajs/tenancy-http` by name, or the `tenancy` option of `@Job` or `@Schedule`. */
+export type TenancyDeclaration = 'TenantRoute' | 'NoTenant' | 'AllTenants' | 'carry' | 'required' | 'none' | 'each';
+
+/** `model` is a `ModelEntry.id`, also of a model another package declares. */
+export interface TenancyModel { model: string; tenant: ModelTenant; source: SourceRef }
+
+export interface TenancyEntryPoint {
+  kind: TenancyEntryKind;
+  /** The `id` of the same entry point in `authz.entryPoints`. */
+  id: string;
+  tenancy: EntryTenancy;
+  /** Absent: the entry point declares nothing. `tenancy` is then `none`, or `required` for a route when `TenantMiddleware` is mounted on every route. */
+  declared?: TenancyDeclaration;
+  /** Of `@AllTenants(reason)`; absent when the argument is not a string literal. */
+  reason?: string;
+  source: SourceRef;
+}
+
+/**
+ * A call that leaves the tenant scope. `reason` is absent when the argument is not a string literal. `model` is the class
+ * name of the model an `.acrossTenants()` builder is rooted at, when the function shows it.
+ */
+export interface TenancyEscape { kind: 'acrossTenants' | 'runAcrossTenants'; reason?: string; model?: string; source: SourceRef }
+
+export interface TenancyIgnore { code: string; reason: string; source: SourceRef }
+
+/** Tenancy facts. `entryPoints` lists every entry point the section covers: of the package in a fragment, of every package in a manifest. */
+export interface TenancySection {
+  models: TenancyModel[];
+  entryPoints: TenancyEntryPoint[];
+  escapes: TenancyEscape[];
+  ignores: TenancyIgnore[];
+}
+
 export interface ManifestFragment {
   manifestVersion: typeof MANIFEST_VERSION;
   package: {
@@ -373,6 +423,8 @@ export interface ManifestFragment {
   sqlDialects?: SqlDialectEntry[];
   /** Omitted when the package declares no resource, permission, entry point or ignore. */
   authz?: AuthzSection;
+  /** Omitted when the package declares no tenant model, entry-point tenancy, escape or ignore. */
+  tenancy?: TenancySection;
   schemas: Record<string, unknown>;   // $id → JSON Schema
   diagnostics: Diagnostic[];
 }

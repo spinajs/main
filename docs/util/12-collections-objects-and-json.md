@@ -28,6 +28,7 @@ Helpers for arrays, `Map` caches, plain-data objects, and JSON that keeps `Map`,
 | Function | Behaviour |
 | --- | --- |
 | `isPlainObject(v)` | `true` for a non-null object that is not an array; class instances match |
+| `asPlainObject(v)` | `v` when `isPlainObject(v)`, otherwise `undefined`. Reads nested optional fields of untyped data, such as parsed JSON, in one chain; see [Readers for untyped data](13-strings-functions-and-type-guards.md#readers-for-untyped-data) |
 | `isStrictPlainObject(v)` | `true` only when the prototype is `Object.prototype` or `null`: no arrays, no class instances |
 | `UNSAFE_KEYS`, `isUnsafeKey(key)` | `__proto__`, `prototype` and `constructor`: keys that reach a prototype through assignment or a path |
 | `defineOwn(target, key, value)` | Sets an own enumerable data property with `Object.defineProperty`, so `__proto__` becomes a plain key and no inherited setter runs |
