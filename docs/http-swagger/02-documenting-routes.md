@@ -26,6 +26,7 @@ A controller whose `file` is a placeholder such as `<dynamic>` (added with `Cont
 | `@param` | method | `@param id Invoice number` or `@param {InvoiceDto} body Invoice to create` | Parameter or body description. A `{Type}` replaces the schema read from decorators |
 | `@returns`, `@return` | method | `@returns {InvoiceDto} The invoice` | The `200` response, its description and its schema |
 | `@response` | method | `@response 404 Invoice not found` or `@response 409 {ConflictDto} Already paid` | One more response per status code |
+| `@produces` | method | `@produces text/csv`, `@produces text/plain; version=0.0.4` | The media type of the route's 2xx responses, in place of `application/json`; repeat the tag for each type the route can answer with. See [Other media types](#other-media-types) |
 | `@body` | method | `@body {LoginBody} The credentials` | The JSON request body of a route that reads it without a body route argument (for example from `@Req()`): `requestBody` with the schema of the type, `required: true`. Ignored when the route has a body argument or the tag has no `{Type}` |
 | `@example` | method | `@example <caption>Paid invoice</caption> {"id": 7}` | An example on the request body, or on the `200` response when there is no body |
 | `@tags`, `@tag`, `@category` | method | `@tags Billing, Reports` | Replaces the controller tag for this operation |
@@ -93,11 +94,75 @@ A route that returns a file is documented as a binary body, not as JSON; a route
 | `JsonFileResponse` | `application/json` | same |
 | `SseResponse` | `text/event-stream` | `{ type: 'string' }`: the connection stays open and streams text events |
 
+### Other media types
+
+`@produces <media-type>` names what a route answers with when it is not JSON. Repeat the tag for a route that negotiates between several types. It applies to the route's 2xx responses: the `200` and every `@response 2xx`, with or without a `{Type}`, except `204` and `205`, which never carry a body. Error responses keep their JSON bodies, and a route without the tag is documented as before.
+
+| Media type | Schema under it |
+| --- | --- |
+| `application/json`, or a subtype ending in `+json` such as `application/problem+json` | the documented schema (`@returns {Type}`, `@response 2xx {Type}` or the return type), as without the tag; `{}` when nothing documents one |
+| `application/xml`, `text/xml`, or a subtype ending in `+xml` such as `image/svg+xml` | the same documented schema |
+| other `text/...` | `{ type: 'string' }` |
+| anything else | `{ type: 'string', format: 'binary' }` |
+
+A return class from the table above keeps its own schema under the declared media type. `@produces application/pdf` on a `FileResponse` route documents `application/pdf` with a binary body, instead of `application/octet-stream`.
+
+The value is the whole rest of the line, trimmed, and it is used as the content key exactly as written: case and parameters are kept, so `text/csv` written twice gives one entry, while `text/csv` and `text/csv; charset=utf-8` give two. It must be one concrete media type, `type/subtype` with optional `; name=value` parameters, where a value is a token or a quoted string. Not supported, and failing the build:
+- a description after the type on the same line (`@produces text/csv the rows`);
+- a range such as `text/*`; `*/*` cannot be written in a JSDoc comment anyway, because `*/` ends it;
+- a malformed parameter (`text/csv; charset`);
+- a value that is not a media type (`@produces csv`), or the tag without a value.
+
+The error names the controller and method, the HTTP method and the route's path as the document shows it (with `http.swagger.basePath` or the route prefix), and the value. For example: ``ReportController.daily (GET /reports/daily): @produces `csv` is not a media type such as text/csv or application/json``.
+
+```ts sample
+import { BaseController, BasePath, FileResponse, Get, Ok, Param } from '@spinajs/http';
+
+/**
+ * Exports.
+ * @tags Exports
+ */
+@BasePath('exports')
+export class ExportController extends BaseController {
+  /**
+   * Metrics in the Prometheus text format
+   * @produces text/plain; version=0.0.4
+   * @returns Metric families of this process
+   */
+  @Get('metrics')
+  public async metrics() {
+    return new Ok('# HELP up 1');
+  }
+
+  /**
+   * Invoices of a month
+   * @produces application/json
+   * @produces text/csv
+   * @returns {object[]} Invoices, newest first
+   */
+  @Get('invoices/:month')
+  public async invoices(@Param() month: string) {
+    return new Ok({ month });
+  }
+
+  /**
+   * Invoice as a PDF
+   * @produces application/pdf
+   */
+  @Get('pdf/:id')
+  public async pdf(@Param() id: number): Promise<FileResponse> {
+    return new FileResponse({ path: `invoices/${id}.pdf`, filename: `invoice-${id}.pdf`, mimeType: 'application/pdf' });
+  }
+}
+```
+
+The `200` of `metrics` is `{ 'text/plain; version=0.0.4': { schema: { type: 'string' } } }`. The `200` of `invoices` has an `application/json` array schema and a `text/csv` string. The `200` of `pdf` is `{ 'application/pdf': { schema: { type: 'string', format: 'binary' } } }`.
+
 ## Examples
 
 - Each `@example` becomes one entry in `examples`, keyed by its `<caption>` or `example_<n>`.
 - The value is parsed as JSON; text that is not JSON stays a string.
-- A route with a request body gets them on the body's media type (`application/json`, `application/xml` or `multipart/form-data`). A route without a body gets them on the `200` response.
+- A route with a request body gets them on the body's media type (`application/json`, `application/xml` or `multipart/form-data`). A route without a body gets them on the `200` response, under `application/json`, or under its first `@produces` media type when it has the tag.
 
 ## Security
 

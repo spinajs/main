@@ -123,6 +123,51 @@ const STREAM_RESPONSE_MEDIA_TYPES: Record<string, string> = {
   SseResponse: 'text/event-stream',
 };
 
+// RFC 9110 media type: type/subtype, then `; name=value` parameters whose value is a token or a quoted string.
+const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const MEDIA_TYPE = new RegExp(`^${TOKEN}/${TOKEN}(\\s*;\\s*${TOKEN}=(?:${TOKEN}|"(?:[^"\\\\]|\\\\.)*"))*$`);
+
+/** The `@produces` values of a route, or undefined without the tag; a value that is not a media type fails the build. */
+function producedMediaTypes(values: string[] | undefined, where: string): string[] | undefined {
+  if (!values?.length) return undefined;
+  for (const value of values) {
+    // A response has one concrete type: a range such as text/* is what a client asks for, not what a route sends.
+    if (!MEDIA_TYPE.test(value) || /^\*\/|^[^;]*\/\*(\s*;|$)/.test(value)) {
+      throw new InvalidArgument(`${where}: @produces \`${value}\` is not a media type such as text/csv or application/json`);
+    }
+  }
+  return values;
+}
+
+/** JSON and XML bodies are described by the documented schema; OpenAPI uses the same schema for both. */
+function isStructured(mediaType: string): boolean {
+  const base = mediaType.split(';')[0].trim().toLowerCase();
+  return base === 'application/json' || base.endsWith('+json') || base === 'application/xml' || base === 'text/xml' || base.endsWith('+xml');
+}
+
+/**
+ * The content of a success response. Without `@produces` it is what it always was: the file or stream media type of a
+ * framework response class, else JSON. With it, one entry per media type: a file or stream class keeps its own schema,
+ * JSON and XML get the documented one, other text a string and anything else a binary string.
+ */
+function successContent(
+  produces: string[] | undefined,
+  download: Record<string, { schema: IOpenApiSchema }> | undefined,
+  documented: () => IOpenApiSchema,
+): Record<string, { schema: IOpenApiSchema }> {
+  if (!produces) return download ?? { 'application/json': { schema: documented() } };
+
+  const fixed = download ? Object.values(download)[0].schema : undefined;
+  let schema: IOpenApiSchema | undefined;
+  return Object.fromEntries(
+    produces.map((mediaType) => {
+      if (fixed) return [mediaType, { schema: { ...fixed } }];
+      if (isStructured(mediaType)) return [mediaType, { schema: (schema ??= documented()) }];
+      return [mediaType, { schema: mediaType.trim().toLowerCase().startsWith('text/') ? { type: 'string' } : { type: 'string', format: 'binary' } }];
+    }),
+  );
+}
+
 /**
  * Mapping from ParameterType to OpenAPI 'in' location
  */
@@ -532,7 +577,7 @@ ${line}` : line;
       description: methodDoc?.description,
       deprecated: methodDoc?.deprecated,
       parameters: [],
-      responses: this.buildResponses(methodDoc),
+      responses: this.buildResponses(methodDoc, `${controllerName}.${methodName} (${String(route.Type).toUpperCase()} ${fullPath})`),
       // Per-operation security: undefined = inherit global, [] = public, [...] = explicit schemes
       security: methodDoc?.security,
     };
@@ -660,7 +705,8 @@ ${line}` : line;
         const ok = operation.responses['200'];
         if (ok && !ok.$ref) {
           ok.content ??= { 'application/json': {} };
-          content = ok.content['application/json'] ??= {};
+          const produced = methodDoc.produces?.length ? Object.values(ok.content)[0] : undefined;
+          content = produced ?? (ok.content['application/json'] ??= {});
         }
       }
       if (content) {
@@ -1473,8 +1519,9 @@ ${line}` : line;
    * Build response definitions from JSDoc @returns and @response tags.
    * Only responses explicitly documented in JSDoc are included.
    */
-  private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, IOpenApiResponse> {
+  private buildResponses(methodDoc: IMethodDocumentation | undefined, where: string): Record<string, IOpenApiResponse> {
     const responses: Record<string, IOpenApiResponse> = {};
+    const produces = producedMediaTypes(methodDoc?.produces, where);
 
     // When the JSDoc explicitly documents a non-200 success (e.g. `@response 202`)
     // and there is no explicit `@returns` tag (returns carries only the
@@ -1493,10 +1540,10 @@ ${line}` : line;
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: download ?? { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
+        content: successContent(produces, download, () => this.expandNamedSchemas(schema, 'response')),
       };
     } else if (!hasExplicit2xx) {
-      responses['200'] = { description: 'Successful response' };
+      responses['200'] = { description: 'Successful response', ...(produces ? { content: successContent(produces, undefined, () => ({})) } : {}) };
     }
 
     if (methodDoc?.responses) {
@@ -1507,11 +1554,18 @@ ${line}` : line;
         // across the whole document.
         if (resp.type) {
           const download = this.fileResponseContent({ type: resp.type });
+          const type = resp.type;
 
           responses[statusCode] = {
             description: resp.description,
-            content: download ?? { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
+            content: successContent(statusCode.startsWith('2') ? produces : undefined, download, () => this.expandNamedSchemas(this.inferSchemaFromString(type), 'response')),
           };
+          continue;
+        }
+
+        // A CSV or PDF body has no type to put in braces; 204 and 205 never carry a body.
+        if (produces && statusCode.startsWith('2') && statusCode !== '204' && statusCode !== '205') {
+          responses[statusCode] = { description: resp.description, content: successContent(produces, undefined, () => ({})) };
           continue;
         }
 
