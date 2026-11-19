@@ -16,11 +16,20 @@ export function planNode(label: string, children: PlanNode[] = [], extra: Omit<P
   return node;
 }
 
+// Postgres and MySQL print a bound boolean or NULL as a bare word (`= true`, `<=> NULL`). `IS [NOT] NULL|TRUE|FALSE` stays,
+// like a quoted name: builder SQL never binds after `IS` and postgres refuses `IS $1`, but a hand-written MySQL `IS ?`
+// gets its value written into the text by mysql2 and keeps it. `sanitizeSql` keeps them all for `record.sql` and fingerprints.
+const BARE_CONSTANT = /`(?:[^`]|``)*`|"(?:[^"]|"")*"|\bIS\s+(?:NOT\s+)?(?:NULL|TRUE|FALSE)\b|\b(?:TRUE|FALSE|NULL)\b/gi;
+
+function redactDetail(detail: string, ansiQuotedIdentifiers: boolean): string {
+  return sanitizeSql(detail, ansiQuotedIdentifiers).replace(BARE_CONSTANT, (token) => (/^(?:true|false|null)$/i.test(token) ? '?' : token));
+}
+
 function redactNode(node: PlanNode, ansiQuotedIdentifiers: boolean): PlanNode {
   return planNode(
     node.label,
     node.children.map((child) => redactNode(child, ansiQuotedIdentifiers)),
-    { detail: node.detail === undefined ? undefined : sanitizeSql(node.detail, ansiQuotedIdentifiers), estimatedRows: node.estimatedRows, estimatedCost: node.estimatedCost },
+    { detail: node.detail === undefined ? undefined : redactDetail(node.detail, ansiQuotedIdentifiers), estimatedRows: node.estimatedRows, estimatedCost: node.estimatedCost },
   );
 }
 
