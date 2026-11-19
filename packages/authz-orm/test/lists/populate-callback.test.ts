@@ -11,6 +11,7 @@ import { BelongsTo, HasMany, HasManyToMany, ManyToManyRelation, ModelBase, Recur
 import type { IOrmRelation, OrmDriver } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
+import { setMarks } from '../../src/marker.js';
 import { TestDb } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { FlagTerm } from '../support/flag-term.js';
@@ -278,6 +279,23 @@ describe('authz marks in a populate callback', function () {
         this.accessible('tag:read');
       }),
     ).to.throw(AuthzConfigError, /filter the parent query, populate through a hasMany relation, or load the related rows with their own \.accessible\(\) query/);
+  });
+
+  it('a mark that reaches a merged query past its method is refused when the query runs', async () => {
+    let err: unknown;
+    try {
+      await as(() =>
+        Note.query()
+          .accessible('note:read')
+          .populate('tag', function () {
+            setMarks(this, { accessible: 'tag:read' });
+          }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).to.be.instanceOf(AuthzConfigError);
+    expect((err as Error).message).to.match(/merged into another query/);
   });
 
   describe('with a builder subclass that drops the execution argument', () => {

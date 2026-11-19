@@ -186,6 +186,15 @@ export class AuthzSelectExtension extends SelectQueryExtension {
     const marks = marksOf(source);
     if (marks !== undefined) setMarks(clone, marks);
   }
+
+  // The methods refuse these marks on a merged builder; this catches one that reached it past them.
+  public onMerge(source: QueryBuilder): void {
+    const marks = marksOf(source);
+    if (marks === undefined) return;
+    if (marks.accessible !== undefined || marks.within !== undefined || marks.withAccess !== undefined || marks.withFields !== undefined) {
+      throw new AuthzConfigError('authz-orm: access marks on a query that is merged into another query would be dropped; set them on a query that runs on its own');
+    }
+  }
 }
 
 /** `.accessible()`, `.unscoped()` and `.within()` on update builders. */
