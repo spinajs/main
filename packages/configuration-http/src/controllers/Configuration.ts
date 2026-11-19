@@ -19,7 +19,8 @@ import '../bootstrap.js';
  * columns with Value / Default in their canonical stored form ( numbers as "10",
  * booleans as "true"/"false", dates / times as ISO 8601 etc. ) produced by the
  * DbConfigValueConverter, and Meta already parsed into an object by its @Json
- * converter - the same representation they round-trip through on update.
+ * converter. An update does not take this string form back: it needs the JSON
+ * type of the entry ( 10, true ).
  */
 function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;
