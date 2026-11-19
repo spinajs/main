@@ -117,6 +117,15 @@ export interface StepInfo {
   done: number | null;
   total: number | null;
   message: string | null;
+  /** The value the step returned, as stored; `null` when `resultStored` is false or the step returned nothing. */
+  result: unknown;
+  /**
+   * True with `result: null` for a step that returned nothing (or returned null). False when no value was kept: the
+   * step has not succeeded (see `status`), or, with status `succeeded`, its value was dropped (`persistResult: false`,
+   * not JSON, larger than `maxStepResultBytes`). A `skipped` step of a resumed retry carries the earlier attempt's
+   * value and is true.
+   */
+  resultStored: boolean;
   error: StructuredError | null;
 }
 
@@ -289,6 +298,16 @@ export class SchedulePaused extends InvalidOperation {
   }
 }
 
+export class SchedulerNotRunning extends InvalidOperation {
+  constructor(public readonly schedule: string) {
+    super(
+      `Schedule '${schedule}': no scheduler loop is started in this process, so waiting for the run would never end; ` +
+        'start the loop, pass wait: { timeoutMs } when a replica elsewhere runs the schedules, ' +
+        'or call runNow without wait and then Scheduler.runLocally(runId)',
+    );
+  }
+}
+
 export interface ParamError {
   path: string;
   message: string;
@@ -306,7 +325,7 @@ export function errorCodeFor(err: unknown): SchedulerErrorCode {
   if (err instanceof ScheduleNotFound || err instanceof RunNotFound || err instanceof ErrorGroupNotFound) return 'not-found';
   if (err instanceof RunConflict) return 'conflict';
   if (err instanceof InvalidRunParams) return 'invalid-params';
-  if (err instanceof InvalidRunState || err instanceof SchedulePaused) return 'invalid-state';
+  if (err instanceof InvalidRunState || err instanceof SchedulePaused || err instanceof SchedulerNotRunning) return 'invalid-state';
   return 'error';
 }
 

@@ -15,12 +15,26 @@ Errors reach the handler from two places:
 - **Matched routes.** Every route's handler chain ends with the [route error handlers](#route-error-handlers), then `__handle_response__()`, then `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
 - **Everything else.** `NotFoundMiddleware.after()` turns an unmatched request into `ResourceNotFound`; `ErrorHandlerMiddleware.after()`, last in the Express stack, runs `__handle_error__()` for it and for errors from server middlewares.
 
+Refusals raised before routing reach the handler as mapped exceptions:
+
+- right after the `http.middlewares` parsers, an error middleware turns a body-parser error into `BadRequest` (invalid JSON: `request body is not valid JSON`; a `verify` hook that throws something other than a framework `Exception`: `request body was refused`), `EntityTooLargeException` (413, `request body is too large`) or `UnsupportedMediaTypeException` (415, its own message, such as `unsupported charset "KLINGON"`). A `verify` hook's own `Exception` passes on with the raw `body` removed, so a `Forbidden` for a bad webhook signature keeps its 403. The request body is never echoed;
+- `MalformedPathMiddleware` refuses a path with malformed percent-encoding (`/files/%ZZ`) with `BadRequest('request path is not valid percent-encoding')`, before the router fails on it with a `URIError` that quotes the path.
+
+`__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
+
+1. It logs the error with method and URL, in every environment: at `error` when the answer is `ServerError` (unmapped, or mapped to it), at `warn` otherwise. The entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
+2. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
+3. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 1 names the failure.
+4. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
+5. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
+A route error is answered inside its route chain and never reaches a server middleware's `after()` error handler. [Error observers](#error-observers) see the errors of both places, including those a route error handler answers.
+
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
 
 1. **Body-parser failures.** Invalid JSON answers 400 with `request body is not valid JSON`. A `verify` hook failure answers with the response mapped for the thrown class, or 400 `request body was refused` when it is not mapped. Both log at `warn` and never echo the request body.
-2. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added.
-3. It logs the error at `error` with method and URL; query values in the URL are replaced by `[redacted]`.
-4. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
+2. It logs the error at `error` with method and URL, in every environment; the entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
+3. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
+4. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message; a body-parser `body` field is removed. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 2 names the failure.
 5. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
 6. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
 
@@ -31,9 +45,9 @@ sequenceDiagram
   participant M as __http_error_map__
   participant R as Response class
   A->>H: throw new InvoiceLocked('...')
-  H->>H: body = { ...err, message, stack? }
   H->>M: 'InvoiceLocked'? 'Forbidden'?
   M-->>H: ForbiddenResponse
+  H->>H: body = { ...err, message, stack? }
   H->>R: new ForbiddenResponse(body).execute(req, res)
   R-->>A: 403
 ```
@@ -49,7 +63,7 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `configuration.isProduction` | `boolean` | `false` | | `true` leaves `stack` out of error bodies. |
+| `configuration.isProduction` | `boolean` | `false` | | `true` leaves `stack` out of error bodies, and answers a 500 from `ServerError` with `{ message: 'Internal server error' }` only. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` | | Formats the error response may use; HTML enables the fatal template. |
 | `http.FatalTemplate` | `string` | built-in page | HTML with `{ticket}` | Last-resort page. |
 | `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers, run after the route and controller `@OnError` handlers, in this order. |
@@ -62,6 +76,7 @@ sequenceDiagram
 | `NotFoundMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER` | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; see [Server middlewares](15-server-middlewares.md). |
 | `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
 | `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
+| `ErrorObserver` | Abstract class; every registered one is resolved as `Array.ofType(ErrorObserver)` each time an error is answered | none | | Extend it and register it as `ErrorObserver`; see [Error observers](#error-observers). |
 
 The building blocks of the route error handlers are exported for custom route chains and error handlers (a custom controller base, a test, an `@OnError` handler):
 
@@ -72,7 +87,7 @@ The building blocks of the route error handlers are exported for custom route ch
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
 | `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
-| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Such a body carries the error's own fields and, outside production, its stack. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
+| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Outside production such a body carries the error's own fields and its stack; in production it is `{ message: 'Internal server error' }`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
 ### Error map: custom implementation
 
@@ -212,7 +227,7 @@ Several `@OnError` may sit on one action and on the controller class. For each e
 
 Every handler whose `on` and `stages` match runs. The first `Response` stops the chain. A handler that throws is logged at `error` and the **original** error goes to `__handle_error__()`. A route with no handler at any level behaves exactly as before.
 
-`@OnError` sees only errors of the route chain. Errors raised before routing (body parsers and body limits, CORS, throttling, the same-origin guard, authentication middlewares) stay with `ErrorHandlerMiddleware`.
+`@OnError` sees only errors of the route chain. Errors raised before routing (body parsers and body limits, CORS, throttling, the same-origin guard, authentication middlewares) stay with `ErrorHandlerMiddleware`. An [`ErrorObserver`](#error-observers) sees both.
 
 ```ts sample
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -277,13 +292,61 @@ export class CountInvalidInput extends ErrorHandlerService {
 
 A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fails every controller at startup with `InvalidOption`.
 
+## Error observers
+
+An `ErrorObserver` sees every error the server answers, whether it was raised in a route chain or before routing, once the answer is complete. Use it for what must cover every error in one place: logging the 5xx answers, metrics, error tracking. Without it, an app needs an `ErrorHandlerService` for route errors and a server middleware `after()` error handler for the rest, because a route answers its own errors.
+
+`observe(err, ctx: ObservedErrorContext)` receives:
+
+| Field | Route error | Error before routing, unmatched path |
+| --- | --- | --- |
+| `req` | the request | the request |
+| `status` | the status the server answered with | the status the server answered with |
+| `sent` | whether the answer reached the client | whether the answer reached the client |
+| `route`, `controller` | the route and the controller instance | `undefined` |
+| `stage` | the `ErrorStage` the chain was in | `undefined` |
+| `answer` | the `Response` an `@OnError` handler or an `ErrorHandlerService` answered with; `undefined` when the error map answered | `undefined` |
+
+- Each error is observed once. An error answered by a route error handler arrives with `answer` set, whatever status that answer has. An error a handler replaced arrives as the replacement. When sending a handler's answer fails, the failure is observed instead, without `answer` and with the status of the fallback answer.
+- `status` is the status the server chose for the error, also when the client left before the answer was delivered.
+- `sent` is `false` when the connection closed before the whole answer went out, for example after a client or proxy timeout.
+- It runs once the connection has closed, after the answer is complete or, when the client aborts a streamed answer, after its headers went out. So it cannot change the answer, and it gets no `res`. On a streaming or server-sent events route, that is when the stream ends or the client aborts it.
+- A throw or a rejected promise of `observe()` is logged at `error` on the `http` logger. The other observers still run, one after another, in registration order.
+- The observers are looked up when an error is answered, on both paths, so every observer registered by then sees it, wherever the error came from.
+- `ctx.status >= 500` selects the server errors, delivered or not. `answeredAsServerError(err)` tells whether the error map answers `err` with the generic 500, so the body carries the error's own fields.
+- A class registered in place of `ErrorHandlerMiddleware` keeps the observers for errors outside routes only when it extends `ErrorHandlerMiddleware` and returns `super.after()`.
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
+import { answeredAsServerError, ErrorObserver, ObservedErrorContext } from '@spinajs/http';
+
+@Injectable(ErrorObserver)
+export class ServerErrorLog extends ErrorObserver {
+  @Logger('app')
+  protected Log!: Log;
+
+  public observe(err: unknown, ctx: ObservedErrorContext): void {
+    if (ctx.status < 500) {
+      return;
+    }
+
+    const where = ctx.route ? `${ctx.controller?.constructor.name}::${String(ctx.route.Method)} (${ctx.stage})` : 'before routing';
+    const by = ctx.answer ? 'a route error handler' : answeredAsServerError(err) ? 'the generic 500' : 'the error map';
+    const delivery = ctx.sent ? 'sent' : 'client gone';
+    // `path` leaves the query string, which may carry tokens, out of the log.
+    this.Log.error({ error: err, method: ctx.req.method, path: ctx.req.path, status: ctx.status, where, by, delivery }, '${method} ${path} answered ${status} by ${by}, ${delivery} ( ${where} )');
+  }
+}
+```
+
 ## Important behaviour
 
 - Lookup is by class **name**. Two exception classes with the same name share one mapping.
 - An exact registration wins over an inherited one, because the walk starts at the concrete class.
-- Every own enumerable field of the exception goes into the body. Do not put secrets, SQL or tokens on exceptions. `CodedHttpExceptionResponse` does not: it sends `code`, `message` and `details` only.
+- Every own enumerable field of the exception goes into the body, except for a production 500 from `ServerError`. Do not put secrets, SQL or tokens on exceptions mapped to another status. `CodedHttpExceptionResponse` does not: it sends `code`, `message` and `details` only.
 - Unmapped errors (a plain `Error`, a `TypeError`) answer 500 and log `Error type X dont have assigned http response`.
-- Outside production the body carries `stack`. Set `configuration.isProduction` in production.
+- Outside production the body carries `stack`, and a 500 carries the exception's message and fields. Set `configuration.isProduction` in production.
 - The map and the configuration are read when each handler is created (controller startup and `HttpServer.start()`). Register mappings before that.
 - A request to an unknown path answers 404 with `Route not found: <METHOD> <path>`.
 - The error map lives in the DI cache, not in the registry: `DI.clearCache()` (eg. in a test suite) empties it, and every error then answers 500. Uncache only the types you registered.

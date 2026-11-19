@@ -22,7 +22,7 @@ Members meant for subclasses and callers:
 | `authzDomain` | public property | `'root'` | Domain whose `AuthzService` runs the queries when [authz guarding](06-running-under-authz.md) is on. |
 | `bootstrap()` | public method | subscribes to DI events | Override and call `super.bootstrap()` to add your own setup. |
 | `unbind()` | public method | removes the DI subscriptions of `bootstrap()`; `di.dispose` calls it | Call it to stop syncing without disposing the container. |
-| `refreshWatched()` | public method | one poll of the watched slugs | Call it to apply database changes now; override and call `super` to act after each poll. |
+| `refreshWatched()` | public method | one poll of the rows whose `Watch` column is set | Call it to apply database changes now; override and call `super` to act after each poll. |
 | `Converter` | protected `DbConfigValueConverter`, `@Autoinject` | the DI singleton | Read in a subclass; replace it through DI, see [Custom value converter](08-custom-value-converter.md). |
 
 The insert, metadata sync and timer methods are `private`: a subclass cannot change them.
@@ -54,7 +54,7 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 
 - **Two bootstrappers mean double work.** Without `DI.unregister(DbConfigSourceBotstrapper)`, both instances subscribe: every exposed option is inserted twice (the second is ignored) and two watch timers poll.
 - **`bootstrap()` must run once.** Each call adds another pair of DI listeners.
-- **`refreshWatched()` before `Orm` resolves does nothing useful.** The watched set is filled when `Orm` resolves; until then it is empty.
+- **`refreshWatched()` before `Orm` resolves does nothing useful.** The `DbConfig` model is not ready until then: the poll logs `Failed to refresh watched config values from db` and changes nothing.
 - **`refreshWatched()` never throws.** Database errors are logged and the method returns.
 
 ## Best practices
@@ -66,7 +66,7 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a fresh instance has its own empty watched set and no timer
+// Don't: a fresh instance runs no timer
 const poller = new DbConfigSourceBotstrapper();
 await poller.refreshWatched();
 

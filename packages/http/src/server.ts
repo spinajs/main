@@ -15,9 +15,11 @@ import fs from 'fs';
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { isMounted } from './static-entry.js';
+import { bodyParserErrors } from './body-parser-errors.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
+import './middlewares/MalformedPath.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
 import './middlewares/NotFound.js';
@@ -137,6 +139,7 @@ export class HttpServer extends AsyncService {
       this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
       this.use(m);
     });
+    this.use(bodyParserErrors());
 
     // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
     // applied through the standard `Middlewares.before()` loop below).

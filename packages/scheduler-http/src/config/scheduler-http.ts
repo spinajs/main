@@ -1,4 +1,5 @@
 import { join, normalize, resolve } from 'path';
+import { RUN_WAIT_TIMEOUT_MS } from '../defaults.js';
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
@@ -19,6 +20,10 @@ const schedulerHttp = {
          */
         heartbeat: 15000,
       },
+      /**
+       * ms a run-now request with `wait: true` waits for the run to end; then it answers 202 with the unfinished run
+       */
+      runWaitTimeout: RUN_WAIT_TIMEOUT_MS,
     },
   },
   authz: {

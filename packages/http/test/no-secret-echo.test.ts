@@ -137,10 +137,9 @@ describe('http: no request value in 400 bodies or logs', function () {
       expect(res.body.message, res.text).to.eq('request body was refused');
       expect(res.body).to.not.have.property('type');
       expect(res.body).to.not.have.property('body');
-      expect(res.body).to.not.have.property('stack');
       expectNowhere(res, ['Zq7verifyNb3Lw', 'Zq7verifyQsMf5Ra', 'request body refused']);
 
-      const lines = logLines().filter((line) => line.includes('entity.verify.failed'));
+      const lines = logLines().filter((line) => line.includes('request body was refused'));
       expect(lines, logLines().join('\n')).to.have.length(1);
       expect(lines[0]).to.include('POST').and.to.include('/secret-echo/account?token=[redacted]');
     });

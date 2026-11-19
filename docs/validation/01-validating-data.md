@@ -28,6 +28,7 @@
 | `validate(schema, data)` | `void` | Validates `data` against a schema object or a registered `$id`. Throws on failure. |
 | `tryValidate(data)` | `[boolean, IValidationError[] \| null]` | Like `validate(data)`, without throwing on invalid data. |
 | `tryValidate(schema, data)` | `[boolean, IValidationError[] \| null]` | Like `validate(schema, data)`, without throwing on invalid data. |
+| `tryValidate(schema, data, { coerceTypes: false })` | `[boolean, IValidationError[] \| null]` | The same, without type coercion for this call, as for a [strict schema id](02-validator-options.md#strict-schema-ids). Use it when you store the value as it was sent. |
 | `extractSchema(target)` | `ISchemaObject` or `undefined` | The `@Schema` metadata of an instance or a class constructor. |
 
 The schema registry methods (`addSchema`, `removeSchema`, `hasSchema`, `getSchema`, `validateSchema`) are on [Runtime schemas](04-runtime-schemas.md).
