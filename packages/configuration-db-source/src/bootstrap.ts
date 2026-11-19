@@ -31,6 +31,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   // live - late registrations add to it, the watch timer reads it on every run
   private watchedSlugs = new Set<string>();
 
+  /** Per watched slug, the row value last refused and why; cleared once the row applies. */
+  private refusedRows = new Map<string, { value: unknown; cause: string }>();
+
   private armWatchTimer: (() => void) | null = null;
 
   private configuration: Configuration | null = null;
@@ -251,15 +254,35 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     try {
       const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]), this.authzDomain);
-      result.filter((r) => Boolean(r.Exposed)).forEach((r) => {
-        // Slug is the canonical config path (same value passed to @Config).
-        // Group is display-only metadata and must not be part of the path.
-        if (!isConfigValueEqual(cService.get(r.Slug), r.Value)) {
-          cService.set(r.Slug, r.Value);
-        }
-      });
+      result.filter((r) => Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
       InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
+    }
+  }
+
+  /** Writes one polled row into the live configuration; a value the configuration refuses leaves the old one in place. */
+  private applyWatched(cService: Configuration, row: DbConfig): void {
+    const refused = this.refusedRows.get(row.Slug);
+    // Configuration logs every set() it refuses, so a row is tried again only once its value changed.
+    if (refused !== undefined && isConfigValueEqual(refused.value, row.Value)) {
+      return;
+    }
+
+    try {
+      // Slug is the canonical config path (same value passed to @Config).
+      // Group is display-only metadata and must not be part of the path.
+      if (!isConfigValueEqual(cService.get(row.Slug), row.Value)) {
+        cService.set(row.Slug, row.Value);
+      }
+      this.refusedRows.delete(row.Slug);
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      this.refusedRows.set(row.Slug, { value: row.Value, cause });
+      if (refused?.cause === cause) {
+        return;
+      }
+
+      InternalLogger.error({ error: err, slug: row.Slug }, 'Watched config value ${slug} from db was refused, the previous value stays', LOG_CHANNEL);
     }
   }
 

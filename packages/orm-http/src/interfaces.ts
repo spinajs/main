@@ -59,6 +59,8 @@ export interface IFilter {
  */
 export interface IFilterGroup {
   op?: FilterableLogicalOperators;
+  /** Keeps the rows the group does not match. */
+  not?: boolean;
   filters: IFilterEntry[];
 }
 
@@ -141,6 +143,35 @@ export interface FromModelOptions<T extends typeof ModelBase> {
 
 /**
  * `like` matches values containing the filter value, `b-like` values ENDING with it and `e-like` values BEGINNING with
- * it; the value of all three is matched literally.
+ * it; the value of all three is matched literally. `nlike`, `nb-like` and `ne-like` keep the rows the matching operator
+ * leaves out, except rows whose column is null. `empty` matches null or empty text, `nempty` the rest.
  */
-export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set';
+export type AggregateFunction = 'sum' | 'avg' | 'min' | 'max' | 'count';
+
+export interface IAggregateMeasure {
+  /** The key of the value in each result row; also its SQL alias, so an identifier. */
+  name: string;
+  fn: AggregateFunction;
+  /** The measured column; `count` without one counts rows. */
+  column?: string;
+}
+
+export interface IAggregateRequest {
+  /** One result row per distinct combination of these columns; none: one row over every matching row. */
+  groupBy?: string[];
+  measures: IAggregateMeasure[];
+  /** By group columns or measure names. */
+  order?: { column?: string; order?: SortOrder }[];
+  limit?: number;
+}
+
+/** What a model lets a request group and measure. */
+export interface IAggregateColumns {
+  groupable: string[];
+  aggregatable: Record<string, AggregateFunction[]>;
+}
+
+export type FilterableOperators ='eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp' | 'in-set' | 'nin-set' | 'nlike' | 'nb-like' | 'ne-like' | 'empty' | 'nempty';
+
+/** Deepest nesting of filter groups a model may opt in to with `@FilterGroupDepth`. */
+export const MAX_FILTER_GROUP_DEPTH = 4;

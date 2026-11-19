@@ -1,3 +1,113 @@
+# Release notes — authz-orm: access marks in a populate callback that would not filter throw
+
+## Security fix
+
+- `@spinajs/authz-orm`: `.accessible()`, `.within()` and `.withAccess()` called in the populate callback of a
+  belongs-to or many-to-many relation were dropped without a word, so the related rows came back unfiltered: a
+  belongs-to query is merged into the parent query and a many-to-many relation runs its junction query instead. On a
+  `@Recursive` relation the recursive part of the query is built without the where, so its descendants came back
+  unfiltered. These calls now throw `AuthzConfigError` naming the relation and saying what to do instead. A
+  many-to-many list's own `populate(cb)` (`campaign.tags.populate(...)`) throws too and names the junction model's
+  belongs-to to the target, because the list loads through its junction model. The same calls in a join callback
+  (`leftJoin(relation, on, queryCallback)`) throw as well, since the join query is merged into the parent.
+
+## Behaviour change
+
+- Code that made such a call now throws: filter the parent query, populate through a has-many relation (which runs
+  its own query and keeps filtering as before), or load the related rows with their own `.accessible()` query.
+
+# Release notes — orm: an orWhere in a belongs-to populate callback cannot widen the query
+
+## Security fix
+
+- `@spinajs/orm`: the conditions of a belongs-to populate callback were appended flat to the parent query's WHERE,
+  so `populate('Order', function () { this.where(a).orWhere(b) })` compiled to `WHERE <caller> AND a OR b`. The `OR`
+  widened the query past the caller's own conditions and past any condition a `beforeQueryExecution` middleware
+  added, such as an `@spinajs/authz-orm` `.accessible()` access plan: a principal could read rows its policy denies.
+  The callback's conditions now arrive as one parenthesised AND group: `WHERE <caller> AND ( a OR b )`. A nested
+  belongs-to populate's conditions sit inside the group of their parent relation. Aggregate conditions, which compile
+  into HAVING, stay where they were. A callback without `orWhere` returns the same rows as before; only the SQL text
+  gains the parentheses.
+
+## New
+
+- `@spinajs/orm`: `WhereBuilder.adopt(statements)` appends statements built on another builder. A clone copies them
+  without rebinding them to the copy, so they keep reading the builder they were built on: its alias, the parents
+  `outer()` walks, and the context of a `Lazy` callback. `ISelectQueryBuilder.mergeStatementsAsGroup()` merges a
+  builder's WHERE statements as such a group.
+
+# Release notes — orm-http: list scope, column projection, deeper filter groups
+
+## Packages
+
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No breaking changes.
+
+## New
+
+- `readList(model, request, options)` takes `scope` (restricts the count, the page and the aggregates alike, e.g. with
+  `.accessible()`), `columns` (a projection that also refuses filters, sorts, groups and measures on hidden columns) and
+  `signal` (checked before each statement). See
+  [Lists and includes](docs/orm-http/12-lists-and-includes.md#scope-projection-and-cancellation).
+- `@FilterGroupDepth(n)` lets a model's filter schema nest groups up to `MAX_FILTER_GROUP_DEPTH` (4) levels; without it
+  the schema is unchanged. `filterSchemaFor(columns, model?, maxDepth?)` takes the depth as its third argument. See
+  [Filtering](docs/orm-http/03-filtering.md#nested-groups).
+- The OpenAPI document describes a filter value as any number, not only an integer: a float or decimal column already
+  took a decimal value.
+- Documented semantics: literal LIKE values, null columns and negated operators, `empty`, `count` with a column, null and
+  empty groups, page size limits. See [Filtering](docs/orm-http/03-filtering.md#semantics),
+  [Pagination and ordering](docs/orm-http/05-pagination-and-order.md#limits) and
+  [Aggregates](docs/orm-http/11-aggregates.md#semantics).
+
+# Release notes — orm-http, http-swagger: list queries (negated operators, multi-column sorting, aggregates, includes, readList)
+
+## Packages
+
+`@spinajs/orm-http`, `@spinajs/http-swagger`. No API is removed; check the points below before upgrading.
+
+## Behaviour note
+
+- A model that marks a relation `@Includable()` makes `@FromModel` refuse every other relation in `?include=` with
+  `400`. A model with no `@Includable` relation keeps populating any relation named, as before.
+
+## What to check before upgrading
+
+- A filter group that carries `"not": true` is now negated. Before, the group schema did not know `not`, so the flag
+  was accepted and ignored, and the group matched as written; the same request now answers the rows the group does not
+  match. Search clients that send `not` on a group, and drop it where it was never meant.
+- `FilterableOperators` gains `nlike`, `nb-like`, `ne-like`, `empty` and `nempty`. Code that keeps an exhaustive
+  `Record<FilterableOperators, …>` or an exhaustive `switch` over it stops compiling until it handles the five new
+  operators.
+- `MAX_FILTERS` (100) now counts the conditions and groups of a filter at every depth, not only the top-level list. A
+  request whose nested groups add up to more than 100 entries is refused with `400`.
+- `readList` refuses a `scope` that returns a promise with `InvalidOption`: what an async scope adds after an `await`
+  would miss the statement. A scope that returns the builder, such as `(q) => q.where(...)`, is unaffected.
+- `@Aggregate(Model)` over a model with no `@Groupable` and no `@Aggregatable` column answered `500` to every request,
+  because its schema did not compile; it now counts rows and answers `400` to a request that names a column.
+  `Model.aggregateSchema()` of such a model compiles.
+- The OpenAPI description of the `aggregate` query parameter moves from `schema` to `content['application/json']`, as
+  the server reads one JSON string, and carries the limits the server validates: `additionalProperties: false`,
+  `maxItems`, `uniqueItems` and lower-case `order`. Regenerate clients built from the document: they sent the object
+  exploded into `?groupBy=…&measures=…`. `registerOpenApiParamType` takes an optional `contentType` on a header, query,
+  path or cookie description, which documents the value under `content` instead of `schema`; registrations without it
+  are unchanged.
+
+## New
+
+- Filter operators `nlike`, `nb-like`, `ne-like` (does not contain, end with, begin with), `empty` and `nempty` (null or
+  empty text, and the rest), and `"not": true` on a filter group. See [Filtering](docs/orm-http/03-filtering.md).
+- `SortingDTO` and `readSorting` for several sort columns, the fallback column last; `@Sortable()` and
+  `Model.sortableColumns()`, the filterable table columns by default. See
+  [Pagination and ordering](docs/orm-http/05-pagination-and-order.md#multi-column-sorting).
+- `@Groupable()`, `@Aggregatable([...])`, `@Aggregate(Model)`, `SelectQueryBuilder.aggregate()` and
+  `readAggregateRows`: grouped sums, averages, minimums, maximums and counts over the filtered rows. See
+  [Aggregates](docs/orm-http/11-aggregates.md).
+- `@Includable()`, `@Include(Model)` and `readInclude`: an allow-list of the relations a request may load. See
+  [Lists and includes](docs/orm-http/12-lists-and-includes.md).
+- `readList(model, request, options)`: one page, the total and the aggregates of a model in SQL; `ListResponseDTO` and
+  `listResponseSchema` type the answer. See [Lists and includes](docs/orm-http/12-lists-and-includes.md).
+- `@spinajs/http-swagger` documents the `@Aggregate` and `@Include` arguments as query parameters naming the model's
+  allowed columns, functions and relations.
+
 # Release notes — orm-sql: where(), whereIn() and BETWEEN convert a bound value the same way
 
 ## Behaviour change

@@ -248,8 +248,8 @@ Once `TelemetryMiddleware` is active, every request is timed (with
 | `http_request_duration_ms` | histogram | `method`, `route`, `status` |
 | `http_requests_in_flight` | gauge | — |
 
-The `route` label prefers the **matched** route path (`req.route.path`) over the
-raw URL, keeping cardinality bounded. The prefix (`http`) and duration buckets
+The `route` label is the **matched** route path (`req.route.path`); every request
+no route matched is labelled `<unmatched>`, so cardinality stays bounded. The prefix (`http`) and duration buckets
 are **configuration**, not code — do not subclass just to change them:
 
 ```ts
@@ -496,11 +496,12 @@ sink and are unaffected by either.
 
 Both the `route` label and the perf `name` label are meant for bounded
 vocabularies. The `maxEntries` / `maxNames` caps bound the JSON views, but the
-Prometheus histograms have no such cap — the `route` label falls back to the raw
-request path when no route matched, so a 404-scanning bot inflates the series
-count. Put telemetry behind a router that 404s unmatched paths early, or subclass
-`TelemetryMiddleware` and override `routeLabel()` to collapse unmatched requests
-to a constant:
+Prometheus histograms have no such cap. The `route` label is therefore never the
+raw request path: every request no route matched shares the `<unmatched>` series
+(`UNMATCHED_ROUTE`), so a 404-scanning bot adds one series, not one per path.
+
+To group routes further, subclass `TelemetryMiddleware` and override
+`routeLabel()`, for example to count every API version of a route as one:
 
 ```ts
 import { DI, Injectable } from '@spinajs/di';
@@ -508,11 +509,9 @@ import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
 
 @Injectable(ServerMiddleware)
-export class BoundedTelemetry extends TelemetryMiddleware {
+export class VersionlessTelemetry extends TelemetryMiddleware {
   protected routeLabel(req: sRequest): string {
-    const matched = (req as any).route?.path ?? (req.storage as any)?.route;
-    // anything the router never matched collapses to one series
-    return typeof matched === 'string' && matched.length > 0 ? matched : '__unmatched__';
+    return super.routeLabel(req).replace(/^\/v\d+(?=\/)/, '');
   }
 }
 
@@ -543,7 +542,7 @@ Remove the base registration with `DI.unregister()`:
 ```ts
 import { DI } from '@spinajs/di';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
-import { BoundedTelemetry } from './BoundedTelemetry.js'; // must be imported, so its @Injectable has run
+import { VersionlessTelemetry } from './VersionlessTelemetry.js'; // must be imported, so its @Injectable has run
 
 DI.unregister(TelemetryMiddleware);
 ```
@@ -570,7 +569,6 @@ all — use the `telemetry.prefix` / `telemetry.buckets` config keys.
   telemetry failure can never break a request or the measured code.
 - **Cardinality.** Both the `route` label and the perf `name` label are meant for
   bounded vocabularies. Never emit per-request/per-entity unique label values —
-  see [Cardinality](#cardinality) for the unmatched-path case, which is the one
-  that bites without you doing anything wrong.
+  see [Cardinality](#cardinality).
 - **Migrating from `@spinajs/metrics`?** See
   [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md).

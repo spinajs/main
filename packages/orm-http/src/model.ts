@@ -1,9 +1,19 @@
 import { IColumnDescriptor, IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, columnToSchema, createQuery, extractModelDescriptor } from '@spinajs/orm';
 import { MAX_FILTERS } from './builders.js';
-import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
+import { aggregateColumnsOf, aggregateSchemaFor } from './aggregate.js';
+import { InvalidOption } from '@spinajs/exceptions';
+import { IAggregateColumns, IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators, MAX_FILTER_GROUP_DEPTH } from './interfaces.js';
 
 /** Bound to each model class by the orm, so `this` is the class. */
 const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
+
+function descriptorOf(model: typeof ModelBase): IModelDescriptor {
+  const descriptor = model.getModelDescriptor();
+  if (!descriptor) {
+    throw new OrmException(`Model ${model.name} has no descriptor`);
+  }
+  return descriptor;
+}
 
 export const MODEL_STATIC_MIXINS = staticMixins({
   async filter(filterRequest?: IFilterRequest) {
@@ -45,6 +55,31 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     return modelFilterSchema(modelDescriptor);
   },
+
+  sortableColumns(): string[] {
+    const modelDescriptor = descriptorOf(this);
+
+    if (modelDescriptor.SortableColumns && modelDescriptor.SortableColumns.size > 0) {
+      return [...modelDescriptor.SortableColumns];
+    }
+
+    return [...(modelDescriptor.FilterableColumns?.keys() ?? [])].filter((name) => {
+      const column = modelDescriptor.Columns.find((c) => c.Name === name);
+      return !name.includes('.') && !!column && !column.Virtual && !modelDescriptor.Relations?.has(name);
+    });
+  },
+
+  aggregateColumns(): IAggregateColumns {
+    return aggregateColumnsOf(descriptorOf(this));
+  },
+
+  aggregateSchema() {
+    return aggregateSchemaFor(aggregateColumnsOf(descriptorOf(this)));
+  },
+
+  includableRelations(): string[] {
+    return [...(descriptorOf(this).IncludableRelations ?? [])];
+  },
 });
 
 type FilterColumn = Pick<IColumnFilter<unknown>, 'column' | 'operators' | 'query' | 'value'>;
@@ -62,6 +97,9 @@ export const FILTER_OPERATOR_GROUPS: Record<FilterableOperators, OperatorGroup> 
   like: 'text',
   'b-like': 'text',
   'e-like': 'text',
+  nlike: 'text',
+  'nb-like': 'text',
+  'ne-like': 'text',
   regexp: 'text',
   in: 'list',
   nin: 'list',
@@ -73,6 +111,8 @@ export const FILTER_OPERATOR_GROUPS: Record<FilterableOperators, OperatorGroup> 
   notnull: 'valueless',
   exists: 'valueless',
   'n-exists': 'valueless',
+  empty: 'valueless',
+  nempty: 'valueless',
 };
 
 // Written as what is NOT accepted: a union `type` would make ajv's strict mode warn on every compile, and an `anyOf` of
@@ -185,14 +225,18 @@ function valueRules(filter: FilterColumn, model?: IModelDescriptor): object[] {
  *
  * The group is needed by any search that spans columns: "find this text in the name OR in the
  * id" has to OR those two while the filters around it keep ANDing, and a flat list cannot
- * express that. One level deep is deliberate. It covers the case, and an unbounded schema would
- * let a client nest arbitrarily far - the builder walks whatever arrives, so the depth is a cost
- * someone else pays.
+ * express that. Groups nest `maxDepth` levels, one unless the model opts in with `@FilterGroupDepth`:
+ * the builder walks whatever arrives, so the depth is a cost someone else pays, and this schema is
+ * what bounds it.
  *
  * Each value is checked against its operator and column: see {@link FILTER_OPERATOR_GROUPS}. With `model`, a column
  * without an explicit `value` schema takes its type from the model's column.
  */
-export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescriptor) {
+export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescriptor, maxDepth = 1) {
+  if (!Number.isSafeInteger(maxDepth) || maxDepth < 1 || maxDepth > MAX_FILTER_GROUP_DEPTH) {
+    throw new InvalidOption(`Filter groups nest 1 to ${MAX_FILTER_GROUP_DEPTH} levels, got ${maxDepth}`);
+  }
+
   const logicalOperator = {
     type: 'string',
     enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
@@ -210,17 +254,24 @@ export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescripto
   const rules = columns.flatMap((c) => valueRules(c, model));
   const withRules = rules.length > 0 ? { allOf: rules } : {};
 
-  const group = {
+  const groupOf = (entries: object[]) => ({
     type: 'object',
     required: ['filters'],
     properties: {
       op: logicalOperator,
+      not: { type: 'boolean' },
       filters: {
         type: 'array',
-        items: { type: 'object', anyOf: leaf, ...withRules },
+        items: { type: 'object', anyOf: entries, ...withRules },
       },
     },
-  };
+  });
+
+  // Unrolled innermost first: a recursive `$ref` would let a request nest without end.
+  let group = groupOf(leaf);
+  for (let level = 1; level < maxDepth; level++) {
+    group = groupOf([...leaf, group]);
+  }
 
   return {
     type: 'object',
@@ -257,6 +308,7 @@ function modelFilterSchema(model: IModelDescriptor): object {
   const schema = filterSchemaFor(
     [...model.FilterableColumns!.entries()].map(([column, val]) => ({ column, operators: val.operators, query: val.query, value: val.value })),
     model,
+    model.FilterGroupDepth ?? 1,
   );
   MODEL_FILTER_SCHEMAS.set(model, { columns, schema });
   return schema;

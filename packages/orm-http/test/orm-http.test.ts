@@ -337,6 +337,7 @@ describe('Http orm tests', function () {
                   required: ['filters'],
                   properties: {
                     op: { type: 'string', enum: ['and', 'or'] },
+                    not: { type: 'boolean' },
                     filters: {
                       type: 'array',
                       items: { type: 'object', anyOf: leaves, allOf: rules },
