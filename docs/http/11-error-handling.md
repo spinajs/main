@@ -15,6 +15,18 @@ Errors reach the handler from two places:
 - **Matched routes.** Every route's handler chain ends with the [route error handlers](#route-error-handlers), then `__handle_response__()`, then `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
 - **Everything else.** `NotFoundMiddleware.after()` turns an unmatched request into `ResourceNotFound`; `ErrorHandlerMiddleware.after()`, last in the Express stack, runs `__handle_error__()` for it and for errors from server middlewares.
 
+Refusals raised before routing reach the handler as mapped exceptions:
+
+- right after the `http.middlewares` parsers, an error middleware turns a body-parser error into `BadRequest` (invalid JSON: `request body is not valid JSON`; a `verify` hook that throws something other than a framework `Exception`: `request body was refused`), `EntityTooLargeException` (413, `request body is too large`) or `UnsupportedMediaTypeException` (415, its own message, such as `unsupported charset "KLINGON"`). A `verify` hook's own `Exception` passes on with the raw `body` removed, so a `Forbidden` for a bad webhook signature keeps its 403. The request body is never echoed;
+- `MalformedPathMiddleware` refuses a path with malformed percent-encoding (`/files/%ZZ`) with `BadRequest('request path is not valid percent-encoding')`, before the router fails on it with a `URIError` that quotes the path.
+
+`__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
+
+1. It logs the error with method and URL, in every environment: at `error` when the answer is `ServerError` (unmapped, or mapped to it), at `warn` otherwise. The entry keeps the exception with its message and stack. Query values in the URL are replaced by `[redacted]`.
+2. **Lookup.** It walks from the exception's class up its prototype chain and takes the first class **name** found in the map. No match: it logs a warning and uses `ServerError` (500).
+3. **Error body.** `{ ...err, message: err.message }`: the exception's own enumerable fields plus its message. Outside production, `stack` is added. In production, an error answered by `ServerError` or a subclass (unmapped, or mapped to it) gets `{ message: 'Internal server error' }` instead, with none of its fields: only the log entry of step 1 names the failure.
+4. It runs `new ResponseClass(body).execute(req, res)`: JSON, HTML or XML by [content negotiation](10-responses.md#content-negotiation).
+5. **Last resort.** When that fails, it logs at `fatal`, answers 500 with `http.FatalTemplate` (HTML clients, when HTML is enabled) or the JSON error body.
 A route error is answered inside its route chain and never reaches a server middleware's `after()` error handler. [Error observers](#error-observers) see the errors of both places, including those a route error handler answers.
 
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
@@ -75,7 +87,7 @@ The building blocks of the route error handlers are exported for custom route ch
 | `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
 | `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
 | `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
-| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Outside production such a body carries the error's own fields and its stack; in production it is `{ message: 'Internal server error' }`. A body-parser failure that answers 400 gives `false`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
+| `answeredAsServerError(err)` | `true` when the error handler answers `err` with the generic 500: no response is mapped for its class chain, or the mapped one is `ServerError` or a subclass. Outside production such a body carries the error's own fields and its stack; in production it is `{ message: 'Internal server error' }`. Use it in an `@OnError` handler to replace the body of an unexpected error. |
 
 ### Error map: custom implementation
 

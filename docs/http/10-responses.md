@@ -23,7 +23,7 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
    - an `x-data-transform` header: runs that data transformer;
    - otherwise `res.json(data)`.
 5. **XML**: serializes with `fast-xml-parser`'s `XMLBuilder`; arrays and scalars are wrapped in `<response>`.
-6. None of those, but the client accepts `text/plain`: sends `JSON.stringify(data)` as `text/plain`.
+6. None of those, but the client accepts `text/plain`: sends `JSON.stringify(data)` labelled `application/json`, so the content type matches the body.
 7. Otherwise: 406 with `{ error: { message: 'Not Acceptable', code: 406 } }` in JSON.
 
 Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-cookies.md)) before writing the body.
