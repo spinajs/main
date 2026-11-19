@@ -17,6 +17,18 @@ export const HTTP_CONFIGURATION_SCHEMA = {
   description: 'HTTP server configuration (http.*)',
   type: 'object',
   properties: {
+    // The numeric branch checks the text before the integer coercion: coerceTypes alone turns ' ' into 0 and true into 1.
+    // A plain number passes too: type 'string' coerces 8080 to '8080', and type 'integer' turns it back into 8080.
+    // null stays a free port, as Node's listen(null) gives.
+    port: {
+      anyOf: [
+        { const: null },
+        { type: 'string', pattern: '[/\\\\]' },
+        { allOf: [{ type: 'string', pattern: '^\\s*[0-9]+\\s*$' }, { type: 'integer', minimum: 0, maximum: 65535 }] },
+      ],
+      description: 'Port start() listens on (0 picks a free one), or a named pipe or Unix socket path, which must hold / or \\.',
+    },
+    host: { ...nonEmpty, description: 'Address start() listens on, eg. 127.0.0.1 for loopback only. Not set: every interface.' },
     cookie: {
       type: 'object',
       properties: {

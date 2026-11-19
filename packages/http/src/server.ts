@@ -1,5 +1,5 @@
 import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fsNative, getFs, IFsLocalOptions } from '@spinajs/fs';
 import { Templates } from '@spinajs/templates';
@@ -111,6 +111,12 @@ export class HttpServer extends AsyncService {
   public async resolve(): Promise<void> {
 
     await super.resolve();
+
+    if (this._listenPath() !== undefined && this.HttpConfig.host) {
+      throw new InvalidConfiguration(
+        `http.host (${this.HttpConfig.host}) cannot be combined with a pipe or socket path in http.port (${this.HttpConfig.port}): remove one of them`,
+      );
+    }
 
     this.Express = Express();
     this.Middlewares = this.Middlewares.sort((a, b) => {
@@ -258,25 +264,38 @@ export class HttpServer extends AsyncService {
       this._afterAttached = true;
     }
 
+    const { port, host } = this.HttpConfig;
+    const path = this._listenPath();
+    const where = path !== undefined ? '${port}' : host ? '${host}:${port}' : 'port ${port} on all interfaces';
+
     await new Promise<void>((res, rej) => {
       // .once, removed on success, so repeated start()/restart never accumulates
       // 'error' listeners on the reused server object.
       const onError = (err: any) => {
         if (err.code === 'EADDRINUSE') {
-          this.Log.error({ port: this.HttpConfig.port }, '----- Port ${port} is busy -----');
+          this.Log.error({ port, host }, `----- ${where} is busy -----`);
         }
         rej(err);
       };
       this.Server.once('error', onError);
 
-      this.Server.listen(this.HttpConfig.port, () => {
+      this.Server.listen(path !== undefined ? { path } : { port, host }, () => {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
-        this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
+        this.Log.info({ port, host }, `Server started at ${where}`);
         res();
       });
     });
+  }
+
+  /**
+   * Node's own rule ( net isPipeName ): a string port that is not a number is a named pipe or Unix socket path,
+   * which is how iisnode or a process manager hands over the endpoint.
+   */
+  private _listenPath(): string | undefined {
+    const port = this.HttpConfig.port;
+    return typeof port === 'string' && !(Number(port) >= 0) ? port : undefined;
   }
 
   /**

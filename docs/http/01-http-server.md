@@ -12,7 +12,7 @@
 6. It adds each server middleware's `before()` handler, lowest `Order` first.
 7. It serves every `http.Static` entry with `express.static`, deduplicated by `Path`. A missing directory is skipped with a warning.
 8. **`Controllers.resolve()`** (see [Controllers and routing](02-controllers-and-routing.md)) mounts one router holding every controller with `HttpServer.use()`.
-9. **`start()`** adds each server middleware's `after()` handler once per instance, highest `Order` first, so the error handler ends up last. Then it listens on `http.port` and emits `http.server.listening`.
+9. **`start()`** adds each server middleware's `after()` handler once per instance, highest `Order` first, so the error handler ends up last. Then it listens on `http.port` at `http.host` (every interface when not set), or on the pipe or socket path given in `http.port`, and emits `http.server.listening`.
 10. **`stop()`** or **`dispose()`** emits `http.server.closing`, stops accepting connections, closes idle keep-alive sockets at once, and waits for in-flight requests. After `http.shutdownTimeout` ms it destroys the remaining sockets. It then emits `http.server.closed`.
 
 ```mermaid
@@ -49,7 +49,8 @@ Read the state from `server.State` and the Node server from `server.Server`.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.port` | `number` | `1337` | a TCP port | Port `start()` listens on. |
+| `http.port` | `number \| string` | `1337` | integer `0` to `65535`; digits as text (`'8080'`) are converted; a named pipe or Unix socket path holding `/` or `\` | Port `start()` listens on. `0` and `null` pick a free port. Any value holding `/` or `\` is a path: a path (eg. `\\.\pipe\<name>` from iisnode, or `/run/app.sock`) listens on that pipe or socket. An empty or blank string, other text and `true`/`false` fail the configuration check. An unset environment variable (`port: process.env.PORT` without `PORT`) keeps the default `1337`, because an `undefined` value does not replace the package default. |
+| `http.host` | `string` | not set | an IP address or host name | Address `start()` listens on, eg. `127.0.0.1` for loopback only or a LAN address. A host name binds the first address its lookup returns. Not set: every interface. Not allowed with a path in `http.port`: `HttpServer` throws `InvalidConfiguration` when it resolves. |
 | `https` | `boolean` | not set | `true`, `false` | Top-level key, not under `http`. `true` creates an HTTPS server. |
 | `http.ssl.key` | `string` | `''` | file path | Private key file, read with `fs.readFileSync` when `https` is `true`. |
 | `http.ssl.cert` | `string` | `''` | file path | Certificate file, read when `https` is `true`. |
@@ -111,7 +112,7 @@ export default {
 
 ### Configuration schema and file providers
 
-The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
+The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.port`, `http.host`, `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
 
 The package configuration also adds three `fs.providers` entries and two `system.dirs` entries:
 
@@ -179,7 +180,7 @@ void main();
 ## Important behaviour
 
 - `start()` is idempotent and restartable. A second call while listening does nothing; `stop()` then `start()` listens again on the same port without stacking the `after()` handlers twice.
-- `start()` rejects when `listen` fails. `EADDRINUSE` also logs `Port <port> is busy`.
+- `start()` rejects when `listen` fails. `EADDRINUSE` also logs the address and `is busy`.
 - `stop()` and `dispose()` share one shutdown. Concurrent or repeated calls get the same promise and never reject.
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
 - Server middlewares are collected when `HttpServer` resolves. A `ServerMiddleware` module imported later is ignored.
@@ -191,6 +192,7 @@ void main();
 - Await `server.start()` so a busy port fails the boot instead of an unhandled rejection.
 - Call `server.stop()` (or dispose the container) on `SIGTERM`; set `http.shutdownTimeout` below your orchestrator's kill timeout.
 - Subscribe to `http.server.listening` to report readiness instead of polling the port.
+- Behind a reverse proxy on the same machine, set `http.host: '127.0.0.1'` so the app is reachable only through the proxy, not from the LAN.
 
 ## Patterns and antipatterns
 
