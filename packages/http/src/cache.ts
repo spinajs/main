@@ -59,6 +59,8 @@ export interface IMethodDoc {
   returns?: IReturnDoc;
   body?: IBodyDoc;
   responses?: Record<string, IResponseDoc>;
+  /** `@produces <media-type>`, once per tag, as written; validated where the document is built. */
+  produces?: string[];
   examples?: IExampleDoc[];
   tags?: string[];
   deprecated?: boolean;
@@ -467,6 +469,7 @@ export class DefaultControllerCache extends AsyncService {
     { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as ts.JSDocReturnTag, ctx) },
     { tags: ['response'], extract: (tag, ctx) => this.extractResponseTag(tag, ctx) },
     { tags: ['body'], extract: (tag, ctx) => this.extractBodyTag(tag, ctx) },
+    { tags: ['produces'], extract: (tag, ctx) => { (ctx.doc.produces ??= []).push(this.getTagComment(tag)?.trim() ?? ''); } },
     { tags: ['example'], extract: (tag, ctx) => this.extractExampleTag(tag, ctx) },
     { tags: ['tags', 'tag', 'category'], extract: (tag, ctx) => this.extractTagsTag(tag, ctx) },
     { tags: ['deprecated'], extract: (_tag, ctx) => { ctx.doc.deprecated = true; } },
