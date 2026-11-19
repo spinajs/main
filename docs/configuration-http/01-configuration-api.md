@@ -24,10 +24,10 @@ It does **not** create or delete entries and does **not** change `Slug`, `Group`
 ### `PATCH /configuration/:slug`
 
 1. `@Access('configuration:update', { fields: 'filter' })` checks the route permission. Body fields outside the update grant's `fields.write` are stripped, or answered with 400 when `authz.fields.write.mode` is `reject`.
-2. The body is validated against the `UpdateConfigDto` schema (`configuration.http.updateConfigDTO`): `Value` is required, `Watch` is a boolean. A failure answers `400` with `{ error: { message } }`, like a refused value (`Value is required`, `Watch must be boolean`).
+2. The body is validated against the `UpdateConfigDto` schema (`configuration.http.updateConfigDTO`): `Value` is required, `Watch` is a boolean. The route's `@OnError` turns the `ValidationFailed` into a `ConfigurationUpdateRefused` with code `configuration.invalid_body`, which answers `400` with `{ code, message }`, like a refused value (`Value is required`, `Watch must be boolean`).
 3. `entryFor()` loads the row as `SYSTEM` and checks **both** `configuration:read` and `configuration:update` on it. A refusal answers `404`.
 4. When the body has `Default` or `Watch`, `authz().assert(caller, 'configuration:manage', { type: 'configuration', id }, entry)` checks the row. A refusal answers `403`, before any value is validated.
-5. `validateEntryValue()` checks `Value`, then `Default` when sent, against the entry `Type`, `Meta` and the schema registered under the slug ([Value validation](02-value-validation.md)). A failure answers `400` with `{ error: { message } }`.
+5. `validateEntryValue()` checks `Value`, then `Default` when sent, against the entry `Type`, `Meta` and the schema registered under the slug ([Value validation](02-value-validation.md)). A failure throws `ConfigurationUpdateRefused` with code `configuration.invalid_value`: `400` with `{ code, message }`.
 6. A `SchemaCompileError` is logged and answers `500` with `configuration schema '<slug>' is invalid`.
 7. The controller assigns `Value`, `Default` and `Watch`; `DbConfigValueConverter` turns them into the canonical stored string on update.
 8. `updateEntry()` runs `entry.update()`. When a change was pending and zero rows were affected, it throws `ConfigWriteRefused` (403): the row left the caller's update scope between the check and the write.
@@ -90,8 +90,8 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 
 | Status | Cause | Body |
 | --- | --- | --- |
-| `400` | `Value` / `Default` breaks the type, `Meta` or slug schema | `{ error: { message: "Value must be <= 100" } }` ([message format](02-value-validation.md#error-messages)) |
-| `400` | The body breaks the `UpdateConfigDto` schema | `{ error: { message: "Value is required" } }` |
+| `400` | `Value` / `Default` breaks the type, `Meta` or slug schema | `{ code: "configuration.invalid_value", message: "Value must be <= 100" }` ([message format](02-value-validation.md#error-messages)) |
+| `400` | The body breaks the `UpdateConfigDto` schema | `{ code: "configuration.invalid_body", message: "Value is required" }` |
 | `400` | Body field outside `fields.write` (reject mode) | authz-http error body |
 | `401` | No principal | authz-http error body |
 | `403` | No route permission; list refused by the list plan; `ConfigWriteRefused` | authz-http error body |

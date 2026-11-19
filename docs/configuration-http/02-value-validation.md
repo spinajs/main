@@ -51,7 +51,7 @@ It validates only. Converting the value into its stored string form is the job o
 - `message` names the broken constraint in ajv's English wording, whatever `validation.messages` is set to: `Value must be <= 100`, `Value/perPage must be >= 1`, `Value must be integer`, `Value must be equal to one of the allowed values`, `Value must match format "date"`. A rule outside the ajv core and `ajv-formats` keywords reads `must pass "<keyword>" keyword validation` unless ajv sent a message.
 - No errors at all give `invalid value for <field>`.
 
-A body that breaks the `UpdateConfigDto` schema answers in the same shape and wording, named after the body field: `Value is required`, `Watch must be boolean`.
+The route answers both as `400 { code, message }` (`ConfigurationUpdateRefused`): `configuration.invalid_value` for a refused value, `configuration.invalid_body` for a body that breaks the `UpdateConfigDto` schema, in the same wording, named after the body field: `Value is required`, `Watch must be boolean`.
 
 ## Configuration
 

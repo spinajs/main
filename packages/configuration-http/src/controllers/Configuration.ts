@@ -1,4 +1,4 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, OnError, Param, Patch, Query, ServerError } from '@spinajs/http';
+import { BaseController, BasePath, Body, Get, Ok, OnError, Param, Patch, Query, ServerError } from '@spinajs/http';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { SYSTEM, authz } from '@spinajs/authz';
 import type { Permission, Principal } from '@spinajs/authz';
@@ -11,6 +11,7 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { formatBodyErrors } from '../error-messages.js';
+import { ConfigurationUpdateRefused } from '../errors.js';
 import { updateEntry } from '../write.js';
 // Registers the bootstrapper for an app that never imports the package entry. The controller scan imports this file
 // after the configuration boot, so it runs only when the app's entry runs the pending bootstrappers after that scan.
@@ -100,7 +101,7 @@ export class ConfigurationController extends BaseController {
    * @security cookieAuth
    * @param slug Unique configuration entry slug
    * @response 200 Updated configuration entry
-   * @response 400 Invalid body, or a value refused by the entry type, constraints or registered schema; `error.message` names the broken constraint
+   * @response 400 `{ code, message }`: `configuration.invalid_body` for a body that breaks the schema, `configuration.invalid_value` for a value refused by the entry type, constraints or registered schema; `message` names the broken constraint
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — configuration:update permission required, or configuration:manage for a body with Default or Watch
    * @response 404 Configuration entry not found
@@ -108,7 +109,7 @@ export class ConfigurationController extends BaseController {
    */
   @Patch(':slug')
   @Access('configuration:update', { fields: 'filter' })
-  @OnError(ValidationFailed, (err) => new BadRequestResponse({ error: { message: formatBodyErrors(err.parameter) } }), { stages: ['arguments'] })
+  @OnError(ValidationFailed, (err) => new ConfigurationUpdateRefused('configuration.invalid_body', formatBodyErrors(err.parameter)), { stages: ['arguments'] })
   public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
     // The response carries the entry, so updating it needs read too.
     const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
@@ -119,13 +120,13 @@ export class ConfigurationController extends BaseController {
     try {
       const valueError = validateEntryValue(this.Validator, entry, 'Value', data.Value);
       if (valueError) {
-        return new BadRequestResponse({ error: { message: valueError } });
+        throw new ConfigurationUpdateRefused('configuration.invalid_value', valueError);
       }
 
       if (data.Default !== undefined) {
         const defaultError = validateEntryValue(this.Validator, entry, 'Default', data.Default);
         if (defaultError) {
-          return new BadRequestResponse({ error: { message: defaultError } });
+          throw new ConfigurationUpdateRefused('configuration.invalid_value', defaultError);
         }
       }
     } catch (err) {

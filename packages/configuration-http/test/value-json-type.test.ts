@@ -8,7 +8,7 @@ import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source
 import { expect } from 'chai';
 import 'mocha';
 
-import { TestConfiguration, req, seed, testConfig } from './common.js';
+import { TestConfiguration, clearDiCache, req, seed, testConfig } from './common.js';
 import { startApp, stopApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
@@ -16,7 +16,7 @@ import '../src/bootstrap.js';
 
 const JSON_HEADERS = { Accept: 'application/json' };
 
-const message = (res: ChaiHttp.Response) => (res.body as { error: { message: string } }).error.message;
+const message = (res: ChaiHttp.Response) => (res.body as { message: string }).message;
 
 const stored = (slug: string) => authz().runAs(SYSTEM, 'test', () => DbConfig.where('Slug', slug).first());
 
@@ -39,7 +39,7 @@ describe('PATCH /configuration/:slug refuses a value of another JSON type than t
   before(async () => {
     // uploads.test.ts leaves its own Configuration registered, and it and the root AuthzService cached
     DI.unregister(TestConfiguration);
-    DI.clearCache();
+    clearDiCache();
     DI.setESMModuleSupport();
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     unregisterSource = registerHeaderSource();

@@ -17,17 +17,20 @@ import '../src/bootstrap.js';
 
 const JSON_HEADERS = { Accept: 'application/json' };
 
-const REFUSALS: [string, string, object, string][] = [
-  ['a value above Meta max', 'app.maxUsers', { Value: 999 }, 'Value must be <= 100'],
-  ['a value below Meta min', 'app.maxUsers', { Value: 0 }, 'Value must be >= 1'],
-  ['a value off its type', 'app.maxUsers', { Value: 'abc' }, 'Value must be integer'],
-  ['a value outside oneOf', 'app.theme', { Value: 'blue' }, 'Value must be equal to one of the allowed values'],
-  ['a value off its format', 'app.startDate', { Value: 'not a date' }, 'Value must match format "date"'],
-  ['a value breaking the slug schema', 'app.limits', { Value: { perPage: 0 } }, 'Value/perPage must be >= 1'],
-  ['a value missing a property of the slug schema', 'app.limits', { Value: { export: true } }, "Value must have required property 'perPage'"],
-  ['a body without Value', 'app.maxUsers', {}, 'Value is required'],
-  ['a Watch that is no boolean', 'app.maxUsers', { Value: 20, Watch: 'sometimes' }, 'Watch must be boolean'],
-  ['a body that is no object', 'app.maxUsers', [20], 'Value is required'],
+const VALUE = 'configuration.invalid_value';
+const BODY = 'configuration.invalid_body';
+
+const REFUSALS: [string, string, object, string, string][] = [
+  ['a value above Meta max', 'app.maxUsers', { Value: 999 }, 'Value must be <= 100', VALUE],
+  ['a value below Meta min', 'app.maxUsers', { Value: 0 }, 'Value must be >= 1', VALUE],
+  ['a value off its type', 'app.maxUsers', { Value: 'abc' }, 'Value must be integer', VALUE],
+  ['a value outside oneOf', 'app.theme', { Value: 'blue' }, 'Value must be equal to one of the allowed values', VALUE],
+  ['a value off its format', 'app.startDate', { Value: 'not a date' }, 'Value must match format "date"', VALUE],
+  ['a value breaking the slug schema', 'app.limits', { Value: { perPage: 0 } }, 'Value/perPage must be >= 1', VALUE],
+  ['a value missing a property of the slug schema', 'app.limits', { Value: { export: true } }, "Value must have required property 'perPage'", VALUE],
+  ['a body without Value', 'app.maxUsers', {}, 'Value is required', BODY],
+  ['a Watch that is no boolean', 'app.maxUsers', { Value: 20, Watch: 'sometimes' }, 'Watch must be boolean', BODY],
+  ['a body that is no object', 'app.maxUsers', [20], 'Value is required', BODY],
 ];
 
 function describeRefusals(title: string, config: Record<string, unknown>) {
@@ -83,11 +86,11 @@ function describeRefusals(title: string, config: Record<string, unknown>) {
       });
     });
 
-    for (const [what, slug, body, message] of REFUSALS) {
-      it(`answers ${what} with { error: { message } } naming the broken constraint`, async () => {
+    for (const [what, slug, body, message, code] of REFUSALS) {
+      it(`answers ${what} with { code, message } naming the broken constraint`, async () => {
         const res = await req('admin').patch(`configuration/${slug}`).set(JSON_HEADERS).send(body);
         expect(res).to.have.status(400);
-        expect(res.body).to.deep.equal({ error: { message } });
+        expect(res.body).to.deep.equal({ code, message });
       });
     }
   });
