@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { symbolMarker } from '../markers.js';
 import { builderOf, buildersOf, staticKind } from './authz-effects.js';
 import type { BuilderKind, BuilderVariant, FunctionSummary, ReturnedBuilder } from './authz-effects.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
@@ -42,6 +43,32 @@ function distinct(variants: readonly Named[]): Named[] {
   const out: Named[] = [];
   for (const v of variants) if (!out.some((o) => o.kind === v.kind && o.model === v.model && o.origin === v.origin)) out.push(v);
   return out;
+}
+
+function baseCopyMarker(checker: ts.TypeChecker, type: ts.Type, name: string, seen = new Set<ts.Symbol>()): string | undefined {
+  for (const part of type.isUnionOrIntersection() ? type.types : [type]) {
+    const symbol = part.getSymbol();
+    if (symbol === undefined || seen.has(symbol)) continue;
+    seen.add(symbol);
+    const declared = checker.getDeclaredTypeOfSymbol(symbol);
+    if (!declared.isClassOrInterface()) continue;
+    for (const base of checker.getBaseTypes(declared)) {
+      const marker = symbolMarker(checker, checker.getPropertyOfType(base, name), 'copy') ?? baseCopyMarker(checker, base, name, seen);
+      if (marker !== undefined) return marker;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The member called is marked `copy`, or overrides one that is: missing a copy would let the calls after it scope the
+ * original builder. `authz-scope` is not inherited this way, since inheriting it could only hide a query.
+ */
+function isCopy(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
+  if (memberMarker(checker, call, 'copy') !== undefined) return true;
+  if (!ts.isPropertyAccessExpression(call.expression)) return false;
+  const receiver = checker.getApparentType(checker.getTypeAtLocation(call.expression.expression));
+  return baseCopyMarker(checker, receiver, call.expression.name.text) !== undefined;
 }
 
 /**
@@ -178,7 +205,7 @@ export class FlowTracer extends QueryTracer {
 
   /** Calls after a `clone()` change the copy, not the builder the statement starts from. */
   protected override extendBuilder(expr: ts.Expression): void {
-    const clone = chainOf(expr)?.calls.find((c) => memberMarker(this.checker, c.call, 'copy') !== undefined)?.call.expression;
+    const clone = chainOf(expr)?.calls.find((c) => isCopy(this.checker, c.call))?.call.expression;
     super.extendBuilder(clone !== undefined && ts.isPropertyAccessExpression(clone) ? clone.expression : expr);
   }
 
