@@ -60,8 +60,9 @@ A start that skipped the step fails at `Orm.resolve()` with `PendingMigrationsEx
    - otherwise: logs a connection mismatch when `--connection` was given, then that the migration is failed or still pending. Sets `process.exitCode = 1`.
 7. Without `--name` and `--connection`, `MigrateUpCommand.checkModelTables(orm, fake)` checks the model tables:
    - with [`db.StrictTableCheck`](../orm/01-connections.md#configuration) `false`, it returns at once: the `Orm` resolve already logged each missing table as a warning;
-   - otherwise it calls `orm.reloadTableInfo({ strict: true })`. A registered model whose table is still missing makes it log `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`) and set `process.exitCode = 1`. The migrations stay applied;
+   - otherwise it calls `orm.reloadTableInfo({ strict: true })`. A registered model whose table is still missing makes it log `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`), set `process.exitCode = 1` and resolve with the `OrmException`. The migrations stay applied;
    - any other error from `reloadTableInfo()` is rethrown, and the command fails.
+8. `execute()` resolves with `IMigrateUpResult`: `applied` (the migrations of the run, empty for `--dry-run`) and `tableCheckError` (the exception of step 7, when a model has no table). A caller that runs the command in-process reads the result; the bin ignores it and exits with `process.exitCode`.
 
 ```mermaid
 sequenceDiagram
@@ -96,7 +97,7 @@ sequenceDiagram
 | `--skip-seed` | `boolean` | `false` | Apply without running the `data()` seeds; run them later with [`migrate-seed`](09-seeding.md) |
 | `--dry-run` | `boolean` | `false` | Print what would be applied, in order, and apply nothing. Honours `--name` and `--connection` |
 
-`execute()` takes `IMigrateUpCommandOptions`: `{ name?: string; connection?: string; fake?: boolean; skipSeed?: boolean; dryRun?: boolean }`.
+`execute()` takes `IMigrateUpCommandOptions`: `{ name?: string; connection?: string; fake?: boolean; skipSeed?: boolean; dryRun?: boolean }`. It resolves with `IMigrateUpResult | void`: `{ applied: OrmMigration[]; tableCheckError?: OrmException }`. `void` is there so a subclass that overrides `execute()` with `Promise<void>` still compiles. An override of `execute()` or `checkModelTables()` must return the inherited result, as the subclass below does: otherwise an in-process caller gets nothing back, and nothing does not mean success.
 
 ## Dry run
 
@@ -146,18 +147,18 @@ Blocked by 1 FAILED migration(s), the run stops at the first one ( BATCH  CONNEC
 ```ts sample
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IMigrateUpCommandOptions, MigrateUpCommand } from '@spinajs/orm-cli';
+import { IMigrateUpCommandOptions, IMigrateUpResult, MigrateUpCommand } from '@spinajs/orm-cli';
 
 /** `migrate-up` that runs against production only when MIGRATE_CONFIRM=yes is set. */
 export class ConfirmedMigrateUpCommand extends MigrateUpCommand {
-  public async execute(options: IMigrateUpCommandOptions): Promise<void> {
+  public async execute(options: IMigrateUpCommandOptions): Promise<IMigrateUpResult | void> {
     const production = (process.env.APP_ENV ?? 'production').startsWith('prod');
 
     if (production && !options.fake && process.env.MIGRATE_CONFIRM !== 'yes') {
       throw new InvalidArgument('Refusing to migrate production: set MIGRATE_CONFIRM=yes to apply, or pass --fake to only record');
     }
 
-    await super.execute(options);
+    return super.execute(options);
   }
 }
 
@@ -170,6 +171,7 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 ## Important behaviour
 
 - **The command boots in tool mode.** An ordinary `DI.resolve(Orm)` would refuse the pending migrations this command is meant to apply; `resolveCliMigrator()` disables that check. See [The CLI migrator](06-cli-orm.md).
+- **The bin imports only config files and command files.** `spinajs` never runs the application's `main.ts`; it imports the config files and the command files of `system.dirs.cli` (see [Running the CLI](../cli/01-running-the-cli.md#important-behaviour)). The ORM driver, and every package whose migrations should run, register only when imported, so import them from one of the application's config files without an environment suffix (`import '@spinajs/orm-sqlite';` in `config/db.js`): a `*.<env>.js` file is imported only under that environment. Otherwise `migrate-up` fails with `ORM connection driver <Driver> not registered`, or finds nothing pending for the package. The application's own migrations in `system.dirs.migrations` (or the default directories) need no import: `FilesystemMigrationSource` scans and imports them.
 - **It runs on a configuration still written for 3.0.** Tool mode does not read `Migration.OnStartup`, so the first `migrate-up` after the upgrade works; the application's boot then fails until the key is removed.
 - **`migrate-up` seeds what it applied.** `data()` runs once every migration of the run is applied, under the run lock; it may resolve services that inject the `Orm`. A run that fails on a migration seeds none of the ones it applied before it, and a later run finds them applied: run [`migrate-seed`](09-seeding.md) for them. `--skip-seed` leaves every seed to `migrate-seed`.
 - **An unknown `--name` or `--connection` throws.** An empty, successful-looking run from a typo would read as "already current".
@@ -225,6 +227,28 @@ async function migrateReporting(): Promise<void> {
 
 void migrateReporting();
 ```
+
+### Fail a deploy step on a model without its table
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { MigrateUpCommand } from '@spinajs/orm-cli';
+import '@spinajs/log';
+
+/** Applies every pending migration and throws when the application would not boot afterwards. */
+export async function deployMigrations(): Promise<void> {
+  await DI.resolve(Configuration);
+
+  const result = await (await DI.resolve(MigrateUpCommand)).execute({});
+
+  if (result?.tableCheckError) {
+    throw result.tableCheckError;
+  }
+}
+```
+
+The result carries the condition the bin reads from `process.exitCode`, so the script does not have to compare exit codes. The command still sets `process.exitCode = 1`, and a process that ends on its own exits with it.
 
 ## Related
 

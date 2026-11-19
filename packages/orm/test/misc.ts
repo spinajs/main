@@ -1428,3 +1428,13 @@ export class FakeServerResponseMapper {
     };
   }
 }
+
+/** A FakeSqliteDriver whose database holds only `Tables`; tableInfo() answers null for any other table, as every real driver does. */
+export class TableSetDriver extends FakeSqliteDriver {
+  public static readonly Tables = new Set<string>();
+
+  public async tableInfo(table: string): Promise<IColumnDescriptor[]> {
+    // the abstract signature does not declare the null a missing table answers
+    return TableSetDriver.Tables.has(table) ? [] : (null as unknown as IColumnDescriptor[]);
+  }
+}

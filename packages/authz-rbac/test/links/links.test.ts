@@ -5,8 +5,12 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, testHos
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
+
+import { bootDb } from '../support/db.js';
+import type { TestDb } from '../support/db.js';
 
 import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
@@ -146,8 +150,12 @@ describe('authz-rbac share links', () => {
     }
   });
 
-  describe('RbacModel built by DI', () => {
+  describe('RbacModel built by DI', function () {
+    this.timeout(60000);
+
     let container: IContainer;
+    // The DB stores refuse to boot without their tables.
+    let db: TestDb | undefined;
     /** What a domain's boot does for a listed RbacModel: DI builds it in `c`, and its init wires `c`. */
     const wired = async (c: IContainer): Promise<RbacModel> => {
       const model = await c.resolve<RbacModel>(RbacModel);
@@ -161,8 +169,17 @@ describe('authz-rbac share links', () => {
       return cfg;
     };
 
+    before(async function () {
+      db = await bootDb(this, 'sqlite', 'links_di');
+    });
+
+    after(async () => {
+      await db?.dispose();
+    });
+
     beforeEach(() => {
       container = DI.child();
+      container.register(testHost.instance(db!.orm)).as(Orm);
     });
 
     afterEach(async () => {

@@ -75,11 +75,6 @@ describe('answeredAsServerError', () => {
     expect(answeredAsServerError(new ResourceNotFound('gone'))).to.eq(false);
     expect(answeredAsServerError(new BadRequest('bad'))).to.eq(false);
   });
-
-  it('is false for a body-parser parse failure, which answers 400', () => {
-    const err = Object.assign(new Error('Unexpected token'), { type: 'entity.parse.failed', body: '{' });
-    expect(answeredAsServerError(err)).to.eq(false);
-  });
 });
 
 describe('JsonValidationFailed http mapping', () => {

@@ -7,6 +7,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
+import { InvalidConfiguration } from './exception.js';
+
+function cannotLoad(file: string, err: unknown) {
+  const error = new InvalidConfiguration(`Cannot load configuration file ${file}: ${err instanceof Error ? err.message : String(err)}`);
+  error.cause = err;
+  return error;
+}
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -236,18 +243,10 @@ export class JsFileSource extends BaseFileSource {
           cfg = (await cfg.onConfigLoad(cfg))!;
         }
 
-        // all root props gets file info saved
-        // for debugging purposes
-        for (let k in cfg) {
-          if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
-            (cfg[k] as any).__file__ = [file];
-          }
-        }
-
         return cfg;
       } catch (err) {
-        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
-        return {} as IConfigLike;      }
+        throw cannotLoad(file, err);
+      }
     }
   }
 }
@@ -265,19 +264,10 @@ export class JsonFileSource extends BaseFileSource {
       try {
         InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
 
-        const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as any;
-
-        // all root props gets file info saved
-        // for debugging purposes
-        for (let k in cfg) {
-          if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
-            (cfg[k] as any).__file__ = [file];
-          }
-        }
+        const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as IConfigLike;
         return Promise.resolve(cfg);
       } catch (err) {
-        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
-        return Promise.resolve({} as IConfigLike);
+        return Promise.reject(cannotLoad(file, err));
       }
     } 
   }

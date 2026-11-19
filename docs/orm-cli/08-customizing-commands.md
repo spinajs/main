@@ -32,7 +32,7 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 | `MigrateUpCommand` | `printPlan(migrator: OrmMigrator, options: IMigrateUpCommandOptions): Promise<void>` | with `--dry-run`, instead of `migrator.migrate()` | Prints `migrator.plan()` on stdout and sets `process.exitCode = 1` when it has entries; see [Dry run](01-applying-migrations.md#dry-run) |
 | `MigrateUpCommand` | `reportRun(migrator: OrmMigrator, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void>` | after every `migrator.migrate()` | Logs what was applied or recorded, or that nothing is pending; calls `explainEmptyNamedRun()` for an empty named run |
 | `MigrateUpCommand` | `explainEmptyNamedRun(migrator: OrmMigrator, name: string, connection?: string): Promise<void>` | `--name` given and nothing applied | Looks the migration up in `migrator.Runner.status()`, logs why it did not run, sets `process.exitCode = 1` unless applied |
-| `MigrateUpCommand` | `checkModelTables(orm: Orm, fake?: boolean): Promise<void>` | after `reportRun()`, only without `--name` and `--connection` | Returns when `orm.StrictTableCheck` is `false`; otherwise calls `orm.reloadTableInfo({ strict: true })`, logs a missing table at error level and sets `process.exitCode = 1` |
+| `MigrateUpCommand` | `checkModelTables(orm: Orm, fake?: boolean): Promise<OrmException \| void>` | after `reportRun()`, only without `--name` and `--connection` | Returns when `orm.StrictTableCheck` is `false`; otherwise calls `orm.reloadTableInfo({ strict: true })`, logs a missing table at error level, sets `process.exitCode = 1` and resolves with the `OrmException`, which `execute()` returns as `tableCheckError`. An override must return it, or the caller of `execute()` gets no `tableCheckError` |
 | `MigrateDownCommand` | `announce(options: IMigrateDownCommandOptions): void` | after `resolveCliMigrator()`, before `migrator.Runner.down()` | Logs the scope about to be reversed |
 | `MigrateStatusCommand` | `state(e: IMigrationStatusEntry): string` | once per table line | `FAILED`, `applied`, `INTERRUPTED`, `rolled-back` or `pending` |
 | `MigrateStatusCommand` | `explainFailed(failed: IMigrationStatusEntry[]): void` | at least one failed entry | Prints the blocking warning and two `migrate-resolve` invocations per entry |
@@ -49,7 +49,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Cli } from '@spinajs/cli';
 import { IMigrationStatusEntry } from '@spinajs/orm';
-import { IMigrateUpCommandOptions, MigrateStatusCommand, MigrateUpCommand } from '@spinajs/orm-cli';
+import { IMigrateUpCommandOptions, IMigrateUpResult, MigrateStatusCommand, MigrateUpCommand } from '@spinajs/orm-cli';
 import '@spinajs/log';
 
 /** Prints `pending` rows in upper case so they stand out in a long report. */
@@ -62,9 +62,9 @@ class LoudMigrateStatusCommand extends MigrateStatusCommand {
 
 /** Tags every migrate-up with the deploy id from CI. */
 class TaggedMigrateUpCommand extends MigrateUpCommand {
-  public async execute(options: IMigrateUpCommandOptions): Promise<void> {
+  public async execute(options: IMigrateUpCommandOptions): Promise<IMigrateUpResult | void> {
     this.Log.info(`deploy ${process.env.DEPLOY_ID ?? 'local'}: migrate-up starting`);
-    await super.execute(options);
+    return super.execute(options);
   }
 }
 

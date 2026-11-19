@@ -11,7 +11,8 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
-// Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
+// Registers the bootstrapper for an app that never imports the package entry. The controller scan imports this file
+// after the configuration boot, so it runs only when the app's entry runs the pending bootstrappers after that scan.
 import '../bootstrap.js';
 
 /**
@@ -19,12 +20,17 @@ import '../bootstrap.js';
  * columns with Value / Default in their canonical stored form ( numbers as "10",
  * booleans as "true"/"false", dates / times as ISO 8601 etc. ) produced by the
  * DbConfigValueConverter, and Meta already parsed into an object by its @Json
- * converter - the same representation they round-trip through on update.
+ * converter. An update does not take this string form back: it needs the JSON
+ * type of the entry ( 10, true ).
  */
 function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;
   out.Meta = entry.Meta ?? null;
   return out;
+}
+
+function entryRef(entry: DbConfig) {
+  return { type: 'configuration', id: String(entry.Id) };
 }
 
 /**
@@ -86,6 +92,7 @@ export class ConfigurationController extends BaseController {
   /**
    * Update configuration entry value
    * Updates the value ( and optionally default/watch flag ) of an existing entry.
+   * Sending `Default` or `Watch` also needs `configuration:manage` on the entry.
    * The incoming value is validated against the entry `Type` and `Meta` constraints and,
    * when `@spinajs/validation` holds a schema whose `$id` equals the slug, against that schema.
    * Structural fields ( slug, group, type ) cannot be changed through this api.
@@ -94,7 +101,7 @@ export class ConfigurationController extends BaseController {
    * @response 200 Updated configuration entry
    * @response 400 Invalid value for the entry type, constraints or registered schema
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — configuration:update permission required
+   * @response 403 Forbidden — configuration:update permission required, or configuration:manage for a body with Default or Watch
    * @response 404 Configuration entry not found
    * @response 500 Registered schema for this slug cannot be compiled
    */
@@ -103,6 +110,10 @@ export class ConfigurationController extends BaseController {
   public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
     // The response carries the entry, so updating it needs read too.
     const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
+    if (data.Default !== undefined || data.Watch !== undefined) {
+      await authz().assert(caller, 'configuration:manage', entryRef(entry), entry);
+    }
+
     try {
       const valueError = validateEntryValue(this.Validator, entry, 'Value', data.Value);
       if (valueError) {
@@ -156,7 +167,7 @@ export class ConfigurationController extends BaseController {
     const service = authz();
     const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).first());
     if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
-    const ref = { type: 'configuration', id: String(entry.Id) };
+    const ref = entryRef(entry);
     for (const permission of permissions) {
       if (!(await service.can(caller, permission, ref, entry))) throw new ResourceNotFound(`configuration entry ${slug} not found`);
     }

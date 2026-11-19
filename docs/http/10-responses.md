@@ -8,7 +8,7 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
 2. The response handler (`__handle_response__`, the step after the action and its `onAfter` middlewares) calls `response.execute(req, res)`.
    - Nothing stored (the action returned `undefined` or `null`): it raises `ResourceNotFound`, answered as 404.
 3. `Response.execute()` awaits the data (`prepareResponse()`: a `Promise` is awaited; an array of promises is awaited with `Promise.all`).
-4. It calls `httpResponse(data, this._template, { ...options, StatusCode: options.StatusCode ?? this._errorCode })`, which returns a function `(req, res) => void`; the response handler calls it.
+4. It calls `httpResponse(data, this._template, { ...options, StatusCode: this.statusCode })`, which returns a function `(req, res) => void`; the response handler calls it.
 5. A thrown error or rejected promise goes to the [error handler](11-error-handling.md).
 
 ### Content negotiation
@@ -17,13 +17,13 @@ An action returns a `Response` object; the framework turns it into the HTTP answ
 
 1. Offers the formats enabled in `http.AcceptHeaders`, in this order: `json`, `html`, `xml`. JSON comes first so `*/*` or a missing `Accept` gets JSON.
 2. Picks the best with `req.accepts(offered)`, which honours the client's order and `q` values.
-3. **HTML**: downloads `template` from the `__fs_http_response_templates__` provider and renders it with `Templates` (pug), the data as the model. A missing template or a render error renders `serverError.pug` with status 500; when that fails too, it sends `http.FatalTemplate` with a random 7-character ticket.
+3. **HTML**: downloads `template` from the `__fs_http_response_templates__` provider and renders it with `Templates` (pug), the data as the model. A missing template or a render error renders `serverError.pug` with status 500. When that fails too, or `serverError.pug` itself is missing, it answers 500 with `http.FatalTemplate` and a random 7-character ticket, or with plain text naming the ticket for a client that does not accept HTML. It logs one `error` line on the `http` logger with the ticket. The templates reach `lib/views` through the root `copy-static` step; a package built without that step has none.
 4. **JSON**:
    - status 400 or above: runs the error [data transformer](12-data-transformers.md) named in `x-error-transform` (default `default-http-error-transform`);
    - an `x-data-transform` header: runs that data transformer;
    - otherwise `res.json(data)`.
 5. **XML**: serializes with `fast-xml-parser`'s `XMLBuilder`; arrays and scalars are wrapped in `<response>`.
-6. None of those, but the client accepts `text/plain`: sends `JSON.stringify(data)` as `text/plain`.
+6. None of those, but the client accepts `text/plain`: sends `JSON.stringify(data)` labelled `application/json`, so the content type matches the body.
 7. Otherwise: 406 with `{ error: { message: 'Not Acceptable', code: 406 } }` in JSON.
 
 Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-cookies.md)) before writing the body.
@@ -174,6 +174,7 @@ Members you use when extending `Response`:
 | Member | Meaning |
 | --- | --- |
 | `protected _errorCode: number` | Default status. |
+| `get statusCode(): number` | The status this response answers with: `options.StatusCode`, else `_errorCode`. Override it in a subclass whose `execute()` picks another status. The error handler reads it to choose the log level. |
 | `protected _template: string` | Template name in `__fs_http_response_templates__` for HTML clients. |
 | `protected responseData`, `protected options` | Constructor arguments. |
 | `prepareResponse()` | Awaits the data. |
