@@ -226,4 +226,8 @@ describe('flow: summarize', () => {
     expect(scopes('Vocabulary.untypedFirst')).to.deep.equal([['Invoice', 'none']]);
     expect(scopes('Vocabulary.untypedFirstStatement')).to.deep.equal([['Invoice', 'none']]);
   });
+
+  it('scoping a copy made by an overriding clone() leaves the builder it copies unscoped', () => {
+    expect(effectsOf('Vocabulary.viaOverride').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'Invoice', 'none']]);
+  });
 });

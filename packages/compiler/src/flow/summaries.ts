@@ -45,7 +45,7 @@ const isStore = (node: ts.Node): node is ts.BinaryExpression =>
   node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
   (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left));
 
-function scopeOf(value: QueryValue, system: Scope['system']): { scoped: EffectScope; reason?: string } {
+function effectScope(value: QueryValue, system: Scope['system']): { scoped: EffectScope; reason?: string } {
   if (value.scoped.accessible) return { scoped: 'accessible' };
   if (value.scoped.unscoped) return { scoped: 'unscoped' };
   if (system === undefined) return { scoped: 'none' };
@@ -237,7 +237,7 @@ class FunctionAnalysis {
 
   private executed(value: QueryValue, at: ts.Expression, scope: Scope): void {
     const meta = this.tracer.metaOf(value);
-    const scoped = scopeOf(value, scope.system);
+    const scoped = effectScope(value, scope.system);
     if (meta.param !== undefined && scoped.scoped === 'none' && !this.root) {
       // The caller knows how its argument was scoped, so the effect is reported at the call.
       this.executes.set(meta.param, meta.kind);
