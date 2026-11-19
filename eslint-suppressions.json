@@ -7720,9 +7720,6 @@
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
-    },
-    "complexity": {
-      "count": 1
     }
   },
   "packages/teams/src/models/converters.ts": {
