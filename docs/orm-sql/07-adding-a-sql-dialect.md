@@ -20,7 +20,7 @@ A new database gets its own driver package: a class that extends `SqlDriver`, se
 8. **Schema reflection.** Implement `tableInfo(name, schema?)`. `Orm.reloadTableInfo()` calls it for every model at boot to fill columns that have no decorator.
 9. **Use.** Import the package once so the decorator registers the class, and point a connection at it: `{ Driver: 'orm-driver-<dialect>', Name: 'main', Host: ..., Database: ... }`. `Orm` resolves the driver with that entry, `resolve()` runs, then `connect()`.
 
-Errors on the way: `Orm` throws `OrmException('ORM connection driver <Driver> not registerd')` when nothing is registered under the string, and wraps a failed resolve or connect in `OrmException`. A token you forgot to register fails when the feature is first used.
+Errors on the way: `Orm` throws `OrmException('ORM connection driver <Driver> not registered')` when nothing is registered under the string, and wraps a failed resolve or connect in `OrmException`. A token you forgot to register fails when the feature is first used.
 
 ```mermaid
 sequenceDiagram

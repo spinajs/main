@@ -19,13 +19,14 @@ Two controllers serve the telemetry HTTP API: `MetricsController` at `/metrics` 
 | `GET /telemetry/timeline?buckets=N` | `timeline` | 200 | 400, 401, 403 | `TimelineResponse`: `{ bucketMs, length, buckets: [{ key, from, to, stats }] }`, ascending by key |
 | `GET /telemetry/routes` | `routes` | 200 | 401, 403 | `RoutesResponse`: `{ truncated, routes: [{ method, route, stats }] }` |
 | `GET /telemetry/perf` | `perf` | 200 | 401, 403 | `PerfResponse`: `{ truncated, spans, events }` |
-| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up', startedAt, uptimeMs, pid, node, version? }` |
-| `GET /telemetry/ready` | `ready` | 200 | 503 | `ReadyResponse`: `{ status, checks: [{ name, status, durationMs, message?, data? }] }` |
+| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up' }`; with the probe detail also `startedAt, uptimeMs, pid, node, version?` |
+| `GET /telemetry/ready` | `ready` | 200 | 503 | `ReadyResponse`: `{ status, checks: [{ name, status, durationMs, message?, data? }] }`; `data.error` only with the probe detail |
 
 - 401: no principal; with the defaults, no valid scrape token in `x-metrics-token` or `Authorization: Bearer`.
 - 403: a principal without the slot's permission. The body names the permission (`{ error: 'forbidden', permission: 'telemetry:read', ... }`).
 - 400: `buckets` is present and not a positive integer; message `buckets must be a positive integer`.
 - 503: the readiness report is failing; the body is still the report.
+- 404: `telemetry.endpoints.<slot>.enabled` is `false`. Every caller gets it, before any credential check, with the message of a path no route matches (`Route not found: GET /telemetry/stats`).
 
 `/metrics` stays at the bare path, not under `/telemetry`, because existing `scrape_configs` point there.
 
@@ -94,6 +95,7 @@ export class MaintenanceController extends BaseController {
 - `new Ok(body, { StatusCode: 503 })` answers 200: `Response.execute()` overwrites the status with the class's own code. Use `ServiceUnavailable`.
 - The DTO classes are never instantiated. They exist so `@Schema()` registers each schema under the class name.
 - A slot that cannot be honoured makes the whole controller fail to register, probes included. The app does not start with an open route.
+- A turned-off endpoint needs no slot and stays in the OpenAPI document; only its answer changes. The switch is read when http registers the routes, so a change needs a restart.
 
 ## Best practices
 

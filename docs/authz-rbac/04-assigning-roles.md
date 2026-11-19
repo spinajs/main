@@ -132,6 +132,16 @@ authz: {
 
 Config assignments live in no store: `authz:revoke` and `AuthzAdmin` cannot remove them. A config role that is unknown, unassignable or not allowed at `$global` fails boot, and fails a role reload the same way.
 
+A `serviceRoles` key is the principal's key, `<type>:<id>`. A key without its type, such as `{ lan: ['operator'] }`, would match no principal, so it fails boot instead:
+
+```
+Invalid configuration: authz.rbac.serviceRoles.lan property name is invalid: must match pattern "^(?<type>[^:]+):(?<id>(?!\*$).+)$"
+```
+
+Write it as `{ 'service:lan': ['operator'] }` for the principal `{ type: 'service', id: 'lan' }`.
+
+Config roles go to one principal each: a wildcard key such as `'service:*'` fails boot the same way. To give every principal of a type a role, assign it to the wildcard subject `{ type: 'service', id: '*' }` through `AuthzAdmin`, the HTTP admin or `authz:assign`.
+
 ## Errors
 
 | Code | When |

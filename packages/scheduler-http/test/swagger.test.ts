@@ -50,10 +50,11 @@ describe('scheduler-http swagger', function () {
     }
   });
 
-  it('documents run-now as 202 with a runId body, plus 400, 404 and 409', () => {
+  it('documents run-now as 200 and 202 with a runId body, plus 400, 404 and 409', () => {
     const responses = op('post', '/scheduler/schedules/{name}/runs').responses;
 
-    expect(responses).to.include.keys('202', '400', '404', '409');
+    expect(responses).to.include.keys('200', '202', '400', '404', '409');
+    expect(JSON.stringify(responses['200'])).to.contain('ISchedulerRunAccepted');
     expect(JSON.stringify(responses['202'])).to.contain('ISchedulerRunAccepted');
     expect(spec.components?.schemas?.ISchedulerRunAccepted.required).to.deep.equal(['runId']);
   });

@@ -12,7 +12,7 @@ It validates only. Converting the value into its stored string form is the job o
    - copies `VALUE_SCHEMAS[Type]`;
    - applies `Meta` to the leaf: the `items` schema for array types, the schema itself otherwise;
    - wraps it as `{ allOf: [typeSchema, { $ref: slug }] }` when a slug schema exists.
-4. `DataValidator.tryValidate()` validates `{ [field]: value }` against `{ type: 'object', properties: { [field]: schema }, required: [field] }`. Wrapping keeps a bare `null` or scalar from being read as a schema.
+4. `DataValidator.tryValidate()` validates `{ [field]: value }` against `{ type: 'object', properties: { [field]: schema }, required: [field] }`, with `{ coerceTypes: false }`. Wrapping keeps a bare `null` or scalar from being read as a schema. Without coercion a value passes only as it was sent, so `"0x15"` on a `number` entry fails `type`, and `null` passes a slug schema property `anyOf: [{ type: 'integer' }, { type: 'null' }]` and is stored as `null`.
 5. `formatValidationErrors(field, errors)` joins the errors into one message. `validateEntryValue()` returns it, or `null` when the value is valid.
 
 ### Base schema per `Type`: `VALUE_SCHEMAS`
@@ -23,7 +23,7 @@ It validates only. Converting the value into its stored string form is the job o
 | `manyOf` | `{ type: 'array', uniqueItems: true, items: { type: 'string' } }` | `["a", "c"]` |
 | `number` | `{ type: 'integer' }` | `50` |
 | `float`, `range` | `{ type: 'number' }` | `0.75` |
-| `boolean` | `anyOf` boolean, or string `'0' \| '1' \| 'true' \| 'false'` | `true`, `"1"` |
+| `boolean` | `{ type: 'boolean' }` | `true` |
 | `date` | `{ type: 'string', format: 'date' }` | `"2021-06-15"` |
 | `time` | `{ type: 'string', format: 'time' }` | `"08:30:00"` |
 | `datetime` | `{ type: 'string', format: 'date-time' }` | `"2021-06-15T08:30:00Z"` |
@@ -48,7 +48,7 @@ It validates only. Converting the value into its stored string form is the job o
 `formatValidationErrors()` builds one entry per error, `<field><path> <message>`, removes duplicates and joins them with `; `:
 
 - `field` is `Value` or `Default`; `path` is the part of the ajv `instancePath` below the field, such as `/perPage`.
-- `message` is the ajv message. With the `@spinajs/validation` default `validation.messages: false`, ajv sends none and the entry reads `Value/perPage is invalid`.
+- `message` is the ajv message. With the `@spinajs/validation` default `validation.messages: false`, ajv sends none: a `type` error then reads `must be <type>` (`Value must be integer`, `Value/limit must be integer or null`), any other error `is invalid` (`Value/perPage is invalid`).
 - No errors at all give `invalid value for <field>`.
 
 ## Configuration
@@ -58,7 +58,7 @@ This feature reads the `@spinajs/validation` options of `DataValidator`. They ch
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `validation.useDefaults` | `boolean` | `true` | `true`, `false` | Writes schema defaults into object and array values before they are stored, so they are fixed at write time. |
-| `validation.coerceTypes` | `boolean` | `true` | `true`, `false` | Coerces scalars during the check (`"50"` passes an `integer` schema). |
+| `validation.coerceTypes` | `boolean` | `true` | `true`, `false` | Not used here: entry values are always validated without coercion, so `"50"` on a `number` entry answers `400` either way. |
 | `validation.removeAdditional` | `boolean` | `false` | `true`, `false` | Strips unknown properties of object values instead of rejecting them. |
 | `validation.allErrors` | `boolean` | `true` | `true`, `false` | Reports every error, joined into one message. |
 | `validation.messages` | `boolean` | `false` | `true`, `false` | `true` puts ajv's text into the 400 message. |
@@ -132,6 +132,7 @@ export class ConfigurationCheckController extends BaseController {
 
 - The slug schema always applies to the whole value; `Meta` constraints apply to the leaf.
 - The schema describes the JSON value as sent to the API, not the typed runtime value: a `date` is a string, never a luxon `DateTime`.
+- The value must already have the JSON type of the entry: a JSON number for `number`, `float` and `range`, a JSON boolean for `boolean`. `"10"`, `"1e1"`, `true` or `null` on a `number` entry, and `"true"`, `"1"`, `1` or `null` on a `boolean` entry, answer `400`. The stored form a `GET` returns (`"50"`, `"true"`) is not accepted back as is.
 - `SchemaCompileError` never reaches the client with the ajv detail. The controller logs it and answers `500`; `ConfigFileUploads` logs it and throws a plain `Error`.
 - An entry without a slug schema is validated by `Type` and `Meta` only.
 - `structuredClone` copies the base schema on every call, so changing the returned schema never affects `VALUE_SCHEMAS`.

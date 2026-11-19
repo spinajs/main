@@ -24,7 +24,8 @@ const config = {
       /**
        * Shared scrape token; set it in your project. A non-empty token becomes the service principal
        * `service:telemetry` (headers `x-metrics-token` and `Authorization: Bearer`) through
-       * `authz.http.services`, unless that list already has an entry named `telemetry`. Read once at
+       * `authz.http.services`, unless that list already has an entry named `telemetry`. The principal is
+       * not authenticated, so `IsAuthenticated` routes of the app refuse it. Read once at
        * bootstrap: a later change or a configuration reload needs a restart, and a reload drops the
        * entries, so the token gets 401 until then. Rotate by restart, or list several tokens in an
        * explicit `authz.http.services` entry.
@@ -54,6 +55,12 @@ const config = {
         // probe endpoints must be reachable without credentials
         health: 'PublicPolicy',
         ready: 'PublicPolicy',
+
+        /**
+         * Not a route: who sees the probes' detail, the process fields of /telemetry/health and each
+         * check's `data.error` on /telemetry/ready. Everyone else gets the status only.
+         */
+        probeDetail: 'AccessPolicy',
       },
 
       /** A permission, or a list of which any one admits, per 'AccessPolicy' endpoint. */
@@ -63,6 +70,7 @@ const config = {
         timeline: 'telemetry:read',
         routes: 'telemetry:read',
         perf: 'telemetry:read',
+        probeDetail: 'telemetry:read',
       },
     },
 
@@ -71,6 +79,25 @@ const config = {
      * the private registry at bootstrap.
      */
     collectDefaultMetrics: true,
+
+    http: {
+      /** false: the request middleware only passes requests on, so no http_* metric exists and the JSON stats stay empty. */
+      enabled: true,
+    },
+
+    /**
+     * Per endpoint: `enabled: false` answers 404 to every caller, as for a path no route matches.
+     * Read when http registers the routes. Not `routes.enabled` below, which only stops recording per-route stats.
+     */
+    endpoints: {
+      metrics: { enabled: true },
+      stats: { enabled: true },
+      timeline: { enabled: true },
+      routes: { enabled: true },
+      perf: { enabled: true },
+      health: { enabled: true },
+      ready: { enabled: true },
+    },
 
     /** Metric name prefix for the http telemetry metrics. */
     prefix: 'http',
@@ -105,14 +132,14 @@ const config = {
       timeoutMs: 2000,
       /** When true a degraded overall status returns 503 rather than 200. */
       failOnDegraded: false,
-      /** Reported by /telemetry/health. Omitted from the response when unset. */
+      /** Reported by /telemetry/health to a caller that sees the probe detail. Omitted when unset. */
       version: undefined as string | undefined,
     },
   },
 
   authz: {
     permissions: {
-      'telemetry:read': { description: 'Read the telemetry endpoints: /metrics, /telemetry/stats, timeline, routes and perf' },
+      'telemetry:read': { description: 'Read the telemetry endpoints: /metrics, /telemetry/stats, timeline, routes and perf, and the detail of /telemetry/health and /telemetry/ready' },
     },
     // Unread unless the app loads @spinajs/authz-rbac.
     rbac: {

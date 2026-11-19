@@ -104,7 +104,7 @@ async function fakeMySqlServer() {
 }
 
 const silenced = <T>(driver: T): T => {
-  (driver as any).Log = { info: () => undefined, warn: () => undefined, trace: () => undefined };
+  (driver as any).Log = { info: () => undefined, warn: () => undefined, debug: () => undefined, trace: () => undefined };
   return driver;
 };
 
