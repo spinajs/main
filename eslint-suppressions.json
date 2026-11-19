@@ -5546,13 +5546,13 @@
       "count": 12
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 7
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 16
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 3
+      "count": 1
     }
   },
   "packages/orm-mysql/test/transaction-unit.test.ts": {
