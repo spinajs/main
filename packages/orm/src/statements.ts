@@ -11,6 +11,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
 import { noteRawSql } from './explain/raw-sql.js';
 import type { BuilderExecution } from './extensions.js';
+import { JOIN_BUILDER } from './builders/internal.js';
 
 const MERGED_INTO_JOIN: BuilderExecution = { kind: 'merged', into: 'join' };
 
@@ -353,6 +354,10 @@ export abstract class JoinStatement extends QueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  public get [JOIN_BUILDER](): SelectQueryBuilder | undefined {
+    return this._whereBuilder;
+  }
 
   /**
    * Namespaces this join under a populated relation's alias, and only when the alias was not
