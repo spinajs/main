@@ -5,7 +5,8 @@ import sinon from 'sinon';
 import { AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { BelongsTo, HasMany, HasManyToMany, ModelBase, Recursive, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, HasMany, HasManyToMany, ManyToManyRelation, ModelBase, Recursive, Relation, SelectQueryBuilder, SingleRelation } from '@spinajs/orm';
+import type { IOrmRelation } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -23,14 +24,15 @@ type Q = PromiseLike<ModelBase[]> & {
   within(r: object): Q;
   withAccess(p: string[]): Q;
   withFields(p: string): Q;
-  populate(relation: string, callback: (this: Q) => void): Q;
+  populate(relation: string, callback: (this: Q, relation: IOrmRelation) => void): Q;
   leftJoin(relation: string, on: (this: Q) => void, queryCallback: (this: Q) => void): Q;
   where(column: string, value: unknown): Q;
 };
 type ListPopulate = { populate(callback: (this: Q) => void): Promise<void> };
 type M = Omit<typeof ModelBase, 'query'> & { query(): Q };
+type Markable = { accessible(p: string): unknown; within(r: object): unknown; withAccess(p: string[]): unknown; withFields(p: string): unknown };
 
-const marks: Record<string, (q: Q, permission: string) => void> = {
+const marks: Record<string, (q: Markable, permission: string) => void> = {
   accessible: (q, p) => {
     q.accessible(p);
   },
@@ -186,6 +188,14 @@ describe('authz marks in a populate callback', function () {
       expect(() =>
         Campaign.query().populate('tags', function () {
           mark(this, 'tag:read');
+        }),
+      ).to.throw(AuthzConfigError, /relation "tags" is many-to-many/);
+    });
+
+    it(`.${name}() on the junction query of a many-to-many relation throws and names the relation`, () => {
+      expect(() =>
+        Campaign.query().populate('tags', function (relation) {
+          if (relation instanceof ManyToManyRelation && relation.TableJoinQuery instanceof SelectQueryBuilder) mark(relation.TableJoinQuery, 'tag:read');
         }),
       ).to.throw(AuthzConfigError, /relation "tags" is many-to-many/);
     });
