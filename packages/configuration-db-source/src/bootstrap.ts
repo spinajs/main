@@ -12,7 +12,7 @@ import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntry
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
-import { asSystem } from './system.js';
+import { asSystem, isReportedBootRefusal, systemReady } from './system.js';
 
 /**
  * watch interval, default 3 min
@@ -279,7 +279,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       // filtered in memory, as the source does, to stay driver-agnostic about how booleans are stored
       rows.filter((r) => Boolean(r.Watch) && Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
-      InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
+      if (!isReportedBootRefusal(err)) InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
     }
   }
 

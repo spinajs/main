@@ -1,4 +1,4 @@
-import { Injectable } from '@spinajs/di';
+import { Injectable, isPromise } from '@spinajs/di';
 import { CodedHttpException } from '@spinajs/exceptions';
 import type { CodedErrorBody } from '@spinajs/exceptions';
 import { HandleException } from '../decorators.js';
@@ -23,6 +23,11 @@ export class CodedHttpExceptionResponse extends Response<CodedErrorFields> {
 
   constructor(error: CodedErrorFields | Promise<CodedErrorFields> | null, protected options?: IResponseOptions) {
     super(error, options);
+  }
+
+  public get statusCode(): number {
+    const error = this.responseData;
+    return this.options?.StatusCode ?? (error && !isPromise(error) && isErrorStatus(error.status) ? error.status : this._errorCode);
   }
 
   public async execute(): Promise<ResponseFunction> {

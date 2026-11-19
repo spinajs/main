@@ -81,6 +81,7 @@ export class SwaggerDocCache extends AsyncService {
               : undefined,
             body: m.body,
             responses: m.responses,
+            produces: m.produces,
             examples: m.examples,
             tags: m.tags,
             deprecated: m.deprecated,

@@ -18,6 +18,7 @@ import { it as mochaIt } from 'mocha';
 import {
   TestConfiguration,
   FakeFileInfo,
+  clearDiCache,
   FILES_DIR,
   FILES_FS,
   UPLOAD_DIR,
@@ -66,7 +67,7 @@ describe('ConfigFileUploads', function () {
   let uploads: ConfigFileUploads;
 
   before(async () => {
-    DI.clearCache();
+    clearDiCache();
 
     const fsBootstrapper = await DI.resolve(FsBootsrapper);
     fsBootstrapper.bootstrap();

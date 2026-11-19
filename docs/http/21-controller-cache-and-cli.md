@@ -10,7 +10,7 @@
 
 1. A controller without a real source file (`file` is `<di>` or `<dynamic>`) gets its parameter names from `Function.prototype.toString()` of each action; no documentation.
 2. Otherwise it takes the file, replaces `.js` with `.d.ts`, and hashes it with `FileHasher` (`@spinajs/fs`).
-3. The keys are `<package version>_<hash>` (parameters) and `doc_<package version>_<hash>` (documentation), in the `__fs_controller_cache__` provider.
+3. The keys are `<package version>_<hash>_<class name hash>` (parameters) and `doc_<package version>_<hash>_<class name hash>` (documentation), in the `__fs_controller_cache__` provider. The class name hash is the first 16 hex characters of the SHA-256 of the class name. Several controllers declared in one file each get their own pair of entries.
 4. A missing entry is generated: `ts.createSourceFile()` parses that one file, without the default lib or `@types` a `ts.Program` would load, finds the class **by name**, and walks its method declarations.
 5. It returns the parameter map `{ [method]: string[] }`.
 
@@ -28,6 +28,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 | method return type annotation | `returns.schema` (`Promise<T>`, `Ok<T>`, `Created<T>`, ... unwrapped to `T`) |
 | `@response 404 {string} message` | `responses['404']` |
 | `@body {LoginBody} description` | `body.type`, `body.description` |
+| `@produces text/csv` (repeatable) | `produces[]`, each value as written; `@spinajs/http-swagger` validates it |
 | `@example` with optional `<caption>` | `examples[]` |
 | `@tags`, `@tag`, `@category` | `tags` |
 | `@deprecated` | `deprecated: true` |
@@ -89,7 +90,7 @@ While developing controllers, rebuild from a watcher:
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `DefaultControllerCache` | Class `DefaultControllerCache`, `@Singleton()`, autoinjected into `Controllers`, the CLI command and `@spinajs/http-swagger` | `DefaultControllerCache` | none shipped | Subclass and `DI.register(Mine).as(DefaultControllerCache)` before `Controllers` resolves. Push into `tagExtractors` to read new JSDoc tags; override the public `getCache()`, `getDocumentation()` or `clear()` for another storage. |
-| `ITagExtractor` | entries of the public `tagExtractors` array | `param`, `returns`/`return`, `response`, `body`, `example`, `tags`/`tag`/`category`, `deprecated`, `summary`, `security` | | Add `{ tags: ['mytag'], extract(tag, ctx) {...} }`. The first extractor whose `tags` contains the tag name wins, so put an override before the built-in one with `unshift`. |
+| `ITagExtractor` | entries of the public `tagExtractors` array | `param`, `returns`/`return`, `response`, `body`, `produces`, `example`, `tags`/`tag`/`category`, `deprecated`, `summary`, `security` | | Add `{ tags: ['mytag'], extract(tag, ctx) {...} }`. The first extractor whose `tags` contains the tag name wins, so put an override before the built-in one with `unshift`. |
 | `FileHasher` | `@spinajs/fs` | `DefaultFileHasher` | | See [`@spinajs/fs`](../fs/README.md). |
 
 Helpers: `parseFnParamNames(fn)` (parameter names from a function's source) and `isOnDiskSource(file)` (false for `<...>` sentinels) are exported.

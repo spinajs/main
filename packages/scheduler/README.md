@@ -93,7 +93,7 @@ before the ORM boots; a `@Task` file first imported through
 |---|---|
 | `runId`, `schedule`, `trigger`, `attempt`, `scheduledAt`, `firedAt`, `params`, `triggeredBy` | identity |
 | `signal` | aborted on cancel, timeout, lease loss or shutdown; pass it to I/O |
-| `step(name, fn, { weight?, persistResult? })` | a named, timed, recorded step; resumed retries skip completed steps and return their stored result |
+| `step(name, fn, { weight?, persistResult? })` | a named, timed, recorded step; resumed retries skip completed steps and return their stored result. `getRun` returns the stored value as `steps[].result` and `steps[].resultStored` (false when no value was kept); `persistResult: false` keeps a value out of the database and the API |
 | `progress(0..100 \| { done, total, message? })` | progress of the current step, rolled up to the run; written at most every `progressFlush` ms |
 | `expectSteps(totalWeight)` | tells the roll-up the total step weight (else the last succeeded run's steps, else the steps seen so far) |
 | `message(text, level?)` | short status line on the run and step |
@@ -141,6 +141,56 @@ metric; a data-derived name such as `` `page-${i}` `` grows the series without b
 - `overlap: 'skip'` records a `skipped` run while one is in progress; `overlap: 'queue'` keeps one `queued` run behind it. A `run-once` / `catch-up` occurrence ignores `overlap`: it waits for the schedule lease.
 - `runOn: 'all'` schedules run on every replica from local timers: still recorded as runs, no lease. They ignore `misfire` (after a stall the stale occurrence runs once, then the next after now), do not catch up, and get **no automatic retries** (a `retry` option logs a boot warning). Pause and orphaning stop them from the next tick.
 
+### Occurrences missed while the application was down
+
+The stored next run survives a restart, so the loop's first tick handles what fell into the downtime. `misfire`
+decides by lateness only: `misfire: 'skip'` drops an occurrence the loop sees more than `misfireThreshold` late, so it
+covers a downtime longer than the threshold. An occurrence missed during a shorter restart (a deploy around the top
+of the hour) is less than `misfireThreshold` late and runs as usual. No threshold value avoids both: a larger one
+widens that window, and a smaller one also drops occurrences when a tick is a little late while the application runs.
+
+An application that runs its jobs once itself at start-up, after the pass has finished and before `start()`, marks
+what was due as handled:
+
+```ts
+const scheduler = await DI.resolve(Scheduler, [{ autoStart: false }]);
+await runStartupPass(); // your own pass: runNow + scheduler.runLocally(runId) + scheduler.idle() per job
+for (const name of ['import-rates', 'refresh-cache']) {
+  if (!(await scheduler.markHandled(name))) log.info(`${name}: nothing due to skip, or a loop already took it`);
+}
+scheduler.start();
+```
+
+`markHandled(name)` moves a due stored next run to the next occurrence after now, writes no run row, and logs one
+`info` line with the occurrence it dropped and the new next run. `misfire` stays as configured for later downtimes.
+It returns `true` when it moved the next run and `false` in two cases, which it does not tell apart:
+- Nothing was due. A next run still ahead is kept, on purpose, with no window: if the pass ran the job at 10:59:58,
+  the 11:00 occurrence still runs at 11:00.
+- A loop took the occurrence first: this process's loop if it was already started, or, during a rolling deploy, a
+  replica of the previous version that is still running. That job runs or has run in addition to your pass.
+
+The scheduler fires each occurrence at most once, because both writes are conditional on the stored next run; the
+application's own pass is not counted, so the job can run twice in the second case. An application that needs to
+know lists the scheduler's runs of the job since its pass started:
+
+```ts
+const service = await DI.resolve(SchedulerService);
+const passStartedAt = new Date(); // taken before runStartupPass()
+// ... after markHandled(name) returned false:
+const { items } = await service.listRuns({ schedule: name, trigger: ['schedule', 'catch-up'], from: passStartedAt });
+if (items.length) log.warn(`${name} also ran from the schedule: ${items.map((r) => r.id).join(', ')}`);
+```
+
+It refuses an unknown name
+(`ScheduleNotFound`). It moves the next run of a paused schedule the same way. A schedule with no further occurrence
+(a past `at`) is left with no next run. `runOn: 'all'` schedules store no next run and never catch up, so it is a
+no-op for them and returns `false`.
+
+Two existing mechanisms do not fit:
+- `misfire: 'skip'` decides by lateness, see above.
+- Pausing and resuming a schedule also moves a passed next run. But `resume` also clears an operator's pause or a
+  pause by failures, resets the failure count, and writes audit entries and a health signal.
+
 ## Retries and resume
 
 - `retry.attempts` is the total number of attempts. `backoff: 'fixed'` waits `delay` (default `1m`); `'exponential'` waits `delay × 2^(attempt-1)` with ±10 % jitter, capped by `maxDelay` (default `max(delay, 1h)`).
@@ -154,9 +204,34 @@ metric; a data-derived name such as `` `page-${i}` `` grows the series without b
 
 - `runNow` conflicts (`RunConflict`, 409 / exit 3) with a queued, running or `retrying` run of the schedule unless `force` is set. With `force` on an `overlap: 'skip'` schedule the run does not take the schedule lease and may overlap.
 - A manual run of a `runOn: 'all'` schedule runs once, on the first replica that is not running that schedule locally; it waits while every replica is busy with it.
+- `wait: true` waits until the run ends, so it needs a started loop in the calling process: without one `runNow` refuses at once with `SchedulerNotRunning` (an `InvalidOperation`, 409 / exit 3) and writes no run. When a replica elsewhere runs the loop, wait with `wait: { timeoutMs }`; the run goes on after the timeout. `@spinajs/scheduler-http` does that for `"wait": true`, bounded by `scheduler.http.runWaitTimeout`: 200 when the run ended, 202 with the run not finished yet (`queued`, `running`, `retrying` or `emitted`; `isTerminalStatus(run.status)` is false) when the time ran out.
 - Params are validated against the schedule's `params` schema; a schedule without one rejects any params.
 - `cancel` ends a `queued`, `retrying` or `emitted` run at once and flags a `running` one; its holder aborts on the next heartbeat. A cancelled run always ends `aborted` / `cancelled`, also when its holder died or it had gone `retrying`; it is neither counted in health nor grouped. A task that succeeds before it notices the cancel stays `succeeded`. Cancelling an `emitted` run does not recall its queue job.
 - `pause` stops scheduled firing; manual runs and retries still work. `pause --hard` also refuses `runNow`, `retry` and `retryFailed` (`SchedulePaused`, 409 / exit 3). `resume` clears either pause, resets the consecutive-failure count, and moves a past `NextRunAt` to the next occurrence.
+
+### Run a schedule once and wait
+
+At application start, once `DI.resolve(Scheduler)` has started the loop:
+
+```ts
+const service = await DI.resolve(SchedulerService);
+const { run } = await service.runNow('import-rates', {
+  triggeredBy: { kind: 'system', id: 'startup' },
+  wait: { timeoutMs: 30_000 },
+});
+// run.status is final, or 'queued' / 'running' / 'retrying' / 'emitted' when the timeout passed (isTerminalStatus(run.status) is false)
+```
+
+In a test, or in any process whose loop is not started (`autoStart: false`), the
+process claims and executes the run itself:
+
+```ts
+const scheduler = await DI.resolve(Scheduler, [{ replicaId: 'test', autoStart: false }]);
+const { runId } = await service.runNow('import-rates', { triggeredBy: { kind: 'system', id: 'test' } });
+await scheduler.runLocally(runId); // false when the run cannot be claimed here, e.g. the schedule is busy
+await scheduler.idle(); // every run this process executes has ended
+const run = await service.getRun(runId);
+```
 
 ## Error groups and health
 
@@ -233,6 +308,16 @@ Config form only; the definition shows the task as `Task:<name>`.
 - `ScheduleRunFailed` follows the health rule (failed, dead, timed-out abort); cancel, shutdown and lease loss send no failure event. `ScheduleDead` follows it. `ScheduleRetrying.Attempt` is the attempt that failed. An emit-mode run sends `ScheduleRunStarted` at dispatch and its final event when the mirror ends it; `ScheduleDead.Attempts` is then the queue's attempt count.
 - Sends start in this order: run event, regression, paused-by-failures; delivery order depends on the transport.
 - Events are fire-and-forget: a broker that is down or hangs never delays or fails a run. On shutdown pending sends get at most `min(shutdownGrace, 5 s)`. At most 10 000 sends wait at a time; beyond that new events are dropped with one warning.
+
+**Log lines** (logger `SCHEDULER`): a failed run (`failed`, `dead`, a timed-out abort) warns once per cause, the
+cause being its error group (the same fingerprint as `listErrors`). Until the schedule succeeds again, every later
+failure with a cause that already warned goes to `debug`, also when causes alternate. At most 32 causes are kept per
+schedule; past that a new cause logs at `debug` (nothing is evicted) until the schedule succeeds again. The first
+success after failures logs one `info` line, `schedule <name> succeeded again after <n> failure(s)`, counting failed
+runs. An attempt that will be retried logs at `debug`, so a retried run warns once, when it ends `dead`. A shutdown or
+cancel abort warns as before. A pause by failures forgets the causes but keeps the count, so the first failure after a
+resume warns again and the recovery line still follows. A job that fails every 15
+seconds for an hour writes one warning, not 240. The state is per process, so each replica warns once.
 
 **Metrics** (`@spinajs/telemetry-common`, rendered by `@spinajs/telemetry`'s
 `/metrics`): `scheduler_runs_total{name,status,trigger}`,
