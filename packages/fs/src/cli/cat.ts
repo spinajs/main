@@ -4,13 +4,13 @@ import { _read } from '../fp.js';
 import { ensureProviders } from './fs.js';
 
 interface CatOptions {
-  encoding: BufferEncoding;
+  encoding?: BufferEncoding;
 }
 
 @Command('fs-cat', 'Prints content of a file to the console')
 @Argument('fs', true, 'Name of filesystem to use')
 @Argument('path', true, 'Path to file ( relative to selected fs base dir )')
-@Option('-e, --encoding <encoding>', false, 'Encoding used to read the file', 'utf-8')
+@Option('-e, --encoding <encoding>', false, 'Decode the file with this encoding and print it as UTF-8; without it the bytes are written unchanged')
 export class FsCatCommand extends CliCommand {
   @Logger('fs')
   protected Log: Log;

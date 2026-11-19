@@ -9,7 +9,7 @@ The package ships `spinajs fs-*` commands that run any provider operation from a
 3. The `spinajs` binary runs every `Bootstrapper`, `FsBootstrapper` included, and boots the configuration.
 4. Each command calls `ensureProviders()`: it resolves `fsService` when the `'__file_provider_instance__'` map does not exist yet.
 5. The command calls the matching helper or provider method, eg. `fs-cp` calls `_copy(src, dst, fs, dstFs)`.
-6. A command that answers a question (`fs-describe`, `fs-ls`, `fs-stat`, `fs-cat`, `fs-exists`, `fs-hash`, `fs-info`, `fs-download`) prints the answer on stdout: `fs-cat` the file content decoded with `--encoding` (default `utf-8`, so a binary file does not survive), `fs-ls` one entry per line, `fs-info` one JSON document, `fs-download` the local path alone. Headers such as `2 entries in incoming ( fs: uploads ):` and the confirmations of the other commands go to the `fs` logger, which the `spinajs` bin sends to stderr. Errors are logged with `Log.error` and **not** rethrown; the command sets `process.exitCode` to `1`.
+6. A command that answers a question (`fs-describe`, `fs-ls`, `fs-stat`, `fs-cat`, `fs-exists`, `fs-hash`, `fs-info`, `fs-download`) prints the answer on stdout: `fs-cat` the file's bytes unchanged (or, with `--encoding`, the decoded content as UTF-8), `fs-ls` one entry per line, `fs-info` one JSON document, `fs-download` the local path alone. Headers such as `2 entries in incoming ( fs: uploads ):` and the confirmations of the other commands go to the `fs` logger, which the `spinajs` bin sends to stderr. Errors are logged with `Log.error` and **not** rethrown; the command sets `process.exitCode` to `1`.
 
 ## Commands
 
@@ -18,7 +18,7 @@ The package ships `spinajs fs-*` commands that run any provider operation from a
 | `fs-describe` | | | Lists every provider and its class. |
 | `fs-ls` | `<fs> [path]` | | Lists a directory; `path` defaults to `/`. |
 | `fs-stat` | `<fs> <path>` | | Prints type, size and the three dates. |
-| `fs-cat` | `<fs> <path>` | `-e, --encoding <encoding>` (default `utf-8`) | Prints a file. |
+| `fs-cat` | `<fs> <path>` | `-e, --encoding <encoding>` | Prints a file. Without `-e` it writes the bytes unchanged, so `> file` in a POSIX shell, cmd.exe or PowerShell 7 copies any file, binary ones included. Windows PowerShell 5.1 re-encodes redirected output (as UTF-16 with a byte-order mark); there use `cmd /c "spinajs fs-cat <fs> <path> > file"` or `fs-download`. With `-e` it decodes the content with that encoding and prints it as UTF-8. |
 | `fs-exists` | `<fs> <path>` | | Prints whether the path exists. |
 | `fs-hash` | `<fs> <path>` | `-a, --algo <algo>` | Prints the file digest. |
 | `fs-info` | `<fs> <path>` | | Prints `metadata()` as JSON. |

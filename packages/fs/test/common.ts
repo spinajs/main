@@ -23,11 +23,11 @@ export function dir(path: string) {
 }
 
 /** Runs a command as the spinajs bin does: log lines on stderr, the two streams captured apart. */
-export async function captureStdio(run: () => Promise<unknown>): Promise<{ stdout: string; stderr: string }> {
-  const out: string[] = [];
-  const err: string[] = [];
-  const capture = (into: string[]) => (chunk: string | Uint8Array) => {
-    into.push(String(chunk));
+export async function captureStdio(run: () => Promise<unknown>): Promise<{ stdout: string; stderr: string; stdoutBytes: Buffer }> {
+  const out: Buffer[] = [];
+  const err: Buffer[] = [];
+  const capture = (into: Buffer[]) => (chunk: string | Uint8Array) => {
+    into.push(typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : Buffer.from(chunk));
     return true;
   };
 
@@ -43,7 +43,7 @@ export async function captureStdio(run: () => Promise<unknown>): Promise<{ stdou
     setLogStdoutStream('stdout');
   }
 
-  return { stdout: out.join(''), stderr: err.join('') };
+  return { stdout: Buffer.concat(out).toString('utf-8'), stderr: Buffer.concat(err).toString('utf-8'), stdoutBytes: Buffer.concat(out) };
 }
 
 @Singleton()
