@@ -12,7 +12,7 @@
    1. common files: `**/!(*.*).{cjs,js}` or `**/!(*.*).json`, file names with no dot before the extension;
    2. environment files: `**/*.<env>.{cjs,js}` or `**/*.<env>.json`.
 3. **`load(extension, callback)`** resolves relative directories against `BasePath`, globs each directory recursively, removes duplicate paths, runs `callback` on each file in parallel and deep-merges the results in directory order. A module's `default` export is used when present.
-4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Both add `__file__: [path]` to every top-level object.
+4. **Per file.** `JsFileSource` imports the module with `DI.__spinajs_require__()`, calls its `onConfigLoad(cfg)` when it exports one and uses the returned object. `JsonFileSource` reads and parses the file. Neither adds keys to the loaded objects.
 5. The environment result is merged over the common result and returned to the configuration.
 
 A file that fails to import or parse fails the load. `Load()` rejects with an `InvalidConfiguration` whose message names the file and the original error; the original error is its `cause`. `DI.resolve(Configuration)` rejects with it, so the application does not start on a half-loaded configuration. A reload (`configuration.load()`) throws the same error and keeps the tree it had.

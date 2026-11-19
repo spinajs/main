@@ -141,6 +141,25 @@ async function main() {
 void main();
 ```
 
+### Schemas: refuse unknown keys
+
+`additionalProperties: false` does not fail the boot: with `removeAdditional: true` the validator deletes the unknown key and the module passes. To make a typo an error, list the allowed keys with `propertyNames`:
+
+```ts
+export const PUMP_SCHEMA = {
+  $id: 'app/pump.configuration.schema.json',
+  $configurationModule: 'pump',
+  type: 'object',
+  propertyNames: { enum: ['host', 'port'] },
+  properties: {
+    host: { type: 'string' },
+    port: { type: 'integer', default: 502 },
+  },
+};
+```
+
+A config file with `pump: { host: 'pump.local', prot: 503 }` fails the boot with `pump.prot property name is invalid: must be equal to one of the allowed values`. List only the keys you set yourself: the file sources add nothing to a loaded module.
+
 ### Validator: add a keyword
 
 ```ts sample
@@ -178,8 +197,7 @@ void main();
 
 ## Important behaviour
 
-- Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
-- **A validated module never holds a non-finite number.** A string that coerces to one (`'Infinity'`, `'-Infinity'`, `'1e999'`, often an environment variable) is a violation at its path with the message `must be a finite number`; Ajv alone would accept it and skip `minimum`, `maximum` and every other number rule. The check walks the whole validated module, so a literal `Infinity` or `NaN` a JS config file puts under a key the schema does not type is refused too. `ConfigVar`s the schema does not read are not loaded for it. The walk is `findNonFinite()`, the same one `@spinajs/validation` runs on request data.
+- Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`. Use `propertyNames` to refuse them instead (see [Schemas: refuse unknown keys](#schemas-refuse-unknown-keys)).
 - A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - A refused first boot prints its violations to the console before the resolve rejects (when the root `Configuration` and a `__log__` logger are already up, as for a later child configuration, they go to that logger instead), so they appear even when the entry point calls `process.exit()` in its `catch`. Without the `InternalLogger` bootstrapper run first, nothing is printed and only the thrown `InvalidConfiguration` carries them.
