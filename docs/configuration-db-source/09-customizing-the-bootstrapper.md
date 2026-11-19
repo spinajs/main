@@ -1,6 +1,6 @@
 # Customizing the bootstrapper
 
-`DbConfigSourceBotstrapper` writes exposed options and runs the watch poll. Subclass it to run its queries in another authz domain, or to act after each poll; resolve the bound instance to trigger a poll on demand.
+`DbConfigSourceBotstrapper` writes exposed options and runs the watch poll. Subclass it to run its queries in another authz domain, or to act after each poll; listen to `configuration.db.changed` to act on a changed value; resolve the bound instance to trigger a poll on demand.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Members meant for subclasses and callers:
 | `bootstrap()` | public method | subscribes to DI events | Override and call `super.bootstrap()` to add your own setup. |
 | `unbind()` | public method | removes the DI subscriptions of `bootstrap()`; `di.dispose` calls it | Call it to stop syncing without disposing the container. |
 | `whenSwept()` | public method | settles once the sweep of exposed options, started by a `di.resolved.Orm` or `orm.migrated` signal, has written its rows or failed; at once when no signal came since `bootstrap()` | Await it in a test before reading the rows of exposed options. |
-| `refreshWatched()` | public method | one poll of the rows whose `Watch` column is set | Call it to apply database changes now; override and call `super` to act after each poll. |
+| `refreshWatched()` | public method | one poll of the rows whose `Watch` column is set; emits `configuration.db.changed` `(slug, previous, next)` on the root container for each value it changed | Call it to apply database changes now; listen to the event to act on a change, or override and call `super` to act after each poll. |
 | `Converter` | protected `DbConfigValueConverter`, `@Autoinject` | the DI singleton | Read in a subclass; replace it through DI, see [Custom value converter](08-custom-value-converter.md). |
 
 The insert, metadata sync and timer methods are `private`: a subclass cannot change them.
@@ -67,6 +67,8 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 - Set `authzDomain` as a property initializer, so it is in place before `bootstrap()` runs any query.
 - Call `refreshWatched()` right after your code changes a watched row; the next timer tick then finds nothing to do.
 - Keep subclass work in `refreshWatched()` short: the next tick is scheduled only after it settles.
+- Keep `configuration.db.changed` listeners short: they run inside the poll, before the next row is applied. Start async work without awaiting it and end it with a `.catch()`.
+- Read `previous` and `next`; do not mutate them. An object value is the one the configuration holds, so copy it to keep it.
 
 ## Patterns and antipatterns
 
@@ -80,57 +82,55 @@ DI.unregister(DbConfigSourceBotstrapper);
 const stale = await DI.resolve(DbConfigSourceBotstrapper);
 
 // Do: resolve the class that is registered, the singleton the bootstrap phase ran
-const bound = await DI.resolve(NotifyingDbConfigBootstrapper); // or DbConfigSourceBotstrapper when no subclass replaced it
+const bound = await DI.resolve(PlatformDbConfigBootstrapper); // or DbConfigSourceBotstrapper when no subclass replaced it
 await bound.refreshWatched();
 ```
 
 ## Examples
 
-### Rebuild the mail transport after a poll
+### Rebuild the mail transport after the SMTP host changed
 
-The SMTP host is a watched option. The transport keeps an open connection, so it has to be rebuilt when the host changes. The subclass emits a DI event after every poll; the mailer compares the host and rebuilds.
+The SMTP host is a watched option. The transport keeps an open connection, so it has to be rebuilt when the host changes. No subclass is needed: the poll emits `configuration.db.changed` for every value it changed, and the mailer reconnects when its slug comes by.
 
 ```ts sample
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { DbConfigSourceBotstrapper } from '@spinajs/configuration-db-source';
+import { CONFIGURATION_DB_CHANGED_EVENT } from '@spinajs/configuration-db-source';
+import { Log, Logger } from '@spinajs/log-common';
 
-@Injectable(Bootstrapper)
-export class NotifyingDbConfigBootstrapper extends DbConfigSourceBotstrapper {
-  public async refreshWatched(): Promise<void> {
-    await super.refreshWatched();
-    DI.emit('configuration.db.refreshed');
-  }
-}
-
-DI.unregister(DbConfigSourceBotstrapper);
-DI.register(NotifyingDbConfigBootstrapper).as(DbConfigSourceBotstrapper);
+const SMTP_HOST = 'mailer.smtpHost';
 
 export class Mailer {
-  @Config('mailer.smtpHost', {
+  @Config(SMTP_HOST, {
     defaultValue: 'localhost',
     expose: true,
     exposeOptions: { type: 'string', group: 'mailer', label: 'SMTP host', watch: true },
   })
   protected SmtpHost: string;
 
+  @Logger('mailer')
+  protected Log: Log;
+
   private connectedHost = '';
 
-  public start(): void {
-    this.connect();
-    DI.on('configuration.db.refreshed', () => {
-      if (this.SmtpHost !== this.connectedHost) {
-        this.connect();
+  public async start(): Promise<void> {
+    await this.connect(this.SmtpHost);
+    DI.on(CONFIGURATION_DB_CHANGED_EVENT, (slug: unknown, _previous: unknown, next: unknown) => {
+      if (slug === SMTP_HOST && typeof next === 'string') {
+        // the poll does not await listeners: an async one catches its own rejection
+        this.connect(next).catch((err: unknown) => this.Log.error({ error: err }, 'Reconnecting to the SMTP host failed'));
       }
     });
   }
 
-  private connect(): void {
-    this.connectedHost = this.SmtpHost;
+  private async connect(host: string): Promise<void> {
+    this.connectedHost = host;
     // open the SMTP connection to this.connectedHost here
   }
 }
 ```
+
+The listener types its parameters as `unknown` and narrows them, so it compiles under `strict` against `DI.on`'s `(...args: unknown[]) => void`. A listener that throws is logged and does not stop the poll, but the listeners registered after it miss that change: keep the listener's own failures inside it. The poll does not await a listener either: a promise one returns is dropped, so an async listener, such as one that journals the change in a database, must catch its own rejection, or it becomes an unhandled rejection that ends a Node process by default.
 
 ## Related
 
