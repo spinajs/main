@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { symbolMarker } from '../markers.js';
 import { isModelType } from '../model-members.js';
 
 export interface QueryValue {
@@ -94,11 +95,20 @@ function copy(value: QueryValue, node: ts.Node, shape: QueryValue['shape'] = val
   return { node, model: value.model, populated: new Set(value.populated), scoped: { ...value.scoped }, shape };
 }
 
-function applyCalls(value: QueryValue, calls: Chain['calls']): void {
+export function memberMarker(checker: ts.TypeChecker, call: ts.CallExpression, role: string): string | undefined {
+  return ts.isPropertyAccessExpression(call.expression) ? symbolMarker(checker, checker.getSymbolAtLocation(call.expression.name), role) : undefined;
+}
+
+export function scopeOf(checker: ts.TypeChecker, call: ts.CallExpression): 'accessible' | 'unscoped' | undefined {
+  const marker = memberMarker(checker, call, 'authz-scope');
+  return marker === 'accessible' || marker === 'unscoped' ? marker : undefined;
+}
+
+function applyCalls(checker: ts.TypeChecker, value: QueryValue, calls: Chain['calls']): void {
   for (const { name, call } of calls) {
     if (name === 'populate') populatedPaths(call).forEach((path) => value.populated.add(path));
-    if (name === 'accessible') value.scoped.accessible = true;
-    if (name === 'unscoped') value.scoped.unscoped = true;
+    const scope = scopeOf(checker, call);
+    if (scope !== undefined) value.scoped[scope] = true;
   }
 }
 
@@ -153,7 +163,7 @@ export class QueryTracer {
     const base = model ? fresh(model, e) : this.builderAt(chain.root);
     if (!base) return undefined;
     const value = copy(base, e);
-    applyCalls(value, chain.calls);
+    applyCalls(this.checker, value, chain.calls);
     return { value, pending: true };
   }
 
@@ -193,7 +203,7 @@ export class QueryTracer {
   protected extendBuilder(expr: ts.Expression): void {
     const chain = chainOf(expr);
     const builder = chain ? this.builderAt(chain.root) : undefined;
-    if (chain && builder) applyCalls(builder, chain.calls);
+    if (chain && builder) applyCalls(this.checker, builder, chain.calls);
   }
 }
 
