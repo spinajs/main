@@ -54,6 +54,12 @@ const config = {
         // probe endpoints must be reachable without credentials
         health: 'PublicPolicy',
         ready: 'PublicPolicy',
+
+        /**
+         * Not a route: who sees the probes' detail, the process fields of /telemetry/health and each
+         * check's `data.error` on /telemetry/ready. Everyone else gets the status only.
+         */
+        probeDetail: 'AccessPolicy',
       },
 
       /** A permission, or a list of which any one admits, per 'AccessPolicy' endpoint. */
@@ -63,6 +69,7 @@ const config = {
         timeline: 'telemetry:read',
         routes: 'telemetry:read',
         perf: 'telemetry:read',
+        probeDetail: 'telemetry:read',
       },
     },
 
@@ -105,14 +112,14 @@ const config = {
       timeoutMs: 2000,
       /** When true a degraded overall status returns 503 rather than 200. */
       failOnDegraded: false,
-      /** Reported by /telemetry/health. Omitted from the response when unset. */
+      /** Reported by /telemetry/health to a caller that sees the probe detail. Omitted when unset. */
       version: undefined as string | undefined,
     },
   },
 
   authz: {
     permissions: {
-      'telemetry:read': { description: 'Read the telemetry endpoints: /metrics, /telemetry/stats, timeline, routes and perf' },
+      'telemetry:read': { description: 'Read the telemetry endpoints: /metrics, /telemetry/stats, timeline, routes and perf, and the detail of /telemetry/health and /telemetry/ready' },
     },
     // Unread unless the app loads @spinajs/authz-rbac.
     rbac: {

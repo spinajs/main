@@ -19,13 +19,14 @@ Two controllers serve the telemetry HTTP API: `MetricsController` at `/metrics` 
 | `GET /telemetry/timeline?buckets=N` | `timeline` | 200 | 400, 401, 403 | `TimelineResponse`: `{ bucketMs, length, buckets: [{ key, from, to, stats }] }`, ascending by key |
 | `GET /telemetry/routes` | `routes` | 200 | 401, 403 | `RoutesResponse`: `{ truncated, routes: [{ method, route, stats }] }` |
 | `GET /telemetry/perf` | `perf` | 200 | 401, 403 | `PerfResponse`: `{ truncated, spans, events }` |
-| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up', startedAt, uptimeMs, pid, node, version? }` |
-| `GET /telemetry/ready` | `ready` | 200 | 503 | `ReadyResponse`: `{ status, checks: [{ name, status, durationMs, message?, data? }] }` |
+| `GET /telemetry/health` | `health` | 200 | none by default | `HealthResponse`: `{ status: 'up' }`; with the probe detail also `startedAt, uptimeMs, pid, node, version?` |
+| `GET /telemetry/ready` | `ready` | 200 | 503 | `ReadyResponse`: `{ status, checks: [{ name, status, durationMs, message?, data? }] }`; `data.error` only with the probe detail |
 
 - 401: no principal; with the defaults, no valid scrape token in `x-metrics-token` or `Authorization: Bearer`.
 - 403: a principal without the slot's permission. The body names the permission (`{ error: 'forbidden', permission: 'telemetry:read', ... }`).
 - 400: `buckets` is present and not a positive integer; message `buckets must be a positive integer`.
 - 503: the readiness report is failing; the body is still the report.
+- The probe detail: shown to a caller the `telemetry.auth.policies.probeDetail` slot admits, by default one holding `telemetry:read`. See [Health and readiness](08-health-and-readiness.md).
 
 `/metrics` stays at the bare path, not under `/telemetry`, because existing `scrape_configs` point there.
 
