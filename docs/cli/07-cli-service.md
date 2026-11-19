@@ -99,7 +99,7 @@ export async function main(): Promise<void> {
 
 ## Run the CLI from your own entry point
 
-The `spinajs` bin registers its argv provider, runs bootstrappers, resolves `Configuration` and then `Cli`, in that order. Your own bin does the same, and can add registrations in between: a `Cli` subclass, a replacement for a shipped command ([Commands](02-commands.md#clicommand-replace-a-shipped-commands-behaviour)), test doubles, a resolved `Intl`.
+The `spinajs` bin registers its argv provider, runs bootstrappers, resolves `Configuration`, runs the bootstrappers registered while it booted ([Who runs bootstrappers](../di/10-service-lifecycle.md#who-runs-bootstrappers)) and then resolves `Cli`, in that order. Your own bin does the same, and can add registrations in between: a `Cli` subclass, a replacement for a shipped command ([Commands](02-commands.md#clicommand-replace-a-shipped-commands-behaviour)), test doubles, a resolved `Intl`.
 
 ```ts sample
 #!/usr/bin/env node
@@ -127,11 +127,24 @@ async function acme(): Promise<void> {
     return out;
   }).as('__cli_argv_provider__');
 
-  try {
-    for (const b of DI.resolve(Array.ofType(Bootstrapper))) {
-      await b.bootstrap();
+  // Twice, as the spinajs bin does: modules imported by config files register bootstrappers too.
+  const ran = new Set<object>();
+  const runPendingBootstrappers = async () => {
+    for (let found = true; found; ) {
+      found = false;
+      for (const b of DI.resolve(Array.ofType(Bootstrapper))) {
+        if (ran.has(b.constructor)) continue;
+        ran.add(b.constructor);
+        found = true;
+        await b.bootstrap();
+      }
     }
+  };
+
+  try {
+    await runPendingBootstrappers();
     await DI.resolve(Configuration);
+    await runPendingBootstrappers();
     await DI.resolve(Cli);
     process.exit(process.exitCode ?? 0);
   } catch (err) {

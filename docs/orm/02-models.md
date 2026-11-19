@@ -287,8 +287,10 @@ updateModelDescriptor(Invoice, (d) => {
   `Columns` and is written on insert.
 - `model.archive()` does not check that `@Archived()` was declared. Call it only on models that
   declare it.
-- A model that never got `@Model()` is not in `Orm.Models`. Its static methods (`get`, `where`,
-  `select`, ...) throw `Not implemented`, and it receives no table columns.
+- A model that never got `@Model()`, or whose module was imported after the `Orm` resolved, is not
+  in `Orm.Models`. Its static methods (`get`, `where`, `select`, ...) throw an `OrmException`
+  naming the model (`Model <Name> is not bound to the Orm ...`), and it receives no table columns.
+  The `Orm` never binds a model registered after it resolved.
 - `@Connection('default')` targets the connection named by `db.DefaultConnection`, when that key is set.
 
 ## Best practices

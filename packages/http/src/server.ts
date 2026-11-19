@@ -1,5 +1,5 @@
 import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fsNative, getFs, IFsLocalOptions } from '@spinajs/fs';
 import { Templates } from '@spinajs/templates';
@@ -14,9 +14,12 @@ import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
+import { isMounted } from './static-entry.js';
+import { bodyParserErrors } from './body-parser-errors.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
+import './middlewares/MalformedPath.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
 import './middlewares/NotFound.js';
@@ -112,6 +115,12 @@ export class HttpServer extends AsyncService {
 
     await super.resolve();
 
+    if (this._listenPath() !== undefined && this.HttpConfig.host) {
+      throw new InvalidConfiguration(
+        `http.host (${this.HttpConfig.host}) cannot be combined with a pipe or socket path in http.port (${this.HttpConfig.port}): remove one of them`,
+      );
+    }
+
     this.Express = Express();
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
@@ -136,6 +145,7 @@ export class HttpServer extends AsyncService {
       this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
       this.use(m);
     });
+    this.use(bodyParserErrors());
 
     // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
     // applied through the standard `Middlewares.before()` loop below).
@@ -216,7 +226,9 @@ export class HttpServer extends AsyncService {
   private _serverStaticFiles() {
     // uniqBy Path — Static entries are objects, so plain _.uniq (reference
     // equality) would never dedupe two config entries pointing at the same dir.
-    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
+    // Disabled entries are dropped before the dedupe, so one cannot hide an enabled entry for the same path.
+    const enabled = (this.HttpConfig.Static ?? []).filter(isMounted);
+    _.uniqBy(enabled, (s) => s.Path).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
         return;
@@ -258,25 +270,38 @@ export class HttpServer extends AsyncService {
       this._afterAttached = true;
     }
 
+    const { port, host } = this.HttpConfig;
+    const path = this._listenPath();
+    const where = path !== undefined ? '${port}' : host ? '${host}:${port}' : 'port ${port} on all interfaces';
+
     await new Promise<void>((res, rej) => {
       // .once, removed on success, so repeated start()/restart never accumulates
       // 'error' listeners on the reused server object.
       const onError = (err: any) => {
         if (err.code === 'EADDRINUSE') {
-          this.Log.error({ port: this.HttpConfig.port }, '----- Port ${port} is busy -----');
+          this.Log.error({ port, host }, `----- ${where} is busy -----`);
         }
         rej(err);
       };
       this.Server.once('error', onError);
 
-      this.Server.listen(this.HttpConfig.port, () => {
+      this.Server.listen(path !== undefined ? { path } : { port, host }, () => {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
-        this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
+        this.Log.info({ port, host }, `Server started at ${where}`);
         res();
       });
     });
+  }
+
+  /**
+   * Node's own rule ( net isPipeName ): a string port that is not a number is a named pipe or Unix socket path,
+   * which is how iisnode or a process manager hands over the endpoint.
+   */
+  private _listenPath(): string | undefined {
+    const port = this.HttpConfig.port;
+    return typeof port === 'string' && !(Number(port) >= 0) ? port : undefined;
   }
 
   /**

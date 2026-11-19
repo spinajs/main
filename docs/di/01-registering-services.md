@@ -8,7 +8,7 @@ A registration tells the container which class, factory or value to hand out for
 2. A `Binder` method stores the registration:
    - `as(key)` and `asSelf()` add the implementation to the container's `Registry` under the key's name.
    - `asValue(key)` and `asMapValue(key, hashKey)` put the object straight into the container's cache; see [Values and value maps](09-values-and-value-maps.md).
-3. `Registry.register()` throws `InvalidOperation` for anything that is not a class, a function or an object. Under one key it keeps a list: a class already in the list (same name) is not added twice; a factory is always appended.
+3. `Registry.register()` throws `InvalidOperation` for anything that is not a class, a function or an object. Under one key it keeps a list: a class already in the list is not added twice; a different class with the same name as one in the list throws `BindException`, unless its source text is identical (then it is skipped, see below); a factory is always appended.
 4. The binder emits `di.registered.<ImplementationName>` and `di.registered.<KeyName>` on the container; see [Container events](12-container-events.md).
 5. Nothing is built yet. The first `resolve()` of the key builds the instance; see [Resolving services](02-resolving-services.md).
 
@@ -18,7 +18,10 @@ A registration tells the container which class, factory or value to hand out for
 
 - A class key is the class name (`Clock` → `'Clock'`). A string key is used as is.
 - An anonymous class gets a generated name, `AnonymousClass#<n>`, pinned to that constructor.
-- Two different classes with the same name share one key, one registry list and one cache entry. The second resolves to the first one's instance.
+- Two different classes with the same name and different source cannot both be registered under one key in one container. Every `@Injectable` class is registered under its own name, so two of them with one name always meet. The second registration throws `BindException` with the key and the place where the two sources differ, eg. two packages that each ship `@Injectable() class SystemClock`. Rename one; to replace a registered class on purpose, give the new class another name and register it as the old one: `DI.register(NewSystemClock).as(SystemClock)`.
+- Two classes with the same name and **identical source text** are taken for the same class loaded twice (a linked checkout, an install in two places) and are merged silently, as before: the second registration is skipped and the key keeps resolving to the first class. This covers a real second copy, and also two different classes such as `class Repository extends Base {}` in two packages, whose text is the same even when `Base` is not. A copy whose source differs, eg. another version of the package, counts as a different class and throws.
+- A class registered in a child container may have the name of a class registered in its parent: each container keeps its own registry; see [Child containers](05-child-containers.md).
+- Classes that are resolved without being registered are not checked: two of them with the same name still share one cache entry.
 
 ### Which registration wins
 
@@ -136,9 +139,10 @@ const orders = DI.resolve(Orders);
 ```
 
 ```ts
-// Don't: two classes named `Repository` in different modules share one cache entry
-export class Repository {} // users/repository.ts
-export class Repository {} // orders/repository.ts
+// Don't: the second `@Injectable()` throws BindException, two different classes cannot share the name `Repository`
+@Injectable() export class Repository { table = 'users'; } // users/repository.ts
+@Injectable() export class Repository { table = 'orders'; } // orders/repository.ts
+// An empty `class Repository {}` in both files would not throw: identical source is taken for one class
 
 // Do: give every injectable class a unique name
 export class UserRepository {}

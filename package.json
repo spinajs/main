@@ -23,6 +23,7 @@
     "deps:baseline": "depcruise packages --config .dependency-cruiser.cjs --output-type baseline --output-to .dependency-cruiser-known-violations.json",
     "knip": "knip",
     "check:packages": "node scripts/check-packages.mjs",
+    "check:di-names": "node scripts/check-di-names.mjs",
     "prepare": "node scripts/install-hooks.mjs",
     "link": "powershell -NoProfile -ExecutionPolicy Bypass -File link-all.ps1",
     "link:sh": "bash link-all.sh"
