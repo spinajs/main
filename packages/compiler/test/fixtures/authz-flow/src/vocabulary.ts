@@ -120,6 +120,9 @@ export class Vocabulary {
     q.clone().accessible('invoice:read');
     return await q.all();
   }
+  async fixedModel(q: FixedInvoices) {
+    return await q.all();
+  }
   overriddenClone(q: Paged<InvoiceModel[]>) {
     q.clone().accessible('invoice:read');
     return q;
