@@ -1,6 +1,6 @@
 # Customizing the bootstrapper
 
-`DbConfigSourceBotstrapper` writes exposed options and runs the watch poll. Subclass it to run its queries in another authz domain, or to act after each poll; resolve it to trigger a poll on demand.
+`DbConfigSourceBotstrapper` writes exposed options and runs the watch poll. Subclass it to run its queries in another authz domain, or to act after each poll; resolve the bound instance to trigger a poll on demand.
 
 ## How it works
 
@@ -8,12 +8,13 @@
 2. The app resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each. `DbConfigSourceBotstrapper.bootstrap()` registers the config schema and subscribes to `di.registered.__configuration_property__`, `di.resolved.Orm` and `orm.migrated`, until `di.dispose` or `unbind()`. See [Exposing options](02-exposing-options.md).
 3. `DI.resolve(DbConfigSourceBotstrapper)` returns that same instance, so you can call its public members later.
 4. A subclass registered with `@Injectable(Bootstrapper)` joins the list. `DI.unregister(DbConfigSourceBotstrapper)` removes the base class, so only the subclass subscribes.
+5. After that unregister, nothing is registered under `DbConfigSourceBotstrapper` any more: `DI.resolve(DbConfigSourceBotstrapper)` builds a new instance that never ran `bootstrap()`, has no watch timer and writes into whatever `Configuration` DI holds. The bound instance is the subclass: resolve it by its own class, `DI.resolve(PlatformDbConfigBootstrapper)`. To keep code that resolves the base class working, also register the subclass under it: `DI.register(PlatformDbConfigBootstrapper).as(DbConfigSourceBotstrapper)`.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Exposing bootstrapper | `Bootstrapper` list (`Array.ofType`), singleton; also resolvable as `DbConfigSourceBotstrapper` | `DbConfigSourceBotstrapper` | none | Subclass + `@Injectable(Bootstrapper)` + `DI.unregister(DbConfigSourceBotstrapper)`, before bootstrappers are resolved. |
+| Exposing bootstrapper | `Bootstrapper` list (`Array.ofType`), singleton; also resolvable as `DbConfigSourceBotstrapper` while the base class, or a subclass registered `.as(DbConfigSourceBotstrapper)`, is the one registered | `DbConfigSourceBotstrapper` | none | Subclass + `@Injectable(Bootstrapper)` + `DI.unregister(DbConfigSourceBotstrapper)`, before bootstrappers are resolved; add `DI.register(Subclass).as(DbConfigSourceBotstrapper)` when code resolves the base class. |
 
 Members meant for subclasses and callers:
 
@@ -47,6 +48,8 @@ export class PlatformDbConfigBootstrapper extends DbConfigSourceBotstrapper {
 }
 
 DI.unregister(DbConfigSourceBotstrapper);
+// code that resolves DbConfigSourceBotstrapper now gets this subclass, the instance the bootstrap phase ran
+DI.register(PlatformDbConfigBootstrapper).as(DbConfigSourceBotstrapper);
 ```
 
 The `platform` domain's `AuthzService` must be resolved by the host: for a domain other than `root` there is no 15 s fallback, so the queries wait until it is.
@@ -55,6 +58,7 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 
 - **Two bootstrappers mean double work.** Without `DI.unregister(DbConfigSourceBotstrapper)`, both instances subscribe: every exposed option is inserted twice (the second is ignored) and two watch timers poll.
 - **`bootstrap()` must run once.** Each call adds another pair of DI listeners.
+- **The base class is not the bound instance once it is replaced.** After `DI.unregister(DbConfigSourceBotstrapper)`, `DI.resolve(DbConfigSourceBotstrapper)` builds a separate instance; `refreshWatched()` and `whenSwept()` on it do not reach the bootstrapper that runs the timer, and its queries run in the authz domain `root`, not the subclass's. Resolve the subclass, or register it `.as(DbConfigSourceBotstrapper)`.
 - **`refreshWatched()` before `Orm` resolves does nothing useful.** The `DbConfig` model is not ready until then: the poll logs `Failed to refresh watched config values from db` and changes nothing.
 - **`refreshWatched()` never throws.** Database errors are logged and the method returns.
 
@@ -71,9 +75,13 @@ The `platform` domain's `AuthzService` must be resolved by the host: for a domai
 const poller = new DbConfigSourceBotstrapper();
 await poller.refreshWatched();
 
-// Do: use the singleton the bootstrap phase ran
-const poller = await DI.resolve(DbConfigSourceBotstrapper);
-await poller.refreshWatched();
+// Don't, once a subclass replaced the base class without the .as(DbConfigSourceBotstrapper) registration: this builds another fresh instance
+DI.unregister(DbConfigSourceBotstrapper);
+const stale = await DI.resolve(DbConfigSourceBotstrapper);
+
+// Do: resolve the class that is registered, the singleton the bootstrap phase ran
+const bound = await DI.resolve(NotifyingDbConfigBootstrapper); // or DbConfigSourceBotstrapper when no subclass replaced it
+await bound.refreshWatched();
 ```
 
 ## Examples
@@ -96,6 +104,7 @@ export class NotifyingDbConfigBootstrapper extends DbConfigSourceBotstrapper {
 }
 
 DI.unregister(DbConfigSourceBotstrapper);
+DI.register(NotifyingDbConfigBootstrapper).as(DbConfigSourceBotstrapper);
 
 export class Mailer {
   @Config('mailer.smtpHost', {
