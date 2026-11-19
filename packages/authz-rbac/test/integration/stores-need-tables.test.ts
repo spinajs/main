@@ -36,6 +36,8 @@ async function processRun(c: Case): Promise<Record<string, unknown>> {
     "import { AUTHZ_CONFIGURATION_SCHEMA, AuthzService, GLOBAL } from '@spinajs/authz';",
     "import { MemoryAdminAssignmentStore, MemoryLinkStore } from '@spinajs/authz-rbac';",
     'class Config extends FrameworkConfiguration {',
+    // The test is written against no package config; the file sources would load every installed @spinajs package's.
+    '  loadSources() { this.Sources = []; }',
     '  async resolve() {',
     '    await super.resolve();',
     `    this.Config.db = { DefaultConnection: 'app', Connections: [{ Name: 'app', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_TABLES_DB }], ...${JSON.stringify(c.db)} };`,

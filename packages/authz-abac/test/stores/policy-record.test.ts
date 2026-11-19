@@ -124,7 +124,9 @@ describe('authz-abac: requirePolicyTransaction in a process that has not resolve
       "import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';",
       "import { requirePolicyTransaction } from '@spinajs/authz-abac';",
       "DI.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');",
-      'DI.register(FrameworkConfiguration).as(Configuration);',
+      // The test is written against no package config; the file sources would load every installed @spinajs package's.
+      'class Config extends FrameworkConfiguration { loadSources() { this.Sources = []; } }',
+      'DI.register(Config).as(Configuration);',
       'await DI.resolve(Configuration);',
       "const driver = await DI.resolve(SqliteOrmDriver, [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: ':memory:' }]);",
       'await driver.connect();',

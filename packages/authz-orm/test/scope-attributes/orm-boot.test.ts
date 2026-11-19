@@ -26,6 +26,8 @@ async function freshProcess(migrate: boolean): Promise<Record<string, unknown>> 
     "import { ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';",
     "import { DbScopeAttributeStore } from '@spinajs/authz-orm';",
     'class Config extends FrameworkConfiguration {',
+    // The test is written against no package config; the file sources would load every installed @spinajs package's.
+    '  loadSources() { this.Sources = []; }',
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_ORM_DB }], Aliases: { authz: 'default' } };",
