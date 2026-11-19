@@ -213,8 +213,8 @@ describe('flow: effects and the tracer across calls', () => {
     const declaredAs = (name: string) => builderOf(checker, checker.getTypeAtLocation(nodes(vocabularyFile, ts.isClassDeclaration).find((c) => c.name?.text === name)!.name!));
     expect(['PagedInvoices', 'FixedInvoices', 'MoreFixedInvoices'].map(declaredAs)).to.deep.equal(Array(3).fill({ kind: 'select', model: 'Invoice' }));
     expect(builderOf(checker, checker.getTypeAtLocation(fn('Vocabulary.overriddenClone').parameters[0]))).to.deep.equal({ kind: 'select', model: 'Invoice' });
-    const listOf = nodes(vocabularyFile, ts.isVariableDeclaration).find((v) => v.name.getText() === 'listOfInvoices')!;
-    expect(builderOf(checker, checker.getTypeAtLocation(listOf))).to.deep.equal({ kind: 'select', model: 'Invoice' });
+    const declared = (name: string) => builderOf(checker, checker.getTypeAtLocation(nodes(vocabularyFile, ts.isVariableDeclaration).find((v) => v.name.getText() === name)!));
+    expect(['listOfInvoices', 'joined', 'anyNotes'].map(declared)).to.deep.equal(Array(3).fill({ kind: 'select', model: undefined }));
     expect(builderOf(checker, checker.getTypeAtLocation(callsOf('open')[0]))?.kind).to.equal('select');
     expect(builderOf(checker, checker.getTypeAtLocation(insert))).to.equal(undefined);
   });
