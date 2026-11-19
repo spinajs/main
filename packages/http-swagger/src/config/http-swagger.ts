@@ -23,14 +23,17 @@ function swaggerUiDist() {
   }
   // Not found (e.g. pnpm isolated layout or a bundled deploy). Do NOT throw at
   // config-import time — that aborts the entire application boot over optional
-  // docs static assets. Return a best-effort path: the http static handler
-  // skips non-existent paths with a warning, and the Swagger UI falls back to
-  // its CDN URLs (see SwaggerController.getUI defaults).
+  // docs static assets. Return a best-effort path: its entry stays unmounted and
+  // SwaggerController says at start what that disables and how to fix it.
   return join(cwd(), 'node_modules', 'swagger-ui-dist');
 }
 
+const uiDist = swaggerUiDist();
+const isSwaggerEnabled = () => DI.get<Configuration>(Configuration)?.get<unknown>('http.swagger.enabled', true) !== false;
+
 // A ConfigVar is read when the server mounts the static folders, after the app's config files are merged.
-const swaggerEnabled = new ConfigVar(() => DI.get<Configuration>(Configuration)?.get<unknown>('http.swagger.enabled', true) !== false);
+const swaggerEnabled = new ConfigVar(isSwaggerEnabled);
+const uiDistEnabled = new ConfigVar(() => isSwaggerEnabled() && existsSync(uiDist));
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
@@ -63,8 +66,8 @@ const httpSwagger = {
     Static: [
       {
         Route: '/docs/ui',
-        Path: swaggerUiDist(),
-        Enabled: swaggerEnabled,
+        Path: uiDist,
+        Enabled: uiDistEnabled,
       },
       {
         Route: '/docs/static',
