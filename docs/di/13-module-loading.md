@@ -6,7 +6,7 @@
 
 1. `DI.__spinajs_require__(module)` reads `DI.get('__module_loader__')`. When a loader is registered, it returns `loader.load(module)` and stops.
 2. Otherwise it reads `DI.get('__esmMode__')`. When `mjs` is `true` (after `DI.setESMModuleSupport()`), it calls `import()` on the path, prefixing `file://` unless the path already has it, and returns the module's `default` export, or the module namespace when there is none.
-3. Otherwise it calls `require(module)`. Without `require` (a bundled or browser build) it throws an `Error` that names both fixes: register a loader, or enable ESM mode.
+3. Otherwise it calls `require(module)`. Without `require` (an ESM process that did not enable ESM mode, or a bundled or browser build) it throws an `Error` that names both fixes: first `DI.setESMModuleSupport()` at the top of the entry file, before the configuration resolves, then a module loader for bundles.
 
 ## API
 
