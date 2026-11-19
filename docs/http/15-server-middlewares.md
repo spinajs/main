@@ -9,7 +9,7 @@ A `ServerMiddleware` adds Express handlers to the whole server: one that runs be
 3. `HttpServer.start()` adds each non-null `after()` handler once, in **descending** `Order`, after the controllers router. The lowest `Order` ends up last in the Express stack.
 4. `before()` and `after()` are called once, at those moments. They return the Express handler; per-request code lives inside it.
 
-`after()` handlers only run for requests that no route answered, or that failed with an error: a matched route sends its answer inside the controllers router without calling `next()`. Code that must touch every response (a header, a log line) patches `res.end` or listens to `res.on('finish')` in `before()`.
+`after()` handlers only run for requests that no route answered, or that failed with an error **before routing** (a body parser, a `before()` handler). A matched route sends its answer inside the controllers router without calling `next()`, and that includes its error answers: an error thrown in a policy, a route middleware, an argument or an action is answered by the route's own error handler, so a 4-argument `after()` handler never sees it. To see both kinds of error in one place, register an [`ErrorObserver`](11-error-handling.md#error-observers). Code that must touch every response (a header, a log line) patches `res.end` or listens to `res.on('finish')` in `before()`.
 
 ### Shipped middlewares
 
@@ -55,7 +55,7 @@ Members:
 
 | Member | Meaning |
 | --- | --- |
-| `Order: number` | Set in the constructor. Lower runs earlier in `before()` and later in `after()`. |
+| `Order: number` | Set in the constructor; `0` when not set. Lower runs earlier in `before()` and later in `after()`. |
 | `before()` | Returns `(req, res, next) => void` or `null`. |
 | `after()` | Returns a 3-argument handler, a 4-argument error handler `(err, req, res, next)`, or `null`. |
 | `resolve()` | `AsyncService` hook, runs before `before()` is called; read configuration here. |

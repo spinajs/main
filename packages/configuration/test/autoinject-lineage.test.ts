@@ -98,7 +98,7 @@ describe('config-listed services', () => {
         (e: unknown) => e,
       );
       expect(error).to.be.instanceOf(ServiceNotFound);
-      expect((error as Error).message).to.equal('flow.steps entry "totp": no Step is registered as service "TotpStep"');
+      expect((error as Error).message).to.equal('flow.steps entry "totp": no Step is registered as service "TotpStep" (registered: "RootStep")');
     });
 
     it('throws InvalidOption when the instance names itself differently from the entry', async () => {
@@ -200,7 +200,7 @@ describe('config-listed services', () => {
         (e: unknown) => e,
       );
       expect(error).to.be.instanceOf(ServiceNotFound);
-      expect((error as Error).message).to.equal('flow.steps entry "totp": no Step is registered as service "TotpStep"');
+      expect((error as Error).message).to.equal('flow.steps entry "totp": no Step is registered as service "TotpStep" (registered: "RootStep")');
     });
 
     it('needs the element type, which reflection of a Map cannot give', () => {

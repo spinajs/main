@@ -6,7 +6,7 @@ Every entry is a bag of variables, not just a string. JSON targets (`JsonTarget`
 
 1. A level method builds the variables in `createLogMessageObject()`, lowest precedence first:
    1. ambient context from the [context provider](12-async-context-and-tracing.md) (scalars only);
-   2. `error` (the `Error` of an error-first call, else `undefined`), `level` (upper case), `logger`, `message`;
+   2. `error` (the `Error` of an error-first call, or an `Error` passed after the message's format arguments, else `undefined`), `level` (upper case), `logger`, `message`;
    3. logger variables (`addVariable()`), then the fields of an object-shape call.
 2. `applySerializers(vars)` runs each registered serializer on its field when the field is set and not `null`:
    - a defined return value replaces the field;

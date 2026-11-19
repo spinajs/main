@@ -60,6 +60,7 @@ sequenceDiagram
 | `RootConfig` | The whole tree. |
 | `RunApp`, `AppBaseDir`, `Env` | The app name, the apps directory and the environment from the options or the command line. |
 | `validateModule(schema)` | Checks one schema against the loaded tree; used by [`registerConfigurationSchema`](06-schema-validation.md). |
+| `violationsAdded(path, value, over?)` | The violations that merging `value` at `path` would add to the modules a schema covers there, on the tree as it is now with `over` merged in. Changes nothing, and also works on the partial tree while a source loads; a source uses it to drop a value before it can fail the boot. An absent module is checked as `{}`. |
 | `FrameworkConfiguration.checkedIn(container)` | The configuration of `container` that passed validation but is not cached by DI yet. |
 
 ## Configuration

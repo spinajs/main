@@ -111,7 +111,7 @@ describe('General model tests', () => {
 
     expect(() => {
       ModelNoDescription.where('1', 1);
-    }).to.throw('Not implemented');
+    }).to.throw('Model ModelNoDescription is not bound to the Orm');
   });
 
   it('Model should throw if invalid connection', async () => {

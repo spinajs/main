@@ -6,6 +6,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { Response } from '../interfaces.js';
 import type { Request, IRoute, IController, IOnErrorDescriptor } from '../interfaces.js';
+import { markAnswered } from './answered.js';
 
 /**
  * The part of the route chain an error was raised in.
@@ -114,6 +115,7 @@ export function createOnErrorHandler(descriptors: readonly IOnErrorDescriptor[],
         }
 
         if (result instanceof Response) {
+          markAnswered(res, current, result);
           res.locals.response = result;
           next();
           return;

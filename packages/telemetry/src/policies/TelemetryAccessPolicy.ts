@@ -2,13 +2,16 @@ import { DI, Injectable, NewInstance, Singleton, SyncService, isFactory } from '
 import type { Class } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz';
-import type { AuthzContribution, Permission, PermissionRefDecl } from '@spinajs/authz';
+import type { AuthzContribution, Permission, PermissionRefDecl, Principal } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, AccessPolicy } from '@spinajs/authz-http';
 import type { IAccessDescriptor } from '@spinajs/authz-http';
+import { AuthenticationFailed, CodedHttpException, Forbidden } from '@spinajs/exceptions';
 import { BasePolicy, Policy, RouteRegistrationException } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
+import { ResourceNotFound } from '@spinajs/exceptions';
 
+import { TELEMETRY_SERVICE } from '../service-token.js';
 import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
 
 /** The slot value that checks `telemetry.auth.permissions.<endpoint>` through authz. */
@@ -16,14 +19,24 @@ export const TELEMETRY_ACCESS_SLOT = 'AccessPolicy';
 
 const RULE = 'telemetry';
 
+// The same rule, open to an unauthenticated principal. Only the scrape token's principal is checked
+// against it, so it reaches the permission check while an anonymous caller keeps its 401.
+const TOKEN_RULE = 'telemetry-token';
+
+const isTelemetryService = (p: Principal | undefined) => p?.type === 'service' && p.id === TELEMETRY_SERVICE && p.source === 'service';
+
 class TelemetryAccessRule {}
 
 // AccessPolicy reads its rule from the controller's ACCESS_DESCRIPTOR. This rule comes from
 // configuration, not from an @Access decorator, so a holder carries the descriptor instead.
 function ruleHolder(permissions: readonly Permission[], domain: string): IController {
+  const rule = { permissions, options: { domain } };
   const descriptor: IAccessDescriptor = {
-    Access: new Map([[RULE, { permissions, options: { domain } }]]),
-    Anonymous: new Map(),
+    Access: new Map([
+      [RULE, rule],
+      [TOKEN_RULE, rule],
+    ]),
+    Anonymous: new Map([[TOKEN_RULE, true]]),
     Unscoped: new Map(),
     UnfilteredInput: new Map(),
   };
@@ -32,14 +45,21 @@ function ruleHolder(permissions: readonly Permission[], domain: string): IContro
   return holder as unknown as IController;
 }
 
-type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' };
+type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { kind: 'named'; policy: BasePolicy } | { kind: 'skip' } | { kind: 'off' };
+const REFUSAL_STATUSES = new Set([401, 403]);
+
+function isRefusal(err: unknown): boolean {
+  return err instanceof AuthenticationFailed || err instanceof Forbidden || (err instanceof CodedHttpException && REFUSAL_STATUSES.has(err.status));
+}
 
 /**
  * Guards one telemetry endpoint by its slot `telemetry.auth.policies.<endpoint>`, read once when
- * http registers the route, from the Configuration of the container that resolves the policy:
- * `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
+ * http registers the route, from the Configuration of the container that resolves the policy.
+ * An endpoint whose `telemetry.endpoints.<endpoint>.enabled` is false answers 404 to everyone and
+ * needs no slot. `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
  * on the permission's type-level resource in `telemetry.auth.domain` (default root), with
- * AccessPolicy's 401/403 answers; any other value names a registered BasePolicy that decides
+ * AccessPolicy's 401/403 answers, and lets the unauthenticated `service:telemetry` of the scrape
+ * token through to that check; any other value names a registered BasePolicy that decides
  * instead. A slot that cannot be honoured throws, so the route never registers.
  *
  * A SyncService rather than a BasePolicy subclass: DI calls resolve() only on a service, and a constructor runs
@@ -49,6 +69,9 @@ type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { k
 export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
   @Logger('Security')
   protected Log: Log;
+
+  @Config('telemetry.endpoints', { defaultValue: {} })
+  protected Endpoints: Record<string, { enabled?: boolean } | undefined>;
 
   @Config('telemetry.auth.policies', { defaultValue: {} })
   protected Policies: Record<string, string>;
@@ -89,10 +112,31 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
     switch (this.guard.kind) {
       case 'skip':
         return;
+      case 'off':
+        // The answer of a path no route matches, so a turned-off endpoint does not show it exists.
+        throw new ResourceNotFound(`Route not found: ${req.method} ${req.originalUrl.split('?')[0]}`);
       case 'named':
         return this.guard.policy.execute(req, route, controller);
       case 'access':
-        return this.guard.policy.execute(req, { ...route, Method: RULE }, this.guard.holder);
+        return this.guard.policy.execute(req, { ...route, Method: isTelemetryService(req.storage.Principal) ? TOKEN_RULE : RULE }, this.guard.holder);
+    }
+  }
+
+  /**
+   * Whether the slot admits the request, for a route that answers everyone and shows more to some.
+   * Every refusal, and any other error of the check, reads as false: the route still answers. An error
+   * that is not a 401/403 refusal is logged, since it hides the detail from callers who hold the permission.
+   */
+  public async admits(req: Request, route: IRoute, controller: IController): Promise<boolean> {
+    if (!this.isEnabled(route, controller)) return true;
+    try {
+      await this.execute(req, route, controller);
+      return true;
+    } catch (err) {
+      if (!isRefusal(err)) {
+        this.Log.warn(err instanceof Error ? err : new Error(String(err)), 'telemetry %s: the check failed, so the caller sees the status only', this.endpoint);
+      }
+      return false;
     }
   }
 
@@ -102,6 +146,8 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
     const fail = (why: string) => new RouteRegistrationException(`telemetry endpoint ${String(endpoint)}: ${why}`);
 
     if (typeof endpoint !== 'string' || endpoint.length === 0) throw fail('the endpoint name must be a non-empty string');
+    if (this.Endpoints[endpoint]?.enabled === false) return { kind: 'off' };
+
     const slot = this.Policies[endpoint];
     if (slot === undefined) throw fail(`${slotKey} must name a policy, but it is not set`);
 

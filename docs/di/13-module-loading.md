@@ -13,7 +13,7 @@
 | Member | Meaning |
 | --- | --- |
 | `DI.__spinajs_require__(module: string): Promise<unknown>` | Loads a module by path or URL |
-| `DI.setESMModuleSupport()` | Registers `{ mjs: true }` as the value `'__esmMode__'`, switching to `import()` |
+| `DI.setESMModuleSupport()` | Pins `{ mjs: true }` as the value `'__esmMode__'` in the root cache, switching to `import()`; it outlives `clearCache()` and `dispose()` |
 | `DI.IModuleLoader` | `{ load(module: string): Promise<unknown> }`; exported inside the `DI` namespace only |
 
 ## Services and extension points
@@ -61,7 +61,8 @@ void main();
 - The loader and the ESM flag are read from the **root** container on every call; registering them in a child has no effect.
 - A registered loader takes over completely: ESM mode is ignored, and the loader's result is returned as is, without unwrapping `default`.
 - In ESM mode, `default` is unwrapped; a module without a default export returns its namespace object.
-- `DI.clear()`, `DI.clearCache()` and `DI.dispose()` remove both values, since they live in the cache. Register them again after clearing in tests.
+- `DI.clear()`, `DI.clearCache()` and `DI.dispose()` keep the ESM mode, so a process switched to ESM stays in it. Only `DI.uncache('__esmMode__')` turns it off.
+- They remove a registered loader, since it lives in the cache like any value. Register it again after clearing in tests.
 
 ## Best practices
 

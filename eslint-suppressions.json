@@ -4148,14 +4148,11 @@
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 14
     },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-enum-comparison": {
       "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 53
+      "count": 10
     },
     "complexity": {
       "count": 7
@@ -4399,10 +4396,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 15
-    },
-    "no-useless-assignment": {
-      "count": 1
+      "count": 10
     },
     "promise/always-return": {
       "count": 1
@@ -4496,17 +4490,11 @@
     }
   },
   "packages/http/src/responses.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-enum-comparison": {
       "count": 4
     },
     "promise/always-return": {
       "count": 5
-    },
-    "promise/catch-or-return": {
-      "count": 3
     }
   },
   "packages/http/src/route-args/FromBody.ts": {
@@ -5404,13 +5392,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 11
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 15
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 6
+      "count": 9
     },
     "complexity": {
       "count": 1
@@ -6838,10 +6823,10 @@
   },
   "packages/orm/src/relations.ts": {
     "@typescript-eslint/no-unsafe-call": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -7994,7 +7979,7 @@
   },
   "packages/telemetry/src/middleware.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/telemetry/src/policies/TelemetryAccessPolicy.ts": {
