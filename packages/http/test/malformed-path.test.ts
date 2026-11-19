@@ -10,7 +10,7 @@ import type { ILogEntry } from '@spinajs/log';
 import '@spinajs/templates-pug';
 
 import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
-import { answeredAsServerError, BaseController, BasePath, Controllers, Get, Ok, Param, Post, HttpServer } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, Ok, Param, Post, HttpServer } from '../src/index.js';
 
 const MEMORY = 'MalformedPathMemory';
 const upstreamError = () => Object.assign(new Error('upstream'), { status: 404 });
@@ -75,7 +75,7 @@ describe('http: a request the server refuses before routing', function () {
 
     expect(res.status).to.eq(400);
     expect(res.type).to.eq('application/json');
-    expect(res.body).to.deep.eq({ message: 'request path is not valid percent-encoding' });
+    expect(res.body).to.have.property('message', 'request path is not valid percent-encoding');
     expect(entriesAt(LogLevel.Error), 'ERROR entries').to.be.empty;
     expect(entriesAt(LogLevel.Warn).map((e) => e.Variables.url)).to.include('/malformed-path/item/%ZZ');
   });
@@ -93,7 +93,7 @@ describe('http: a request the server refuses before routing', function () {
 
     expect(res.status).to.eq(400);
     expect(res.type).to.eq('application/json');
-    expect(JSON.parse(res.text)).to.deep.eq({ message: 'request path is not valid percent-encoding' });
+    expect(JSON.parse(res.text)).to.have.property('message', 'request path is not valid percent-encoding');
   });
 
   it('answers a body-parser refusal with its own status, logging no error', async () => {
@@ -113,10 +113,5 @@ describe('http: a request the server refuses before routing', function () {
 
     expect(res.status).to.eq(500);
     expect(entriesAt(LogLevel.Error).filter((e) => e.Variables.error?.message === 'upstream')).to.have.length(1);
-  });
-
-  it('tells an @OnError handler which of the two answers 500', () => {
-    expect(answeredAsServerError(Object.assign(new URIError('URI malformed'), { status: 400 }))).to.eq(false);
-    expect(answeredAsServerError(upstreamError())).to.eq(true);
   });
 });

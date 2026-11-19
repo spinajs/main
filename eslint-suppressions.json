@@ -4402,7 +4402,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 13
+      "count": 10
     },
     "promise/always-return": {
       "count": 1

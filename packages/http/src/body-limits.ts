@@ -31,27 +31,6 @@ const underPath = (path: string, prefix: string): boolean => {
   return r === '' || p === r || p.startsWith(`${r}/`);
 };
 
-const isTooLarge = (err: unknown): boolean => (err as { type?: string } | null)?.type === 'entity.too.large';
-
-function chain(handlers: express.RequestHandler[]): express.RequestHandler {
-  return (req, res, next) => {
-    let i = 0;
-    const step = (err?: unknown) => {
-      if (err) {
-        next(isTooLarge(err) ? new EntityTooLargeException('request body is too large') : err);
-        return;
-      }
-      const handler = handlers[i++];
-      if (!handler) {
-        next();
-        return;
-      }
-      void handler(req, res, step);
-    };
-    step();
-  };
-}
-
 /**
  * Parses the body of requests under a `http.bodyLimits` path with that path's limit, before the `http.middlewares`
  * parsers run; they skip a body that is already read. The first matching rule wins. Returns null with no rules.
@@ -69,7 +48,7 @@ export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): exp
     return {
       rule,
       bytes,
-      parse: chain([
+      parse: express.Router().use(
         express.json({
           limit: bytes,
           verify: (req, _res, buf) => {
@@ -78,7 +57,7 @@ export function createBodyLimitMiddleware(rules: readonly IBodyLimitRule[]): exp
         }),
         express.urlencoded({ extended: true, limit: bytes }),
         express.text({ type: ['application/xml', 'text/xml', 'application/*+xml'], limit: bytes }),
-      ]),
+      ),
     };
   });
 
