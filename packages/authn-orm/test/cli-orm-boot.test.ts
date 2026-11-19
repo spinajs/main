@@ -36,14 +36,14 @@ const CLI_PROCESS = `
   DI.register(CliProcessConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   await DI.resolve(Configuration);
-  await import('./lib/mjs/index.js');
+  await import('./lib/index.js');
   if (process.env.CLI_MIGRATE) {
     const { orm: tool } = await migrateTestDatabase(DI.child());
     await tool.dispose();
   }
   let result;
   try {
-    await DI.resolve((await import('./lib/mjs/cli/PurgeAudit.js')).PurgeAudit);
+    await DI.resolve((await import('./lib/cli/PurgeAudit.js')).PurgeAudit);
     result = { orm: DI.get(Orm) !== undefined };
   } catch (err) {
     result = { orm: DI.get(Orm) !== undefined, pending: err instanceof PendingMigrationsException, message: err.message };

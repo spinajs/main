@@ -22,7 +22,7 @@ const CLI_PROCESS = `
   const { IdentityStore } = await import('@spinajs/authn/contracts');
   const { FakeIdentityStore } = await import('@spinajs/authn-testing');
   // DbMfaSecretStore, and authn-orm with its DB defaults.
-  await import('./lib/mjs/db.js');
+  await import('./lib/db.js');
   DI.setESMModuleSupport();
   class CliProcessConfiguration extends FrameworkConfiguration {
     constructor() { super(); this.Env = 'development'; }
@@ -42,14 +42,14 @@ const CLI_PROCESS = `
   // A memory IdentityStore: only the MFA side of the graph needs the database.
   DI.register(FakeIdentityStore).as(IdentityStore);
   await DI.resolve(Configuration);
-  await import('./lib/mjs/index.js');
+  await import('./lib/index.js');
   if (process.env.CLI_MIGRATE) {
     const { orm: tool } = await migrateTestDatabase(DI.child());
     await tool.dispose();
   }
   let result;
   try {
-    await DI.resolve((await import('./lib/mjs/cli/MfaReset.js')).MfaReset);
+    await DI.resolve((await import('./lib/cli/MfaReset.js')).MfaReset);
     result = { orm: DI.get(Orm) !== undefined };
   } catch (err) {
     result = { orm: DI.get(Orm) !== undefined, pending: err instanceof PendingMigrationsException, message: err.message };

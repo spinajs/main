@@ -126,6 +126,6 @@ describe('where(column, BETWEEN, pair)', function () {
 
     const owners = await Owner.where('N', SqlOperator.BETWEEN, [1, 4]).populate('Target');
     expect(owners.map((o) => o.Id)).to.deep.equal([1]);
-    expect(owners[0].Target.Value!.N).to.equal(100);
+    expect(owners[0].Target.Value.N).to.equal(100);
   });
 });
