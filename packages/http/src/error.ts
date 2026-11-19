@@ -100,11 +100,15 @@ export function __handle_error__() {
         const error = errorBody(err, ResponseClass, isProductionEnv);
         const response = new ResponseClass(error);
 
-        const fields = { error: err, method: req.method, url: redactUrl(req.originalUrl) };
-        if (isServerErrorResponse(ResponseClass)) {
-            logger.error(fields, 'Error in controller ${method} at path ${url}');
-        } else {
+        const status = response.statusCode;
+        const fields = { error: err, status, method: req.method, url: redactUrl(req.originalUrl) };
+        if (status === 401 || status === 404) {
+            // what scanners and clients polling without credentials produce on every request
+            logger.debug(fields, 'Request refused at ${method} ${url}');
+        } else if (status >= 400 && status <= 499) {
             logger.warn(fields, 'Request refused at ${method} ${url}');
+        } else {
+            logger.error(fields, 'Error in controller ${method} at path ${url}');
         }
 
         if (!httpResponse) {
