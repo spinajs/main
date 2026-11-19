@@ -15,7 +15,7 @@ export class FindUser extends RbacCliCommand {
       // `getUser`, not `User` itself: it queries the configured user model, which an app may extend.
       const user = await getUser(options.identifier);
 
-      this.Log.info(`User : ${user.Id}, ${user.Uuid}, email: ${user.Email}, login: ${user.Login}, active: ${user.IsActive}, CreatedAt: ${user.CreatedAt?.toISO() ?? '-'}, LastLogin: ${user.LastLoginAt?.toISO() ?? '-'}`);
+      console.log(`User : ${user.Id}, ${user.Uuid}, email: ${user.Email}, login: ${user.Login}, active: ${user.IsActive}, CreatedAt: ${user.CreatedAt?.toISO() ?? '-'}, LastLogin: ${user.LastLoginAt?.toISO() ?? '-'}`);
     } catch (e) {
       if (e instanceof ResourceNotFound) this.Log.error({ identifier: options.identifier }, 'User ${identifier} not found');
       else this.Log.error({ error: e, identifier: options.identifier }, 'Error while finding user ${identifier}');

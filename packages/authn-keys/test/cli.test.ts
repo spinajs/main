@@ -8,7 +8,7 @@ import { generateKeyPair } from '@spinajs/authn-testing';
 import { CLI_ACTOR } from '@spinajs/authn/contracts';
 import { AddKey, ListKeys, RevokeKey } from '../src/cli/index.js';
 import authnKeysConfig from '../src/config/authn-keys.js';
-import { keysParts } from './harness.js';
+import { captureStdio, keysParts } from './harness.js';
 import type { KeysParts } from './harness.js';
 import { renderTemplate } from '@spinajs/log';
 
@@ -43,9 +43,9 @@ describe('authn:key-add, authn:key-list, authn:key-revoke', () => {
     assert.deepStrictEqual({ createdBy: key.createdBy, name: key.name, expiresAt: key.expiresAt?.toISOString() }, { createdBy: CLI_ACTOR, name: 'runner', expiresAt: '2099-01-01T00:00:00.000Z' });
 
     const list = command(ListKeys, p);
-    await list.cmd.execute('service', 'runner-1');
-    assert.strictEqual(list.out.info.length, 1);
-    assert.ok(list.out.info[0].startsWith(`${kp.kid}  EdDSA  runner  created `) && list.out.info[0].includes('revoked -'), list.out.info[0]);
+    const listed = (await captureStdio(() => list.cmd.execute('service', 'runner-1'))).stdout.trimEnd().split(/\r?\n/);
+    assert.strictEqual(listed.length, 1);
+    assert.ok(listed[0].startsWith(`${kp.kid}  EdDSA  runner  created `) && listed[0].includes('revoked -'), listed[0]);
 
     const revoke = command(RevokeKey, p);
     await assert.rejects(revoke.cmd.execute('agent', 'runner-1', kp.kid), /no key/, 'another owner type');

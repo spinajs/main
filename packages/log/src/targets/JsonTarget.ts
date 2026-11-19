@@ -1,4 +1,4 @@
-import { ICommonTargetOptions, ILogEntry, LogLevelToSeverityNumber, LogTarget, safeStringify } from "@spinajs/log-common";
+import { ICommonTargetOptions, ILogEntry, LogLevelToSeverityNumber, LogTarget, getLogStdoutStream, safeStringify } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 
 /**
@@ -46,7 +46,7 @@ export class JsonTarget extends LogTarget<IJsonTargetOptions> {
     const line = safeStringify(record) + "\n";
 
     if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function") {
-      const out = this.Options.stream === "stderr" && process.stderr ? process.stderr : process.stdout;
+      const out = (this.Options.stream === "stderr" || getLogStdoutStream() === "stderr") && process.stderr ? process.stderr : process.stdout;
       out.write(line);
     } else {
       // browser fallback

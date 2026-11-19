@@ -15,7 +15,7 @@ export class FsExistsCommand extends CliCommand {
 
     try {
       const exists = await _exists(path, fsName)();
-      this.Log.info(`${path} ${exists ? 'exists' : 'does not exist'} ( fs: ${fsName} )`);
+      console.log(`${path} ${exists ? 'exists' : 'does not exist'} ( fs: ${fsName} )`);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot check ${path} on ${fsName}');
       process.exitCode = 1;

@@ -10,7 +10,9 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`. The bin then resolves the list again and runs the bootstrappers that the modules imported by config files registered; each bootstrapper runs once. See [Who runs bootstrappers](../di/10-service-lifecycle.md#who-runs-bootstrappers).
 5. **Logger.** `resolveCliLog()` returns the framework `Log` named `CLI` when an implementation is registered, else `InternalLoggerProxy`. It logs `Welcome to spinajs cli...` at `success` level.
 6. **Run.** `await DI.resolve(Cli)` runs [`Cli.resolve()`](07-cli-service.md): it lists the command files, builds the commander tree and parses argv. The chosen command's `execute()` runs inside this call.
-7. **Exit.** On success the bin calls `process.exit(process.exitCode ?? 0)`. On an error in any of steps 3 to 6 it logs the message (unless it is a `CommanderError`, which commander already logged) and calls `process.exit(-1)`. Before step 5 there is no logger yet, so the error goes to `console.error`.
+7. **Exit.** On success the bin waits until stdout and stderr have written what is queued, then calls `process.exit(process.exitCode ?? 0)`. On an error in any of steps 3 to 6 it logs the message (unless it is a `CommanderError`, which commander already logged) and exits with `-1` the same way. Before step 5 there is no logger yet, so the error goes to `console.error`.
+
+Before step 3 the bin calls `setLogStdoutStream('stderr')`, so every log line of the run goes to stderr; see [Output: what goes where](#output-what-goes-where).
 
 ```mermaid
 sequenceDiagram
@@ -54,6 +56,27 @@ These options belong to `@spinajs/configuration`. The default argv provider remo
 | `--env` | `--env production`, `--env=production` | Selects the environment |
 | `--apppath` | `--apppath ./apps`, `--apppath=./apps` | Overrides the applications base directory |
 
+## Output: what goes where
+
+| Stream | What it carries |
+| --- | --- |
+| stdout | Only what a command prints as its result: the `migrate-status` table or `--json` document, `configuration:dump`'s JSON, file content from `fs-cat`, lists, help and `--version` |
+| stderr | Every log line of the run: the welcome line, `Found command ...`, the configuration's info lines, warnings, errors, and a failed command's error message |
+
+The bin calls `setLogStdoutStream('stderr')` from `@spinajs/log-common` before anything logs. `@spinajs/log`'s console and JSON targets then write to stderr even when the application's configuration sends them to stdout (`ConsoleTarget` info lines, a `JsonTarget` with `stream: 'stdout'`). File and remote targets are not affected. Outside the bin the logger keeps its configured streams, while a command class an application runs in-process still prints its result on stdout.
+
+So a command's result can be redirected or piped while the log stays visible in the terminal:
+
+```bash
+spinajs configuration:dump > config.json
+spinajs migrate-status --json | jq '.pending[].name'
+spinajs fs-cat local reports/today.csv > today.csv
+```
+
+To keep the log as well, redirect stderr: `spinajs migrate-up 2> migrate.log` in a POSIX shell or cmd.exe. In Windows PowerShell 5.1 with `$ErrorActionPreference = 'Stop'`, that redirect turns every log line into a terminating error; set `$ErrorActionPreference = 'Continue'` around the call (see below).
+
+A command prints its result with `console.log` or `process.stdout.write`, never through its logger. A line it logs is a log line and goes to stderr.
+
 ## Exit codes
 
 | Situation | Exit code | Output |
@@ -62,7 +85,7 @@ These options belong to `@spinajs/configuration`. The default argv provider remo
 | Command finished and set `process.exitCode` | That value | Command output |
 | Help, version, or no arguments | `0` | Help or version on stdout |
 | Unknown command or option, missing required argument or option, value outside `choices`, conflicting options | `-1` (255 on POSIX) | Commander's message through `Log.error`, with a "did you mean" suggestion where one fits |
-| `execute()` or a hook throws | `-1` | The error message through the `CLI` logger |
+| `execute()` or a hook throws | `-1` | The error message through the `CLI` logger, on stderr |
 | The invoked command cannot be resolved from DI | `-1` | `Cannot resolve command ...` plus the error message |
 | A bootstrapper or the configuration throws | `-1` | The error through `console.error`; no logger exists yet |
 
@@ -72,7 +95,7 @@ These options belong to `@spinajs/configuration`. The default argv provider remo
 
 | Command | Option | Effect |
 | --- | --- | --- |
-| `configuration:dump` | `-p, --path <path>` | Logs the whole merged configuration (`Configuration.RootConfig`), or the value at the dotted `path`, as indented JSON through the `cli` logger at `info` level |
+| `configuration:dump` | `-p, --path <path>` | Prints the whole merged configuration (`Configuration.RootConfig`), or the value at the dotted `path`, as indented JSON on stdout |
 
 It is not exported from `@spinajs/cli`.
 
@@ -80,10 +103,12 @@ It is not exported from `@spinajs/cli`.
 
 - `--help` and `--version` resolve `Cli` cleanly: commander throws a `CommanderError` with `exitCode` `0`, and `Cli.resolve()` swallows it.
 - `--version` reads `@spinajs/cli/package.json` through `createRequire` anchored at `process.cwd()`. Run outside a project that has `@spinajs/cli` installed, it prints `0.0.0`.
-- The welcome line is logged before every run, also before `--version` output. Pipe-friendly commands should write their result to stdout with `console.log`, as `@spinajs/orm-cli`'s `migrate-status` does, and not rely on being the only output.
+- The welcome line is logged before every run, also before `--version` output, on stderr.
+- A CI step that fails on any stderr output and a log collector that tags stderr lines as errors see every log line of a `spinajs` run on stderr. Judge a run by its exit code.
+- Windows PowerShell 5.1 with `$ErrorActionPreference = 'Stop'` turns each stderr line of a native command into a terminating error when stderr is redirected (`2>&1`, `2> file`, `2>$null`) or captured by the host. Set `$ErrorActionPreference = 'Continue'` around the `spinajs` call. Without a redirect nothing fails; PowerShell 7.2 and later are not affected.
 - Only the invoked command and the commands on its dispatch path (its parents) are resolved from DI. A command whose dependencies are unavailable, eg. a database, does not break other commands. See [Commands](02-commands.md#how-it-works).
-- `process.exit()` runs right after the command resolves. Work the command started but did not await (timers, open sockets, unflushed streams) is cut off.
-- `configuration:dump` logs every configuration value, including secrets, to every configured log target.
+- `process.exit()` runs right after the command resolves. Work the command started but did not await (timers, open sockets, other streams) is cut off; stdout and stderr are drained first.
+- `configuration:dump` prints every configuration value, including secrets, on stdout.
 - A bootstrapper registered by a module that only a command file imports never runs: the commands are scanned after the last bootstrapper pass. Import that module from a config file instead.
 
 ## Best practices

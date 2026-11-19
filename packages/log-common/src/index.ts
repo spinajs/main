@@ -754,3 +754,20 @@ export function setLogContextProvider(fn: () => Record<string, unknown>): void {
   logContextProvider = fn;
 }
 
+// On globalThis, not in this module: a target loaded from the CommonJS build of this package has its own module state,
+// and it must still see what the ESM `spinajs` bin set.
+const STDOUT_STREAM = Symbol.for('@spinajs/log-common/stdout-stream');
+
+/**
+ * Where the console and JSON targets write the lines they would write to stdout. The `spinajs` bin sets `stderr`, so
+ * stdout carries only a command's own output.
+ */
+export function setLogStdoutStream(stream: 'stdout' | 'stderr'): void {
+  Reflect.set(globalThis, STDOUT_STREAM, stream);
+}
+
+/** See {@link setLogStdoutStream}. */
+export function getLogStdoutStream(): 'stdout' | 'stderr' {
+  const stream: unknown = Reflect.get(globalThis, STDOUT_STREAM);
+  return stream === 'stderr' ? 'stderr' : 'stdout';
+}

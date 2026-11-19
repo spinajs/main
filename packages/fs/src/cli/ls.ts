@@ -16,7 +16,7 @@ export class FsLsCommand extends CliCommand {
     try {
       const entries = await _list(path ?? '/', fsName);
       this.Log.info(`${entries.length} entries in ${path ?? '/'} ( fs: ${fsName} ):`);
-      entries.forEach((e) => this.Log.info(`  ${e}`));
+      entries.forEach((e) => console.log(e));
     } catch (err) {
       this.Log.error({ error: err, path: path ?? '/', fsName }, 'Cannot list ${path} on ${fsName}');
       process.exitCode = 1;

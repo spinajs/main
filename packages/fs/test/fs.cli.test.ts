@@ -8,7 +8,7 @@ import '@spinajs/templates-pug';
 import { cp } from 'fs/promises';
 import { join } from 'path';
 import { fs, FsBootsrapper, fsService } from '../src/index.js';
-import { dir, TestConfiguration } from './common.js';
+import { captureStdio, dir, TestConfiguration } from './common.js';
 
 import { FsDescribeCommand } from '../src/cli/fs.js';
 import { FsLsCommand } from '../src/cli/ls.js';
@@ -44,9 +44,7 @@ function spyLog(cmd: object) {
   };
 }
 
-function loggedWith(spy: sinon.SinonSpy, needle: string) {
-  return spy.getCalls().some((c) => String(c.args[0]).includes(needle));
-}
+const stdoutOf = async (run: () => Promise<unknown>) => (await captureStdio(run)).stdout;
 
 describe('fs cli commands', function () {
   this.timeout(15000);
@@ -77,57 +75,55 @@ describe('fs cli commands', function () {
   it('fs-describe lists registered filesystems', async () => {
     const cmd = await DI.resolve(FsDescribeCommand);
     const spy = spyLog(cmd);
-    await cmd.execute();
+    const out = await stdoutOf(() => cmd.execute());
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, "'test'")).to.be.true;
+    expect(out).to.contain("Filesystem 'test'");
   });
 
   it('fs-ls lists directory content', async () => {
     const cmd = await DI.resolve(FsLsCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli');
+    const out = await stdoutOf(() => cmd.execute('test', 'cli'));
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, 'hello.txt')).to.be.true;
+    expect(out.split(/\r?\n/)).to.include('hello.txt');
   });
 
   it('fs-stat prints statistics', async () => {
     const cmd = await DI.resolve(FsStatCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli/hello.txt');
+    const out = await stdoutOf(() => cmd.execute('test', 'cli/hello.txt'));
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, 'file')).to.be.true;
+    expect(out).to.contain('type: file');
   });
 
   it('fs-cat prints file content', async () => {
     const cmd = await DI.resolve(FsCatCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli/hello.txt', { encoding: 'utf-8' });
+    const out = await stdoutOf(() => cmd.execute('test', 'cli/hello.txt', { encoding: 'utf-8' }));
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, 'hello world')).to.be.true;
+    expect(out).to.equal('hello world');
   });
 
   it('fs-exists reports existence', async () => {
     const cmd = await DI.resolve(FsExistsCommand);
     const spy = spyLog(cmd);
 
-    await cmd.execute('test', 'cli/hello.txt');
-    expect(loggedWith(spy.info, 'exists')).to.be.true;
-
-    await cmd.execute('test', 'cli/nope.txt');
-    expect(loggedWith(spy.info, 'does not exist')).to.be.true;
+    expect(await stdoutOf(() => cmd.execute('test', 'cli/hello.txt'))).to.contain('exists');
+    expect(await stdoutOf(() => cmd.execute('test', 'cli/nope.txt'))).to.contain('does not exist');
+    expect(spy.error.called).to.be.false;
   });
 
   it('fs-hash prints a hash', async () => {
     const cmd = await DI.resolve(FsHashCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli/hello.txt', {});
+    const out = await stdoutOf(() => cmd.execute('test', 'cli/hello.txt', {}));
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9')).to.be.true;
+    expect(out).to.contain('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
   });
 
   it('fs-hash labels the digest with the configured default algorithm', async () => {
@@ -139,9 +135,10 @@ describe('fs cli commands', function () {
 
     const cmd = await DI.resolve(FsHashCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli/hello.txt', {});
+    const out = await stdoutOf(() => cmd.execute('test', 'cli/hello.txt', {}));
 
-    expect(loggedWith(spy.info, 'sha1(cli/hello.txt) = 2aae6c35c94fcfb415dbe95f408b9ce91ee846ed')).to.be.true;
+    expect(spy.error.called).to.be.false;
+    expect(out).to.contain('sha1(cli/hello.txt) = 2aae6c35c94fcfb415dbe95f408b9ce91ee846ed');
   });
 
   it('fs-info prints metadata', async () => {
@@ -150,10 +147,10 @@ describe('fs cli commands', function () {
 
     const cmd = await DI.resolve(FsInfoCommand);
     const spy = spyLog(cmd);
-    await cmd.execute('test', 'cli/hello.txt');
+    const out = await stdoutOf(() => cmd.execute('test', 'cli/hello.txt'));
 
     expect(spy.error.called).to.be.false;
-    expect(loggedWith(spy.info, 'FileSize')).to.be.true;
+    expect(out).to.contain('FileSize');
   });
 
   it('fs-mkdir creates a directory', async () => {

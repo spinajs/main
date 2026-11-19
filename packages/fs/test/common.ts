@@ -9,6 +9,8 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 import { Singleton } from '@spinajs/di';
+import { setLogStdoutStream } from '@spinajs/log-common';
+import sinon from 'sinon';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -18,6 +20,30 @@ chai.use(chaiThings);
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+/** Runs a command as the spinajs bin does: log lines on stderr, the two streams captured apart. */
+export async function captureStdio(run: () => Promise<unknown>): Promise<{ stdout: string; stderr: string }> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const capture = (into: string[]) => (chunk: string | Uint8Array) => {
+    into.push(String(chunk));
+    return true;
+  };
+
+  const stdout = sinon.stub(process.stdout, 'write').callsFake(capture(out));
+  const stderr = sinon.stub(process.stderr, 'write').callsFake(capture(err));
+  setLogStdoutStream('stderr');
+
+  try {
+    await run();
+  } finally {
+    stdout.restore();
+    stderr.restore();
+    setLogStdoutStream('stdout');
+  }
+
+  return { stdout: out.join(''), stderr: err.join('') };
 }
 
 @Singleton()

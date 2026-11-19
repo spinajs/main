@@ -7,6 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm, PendingMigrationsException } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
+import { setLogStdoutStream } from '@spinajs/log';
 import { join, normalize, resolve } from 'path';
 
 import { User, USER_COMMON_METADATA, getUser } from '../src/index.js';
@@ -24,6 +25,30 @@ const expect = chai.expect;
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+/** Runs a command as the spinajs bin does: log lines on stderr, the two streams captured apart. */
+async function stdio(command: () => Promise<unknown>): Promise<{ stdout: string; stderr: string }> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const capture = (into: string[]) =>
+    (chunk: string | Uint8Array) => {
+      into.push(String(chunk));
+      return true;
+    };
+
+  const stdout = sinon.stub(process.stdout, 'write').callsFake(capture(out));
+  const stderr = sinon.stub(process.stderr, 'write').callsFake(capture(err));
+  setLogStdoutStream('stderr');
+  try {
+    await command();
+  } finally {
+    stdout.restore();
+    stderr.restore();
+    setLogStdoutStream('stdout');
+  }
+
+  return { stdout: out.join(''), stderr: err.join('') };
 }
 
 /**
@@ -75,14 +100,15 @@ describe('rbac cli commands', function () {
       await migrateUpFirst();
     });
 
-    it('rbac:user-find brings the Orm up and reports the user', async () => {
+    it('rbac:user-find brings the Orm up and prints the user on stdout, one line', async () => {
       const cmd = await DI.resolve(FindUser);
-      const info = sinon.spy((cmd as unknown as { Log: { info: (m: string) => void } }).Log, 'info');
 
-      await cmd.execute({ identifier: 'test@spinajs.pl' });
+      const { stdout, stderr } = await stdio(() => cmd.execute({ identifier: 'test@spinajs.pl' }));
 
-      expect(info.calledOnce).to.eq(true);
-      expect(info.firstCall.args[0]).to.contain('test@spinajs.pl');
+      const lines = stdout.trimEnd().split(/\r?\n/);
+      expect(lines).to.have.length(1);
+      expect(lines[0]).to.match(/^User : \d+, .*email: test@spinajs\.pl, login: /);
+      expect(stderr).to.not.contain('test@spinajs.pl');
     });
 
     it('rbac:user-create grants its roles through AuthzAdmin as SYSTEM, under runAs(SYSTEM, cli)', async () => {
@@ -117,12 +143,13 @@ describe('rbac cli commands', function () {
       expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION]).to.eq(3600);
     });
 
-    it('a failed command sets a non-zero exit code', async () => {
+    it('a failed command sets a non-zero exit code and prints nothing on stdout', async () => {
       const cmd = await DI.resolve(FindUser);
 
-      await cmd.execute({ identifier: 'nobody@spinajs.pl' });
+      const { stdout } = await stdio(() => cmd.execute({ identifier: 'nobody@spinajs.pl' }));
 
       expect(process.exitCode).to.eq(1);
+      expect(stdout).to.eq('');
     });
   });
 });

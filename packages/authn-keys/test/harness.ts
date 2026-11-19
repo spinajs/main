@@ -13,6 +13,32 @@ import { DefaultKeyRegistry, MemoryKeyStore, OrmKeyStore } from '../src/registry
 import type { KeyStore } from '../src/registry/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, KeyChallengeStrategy, assertionIssuer } from '../src/strategies/index.js';
 import { bootSqlite, clearKeys } from './db.js';
+import { setLogStdoutStream } from '@spinajs/log';
+
+/** Runs a command as the spinajs bin does: log lines on stderr, the two streams captured apart. */
+export async function captureStdio(run: () => Promise<unknown>): Promise<{ stdout: string; stderr: string }> {
+  const out: string[] = [];
+  const err: string[] = [];
+  const stdoutWrite = process.stdout.write.bind(process.stdout);
+  const stderrWrite = process.stderr.write.bind(process.stderr);
+  const capture = (into: string[]) => (chunk: string | Uint8Array) => {
+    into.push(String(chunk));
+    return true;
+  };
+
+  process.stdout.write = capture(out);
+  process.stderr.write = capture(err);
+  setLogStdoutStream('stderr');
+  try {
+    await run();
+  } finally {
+    process.stdout.write = stdoutWrite;
+    process.stderr.write = stderrWrite;
+    setLogStdoutStream('stdout');
+  }
+
+  return { stdout: out.join(''), stderr: err.join('') };
+}
 
 export type StoreKind = 'memory' | 'sqlite';
 

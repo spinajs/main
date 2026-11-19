@@ -9,7 +9,7 @@ The package ships `spinajs fs-*` commands that run any provider operation from a
 3. The `spinajs` binary runs every `Bootstrapper`, `FsBootstrapper` included, and boots the configuration.
 4. Each command calls `ensureProviders()`: it resolves `fsService` when the `'__file_provider_instance__'` map does not exist yet.
 5. The command calls the matching helper or provider method, eg. `fs-cp` calls `_copy(src, dst, fs, dstFs)`.
-6. Results go to the `fs` logger. Errors are logged with `Log.error` and **not** rethrown; the command sets `process.exitCode` to `1`.
+6. A command that answers a question (`fs-describe`, `fs-ls`, `fs-stat`, `fs-cat`, `fs-exists`, `fs-hash`, `fs-info`, `fs-download`) prints the answer on stdout: `fs-cat` the file content decoded with `--encoding` (default `utf-8`, so a binary file does not survive), `fs-ls` one entry per line, `fs-info` one JSON document, `fs-download` the local path alone. Headers such as `2 entries in incoming ( fs: uploads ):` and the confirmations of the other commands go to the `fs` logger, which the `spinajs` bin sends to stderr. Errors are logged with `Log.error` and **not** rethrown; the command sets `process.exitCode` to `1`.
 
 ## Commands
 
@@ -39,6 +39,9 @@ spinajs fs-write documents notes/today.txt --content "release at 15:00"
 spinajs fs-cp documents invoices/2024 invoices/2024 --dst-fs archive
 spinajs fs-zip documents "invoices,contracts" --out backup.zip --dst-fs archive
 spinajs fs-hash uploads incoming/video.mp4 --algo sha512
+spinajs fs-cat documents notes/today.txt > today.txt
+spinajs fs-info uploads incoming/video.mp4 | jq .Duration
+local=$(spinajs fs-download archive reports/2024.pdf)
 ```
 
 ## Configuration
@@ -75,7 +78,8 @@ export class FsDuCommand extends CliCommand {
 
     try {
       const total = await this.size(getFs(fsName), path ?? '/');
-      this.Log.info(`${path ?? '/'} ( fs: ${fsName} ): ${total} bytes`);
+      // the result goes to stdout; the logger is for log lines, which the bin sends to stderr
+      console.log(`${total}`);
     } catch (err) {
       this.Log.error({ error: err, fsName }, 'Cannot measure ${fsName}');
       process.exitCode = 1;

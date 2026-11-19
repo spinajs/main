@@ -282,6 +282,7 @@ void target.write(createLogMessageObject('Charge for card 4111 1111 1111 1111 de
 - Per-target filters get a shallow copy of the entry (`{ Level, Variables: { ...Variables } }`); a target that changes `entry.Variables` affects only its own copy, unless it mutates nested objects.
 - `removeTarget()` flushes a target but does not dispose it; the instance may be shared with other loggers.
 - `@spinajs/log`'s wrapper targets (`RetryingTarget`, `FallbackGroupTarget`, `SplitGroupTarget`, `AutoFlushTarget`) are singletons, so two definitions of the same wrapper type share the first definition's inner targets.
+- `setLogStdoutStream(stream: 'stdout' | 'stderr')` sets, for the whole process, where targets put lines they would write to stdout; `getLogStdoutStream()` reads it (default `'stdout'`). `@spinajs/log`'s `ColoredConsoleTarget` and `JsonTarget` honour it. The `spinajs` bin sets `'stderr'` so stdout carries only a command's output. A custom target that writes to stdout should read `getLogStdoutStream()` too. The value lives on `globalThis`, so a target loaded from the CommonJS build of this package sees what the ESM build set.
 
 ## Best practices
 

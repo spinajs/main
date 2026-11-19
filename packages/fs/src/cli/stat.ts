@@ -16,11 +16,11 @@ export class FsStatCommand extends CliCommand {
     try {
       const stat = await _stat(path, fsName);
       this.Log.info(`Stat for ${path} ( fs: ${fsName} ):`);
-      this.Log.info(`  type: ${stat.IsDirectory ? 'directory' : 'file'}`);
-      this.Log.info(`  size: ${stat.Size ?? 'n/a'} bytes`);
-      this.Log.info(`  created:  ${stat.CreationTime?.toISO() ?? 'n/a'}`);
-      this.Log.info(`  modified: ${stat.ModifiedTime?.toISO() ?? 'n/a'}`);
-      this.Log.info(`  accessed: ${stat.AccessTime?.toISO() ?? 'n/a'}`);
+      console.log(`type: ${stat.IsDirectory ? 'directory' : 'file'}`);
+      console.log(`size: ${stat.Size ?? 'n/a'} bytes`);
+      console.log(`created:  ${stat.CreationTime?.toISO() ?? 'n/a'}`);
+      console.log(`modified: ${stat.ModifiedTime?.toISO() ?? 'n/a'}`);
+      console.log(`accessed: ${stat.AccessTime?.toISO() ?? 'n/a'}`);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot stat ${path} on ${fsName}');
       process.exitCode = 1;

@@ -29,7 +29,7 @@ export class FsDescribeCommand extends CliCommand {
     }
 
     for (const [name, provider] of providers) {
-      this.Log.info(`Filesystem '${name}' ( service: ${provider.constructor.name} )`);
+      console.log(`Filesystem '${name}' ( service: ${provider.constructor.name} )`);
     }
   }
 }

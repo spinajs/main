@@ -14,7 +14,7 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 | Command | Arguments and options | Action |
 | --- | --- | --- |
 | `rbac:user-create` | `-e, --email <email>` (required), `-l, --login <login>` (required), `-p, --password <password>`, `-r, --roles <roles>` (comma separated) | `create({ Email, Login, Password }, roles, SYSTEM)` inside `AuthzService.runAs(SYSTEM, 'cli', ...)`. No `--roles`: `authz.rbac.defaultRoles`. No `--password`: the user is invited by mail. |
-| `rbac:user-find` | `-i, --identifier <identifier>` (required): id, UUID, email or login | `getUser()`; logs `Id`, `Uuid`, email, login, active, `CreatedAt`, `LastLoginAt`. |
+| `rbac:user-find` | `-i, --identifier <identifier>` (required): id, UUID, email or login | `getUser()`; prints one line on stdout with `Id`, `Uuid`, email, login, active, `CreatedAt`, `LastLoginAt`. A user it cannot find is logged as an error (stderr under the `spinajs` bin) and exits with `1`. |
 | `rbac:user-activate` | `<idOrUuid> <active>`; `active` is `true` or anything else (false) | `activate()` or `deactivate()`. |
 | `rbac:user-ban` | `<idOrUuid> <ban> [duration] [reason]`; `ban` is `true` or anything else (false, unban); `duration` in minutes, default `1440` | `ban(idOrUuid, reason, duration * 60)` or `unban(idOrUuid)`. |
 | `rbac:user-delete` | `<idOrUuid>` | `deleteUser()`: a soft delete (`DeletedAt`); sessions and tokens end. |

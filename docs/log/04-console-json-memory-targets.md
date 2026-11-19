@@ -9,6 +9,7 @@ Four unbuffered targets that write on every entry: `ConsoleTarget` for humans, `
 3. The target renders and emits the entry:
    - `ColoredConsoleTarget` (`type: 'ConsoleTarget'`): `format(entry.Variables, layout)`, wrapped in an ANSI color per level, sent to `console.debug` / `console.log` / `console.warn` / `console.error` (see the [level table](01-logging-api.md#levels));
    - `JsonTarget`: one JSON object per line, `{ time, severityNumber, ...entry.Variables }`, written with `process.stdout.write` (or `stderr`); without `process`, `console.log`;
+   - after `setLogStdoutStream('stderr')` from `@spinajs/log-common`, both targets write to stderr whatever their configuration says: `ColoredConsoleTarget` with `console.error` for every level, `JsonTarget` with `process.stderr.write`. The `spinajs` bin calls it, so stdout carries only a command's own output;
    - `MemoryTarget`: pushes the `ILogEntry` into an array and drops the oldest past `limit`;
    - `BlackHoleTarget`: nothing.
 
@@ -20,7 +21,7 @@ All four read their options **flat** on the target definition.
 | --- | --- | --- | --- | --- |
 | `logger.targets[].layout` (`ConsoleTarget`) | `string` | default layout | see [Layouts](03-layouts.md) | Line format. |
 | `logger.targets[].theme` (`ConsoleTarget`) | `object` keyed by level | `DEFAULT_THEME` | per level: a style name or an array of names (`red`, `brightRed`, `bgRed`, `bgBrightRed`, ... for the eight ANSI colors, `gray`, `bgGray`, `bold`, `dim`, `italic`, `underline`, `inverse`) | Per-level colors, merged over `DEFAULT_THEME`. Unknown names are ignored. |
-| `logger.targets[].stream` (`JsonTarget`) | `string` | `'stdout'` | `'stdout'`, `'stderr'` | Output stream. |
+| `logger.targets[].stream` (`JsonTarget`) | `string` | `'stdout'` | `'stdout'`, `'stderr'` | Output stream. `setLogStdoutStream('stderr')` overrides `'stdout'`. |
 | `logger.targets[].limit` (`MemoryTarget`) | `number` | `100` | `>= 1` | Entries kept; the oldest are dropped first. |
 | `logger.targets[].enabled` | `boolean` | `true` | | `false`: never constructed by config routing. |
 

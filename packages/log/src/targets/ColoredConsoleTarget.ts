@@ -2,6 +2,7 @@ import {
   IColoredConsoleTargetOptions,
   ILogEntry,
   LogTarget,
+  getLogStdoutStream,
 } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogLevel } from "./../index.js";
@@ -80,7 +81,9 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
       return;
     }
 
-    this.StdConsoleCallbackMap[data.Level](
+    const write = getLogStdoutStream() === "stderr" ? console.error : this.StdConsoleCallbackMap[data.Level];
+
+    write(
       /**
        * we are safe to call, disable eslint
        */

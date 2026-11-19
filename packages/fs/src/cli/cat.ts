@@ -20,7 +20,7 @@ export class FsCatCommand extends CliCommand {
 
     try {
       const content = await _read(path, options.encoding, fsName);
-      this.Log.info(content.toString());
+      process.stdout.write(content);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot read ${path} on ${fsName}');
       process.exitCode = 1;

@@ -24,10 +24,10 @@ export class ListKeys extends CliCommand {
   public async execute(ownerType: string, ownerId: string): Promise<void> {
     const keys = await this.Registry.list(ownerArg(ownerType, ownerId));
     if (keys.length === 0) {
-      this.Log.info('No keys');
+      console.log('No keys');
     }
     for (const k of keys) {
-      this.Log.info(keyLine(k));
+      console.log(keyLine(k));
     }
   }
 }

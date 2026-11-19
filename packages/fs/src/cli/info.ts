@@ -23,7 +23,7 @@ export class FsInfoCommand extends CliCommand {
 
       const info = await provider.metadata(path);
       this.Log.info(`Info for ${path} ( fs: ${fsName} ):`);
-      this.Log.info(JSON.stringify(info, null, 2));
+      console.log(JSON.stringify(info, null, 2));
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot read info for ${path} on ${fsName}');
       process.exitCode = 1;
