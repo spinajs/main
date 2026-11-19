@@ -73,6 +73,141 @@ Metrics go into the `Metrics` singleton from `@spinajs/telemetry-common`. `@spin
 | `SqliteOrmDriver` | no | `Size` only; `InUse` and `Waiting` are always `0` | no | yes |
 | `MsSqlOrmDriver` | no | no (base: all `0`) | no | no |
 
+### Query spans
+
+Every statement a builder executes through `SqlDriver.execute` produces one OpenTelemetry span named `db.query`, kind `CLIENT`, on the provider `@spinajs/tracing` owns. Its parent is the active span: the HTTP request, a queue consumer, a scheduler step. A builder that compiles to several statements (a schema builder, a chunked insert) gets one span per statement. Tracing runs in id-only mode by default, so the span carries ids and nothing is recorded or exported until a processor is attached.
+
+| Attribute | Set | Meaning |
+| --- | --- | --- |
+| `db.system.name` | always | `sqlite`, `postgresql`, `mysql`, `microsoft.sql_server`, or the driver token without its `orm-driver-` prefix. |
+| `spina.db.connection` | always | `db.Connections[].Name` of the connection that ran the statement. A select that failed on a read replica and ran again on another connection has two spans. |
+| `db.operation.name` | while recording | The statement's first keyword (`SELECT`, `INSERT`, `CREATE`, …). A `WITH` statement is named by its builder. |
+| `db.query.text` | while recording | The statement with every literal replaced by `?`, at most 2048 characters. |
+| `spina.db.fingerprint` | while recording | 16 hex characters of the statement's shape: literal values, whitespace, letter case and the length of `IN (…)` lists and multi-row `VALUES` do not change it. |
+| `db.collection.name` | while recording | The table of a query builder. A raw fragment (`executeSql`) has none. |
+| `db.response.returned_rows` | on success | Rows of an array result; for a stream, the rows it yielded. Still incubating in the OTel semantic conventions. |
+| `error.type` | on failure | The class name of the error. The span status is `ERROR` with the same class name as its message. |
+
+- Bindings and error messages never reach the span. A driver error often embeds the statement's parameters in its message; the message stays in the log line, which carries the same `traceId`.
+- A streamed select (`SelectQueryBuilder.stream()` on a driver that holds a cursor) gets one span that ends when the stream ends: read to the end, left with `break` or `return()`, failed while reading, or failed while closing its cursor. A stream read with `next()` by hand and then dropped without `return()` never runs its cleanup: its cursor stays open until the connection is released, and its span is never ended and therefore never exported. `for await` and `stream()` always call `return()`.
+- No span: a direct `executeOnDb()` call, and the transaction control statements (`BEGIN`, `COMMIT`, `ROLLBACK`, savepoints).
+- `sanitizeSql()` (exported from `@spinajs/orm`, as is `fingerprint()`) does not strip SQL comments or postgres dollar quoting (`$$…$$`). A quote inside either throws the literal matching off for the rest of that statement. The builders write neither; a raw fragment can.
+- Backslash rule: whether `\'` ends a literal depends on the server and its mode. MySQL compiles `O'Brien` in a `CREATE VIEW` as `'O\'Brien'`, and with `NO_BACKSLASH_ESCAPES` the same text ends at `\'`; postgres reads `\'` as an escape only in an `E''` string. Any guess leaks on some connection, so the text is dropped from the literal that holds the first backslash on: `` SELECT * FROM `users` WHERE `Name` = 'O\'Brien' AND `Ssn` = '123' `` becomes `` SELECT * FROM `users` WHERE `Name` = ? ``.
+- Double-quote rule: `"name"` is kept as an identifier only on a connection whose quoter writes identifiers in double quotes (postgres, `OrmDriver.ansiQuotedIdentifiers()`). On MySQL and SQLite, which quote with backticks, a double-quoted token is a string and becomes `?`.
+
+### Slow queries
+
+`SlowQueryMiddleware`, a `QueryMiddleware` at order 2000 registered by `@spinajs/orm`, turns every builder whose statements took at least `db.Explain.SlowQueryMs` in total into one `SlowQueryRecord` and hands it to every registered `SlowQuerySink`. It is off by default; the keys are listed in [Connections](01-connections.md#configuration).
+
+| Field | Meaning |
+| --- | --- |
+| `fingerprint` | The statement's shape, as `spina.db.fingerprint` on the span. |
+| `sql` | The sanitized statement (literals are `?`, the backslash and double-quote rules above apply). Several statements of one builder (a chunked insert) are joined with `;\n`. |
+| `bindings` | Only with `db.Explain.CaptureBindings`. |
+| `driver`, `connection` | The driver token and `db.Connections[].Name` of the connection that ran the statement (a read replica, when the select ran there). |
+| `durationMs` | The driver's own measurement, summed over the builder's statements. |
+| `at` | When the builder finished. |
+| `traceId`, `spanId` | Of the `db.query` span of the first statement, also in id-only mode. |
+| `plan` | The `QueryPlan` from `OrmDriver.explain()`, for a single select only. |
+| `planError` | Why a planned statement has no plan: `explain rate limit reached`, `driver <token> cannot explain`, or the class name of the EXPLAIN error (followed by its message only with `CaptureBindings`). |
+
+`LogSlowQuerySink` is the default sink: one warning per record on the `orm-slow-query` logger. Its line never carries plan values or error text, also with `CaptureBindings` on: it redacts the plan as described below and writes only the class name of an EXPLAIN error. Register your own sink next to it; every sink receives every record at the same time, and a sink that throws, or has not settled after 5 s (`SLOW_QUERY_SINK_TIMEOUT_MS`), is logged and does not hold up the others or the capture. A call that timed out is not cancelled, so a sink should bound its own work (a pool acquire timeout, a bounded queue); a sink with 100 calls unsettled gets no further records until one settles, and the number it missed is logged with the dropped count:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { SlowQuerySink } from '@spinajs/orm';
+import type { SlowQueryRecord } from '@spinajs/orm';
+
+@Injectable(SlowQuerySink)
+export class SlowQueryCollector extends SlowQuerySink {
+  public readonly records: SlowQueryRecord[] = [];
+
+  public record(entry: SlowQueryRecord): void {
+    this.records.push(entry);
+  }
+}
+```
+
+- Off, the capture costs two boolean checks per statement: the driver keeps no statement, binding or timestamp. `db.Explain` is read once, at the first statement; `SlowQueryMiddleware.reload()` reads it again, forgets every remembered plan and starts a new `MaxPerMinute` window.
+- The capture runs after `setImmediate`, once the result has gone back to the caller, and holds no reference to the builder. At most 100 captures (`MAX_PENDING_SLOW_QUERY_CAPTURES`) wait or run at once; a slow statement beyond that is not recorded, and the number dropped is logged when the next capture ends.
+- A plan is attempted only for a builder with one statement in the select context, on the driver that ran it, with the statement's own bindings (databases cannot plan without them; they are not kept). A plan is remembered for 60 s per connection, `CaptureBindings` mode and fingerprint, for at most 1000 keys; a new key at capacity drops the least recently read plan. Overlapping captures of one key share one EXPLAIN, and at most `db.Explain.MaxPerMinute` EXPLAIN calls run per minute.
+- `SlowQueryMiddleware.clock`, a `Clock` from `@spinajs/util` (default `SystemClock`), times the plan cache and the `MaxPerMinute` window. Both read it on every call, so a test can assign a `ManualClock` at any time and move it with `advance(ms)`:
+
+  ```ts
+  import { DI } from '@spinajs/di';
+  import { QueryMiddleware, SlowQueryMiddleware } from '@spinajs/orm';
+  import { ManualClock } from '@spinajs/util';
+
+  const slowQueries = DI.resolve(Array.ofType(QueryMiddleware)).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
+  const clock = new ManualClock(new Date('2026-01-01T00:00:00Z'));
+  slowQueries!.clock = clock;
+
+  // ...run the slow select, await slowQueries!.idle()...
+  clock.advance(60_000); // the remembered plan has expired: the next capture runs EXPLAIN again
+  ```
+- No driver runs `EXPLAIN ANALYZE`, so the planned statement itself never runs: a `SELECT … INTO`, a `FOR UPDATE` or a select that calls a writing function is planned, not executed.
+- An EXPLAIN never runs a second statement. What the builder compiled itself (quoted names, placeholders, the dialect's keywords) is planned as it is. Only SQL the caller wrote, a `RawQuery` anywhere in the builder or an `executeSql` fragment, is checked as text: such a statement with a `;` before its end, a comment (`--`, `/*`, `#`), a `$` or a backslash is recorded without a plan, also where it would have been safe: a `;` inside a string literal, a commented select, the postgres `#>` operator, `LIKE … ESCAPE ''`, a select wrapped in parentheses. `ExecutedStatement.rawSql` says which kind a statement is, and `OrmDriver.explain(sql, bindings, rawSql)` passes it on, so a driver checks the text only where it is caller-written.
+- Postgres and MySQL print bound values inside plan conditions. Without `CaptureBindings` every `detail` of the plan is sanitized like `sql` (text from a literal with a backslash on is dropped), a bare `true`, `false` or `NULL` becomes `?` too (`IS [NOT] NULL`, `IS [NOT] TRUE` and `IS [NOT] FALSE` stay: builder SQL never binds after `IS` and PostgreSQL refuses `IS $1`, but a hand-written MySQL statement with `IS ?` keeps its boolean or null in the plan, because `mysql2` writes the value into the text), and `raw` is `null`; with it, the driver's plan is published as it is. The plan's shape can still give away a boolean or NULL binding, which no text redaction removes: postgres plans `"Flag" = false` as `(NOT "Flag")` and `"Name" = NULL` as `One-Time Filter`, and MySQL reports a contradiction as `Impossible WHERE`.
+- `OrmDriver.explain()` runs outside the ambient transaction, on a connection of its own. A driver with one session cannot do that while a transaction is open (see the end of this section): never await `explain()` inside a transaction there. A capture made while a transaction is open on PGlite waits for it to end and gets its plan after the commit. It ends with `planError` only when the transaction holds the session longer than the pool's `AcquireTimeout` (10 s by default), and never with session settings, where it queues behind the transaction.
+- Streams, direct `executeOnDb()` calls and transaction control statements are not recorded.
+- SQLite, postgres (and PGlite) and MySQL plan their selects (below). MSSQL does not: a record of a select there carries `planError: driver <token> cannot explain`.
+
+#### Plans: sqlite
+
+`SqliteOrmDriver.explain(sql, bindings)` runs `EXPLAIN QUERY PLAN`, which plans the statement and never executes it, and returns a `QueryPlan` whose tree `normalizeSqlitePlan` builds from the rows: each row hangs under its `parent`, and a `SCAN t` or `SEARCH t` row keeps the table in `label` and moves the access path to `detail`. For a join with a subquery:
+
+```text
+QUERY PLAN
+├── SEARCH u           USING INTEGER PRIMARY KEY (rowid=?)
+├── LIST SUBQUERY 1
+│   └── SCAN explain_order
+└── SEARCH o           USING INDEX explain_order_user (UserId=?)
+```
+
+- It accepts a single `SELECT` or `WITH` statement and rejects anything else with `InvalidArgument`; the values are bound as parameters, never spliced into the statement.
+- It runs outside the transaction in scope, on a connection of its own (`SqlDriver.runExplain`). SQLite without a read pool has one writer handle, so the EXPLAIN waits until an open transaction ends: never await `explain()` inside a transaction.
+
+#### Plans: postgres
+
+`PostgresOrmDriver.explain(sql, bindings)` runs `EXPLAIN (FORMAT JSON)`, and `normalizePostgresPlan` turns its `Plan` tree into `PlanNode`s. `PgliteOrmDriver` inherits both.
+
+- `label` is the `Node Type`, followed by `on <relation>` and the alias when it differs from the relation: `Index Scan on explain_user u`.
+- `detail` joins, with `; `, the `Join Type` (`Inner join`), the index (`using explain_user_pkey`), the conditions (`Hash Cond`, `Merge Cond`, `Index Cond`, `Recheck Cond`, `Join Filter`, `Filter`, `One-Time Filter`) and the `Sort Key` and `Group Key` lists. Every other key, `Output` included, stays in `raw`.
+- `estimatedRows` is `Plan Rows`, `estimatedCost` is `Total Cost`, and `Plans` become the children.
+- The bindings travel as statement parameters, and the planner prints their values in the conditions and keys. Unless `db.Explain.CaptureBindings` is set, they are replaced by `?`, and the double-quoted names stay. A boolean or NULL binding can still show in the shape: `(NOT "Flag")`, a `Result` with `One-Time Filter: ?`.
+
+```text
+Nested Loop                        Inner join
+├── Index Scan on explain_user u   using explain_user_pkey; Index Cond: ("Id" = ?)
+└── Seq Scan on explain_order o    Filter: ("UserId" = ?)
+```
+
+#### Plans: mysql
+
+`MySqlOrmDriver.explain(sql, bindings)` runs `EXPLAIN FORMAT=JSON` and reads the document of `explain_json_format_version` 1, the 8.x default; `MySqlSSHOrmDriver` inherits it. `normalizeMysqlPlan` builds the tree in the document's key order:
+
+| Document key | Node |
+| --- | --- |
+| `query_block` | `select #<select_id>`, cost `query_cost` |
+| `table` | `<table_name> (<access_type>)`, rows `rows_examined_per_scan`, cost `prefix_cost`, detail `key <key>; where <attached_condition>` |
+| `nested_loop` | `nested loop` |
+| `ordering_operation`, `grouping_operation`, `duplicates_removal`, `windowing`, `buffer_result` | `order`, `group`, `distinct`, `window`, `buffer` |
+| `union_result` | `union` |
+| `attached_subqueries`, `optimized_away_subqueries`, `select_list_subqueries`, `order_by_subqueries`, `having_subqueries`, `group_by_subqueries` | their query blocks |
+| `materialized_from_subquery` | `materialized` |
+| `message` | its text (`Impossible WHERE`) |
+
+`used_key_parts`, `ref`, `index_condition` and every other key stay in `raw`. `mysql2` writes the bindings into the statement text, so the server prints them as literals in `where …`. The redaction replaces them with `?`, a double-quoted token included, and cuts the condition at a literal that holds a backslash: MySQL 8.4 prints `O'Brien` as `'O\'Brien'`. A contradiction a boolean or NULL binding causes still shows as `Impossible WHERE`. MySQL also reads a lookup on a primary or unique key while it plans, so a redacted plan tells whether the row exists: `t (const)` when it does, `no matching row in const table` when it does not.
+
+```text
+select #1
+└── nested loop
+    ├── u (const)   key PRIMARY
+    └── o (ref)     key explain_order_user
+```
+
+No driver runs `EXPLAIN ANALYZE`, and MSSQL has no `explain()`. On a driver with one session, an EXPLAIN cannot get a connection of its own while a transaction is open: sqlite without a read pool holds it until the transaction ends; PGlite fails it with the pool's acquire timeout, or never settles it when session settings apply. So never await `explain()` inside a transaction on either.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |

@@ -38,6 +38,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Role switch and access response](14-role-switch-and-access-response.md) | `RbacRoleSource` for role switch and MFA, `OrderedActiveRoleHook` for the role a new session starts on, `AccessResponseExtension` adding `Access` to authn answers. |
 | [User profile](15-user-profile.md) | `UserProfileProvider` picked by `users.user.profile`, `BasicProfileProvider`. |
 | [Jobs run as their initiator](16-jobs-run-as-initiator.md) | `@spinajs/users/queue`: `UserInitiatorPrincipalFactory` reloads the user a job runs as. |
+| [Signals are checked as their signer](20-signals-checked-as-signer.md) | `@spinajs/users/workflow`: `UserSignalPrincipalFactory` reloads the user a permissioned workflow signal is checked as. |
 | [Self-service registration](18-self-service-registration.md) | `UserIdentityRegistrar` over `create()`, behind `users.registration.enabled`: what `POST /auth/register` of authn-http calls. |
 | [Email domains](19-email-domains.md) | `EmailDomainHook` and `users.emailDomains.apply`: refuse disposable or unwanted email domains on registration, user creation and email change. |
 | [CLI commands](17-cli-commands.md) | `rbac:user-create`, `rbac:user-find`, `rbac:user-activate`, `rbac:user-ban`, `rbac:user-delete`. |

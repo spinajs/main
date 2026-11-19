@@ -77,7 +77,7 @@ describe('authz section', () => {
     expect(entry('docs:sync')).to.deep.include({ kind: 'cli', access: [] });
   });
 
-  it('records spinajs-authz-ignore comments and leaves the findings to the flow pass', () => {
+  it('records spinajs-authz-ignore comments, none without a reason, and leaves the findings to the flow pass', () => {
     expect(authz.ignores).to.deep.equal([{ code: 'AUTHZ001', reason: 'the export reads every document on purpose', source: { file: 'src/controller.ts', line: 10, col: 3, package: 'authz-pkg' } }]);
     expect(authz.findings).to.deep.equal([]);
     expect(authz).to.not.have.property('ir');

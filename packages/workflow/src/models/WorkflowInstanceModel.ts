@@ -51,4 +51,6 @@ export class WorkflowInstanceModel extends ModelBase {
 
   @Int8()
   public FinishedAt: number | null;
+
+  public TraceParent: string | null;
 }

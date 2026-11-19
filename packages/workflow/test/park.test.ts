@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { mergePark, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
+import { branchId, mergePark, Workflow, WorkflowDefinition, WorkflowService, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 import type { FakeClock } from '@spinajs/durable/testing';
@@ -241,7 +241,7 @@ describe('lazy park', () => {
     const { id } = await service.start('pk-sleep-or-work', null);
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'work' });
-    expect((await stepsOf(id)).map((s) => s.Key)).to.deep.equal(['step:w1#1', 'sleep:sleep#1', 'step:w2#1']);
+    expect((await stepsOf(id)).map((s) => s.Key)).to.deep.equal(['step:w1#1', 'sleep:sleep#1', `step:w2#1@${branchId('', 'step:w1#1')}`]);
   });
 
   it('a race of a step and a wait ends: the wait that parks after the run settled is abandoned, not waited for', async () => {

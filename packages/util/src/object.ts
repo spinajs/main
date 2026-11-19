@@ -9,6 +9,11 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+/** `v` when it passes {@link isPlainObject}, otherwise `undefined`; reads optional fields of untyped data ( parsed JSON ) in one chain. */
+export function asPlainObject(v: unknown): Record<string, unknown> | undefined {
+  return isPlainObject(v) ? v : undefined;
+}
+
 /**
  * Freezes `v` and everything reachable through its own enumerable properties, in place, including the children of nodes that are already frozen. Buffers and typed arrays are left mutable, as `Object.freeze` refuses them.
  *
