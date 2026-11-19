@@ -33,3 +33,5 @@ export { summarize } from './doctor/format.js';
 export * from './sql/index.js';
 export { generateConfigDeclarations, generateConfigTypes, leafPaths } from './generate/config-declarations.js';
 export type { ConfigDeclarationsOptions, ConfigDeclarationsResult } from './generate/config-declarations.js';
+export * from './markers.js';
+export * from './type-shapes.js';
