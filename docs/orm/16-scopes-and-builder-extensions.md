@@ -67,7 +67,7 @@ A builder that is used as a sub-query also reads `{ kind: 'own' }`: the one a be
 - A query extension is global: its methods are on every builder of its class in the process, for every model and connection.
 - Extension methods exist from the first `Orm.resolve()` on. A method name that the builder already has, or that two extensions add to the same builder, fails `Orm.resolve()` with `ExtensionMethodCollision`.
 - An extension whose class extends another registered extension's class replaces it. That is how you change a method a package adds.
-- `SelectQueryBuilder.clone()` always builds a plain `SelectQueryBuilder` and copies only the core fields. A subclass type is lost on clone unless you override `clone()`; extension state follows the copy through `onClone`.
+- `SelectQueryBuilder.clone()` builds the copy from the class registered for `SelectQueryBuilder` and copies only the core fields. A field of a subclass is not copied unless the subclass overrides `clone()`; extension state follows the copy through `onClone`.
 - `clone()` runs no query middleware, so a clone keeps exactly what the original declared.
 - `beforeQueryExecution` of a query middleware never sees a builder whose `state().execution.kind` is `merged`: it runs for the statement the builder was folded into. State an extension keeps on such a builder for a middleware to read is lost, so a method that sets it has to refuse the call there (throw), as `@spinajs/authz-orm` does for `.accessible()` in a belongsTo `populate()` callback; `onMerge` is where an extension refuses what reached the merge anyway. Moving the state to the target in `onMerge` reliably reaches a query middleware only for a join callback: a `populate()` is merged when the query compiles, which for an awaited query is after `beforeQueryExecution` of the statement that runs.
 - `onMerge` cannot await. An extension that would need a database round trip for what it finds on a merged builder refuses the query instead.
@@ -230,7 +230,7 @@ import { DI } from '@spinajs/di';
 import { SelectQueryBuilder } from '@spinajs/orm';
 
 // Every SelectQueryBuilder resolved from DI is now a LimitedSelectQueryBuilder.
-// clone() still returns a plain SelectQueryBuilder.
+// clone() returns one too.
 export class LimitedSelectQueryBuilder<T = any> extends SelectQueryBuilder<T> {
   public page(index: number, size = 25): this {
     return this.skip(index * size).take(size);

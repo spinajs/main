@@ -334,7 +334,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
   protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false, this._execution);
+    // Through the container, like every other select builder: a subclass registered for SelectQueryBuilder survives a clone.
+    const builder = this._container.resolve<SelectQueryBuilder<T>>('SelectQueryBuilder', [this._driver, this._model, owner, false, this._execution]);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
