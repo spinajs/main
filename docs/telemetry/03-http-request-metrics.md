@@ -34,13 +34,13 @@
 
 1. `req.route.path`, the path pattern the router matched (`/orders/:id`);
 2. `req.storage.route`, when a string;
-3. `req.path`, the raw path, when nothing matched;
-4. `req.originalUrl`, else `'unknown'`.
+3. `'<unmatched>'` (`UNMATCHED_ROUTE`) when no route matched. The raw path is never a label.
 
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
+| `telemetry.http.enabled` | `boolean` | `true` | `true`, `false` | `false`: `before()` returns a handler that only calls `next()`, so the three series are never defined and the request statistics stay empty |
 | `telemetry.prefix` | `string` | `'http'` | a Prometheus name prefix | Prefix of the three series |
 | `telemetry.buckets` | `number[]` | `DURATION_BUCKETS_MS` | ascending ms values | Histogram buckets |
 
@@ -64,10 +64,11 @@ export default {
 
 ## Important behaviour
 
+- `telemetry.http.enabled` is read when `HttpServer` resolves and calls `before()`; a subclass that keeps or wraps the base `before()` follows it too. The `/telemetry/stats`, `timeline` and `routes` endpoints still answer, with zero counts; turn them off with `telemetry.endpoints.<endpoint>.enabled`.
 - The label set is read on `finish`, not in `before()`: `req.route` exists only after the router matched, and handlers may change the status.
 - Every step is inside `try`/`catch`. A failing metric or store logs a `warn` on the `telemetry` logger and never breaks the request.
 - The gauge is balanced exactly once per request, whichever of `finish` and `close` fires first.
-- Unmatched requests (404 scans) are labelled with their raw path. Each distinct path is a new Prometheus series; the histogram has no cap. Collapse them with a [custom route label](04-customizing-the-request-middleware.md).
+- Every request no route matched shares the `route="<unmatched>"` series: a 404 scan, a file served by a static middleware, a request a server middleware answered before routing. A caller cannot create series by inventing paths.
 - The unit is milliseconds. A dashboard built for the retired `@spinajs/metrics` package (other series names, seconds) shows nothing, or values 1000 times too large.
 
 ## Best practices

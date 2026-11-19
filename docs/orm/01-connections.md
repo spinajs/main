@@ -6,7 +6,7 @@
 
 1. `DI.resolve(Orm)` constructs the `Orm` singleton and calls `Orm.resolve()`.
 2. `Orm.resolve()` reads `db.Connections` from `Configuration`. For each entry, in order:
-   1. It checks that a class is registered in DI under the token in `Driver`. If not, it throws `OrmException` (`ORM connection driver <Driver> not registerd`).
+   1. It checks that a class is registered in DI under the token in `Driver`. If not, it throws `OrmException` (`ORM connection driver <Driver> not registered`).
    2. It resolves the driver with the entry as constructor argument. The `OrmDriver` constructor merges the entry over its defaults, and `OrmDriver.resolve()` creates the driver's own child DI container and logger (`orm-driver-<Name>`). A resolve failure throws `OrmException` with the original error as `inner`.
    3. It calls `driver.connect()`. On failure it calls `driver.disconnect()` to release resources, then throws `OrmException` (`Failed to connect to database for connection <Name> ...`) with the original error as `inner`.
    4. It stores the driver in `Orm.Connections` under `Name` and calls `driver.startHealthCheck()` (see [Observability and resilience](13-observability-and-resilience.md)).
@@ -16,7 +16,7 @@
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` registers the default value converters.
 8. `Orm` resolves `OrmMigrationGuard` from its container. Unless the guard was resolved disabled first (`resolveMigrationTool()`), it runs `check(orm)`: a configuration that still sets `Migration.OnStartup` fails with `OrmException`, and a pending or failed migration on a connection whose check mode is `'fail'` fails with `PendingMigrationsException`; `'warn'` only logs it (see [Boot check](10-migrations.md#boot-check-diresolveorm)). A failure makes `Orm.resolve()` dispose its connections and rethrow. Nothing is applied.
-9. `Orm` reads the table info of every model, once: it binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and sets the model's columns to its decorator columns merged with what the table holds. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing. On any connection, `db.StrictTableCheck` on makes `Orm.resolve()` dispose its connections and throw one `OrmException` naming every such model; off, each is logged as a warning. With the guard disabled (`resolveMigrationTool()`), the check is skipped and each missing table is logged: a migration tool boots before the tables exist.
+9. `Orm` reads the table info of every model, once: it binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and sets the model's columns to its decorator columns merged with what the table holds. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing. On any connection, `db.StrictTableCheck` on makes `Orm.resolve()` dispose its connections and throw one `OrmException` naming every such model; off, each is logged as a warning. With the guard disabled (`resolveMigrationTool()`), the check is skipped and one warning lists every missing table (`<n> model tables do not exist yet; the migrations this tool runs may create them: model <Model>: table <table> on connection <name>; ...`): a migration tool boots before the tables exist. An application boot with the check off logs one warning per missing table instead.
 10. `Orm` wires relation targets (an unknown target model throws `OrmException`) and installs the model static methods.
 11. The `Orm` is cached.
 
@@ -181,7 +181,8 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.
 - `db.Connections[].DefaultConnection: true` has no effect. Only `db.DefaultConnection` creates the `default` entry.
 - An unknown target in `db.Aliases` logs `Connection alias <alias> points at <name>, which does not exist; models and migrations on <alias> are skipped`, and boot continues. A package can therefore default an alias (`db.Aliases.authz: 'default'`) without breaking an app that has no `default` connection.
-- Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 10.
+- Model static methods (`where`, `get`, `query`, ...) work once `Orm.resolve()` has bound the model; `Orm` installs them in step 10. Until then they throw an `OrmException`: `Model <Name> is not bound to the Orm ...`.
+- Every model is registered before the `Orm` resolves. `Orm.resolve()` binds the `@Model()` classes whose modules were imported by then and never binds a model registered later, so a model imported afterwards throws the same `OrmException` on every static call. Import each module and package that declares models before `DI.resolve(Orm)`, including the packages whose controllers or services use them (an installed `@spinajs/scheduler-http` needs `@spinajs/scheduler`, for example).
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
 - Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
 - `orm.reloadTableInfo(options?: IReloadTableInfoOptions)` only warns unless passed `{ strict: true }`. `models` limits the read to those model classes; `strict` then still covers every registered model: one an earlier read recorded missing is read again, so a table created since counts as present. `OrmMigrator.migrate()` calls it with the models its migrations touched.
@@ -201,13 +202,23 @@ export async function bootstrapDatabase(): Promise<Orm> {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: model statics are installed by Orm.resolve(); this throws "Not implemented"
+// Don't: model statics are installed by Orm.resolve(); this throws "Model Invoice is not bound to the Orm"
 const unpaid = await Invoice.where('Status', 'unpaid');
 await DI.resolve(Orm);
 
 // Do
 await DI.resolve(Orm);
 const unpaid = await Invoice.where('Status', 'unpaid');
+```
+
+```ts
+// Don't: a model imported after the Orm resolved is never bound, and every static call throws
+await DI.resolve(Orm);
+const { Invoice } = await import('./models/Invoice.js');
+
+// Do: import every module that declares models first
+import { Invoice } from './models/Invoice.js';
+await DI.resolve(Orm);
 ```
 
 ```ts

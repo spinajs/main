@@ -1,6 +1,6 @@
 import * as express from 'express';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 
@@ -17,6 +17,11 @@ export const DEFAULT_PREFIX = 'http';
  * Histogram bucket boundaries ( ms ) for request duration.
  */
 export const DURATION_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+
+/**
+ * Route label of every request no route matched.
+ */
+export const UNMATCHED_ROUTE = '<unmatched>';
 
 /**
  * Storage key under `req.storage` holding the per-request start time.
@@ -125,14 +130,15 @@ export class TelemetryMiddleware extends ServerMiddleware {
   }
 
   /**
-   * Derive a stable, low-cardinality route label. Prefers the matched route
-   * path ( `req.route.path` or `req.storage.route` ) over the raw request path.
+   * Derive a stable, low-cardinality route label: the matched route path
+   * ( `req.route.path` or `req.storage.route` ), else {@link UNMATCHED_ROUTE}.
+   * The raw path is never used, so a caller cannot create series at will.
    */
   protected routeLabel(req: sRequest): string {
     const anyReq = req as any;
     const matched = anyReq.route?.path ?? (req.storage as any)?.route;
     if (typeof matched === 'string' && matched.length > 0) return matched;
-    return req.path ?? anyReq.originalUrl ?? 'unknown';
+    return UNMATCHED_ROUTE;
   }
 
   /**
@@ -165,7 +171,16 @@ export class TelemetryMiddleware extends ServerMiddleware {
     }
   }
 
+  /**
+   * A pass-through handler when `telemetry.http.enabled` is false: no `http_*` metric is ever
+   * defined and nothing is recorded, while a subclass that wraps `super.before()` keeps working.
+   */
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
+    // Not a @Config field: its getter throws in a middleware built with `new`, outside DI.
+    if (DI.get(Configuration)?.get<boolean>('telemetry.http.enabled', true) === false) {
+      return (_req: sRequest, _res: express.Response, next: express.NextFunction) => next();
+    }
+
     return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       try {
         this.ensureMetrics();

@@ -12,6 +12,7 @@ import { RouteRegistrationException } from './exceptions.js';
 import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
 import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
+import { observeAnsweredErrors, observeErrors } from './errors/observe.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
 
 export abstract class BaseController extends AsyncService implements IController {
@@ -100,6 +101,7 @@ export abstract class BaseController extends AsyncService implements IController
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
       const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
+      const chain = { route, controller: this };
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),
@@ -107,8 +109,9 @@ export abstract class BaseController extends AsyncService implements IController
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage),
         ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
         createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
+        observeAnsweredErrors(this._container, this._log, chain),
         __handle_response__(),
-        __handle_error__(),
+        observeErrors(__handle_error__(), this._container, this._log, chain),
       ];
 
       (this._router as any)[route.InternalType as string](path, handlers);

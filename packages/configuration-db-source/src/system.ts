@@ -35,22 +35,38 @@ function resolvedService(domain: string): AuthzService | undefined {
   }
 }
 
-// A non-root domain exists only for the B09 harness (it runs in a child 'test' domain) and must already be resolved by the host.
-// The root service is normally booted by the http server after it registered the controllers (L5 boot rule 7), so it is only awaited.
-// An app without an http server (worker, CLI) never boots it: after the bounded wait this boots it, with a warning.
+/** Per domain, the one wait every query shares while its service is not resolved; dropped once it settles, so a service disposed later is never handed out from it. */
+const waits = new Map<string, Promise<AuthzService>>();
+
 function serviceOf(domain: string): Promise<AuthzService> {
   const ready = resolvedService(domain);
   if (ready) {
     return Promise.resolve(ready);
   }
 
+  let pending = waits.get(domain);
+  if (!pending) {
+    const wait = waitForService(domain).finally(() => {
+      if (waits.get(domain) === wait) {
+        waits.delete(domain);
+      }
+    });
+    waits.set(domain, wait);
+    pending = wait;
+  }
+
+  return pending;
+}
+
+// A non-root domain exists only for the B09 harness (it runs in a child 'test' domain) and must already be resolved by the host.
+// The root service is normally booted by the http server after it registered the controllers (L5 boot rule 7), so it is only awaited.
+// An app without an http server (worker, CLI) never boots it: after the bounded wait this boots it, with a warning.
+function waitForService(domain: string): Promise<AuthzService> {
   return new Promise<AuthzService>((resolve, reject) => {
-    let done = false;
     const load = async (): Promise<AuthzService> => (domain === 'root' ? ((await DI.resolve(AuthzService)) as AuthzService) : (await DI.resolve(AuthzDomains)).service(domain));
     const go = () => {
-      if (done) return;
-      done = true;
       clearTimeout(timer);
+      DI.off('di.resolved.AuthzService', go);
       load().then(resolve, reject);
     };
     const timer = setTimeout(() => {
@@ -75,4 +91,11 @@ export async function asSystem<T>(fn: () => PromiseLike<T>, domain = 'root'): Pr
 
   const service = await serviceOf(domain);
   return service.runAs(SYSTEM, POLL_REASON, async () => fn());
+}
+
+/** Settles once `asSystem` can run for the domain without waiting; at once when the domain is not guarded. */
+export async function systemReady(domain = 'root'): Promise<void> {
+  if (guarded.has(domain)) {
+    await serviceOf(domain);
+  }
 }

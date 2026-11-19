@@ -55,6 +55,31 @@ function errorBody(err: any, response: Constructor<HttpResponse>, isProductionEn
         return { message: INTERNAL_ERROR_MESSAGE };
     }
 
+/**
+ * Whether {@link __handle_error__} answers `err` with the generic 500: its response is `ServerError` or none is mapped.
+ * That body spreads the error's own properties and its stack, unless `configuration.isProduction` is set: then it is
+ * a fixed message only.
+ */
+export function answeredAsServerError(err: unknown): boolean {
+    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__') ?? null;
+    if (bodyFailureMessage(err, errorMap)) {
+        return false;
+    }
+
+    const response = errorMap ? __resolve_error_response__(errorMap, err) : null;
+    return response === null || isServerErrorResponse(response);
+}
+
+function isServerErrorResponse(response: Constructor<HttpResponse>): boolean {
+    return response === ServerError || response.prototype instanceof ServerError;
+}
+
+function errorBody(err: any, response: Constructor<HttpResponse>, isProductionEnv: boolean): Record<string, unknown> {
+    // a server error's message and properties describe the server (a query, a path, a nested error): only the log keeps them
+    if (isProductionEnv && isServerErrorResponse(response)) {
+        return { message: INTERNAL_ERROR_MESSAGE };
+    }
+
     const error: Record<string, unknown> = {
         /**
          * By default Error object dont copy values like message ( they are not enumerable )
@@ -65,6 +90,10 @@ function errorBody(err: any, response: Constructor<HttpResponse>, isProductionEn
         // make sure error message is added
         message: err.message,
     };
+
+    if (isBodyParserError(err)) {
+        delete error.body;
+    }
 
     // in dev mode add stack trace for debugging. In production the stack is
     // omitted entirely rather than serialized as an empty object.
@@ -109,6 +138,16 @@ export function __handle_error__() {
 
         if (!httpResponse) {
             logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
+            logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
+
+            const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
+            if (!httpResponse) {
+                logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
+            }
+
+            const ResponseClass: Constructor<HttpResponse> = httpResponse ?? ServerError;
+            error = errorBody(err, ResponseClass, isProductionEnv);
+            response = new ResponseClass(error);
         }
 
         response

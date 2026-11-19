@@ -11,7 +11,8 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
-// Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
+// Registers the bootstrapper for an app that never imports the package entry. The controller scan imports this file
+// after the configuration boot, so it runs only when the app's entry runs the pending bootstrappers after that scan.
 import '../bootstrap.js';
 
 /**
@@ -19,7 +20,8 @@ import '../bootstrap.js';
  * columns with Value / Default in their canonical stored form ( numbers as "10",
  * booleans as "true"/"false", dates / times as ISO 8601 etc. ) produced by the
  * DbConfigValueConverter, and Meta already parsed into an object by its @Json
- * converter - the same representation they round-trip through on update.
+ * converter. An update does not take this string form back: it needs the JSON
+ * type of the entry ( 10, true ).
  */
 function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;

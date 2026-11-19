@@ -12,7 +12,7 @@ import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntry
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
-import { asSystem } from './system.js';
+import { asSystem, systemReady } from './system.js';
 
 /**
  * watch interval, default 3 min
@@ -30,6 +30,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
   // live - late registrations add to it, the watch timer reads it on every run
   private watchedSlugs = new Set<string>();
+
+  /** Per watched slug, the row value last refused and why; cleared once the row applies. */
+  private refusedRows = new Map<string, { value: unknown; cause: string }>();
 
   private armWatchTimer: (() => void) | null = null;
 
@@ -125,8 +128,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
-    // insert all exposed config options (InsertOrIgnore - safe to repeat)
-    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch(async (err) => {
+    // insert all exposed config options (InsertOrIgnore - safe to repeat); a guarded app's sweep starts once authz is up
+    void systemReady(this.authzDomain).then(() => Promise.all(vars.map((v) => this.saveConfigOptions(v)))).catch(async (err) => {
       InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
 
       // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again
@@ -182,9 +185,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   }
 
   /**
-   * InsertOrIgnore leaves rows from an earlier release untouched, so label / group / meta / default
-   * edits in code would never reach them. Rewrites the declared columns; `Value` stays whatever an
-   * admin set.
+   * InsertOrIgnore leaves rows from an earlier release untouched, so label / group / meta edits in
+   * code would never reach them. Rewrites the declared columns; `Value`, `Default` and `Watch` are
+   * written only by the insert, so an administrator's change to them lasts.
    */
   private async syncMetadata(v: __dbCOnfigOptions): Promise<void> {
     const o = v.options.exposeOptions;
@@ -198,7 +201,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       return;
     }
 
-    const upToDate = (row.Group ?? null) === (o.group ?? null) && (row.Label ?? null) === (o.label ?? null) && (row.Description ?? null) === (o.description ?? null) && row.Type === o.type && !!row.Watch === !!o.watch && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o.meta ?? null) && isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
+    const upToDate = (row.Group ?? null) === (o.group ?? null) && (row.Label ?? null) === (o.label ?? null) && (row.Description ?? null) === (o.description ?? null) && row.Type === o.type && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o.meta ?? null);
 
     if (upToDate) {
       return;
@@ -209,9 +212,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     row.Description = o.description;
     row.Meta = o.meta;
     row.Type = o.type;
-    row.Watch = o.watch ?? false;
     row.Required = !!v.options.required;
-    row.Default = v.options.defaultValue;
 
     await asSystem(() => row.update(), this.authzDomain);
   }
@@ -251,15 +252,35 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     try {
       const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]), this.authzDomain);
-      result.filter((r) => Boolean(r.Exposed)).forEach((r) => {
-        // Slug is the canonical config path (same value passed to @Config).
-        // Group is display-only metadata and must not be part of the path.
-        if (!isConfigValueEqual(cService.get(r.Slug), r.Value)) {
-          cService.set(r.Slug, r.Value);
-        }
-      });
+      result.filter((r) => Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
       InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
+    }
+  }
+
+  /** Writes one polled row into the live configuration; a value the configuration refuses leaves the old one in place. */
+  private applyWatched(cService: Configuration, row: DbConfig): void {
+    const refused = this.refusedRows.get(row.Slug);
+    // Configuration logs every set() it refuses, so a row is tried again only once its value changed.
+    if (refused !== undefined && isConfigValueEqual(refused.value, row.Value)) {
+      return;
+    }
+
+    try {
+      // Slug is the canonical config path (same value passed to @Config).
+      // Group is display-only metadata and must not be part of the path.
+      if (!isConfigValueEqual(cService.get(row.Slug), row.Value)) {
+        cService.set(row.Slug, row.Value);
+      }
+      this.refusedRows.delete(row.Slug);
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      this.refusedRows.set(row.Slug, { value: row.Value, cause });
+      if (refused?.cause === cause) {
+        return;
+      }
+
+      InternalLogger.error({ error: err, slug: row.Slug }, 'Watched config value ${slug} from db was refused, the previous value stays', LOG_CHANNEL);
     }
   }
 

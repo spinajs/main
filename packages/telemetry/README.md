@@ -71,6 +71,12 @@ process metrics are wired automatically. Set the scrape token, load the package
 barrel, and give `service:telemetry` the `telemetry:read` permission (with
 `@spinajs/authz-rbac` the package config does that; see Roles).
 
+Installing the package turns its routes on. `@spinajs/configuration` merges the config of every installed
+`@spinajs/*` package, so the controllers, the `telemetry:read` permission and the `telemetry` role come with the
+package being in `node_modules`, whether the app imports it or not. The perf bridge, the default process metrics
+and the scrape token are wired by the package's bootstrappers, which run only when the package was imported before
+them: `import '@spinajs/telemetry'` before the app runs its bootstrappers. The package declares no ORM models.
+
 ```ts
 // configuration
 {
@@ -87,7 +93,7 @@ barrel, and give `service:telemetry` the `telemetry:read` permission (with
 | `GET /telemetry/timeline?buckets=N` | The timeline alone, buckets annotated with their window | `telemetry:read` |
 | `GET /telemetry/routes` | Per method+route request breakdown | `telemetry:read` |
 | `GET /telemetry/perf` | Aggregated `Perf` spans and events | `telemetry:read` |
-| `GET /telemetry/health` | Liveness — uptime, pid, node version, optional app version | public |
+| `GET /telemetry/health` | Liveness — the status; uptime, pid, node version and app version with `telemetry:read` | public |
 | `GET /telemetry/ready` | Readiness — runs every registered `HealthCheck`, 503 when any is down | public |
 
 The token is one way to hold `telemetry:read`. Send it on the `x-metrics-token`
@@ -98,9 +104,12 @@ curl -H "x-metrics-token: $METRICS_TOKEN" http://localhost:8080/metrics
 ```
 
 `/telemetry/health` and `/telemetry/ready` are public by default because kubelet
-probes and load balancers cannot send a header. They expose uptime, pid, the node
-version and — if you set `telemetry.health.version` — the app version. Give them
-an `'AccessPolicy'` slot and a permission if that is more than you want to publish.
+probes and load balancers cannot send a header. To an anonymous caller they show
+statuses only: `/telemetry/health` answers `{ status: 'up' }`, and `/telemetry/ready`
+leaves out each check's `data.error` and never carries a thrown error's message (that
+goes to the log). Uptime, pid, the node version, the app version and `data.error`
+need the `probeDetail` slot, by default `telemetry:read`. Give the probes an
+`'AccessPolicy'` slot and a permission to guard them entirely.
 
 ### Access
 
@@ -205,17 +214,19 @@ export class DatabaseCheck extends HealthCheck {
       await db.raw('select 1');
       return { status: 'up' };
     } catch (err) {
-      return { status: 'down', message: (err as Error).message };
+      return { status: 'down', message: 'the database does not answer', data: { error: (err as Error).message } };
     }
   }
 }
 ```
 
 `status` is `'up' | 'degraded' | 'down'`; a check may also return a `data` bag.
+The `message` and `data` reach anonymous probes, except `data.error`, which only a
+caller holding `telemetry:read` sees.
 Each check is raced against `telemetry.health.timeoutMs` ( default 2000 ), so a
 hung dependency cannot hang the probe — a timed-out check, or one that throws,
-counts as `down`. The overall status is the worst of them, and `/ready` answers
-503 when it is `down` ( or `degraded`, with `telemetry.health.failOnDegraded` ).
+counts as `down`. A thrown error is logged, and its line reads `the check threw`.
+The overall status is the worst of them, and `/ready` answers 503 when it is `down` ( or `degraded`, with `telemetry.health.failOnDegraded` ).
 
 ### Mounting on a bare express app
 
@@ -248,8 +259,8 @@ Once `TelemetryMiddleware` is active, every request is timed (with
 | `http_request_duration_ms` | histogram | `method`, `route`, `status` |
 | `http_requests_in_flight` | gauge | — |
 
-The `route` label prefers the **matched** route path (`req.route.path`) over the
-raw URL, keeping cardinality bounded. The prefix (`http`) and duration buckets
+The `route` label is the **matched** route path (`req.route.path`); every request
+no route matched is labelled `<unmatched>`, so cardinality stays bounded. The prefix (`http`) and duration buckets
 are **configuration**, not code — do not subclass just to change them:
 
 ```ts
@@ -470,6 +481,8 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.auth.domain` | `'root'` | Authz domain the `'AccessPolicy'` slots check in |
 | `telemetry.auth.skipInDevelopment` | `false` | Skip the `'AccessPolicy'` checks; needs an explicit development env too |
 | `telemetry.collectDefaultMetrics` | `true` | Register `process_*` / `nodejs_*` metrics at bootstrap |
+| `telemetry.http.enabled` | `true` | Time requests in the request middleware; `false` leaves out the http metrics and the request statistics |
+| `telemetry.endpoints.<endpoint>.enabled` | `true` | `false` answers 404 on that endpoint to every caller, before any credential check |
 | `telemetry.prefix` | `'http'` | Metric name prefix for the http metrics |
 | `telemetry.buckets` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | Duration histogram buckets ( ms ) |
 | `telemetry.apdexThresholdMs` | `25` | Apdex satisfied threshold; tolerated is 4x |
@@ -481,12 +494,13 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.perf.maxNames` | `200` | Cap on distinct perf measurement names |
 | `telemetry.health.timeoutMs` | `2000` | Per-check timeout for `/telemetry/ready` |
 | `telemetry.health.failOnDegraded` | `false` | Serve 503 for a degraded overall status |
-| `telemetry.health.version` | unset | Version string reported by `/telemetry/health`; omitted from the response when unset |
+| `telemetry.health.version` | unset | Version string reported by `/telemetry/health` to a caller that sees the probe detail; omitted when unset |
 
 The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`,
 `health` and `ready`. Policy defaults: `'AccessPolicy'` for `metrics`,
 `stats`, `timeline`, `routes` and `perf` (permissions default to `telemetry:read`);
-`PublicPolicy` for `health` and `ready`.
+`PublicPolicy` for `health` and `ready`. `probeDetail` guards no route: it decides who
+sees the probe detail, by default `'AccessPolicy'` with `telemetry:read`.
 
 `telemetry.perf.enabled` and `telemetry.perf.maxNames` bound the **JSON** view
 only ( `InMemoryPerfSink` ). The `perf_*` Prometheus series come from a separate
@@ -496,11 +510,12 @@ sink and are unaffected by either.
 
 Both the `route` label and the perf `name` label are meant for bounded
 vocabularies. The `maxEntries` / `maxNames` caps bound the JSON views, but the
-Prometheus histograms have no such cap — the `route` label falls back to the raw
-request path when no route matched, so a 404-scanning bot inflates the series
-count. Put telemetry behind a router that 404s unmatched paths early, or subclass
-`TelemetryMiddleware` and override `routeLabel()` to collapse unmatched requests
-to a constant:
+Prometheus histograms have no such cap. The `route` label is therefore never the
+raw request path: every request no route matched shares the `<unmatched>` series
+(`UNMATCHED_ROUTE`), so a 404-scanning bot adds one series, not one per path.
+
+To group routes further, subclass `TelemetryMiddleware` and override
+`routeLabel()`, for example to count every API version of a route as one:
 
 ```ts
 import { DI, Injectable } from '@spinajs/di';
@@ -508,11 +523,9 @@ import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
 
 @Injectable(ServerMiddleware)
-export class BoundedTelemetry extends TelemetryMiddleware {
+export class VersionlessTelemetry extends TelemetryMiddleware {
   protected routeLabel(req: sRequest): string {
-    const matched = (req as any).route?.path ?? (req.storage as any)?.route;
-    // anything the router never matched collapses to one series
-    return typeof matched === 'string' && matched.length > 0 ? matched : '__unmatched__';
+    return super.routeLabel(req).replace(/^\/v\d+(?=\/)/, '');
   }
 }
 
@@ -543,7 +556,7 @@ Remove the base registration with `DI.unregister()`:
 ```ts
 import { DI } from '@spinajs/di';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
-import { BoundedTelemetry } from './BoundedTelemetry.js'; // must be imported, so its @Injectable has run
+import { VersionlessTelemetry } from './VersionlessTelemetry.js'; // must be imported, so its @Injectable has run
 
 DI.unregister(TelemetryMiddleware);
 ```
@@ -570,7 +583,6 @@ all — use the `telemetry.prefix` / `telemetry.buckets` config keys.
   telemetry failure can never break a request or the measured code.
 - **Cardinality.** Both the `route` label and the perf `name` label are meant for
   bounded vocabularies. Never emit per-request/per-entity unique label values —
-  see [Cardinality](#cardinality) for the unmatched-path case, which is the one
-  that bites without you doing anything wrong.
+  see [Cardinality](#cardinality).
 - **Migrating from `@spinajs/metrics`?** See
   [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md).
