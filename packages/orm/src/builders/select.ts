@@ -847,7 +847,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /** Each page is a clone of this query, run the normal way, past the last row of the page before. */
   protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
     const descriptor = extractModelDescriptor(this._model);
-    // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
+    // compiles the relations, which merges a populated relation's order into this one, and fills every page's middlewares
     this.toDB();
     const sorts = this.getSorts();
     this._assertKeysetPageable(sorts, descriptor);

@@ -19,6 +19,15 @@ export class FakeJoinStatement extends JoinStatement {
   }
 
   public clone(parent?: QueryBuilder | WhereBuilder<unknown>): FakeJoinStatement {
-    return new FakeJoinStatement({ ...this._options, builder: parent instanceof SelectQueryBuilder ? parent : this._options.builder });
+    const copy = new FakeJoinStatement({
+      ...this._options,
+      builder: parent instanceof SelectQueryBuilder ? parent : this._options.builder,
+      callback: undefined,
+      queryCallback: undefined,
+    });
+    if (this._whereBuilder !== undefined) {
+      copy._whereBuilder = this._whereBuilder.clone();
+    }
+    return copy;
   }
 }
