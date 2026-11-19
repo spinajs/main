@@ -3,12 +3,9 @@
 import 'reflect-metadata';
 import { resolve } from 'node:path';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import type { IConfigLike } from '@spinajs/configuration';
-import { Controllers, HttpServer } from '@spinajs/http';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
-import { TestConfiguration, req, srcDir } from '../common.js';
+import { req } from '../common.js';
 import { SwaggerController, SwaggerService } from '../../src/index.js';
+import { bootWithPackageConfig } from './package-config-boot.js';
 
 // 'override' keeps the key on and switches the docs off through a SwaggerService subclass.
 const mode = process.argv[2];
@@ -16,29 +13,6 @@ const enabled = mode !== 'disabled';
 
 // The package config resolves its folders under <root>/node_modules, as in an installed app.
 process.env.WORKSPACE_ROOT_PATH = resolve(process.cwd(), '..', '..');
-const { default: packageConfig } = await import('../../src/config/http-swagger.js');
-
-/** The test config plus the package config, reloaded through `load()` so their ConfigVars are wrapped as in an app. */
-class PackageConfiguration extends TestConfiguration {
-  private loaded: IConfigLike = {};
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    const http = this.Config.http as { swagger: Record<string, unknown> };
-    this.loaded = {
-      ...this.Config,
-      system: { dirs: { controllers: [srcDir('./controllers')] } },
-      http: { ...packageConfig.http, ...http, swagger: { ...packageConfig.http.swagger, ...http.swagger, enabled } },
-    };
-    // Only onLoad(): the file sources would bring in the config of every installed package.
-    this.Sources = [];
-    await this.load();
-  }
-
-  protected onLoad(): IConfigLike {
-    return this.loaded;
-  }
-}
 
 class DocsOffSwaggerService extends SwaggerService {
   public get IsEnabled(): boolean {
@@ -46,15 +20,12 @@ class DocsOffSwaggerService extends SwaggerService {
   }
 }
 
-DI.setESMModuleSupport();
-DI.register(PackageConfiguration).as(Configuration);
-if (mode === 'override') DI.register(DocsOffSwaggerService).as(SwaggerService);
-DI.resolve(FsBootsrapper).bootstrap();
-await DI.resolve(Configuration);
-await DI.resolve(fsService);
-await DI.resolve(Controllers);
-const server = await DI.resolve<HttpServer>(HttpServer);
-await server.start();
+await bootWithPackageConfig(
+  (pkg, http) => ({ ...pkg, ...http, swagger: { ...pkg.swagger, ...http.swagger, enabled } }),
+  () => {
+    if (mode === 'override') DI.register(DocsOffSwaggerService).as(SwaggerService);
+  },
+);
 
 async function get(path: string, accept: string) {
   const res = await req().get(path).set('Accept', accept).send();
