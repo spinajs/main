@@ -1442,20 +1442,22 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         }),
       );
     } else {
+      // A key generated here is fresh and never conflicts, so the target is taken from the row as given.
+      const upsertTarget = _upsertTarget(data, description);
+      generateClientSideKeys(data, description);
+      assertAssignedKeys(data, description);
+
       switch (insertBehaviour) {
         case InsertBehaviour.InsertOrIgnore:
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+          query.onDuplicate(upsertTarget).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
           break;
       }
-
-      generateClientSideKeys(data, description);
-      assertAssignedKeys(data, description);
 
       if (data instanceof ModelBase) {
         query.values(data.toSql());
