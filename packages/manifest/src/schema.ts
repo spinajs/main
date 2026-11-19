@@ -127,6 +127,9 @@ export const manifestSchema: Record<string, any> = {
         "authz": {
           "$ref": "#/definitions/AuthzSection"
         },
+        "tenancy": {
+          "$ref": "#/definitions/TenancySection"
+        },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
         },
@@ -1251,6 +1254,9 @@ export const manifestSchema: Record<string, any> = {
         "accessResource": {
           "type": "string"
         },
+        "tenant": {
+          "$ref": "#/definitions/ModelTenant"
+        },
         "source": {
           "$ref": "#/definitions/SourceRef"
         }
@@ -1449,6 +1455,32 @@ export const manifestSchema: Record<string, any> = {
         "columns",
         "unique"
       ]
+    },
+    "ModelTenant": {
+      "type": "object",
+      "properties": {
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "row",
+            "schema"
+          ]
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean",
+              "const": false
+            }
+          ]
+        },
+        "rls": {
+          "type": "boolean"
+        }
+      }
     },
     "MigrationEntry": {
       "type": "object",
@@ -2108,6 +2140,165 @@ export const manifestSchema: Record<string, any> = {
         "message"
       ]
     },
+    "TenancySection": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenancyModel"
+          }
+        },
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenancyEntryPoint"
+          }
+        },
+        "escapes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenancyEscape"
+          }
+        },
+        "ignores": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenancyIgnore"
+          }
+        }
+      },
+      "required": [
+        "models",
+        "entryPoints",
+        "escapes",
+        "ignores"
+      ]
+    },
+    "TenancyModel": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "tenant": {
+          "$ref": "#/definitions/ModelTenant"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "model",
+        "tenant",
+        "source"
+      ]
+    },
+    "TenancyEntryPoint": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/TenancyEntryKind"
+        },
+        "id": {
+          "type": "string"
+        },
+        "tenancy": {
+          "$ref": "#/definitions/EntryTenancy"
+        },
+        "declared": {
+          "$ref": "#/definitions/TenancyDeclaration"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "tenancy",
+        "source"
+      ]
+    },
+    "TenancyEntryKind": {
+      "type": "string",
+      "enum": [
+        "route",
+        "socket-command",
+        "socket-event",
+        "queue-handler",
+        "schedule",
+        "cli"
+      ]
+    },
+    "EntryTenancy": {
+      "type": "string",
+      "enum": [
+        "required",
+        "each",
+        "none",
+        "all"
+      ]
+    },
+    "TenancyDeclaration": {
+      "type": "string",
+      "enum": [
+        "TenantRoute",
+        "NoTenant",
+        "AllTenants",
+        "carry",
+        "required",
+        "none",
+        "each"
+      ]
+    },
+    "TenancyEscape": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "acrossTenants",
+            "runAcrossTenants"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "kind",
+        "source"
+      ]
+    },
+    "TenancyIgnore": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        }
+      },
+      "required": [
+        "code",
+        "reason",
+        "source"
+      ]
+    },
     "GlobalMiddlewareRef": {
       "type": "object",
       "properties": {
@@ -2275,6 +2466,9 @@ export const manifestSchema: Record<string, any> = {
         },
         "authz": {
           "$ref": "#/definitions/AuthzSection"
+        },
+        "tenancy": {
+          "$ref": "#/definitions/TenancySection"
         },
         "schemas": {
           "$ref": "#/definitions/Record%3Cstring%2Cunknown%3E"
