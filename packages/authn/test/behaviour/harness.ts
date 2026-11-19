@@ -117,7 +117,7 @@ export function configurationOf(values: Record<string, unknown>, env?: string, i
         return;
       }
       super.loadSources();
-      // Without ESM mode the file sources would require the CommonJS package configs, which an ESM test process cannot load.
+      // An ESM test process cannot require the CommonJS package configs.
       if (!DI.get<{ mjs: boolean }>('__esmMode__')) this.Sources = this.Sources.filter((s) => !(s instanceof BaseFileSource));
     }
 
