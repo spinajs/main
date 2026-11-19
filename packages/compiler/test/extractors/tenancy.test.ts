@@ -1,7 +1,9 @@
 import { expect } from 'chai';
 import { mergeFragments, type ControllerEntry, type Manifest, type ManifestFragment, type MiddlewareRef, type RouteEntry } from '@spinajs/manifest';
-import type ts from 'typescript';
+import ts from 'typescript';
 import { analyzePackage, createContext, createProgramFromTsconfig } from '../../src/index.js';
+import { programDeclares } from '../../src/extractors/decorator-origin.js';
+import { isDeclaredIn } from '../../src/schema/framework-members.js';
 import { escapesIn } from '../../src/extractors/tenancy-escapes.js';
 import { tenantModelsOf } from '../../src/extractors/tenant-models.js';
 import { tenancySectionOf } from '../../src/extractors/tenancy.js';
@@ -32,6 +34,9 @@ describe('tenant models', () => {
       ['Country', undefined],
       ['Audit', { isolation: 'row' }],
       ['Receipt', { column: 'org_id' }],
+      ['Branch', { column: 'branch_id' }],
+      ['Vault', { isolation: 'schema' }],
+      ['Note', { rls: false }],
     ]);
   });
 
@@ -57,16 +62,25 @@ describe('tenancy entry points', () => {
 
   const entry = (id: string) => tenancy.entryPoints.find((e) => e.id === id);
 
-  it('lists the tenant models of the package with where each is declared, then a model of another package it registers', () => {
+  it('lists the tenant models of the package with where each is declared, then a model of another package it registers, from its declarations or its sources', () => {
     expect(tenancy.models.map((m) => [m.model, m.tenant, m.source.line])).to.deep.equal([
       ['tenancy-pkg:Ledger', { isolation: 'schema', column: false }, 6],
       ['tenancy-pkg:Invoice', {}, 14],
       ['tenancy-pkg:Payment', { column: 'org_id', rls: true }, 22],
       ['tenancy-pkg:Audit', { isolation: 'row' }, 43],
       ['tenancy-pkg:Receipt', { column: 'org_id' }, 40],
+      ['tenancy-pkg:Branch', { column: 'branch_id' }, 7],
+      ['tenancy-pkg:Vault', { isolation: 'schema' }, 13],
+      ['tenancy-pkg:Note', { rls: false }, 24],
+      ['ledger-src:Entry', { column: 'book_id' }, 4],
       ['@spinajs/queue:JobModel', {}, 44],
     ]);
     expect(tenancy.models.map((m) => m.model), 'a registered class of the package that is no model').to.not.include('tenancy-pkg:Stamped');
+  });
+
+  it('reads @Tenant and registerTenantModel under an import alias and a namespace import, and skips a local registerTenantModel', () => {
+    expect(tenancy.models.filter((m) => m.source.file === 'src/resolved.ts').map((m) => m.model)).to.deep.equal(['tenancy-pkg:Branch', 'tenancy-pkg:Vault', 'tenancy-pkg:Note']);
+    expect(tenancy.models.map((m) => m.model)).to.not.include('tenancy-pkg:Country');
   });
 
   it('reads TenantRoute, NoTenant and AllTenants on a route, under an import alias too', () => {
@@ -74,6 +88,11 @@ describe('tenancy entry points', () => {
     expect(entry('GET /invoices/aliased')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
     expect(entry('GET /invoices/status')).to.deep.include({ tenancy: 'none', declared: 'NoTenant' });
     expect(entry('POST /invoices/report')).to.deep.include({ tenancy: 'all', declared: 'AllTenants', reason: 'monthly revenue report' });
+  });
+
+  it('reads the route decorators through a namespace import', () => {
+    expect(entry('GET /resolved/scoped')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+    expect(entry('GET /resolved/all')).to.deep.include({ tenancy: 'all', declared: 'AllTenants', reason: 'namespace import' });
   });
 
   it('records an @AllTenants reason that is no string literal as missing', () => {
@@ -94,10 +113,30 @@ describe('tenancy entry points', () => {
     expect(entry('GET /guarded/scoped')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
   });
 
+  it("stops at a subclass's hand-written mount, on the class or on a redeclared method, before its base's decorator", () => {
+    for (const id of ['GET /unscoped/kept', 'GET /redeclared/method']) {
+      expect(entry(id), id).to.deep.include({ tenancy: 'none' });
+      expect(entry(id), id).to.not.have.property('declared');
+    }
+    expect(entry('GET /unscoped/method'), 'a base method decorator is nearer than a subclass class mount').to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+    expect(entry('GET /redeclared/kept')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+  });
+
+  it('takes a hand-written mount of TenantMiddleware imported under an alias for one', () => {
+    expect(entry('GET /guard/open')).to.deep.include({ tenancy: 'none' });
+    expect(entry('GET /guard/open')).to.not.have.property('declared');
+  });
+
+  it('takes no hand mount from a class named TenantMiddleware that the tenancy package does not declare', () => {
+    expect(entry('GET /foreign-mount/open')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
+  });
+
   it('gives an entry point that declares nothing no scope, whatever its kind', () => {
     const undeclared = [
       ['GET /invoices/:id', 'route'],
       ['GET /lookalike/open', 'route'],
+      ['GET /lookalike/scoped', 'route'],
+      ['GET /lookalike/all', 'route'],
       ['GET /ops/ping', 'route'],
       ['GET /ops/stats', 'route'],
       ['billing.totals', 'socket-command'],
@@ -120,7 +159,7 @@ describe('tenancy entry points', () => {
     expect(mounted('report')).to.deep.equal([{ type: 'TenantMiddleware', decoratorArgs: ['monthly revenue report'] }]);
     expect(mounted('dynamic')).to.deep.equal([{ type: 'TenantMiddleware' }]);
     expect(mounted('get')).to.deep.equal([]);
-    expect(fragment.controllers.find((c) => c.className === 'LookalikeController')!.routes[0].middlewares).to.deep.equal([]);
+    expect(fragment.controllers.find((c) => c.className === 'LookalikeController')!.routes.flatMap((r) => r.middlewares)).to.deep.equal([]);
   });
 
   it('maps the tenancy option of @Job and @Schedule', () => {
@@ -134,7 +173,7 @@ describe('tenancy entry points', () => {
   it('lists every entry point of the package under the kind, id and source the authz section gives it', () => {
     const key = (e: { kind: string; id: string; source: { file: string; line: number } }): string => `${e.kind} ${e.id} ${e.source.file}:${e.source.line}`;
     expect(tenancy.entryPoints.map(key)).to.deep.equal(fragment.authz!.entryPoints.map(key));
-    expect(tenancy.entryPoints).to.have.length(23);
+    expect(tenancy.entryPoints).to.have.length(34);
   });
 
   it('writes no section for a package that declares no tenancy', async () => {
@@ -156,12 +195,14 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
   const scope = (id: string): string | undefined => merged.tenancy!.entryPoints.find((e) => e.id === id)?.tenancy;
 
   it('pairs every route whose nearest TenantMiddleware mount a decorator made with a declared entry, which the merge keeps', () => {
-    // The route's own mounts come before its controller's. A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator does not.
-    const nearest = (c: ControllerEntry, r: RouteEntry): MiddlewareRef | undefined => [...r.middlewares, ...c.middlewares].find((m) => m.type === 'TenantMiddleware');
+    // The route's own mounts come before its controller's, and a subclass's after its base's; no fixture node carries two.
+    // A hand-written @Middleware(TenantMiddleware, ...) records `options`; a decorator does not.
+    const isTenant = (m: MiddlewareRef): boolean => m.type === 'TenantMiddleware';
+    const nearest = (c: ControllerEntry, r: RouteEntry): MiddlewareRef | undefined => r.middlewares.findLast(isTenant) ?? c.middlewares.findLast(isTenant);
     const byDecorator = (m: MiddlewareRef | undefined): boolean => m !== undefined && !('options' in m);
     const mounting = fragment.controllers.flatMap((c) => c.routes.filter((r) => byDecorator(nearest(c, r))));
     const ids = mounting.map((r) => `${r.method.toUpperCase()} ${r.fullPath}`);
-    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health', 'GET /guarded/scoped']);
+    expect(ids).to.have.members(['GET /invoices/mine', 'GET /invoices/aliased', 'GET /invoices/status', 'POST /invoices/report', 'POST /invoices/dynamic', 'GET /admin/tenants', 'GET /admin/me', 'GET /admin/health', 'GET /guarded/scoped', 'GET /resolved/scoped', 'GET /resolved/all', 'GET /unscoped/method', 'GET /redeclared/kept']);
     expect(ids.map((id) => fragment.tenancy!.entryPoints.find((e) => e.id === id)?.declared)).to.not.include(undefined);
     expect(ids.map((id) => [id, scope(id)])).to.have.deep.members([
       ['GET /invoices/mine', 'required'],
@@ -173,12 +214,21 @@ describe('tenancy entry points under the global TenantMiddleware mount', () => {
       ['GET /admin/me', 'required'],
       ['GET /admin/health', 'none'],
       ['GET /guarded/scoped', 'required'],
+      ['GET /resolved/scoped', 'required'],
+      ['GET /resolved/all', 'all'],
+      ['GET /unscoped/method', 'required'],
+      ['GET /redeclared/kept', 'required'],
     ]);
   });
 
   it('requires a tenant on a plain undeclared route and keeps one with a closer hand-written TenantMiddleware mount at none', () => {
     expect(fragment.controllers.find((c) => c.className === 'OpsController')!.middlewares).to.deep.equal([{ type: 'TenantMiddleware', options: [{ tenancy: 'none' }] }]);
-    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats', 'GET /guarded/open'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none', 'none']);
+    expect(['GET /invoices/:id', 'GET /lookalike/open', 'GET /ops/ping', 'GET /ops/stats', 'GET /guarded/open', 'GET /unscoped/kept', 'GET /redeclared/method'].map(scope)).to.deep.equal(['required', 'required', 'none', 'none', 'none', 'none', 'none']);
+  });
+
+  it('records a hand mount of TenantMiddleware under an import alias by its declared name, so the merge keeps the route at none', () => {
+    expect(fragment.controllers.find((c) => c.className === 'GuardOnlyController')!.routes[0].middlewares).to.deep.equal([{ type: 'TenantMiddleware', options: [{ tenancy: 'none' }] }]);
+    expect(['GET /guard/open', 'GET /guard-only/open'].map(scope)).to.deep.equal(['none', 'none']);
   });
 });
 
@@ -215,7 +265,7 @@ describe('tenancy escapes and ignores', () => {
     expect(tenancy.escapes[0].source).to.deep.equal({ file: 'src/escapes.ts', line: 8, col: 25, package: 'tenancy-pkg' });
   });
 
-  it('records spinajs-tenancy-ignore comments', () => {
+  it('records spinajs-tenancy-ignore comments; one without a reason takes none from the next line', () => {
     expect(tenancy.ignores).to.deep.equal([{ code: 'TEN002', reason: 'the usage export reads every tenant on purpose', source: { file: 'src/ignored.ts', line: 1, col: 1, package: 'tenancy-pkg' } }]);
   });
 });
@@ -240,5 +290,14 @@ describe('tenancy walks of a program without a tenancy package', () => {
   it('resolve no call, decorator or registration', async () => {
     expect(await lookups('authz-pkg')).to.equal(0);
     expect(await lookups('tenancy-pkg')).to.be.greaterThan(0);
+  });
+
+  it('count a package whose files sit under a nameless nested package.json, as isDeclaredIn does, and read its decorators', async () => {
+    const program = ts.createProgram(['test/fixtures/nested-marker/vendor/tenancy-http/esm/index.d.ts'], { noLib: true, types: [] });
+    const [file] = program.getSourceFiles();
+    expect(isDeclaredIn(file, '@spinajs/tenancy-http')).to.equal(true);
+    expect(programDeclares(program, '@spinajs/tenancy-http')).to.equal(true);
+    const nested = await fixture('nested-marker');
+    expect(nested.tenancy?.entryPoints.find((e) => e.id === 'GET /nested/scoped')).to.deep.include({ tenancy: 'required', declared: 'TenantRoute' });
   });
 });

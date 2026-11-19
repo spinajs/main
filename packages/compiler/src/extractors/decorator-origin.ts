@@ -1,44 +1,37 @@
 import ts from 'typescript';
-import { dirname, join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf, type DecoratorInfo } from '../decorators.js';
-import { isDeclaredIn } from '../schema/framework-members.js';
+import { declaringPackage, isDeclaredIn } from '../schema/framework-members.js';
 
-const packageNames = new Map<string, string | undefined>();
+const programPackages = new WeakMap<ts.Program, Set<string>>();
 
-function packageNameOf(dir: string): string | undefined {
-  if (packageNames.has(dir)) return packageNames.get(dir);
-  const manifest = join(dir, 'package.json');
-  let name: string | undefined;
-  if (existsSync(manifest)) name = (JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string }).name;
-  else if (dirname(dir) !== dir) name = packageNameOf(dirname(dir));
-  packageNames.set(dir, name);
-  return name;
-}
-
-const programPackages = new WeakMap<ts.Program, Set<string | undefined>>();
-
-/** A file of the program belongs to `packageName`. Without one, no symbol can resolve to that package, under any alias or re-export. */
+/**
+ * A file of the program belongs to `packageName`. Without one, no symbol can resolve to that package, under any alias or
+ * re-export. It resolves packages as `isDeclaredIn` does, so the gate is never stricter than the checks it guards.
+ */
 export function programDeclares(program: ts.Program, packageName: string): boolean {
   let names = programPackages.get(program);
   if (!names) {
-    names = new Set(program.getSourceFiles().map((f) => packageNameOf(dirname(f.fileName))));
+    names = new Set(program.getSourceFiles().map(declaringPackage));
     programPackages.set(program, names);
   }
   return names.has(packageName);
 }
 
-/** The declared name of the function a decorator calls, whatever name it is imported under, and the package that declares it. */
-export function decoratorOrigin(decorator: DecoratorInfo, ctx: ExtractorContext): { name: string; package?: string } | undefined {
-  const expr = decorator.node.expression;
-  const callee = ts.isCallExpression(expr) ? expr.expression : expr;
-  const name = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
-  let symbol = ctx.checker.getSymbolAtLocation(name);
+/** The declared name of what `expr` names, whatever name it is imported under, and the package that declares it. */
+export function originOf(expr: ts.Expression | undefined, ctx: ExtractorContext): { name: string; package?: string } | undefined {
+  const name = expr && ts.isPropertyAccessExpression(expr) ? expr.name : expr;
+  let symbol = name && ctx.checker.getSymbolAtLocation(name);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
   const declaration = symbol?.declarations?.[0];
   if (!symbol || !declaration) return undefined;
-  return { name: symbol.name, package: packageNameOf(dirname(declaration.getSourceFile().fileName)) };
+  return { name: symbol.name, package: declaringPackage(declaration) };
+}
+
+/** The declared name of the function a decorator calls, whatever name it is imported under, and the package that declares it. */
+export function decoratorOrigin(decorator: DecoratorInfo, ctx: ExtractorContext): { name: string; package?: string } | undefined {
+  const expr = decorator.node.expression;
+  return originOf(ts.isCallExpression(expr) ? expr.expression : expr, ctx);
 }
 
 /** The first decorator of `node` that `packageName` declares under one of `names`, whatever name it is imported under. */

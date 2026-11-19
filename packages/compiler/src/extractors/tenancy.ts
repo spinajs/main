@@ -2,11 +2,11 @@ import ts from 'typescript';
 import { DECLARED_ENTRY_TENANCY, TENANT_MIDDLEWARE, undeclaredTenancy } from '@spinajs/manifest';
 import type { AuthzSection, ControllerEntry, ManifestFragment, ScheduleEntry, TenancyDeclaration, TenancyEntryPoint, TenancyModel, TenancySection } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, findDecorator, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
+import { decoratorsOf, findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classesBySource } from './access-options.js';
 import { routeEntryId, sourceKey } from './authz.js';
-import { decoratorOrigin, programDeclares } from './decorator-origin.js';
+import { decoratorOrigin, originOf, programDeclares } from './decorator-origin.js';
 import { ignoreCommentsIn } from './ignore-comments.js';
 import { optionOf } from './model-sql.js';
 import { literalText } from './string-arg.js';
@@ -15,7 +15,7 @@ import { escapesIn } from './tenancy-escapes.js';
 export const TENANCY_HTTP = '@spinajs/tenancy-http';
 
 const ROUTE_DECORATORS = ['TenantRoute', 'NoTenant', 'AllTenants'] as const;
-const IGNORE = /\/\/\s*spinajs-tenancy-ignore\s+(TEN\d{3})\s*:\s*(.*\S)/g;
+const IGNORE = /\/\/[^\S\r\n]*spinajs-tenancy-ignore[^\S\r\n]+(TEN\d{3})[^\S\r\n]*:[^\S\r\n]*(.*\S)/g;
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 
@@ -38,7 +38,10 @@ type Mount = Declaration | typeof HAND_MOUNTED;
 
 function mountOf(decorator: DecoratorInfo, ctx: ExtractorContext): Mount | undefined {
   const origin = decoratorOrigin(decorator, ctx);
-  if (origin?.package === '@spinajs/http' && origin.name === 'Middleware') return identifierName(decorator.args[0]) === TENANT_MIDDLEWARE ? HAND_MOUNTED : undefined;
+  if (origin?.package === '@spinajs/http' && origin.name === 'Middleware') {
+    const mounted = originOf(decorator.args[0], ctx);
+    return mounted?.package === TENANCY_HTTP && mounted.name === TENANT_MIDDLEWARE ? HAND_MOUNTED : undefined;
+  }
   const name = origin?.package === TENANCY_HTTP ? ROUTE_DECORATORS.find((n) => n === origin.name) : undefined;
   if (name === undefined) return undefined;
   const reason = name === 'AllTenants' ? literalText(decorator.args[0]) : undefined;
