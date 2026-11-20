@@ -54,9 +54,10 @@ export class TableAuditReader extends AuditReader {
     return rowsOf(await select.take(filter.limit)).map(toStored);
   }
 
+  /** Without a `source`, a table with a source column is redacted for every source. */
   async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
     const update = this.driver(trail, source).update().in(this.table(trail)).update({ data: REDACTED_DATA });
-    if (this.hasSourceColumn()) update.where('source', source ?? trail.connection);
+    if (source !== undefined && this.hasSourceColumn()) update.where('source', source);
     const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
     return RowsAffected;
   }
