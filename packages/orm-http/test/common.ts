@@ -119,7 +119,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             Name: 'sqlite',
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
             },
           },
         ],

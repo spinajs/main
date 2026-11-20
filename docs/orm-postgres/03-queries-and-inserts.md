@@ -84,6 +84,10 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 
 On the request side these stay numbers; only response schemas change. `selectCount()` and `Model.count()` convert the count and resolve with a `number`.
 
+### Query plans
+
+`driver.explain(sql, bindings)` runs `EXPLAIN (FORMAT JSON)` on one `SELECT` or `WITH` statement and returns a `QueryPlan` built by `normalizePostgresPlan`. The bindings stay statement parameters, the statement itself never runs (no `ANALYZE`), and the EXPLAIN uses a pool connection of its own, outside the transaction in scope. The slow-query capture calls it; see [Plans: postgres](../orm/13-observability-and-resilience.md#plans-postgres).
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |

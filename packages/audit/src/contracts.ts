@@ -102,11 +102,15 @@ export abstract class AuditStore {
    * Asked synchronously in the caller's async context before a confirmed write; true appends there instead of detached,
    * once, without retries and without `audit.confirmTimeoutMs`. The cost of joining: the record then commits or rolls back
    * with the caller's open transaction. A store answering true must leave that transaction usable when its append fails
-   * (a savepoint where the driver aborts a transaction on error, as Postgres does), or answer false there. Throwing an
-   * `AuditConfigError` fails the write; any other throw reads as false.
+   * (a savepoint where the driver aborts a transaction on error, as Postgres does), or answer false there. The service
+   * puts no deadline on a joined append, so the store must bound it itself, and answer true only while the caller holds
+   * a transaction that append will use. Throwing an `AuditConfigError` fails the write; any other throw reads as false.
    */
   joinsCaller?(trail: TrailConfig, connection: string | undefined): boolean;
-  /** Throwing fails the write; the service applies retry and onFailure around it. */
+  /**
+   * Throwing fails the write. A detached confirmed or a deferred write is retried and then handled by onFailure; a
+   * transactional or a joined write is tried once, and a transactional one always fails the caller.
+   */
   abstract append(write: AuditAppend): Promise<void>;
   /** Undefined: the trail cannot be read from this application. */
   abstract reader(trail: TrailConfig): Promise<AuditReader | undefined>;
@@ -136,10 +140,41 @@ export interface AuditFilter {
 export interface AuditTamper {
   /** The event whose payload no longer matches its data_hash; for every other reason the first seq of the seal's range. */
   readonly seq: number;
-  /** payload: an event's payload was changed. seal: a sealed field or a hash was changed. count: a sealed event is gone or one was inserted. chain: a seal is gone or was replaced. */
+  /**
+   * payload: an event's payload was changed. seal: a sealed field or a hash was changed. count: a sealed event is gone
+   * (deleted, or its seal marked pruned out of chain order or in the future), or a row stamped after the seal was written into its
+   * range. chain: a seal is gone or was replaced.
+   */
   readonly reason: 'payload' | 'seal' | 'count' | 'chain';
   readonly fromSeq: number;
   readonly toSeq: number;
+}
+
+/** A row inside a sealed range that its seal does not cover; its own content is protected by no seal. */
+export interface AuditUncoveredRow {
+  readonly seq: number;
+  /**
+   * late: committed after its range was sealed (a transaction that outlived audit.seal.settleSeconds), or inserted into
+   * the range later with an earlier `at`: the two look alike. One such row per seal is always recognised, two or more only
+   * in small seals; otherwise the seal is reported as `count`. pruned: present in a range retention removed, written after
+   * it or after a seq reset.
+   */
+  readonly reason: 'late' | 'pruned';
+  readonly fromSeq: number;
+  readonly toSeq: number;
+}
+
+/** A seal signed with a key that is not configured where it is verified; verification stops there. */
+export interface AuditUnverifiableSeal {
+  readonly keyId: string;
+  readonly fromSeq: number;
+  readonly toSeq: number;
+}
+
+/** A seal's end and hash kept outside the database, for example from the sealer's log; it protects the chain up to its `toSeq` only. */
+export interface AuditPinnedHead {
+  readonly toSeq: number;
+  readonly hash: string;
 }
 
 export interface AuditVerifyReport {
@@ -157,19 +192,51 @@ export interface AuditVerifyReport {
   readonly prunedSeals: number;
   /** The first mismatch, where verification stopped; undefined when every seal matches. */
   readonly tampered: AuditTamper | undefined;
+  /** The first seal whose key is not configured here, where verification stopped; undefined when every key was at hand. */
+  readonly unverifiable: AuditUnverifiableSeal | undefined;
+  /**
+   * Seal keys are configured, but the newest verified seal is keyless: a chain not sealed since the key was added, or one
+   * rewritten without the key from its first seal.
+   */
+  readonly keylessHead: boolean;
   /** Events after the last seal, not covered yet. */
   readonly unsealed: number;
+  /** Of those, events older than the sealing window: a sealer that stopped, a backlog, or deleted seals. */
+  readonly staleUnsealed: number;
   /** The last seal that verified; a copy of its hash kept outside the database pins the chain. */
   readonly head: { readonly toSeq: number; readonly hash: string } | undefined;
+  /** Rows in sealed ranges that their seal does not cover, up to where verification stopped; not tampering by themselves. */
+  readonly uncovered: readonly AuditUncoveredRow[];
+  /** Seqs of sealed events whose payload is erased with no `erasure` record of their subject at or after them: blanked outside `forget`. */
+  readonly unexplainedRedactions: readonly number[];
+  /**
+   * Seals marked pruned that the trail's retention here does not explain (younger than retentionDays when pruned, or no
+   * retentionDays): lawful after a retention change or a direct prune, else events deleted under a forged prune.
+   */
+  readonly earlyPrunes: readonly { readonly fromSeq: number; readonly toSeq: number }[];
+}
+
+/** What an erasure blanked on one connection, where `forget` records its `erasure` event; `connection` undefined is the trail's own. */
+export interface AuditRedaction {
+  readonly connection: string | undefined;
+  readonly redacted: number;
 }
 
 export abstract class AuditReader {
   abstract list(trail: TrailConfig, filter: AuditFilter): Promise<readonly StoredAuditEvent[]>;
-  /** Blanks the payload of every event of one subject and keeps its hash; returns how many. */
+  /** Blanks the payload of every event of one subject, erasure records (`custom`/`erasure`) excepted, and keeps its hash; returns how many. */
   abstract redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number>;
+  /**
+   * The erasure `forget` runs, one connection at a time: `forget` records each yielded redaction's `erasure` event,
+   * beside the payloads it explains where `verify` looks for it, before the next connection is blanked. By default
+   * `redact` on `source`, recorded there.
+   */
+  async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
+    yield { connection: source, redacted: await this.redact(trail, subject, source) };
+  }
   abstract prune(trail: TrailConfig, before: Date, source?: string): Promise<number>;
-  /** Optional: recomputes the seals of the trail's table. A reader that cannot leaves it out. */
-  verify?(trail: TrailConfig, source?: string): Promise<AuditVerifyReport>;
+  /** Optional: recomputes the seals of the trail's table; a pinned head must be met on the chain. A reader that cannot leaves it out. */
+  verify?(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;
 }
 
 export interface AuditBatch {
@@ -204,10 +271,10 @@ export interface AuditTrail {
   of(subject: AuditSubject, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
   byTrace(traceId: string, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
   since(seq: number, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
-  /** Redacts one subject and records an 'erasure' event, both on `source` when one is given. */
+  /** Redacts one subject and records an 'erasure' event beside what it redacted (`AuditReader.redactEach`); returns how many events it blanked. */
   forget(subject: AuditSubject, source?: string): Promise<number>;
   /** Recomputes the seals of a sealed trail; throws AuditNotSupported when the trail is not sealed, has no reader, or its reader cannot verify. */
-  verify(source?: string): Promise<AuditVerifyReport>;
+  verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;
 }
 
 /** A Service, so that disposing the container writes out the deferred buffer. */

@@ -6,8 +6,8 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { AuditConfigError, AuditNotSupported, AuditStore, audit } from '../src/index.js';
-import type { AuditReader, AuditVerifyReport, TrailConfig } from '../src/index.js';
+import { AuditConfigError, AuditNotSupported, AuditStore, audit, isErasureRecord } from '../src/index.js';
+import type { AuditPinnedHead, AuditReader, AuditRedaction, AuditSubject, AuditVerifyReport, TrailConfig } from '../src/index.js';
 import { MemoryAuditReader, MemoryAuditStore } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -19,8 +19,8 @@ const patient = { type: 'patient', id: '17' };
 
 // Stands in for a reader that can verify, which arrives with the seals of the integrity branches.
 class VerifyingReader extends MemoryAuditReader {
-  verify(trail: TrailConfig, source?: string): Promise<AuditVerifyReport> {
-    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unsealed: 0, head: undefined });
+  verify(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
+    return Promise.resolve({ trail: trail.name, connection: source ?? trail.connection, table: trail.table, seals: 0, intact: 0, redacted: 0, prunedSeals: 0, tampered: undefined, unverifiable: undefined, keylessHead: false, unsealed: 0, staleUnsealed: 0, head: pinned, uncovered: [], unexplainedRedactions: [], earlyPrunes: [] });
   }
 }
 
@@ -30,8 +30,23 @@ class VerifyingStore extends MemoryAuditStore {
   }
 }
 
+// Erases on two connections, as a table trail whose table sits on several connections does.
+class SpreadingReader extends MemoryAuditReader {
+  override async *redactEach(trail: TrailConfig, subject: AuditSubject): AsyncGenerator<AuditRedaction> {
+    yield { connection: undefined, redacted: await this.redact(trail, subject) };
+    yield { connection: 'orders', redacted: 1 };
+  }
+}
+
+class SpreadingStore extends MemoryAuditStore {
+  override reader(): Promise<AuditReader | undefined> {
+    return Promise.resolve(new SpreadingReader());
+  }
+}
+
 const TRAILS = {
   default: { store: 'MemoryAuditStore' },
+  spread: { store: 'SpreadingStore' },
   sealed: { store: 'VerifyingStore', integrity: 'sealed' },
   unverifiable: { store: 'MemoryAuditStore', integrity: 'sealed' },
   logged: { store: 'LogAuditStore', integrity: 'sealed' },
@@ -45,7 +60,13 @@ describe('audit().trail', function () {
 
   beforeEach(async () => {
     MemoryAuditStore.reset();
-    app = await createTestApp({ config: { logger: SILENT, audit: { trails: TRAILS } }, register: (container) => container.register(VerifyingStore).as(AuditStore) });
+    app = await createTestApp({
+      config: { logger: SILENT, audit: { trails: TRAILS } },
+      register: (container) => {
+        container.register(VerifyingStore).as(AuditStore);
+        container.register(SpreadingStore).as(AuditStore);
+      },
+    });
     await as('u1', TRACE, () =>
       audit().record(
         [
@@ -91,6 +112,7 @@ describe('audit().trail', function () {
 
   it('verifies through the reader, and refuses a trail that is not sealed or cannot be verified here', async () => {
     expect(await audit().trail('sealed').verify('orders')).to.include({ trail: 'sealed', connection: 'orders', table: 'audit_event', tampered: undefined });
+    expect((await audit().trail('sealed').verify(undefined, { toSeq: 7, hash: 'h' })).head).to.deep.eq({ toSeq: 7, hash: 'h' });
     await expect(audit().trail().verify()).to.be.rejectedWith(AuditNotSupported, 'audit: trail "default" is not sealed, so it has nothing to verify (audit.trails.default.integrity)');
     await expect(audit().trail('unverifiable').verify()).to.be.rejectedWith(AuditNotSupported, 'audit: the reader MemoryAuditReader of trail "unverifiable" cannot verify seals');
     await expect(audit().trail('logged').verify()).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (verify)');
@@ -104,10 +126,27 @@ describe('audit().trail', function () {
       ['update', true, {}],
       ['erasure', false, { redacted: 2 }],
     ]);
+    // Forgotten again: nothing is left to blank, and the first erasure record stays as evidence.
+    expect(await trail.forget(patient)).to.eq(0);
+    expect((await trail.of(patient)).map((e) => [e.action, e.data])).to.deep.eq([
+      ['patient.read', {}],
+      ['update', {}],
+      ['erasure', { redacted: 2 }],
+      ['erasure', { redacted: 0 }],
+    ]);
 
     expect(await trail.forget({ type: 'patient', id: '99' }, 'orders')).to.eq(0);
-    // The two appends of beforeEach, then one erasure without a source and one with.
-    expect(MemoryAuditStore.appends().map((write) => write.connection)).to.deep.eq([undefined, undefined, undefined, 'orders']);
+    // The two appends of beforeEach, then two erasures without a source and one with.
+    expect(MemoryAuditStore.appends().map((write) => write.connection)).to.deep.eq([undefined, undefined, undefined, undefined, 'orders']);
+  });
+
+  it('records one erasure per connection the reader erased on, and returns the sum', async () => {
+    expect(await audit().trail('spread').forget(patient)).to.eq(1);
+    const erasures = MemoryAuditStore.appends().filter((write) => isErasureRecord(write.events[0]));
+    expect(erasures.map((write) => [write.connection, write.events[0].kind, write.events[0].data])).to.deep.eq([
+      [undefined, 'custom', { redacted: 0 }],
+      ['orders', 'custom', { redacted: 1 }],
+    ]);
   });
 
   it('refuses a trail whose store has no reader, and an unknown trail', async () => {

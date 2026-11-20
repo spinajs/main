@@ -51,7 +51,7 @@ When the http server starts listening, `UnguardedRoutesReport` lists every regis
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.http.unguardedRoutes` | `string` | `'warn'` | `'warn'`, `'throw'`, `'off'` | `'warn'` logs each route once as `Controller.method`. `'throw'` stops the http server with an `AuthzConfigError` that names every such route. `'off'` skips the check. |
+| `authz.http.unguardedRoutes` | `string` | `'warn'` | `'warn'`, `'throw'`, `'off'` | `'warn'` logs each route once as `Controller.method`. `'throw'` stops the http server with an `AuthzConfigError` that names every such route, sets exit code 1 and emits `authz.boot.failed` ([Principal resolution](03-principal-resolution.md#how-it-works)). `'off'` skips the check. |
 
 The report runs before the root authz domain boots, on the controllers registered at that moment. The edit-time twin is the [`require-access`](../eslint-plugin-authz/04-require-access.md) lint rule.
 

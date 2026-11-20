@@ -18,8 +18,8 @@ import {
   Relation,
   SingleRelation,
   extractModelDescriptor,
-  Orm,
 } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/log';
 
 import { TestConfiguration } from './common.js';
@@ -147,7 +147,7 @@ describe('@Filterable on a property with no column (virtual filter column)', fun
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
 
     // orm-http's bootstrapper installs these on every loaded model in a full app boot.
     for (const model of [VItem, VTag, VOwner]) {

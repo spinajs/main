@@ -5,7 +5,7 @@ import type { ModelBase } from '@spinajs/orm';
 import { driverOf } from '../ids.js';
 import { entryOf, nameOf } from '../registry.js';
 
-/** The bulk move of design §6.4: one update; AncestorMiddleware recomputes the moved subtrees in its transaction. */
+/** The bulk move of design §6.4: one update; AncestorObserver recomputes the moved subtrees in its transaction. */
 export async function reparent(model: Class<ModelBase>, ids: readonly (string | number)[], newParentId: string | number | null, column?: string): Promise<number> {
   const entry = entryOf(model);
   if (!entry) throw new AuthzConfigError(`reparent: ${nameOf(model)} is not an @AccessResource model`);

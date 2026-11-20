@@ -20,12 +20,13 @@ export class AuthzImport extends CliCommand {
 
   public async execute(model: string, options: AuthzImportOptions): Promise<void> {
     const ir = await loadIr();
-    const { namespaces, permissions, problems } = ir.irToRebacConfig(ir.readOpenFga(await readFile(model, 'utf8')));
+    const { namespaces, permissions, caveats, problems } = ir.irToRebacConfig(ir.readOpenFga(await readFile(model, 'utf8')));
     for (const p of problems) this.Log.warn(`authz:import: ${p}`);
     if (options.strict === true && problems.length > 0) throw new Error(`authz:import --strict: ${problems.length} part(s) of ${model} have no authz.rebac form`);
     const out = resolve(options.out);
     await mkdir(dirname(out), { recursive: true });
-    await writeFile(out, `${JSON.stringify({ authz: { rebac: { namespaces, permissions } } }, null, 2)}\n`);
+    const rebac = { namespaces, permissions, ...(Object.keys(caveats).length > 0 ? { caveats } : {}) };
+    await writeFile(out, `${JSON.stringify({ authz: { rebac } }, null, 2)}\n`);
     this.Log.info(`authz.rebac config written to ${out}`);
   }
 }
