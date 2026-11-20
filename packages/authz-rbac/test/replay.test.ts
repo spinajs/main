@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto';
 import sinon from 'sinon';
 
 import { DecisionLogTap, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
-import type { AuthzTx, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
-import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
+import type { AuthzTx, ChangeRecord, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
+import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, ReplayDeps, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
 import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
@@ -57,6 +57,15 @@ describe('AssignmentHistoryContributor', function () {
     expect(DI.getRegisteredTypes(HistoryContributors)).to.include(AssignmentHistoryContributor);
     expect(new AssignmentHistoryContributor().serves(source)).to.equal(true);
     expect(new AssignmentHistoryContributor().serves({ kind: 'tuples', store: 'authz_rebac_tuple' })).to.equal(false);
+  });
+
+  it('reads a change or an image it cannot decode as unreadable, never as a grant that is absent or not live', () => {
+    const c = new AssignmentHistoryContributor();
+    const image = { role: 'editor', scope: { type: 'project', id: 'p1' }, subject: { type: 'user' }, expiresAt: null };
+    const change: ChangeRecord = { seq: 7, at: new Date(), kind: 'assignment', op: 'remove', key: 'a1', payload: image, before: null, actor: null, traceId: null };
+    expect(() => c.edges(change)).to.throw(StoreUnreadable, /assignment change seq 7/);
+    expect(() => c.subjectAt(image, new Date())).to.throw(StoreUnreadable);
+    expect(() => c.subjectAt({ ...image, subject: { type: 'user', id: 'u1' }, expiresAt: 'not an instant' }, new Date())).to.throw(StoreUnreadable);
   });
 
   for (const kind of ALL_DB_KINDS) {

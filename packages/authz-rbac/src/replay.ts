@@ -1,6 +1,6 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { ChangeRecord, Permission, ResourceRef } from '@spinajs/authz';
-import { GLOBAL_TYPE, HistoryContributors, StoredPolicySplicers, parseStoredPolicyName, storedPolicyName } from '@spinajs/authz-ir';
+import { GLOBAL_TYPE, HistoryContributors, StoreUnreadable, StoredPolicySplicers, parseStoredPolicyName, storedPolicyName } from '@spinajs/authz-ir';
 import type { CurrentItem, HistoryEdge, KeyState, ObjectRef, OpaqueRef, PolicyIR, RelationDef, RelationName, Rewrite, StoredEdge, StoredPlaceholder, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -79,30 +79,33 @@ export class AssignmentHistoryContributor extends HistoryContributors {
 
   async current(object: ObjectRef, relation: RelationName): Promise<CurrentItem<TupleSubjectRef>[]> {
     const rows = await AssignmentRecord.query().onPrimary().where('role', relation).where(scopeToColumns(scopeOf(object)));
-    return rows.flatMap((row) => this.item(row, (g) => g.subject));
+    return rows.map((row) => this.item(row, (g) => g.subject, object));
   }
 
   async currentReverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName): Promise<CurrentItem<ObjectRef>[]> {
     const rows = await AssignmentRecord.query().onPrimary().where('role', relation).where('scope_type', objectType).where(subjectToColumns(assignmentSubject(subject)));
-    return rows.flatMap((row) => this.item(row, (g) => g.scope));
+    return rows.map((row) => this.item(row, (g) => g.scope, { type: objectType, id: row.scope_id }));
   }
 
   /** A put keeps the subject, role and scope (an assignment's id is its grant), so every op touches one edge. */
   edges(change: ChangeRecord): HistoryEdge[] {
     const g = grantOf(change.payload) ?? grantOf(change.before);
-    return g === undefined ? [] : [{ key: change.key, object: g.scope, relation: g.role, subject: g.subject }];
+    if (g === undefined) throw new StoreUnreadable(`assignment change seq ${change.seq} holds no grant`);
+    return [{ key: change.key, object: g.scope, relation: g.role, subject: g.subject }];
   }
 
   /** Live at `at` as the store's `whereLive` reads it: no expiry, or one strictly after `at`. */
   subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined {
     const g = grantOf(image);
-    return g === undefined || (g.expiresAt !== null && g.expiresAt <= at.getTime()) ? undefined : g.subject;
+    if (g === undefined) throw new StoreUnreadable('the image holds no grant');
+    return g.expiresAt !== null && g.expiresAt <= at.getTime() ? undefined : g.subject;
   }
 
-  private item<S>(row: AssignmentRecord, carrier: (g: Grant) => S): CurrentItem<S>[] {
+  /** A row that holds no grant stays a candidate: `subjectAt` makes its key a gap, so `fallback` is never read. */
+  private item<S>(row: AssignmentRecord, carrier: (g: Grant) => S, fallback: S): CurrentItem<S> {
     const image = rowToAssignment(row);
     const g = grantOf(image);
-    return g === undefined ? [] : [{ key: row.id, image, subject: carrier(g) }];
+    return { key: row.id, image, subject: g === undefined ? fallback : carrier(g) };
   }
 }
 
