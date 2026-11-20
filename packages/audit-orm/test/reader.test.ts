@@ -295,6 +295,17 @@ describe('TableAuditReader', function () {
         expect(rows.slice(0, 3).map(withoutData)).to.deep.eq(before.map(withoutData));
       });
 
+      it('keeps a subject as spelled and erases that spelling only', async () => {
+        const events = audit().trail(trail);
+        const user = (id: string) => ({ type: 'user', id });
+        await audit().record(['Łukasz-7', 'ABC', 'abc'].map((id): AuditInput => ({ kind: 'data', action: 'update', subject: user(id), data: { name: 'Łukasz Żółć' } })), { trail });
+
+        expect(await events.forget(user('abc'))).to.eq(1);
+        const [lukasz] = await events.of(user('Łukasz-7'));
+        expect([lukasz?.subject, lukasz?.data]).to.deep.eq([user('Łukasz-7'), { name: 'Łukasz Żółć' }]);
+        expect((await events.of(user('ABC'))).map((e) => [e.subject?.id, e.redacted])).to.deep.eq([['ABC', false]]);
+      });
+
       it('prunes more than one chunk', async () => {
         const old = Array.from({ length: 501 }, (_unused, i): AuditEvent => ({ id: `p${i}`, at: day(4), kind: 'action', action: 'old', outcome: 'ok', actor: 'user:u1', data: {} }));
         await insertRows(db.driver(dialect), tableOf(dialect), old.map(storedColumns));

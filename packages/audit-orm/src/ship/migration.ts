@@ -9,7 +9,7 @@ export class AuditOutboxTableMigration extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable(AUDIT_OUTBOX_TABLE, (table) => {
       table.bigint('seq').primaryKey().autoIncrement();
-      table.string('trail', AUDIT_TRAIL_WIDTH).notNull();
+      table.string('trail', AUDIT_TRAIL_WIDTH).notNull().exact();
       auditEventColumns(table);
     });
     await connection.index().table(AUDIT_OUTBOX_TABLE).name('audit_outbox_trail').columns(['trail', 'seq']);
@@ -34,7 +34,7 @@ export class AuditArchiveTableMigration extends OrmMigration {
     const name = this.table();
     await connection.schema().createTable(name, (table) => {
       table.bigint('seq').primaryKey().autoIncrement();
-      table.string('source', AUDIT_SOURCE_WIDTH).notNull();
+      table.string('source', AUDIT_SOURCE_WIDTH).notNull().exact();
       auditEventColumns(table);
     });
     await connection.index().table(name).name(`${name}_subject`).columns(['source', 'subject_type', 'subject_id', 'seq']);

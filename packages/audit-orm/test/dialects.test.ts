@@ -95,6 +95,23 @@ describe('audit-orm dialect parity', function () {
         expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 2, redacted: 0, tampered: undefined, unsealed: 0 });
       });
 
+      it('keeps a subject as spelled through buffer and archive, and erases that spelling only', async () => {
+        const user = (id: string) => ({ type: 'user', id });
+        const about = (n: number, id: string): AuditEvent => event(n, { subject: user(id), data: { name: 'Łukasz Żółć' } });
+        await store.append({ trail: shipped(), events: [about(1, 'Łukasz-7'), about(2, 'ABC'), about(3, 'abc')] });
+        await shipAudit({ trail: 'shipped' });
+        await store.append({ trail: shipped(), events: [about(4, 'ABC'), about(5, 'abc')] });
+
+        expect(await audit().trail('shipped').forget(user('abc'))).to.eq(2);
+        await shipAudit({ trail: 'shipped' });
+        const archived = (await tableRows(driver(), ARCHIVE)).filter((r) => r.action !== 'erasure').map((r) => [r.subject_id, r.data === '']);
+        expect(archived).to.deep.eq([['Łukasz-7', false], ['ABC', false], ['abc', true], ['ABC', false], ['abc', true]]);
+        const [lukasz] = await audit().trail('shipped').of(user('Łukasz-7'));
+        expect(lukasz?.data).to.deep.eq({ name: 'Łukasz Żółć' });
+        expect(await sealNow()).to.deep.include({ failed: [] });
+        expect(await audit().trail('shipped').verify()).to.deep.include({ redacted: 2, tampered: undefined, unexplainedRedactions: [] });
+      });
+
       it('keeps the milliseconds of at, so what it sealed verifies', async () => {
         const precise = event(1, { at: new Date('2026-11-16T10:00:01.234Z') });
         await sink.deliver({ trail: 'shipped', source: 'app', events: [precise] });

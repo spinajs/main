@@ -8,13 +8,13 @@ export class AuditSealTableMigration extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable(AUDIT_SEAL_TABLE, (table) => {
       table.bigint('id').primaryKey().autoIncrement();
-      table.string('trail_table', AUDIT_SEAL_TABLE_NAME_WIDTH).notNull();
+      table.string('trail_table', AUDIT_SEAL_TABLE_NAME_WIDTH).notNull().exact();
       table.bigint('from_seq').notNull();
       table.bigint('to_seq').notNull();
       table.int('event_count').notNull();
-      table.string('events_hash', 64).notNull();
-      table.string('hash', 64).notNull();
-      table.string('previous_hash', 64);
+      table.string('events_hash', 64).notNull().exact();
+      table.string('hash', 64).notNull().exact();
+      table.string('previous_hash', 64).exact();
       table.dateTime('sealed_at').notNull();
       table.dateTime('pruned_at');
     });
