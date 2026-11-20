@@ -1,24 +1,34 @@
 import { AuditConfigError, auditStore, listAudit, trailConfig } from '@spinajs/audit';
 import type { AuditFilter, AuditQuery, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
-import { Injectable } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { ModelAuditSource, extractModelDescriptor } from '@spinajs/orm';
-import type { ModelAudit, ModelBase, RowAudit } from '@spinajs/orm';
+import { extendModel, extractModelDescriptor } from '@spinajs/orm';
+import type { ModelBase, ModelMembers } from '@spinajs/orm';
 
 import { auditConnection, findConnection } from './rows.js';
 import { TableAuditReader } from './table-reader.js';
 
-declare module '@spinajs/orm' {
-  interface ModelAudit {
-    /** What was recorded about one row, oldest first. */
-    of(id: string | number | bigint, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
-    /** What was recorded about the rows of this model after `seq`. */
-    since(seq: number, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
-  }
-  interface RowAudit {
-    /** What was recorded about this row, oldest first. */
-    entries(query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
-  }
+/** What `Model.audit(trail?)` returns on a model marked `@Auditable()`, and `auditOf(Model, trail?)` on any model. */
+export interface ModelAudit {
+  /** What was recorded about one row, oldest first. */
+  of(id: string | number | bigint, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
+  /** What was recorded about the rows of this model after `seq`. */
+  since(seq: number, query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
+}
+
+/** What `row.audit(trail?)` and `auditOf(row, trail?)` return. */
+export interface RowAudit {
+  /** What was recorded about this row, oldest first. */
+  entries(query?: AuditQuery): Promise<readonly StoredAuditEvent[]>;
+}
+
+/** The static member a model marked with `@Auditable()` declares: `declare static audit: AuditableModel['audit'];` */
+export interface AuditableModel {
+  audit(trail?: string): ModelAudit;
+}
+
+/** The interface its rows take: `export interface Invoice extends AuditableRow {}` above the class. */
+export interface AuditableRow {
+  audit(trail?: string): RowAudit;
 }
 
 interface Named {
@@ -114,19 +124,38 @@ function modelAudit(model: Named, trail: string | undefined): ModelAudit {
   };
 }
 
-@Injectable(ModelAuditSource)
-export class OrmModelAuditSource extends ModelAuditSource {
-  of(model: Constructor<ModelBase>, trail?: string): ModelAudit {
-    return modelAudit(model, trail);
-  }
+function rowAudit(row: ModelBase, trail: string | undefined): RowAudit {
+  const model: Named = row.constructor;
+  const key: unknown = row.PrimaryKeyValue;
+  if (missingKey(key)) throw new AuditConfigError(`audit: this ${model.name} has no single primary key value yet, so no event can be about it; save it first`);
+  const id = auditSubjectId(key);
+  if (id === undefined) throw new AuditConfigError(`audit: the primary key of this ${model.name} cannot be written as an audit subject id; a key part must be a string, number, bigint, Buffer or typed array`);
+  const all = modelAudit(model, trail);
+  return { entries: (query) => all.of(id, query) };
+}
 
-  ofRow(row: ModelBase, trail?: string): RowAudit {
-    const model: Named = row.constructor;
-    const key: unknown = row.PrimaryKeyValue;
-    if (missingKey(key)) throw new AuditConfigError(`audit: this ${model.name} has no single primary key value yet, so no event can be about it; save it first`);
-    const id = auditSubjectId(key);
-    if (id === undefined) throw new AuditConfigError(`audit: the primary key of this ${model.name} cannot be written as an audit subject id; a key part must be a string, number, bigint, Buffer or typed array`);
-    const all = modelAudit(model, trail);
-    return { entries: (query) => all.of(id, query) };
-  }
+/** The audit events about a model's rows, or about one row; works for every model, marked or not. */
+export function auditOf(model: Constructor<ModelBase>, trail?: string): ModelAudit;
+export function auditOf(row: ModelBase, trail?: string): RowAudit;
+export function auditOf(target: Constructor<ModelBase> | ModelBase, trail?: string): ModelAudit | RowAudit {
+  return typeof target === 'function' ? modelAudit(target, trail) : rowAudit(target, trail);
+}
+
+const MEMBERS: ModelMembers = {
+  onModel(this: Constructor<ModelBase>, trail?: string): ModelAudit {
+    return auditOf(this, trail);
+  },
+  onRow(this: ModelBase, trail?: string): RowAudit {
+    return auditOf(this, trail);
+  },
+};
+
+/** Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. Its typing then comes from `auditOf`. */
+export function registerAuditable(model: Constructor<ModelBase>): void {
+  extendModel(model, 'audit', MEMBERS);
+}
+
+/** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. */
+export function Auditable(): <M extends Constructor<ModelBase & AuditableRow> & AuditableModel>(target: M) => void {
+  return (target) => registerAuditable(target);
 }

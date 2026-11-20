@@ -4,7 +4,8 @@ import 'mocha';
 import { AuditConfigError, audit } from '@spinajs/audit';
 import { Connection, Migration, Model, ModelBase, OrmMigration, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
-import { AuditTrailTableMigration, auditSubjectId, auditSubjectType } from '../src/index.js';
+import { Auditable, AuditTrailTableMigration, auditOf, auditSubjectId, auditSubjectType } from '../src/index.js';
+import type { AuditableModel, AuditableRow } from '../src/index.js';
 import { TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
@@ -12,7 +13,11 @@ const expect = chai.expect;
 
 @Connection('sqlite')
 @Model('audit_invoice')
+@Auditable()
 class AuditInvoice extends ModelBase<AuditInvoice> {
+  declare static audit: AuditableModel['audit'];
+  declare audit: AuditableRow['audit'];
+
   @Primary()
   public id: string;
 
@@ -38,7 +43,11 @@ class NoTable extends ModelBase {}
 // A model on a connection other than its trails': transactional events land beside it, confirmed ones on the trail's connection.
 @Connection('books')
 @Model('audit_book')
+@Auditable()
 class AuditBook extends ModelBase<AuditBook> {
+  declare static audit: AuditableModel['audit'];
+  declare audit: AuditableRow['audit'];
+
   @Primary()
   public id: string;
 }
@@ -175,7 +184,31 @@ describe('Model.audit() and row.audit()', function () {
 
   it('refuses a row that was never saved, a class without a table and an unknown trail', () => {
     expect(() => new AuditInvoice().audit()).to.throw(AuditConfigError, 'audit: this AuditInvoice has no single primary key value yet, so no event can be about it; save it first');
-    expect(() => NoTable.audit()).to.throw(AuditConfigError, 'audit: NoTable is not an ORM model with a table');
+    expect(() => auditOf(NoTable)).to.throw(AuditConfigError, 'audit: NoTable is not an ORM model with a table');
     expect(() => AuditInvoice.audit('nope')).to.throw(AuditConfigError, 'audit: no trail named "nope"');
+  });
+
+  it('answers any model through auditOf, marked or not, with the same events', async () => {
+    expect(await auditOf(AuditInvoice).of('i1')).to.deep.eq(await AuditInvoice.audit().of('i1'));
+    expect(await auditOf(await AuditInvoice.get('i1'), 'reads').entries()).to.deep.eq(await AuditInvoice.audit('reads').of('i1'));
+  });
+
+  it('leaves a model without the mark without the member, in its type too', () => {
+    expect('audit' in NoTable).to.eq(false);
+    expect('audit' in ModelBase.prototype).to.eq(false);
+    // @ts-expect-error a model that is not marked has no audit() in its type
+    void NoTable.audit;
+  });
+
+  it('refuses the mark on a class that does not declare the members', () => {
+    // @ts-expect-error @Auditable() needs the row interface (or a declare line) and `declare static audit`
+    @Auditable()
+    class Undeclared extends ModelBase<Undeclared> {}
+    expect(Undeclared).to.be.a('function');
+  });
+
+  it('gives a subclass of a marked model the members', () => {
+    class Credit extends AuditInvoice {}
+    expect(Credit.audit).to.eq(AuditInvoice.audit);
   });
 });

@@ -484,8 +484,42 @@ from `@spinajs/orm-history`, which records every tracked insert, update and dele
 
 ### Audit events of a model
 
-`Model.audit(trail?)` and `row.audit(trail?)` return what the audit trail recorded about a model's rows (`of(id)`,
-`since(seq)`, `entries()`). They need `@spinajs/audit-orm`; without it they throw.
+`@spinajs/audit-orm` reads what the audit trail recorded about a model's rows (`of(id)`, `since(seq)`, `entries()`).
+`auditOf(Model, trail?)` and `auditOf(row, trail?)` answer for any model. A model marked `@Auditable()` also has
+`Model.audit(trail?)` and `row.audit(trail?)`; it declares their typing itself, with an interface merged with the class
+for the rows and a `declare static` line for the class. A model without the mark has no `audit()` member.
+
+```ts sample
+import { Auditable, auditOf } from '@spinajs/audit-orm';
+import type { AuditableModel, AuditableRow } from '@spinajs/audit-orm';
+import { Model, ModelBase, Primary } from '@spinajs/orm';
+
+export interface Order extends AuditableRow {}
+
+@Model('orders')
+@Auditable()
+export class Order extends ModelBase<Order> {
+  declare static audit: AuditableModel['audit'];
+
+  @Primary()
+  public Id: number;
+}
+
+@Model('carts')
+export class Cart extends ModelBase<Cart> {
+  @Primary()
+  public Id: number;
+}
+
+export async function history(order: Order) {
+  const ofOrder = await order.audit().entries();
+  const ofCarts = await auditOf(Cart).since(0, { source: 'default' });
+  return { ofOrder, ofCarts };
+}
+```
+
+`registerAuditable(Model)` gives `audit()` to a model of another package, whose class cannot carry the decorator; its
+typing then comes from `auditOf`.
 
 Without a trail name they read the `default` trail. A trail keeps transactional events on the connection of the audited
 write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
@@ -534,7 +568,9 @@ extendModel(Ticket, 'label', {
 export const both = `${Ticket.label()} / ${new Ticket().label()}`;
 ```
 
-Applications rarely call it themselves; a package's decorator does, on the models marked with it.
+Applications rarely call it themselves; a package's decorator does, on the models marked with it:
+
+- `@spinajs/audit-orm`: `@Auditable()` gives a model `Model.audit()` and `row.audit()` ([Reading the trail](../audit/02-reading-the-trail.md)).
 
 ## Column SQL specs, indexes and partial models
 

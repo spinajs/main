@@ -46,17 +46,32 @@ A transactional event is written on the connection of the audited write, a confi
 
 For a shipping trail, `source` selects the connection whose buffer held the event; see [Shipping](06-shipping.md#reading-an-archive).
 
-## `Model.audit()` and `row.audit()`
+## `Model.audit()`, `row.audit()` and `auditOf()`
 
-With `@spinajs/audit-orm` imported, a model and a row read what was recorded about them. The subject type is the model's table name and the subject id the primary key: a string as it is, a number or bigint in decimal, a `Buffer` or typed array as lowercase hex, a composite key as its parts joined with `:` (`%` and `:` in a part escaped as `%25` and `%3A`). A producer that records events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` so these reads find them, passing the key as the loaded model holds it (after its converters), not the raw column value: a binary key with a converter gives hex from the raw column but the converted text from the model.
+`@spinajs/audit-orm` reads what was recorded about a model and a row: `auditOf(Model, trail?)` and `auditOf(row, trail?)`
+for any model, and `Model.audit(trail?)` and `row.audit(trail?)` on a model marked `@Auditable()`, which declares their
+typing with an interface merged with the class and a `declare static` line. The subject type is the model's table name and the subject id the primary key: a string as it is, a number or bigint in decimal, a `Buffer` or typed array as lowercase hex, a composite key as its parts joined with `:` (`%` and `:` in a part escaped as `%25` and `%3A`). A producer that records events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` so these reads find them, passing the key as the loaded model holds it (after its converters), not the raw column value: a binary key with a converter gives hex from the raw column but the converted text from the model.
 
 ```ts sample
-import '@spinajs/audit-orm';
+import { Auditable, auditOf } from '@spinajs/audit-orm';
+import type { AuditableModel, AuditableRow } from '@spinajs/audit-orm';
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+
+export interface Invoice extends AuditableRow {}
 
 @Connection('default')
 @Model('invoice')
+@Auditable()
 export class Invoice extends ModelBase<Invoice> {
+  declare static audit: AuditableModel['audit'];
+
+  @Primary()
+  public Id: number;
+}
+
+@Connection('default')
+@Model('customer')
+export class Customer extends ModelBase<Customer> {
   @Primary()
   public Id: number;
 }
@@ -64,12 +79,12 @@ export class Invoice extends ModelBase<Invoice> {
 export async function audited(invoice: Invoice) {
   const ofRow = await invoice.audit().entries({ limit: 50 });
   const ofOne = await Invoice.audit('billing').of(42);
-  const changedSince = await Invoice.audit().since(1000, { source: 'default' });
+  const changedSince = await auditOf(Customer).since(1000, { source: 'default' }); // a model without the mark
   return { ofRow, ofOne, changedSince };
 }
 ```
 
-`Model.audit(trail?)` and `row.audit(trail?)` read the `default` trail unless named. When the model's connection is not the trail's, both are read and merged by `at`: transactional events sit on the model's connection, the others on the trail's. Such a merged read refuses `afterSeq` (a position on one connection); pass `source` to page one of them. A connection that cannot be reached fails a merged read instead of returning part of it. `row.audit()` on a row without a primary key value is refused.
+`Model.audit(trail?)`, `row.audit(trail?)` and `auditOf` read the `default` trail unless named. When the model's connection is not the trail's, both are read and merged by `at`: transactional events sit on the model's connection, the others on the trail's. Such a merged read refuses `afterSeq` (a position on one connection); pass `source` to page one of them. A connection that cannot be reached fails a merged read instead of returning part of it. `row.audit()` on a row without a primary key value is refused.
 
 ## `AuditNotSupported`
 
@@ -77,6 +92,6 @@ Thrown when the trail cannot answer from this application: its store has no read
 
 ## Limits
 
-- Reads apply no authorization scoping. Whoever may call `audit().trail()`, `Model.audit()` or `row.audit()` reads every event of the trail: the application decides who may.
+- Reads apply no authorization scoping. Whoever may call `audit().trail()`, `Model.audit()`, `row.audit()` or `auditOf()` reads every event of the trail: the application decides who may.
 - Events of one trail on several connections are not one ordered stream; `seq` orders one connection only.
 - A read of a shipping trail sees an event once it was shipped: events still in the buffer are not merged in.
