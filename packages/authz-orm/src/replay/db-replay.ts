@@ -1,4 +1,4 @@
-import { AuthzConfigError, DecisionReplay, PolicyHashSource, ReplayBusy, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, DecisionReplay, PolicyHashSource, ReplayBusy, ReplayInTransaction, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport, ResourceRef } from '@spinajs/authz';
 import { AttributeHistoryContributors, HistoryContributors, StoredPolicySplicers, replayDecision, replayVerdict } from '@spinajs/authz-ir';
 import type { ReplayDeps } from '@spinajs/authz-ir';
@@ -57,13 +57,13 @@ export class DbDecisionReplay extends DecisionReplay {
 
   /**
    * @throws ReplayBusy when `authz.replay.concurrency` replays are running
-   * @throws AuthzConfigError inside a transaction open on the authz connection
+   * @throws ReplayInTransaction inside a transaction open on the authz connection
    */
   async replay(decisionId: string, options: ReplayOptions = {}): Promise<ReplayReport | undefined> {
     const config = replayConfig();
     // Under REPEATABLE READ (MySQL's default) the changelog would be read from the transaction's snapshot while the
     // stores' current rows, on other connections, stay fresh: the stale pairing the primary-only rule forbids.
-    if (recordDriver(ChangeLogRecord).CurrentTransaction !== undefined) throw new AuthzConfigError('authz replay: refused inside a transaction open on the authz connection; replay outside it');
+    if (recordDriver(ChangeLogRecord).CurrentTransaction !== undefined) throw new ReplayInTransaction();
     if (this.running >= config.concurrency) throw new ReplayBusy(config.concurrency);
     this.running++;
     try {

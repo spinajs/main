@@ -974,6 +974,7 @@ export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, Resou
 ```ts
 import type { ChangeKind } from "./changelog.js";
 import type { DecisionRecord } from "./decision-log.js";
+import { AuthzConfigError } from "./errors.js";
 /** `faithful`: replayed as logged; `divergent`: provably not; `unreplayable`: the history or the record cannot tell. */
 export type ReplayVerdict = "faithful" | "divergent" | "unreplayable";
 /** An input the replay could not establish. */
@@ -1039,7 +1040,15 @@ export declare class ReplayBusy extends Error {
     readonly concurrency: number;
     constructor(concurrency: number);
 }
-/** Re-evaluates a logged decision against the state and policy at its instant (G14, G20). */
+/** A replay was refused: it ran inside a transaction open on the authz connection, whose snapshot would hide the stores' current rows from the changelog it reads. */
+export declare class ReplayInTransaction extends AuthzConfigError {
+    constructor();
+}
+/**
+ * Re-evaluates a logged decision against the state and policy at its instant (G14, G20). Call it outside any
+ * transaction: a replay pairs the changelog with the stores' current rows, which a transaction's snapshot would keep
+ * apart, so `DbDecisionReplay` refuses to run inside one open on the authz connection with `ReplayInTransaction`.
+ */
 export declare abstract class DecisionReplay {
     /** undefined when no record has that id. @throws ReplayBusy when the process runs as many replays as it allows */
     abstract replay(decisionId: string, options?: ReplayOptions): Promise<ReplayReport | undefined>;
@@ -1117,6 +1126,11 @@ export declare abstract class AuthzService extends AsyncService {
     irContext?(model: AuthorizationModel): IRCompileContext;
     /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
     abstract admin(): AuthzAdmin;
+    /**
+     * Writes an entry to the DecisionAudit this domain picked at boot (`authz.audit.service`, `authz.domains.<name>.audit.service`,
+     * else the last registered), for a host that audits an access of its own. Never throws: a failure is logged. Optional: test doubles may leave it out.
+     */
+    audit?(entry: Parameters<DecisionAudit["record"]>[0]): void;
 }
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;
