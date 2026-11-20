@@ -13,7 +13,7 @@
 | Member | Meaning |
 | --- | --- |
 | `DI.__spinajs_require__(module: string): Promise<unknown>` | Loads a module by path or URL |
-| `DI.setESMModuleSupport()` | Pins `{ mjs: true }` as the value `'__esmMode__'` in the root cache, switching to `import()`; it outlives `clearCache()` and `dispose()` |
+| `DI.setESMModuleSupport()` | Pins `{ mjs: true }` as the value `'__esmMode__'` in the root cache, switching to `import()`; it outlives `clearCache()` and `dispose()`. For an ES module process only: in a CommonJS process it breaks every load |
 | `DI.IModuleLoader` | `{ load(module: string): Promise<unknown> }`; exported inside the `DI` namespace only |
 
 ## Services and extension points
@@ -21,7 +21,7 @@
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `DI.IModuleLoader` | The value `'__module_loader__'` in the root cache; read on every load | none: `require` or `import()` | Your loader | `DI.register(loader).asValue('__module_loader__')` before anything loads modules, eg. before the bootstrappers run |
-| ESM mode | The value `'__esmMode__'` | Not set (CommonJS `require`) | `{ mjs: true }` | `DI.setESMModuleSupport()` at the top of an ESM entry, as `@spinajs/cli` does |
+| ESM mode | The value `'__esmMode__'` | Not set (CommonJS `require`) | `{ mjs: true }` | `DI.setESMModuleSupport()` at the top of an ESM entry, as `@spinajs/cli` does; a CommonJS entry leaves it unset |
 
 ### A custom module loader
 
@@ -61,12 +61,14 @@ void main();
 - The loader and the ESM flag are read from the **root** container on every call; registering them in a child has no effect.
 - A registered loader takes over completely: ESM mode is ignored, and the loader's result is returned as is, without unwrapping `default`.
 - In ESM mode, `default` is unwrapped; a module without a default export returns its namespace object.
+- ESM mode is for ES module processes only. A CommonJS process runs the CommonJS build of `@spinajs/di`, where TypeScript has compiled the `import()` to `require()`. ESM mode then hands `require` a `file://` URL, which it cannot load, so every load fails. The configuration boot, for example, fails with `Cannot load configuration file …/node_modules/@spinajs/authn-http/lib/mjs/config/authn-http.js: Cannot find module 'file://…/node_modules/@spinajs/authn-http/lib/mjs/config/authn-http.js'`. Without ESM mode a CommonJS process loads with `require`, which is what it needs.
 - `DI.clear()`, `DI.clearCache()` and `DI.dispose()` keep the ESM mode, so a process switched to ESM stays in it. Only `DI.uncache('__esmMode__')` turns it off.
 - They remove a registered loader, since it lives in the cache like any value. Register it again after clearing in tests.
 
 ## Best practices
 
-- Call `DI.setESMModuleSupport()` once, first thing in an ESM entry file, before configuration or reflection load anything.
+- Call `DI.setESMModuleSupport()` once, first thing in an ESM entry file, before configuration or reflection load anything. Do not call it in a CommonJS entry.
+- A module that is built twice, as ESM and as CommonJS, and is the entry of its own process (a forked worker, say) sets the mode only in its ESM build: `if (typeof require === 'undefined') DI.setESMModuleSupport();`.
 - Make a custom loader accept both plain paths and `file://` URLs; callers in the framework pass both.
 
 ## Related
