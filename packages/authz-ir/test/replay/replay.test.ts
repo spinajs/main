@@ -164,8 +164,8 @@ describe('replayDecision', function () {
 
   describe('stored switches', () => {
     const u9 = { principal: 'user:u9', facts: { principal: { type: 'user', id: 'u9' } } };
-    async function switched(): Promise<World & { switches: Switches }> {
-      const ir = irOf({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] });
+    async function switched(edit: Rewrite = { union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] }): Promise<World & { switches: Switches }> {
+      const ir = irOf(edit);
       ir.types.doc.permissions.other = { opaque: 'stored:abac:c' };
       ir.permissions['doc:other'] = { type: 'doc', relation: 'other', list: false, source: { origin: 'test' } };
       const w = await world(ir);
@@ -191,14 +191,14 @@ describe('replayDecision', function () {
       expect(report.reads).to.deep.include({ kind: 'policy', key: 'ra', origin: 'history', seq: 3 });
     });
 
-    it('a change of the kind that names no store makes the store a gap, not a shorter set', async () => {
-      const w = await switched();
+    it('a change of the kind that names no store makes every store of the kind a gap, not a shorter set', async () => {
+      const w = await switched({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }, { opaque: 'stored:abac:b' }] });
       await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
       w.switches.rows.delete('ra');
       await w.log.append([{ kind: 'policy', op: 'remove', key: 'ra', payload: null, at: ms(HOUR / 2) }]);
       const report = await replayDecision(w.record(u9), w.deps);
       expect(report.replay).to.equal('unreplayable');
-      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('policy:policy:a');
+      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include.members(['policy:policy:a', 'policy:policy:b']);
     });
 
     it('splices only the placeholders the decision can reach', async () => {

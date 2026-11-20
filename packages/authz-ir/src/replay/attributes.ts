@@ -39,7 +39,7 @@ export function capturedNodes(inputs: CapturedInputs): CapturedNode[] {
 }
 
 /**
- * Rule 6 of section 3.6: every leaf the attribute store held at T for a captured node must show in the capture with
+ * Rule 6 of `replayVerdict`: every leaf the attribute store held at T for a captured node must show in the capture with
  * that value, since the store is the last layer the engine merges. A leaf the store did not hold proves nothing (schema
  * defaults and adapters fill the node too), and a gap gives no finding.
  */
@@ -53,7 +53,7 @@ export async function checkCapturedState(at: Date, inputs: CapturedInputs, c: At
   return out;
 }
 
-/** Current leaves, then the scan's tail, heads, changes before T and the coverage, in the order of section 3.2. */
+/** Current leaves, then the scan's tail, heads, changes before T and the coverage last, in that order. */
 async function checkNode(at: Date, node: CapturedNode, c: AttributeHistoryContributor, history: ReplayHistory, out: CapturedStateCheck): Promise<void> {
   const scope = resourceKey(node.ref);
   for (let attempt = 0; ; attempt++) {

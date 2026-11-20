@@ -87,67 +87,64 @@ describe('AssignmentHistoryContributor', function () {
       });
 
       it('rebuilds role relations at T from current rows and the changelog, expiry and null kept apart, without a gap', async () => {
-        // Every instant comes from the frozen Date, so no expiry depends on how long the writes take.
+        // Every instant comes from the frozen Date, so no expiry depends on how long the writes take: the store judges
+        // liveness on the JS clock (`whereLive` binds a Date), never on the database's.
         const start = frozenStart();
         const clock = sinon.useFakeTimers({ now: start, toFake: ['Date'] });
         try {
-          await expiryAroundT(start, clock);
+          const numeric = '42';
+          const uuid = randomUUID();
+          // An instant with milliseconds: the store column must keep them, or the history would not match the row.
+          const aliceUntil = new Date(start + 2537);
+          await assign(user('alice'), 'editor', { type: 'project', id: 'p1' }, aliceUntil);
+          const bob = await assign(user('bob'), 'editor', { type: 'project', id: numeric }, undefined, ['x']);
+          const set = await assign(G1_MEMBERS, 'editor', { type: 'project', id: 'p1' });
+          const member = await assign(user('alice'), 'member', { type: 'group', id: 'g1' });
+          const carol = await assign(user('carol'), 'admin', GLOBAL);
+          const dave = await assign(user('dave'), 'editor', { type: 'project', id: 'p1' }, new Date(start + 40));
+          const erin = await assign(user(uuid), 'editor', { type: 'project', id: uuid });
+          await inTx((tx) => store.revoke(erin.id, user('root'), tx));
+          await inTx((tx) => store.setTags(bob.id, ['y'], tx));
+          clock.tick(3 * WINDOW);
+          const T = new Date();
+          clock.tick(3 * WINDOW);
+
+          const reads = async () => {
+            const history = await ReplayHistory.load(changeLog(), T, ['assignment'], { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: WINDOW, afterMs: WINDOW } });
+            const s = new HistoricalTupleSource(irOf(), T, [new AssignmentHistoryContributor()], history);
+            const out = {
+              p1: await collect(s.read({ type: 'project', id: 'p1' }, 'editor')),
+              numeric: await collect(s.read({ type: 'project', id: numeric }, 'editor')),
+              uuid: await collect(s.read({ type: 'project', id: uuid }, 'editor')),
+              admin: await collect(s.read(GLOBAL_OBJECT, 'admin')),
+              g1: await collect(s.read({ type: 'group', id: 'g1' }, 'member')),
+              alice: await collect(s.reverse(user('alice'), 'editor', 'project')),
+              set: await collect(s.reverse({ type: 'group', id: 'g1', relation: 'member' }, 'editor', 'project')),
+              carol: await collect(s.reverse(user('carol'), 'admin', GLOBAL_TYPE)),
+            };
+            return { out, reads: s.reads };
+          };
+          const atT = { p1: ['group:g1#member', 'user:alice'], numeric: ['user:bob'], uuid: [], admin: ['user:carol'], g1: ['user:alice'], alice: ['project:p1'], set: ['project:p1'], carol: ['$global:$global'] };
+          expect((await reads()).out).to.deep.equal(atT);
+
+          await inTx((tx) => store.setExpiry(bob.id, new Date(Date.now() + 12_345), tx));
+          await inTx((tx) => store.revoke(set.id, user('root'), tx));
+          await inTx((tx) => store.revoke(carol.id, user('root'), tx));
+          await assign(user('carol'), 'admin', GLOBAL, new Date(Date.now() + 60_000));
+          await assign(user('frank'), 'editor', { type: 'project', id: 'p1' });
+          await inTx((tx) => store.update(member.id, { tags: ['z'] }, user('root'), tx));
+          await inTx((tx) => store.revoke(dave.id, user('root'), tx));
+          // Alice's assignment has expired by now and was live at T: the current read must keep expired rows.
+          clock.setSystemTime(aliceUntil.getTime() + WINDOW);
+
+          const replayed = await reads();
+          expect(replayed.out).to.deep.equal(atT);
+          expect(replayed.reads.filter((r) => r.origin === 'gap')).to.deep.equal([]);
+          expect(replayed.reads.filter((r) => r.origin === 'history').map((r) => r.key)).to.include.members([bob.id, set.id, carol.id, member.id, dave.id]);
         } finally {
           clock.restore();
         }
       });
-
-      async function expiryAroundT(start: number, clock: sinon.SinonFakeTimers): Promise<void> {
-        const numeric = '42';
-        const uuid = randomUUID();
-        // An instant with milliseconds: the store column must keep them, or the history would not match the row.
-        const aliceUntil = new Date(start + 2537);
-        await assign(user('alice'), 'editor', { type: 'project', id: 'p1' }, aliceUntil);
-        const bob = await assign(user('bob'), 'editor', { type: 'project', id: numeric }, undefined, ['x']);
-        const set = await assign(G1_MEMBERS, 'editor', { type: 'project', id: 'p1' });
-        const member = await assign(user('alice'), 'member', { type: 'group', id: 'g1' });
-        const carol = await assign(user('carol'), 'admin', GLOBAL);
-        const dave = await assign(user('dave'), 'editor', { type: 'project', id: 'p1' }, new Date(start + 40));
-        const erin = await assign(user(uuid), 'editor', { type: 'project', id: uuid });
-        await inTx((tx) => store.revoke(erin.id, user('root'), tx));
-        await inTx((tx) => store.setTags(bob.id, ['y'], tx));
-        clock.tick(3 * WINDOW);
-        const T = new Date();
-        clock.tick(3 * WINDOW);
-
-        const reads = async () => {
-          const history = await ReplayHistory.load(changeLog(), T, ['assignment'], { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: WINDOW, afterMs: WINDOW } });
-          const s = new HistoricalTupleSource(irOf(), T, [new AssignmentHistoryContributor()], history);
-          const out = {
-            p1: await collect(s.read({ type: 'project', id: 'p1' }, 'editor')),
-            numeric: await collect(s.read({ type: 'project', id: numeric }, 'editor')),
-            uuid: await collect(s.read({ type: 'project', id: uuid }, 'editor')),
-            admin: await collect(s.read(GLOBAL_OBJECT, 'admin')),
-            g1: await collect(s.read({ type: 'group', id: 'g1' }, 'member')),
-            alice: await collect(s.reverse(user('alice'), 'editor', 'project')),
-            set: await collect(s.reverse({ type: 'group', id: 'g1', relation: 'member' }, 'editor', 'project')),
-            carol: await collect(s.reverse(user('carol'), 'admin', GLOBAL_TYPE)),
-          };
-          return { out, reads: s.reads };
-        };
-        const atT = { p1: ['group:g1#member', 'user:alice'], numeric: ['user:bob'], uuid: [], admin: ['user:carol'], g1: ['user:alice'], alice: ['project:p1'], set: ['project:p1'], carol: ['$global:$global'] };
-        expect((await reads()).out).to.deep.equal(atT);
-
-        await inTx((tx) => store.setExpiry(bob.id, new Date(Date.now() + 12_345), tx));
-        await inTx((tx) => store.revoke(set.id, user('root'), tx));
-        await inTx((tx) => store.revoke(carol.id, user('root'), tx));
-        await assign(user('carol'), 'admin', GLOBAL, new Date(Date.now() + 60_000));
-        await assign(user('frank'), 'editor', { type: 'project', id: 'p1' });
-        await inTx((tx) => store.update(member.id, { tags: ['z'] }, user('root'), tx));
-        await inTx((tx) => store.revoke(dave.id, user('root'), tx));
-        // Alice's assignment has expired by now and was live at T: the current read must keep expired rows.
-        clock.setSystemTime(aliceUntil.getTime() + WINDOW);
-
-        const replayed = await reads();
-        expect(replayed.out).to.deep.equal(atT);
-        expect(replayed.reads.filter((r) => r.origin === 'gap')).to.deep.equal([]);
-        expect(replayed.reads.filter((r) => r.origin === 'history').map((r) => r.key)).to.include.members([bob.id, set.id, carol.id, member.id, dave.id]);
-      }
     });
   }
 });
@@ -169,6 +166,11 @@ describe('replay of RBAC decisions end to end (scenarios 3 and 9)', function () 
 
       after(async () => {
         await db?.dispose();
+      });
+
+      // Scenario 9 logs on a clock ahead of the wall clock: its rows must not reach the next case's window.
+      beforeEach(async () => {
+        for (const table of ['authz_assignment', CHANGE_LOG_TABLE]) await rawQuery(db.driver, `DELETE FROM ${table}`, [], QueryContext.Delete);
       });
 
       const ir = irOf({ edit: { computed: 'editor' }, publish: { caveat: 'published', of: { computed: 'editor' } } }, { published: { params: {}, expr: { attr: 'scope.project.status', eq: 'published' } } });
@@ -267,6 +269,10 @@ describe('RuleSplicer', function () {
     }
     expect(new RuleSplicer().locate(name, 'project', 'can_project_edit', ir)).to.equal(undefined);
     expect(new RuleSplicer().locate('rbac rule r1', 'project', rbacDenyRelation('project:edit'), ir)).to.equal(undefined);
+    // Two permissions that share a deny relation leave the placeholder to neither.
+    expect(rbacDenyRelation('project.edit')).to.equal(rbacDenyRelation('project:edit'));
+    const shared = { ...ir, permissions: { ...ir.permissions, 'project.edit': ir.permissions['project:edit'] } };
+    expect(new RuleSplicer().locate(name, 'project', rbacDenyRelation('project:edit'), shared)).to.equal(undefined);
   });
 
   it('drops a rule only where the engine would not select it: another resource type, or threshold globs that miss', () => {

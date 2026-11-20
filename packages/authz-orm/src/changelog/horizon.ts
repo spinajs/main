@@ -12,7 +12,11 @@ import { changelogColumns, classesOf, entryOf } from '../registry.js';
 import type { RelationColumn } from '../registry.js';
 import { HORIZON_TABLE, HORIZON_WIDTHS, LOST_TABLE } from './table.js';
 
-/** An `authz_change_log_horizon` row; `resource_type` is the type for `column` and `''` for every other kind. */
+/**
+ * An `authz_change_log_horizon` row; `resource_type` is the type for `column` and `''` for every other kind. Never use
+ * instance or primary-key operations (`save`, `update`, `destroy(pk)`): the model's key is `kind` alone, so they would
+ * address every row of the kind.
+ */
 @Connection(AUTHZ_CONNECTION)
 @Model(HORIZON_TABLE)
 export class HorizonRecord extends ModelBase<HorizonRecord> {

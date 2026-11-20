@@ -45,12 +45,11 @@ describe('compileDomainPolicy', function () {
     expect(b.hash).to.equal(c.hash);
   });
 
-  it('measures: logs the compile time of the fixture domain and bounds it loosely', async () => {
+  it('compiles the fixture domain within a loose time bound', async () => {
     const service: PolicyService = { models: () => [new StaticModel({ name: 'sm', votes: {} })] };
     const t = performance.now();
     await compileDomainPolicy('root', service);
     const ms = performance.now() - t;
-    console.log(`compileDomainPolicy(root): ${ms.toFixed(1)} ms`);
     expect(ms).to.be.below(500);
   });
 });

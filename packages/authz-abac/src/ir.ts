@@ -59,7 +59,7 @@ export function abacToIR(policies: readonly LoadedPolicy[], registry: Permission
   return { model, types, permissions, caveats, opaque };
 }
 
-/** The permit and deny terms of each permission the policies apply to; `abacToIR` unions them, replay (L3) splices them into a stored placeholder. */
+/** The permit and deny terms of each permission the policies apply to; `abacToIR` unions them, decision replay splices them into a stored placeholder. */
 export function abacPolicyTerms(policies: readonly LoadedPolicy[], registry: PermissionRegistry): AbacPolicyTerms {
   const index = new PolicyIndex(policies, registry);
   const caveats: Record<string, CaveatDef> = {};

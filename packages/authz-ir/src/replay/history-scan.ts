@@ -32,8 +32,8 @@ const KEY_BATCH = 500;
 /**
  * The changelog from the backward edge of a decision's window on: one paged scan at load, then per-key lookups. The
  * scan starts at `T - window.beforeMs`, so a key removed inside the window, absent now, is still a candidate whose
- * change the window check sees. Callers read in the order of section 3.2: scan, current rows, `catchUp`, `headOf`,
- * `beforeOf`, and `since` last.
+ * change the window check sees. Callers read in this order: scan, current rows, `catchUp`, `headOf`, `beforeOf`, and
+ * `since` last.
  */
 export class ReplayHistory {
   private readonly byKey = new Map<string, ChangeRecord[]>();
@@ -91,7 +91,7 @@ export class ReplayHistory {
    * Scans the changes committed since the previous pass, so a write that landed during the replay is seen. Each pass
    * starts the window's backward side before the previous one began, not at a `seq` cursor: sequence numbers commit
    * out of order, and a change inserted before a pass and committed after it carries an `at` at most commit lag and
-   * clock skew earlier than that pass (R7).
+   * clock skew earlier than that pass. A transaction open longer than that is not seen.
    */
   async catchUp(): Promise<void> {
     const started = (this.limits.now ?? Date.now)();

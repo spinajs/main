@@ -178,7 +178,7 @@ describe('DecisionLogTap', () => {
         ],
         modelVersions: { m: 'v3' },
       };
-      // Computed by the inputsHash of v4-l-05b (2de6c01a2), before it was split.
+      // Computed before inputsHash was split into inputsHashParts and inputsHashOf: the split must not move it.
       expect(inputsHash({ ...req, principal: p, actor: bot }, { ...decision, principal: p }, rs, 'p'.repeat(64))).to.equal('6acb0ba828e9efe6f90a8dbd913fbc5fbbc111e7b0ee8d069a210d12cc17e14a');
     });
 
@@ -188,7 +188,7 @@ describe('DecisionLogTap', () => {
       const text = fc.string({ maxLength: 6 });
       const odd = fc.constantFrom<unknown>(undefined, Number.NaN, Number.POSITIVE_INFINITY, 10n, new Date('2026-01-01T00:00:00.000Z'), -0);
       const value = fc.oneof(fc.jsonValue({ maxDepth: 2 }), odd, fc.array(odd, { maxLength: 2 }), fc.dictionary(text, odd, { maxKeys: 2 }));
-      const principalArb = fc.record({ type: fc.constantFrom('user', 'agent'), id: text, authenticated: fc.boolean(), source: text, attributes: fc.dictionary(text, value) });
+      const principalArb = fc.record({ type: fc.constantFrom('user', 'agent', 'a:b'), id: text, authenticated: fc.boolean(), source: text, attributes: fc.dictionary(text, value) });
       const refArb = fc.oneof(fc.constant<'principal'>('principal'), fc.record({ type: fc.constantFrom('doc', 'a%b'), id: text }));
       const readsArb = fc.record({
         env: fc.dictionary(text, value),

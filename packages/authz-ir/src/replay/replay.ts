@@ -59,8 +59,8 @@ interface Run {
 const blocked = (missing: readonly ReplayMissing[]): Outcome => ({ blocked: missing, truth: null, unknowns: [], tree: null, reads: [] });
 
 /**
- * Re-evaluates a logged decision with the IR reference evaluator against the state and the policy at its instant
- * (sections 3.4 to 3.6 of the L3 plan). Rejects only when `options.signal` aborts; every other limit is a verdict.
+ * Re-evaluates a logged decision with the IR reference evaluator against the state and the policy at its instant.
+ * Rejects only when `options.signal` aborts; every other limit is a verdict.
  */
 export async function replayDecision(record: DecisionRecord, deps: ReplayDeps, options: ReplayDecisionOptions = {}): Promise<ReplayReport> {
   const started = Date.now();

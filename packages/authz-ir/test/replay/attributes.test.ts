@@ -28,6 +28,7 @@ const IR: PolicyIR = {
 class Attributes implements AttributeHistoryContributor {
   readonly kind = 'attribute' as const;
   readonly rows = new Map<string, AttributeLeafImage>();
+  onCurrent?: () => void;
 
   constructor(private readonly log: MemoryChangeLog) {}
 
@@ -36,6 +37,7 @@ class Attributes implements AttributeHistoryContributor {
   }
 
   current(scope: ResourceRef): Promise<AttributeLeafImage[]> {
+    this.onCurrent?.();
     return Promise.resolve([...this.rows.values()].filter((r) => r.scope === resourceKey(scope)));
   }
 
@@ -130,6 +132,36 @@ describe('replayDecision: captured scope attributes (rule 6)', function () {
       ['opaque', 'gap'],
       ['org:o1#level', 'gap'],
     ]);
+  });
+
+  it('a leaf written during the check is read again and rebuilt from history', async () => {
+    const w = await world({ level: 2 });
+    await w.attributes.set('level', 2, at(w, -HOUR));
+    let pending: number[] = [];
+    w.attributes.onCurrent = () => {
+      w.attributes.onCurrent = undefined;
+      const image = { scope: resourceKey(ORG), path: 'level', value: 3 };
+      pending = w.log.appendPending([{ kind: 'attribute', op: 'put', key: 'org:o1#level', payload: image, before: w.attributes.rows.get('org:o1#level'), at: at(w, HOUR - 1_000) }]);
+      w.attributes.rows.set('org:o1#level', image);
+    };
+    w.log.beforeRead = (m) => {
+      if (m === 'latest' && pending.length > 0) w.log.commit(pending.splice(0));
+    };
+    const report = await replayDecision(w.record, w.deps);
+    expect(report).to.deep.include({ replay: 'faithful', divergence: [] });
+    expect(attributeReads(report)).to.deep.equal([{ kind: 'attribute', key: 'org:o1#level', origin: 'history', seq: 3 }]);
+  });
+
+  it('a leaf that keeps changing during the check is a gap', async () => {
+    const w = await world({ level: 2 });
+    await w.attributes.set('level', 2, at(w, -HOUR));
+    let checking = false;
+    w.attributes.onCurrent = () => void (checking = true);
+    let n = 0;
+    w.log.beforeRead = (m) => (checking && m === 'latest' ? w.attributes.set('level', 3 + n++, at(w, HOUR / 2)) : undefined);
+    const report = await replayDecision(w.record, w.deps);
+    expect(report).to.deep.include({ replay: 'faithful', divergence: [] });
+    expect(attributeReads(report)).to.deep.equal([{ kind: 'attribute', key: 'org:o1#level', origin: 'gap', reason: 'attribute org:o1#level changed during the replay' }]);
   });
 
   it('an outcome divergence wins over a captured-state one', async () => {

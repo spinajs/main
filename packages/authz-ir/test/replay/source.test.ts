@@ -59,7 +59,7 @@ class Tuples implements HistoryContributor {
     return t === null ? [] : [{ key: c.key, ...t }];
   }
 
-  subjectAt(image: unknown): TupleSubjectRef {
+  subjectAt(image: unknown, _at?: Date): TupleSubjectRef | undefined {
     return (image as Tuple).subject;
   }
 
@@ -85,9 +85,24 @@ class Garbled extends Tuples {
     return super.edges(c);
   }
 
-  override subjectAt(image: unknown): TupleSubjectRef {
+  override subjectAt(image: unknown): TupleSubjectRef | undefined {
     if (image === 'garbled') throw new StoreUnreadable('not a tuple');
     return super.subjectAt(image);
+  }
+}
+
+/** Tuples that expire: the image carries `until`, an ISO instant from a store column `precisionMs` coarse. */
+class Expiring extends Tuples {
+  constructor(
+    log: MemoryChangeLog,
+    readonly precisionMs?: number,
+  ) {
+    super(log);
+  }
+
+  override subjectAt(image: unknown, at?: Date): TupleSubjectRef | undefined {
+    const until = (image as { until?: string }).until;
+    return until !== undefined && at !== undefined && Date.parse(until) <= at.getTime() ? undefined : super.subjectAt(image);
   }
 }
 
@@ -255,6 +270,29 @@ describe('HistoricalTupleSource', () => {
     expect(s.reads).to.deep.include(gap.gaps[0]);
   });
 
+  it("judges liveness at liveAt, the decision's env.now, while it rebuilds the state at T", async () => {
+    const log = new MemoryChangeLog().cover('tuple', ms(-60 * MIN));
+    const tuples = new Expiring(log);
+    await tuples.add({ ...editor('u1'), until: ms(-5_000).toISOString() } as Tuple, ms(-30 * MIN));
+    const history = await ReplayHistory.load(log, T, ['tuple'], limits);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history, ms(-10_000)), doc('d1'), 'editor')).to.deep.equal(['user:u1']);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history), doc('d1'), 'editor')).to.deep.equal([]);
+  });
+
+  it("compares a contributor's images at its own precision, not the history's", async () => {
+    const run = async (precisionMs?: number) => {
+      const log = new MemoryChangeLog().cover('tuple', ms(-60 * MIN));
+      const tuples = new Expiring(log, precisionMs);
+      const logged = { ...editor('u1'), until: ms(MIN).toISOString() } as Tuple;
+      await tuples.add(logged, ms(-30 * MIN));
+      // The store column keeps whole seconds less exactly than the logged payload.
+      tuples.rows.set(tupleKey(logged), { ...logged, until: ms(MIN + 400).toISOString() } as Tuple);
+      return subjects(await source(log, [tuples]), doc('d1'), 'editor');
+    };
+    expect(await run(1_000)).to.deep.equal(['user:u1']);
+    expect((await gapOf(run())).message).to.match(/differs from its last logged change/);
+  });
+
   it('names a relation no contributor serves', async () => {
     const { log, tuples } = await setup();
     const s = await source(log, [tuples]);
@@ -340,7 +378,7 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf((async () => { for await (const _ of s.reverse(user('u1'), 'editor', 'doc')) void _; })())).gaps).to.have.length(1);
   });
 
-  describe('reads beside writes (3.2)', () => {
+  describe('reads beside writes', () => {
     it('sees a removal logged after the scan', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);

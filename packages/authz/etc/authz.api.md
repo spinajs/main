@@ -309,7 +309,8 @@ export declare abstract class ChangeLog {
     /**
      * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. A store
      * awaits it inside the write that escaped, so the signal commits or rolls back with the write; it may reject, and
-     * then the write fails: a write whose loss cannot be recorded is not made.
+     * then the write fails: a write whose loss cannot be recorded is not made. A caller that catches that rejection and
+     * commits anyway commits the escaped write with no record of the loss.
      */
     abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }
@@ -402,6 +403,11 @@ export interface PrincipalFactsRecord {
     /** principalKey() of each companion. */
     companions?: string[];
 }
+/**
+ * The read set in the tagged form `inputsHash` hashed, so a stored copy re-hashes to it: `undefined` is `"<undefined>"`,
+ * a non-finite number `"<number:NaN>"`, a bigint `"<bigint>"` (its value is not kept), a Date its ISO string, a cycle
+ * `"<cycle>"`. A string equal to a tag reads the same as the value it stands for.
+ */
 export interface CapturedInputs extends DecisionReadSet {
     /** The exact strings `inputsHash` hashed for the principal and the actor. */
     principalState: string | null;
@@ -429,7 +435,10 @@ export interface DecisionRecord {
     modelVersions: Record<string, string>;
     /** SHA-256 (hex) of the canonical inputs the decision read. */
     inputsHash: string;
-    /** Authorization facts of the principal and actor, without attributes and authn; on every record. */
+    /**
+     * Authorization facts of the principal and actor, without attributes and authn. Absent on records logged before they
+     * existed, and when a principal's facts exceed 4 KB, form a delegation cycle or hold a malformed field.
+     */
     facts?: {
         principal: PrincipalFactsRecord;
         actor?: PrincipalFactsRecord;

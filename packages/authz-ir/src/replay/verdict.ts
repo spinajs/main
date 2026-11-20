@@ -3,7 +3,7 @@ import type { ReplayDivergence, ReplayMissing, ReplayReport } from '@spinajs/aut
 import type { Truth } from '../eval/explain.js';
 
 /**
- * The reason a ReBAC vote left undecided only by caveats is recorded with (Z5b): a definite no-permit for the engine,
+ * The reason a ReBAC vote left undecided only by caveats is recorded with: a definite no-permit for the engine,
  * `unknown` for the IR. `voteTruth` of the test kit reads it the same way; authz-ir cannot import it.
  */
 export const CAVEAT_UNKNOWN = 'caveat_unknown';
@@ -28,7 +28,15 @@ type Verdict = Pick<ReplayReport, 'replay' | 'evidence' | 'missing' | 'divergenc
 const unreplayable = (missing: readonly ReplayMissing[]): Verdict => ({ replay: 'unreplayable', missing: [...missing], divergence: [] });
 const divergent = (divergence: readonly ReplayDivergence[]): Verdict => ({ replay: 'divergent', missing: [], divergence: [...divergence] });
 
-/** Section 3.6 of the L3 plan, rules applied in order: an incomplete replay is never divergent. */
+/**
+ * The verdict, by rules applied in order, so an incomplete replay is never divergent:
+ * 1-2. the record or the policy version lacks something: unreplayable;
+ * 3. the stored IR does not hash to the record's policy hash: divergent;
+ * 4. the replayed truth is unknown, or the record denied on caveats it could not decide: unreplayable;
+ * 5. the replayed truth differs from the recorded outcome: divergent;
+ * 6. with captured inputs, the recomputed inputs hash or a rebuilt captured value differs: divergent;
+ * 7. otherwise faithful, with the evidence it rests on.
+ */
 export function replayVerdict(input: VerdictInput): Verdict {
   if (input.blocked.length > 0) return unreplayable(input.blocked);
   if (input.policyHash !== undefined && input.policyHash.recorded !== input.policyHash.replayed) return divergent([{ part: 'policy-hash', ...input.policyHash }]);

@@ -56,7 +56,12 @@ function loadAt(items: Items): { loaded: Map<string, LoadedPolicy>; unknown: Set
     else loaded.set(key, policy);
   }
   const holders = new Map<string, string[]>();
-  for (const [key, p] of loaded) holders.set(abacCaveatName(p.policy.id), [...(holders.get(abacCaveatName(p.policy.id)) ?? []), key]);
+  for (const [key, p] of loaded) {
+    const name = abacCaveatName(p.policy.id);
+    const keys = holders.get(name) ?? [];
+    keys.push(key);
+    holders.set(name, keys);
+  }
   for (const keys of holders.values()) if (keys.length > 1) keys.forEach((k) => unknown.add(k));
   return { loaded, unknown };
 }
