@@ -24,6 +24,10 @@
       "types": "./lib/plan/index.d.ts",
       "import": "./lib/plan/index.js"
     },
+    "./replay": {
+      "types": "./lib/replay/index.d.ts",
+      "import": "./lib/replay/index.js"
+    },
     "./scheduler": {
       "types": "./lib/scheduler.d.ts",
       "import": "./lib/scheduler.js"
@@ -42,6 +46,9 @@
       ],
       "plan": [
         "lib/plan/index.d.ts"
+      ],
+      "replay": [
+        "lib/replay/index.d.ts"
       ],
       "scheduler": [
         "lib/scheduler.d.ts"
@@ -100,6 +107,8 @@
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.23",
     "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-pglite": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/scheduler": "3.0.23",

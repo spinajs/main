@@ -23,6 +23,7 @@ export * from './builders.js';
 export * from './extensions.js';
 export * from './existsRelationHandlers.js';
 export * from './model.js';
+export * from './audit-port.js';
 export * from './relations.js';
 export * from './relation-objects.js';
 export * from './middlewares.js';
@@ -65,3 +66,4 @@ export * from './schema-diff/index.js';
 // Import directly from './metadata.js' if needed.
 export * from './session-settings.js';
 export * from './replica-router.js';
+export * from './capture/index.js';

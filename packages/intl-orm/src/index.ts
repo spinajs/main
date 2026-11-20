@@ -1,5 +1,5 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation, SelectQueryExtension } from '@spinajs/orm';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, ISelectQueryBuilder, NativeOrmRelation, SelectQueryExtension } from '@spinajs/orm';
 import type { IModelStatic } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
@@ -114,11 +114,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
           });
 
           (relData as IntlResource[]).forEach((rd) => {
-            if (self._owner && self._owner instanceof BelongsToRelation) {
-              val[rd.Column] = rd.Value;
-            } else {
-              (d as any)[rd.Column] = rd.Value;
-            }
+            val[rd.Column] = rd.Value;
           });
 
           val.setLanguage?.(self._lang);

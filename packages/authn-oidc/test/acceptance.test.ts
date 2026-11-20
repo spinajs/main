@@ -33,7 +33,7 @@ import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { OidcController } from '../src/controllers/OidcController.js';
 import { OidcHttpClient } from '../src/http/client.js';
@@ -192,7 +192,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         policy: new EnrolledMfaPolicy([]),
         steps: [],
         sessions,
-        sinks: [new RecordingEventSink()],
+        listeners: [new RecordingEventListener()],
         principals: new RecordingPrincipalFactory(),
         hooks: await DI.resolve(Hooks),
       });
@@ -217,9 +217,9 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       await DI.get(HttpServer)?.stop();
       DI.uncache(HttpServer);
       DI.uncache(Controllers);
-      for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+      for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
       DI.uncache(BaseController);
-      for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
+      for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type);
       DI.uncache(ServerMiddleware);
       for (const impl of registered) DI.unregister(impl as Class<unknown>);
       registered.length = 0;
@@ -342,7 +342,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       const [identity, external] = HookLog.calls[HookLog.calls.length - 1];
       expect(identity).to.deep.eq(alice);
       expect(external).to.deep.include({ provider: 'oidc:corp', subject: 'kc-alice', email: 'alice@example.test' });
-      expect((external.claims as { name?: string; groups?: string[] })).to.deep.include({ name: 'Alice', groups: ['eng'] });
+      expect(external.claims).to.deep.include({ name: 'Alice', groups: ['eng'] });
     });
 
     it('the state is claimed once in authn_nonce: a replayed callback fails', async () => {
@@ -462,7 +462,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         await DI.get(HttpServer)?.stop();
         DI.uncache(HttpServer);
         DI.uncache(Controllers);
-        for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+        for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
         DI.uncache(BaseController);
         await DI.resolve(Controllers);
         const server = (await DI.resolve(HttpServer)) as HttpServer;

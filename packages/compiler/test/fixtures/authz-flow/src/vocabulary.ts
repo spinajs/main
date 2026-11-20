@@ -101,11 +101,33 @@ export class Vocabulary {
   maybeLater(q: ISelectQueryBuilder<InvoiceModel>) {
     return rowsMaybeLater(q);
   }
+  /** `stream()` was not in the member list. */
+  async streamAll(): Promise<number> {
+    let n = 0;
+    for await (const row of InvoiceModel.where('Status', 'open').stream()) n += row ? 1 : 0;
+    return n;
+  }
+  /** The receiver is typed `any`; the traced value is still the builder. */
+  untypedFirst(): Promise<unknown> {
+    const q = InvoiceModel.where('Status', 'open');
+    return (q as any).first();
+  }
+  /** As `untypedFirst`, but run as a statement: nothing is returned that could count it. */
+  untypedFirstStatement(): void {
+    const q = InvoiceModel.where('Status', 'open');
+    (q as any).first();
+  }
   unconstrained<R>(q: ISelectQueryBuilder<InvoiceModel>) {
     return anything<R>(q);
   }
   async viaOverride(q: Paged<InvoiceModel[]>) {
     q.clone().accessible('invoice:read');
+    return await q.all();
+  }
+  async fixedModel(q: FixedInvoices) {
+    return await q.all();
+  }
+  async joinedRows(q: Join<Note, InvoiceModel>) {
     return await q.all();
   }
   overriddenClone(q: Paged<InvoiceModel[]>) {

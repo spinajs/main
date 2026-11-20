@@ -1,4 +1,4 @@
-import type { IJoinStatementOptions } from './interfaces.js';
+import type { IJoinStatementOptions, IJoinedTable } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
 import { ColumnMethods, SqlOperator, WhereBoolean } from './enums.js';
 import { NewInstance, Container, Inject } from '@spinajs/di';
@@ -10,6 +10,9 @@ import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
 import { noteRawSql } from './explain/raw-sql.js';
+import type { BuilderExecution } from './extensions.js';
+
+const MERGED_INTO_JOIN: BuilderExecution = { kind: 'merged', into: 'join' };
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -333,7 +336,7 @@ export abstract class JoinStatement extends QueryStatement {
       const driver = joinModelDescriptor!.Driver!;
       const container = joinModelDescriptor!.Driver!.Container;
 
-      this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this]);
+      this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this, true, MERGED_INTO_JOIN]);
       this._whereBuilder.database(driver.Options.Database!);
       this._whereBuilder.where(_options.callback!);
 
@@ -350,6 +353,36 @@ export abstract class JoinStatement extends QueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  /** What this join reads, named as `SqlJoinStatement.build()` names it; a raw join names nothing. */
+  public get Joined(): IJoinedTable {
+    const { query, joinModel, joinTable, joinTableAlias, joinTableDriver } = this._options;
+    if (query) return { table: undefined, alias: undefined, model: undefined };
+
+    const descriptor = joinModel ? extractModelDescriptor(joinModel) : null;
+    const separator = (descriptor ? descriptor.Driver : joinTableDriver)?.Options.AliasSeparator ?? '';
+    const alias = joinTableAlias ? joinTableAlias : descriptor ? `${separator}${descriptor.Name}${separator}` : undefined;
+    return { table: descriptor ? descriptor.TableName : joinTable, alias, model: joinModel };
+  }
+
+  /**
+   * For `SelectQueryBuilder.clone()`: the columns this join's builder gave the query it was merged into, each paired
+   * with the same column of `copy`, the clone of this statement.
+   */
+  public columnCopiesIn(copy: JoinStatement): Map<IQueryStatement, IQueryStatement> {
+    const copies = new Map<IQueryStatement, IQueryStatement>();
+    if (this._whereBuilder === undefined || copy._whereBuilder === undefined) {
+      return copies;
+    }
+
+    const to = copy._whereBuilder.getColumns();
+    this._whereBuilder.getColumns().forEach((c, k) => {
+      if (k < to.length) {
+        copies.set(c, to[k]);
+      }
+    });
+    return copies;
+  }
 
   /**
    * Namespaces this join under a populated relation's alias, and only when the alias was not
@@ -374,7 +407,7 @@ export abstract class JoinStatement extends QueryStatement {
 
 @NewInstance()
 export abstract class InStatement extends QueryStatement {
-  protected _val: any[];
+  protected _val: unknown[];
   protected _not: boolean;
   protected _column: string | Wrap;
   protected _builder: SelectQueryBuilder<any>;
@@ -386,6 +419,18 @@ export abstract class InStatement extends QueryStatement {
     this._not = not || false;
     this._column = column || '';
     this._builder = builder;
+  }
+
+  public get Column() {
+    return this._column;
+  }
+
+  public get Values(): readonly unknown[] {
+    return this._val;
+  }
+
+  public get Not() {
+    return this._not;
   }
 
   public abstract build(): IQueryStatementResult;

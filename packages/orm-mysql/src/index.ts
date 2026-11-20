@@ -6,10 +6,10 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, DatetimeValueConverter } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
 import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
-import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { ConnectionOptions, OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import type { Connection as PromiseConnection } from 'mysql2/promise';
@@ -357,7 +357,6 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(zone.Wall === 'utc' ? MySqlNowExpression : MySqlSessionNowExpression).as(NowExpression);
     this.Container.register(SqlDropEventQueryCompiler).as(DropEventQueryCompiler);
     this.Container.register(SqlEventQueryCompiler).as(EventQueryCompiler);
-    this.Container.register(SqlTableHistoryQueryCompiler).as(TableHistoryQueryCompiler);
 
     this.Container.register(MySqlCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(MySqlInsertQueryCompiler).as(InsertQueryCompiler);
@@ -671,16 +670,16 @@ export class MySqlOrmDriver extends SqlDriver {
 
   public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
     const rows = (await this.executeOnDb(
-      `SELECT INDEX_NAME AS name, COLUMN_NAME AS col, NON_UNIQUE AS non_unique
+      `SELECT INDEX_NAME AS name, COLUMN_NAME AS col, NON_UNIQUE AS non_unique, SUB_PART AS sub_part
        FROM INFORMATION_SCHEMA.STATISTICS
        WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?
        ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
       [name, this.introspectedSchema(schema)],
       QueryContext.Select,
-    )) as Array<{ name: string; col: string | null; non_unique: number | string }>;
+    )) as Array<{ name: string; col: string | null; non_unique: number | string; sub_part: number | string | null }>;
 
-    // A functional index part has no column name.
-    return groupIndexColumns(rows.flatMap((r) => (r.col === null ? [] : [{ name: r.name, column: r.col, unique: Number(r.non_unique) === 0, primary: r.name === 'PRIMARY' }])));
+    // A functional index part has no column name; SUB_PART is the length of a prefix part.
+    return groupIndexColumns(rows.map((r) => ({ name: r.name, column: r.col, unique: Number(r.non_unique) === 0, primary: r.name === 'PRIMARY', prefix: r.sub_part !== null })));
   }
 
   public async tableForeignKeys(name: string, schema?: string): Promise<LiveForeignKey[]> {

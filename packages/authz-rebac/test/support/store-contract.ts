@@ -1,7 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
 
+import { TupleCaveatConflict } from '../../src/index.js';
 import type { TupleStore } from '../../src/index.js';
+import { subjectKey } from '../../src/keys.js';
 import { d1, d2, f1, ref, set, tuple, user } from './world.js';
 
 const expect = chai.expect;
@@ -85,6 +87,53 @@ export function tupleStoreContract(name: string, make: () => Promise<TupleStore>
       }
       expect(error).to.be.instanceOf(Error);
       expect((error as Error).message).to.include('object must name one object');
+    });
+
+    describe('caveats', () => {
+      const bobIp = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'office_ip' } };
+      const bobUntil = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'not_expired', context: { 'env.until': 20 } } };
+
+      it('keeps the caveat; a tuple without one reads without the key', async () => {
+        await store.write([bobUntil], [], ADMIN);
+        expect(await store.read(d1, 'viewer')).to.deep.include(bobUntil);
+        expect((await store.read(d1, 'owner'))[0]).to.not.have.property('caveat');
+        expect(store.caveats).to.equal(true);
+      });
+
+      it('writing the same caveat again is a no-op; another caveat is a conflict; remove + add changes it', async () => {
+        await store.write([bobIp], [], ADMIN);
+        await store.write([bobIp], [], ADMIN);
+        let err: unknown;
+        try {
+          await store.write([bobUntil], [], ADMIN);
+        } catch (e) {
+          err = e;
+        }
+        expect(err).to.be.instanceOf(TupleCaveatConflict);
+        expect((await store.read(d1, 'viewer')).find((t) => subjectKey(t.subject) === 'user:bob')).to.deep.equal(bobIp);
+        await store.write([bobUntil], [tuple(d1, 'viewer', user('bob'))], ADMIN);
+        expect((await store.read(d1, 'viewer')).find((t) => subjectKey(t.subject) === 'user:bob')).to.deep.equal(bobUntil);
+      });
+
+      it('a conflicting write changes nothing, also the tuples before it', async () => {
+        await store.write([bobIp], [], ADMIN);
+        let err: unknown;
+        try {
+          await store.write([tuple(d1, 'viewer', user('carol')), bobUntil], [], ADMIN);
+        } catch (e) {
+          err = e;
+        }
+        expect(err).to.be.instanceOf(TupleCaveatConflict);
+        expect(ids(await store.reverse(user('carol'), 'viewer', 'doc'))).to.deep.equal([]);
+      });
+
+      it('reverse lists conditional tuples too; reverseTuples and caveatsOn carry the caveat', async () => {
+        const d2Ip = { ...tuple(d2, 'viewer', user('bob')), caveat: { name: 'office_ip' } };
+        await store.write([bobUntil, d2Ip], [], ADMIN);
+        expect(ids(await store.reverse(user('bob'), 'viewer', 'doc'))).to.deep.equal(['d1', 'd2']);
+        expect(await store.reverseTuples([user('bob')], 'viewer', 'doc')).to.have.deep.members([bobUntil, d2Ip]);
+        expect(await store.caveatsOn('doc', 'viewer', [user('bob'), user('alice')])).to.have.deep.members([bobUntil.caveat, { name: 'office_ip' }]);
+      });
     });
   });
 }

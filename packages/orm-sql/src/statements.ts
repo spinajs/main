@@ -416,13 +416,17 @@ export class SqlJoinStatement extends JoinStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
     // `this.constructor`, so a dialect subclass clones as itself, not as the MySQL spelling
     const ctor = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
-    return _carryQuoter(
-      new ctor({
-        ...this._options,
-        builder: (parent as SelectQueryBuilder) ?? this._options.builder,
-      }),
-      this,
-    );
+    // The callbacks ran and merged when the join was made; the copy takes a copy of the builder they filled instead.
+    const copy = new ctor({
+      ...this._options,
+      builder: (parent as SelectQueryBuilder) ?? this._options.builder,
+      callback: undefined,
+      queryCallback: undefined,
+    });
+    if (this._whereBuilder !== undefined) {
+      copy._whereBuilder = this._whereBuilder.clone();
+    }
+    return _carryQuoter(copy, this);
   }
 
   /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */

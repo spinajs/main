@@ -1,7 +1,6 @@
 ---
 "@spinajs/authn-keys": patch
 "@spinajs/authn-local": patch
-"@spinajs/authn-orm": patch
 "@spinajs/authn-token": patch
 "@spinajs/authn-totp": patch
 "@spinajs/authz-abac": patch
