@@ -486,6 +486,29 @@ describe('audit(): deferred batches and failure paths', function () {
     SlowStore.held[1].release();
   });
 
+  it('measures blockCeilingMs on a monotonic clock, so a wall clock set back does not prolong a block', async () => {
+    app = await boot({ timeoutMs: 50, blockCeilingMs: 150, maxBatch: 1 });
+    pipelineLog(app.container);
+    const write = async (action: string): Promise<void> => {
+      await audit().record(actions(action), { trail: 'slow' });
+      await audit().flush();
+    };
+    SlowStore.holds = 1;
+    await write('a');
+    await write('b');
+    const now = Date.now;
+    try {
+      Date.now = () => 0;
+      await pause(200);
+      await write('c');
+    } finally {
+      Date.now = now;
+    }
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+    SlowStore.held[0].release();
+    await pause(20);
+  });
+
   it('blocks only the connection whose append is held', async () => {
     app = await boot({ timeoutMs: 50, maxBatch: 1 });
     const lines = pipelineLog(app.container);
