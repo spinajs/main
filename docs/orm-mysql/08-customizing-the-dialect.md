@@ -47,11 +47,12 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 | `CreateViewCompiler` | `MySqlCreateViewCompiler` | yes | [Schema](06-schema-views-and-events.md) |
 | `ColumnQueryCompiler` | `MySqlColumnQueryCompiler`: `SqlColumnQueryCompiler` that writes `NULL` on a nullable `TIMESTAMP` | yes | [Schema](06-schema-views-and-events.md#nullable-timestamp-columns) |
 | `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
-| `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
+| `TableCloneQueryCompiler`, `TruncateTableQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
 | `SqlExpressions` | `MySqlSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
-| `NowExpression` | `MySqlNowExpression`: `UTC_TIMESTAMP(3)`, returned by `driver.now()` | yes | [MySQL driver](01-mysql-driver.md#dates-and-time-zone) |
+| `NowExpression` | `MySqlSessionNowExpression`: `NOW(3)`; with `TimeZone: 'UTC'`, `MySqlNowExpression`: `UTC_TIMESTAMP(3)`. Returned by `driver.now()` | yes | [MySQL driver](01-mysql-driver.md#dates-and-time-zone) |
+| `DatetimeValueConverter` | `MySqlDatetimeValueConverter`, a factory registration bound to the connection's `TimeZone` | yes | [MySQL driver](01-mysql-driver.md#dates-and-time-zone) |
 | `TextWrapper` | `MySqlTextWrapper`: extends `SqlTextWrapper` and casts to `CHAR`, because `TEXT` is no `CAST` target in MySQL | yes | [Statements](../orm-sql/03-statements.md) |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | | [Query compilers](../orm-sql/02-query-compilers.md) |
 

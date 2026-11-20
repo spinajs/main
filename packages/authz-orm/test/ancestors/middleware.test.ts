@@ -1,14 +1,17 @@
 import * as chai from 'chai';
 import 'mocha';
+import sinon from 'sinon';
 
 import { AuthzConfigError, ChangeBus, DecisionAudit, SYSTEM, ScopeForgetter } from '@spinajs/authz';
 import type { AdminContext, AuthzChange, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
 import { RecordingAudit, RecordingChangeBus, testHost } from '@spinajs/authz-testing';
-import { InsertBehaviour, OrmDriver, QueryMiddleware } from '@spinajs/orm';
-import type { ModelBase } from '@spinajs/orm';
+import { InsertBehaviour, InsertQueryBuilder, OrmDriver, SelectQueryBuilder, WriteObserver, createQuery } from '@spinajs/orm';
+import type { ModelBase, QueryBuilder } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 
-import { AncestorMiddleware } from '../../src/ancestors/middleware.js';
+import { AncestorObserver } from '../../src/ancestors/middleware.js';
+import { ColumnChangeObserver } from '../../src/changelog/column-hook.js';
+import { ormLog } from '../../src/host.js';
 import { AccessResource, Parent } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -29,7 +32,7 @@ class RecordingForgetter extends ScopeForgetter {
   }
 }
 
-describe('AncestorMiddleware', function () {
+describe('AncestorObserver', function () {
   this.timeout(60000);
   let db: TestDb;
   let pg = false;
@@ -65,9 +68,11 @@ describe('AncestorMiddleware', function () {
     await testHost.resetRoot();
   });
 
-  it('is a QueryMiddleware at order 90', () => {
-    expect(DI.getRegisteredTypes(QueryMiddleware)).to.include(AncestorMiddleware);
-    expect(new AncestorMiddleware().order).to.equal(90);
+  it('is a WriteObserver, registered before the column changelog as it ran before it at order 90', async () => {
+    const observers = DI.getRegisteredTypes(WriteObserver);
+    expect(observers).to.include(AncestorObserver);
+    expect(observers.indexOf(AncestorObserver)).to.be.below(observers.indexOf(ColumnChangeObserver));
+    expect(await import('../../src/index.js')).to.not.have.property('AncestorMiddleware');
   });
 
   for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {
@@ -114,12 +119,73 @@ describe('AncestorMiddleware', function () {
 
       it('an update that leaves the @Parent columns alone touches nothing and needs no transaction', async () => {
         await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
-        const mw = new AncestorMiddleware();
         // The ORM compiles an update without a where clause to invalid SQL.
-        const q = Task.update({ title: 'b' }).where('id', 1) as unknown as Parameters<AncestorMiddleware['transactional']>[0];
-        expect(mw.transactional(q)).to.equal(false);
+        const q = Task.update({ title: 'b' }).where('id', 1) as unknown as QueryBuilder;
+        expect(new AncestorObserver().interest(q)?.transactional ?? false).to.equal(false);
         await (q as unknown as Promise<unknown>);
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('task:1>'))).to.deep.equal(['task:1>org:o1@2', 'task:1>project:p1@1']);
+      });
+
+      it('an upsert through a unique column moves the row it updated', async () => {
+        const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT UNIQUE', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        await Item.insert({ id: 'i1', code: 'k', project_id: 'p1' });
+        // Model.insert(..., InsertOrUpdate) would target every column marked unique, the primary key with them.
+        const { query } = createQuery(Item, InsertQueryBuilder);
+        query.values({ id: 'i2', code: 'k', project_id: 'p2' }).onDuplicate('code').update(['project_id']);
+        await query;
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
+      });
+
+      it('an upsert the capture cannot key still rebuilds the rows it names', async () => {
+        const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT', kind: 'TEXT', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        await db.raw(`CREATE UNIQUE INDEX "ux_${db.table(Item)}" ON "${db.table(Item)}" ("code", "kind")`, [], dialect);
+        await Item.insert({ id: 'i1', code: 'k', kind: 'a', project_id: 'p1' });
+        // A target of two columns: the capture cannot read its rows and reports unknown keys.
+        const { query } = createQuery(Item, InsertQueryBuilder);
+        query.values({ id: 'i1', code: 'k', kind: 'a', project_id: 'p2' }).onDuplicate(['code', 'kind']).update(['project_id']);
+        await query;
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
+      });
+
+      it('a replace that deletes a row through a unique column forgets it as a delete does', async function () {
+        if (dialect !== 'sqlite') this.skip();
+        const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT UNIQUE', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        await Item.insert({ id: 'i1', code: 'k', project_id: 'p1' });
+        await Item.insert({ id: 'i2', code: 'k', project_id: 'p2' }, InsertBehaviour.InsertOrReplace);
+        await ticks();
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i2>org:o2@2', 'item:i2>project:p2@1']);
+        expect(forgetter.calls).to.deep.equal([{ scope: { type: 'item', id: 'i1' }, reason: 'resource-deleted', ormTx: false }]);
+      });
+
+      it('warns once per model about inserts without ids, naming the commands that find and repair the rows', async () => {
+        const warn = sinon.stub(ormLog(), 'warn');
+        try {
+          await createQuery(Task, InsertQueryBuilder).query.values([{ title: 'a', project_id: 'p1' }, { title: 'b', project_id: 'p2' }]);
+          await createQuery(Task, InsertQueryBuilder).query.values([{ title: 'c', project_id: 'p1' }, { title: 'd', project_id: 'p2' }]);
+          const ours = warn.getCalls().map((c) => String(c.args[1])).filter((m) => m.includes('authz_resource_ancestor'));
+          expect(ours).to.have.length(1);
+          expect(ours[0]).to.include('authz:ancestors-verify').and.include('authz:ancestors-rebuild');
+        } finally {
+          warn.restore();
+        }
+      });
+
+      it('a delete runs one key select, which the column changelog shares', async () => {
+        await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
+        const spied = driver as unknown as { execute: (this: unknown, ...args: unknown[]) => Promise<unknown> };
+        const execute = spied.execute;
+        let keySelects = 0;
+        spied.execute = function (this: unknown, ...args: unknown[]) {
+          if (args[0] instanceof SelectQueryBuilder && args[0].Model === Task) keySelects++;
+          return execute.apply(this, args);
+        };
+        try {
+          await Task.destroy(1);
+        } finally {
+          delete (spied as unknown as Record<string, unknown>).execute;
+        }
+        expect(keySelects).to.equal(1);
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('task:'))).to.deep.equal([]);
       });
 
       const useBackend = (name: string) => {
@@ -176,11 +242,10 @@ describe('AncestorMiddleware', function () {
       });
 
       it('refuses a @Parent update when no transaction could be opened', async () => {
-        const mw = new AncestorMiddleware();
-        const q = Task.update({ project_id: 'p2' }) as unknown as Parameters<AncestorMiddleware['beforeQueryExecution']>[0];
+        const q = Task.update({ project_id: 'p2' }) as unknown as QueryBuilder;
         let err: unknown;
         try {
-          await mw.beforeQueryExecution(q);
+          new AncestorObserver().prepare(q);
         } catch (e) {
           err = e;
         }

@@ -9,7 +9,7 @@ import 'mocha';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sinon from 'sinon';
-import { FilesystemMigrationSource, ManifestMigrationSource, Orm, OrmMigration } from '../src/index.js';
+import { FilesystemMigrationSource, ManifestMigrationSource, Orm, OrmMigration, resolveMigrationTool } from '../src/index.js';
 import { ConnectionConf, ormApp, registerMigrationFakes, stubDb } from './misc.js';
 import '@spinajs/log';
 
@@ -18,17 +18,12 @@ const FIXTURES = resolve(process.cwd(), 'test', 'mocks', 'migration-manifest');
 
 class ManifestSourceConf extends ConnectionConf {
   public static Env = 'prod';
-  public static OnStartup = false;
 
   public async resolve(): Promise<void> {
     await super.resolve();
 
     this.set('system.dirs.migrations', [FIXTURES]);
     this.set('process.env.APP_ENV', ManifestSourceConf.Env);
-    if (ManifestSourceConf.OnStartup) {
-      const connections = this.get<Array<{ Name: string; Migration?: object }>>('db.Connections');
-      this.set('db.Connections', connections.map((c) => (c.Name === 'sqlite' ? { ...c, Migration: { ...c.Migration, OnStartup: true } } : c)));
-    }
   }
 }
 
@@ -84,7 +79,6 @@ describe('ManifestMigrationSource', function () {
     app = undefined;
     imported.length = 0;
     ManifestSourceConf.Env = 'prod';
-    ManifestSourceConf.OnStartup = false;
   });
 
   it('lists the manifest migrations and does not glob in require mode', async () => {
@@ -166,15 +160,13 @@ describe('ManifestMigrationSource', function () {
     expect(await (await booted.resolve(ManifestMigrationSource)).getMigrations()).to.deep.equal([]);
   });
 
-  it('applies a migration the manifest lists when the Orm resolves, and seeds it once the Orm is cached', async () => {
-    ManifestSourceConf.OnStartup = true;
+  it('the migration tool applies a migration the manifest lists and seeds it over its cached Orm', async () => {
     stubDb([]);
     const file = 'test/mocks/migration-manifest-seeded/Seeded_2026_08_01_11_00_00.ts';
     const seeded = { id: 'test-app:Seeded_2026_08_01_11_00_00', className: 'Seeded_2026_08_01_11_00_00', connection: 'sqlite', file: basename(file), source: sourceRef(file) };
 
     const booted = await boot('require', 'prod', testManifest({ root: process.cwd(), migrations: [seeded] }));
-    const orm = await booted.resolve(Orm);
-    await orm.Migrator.ready();
+    await (await resolveMigrationTool(booted.container)).migrate();
 
     const { SEEDED_RUNS } = (await import(pathToFileURL(join(process.cwd(), file)).href)) as { SEEDED_RUNS: string[] };
     expect(imported).to.include('Seeded_2026_08_01_11_00_00');
@@ -183,7 +175,6 @@ describe('ManifestMigrationSource', function () {
   });
 
   it('fails the Orm resolve before any migration runs when a migration has a property nothing can type', async () => {
-    ManifestSourceConf.OnStartup = true;
     stubDb([]);
     const file = 'test/mocks/migration-manifest-untyped/Untyped_2026_08_01_12_00_00.ts';
     const untyped = { id: 'test-app:Untyped_2026_08_01_12_00_00', className: 'Untyped_2026_08_01_12_00_00', connection: 'sqlite', file: basename(file), source: sourceRef(file) };

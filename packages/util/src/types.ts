@@ -74,6 +74,20 @@ export function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+/** `v` when it is a string, otherwise `undefined`. */
+export function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * A finite number from a number or from a numeric string ( surrounding whitespace allowed ), for data that carries
+ * numbers either way, eg. MySQL `EXPLAIN FORMAT=JSON`. Anything else, a blank string, `NaN` and `±Infinity` give `undefined`.
+ */
+export function toFiniteNumber(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Type guard for safe integers `>= 0`. */
 export function isNonNegativeInt(v: unknown): v is number {
   return Number.isSafeInteger(v) && (v as number) >= 0;
