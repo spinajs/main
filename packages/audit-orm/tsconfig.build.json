@@ -17,6 +17,7 @@
     { "path": "../log-common/tsconfig.build.json" },
     { "path": "../orm/tsconfig.build.json" },
     { "path": "../log/tsconfig.build.json" },
+    { "path": "../orm-mssql/tsconfig.build.json" },
     { "path": "../orm-mysql/tsconfig.build.json" },
     { "path": "../orm-postgres/tsconfig.build.json" },
     { "path": "../orm-sqlite/tsconfig.build.json" },

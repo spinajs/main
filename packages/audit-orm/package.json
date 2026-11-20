@@ -49,7 +49,8 @@
     "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
-    "lint": "cd ../.. && npm run lint -- packages/audit-orm"
+    "lint": "cd ../.. && npm run lint -- packages/audit-orm",
+    "test:dialects": "ts-mocha -p tsconfig.json --config .mocharc.dialects.json \"test/**/*.test.ts\""
   },
   "files": [
     "lib/**/*"
@@ -80,6 +81,7 @@
   },
   "devDependencies": {
     "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mssql": "3.0.23",
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
@@ -90,6 +92,7 @@
   },
   "peerDependencies": {
     "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mssql": "3.0.23",
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
@@ -100,6 +103,9 @@
   },
   "peerDependenciesMeta": {
     "@spinajs/log": {
+      "optional": true
+    },
+    "@spinajs/orm-mssql": {
       "optional": true
     },
     "@spinajs/orm-mysql": {
