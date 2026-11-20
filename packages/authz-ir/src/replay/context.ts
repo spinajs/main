@@ -127,7 +127,7 @@ export function replayContext(record: DecisionRecord): ReplayContext {
   const unheld = (path: string): string | undefined => {
     if ([...unknowable].some((u) => path === u || path.startsWith(`${u}.`) || u.startsWith(`${path}.`))) return 'the capture cannot reproduce the value (a bigint, a function, a cycle, or an instant held as a Date or a string)';
     const [root, head] = path.split('.');
-    if (root === 'principal' || root === 'actor') return head === 'type' || head === 'id' || (head === 'attributes' && principal.attributes !== undefined) ? undefined : 'only the type, id and captured attributes of the principal are replayed';
+    if (root === 'principal' || root === 'actor') return head === 'type' || head === 'id' || (head === 'attributes' && attributesHeld(principal)) ? undefined : 'only the type, id and captured attributes of the principal are replayed';
     if (path === 'env.now') return undefined;
     return captured(root, head);
   };
@@ -140,6 +140,9 @@ export function replayContext(record: DecisionRecord): ReplayContext {
   };
   return { principal, context, at, unheld };
 }
+
+/** Under delegation a caveat may run with any principal of the chain: each must have its captured attributes. */
+const attributesHeld = (p: PrincipalFacts): boolean => p.attributes !== undefined && (p.onBehalfOf === undefined || attributesHeld(p.onBehalfOf));
 
 function bare(key: string, state: DecodedState | undefined): PrincipalFacts {
   const ref = parseResourceKey(key);

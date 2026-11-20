@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
-import { MemoryChangeLog, StoreUnreadable, canonicalize, policyHash, replayDecision } from '../../src/index.js';
+import { MemoryChangeLog, StoreUnreadable, canonicalize, policyHash, replayContext, replayDecision } from '../../src/index.js';
 import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
 import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
@@ -271,6 +271,17 @@ describe('replayDecision', function () {
     expect(report.inputsHash).to.deep.equal({ recorded: record.inputsHash, replayed: record.inputsHash });
     const tampered = { ...record, inputs: { ...record.inputs!, env: { ...record.inputs!.env, n: 1 } } };
     expect((await replayDecision(tampered, w.deps)).divergence.map((d) => d.part)).to.deep.equal(['inputs-hash']);
+  });
+
+  it('holds principal attributes only when every principal of the delegation chain has its state decoded', async () => {
+    const w = await world();
+    const facts = { principal: { type: 'user', id: 'u1', onBehalfOf: { type: 'user', id: 'u2' } } };
+    const inputs = { env: {}, attributes: [], relations: [], modelVersions: {}, actorState: null };
+    const state = (onBehalfOf: unknown) => JSON.stringify({ type: 'user', id: 'u1', attributes: { dept: 'sales' }, onBehalfOf });
+    const whole = replayContext(w.record({ facts, inputs: { ...inputs, principalState: state({ type: 'user', id: 'u2', attributes: {} }) } }));
+    expect(whole.unheld('principal.attributes.dept')).to.equal(undefined);
+    const partial = replayContext(w.record({ facts, inputs: { ...inputs, principalState: state('not a state') } }));
+    expect(partial.unheld('principal.attributes.dept')).to.be.a('string');
   });
 
   it('a captured value the tags cannot restore is unknown, and principal attributes come from the principal state', async () => {
