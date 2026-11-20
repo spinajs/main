@@ -15,3 +15,45 @@ Whether a confirmed event survives the rollback of a transaction open on the con
 A joined write is tried once, without the trail's retries and without a deadline, inside a savepoint; joined writes of one transaction run one after another. When one fails, the caller's transaction stays usable, a `reject` trail throws `AuditWriteFailed` for the caller to decide, and a `continue` trail logs the loss. The caller must await `record` inside its transaction: a joined write left running may land after the transaction has ended.
 
 A confirmed write that is not joined and cannot finish fails at `audit.confirmTimeoutMs` (default 10000 ms): `AuditWriteFailed` on a `reject` trail, a logged loss on a `continue` trail. That is the case for connections that share one PGlite instance (`Options.Shared`): they are not detected as one connection, so a confirmed write to one of them while another holds a transaction waits for it and fails at the deadline.
+
+## Read auditing
+
+`@AuditReads({ trail, mode, columns, onFailure })` on a model records who read it. `mode: 'row'` (default) writes one
+`read` event per returned row, `mode: 'query'` one per statement with the row count and the filter columns (never
+their values). `columns` limits auditing to selects that return one of them. The record is written, confirmed, before
+the rows are returned; when it cannot be written after the trail's retries the select rejects with `AuditWriteFailed`,
+unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
+the same for a model of another package.
+
+What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
+per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
+type, or through a relation's accessor) brings into a select of another model. A rule applies to the model's
+subclasses. Column names match without regard to case, as sqlite and MySQL resolve them; the ORM quotes every
+identifier, so Postgres only knows the declared spelling.
+
+A raw or `CASE` select expression counts as every audited column. An aggregate over an audited column (`min`, `max`,
+`sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row can be
+named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement in the
+query-mode shape with `keyless: true`. A binary key is written as hex.
+
+What it does not see:
+
+- raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
+- a column that a `join()` query callback selects, or that a `populate()` callback selects under an alias of its own:
+  it is counted for the queried model, not for the joined one;
+- the junction rows of a many-to-many relation;
+- what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
+  condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
+- data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
+
+`paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
+
+Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one
+event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
+
+A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
+stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
+connection, the record joins the open transaction, also one the ORM opened itself (the reload of
+`save({ reload: true })`, relations loaded there, authz-orm's update and delete checks). It is tried once, commits with
+that transaction and rolls back with it: there a read inside a transaction that rolls back leaves no record. Every other
+confirmed record has a deadline, `audit.confirmTimeoutMs` (10 s by default); past it a `reject` rule fails the select.
