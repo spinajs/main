@@ -3,6 +3,23 @@ import type { ResourceRef } from './principal.js';
 import type { DecisionReadSet } from './tap.js';
 import type { AuthzService } from './service.js';
 
+/** What a replay needs of a principal to narrow like the engine did; never its attributes or authn. */
+export interface PrincipalFactsRecord {
+  type: string;
+  id: string;
+  ceiling?: { roles?: string[]; permissions?: string[]; resources?: Array<{ type: string; id?: string }>; expiresAt?: string };
+  onBehalfOf?: PrincipalFactsRecord;
+  delegation?: 'intersect' | 'inherit';
+  /** principalKey() of each companion. */
+  companions?: string[];
+}
+
+export interface CapturedInputs extends DecisionReadSet {
+  /** The exact strings `inputsHash` hashed for the principal and the actor. */
+  principalState: string | null;
+  actorState: string | null;
+}
+
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
   /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
@@ -25,8 +42,14 @@ export interface DecisionRecord {
   modelVersions: Record<string, string>;
   /** SHA-256 (hex) of the canonical inputs the decision read. */
   inputsHash: string;
+  /** Authorization facts of the principal and actor, without attributes and authn; on every record. */
+  facts?: { principal: PrincipalFactsRecord; actor?: PrincipalFactsRecord };
+  /** Wall clock when the tap recorded (ISO); `at` may be the caller's `env.now`. Replay's T. */
+  loggedAt?: string;
+  /** The engine's `meta.durationMs`: how long before `loggedAt` the decision's reads may have happened. */
+  durationMs?: number;
   /** Only with `authz.decisionLog.captureInputs`. */
-  inputs?: DecisionReadSet;
+  inputs?: CapturedInputs;
 }
 
 /** Where decision records go; writes are batched and a failed write never fails a check. */

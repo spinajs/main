@@ -1,4 +1,4 @@
-import { AuthzConfigError, CHANGE_KINDS, ChangeLog, authzStorage, currentPrincipal, principalKey } from '@spinajs/authz';
+import { AuthzConfigError, CHANGE_KINDS, ChangeLog, ambientTraceId, currentPrincipal, principalKey } from '@spinajs/authz';
 import type { ChangeEntry, ChangeKind, ChangeOp, ChangeQuery, ChangeRecord, ResourceType } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
@@ -14,7 +14,6 @@ const MAX_LIMIT = 10000;
 // Keeps one INSERT within the row and bind-parameter limits of every driver.
 const INSERT_CHUNK = 100;
 const OPS: readonly string[] = ['add', 'remove', 'put'];
-const TRACE_ID = /^[0-9a-f]{32}$/;
 
 let columnHook = false;
 
@@ -27,12 +26,6 @@ export function columnChangesRecorded(): void {
 function columnsCovered(type: ResourceType): boolean {
   const models = classesOf(type);
   return models.length > 0 && models.every((m) => entryOf(m)?.changelog !== false);
-}
-
-/** The W3C trace id http's RequestId puts on the request store authz shares with it. */
-function ambientTraceId(): string | null {
-  const id = authzStorage().getStore()?.traceId;
-  return typeof id === 'string' && TRACE_ID.test(id) ? id : null;
 }
 
 function checkEntry(e: ChangeEntry, i: number): void {

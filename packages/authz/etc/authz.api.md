@@ -361,6 +361,29 @@ import type { Permission } from "./permission.js";
 import type { ResourceRef } from "./principal.js";
 import type { DecisionReadSet } from "./tap.js";
 import type { AuthzService } from "./service.js";
+/** What a replay needs of a principal to narrow like the engine did; never its attributes or authn. */
+export interface PrincipalFactsRecord {
+    type: string;
+    id: string;
+    ceiling?: {
+        roles?: string[];
+        permissions?: string[];
+        resources?: Array<{
+            type: string;
+            id?: string;
+        }>;
+        expiresAt?: string;
+    };
+    onBehalfOf?: PrincipalFactsRecord;
+    delegation?: "intersect" | "inherit";
+    /** principalKey() of each companion. */
+    companions?: string[];
+}
+export interface CapturedInputs extends DecisionReadSet {
+    /** The exact strings `inputsHash` hashed for the principal and the actor. */
+    principalState: string | null;
+    actorState: string | null;
+}
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
     /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
@@ -383,8 +406,17 @@ export interface DecisionRecord {
     modelVersions: Record<string, string>;
     /** SHA-256 (hex) of the canonical inputs the decision read. */
     inputsHash: string;
+    /** Authorization facts of the principal and actor, without attributes and authn; on every record. */
+    facts?: {
+        principal: PrincipalFactsRecord;
+        actor?: PrincipalFactsRecord;
+    };
+    /** Wall clock when the tap recorded (ISO); `at` may be the caller's `env.now`. Replay's T. */
+    loggedAt?: string;
+    /** The engine's `meta.durationMs`: how long before `loggedAt` the decision's reads may have happened. */
+    durationMs?: number;
     /** Only with `authz.decisionLog.captureInputs`. */
-    inputs?: DecisionReadSet;
+    inputs?: CapturedInputs;
 }
 /** Where decision records go; writes are batched and a failed write never fails a check. */
 export declare abstract class DecisionLog {
@@ -661,6 +693,7 @@ const filterHashTesting = {
 export * from "./principal.js";
 export * from "./link.js";
 export * from "./resource.js";
+export * from "./resource-key.js";
 export * from "./errors.js";
 export * from "./permission.js";
 export { CORE_FILTER_OPS, TRUE, FALSE, and, or, not, simplify, bindRefs } from "./filter.js";
@@ -910,6 +943,22 @@ export interface ListPlanRequest {
 ```ts
 export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/principal";
 export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/principal";
+```
+
+## src/contracts/resource-key.ts
+
+```ts
+import type { ResourceRef } from "./principal.js";
+/** The inverse of `resourceKey`: the ref a key was made from. */
+export declare function parseResourceKey(key: string): ResourceRef;
+
+// values
+const ESCAPED_TYPE = /^(?:[^%:/]|%(?:25|3A|2F))*$/;
+const UNESCAPE = {
+    "%25": "%",
+    "%3A": ":",
+    "%2F": "/"
+};
 ```
 
 ## src/contracts/resource.ts
