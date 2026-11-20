@@ -32,6 +32,8 @@ export interface ReplayTreeNode {
   truth: 'allow' | 'deny' | 'unknown';
   source: string;
   children: ReplayTreeNode[];
+  /** On a conditional tuple's caveat: the parameter paths its context supplied, which the replay holds. */
+  tupleContext?: string[];
 }
 
 export interface ReplayReport {
@@ -55,8 +57,16 @@ export interface ReplayOptions {
   signal?: AbortSignal;
 }
 
+/** A replay was refused: `authz.replay.concurrency` replays run in this process already. */
+export class ReplayBusy extends Error {
+  constructor(readonly concurrency: number) {
+    super(`authz replay: ${concurrency} replays are running in this process already (authz.replay.concurrency)`);
+    this.name = 'ReplayBusy';
+  }
+}
+
 /** Re-evaluates a logged decision against the state and policy at its instant (G14, G20). */
 export abstract class DecisionReplay {
-  /** undefined when no record has that id. */
+  /** undefined when no record has that id. @throws ReplayBusy when the process runs as many replays as it allows */
   public abstract replay(decisionId: string, options?: ReplayOptions): Promise<ReplayReport | undefined>;
 }
