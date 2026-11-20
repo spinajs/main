@@ -73,7 +73,7 @@ describe('request log lines redact query values', () => {
     const req: any = { method: 'GET', originalUrl: url, headers: {}, storage: {} };
     const ctx = { req, res: { statusCode: 200, locals: {} } as any, storage: req.storage };
     mw.onBefore(ctx);
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
   }
 
   function expectRedacted(lines: unknown[][]) {

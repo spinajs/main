@@ -331,7 +331,7 @@ describe('Audit route middleware', function () {
     expect(dataOf(event)).to.not.have.property('query');
   });
 
-  it('records a request the client went away from as failed and aborted, without a status', async () => {
+  it('records a request the client went away from once its action ended, as aborted and without a status', async () => {
     await new Promise<void>((resolve) => {
       const r = http.get(`http://localhost:${appPort()}/audited/slow`);
       r.on('error', () => resolve());
@@ -342,7 +342,7 @@ describe('Audit route middleware', function () {
     });
 
     const event = await nextEvent('default', (e) => String(dataOf(e).route).endsWith('audited/slow'));
-    expect(event.outcome).to.eq('failed');
+    expect(event.outcome).to.eq('ok');
     expect(dataOf(event).aborted).to.eq(true);
     expect(dataOf(event)).to.not.have.property('status');
   });
