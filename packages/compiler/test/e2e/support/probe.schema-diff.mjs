@@ -2,7 +2,8 @@
 const { Bootstrapper, DI } = await import('@spinajs/di');
 const { Configuration } = await import('@spinajs/configuration');
 const { readManifest } = await import('@spinajs/manifest');
-const { Orm, OrmMigrator, buildTargetSchema, diffSchema, introspectSchema, isActionable } = await import('@spinajs/orm');
+const { buildTargetSchema, diffSchema, introspectSchema, isActionable } = await import('@spinajs/orm');
+const { migrateTestDatabase } = await import('@spinajs/orm/testing');
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
 // a package's migrations are in the manifest only under its declared migration dirs; importing it registers them
@@ -12,8 +13,7 @@ const result = {};
 try {
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
-  const orm = await DI.resolve(Orm);
-  await DI.resolve(OrmMigrator);
+  const { orm } = await migrateTestDatabase();
   const driver = orm.Connections.get('default');
   const names = [...orm.Connections].filter(([, d]) => d === driver).map(([n]) => n);
   const diagnostics = [];

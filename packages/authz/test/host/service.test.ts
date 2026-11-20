@@ -456,6 +456,60 @@ describe('DefaultAuthzService', function () {
       expect(err).to.be.instanceOf(AuthzConfigError);
       expect(err.message).to.contain('"nb"').and.contain('Missing');
     });
+
+    it("audit() writes to the domain's selected audit service, not the last registered one; a failing audit is not thrown", async () => {
+      class SelectedAudit extends RecordingAudit {}
+      class LaterAudit extends RecordingAudit {}
+      setConfig(['authz', 'domains', 'sel', 'audit'], { service: 'SelectedAudit' });
+      const d = await domains();
+      const c = d.create('sel');
+      c.register(SelectedAudit).as(DecisionAudit);
+      c.register(LaterAudit).as(DecisionAudit);
+      const sel = await d.service('sel');
+      sel.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' }, reason: 'replay x' });
+      expect(c.get(SelectedAudit)!.of('explain')).to.deep.equal([{ kind: 'explain', principal: { type: 'user', id: 'alice' }, reason: 'replay x' }]);
+      expect(c.get(LaterAudit)).to.equal(undefined);
+
+      class Throwing extends DecisionAudit {
+        record(): void {
+          throw new Error('audit down');
+        }
+      }
+      d.create('thr').register(instance(new Throwing())).as(DecisionAudit);
+      const thr = await d.service('thr');
+      expect(() => thr.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
+    });
+
+    it('audit() drops the kinds the domain turns off, as the engine does (authz.audit.denials, runAs, unscoped)', async () => {
+      setConfig(['authz', 'domains', 'nodeny', 'audit'], { denials: false });
+      const quiet = new RecordingAudit();
+      const d = await domains();
+      d.create('nodeny').register(instance(quiet)).as(DecisionAudit);
+      const s = await d.service('nodeny');
+      s.audit!({ kind: 'deny', principal: { type: 'user', id: 'alice' }, permission: 'authz:replay', reason: 'replay x refused: domain y' });
+      s.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' }, reason: 'replay x' });
+      expect(quiet.entries.map((e) => e.kind)).to.deep.equal(['explain']);
+    });
+
+    it('audit() never throws: a sink that rejects is logged, a disposed service records nothing', async () => {
+      let calls = 0;
+      class Rejecting extends DecisionAudit {
+        record(): Promise<void> {
+          calls++;
+          return Promise.reject(new Error('audit down'));
+        }
+      }
+      const d = await domains();
+      d.create('rej').register(instance(new Rejecting())).as(DecisionAudit);
+      const rej = await d.service('rej');
+      expect(() => rej.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(calls).to.equal(1);
+
+      await rej.dispose();
+      expect(() => rej.audit!({ kind: 'explain', principal: { type: 'user', id: 'alice' } })).to.not.throw();
+      expect(calls).to.equal(1);
+    });
   });
 
   describe('change bus', () => {

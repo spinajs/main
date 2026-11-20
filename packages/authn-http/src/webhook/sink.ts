@@ -1,7 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
 import { Log, Logger } from '@spinajs/log';
 
@@ -28,18 +28,18 @@ function originOf(url: string): string {
 }
 
 /**
- * POSTs each matching audit event, signed, to every `authn.webhooks` target. The body is the event as the other sinks get it.
- * A failed delivery is logged and dropped; publish never rejects.
+ * POSTs each matching authentication event, signed, to every `authn.webhooks` target. The body is the event as the
+ * other listeners get it. A failed delivery is logged and dropped; `on` never rejects.
  */
-@Injectable(AuthnEventSink)
-export class WebhookAuthnEventSink extends AuthnEventSink {
+@Injectable(AuthnEventListener)
+export class WebhookAuthnEventListener extends AuthnEventListener {
   @Config('authn.webhooks')
   protected Webhooks: readonly AuthnWebhookTarget[] | undefined;
 
   @Logger('authn-webhook')
   protected Log: Log;
 
-  public async publish(e: AuthnEvent): Promise<void> {
+  public async on(e: AuthnEvent): Promise<void> {
     const targets = (this.Webhooks ?? []).filter((t) => t.types === undefined || t.types.includes(e.type));
     if (targets.length === 0) return;
 

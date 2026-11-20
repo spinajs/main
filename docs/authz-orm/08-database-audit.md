@@ -8,7 +8,7 @@ It lives in the entry point `@spinajs/authz-orm/audit`. Importing it does **not*
 
 1. Importing `@spinajs/authz-orm/audit` registers the `AuthzAuditEntry` model and the migration `AuthzAudit_2026_10_01_00_00_00`, both on the connection named `authz-audit` (`AUDIT_CONNECTION`).
 2. The app registers `DbDecisionAudit` as a `DecisionAudit` and names it in `authz.audit.service`. The authz host then hands it every audit record of the domain.
-3. `record(entry)` builds an `AuthzAuditEntry` and inserts it as `SYSTEM`, so app scoping and the runtime guard never touch the audit's own write.
+3. `DbDecisionAudit` injects the `Orm`, so the domain boot that picks it boots the ORM and binds `AuthzAuditEntry`, also in a CLI process. `record(entry)` builds an `AuthzAuditEntry` and inserts it as `SYSTEM`, so app scoping and the runtime guard never touch the audit's own write.
 4. Each value is cut to its column width before the insert. `trace` holds the record's trace as JSON; for an `admin` record without a trace it holds the command (secrets already removed by `AuthzAdmin`).
 5. A failed write is logged on the `authz-audit` log (`writing a <kind> entry to authz_audit failed, the entry is dropped`) and the record is dropped. `record()` never rejects, so auditing never fails a check.
 
@@ -55,6 +55,21 @@ Migration `AuthzAudit_2026_10_01_00_00_00`, model `AuthzAuditEntry`. Index `auth
 | `resource` | varchar(255), null | `resourceKey(resource)`, when the record has one. |
 | `reason` | varchar(255), null | The deny reason or the `runAs` / `unscoped` reason. |
 | `trace` | text, null | The trace as JSON; the command for an `admin` record. |
+
+### `authz_decision_log`
+
+`DbDecisionLog` (registered by the app as the `DecisionLog`) writes one row per `DecisionRecord`, append-only, on the `authz-audit` connection: migrations `AuthzDecisionLog_2026_11_04_00_00_00` and `AuthzDecisionLogFacts_2026_11_06_00_00_00`, model `AuthzDecisionLogEntry`, indexes on `at` and on `principal, at`. [Decision replay](10-decision-replay.md) reads it back.
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `id` | varchar(36), PK | The decision's UUIDv7, the `decisionId` of its 403. |
+| `at`, `trace_id`, `span_id`, `domain`, `principal`, `actor`, `permission`, `resource`, `allowed`, `reason`, `cached`, `policy_hash`, `model_versions`, `inputs_hash` | | The record's fields. `principal` and `actor` are cut to 100 characters, `resource` to 255; a cut key is not replayed. |
+| `inputs` | text, null | The captured inputs as JSON, only with `authz.decisionLog.captureInputs`. |
+| `facts` | text, null | The principal facts as JSON: type, id, ceiling, `onBehalfOf` chain, delegation, companion keys; never attributes or authn. |
+| `logged_at` | datetime, null | When the tap recorded; `at` may be a caller's `env.now`. The instant a replay rebuilds state at. |
+| `duration_ms` | int, null | How long the decision took: how far before `logged_at` its reads may have happened. |
+
+`facts`, `logged_at` and `duration_ms` are null on rows logged before `AuthzDecisionLogFacts_2026_11_06_00_00_00`.
 
 ## Services and extension points
 

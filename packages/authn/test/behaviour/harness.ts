@@ -2,14 +2,14 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/boot/index.js';
-import { TestLog, useTestLog } from '../audit/test-log.js';
+import { useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
 export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.mfa.policy.methods', 'authn.freshAuth', 'authn.impersonation', 'authn.login'];
@@ -17,7 +17,7 @@ export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'auth
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';
 
-/** Registers a capturing DI Log for the `logs` port; call inside the describe that runs the harness. */
+/** Registers a capturing DI Log, so the services under test do not write to the console; call inside the describe that runs the harness. */
 export const useHarnessLog = useTestLog;
 
 export interface StrategySpec {
@@ -60,8 +60,8 @@ export interface CoreParts {
   readonly passwords: MemoryPasswordCredentialStore;
   readonly sessions: MemorySessionIssuer;
   readonly throttle: AuthnThrottle;
-  readonly events: RecordingEventSink;
-  readonly second: RecordingEventSink;
+  readonly events: RecordingEventListener;
+  readonly second: RecordingEventListener;
   readonly principals: RecordingPrincipalFactory;
   readonly links: MemoryLinkStore;
   readonly step: FakeMfaStep;
@@ -194,7 +194,7 @@ function kitStrategies(identities: FakeIdentityStore, passwords: MemoryPasswordC
 }
 
 /**
- * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink, DefaultMfaPolicy and
+ * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, DefaultMfaPolicy and
  * MemoryAuthnThrottle, resolved in a fresh child container with its own Configuration (all of them are per container,
  * D11), over kit fakes for the neighbours N1 does not own. The kit MFA step (`fake`) is listed in `authn.mfa.steps`.
  * The throttle is built from the child's Configuration and registered there under the name `MemoryAuthnThrottle`, so
@@ -217,8 +217,8 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
   const identities = new FakeIdentityStore({ jit });
   const passwords = new MemoryPasswordCredentialStore();
   const sessions = new MemorySessionIssuer({ ...sessionOptions(config), memoryBacked: opts.memorySessionStore });
-  const events = new RecordingEventSink();
-  const second = new RecordingEventSink();
+  const events = new RecordingEventListener();
+  const second = new RecordingEventListener();
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();
@@ -250,8 +250,8 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
     for (const [name, base, value] of neighbours) if (!omit.has(name)) bind(child, base, `Kit${name}`, value);
     bind(child, MfaStep, KIT_MFA_STEP, step);
     for (const s of strategies) if (s.instance) bind(child, AuthenticationStrategy, s.service, s.instance);
-    bind(child, AuthnEventSink, 'KitEvents', events);
-    bind(child, AuthnEventSink, 'KitEvents2', second);
+    bind(child, AuthnEventListener, 'KitEvents', events);
+    bind(child, AuthnEventListener, 'KitEvents2', second);
     // A runner per case: the root's would read the hooks of the root only.
     child.register(DefaultHooks).as(Hooks);
     if (opts.startHook !== false && !omit.has('ImpersonationGuard')) bind(child, ActionHook, 'KitImpersonationStartHook', new FakeImpersonationStartHook(() => guard));
@@ -326,7 +326,6 @@ const spyOf = (strategies: readonly StrategySpec[]) => ({
 
 /** Every port the core service has today; `hooks` when the parts were built with that KitActionHooks. */
 export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness {
-  const logStart = TestLog.lines.length;
   return {
     service: parts.service,
     seed: fakeSeedPort(parts.identities, parts.passwords),
@@ -334,8 +333,7 @@ export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness
     sessionStorage: parts.sessions.storage,
     throttle: { throttle: parts.throttle, params: (parts.throttle as MemoryAuthnThrottle).params },
     events: parts.events,
-    sinks: [parts.events, parts.second],
-    logs: { lines: () => TestLog.lines.slice(logStart).filter((l) => l.includes(' authn audit ')) },
+    listeners: [parts.events, parts.second],
     spy: spyOf(parts.strategies),
     mfa: { step: parts.step, enrol: async (id) => parts.step.enrol(id), code: async (id) => parts.step.nextCode(id) },
     passwordStore: parts.passwords,

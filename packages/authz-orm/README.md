@@ -261,8 +261,8 @@ the last one registered, so loading the module would silently replace the log au
 `DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
 (`scope.setAttributes`, `scope.replaceAttributes`). `new DbScopeAttributeStore()` takes no options:
 it reads and writes on the alias `authz`, and a write runs only inside the `AuthzAdmin` transaction on
-that connection (`AuthzConfigError` otherwise). It is not built by DI, so resolve the Orm before its
-first read. Register the one instance under both `ScopeAttributeStore` and `WritableScopeAttributeStore`.
+that connection (`AuthzConfigError` otherwise). Register the class under both `ScopeAttributeStore` and `WritableScopeAttributeStore`: DI builds one
+instance, which injects the Orm. A store built with `new` gets none, so resolve the Orm before its first read.
 Every write first updates the single row of `authz_scope_attribute_version`; its row lock queues
 concurrent writers of the same database.
 
@@ -275,11 +275,16 @@ no transaction in scope on the `authz` connection is an `AuthzConfigError`. `act
 `trace_id` the W3C trace id of the request. `changeLog().covers(kind)` is true only for the kinds whose DB store
 exists in the process; `since(seq)` and `until(at)` read the history in `seq` order, a page at a time.
 
-Writes of `@AccessResource` models add kind `column`: `ColumnChangeMiddleware` logs every `@Parent`, `@Owner` and
+Writes of `@AccessResource` models add kind `column`: `ColumnChangeObserver` logs every `@Parent`, `@Owner` and
 `@Relation` column an insert, update or delete changed, keyed `type:id#relation` (`parent` for a parent column), with
-the old and new `{ type, id }`, in the statement's transaction. Turn it off for one model with
+the old and new `{ type, id }`, in the statement's transaction. It reads the rows through the ORM write capture
+([docs/orm/25-write-capture.md](../../docs/orm/25-write-capture.md)). The import registers `SystemCaptureReadScope`,
+which runs the capture's key select as `SYSTEM`, so a row the writer cannot read is still logged; it is meant for that
+select only and is not exported. Turn the log off for one model with
 `@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
-that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`).
+that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`). An
+`@AccessResource` model needs a single-column primary key: the domain boot refuses a composite one with an
+`AuthzConfigError`, as the write capture that keeps the ancestor table and the changelog keys rows by one column.
 
 `recordPolicyVersion(policyHash, irJson)` keeps the policy IR an app ran with in `authz_policy_version` (first
 instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Import `@spinajs/authz-orm/scheduler`

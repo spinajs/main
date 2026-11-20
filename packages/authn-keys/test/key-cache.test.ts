@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { InProcessCredentialChangeBus } from '@spinajs/authn/bus';
 import type { CredentialChange, KeyOwner, KeyRecord } from '@spinajs/authn/contracts';
-import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
+import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventListener, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 
 import type { KeyCacheOptions } from '../src/options/index.js';
 import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
@@ -44,7 +44,7 @@ describe('DefaultKeyRegistry key cache', () => {
       store,
       secrets: new MemorySecretStore(),
       throttle: new FakeBackoffThrottle(throttleParams()),
-      audit: AuthnAudit.over([new RecordingEventSink()]),
+      audit: AuthnAudit.over([new RecordingEventListener()]),
       options: keysOptionsFor({ assertion: { audience: AUD }, cache }),
       bus,
     });
