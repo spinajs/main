@@ -16,6 +16,10 @@
     "./scheduler": {
       "types": "./lib/scheduler.d.ts",
       "import": "./lib/scheduler.js"
+    },
+    "./queue": {
+      "types": "./lib/queue/index.d.ts",
+      "import": "./lib/queue/index.js"
     }
   },
   "typesVersions": {
@@ -25,6 +29,9 @@
       ],
       "scheduler": [
         "lib/scheduler.d.ts"
+      ],
+      "queue": [
+        "lib/queue/index.d.ts"
       ]
     }
   },
@@ -75,6 +82,7 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@spinajs/testing-orm": "3.0.23"
@@ -84,6 +92,7 @@
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
+    "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@spinajs/testing-orm": "3.0.23"
@@ -99,6 +108,9 @@
       "optional": true
     },
     "@spinajs/orm-sqlite": {
+      "optional": true
+    },
+    "@spinajs/queue": {
       "optional": true
     },
     "@spinajs/scheduler": {

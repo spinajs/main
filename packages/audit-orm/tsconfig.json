@@ -18,6 +18,7 @@
     { "path": "../orm-mysql/tsconfig.json" },
     { "path": "../orm-postgres/tsconfig.json" },
     { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../queue/tsconfig.json" },
     { "path": "../scheduler/tsconfig.json" },
     { "path": "../testing/tsconfig.json" },
     { "path": "../testing-orm/tsconfig.json" }
