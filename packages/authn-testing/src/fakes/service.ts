@@ -37,6 +37,10 @@ const throttled = (retryAfterSeconds: number): Failure => ({ status: 'failure', 
 
 type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
+type Delivery = ReturnType<typeof AuthnAudit.over>;
+
+const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
+
 /** The optional `peek` of @spinajs/authn's PeekableThrottle: whether a delay holds any key, counting nothing. */
 type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) => Promise<Verdict>;
 
@@ -69,7 +73,9 @@ export class FakeAuthnService extends AuthnService {
     return null;
   }
 
-  private readonly detached = new Set<Promise<void>>();
+  private current?: { readonly listeners: readonly AuthnEventListener[]; readonly delivery: Delivery };
+  // Deliveries over a listener list that has changed since; they may still hold detached events.
+  private readonly retired = new Set<Delivery>();
 
   /** Delivered as AuthnAudit delivers: blocking listeners first. */
   protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
@@ -78,19 +84,26 @@ export class FakeAuthnService extends AuthnService {
 
   /** As the core publishes a non-interactive success: returns at once, and no listener can stop it. */
   protected auditDetached(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): void {
-    const delivery = this.delivery();
-    delivery.publishDetached(ctx, e);
-    const settled: Promise<void> = delivery.settled().finally(() => this.detached.delete(settled));
-    this.detached.add(settled);
+    this.delivery().publishDetached(ctx, e);
   }
 
-  /** Resolves when every detached event published so far has been delivered, as `AuthnAudit.settled()`. */
+  /** As `AuthnAudit.settled()`: resolves when every detached event published so far has been delivered and every listener has flushed. */
   async settled(): Promise<void> {
-    await Promise.all([...this.detached]);
+    const retired = [...this.retired];
+    this.retired.clear();
+    await Promise.all(retired.map((d) => d.settled()));
+    await this.delivery().settled();
   }
 
-  private delivery() {
-    return AuthnAudit.over(this.d.listeners, this.d.log ? { log: this.d.log } : {});
+  // One delivery per listener list, so only settled() flushes, as in the core; `d.listeners` is still read at every publish.
+  private delivery(): Delivery {
+    const listeners = this.d.listeners;
+    const current = this.current;
+    if (current && current.listeners.length === listeners.length && current.listeners.every((l, i) => l === listeners.at(i))) return current.delivery;
+    if (current) this.retired.add(current.delivery);
+    const delivery = AuthnAudit.over(listeners, this.d.log ? { log: this.d.log } : {});
+    this.current = { listeners: [...listeners], delivery };
+    return delivery;
   }
 
   /** As the core: a session whose announcement a blocking listener stopped is revoked, and the told events go out again as failures. */
@@ -222,7 +235,7 @@ export class FakeAuthnService extends AuthnService {
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
     const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes && (r.attributes || Object.keys(attributes).length > 0) ? { attributes } : {}) };
     if (!s.interactive) {
-      this.auditDetached(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
+      this.auditDetached(ctx, { type: s.kinds.some((k) => KEY_KINDS.has(k)) ? 'key.use' : 'token.use', outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
     const steps = await this.d.policy.required(id, facts);
@@ -342,7 +355,7 @@ export class FakeAuthnService extends AuthnService {
     await this.d.throttle.succeed(keys, 'mfa');
     const next = await this.d.sessions.reissue(session, { assurance: 'aal2', mfa: [step] });
     const { authenticatedAt: _at, ...facts } = (await this.d.sessions.restore(next.id))!.facts;
-    await this.announce(ctx, next, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
+    await this.announce(ctx, next, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'session.rotate', outcome: 'success', reason: 'step_up', identity: id, session: facts.sessionHandle });
     return { status: 'success', identity: id, facts, session: next };
   }
 

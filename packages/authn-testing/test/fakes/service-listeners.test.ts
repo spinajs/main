@@ -33,7 +33,21 @@ class WarnLog {
   }
 }
 
+class BufferingListener extends AuthnEventListener {
+  seen = 0;
+  flushes = 0;
+
+  async on(): Promise<void> {
+    this.seen++;
+  }
+
+  async flush(): Promise<void> {
+    this.flushes++;
+  }
+}
+
 const BOB_TOKEN = 'bob-api-token';
+const BOB_JWS = 'bob.signed.assertion';
 
 function build(listeners: readonly AuthnEventListener[], mfa = false, log?: WarnLog) {
   const identities = new FakeIdentityStore();
@@ -42,7 +56,11 @@ function build(listeners: readonly AuthnEventListener[], mfa = false, log?: Warn
   const sessions = new MemorySessionIssuer();
   const step = new FakeMfaStep();
   const service = new FakeAuthnService({
-    strategies: [FakeStrategy.password({ identities, passwords }), FakeStrategy.bearer({ tokens: new Map([[BOB_TOKEN, bob]]) })],
+    strategies: [
+      FakeStrategy.password({ identities, passwords }),
+      FakeStrategy.bearer({ tokens: new Map([[BOB_TOKEN, bob]]) }),
+      new FakeStrategy({ name: 'keys', kinds: ['jws-assertion'], interactive: false, keys: () => [], verify: (c) => (c.kind === 'jws-assertion' && c.jws === BOB_JWS ? { ok: true, identity: bob, method: 'key' } : { ok: false, reason: 'invalid_credentials' }) }),
+    ],
     throttle: new FakeBackoffThrottle(throttleParams({})),
     identities,
     links: new MemoryLinkStore(),
@@ -187,5 +205,45 @@ describe('FakeAuthnService: delivery to listeners as AuthnAudit does it', () => 
 
     assert.deepStrictEqual(summary(events), [['token.use', 'success', undefined]]);
     assert.ok(log.lines.some((l) => l.includes('FailingListener')), log.lines.join('\n'));
+  });
+
+  it('names the event of a key strategy key.use, as the core does', async () => {
+    const events = new RecordingEventListener();
+    const w = build([events]);
+
+    const r = await w.service.authenticate({ kind: 'jws-assertion', jws: BOB_JWS }, { now: new Date(), purpose: 'request', ip: IP });
+    assert.strictEqual(r.status, 'success');
+    await w.service.settled();
+
+    assert.deepStrictEqual(summary(events), [['key.use', 'success', undefined]]);
+  });
+
+  it('gives the session.rotate of a step-up the reason step_up, as the core does', async () => {
+    const events = new RecordingEventListener();
+    const w = build([events], true);
+    const r = await login(w);
+    assert.ok(r.status === 'success' && r.session);
+    w.step.enrol(r.identity);
+
+    assert.strictEqual((await w.service.stepUp(r.session, w.step.name, w.step.nextCode(r.identity), ctx())).status, 'success');
+
+    assert.deepStrictEqual(summary(events).slice(2), [
+      ['mfa.verify', 'success', undefined],
+      ['session.rotate', 'success', 'step_up'],
+    ]);
+  });
+
+  it('flushes the listeners only when settled() is called, as AuthnAudit does', async () => {
+    const buffering = new BufferingListener();
+    const w = build([buffering]);
+
+    await w.service.authenticate({ kind: 'bearer', token: BOB_TOKEN }, { now: new Date(), purpose: 'request', ip: IP });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepStrictEqual([buffering.seen, buffering.flushes], [1, 0], 'a token.use is delivered but flushes nothing');
+
+    await w.service.settled();
+    assert.strictEqual(buffering.flushes, 1);
+    await w.service.settled();
+    assert.strictEqual(buffering.flushes, 2, 'settled() flushes with no detached event pending, too');
   });
 });
