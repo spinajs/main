@@ -8,7 +8,7 @@
 
 1. Calls `documentation(controller)` on the provider. From the manifest: summary (`@summary`, else the first comment line), description, method `@tags`, `@deprecated` and `@response`; no class-level JSDoc, no `@param` descriptions, no `@returns`, `@body` or `@example`. From `CacheControllerMetadata`, `DefaultControllerCache.getDocumentation(controller)`:
    - a controller whose `file` is a placeholder such as `<dynamic>` gets `{ className, methods: {} }`, so no JSDoc;
-   - otherwise the key is `doc_<@spinajs/http version>_<hash of the .d.ts>` in the `__fs_controller_cache__` file provider (`<cwd>/__cache__/__controllers__`). A missing `.d.ts` makes the hasher throw `IOFail`;
+   - otherwise the key is `doc_<@spinajs/http version>_<hash>` in the `__fs_controller_cache__` file provider (`<cwd>/__cache__/__controllers__`); the hash covers the content of the `.d.ts` and the class name, so each controller of a file has its own entry. A missing `.d.ts` makes the hasher throw `IOFail`;
    - a missing entry is generated: the `.d.ts` (the controller file with `.js` replaced) is parsed with the TypeScript compiler API, every method's JSDoc goes through `tagExtractors`, and the entry is written.
 2. Reads `controller.instance.Descriptor` for controller-level and route-level policy names; see [Policies and access](05-policies-and-access.md).
 3. When `CacheControllerMetadata` answered, asks `DefaultControllerCache.getPolicyDocumentation()` for the JSDoc of those policies.

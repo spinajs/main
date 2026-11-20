@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ConstraintViolation, OrmException, UniqueViolation } from '@spinajs/orm';
+import { ConstraintViolation, DataException, OrmException, UniqueViolation } from '@spinajs/orm';
 import { mapPostgresError } from '../src/index.js';
 
 const at = { Name: 'postgres' };
@@ -44,5 +44,24 @@ describe('mapPostgresError', () => {
     expect(err).to.be.instanceOf(OrmException);
     expect(err).to.not.be.instanceOf(ConstraintViolation);
     expect(err.inner).to.eq(native);
+  });
+
+  it('maps SQLSTATE class 22 to DataException with inner', () => {
+    for (const code of ['22P02', '22021', '22003', '22008']) {
+      const native = pgError({ code, message: code });
+      const err = mapPostgresError(native, at, 'SELECT', []) as DataException;
+
+      expect(err, code).to.be.instanceOf(DataException);
+      expect(err.inner).to.eq(native);
+    }
+  });
+
+  it('keeps the refused value out of the DataException message', () => {
+    const native = pgError({ code: '22P02', message: 'invalid input value for enum mood: "sleepy"' });
+    const err = mapPostgresError(native, { Name: 'postgres', Host: 'db', User: 'app' }, 'SELECT', ['sleepy']);
+
+    expect(err.message).to.contain('22P02');
+    expect(err.message).to.not.contain('sleepy');
+    expect(err.cause).to.eq(native);
   });
 });

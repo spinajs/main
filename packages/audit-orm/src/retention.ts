@@ -1,0 +1,100 @@
+import { AuditWriteFailed, auditStore, trailConfig, trailNames } from '@spinajs/audit';
+import type { AuditReader, TrailConfig } from '@spinajs/audit';
+import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
+
+import { assertOwnTable } from './own-tables.js';
+import { distinctConnections } from './ship/services.js';
+import { TableAuditStore } from './table-store.js';
+import { trailTableOn } from './trail-tables.js';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface PruneAuditOptions {
+  readonly now?: Date;
+  /** Only this trail; default every configured trail. */
+  readonly trail?: string;
+}
+
+export interface PruneFailure {
+  readonly trail: string;
+  /** Undefined when the trail failed before a connection was chosen, or for the single prune of a trail with an archive. */
+  readonly connection: string | undefined;
+  /** The message of `error`. */
+  readonly reason: string;
+  readonly error: unknown;
+}
+
+const where = (f: PruneFailure): string => (f.connection === undefined ? f.trail : `${f.trail}@${f.connection}`);
+
+/** Thrown by `pruneAudit` after it pruned every trail and connection it could; `deleted` counts those. */
+export class AuditPruneFailed extends AuditWriteFailed {
+  constructor(public readonly deleted: number, public readonly failed: readonly PruneFailure[]) {
+    super(`audit: retention deleted ${deleted} event(s) and failed for ${failed.map((f) => `${where(f)} (${f.reason})`).join('; ')}`, failed[0]?.error);
+  }
+}
+
+interface Run {
+  deleted: number;
+  readonly failed: PruneFailure[];
+}
+
+const log = (): Log => DI.resolve(Log, ['audit-retention']);
+
+function fail(run: Run, trail: string, connection: string | undefined, error: unknown): void {
+  const failure = { trail, connection, reason: error instanceof Error ? error.message : String(error), error };
+  run.failed.push(failure);
+  log().error({ error, trail, connection, reason: failure.reason }, 'audit: retention of trail ${trail} failed on ${connection}: ${reason}');
+}
+
+// Transactional events sit beside the data they describe, so a trail's table can exist on any connection.
+async function sourcesOf(trail: TrailConfig, run: Run): Promise<string[]> {
+  const sources: string[] = [];
+  for (const driver of distinctConnections()) {
+    try {
+      const held = await trailTableOn(driver, trail.table);
+      if (held === 'trail') sources.push(driver.Options.Name);
+      else if (held === 'other') log().warn({ trail: trail.name, table: trail.table, connection: driver.Options.Name }, 'audit: retention of trail ${trail} skips table ${table} on ${connection}: it has no trail columns seq, at and data_hash');
+    } catch (error) {
+      fail(run, trail.name, driver.Options.Name, error);
+    }
+  }
+  return sources;
+}
+
+async function pruneTrail(trail: TrailConfig, reader: AuditReader, before: Date, run: Run): Promise<void> {
+  // An archive holds the events of every source connection in one table, and none of them has the archive connection as its source.
+  const sources: readonly (string | undefined)[] = trail.archiveConnection === undefined ? await sourcesOf(trail, run) : [undefined];
+  for (const source of sources) {
+    try {
+      run.deleted += await reader.prune(trail, before, source);
+    } catch (error) {
+      fail(run, trail.name, source, error);
+    }
+  }
+}
+
+/**
+ * Deletes the events older than each trail's `retentionDays`: per connection that holds the trail's table, or once for a
+ * trail with an archive. A trail without `retentionDays`, or whose store has no reader, keeps everything. A trail or a
+ * connection that fails does not stop the others: they are pruned first, then `AuditPruneFailed` is thrown.
+ */
+export async function pruneAudit(options: PruneAuditOptions = {}): Promise<number> {
+  const now = options.now ?? new Date();
+  const run: Run = { deleted: 0, failed: [] };
+  for (const name of options.trail === undefined ? trailNames() : [options.trail]) {
+    try {
+      const trail = trailConfig(name);
+      if (trail.retentionDays === undefined) continue;
+      // Before any delete: a table shared by two trails would be pruned at the shorter retention.
+      assertOwnTable(trail, TableAuditStore);
+      const reader = await (await auditStore(trail)).reader(trail);
+      if (!reader) continue;
+      await pruneTrail(trail, reader, new Date(now.getTime() - trail.retentionDays * DAY_MS), run);
+    } catch (error) {
+      fail(run, name, undefined, error);
+    }
+  }
+  if (run.failed.length > 0) throw new AuditPruneFailed(run.deleted, run.failed);
+  return run.deleted;
+}

@@ -61,7 +61,9 @@ describe('irToRebacConfig', () => {
     const config = irToRebacConfig(docsIR());
     expect(config.namespaces.global.relations).to.deep.equal({ admin: ['user'] });
     expect(config.namespaces.folder.relations?.parent).to.deep.equal(['global']);
-    expect(config.problems).to.deep.equal(['folder#viewer: ReBAC holds no wildcard or conditional subject "user:*"', 'doc#editor: ReBAC holds no wildcard or conditional subject {"type":"user","caveat":"office_hours"}', 'doc#publish: ReBAC has no caveat rewrite']);
+    expect(config.namespaces.doc.relations?.editor).to.deep.equal(['user', 'user with office_hours']);
+    expect(Object.keys(config.caveats)).to.deep.equal(['office_hours']);
+    expect(config.problems).to.deep.equal(['caveat not_frozen: ReBAC caveats read env.* and principal.* only, not resource.status', 'folder#viewer: ReBAC holds no wildcard subject "user:*"', 'doc#publish: ReBAC has no caveat rewrite']);
     expect(validateIR(readOpenFga(FOREIGN))).to.deep.equal([]);
   });
 });

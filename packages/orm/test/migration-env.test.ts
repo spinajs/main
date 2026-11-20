@@ -69,7 +69,7 @@ class EnvConf extends ConnectionConf {
 
 const entry = (type: any, file: string): ClassInfo<OrmMigration> => ({ file, name: type.name, type });
 
-/** Boots a fresh app whose `APP_ENV` is `env` and resolves its Orm; `EnvConf` reads the env at boot. */
+/** Boots a fresh app whose `APP_ENV` is `env` and resolves the migration tool's Orm, which no boot guard checks; `EnvConf` reads the env at boot. */
 async function ormUnder(env: string): Promise<Orm> {
   EnvConf.Env = env;
   const app = await createTestApp(
@@ -81,7 +81,7 @@ async function ormUnder(env: string): Promise<Orm> {
       },
     }),
   );
-  return await app.resolve(Orm);
+  return (await resolveMigrationTool(app.container)).Orm;
 }
 
 describe('Orm migration environments', () => {
