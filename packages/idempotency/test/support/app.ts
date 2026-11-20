@@ -1,7 +1,8 @@
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import type { IContainer } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 // registers the model, the migration and the stores before the Orm resolves
@@ -11,7 +12,7 @@ export const sqlite = (name: string): Record<string, unknown> => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 export const SQLITE_DB = { DefaultConnection: 'sqlite', Connections: [sqlite('sqlite')], Aliases: { idempotency: 'default' } };
@@ -20,10 +21,12 @@ export interface IdempotencyAppOptions {
   db?: Record<string, unknown>;
   idempotency?: Record<string, unknown>;
   register?: (container: IContainer) => unknown;
+  /** Default true: apply the migrations before anything resolves the Orm. */
+  migrate?: boolean;
 }
 
-export function bootIdempotencyApp(options: IdempotencyAppOptions = {}): Promise<TestApp> {
-  return createTestApp({
+export async function bootIdempotencyApp(options: IdempotencyAppOptions = {}): Promise<TestApp> {
+  const app = await createTestApp({
     config: {
       logger: {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }],
@@ -33,7 +36,7 @@ export function bootIdempotencyApp(options: IdempotencyAppOptions = {}): Promise
       ...(options.idempotency ? { idempotency: options.idempotency } : {}),
     },
     register: options.register,
-    // the Orm resolves its migrator, not the other way round
-    resolve: [Orm],
   });
+  if (options.migrate !== false) await migrateTestDatabase(app.container);
+  return app;
 }

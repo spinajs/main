@@ -898,7 +898,7 @@ describe('Authorizer.covers and summary: one deadline per call (M2)', () => {
     .sort();
   const slow = (Model: typeof StaticModel = StaticModel) => new Model('rbac', { vote: table('rbac', { alice: Object.fromEntries(sorted.map((n) => [n, P()])) }), delayMs: 30 });
 
-  it('covers past 4 × modelTimeoutMs is false without waiting for the remaining checks, and is logged', async function () {
+  it('covers past 4 × modelTimeoutMs is false without waiting for the remaining checks, and is logged @timing', async function () {
     this.timeout(20000);
     const started = Date.now();
     expect(await make({ registry: many, models: [slow(Summarizing)], config: { modelTimeoutMs: 100 } }).covers(alice, bob)).to.equal(false);
@@ -908,7 +908,7 @@ describe('Authorizer.covers and summary: one deadline per call (M2)', () => {
     expect(await make({ registry: many, models: [slow(Summarizing)], config: { modelTimeoutMs: 2000 } }).covers(alice, bob)).to.equal(true);
   });
 
-  it('summary past 4 × modelTimeoutMs returns the permissions checked so far, leaves out the rest and logs it', async function () {
+  it('summary past 4 × modelTimeoutMs returns the permissions checked so far, leaves out the rest and logs it @timing', async function () {
     this.timeout(20000);
     const started = Date.now();
     const s = await make({ registry: many, models: [slow()], config: { modelTimeoutMs: 100 } }).summary(alice);

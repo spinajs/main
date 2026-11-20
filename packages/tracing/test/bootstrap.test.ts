@@ -117,6 +117,22 @@ describe('TracingBootstrapper', function () {
       }).to.throw(TypeError);
       expect(DEFAULT_TRACING_OPTIONS.sampler.ratio).to.eq(1);
     });
+
+    it('does not read the removed 3.x keys otel.serviceName and otel.resourceAttributes', async () => {
+      const app = await createTestApp({
+        scope: 'child',
+        bootstrap: false,
+        schemas: [TRACING_CONFIGURATION_SCHEMA],
+        config: { otel: { serviceName: 'legacy', resourceAttributes: { a: '1' } }, tracing: { resourceAttributes: { b: '2' } } },
+      });
+      try {
+        const options = readTracingOptions(app.config);
+        expect(options.serviceName).to.not.eq('legacy');
+        expect(options.resourceAttributes).to.deep.eq({ b: '2' });
+      } finally {
+        await app.dispose();
+      }
+    });
   });
 
   describe('schema', () => {

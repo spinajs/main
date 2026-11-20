@@ -1,16 +1,20 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
+import { AsyncResource } from 'node:async_hooks';
+import { AUTHZ_CONNECTION, AuthzAdminFailure, AuthzConfigError, SYSTEM } from '@spinajs/authz';
+import type { AdminCallContext, AuthzCommand, AuthzService } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebac_2026_10_21_00_00_00, DbTupleStore, RebacModel } from '../../src/index.js';
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
+import type { Tuple } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { tupleStoreContract } from '../support/store-contract.js';
-import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, ref, set, tuple, user } from '../support/world.js';
+import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, ref, set, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
 
@@ -35,7 +39,9 @@ async function selectsDuring(driver: OrmDriver, work: () => Promise<unknown>): P
 
 describe('authz-rebac: AuthzRebac migration', () => {
   it('runs on the connection alias authz', () => {
-    expect((AuthzRebac_2026_10_21_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+    for (const migration of [AuthzRebac_2026_10_21_00_00_00, AuthzRebacCaveats_2026_11_06_00_00_00]) {
+      expect((migration as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+    }
   });
 });
 
@@ -59,7 +65,39 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     const indexes = (await rawQuery(db.driver, `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`, [AUTHZ_REBAC_TUPLE_TABLE])) as { name: string }[];
     expect(indexes.map((i) => i.name)).to.include.members(['authz_rebac_tuple_object', 'authz_rebac_tuple_subject']);
     const columns = (await rawQuery(db.driver, `PRAGMA table_info(${AUTHZ_REBAC_TUPLE_TABLE})`)) as { name: string }[];
-    expect(columns.map((c) => c.name)).to.have.members(['tuple_key', 'namespace', 'object_id', 'relation', 'subject_key', 'subject_type', 'subject_id', 'subject_relation', 'created_by', 'created_at']);
+    expect(columns.map((c) => c.name)).to.have.members(['tuple_key', 'namespace', 'object_id', 'relation', 'subject_key', 'subject_type', 'subject_id', 'subject_relation', 'created_by', 'created_at', 'caveat', 'caveat_key', 'caveat_context']);
+  });
+
+  it('stores a caveat as its name, its key and its canonical context; an unconditional row keeps NULLs', async () => {
+    const store = new DbTupleStore();
+    const caveat = { name: 'not_expired', context: { 'env.until': 20, 'env.a': 'x' } };
+    await store.write([{ ...tuple(d1, 'viewer', user('bob')), caveat }, tuple(d1, 'owner', user('bob'))], [], user('admin'));
+    const rows = (await rawQuery(db.driver, `SELECT relation, caveat, caveat_key, caveat_context FROM ${AUTHZ_REBAC_TUPLE_TABLE} ORDER BY relation`)) as Record<string, unknown>[];
+    expect(rows).to.deep.equal([
+      { relation: 'owner', caveat: null, caveat_key: null, caveat_context: null },
+      { relation: 'viewer', caveat: 'not_expired', caveat_key: caveatKey(caveat), caveat_context: '{"env.a":"x","env.until":20}' },
+    ]);
+  });
+
+  it('refuses a caveat context longer than CAVEAT_CONTEXT_MAX before a transaction opens', async () => {
+    const store = new DbTupleStore();
+    let error: unknown;
+    const selects = await selectsDuring(db.driver, async () => {
+      try {
+        await store.write([{ ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'c', context: { 'env.big': 'x'.repeat(CAVEAT_CONTEXT_MAX) } } }], [], user('admin'));
+      } catch (e) {
+        error = e;
+      }
+    });
+    expect(error).to.be.instanceOf(TypeError);
+    expect(selects).to.deep.equal([]);
+  });
+
+  it('reads the stored rows in chunks, never one query per tuple', async () => {
+    const store = new DbTupleStore();
+    const absent = Array.from({ length: 600 }, (_, i) => tuple(d1, 'viewer', user(`u${i}`)));
+    const selects = await selectsDuring(db.driver, () => db.driver.transaction((tx) => store.writeIn({ driver: tx }, [], absent, user('admin'))));
+    expect(selects).to.have.length(2);
   });
 
   it('stores one row per tuple, with the subject key and the actor', async () => {
@@ -74,7 +112,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     const out = await db.driver
       .transaction(async (tx) => {
         const counts = await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice')), tuple(d1, 'viewer', user('bob'))], [], user('admin'));
-        expect(counts).to.deep.equal({ added: 2, removed: 0 });
+        expect(counts).to.deep.equal({ added: [tuple(d1, 'viewer', user('alice')), tuple(d1, 'viewer', user('bob'))], removed: [] });
         throw new Error('roll back');
       })
       .catch((e: Error) => e.message);
@@ -82,7 +120,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     expect(await store.read(d1, 'viewer')).to.deep.equal([]);
     await db.driver.transaction(async (tx) => {
       await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [], user('admin'));
-      expect(await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'viewer', user('nobody'))], user('admin'))).to.deep.equal({ added: 0, removed: 0 });
+      expect(await store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'viewer', user('nobody'))], user('admin'))).to.deep.equal({ added: [], removed: [] });
     });
     expect(await store.read(d1, 'viewer')).to.deep.equal([tuple(d1, 'viewer', user('alice'))]);
   });
@@ -97,7 +135,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
         counts = await store.writeIn({ driver: tx }, ['a', 'b', 'c', 'd', 'd', 'e', 'f'].map(viewer), ['a', 'a', 'b', 'nobody'].map(viewer), user('admin'));
       }),
     );
-    expect(counts).to.deep.equal({ added: 5, removed: 2 });
+    expect(counts).to.deep.equal({ added: ['a', 'b', 'd', 'e', 'f'].map(viewer), removed: ['a', 'b'].map(viewer) });
     expect(selects).to.have.length(2);
     expect((await store.read(d1, 'viewer')).map((t) => (t.subject as { id: string }).id).sort()).to.deep.equal(['a', 'b', 'c', 'd', 'e', 'f']);
   });
@@ -152,6 +190,102 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     expect(await refusal(tuple(d1, 'nosuch', user('alice')))).to.equal(undefined);
   });
 });
+
+for (const pg of [false, true]) {
+  describe(`authz-rebac: DbTupleStore insert race (${pg ? 'postgres' : 'sqlite'})`, function () {
+    this.timeout(60_000);
+    let db: TestDb;
+    const store = new DbTupleStore();
+    const bob = tuple(d1, 'viewer', user('bob'));
+    before(async function () {
+      db = await bootDb('tuple_race', pg ? this : undefined);
+    });
+    after(async () => {
+      await db?.dispose();
+    });
+    /** writeIn of `adds`, with `rival` stored after writeIn read the stored keys: on Postgres in a committed transaction of its own; SQLite runs one transaction at a time, so there the rival joins it before the savepoint. */
+    async function race(rival: Tuple, adds: readonly Tuple[]): Promise<unknown> {
+      const outside = AsyncResource.bind(() => store.write([rival], [], user('rival')));
+      const target = db.driver as unknown as Executor;
+      const original = target.executeOnDb.bind(target);
+      let fired = false;
+      target.executeOnDb = async (stmt, params, context) => {
+        if (!fired && (pg ? /^\s*insert\b/i : /^\s*savepoint\b/i).test(stmt)) {
+          fired = true;
+          await (pg ? outside() : store.writeIn({ driver: db.driver }, [rival], [], user('rival')));
+        }
+        return original(stmt, params, context);
+      };
+      try {
+        return await db.driver.transaction((tx) => store.writeIn({ driver: tx }, adds, [], user('admin')));
+      } catch (e) {
+        return e;
+      } finally {
+        target.executeOnDb = original;
+      }
+    }
+    it('a tuple stored meanwhile with the same caveat is a no-op, and the transaction goes on', async () => {
+      const alice = tuple(d1, 'viewer', user('alice'));
+      expect(await race(bob, [bob, alice])).to.deep.equal({ added: [alice], removed: [] });
+      expect((await store.read(d1, 'viewer')).length).to.equal(2);
+    });
+    it('a tuple stored meanwhile with another caveat is a conflict', async () => {
+      const t = tuple(d2, 'viewer', user('bob'));
+      expect(await race({ ...t, caveat: { name: 'a' } }, [{ ...t, caveat: { name: 'b' } }])).to.be.instanceOf(TupleCaveatConflict);
+      // On SQLite the rival wrote inside the transaction the conflict rolled back.
+      expect(await store.read(d2, 'viewer')).to.deep.equal(pg ? [{ ...t, caveat: { name: 'a' } }] : []);
+    });
+  });
+}
+
+for (const pg of [false, true]) {
+  describe(`authz-rebac: caveat_conflict through the tuple handler on DbTupleStore (${pg ? 'postgres' : 'sqlite'})`, function () {
+    this.timeout(60_000);
+    let db: TestDb;
+    const store = new DbTupleStore();
+    const handler = new RebacTupleHandler();
+    const office = { name: 'office_ip' };
+    const other = { name: 'office_ip', context: { 'env.ip': '10.0.0.9' } };
+    const dave = (caveat?: Tuple['caveat']): Tuple => ({ ...tuple(d1, 'viewer', user('dave')), ...(caveat ? { caveat } : {}) });
+    const erin = tuple(d1, 'viewer', user('erin'));
+    before(async function () {
+      db = await bootDb('tuple_admin', pg ? this : undefined);
+    });
+    after(async () => {
+      await db?.dispose();
+    });
+    /** A batch the way AuthzAdmin runs it: every command in one transaction of the connection, which a failure rolls back. */
+    async function batch(commands: readonly AuthzCommand[]): Promise<unknown> {
+      const container = DI.child();
+      container.register(() => store).as(TupleStore);
+      const ctx: AdminCallContext = { domain: 'test', now: new Date(), authz: { models: () => [] } as unknown as AuthzService, actor: SYSTEM, container, dryRun: false };
+      try {
+        await db.driver.transaction(async (tx) => {
+          for (const c of commands) await handler.apply(c, ctx, { driver: tx });
+        });
+        return undefined;
+      } catch (e) {
+        return e;
+      }
+    }
+    it('another caveat is caveat_conflict and rolls the batch back; delete and write in one batch changes it', async () => {
+      expect(await batch([{ kind: 'tuple.write', tuple: dave(office) }])).to.equal(undefined);
+      const conflict = await batch([
+        { kind: 'tuple.write', tuple: erin },
+        { kind: 'tuple.write', tuple: dave(other) },
+      ]);
+      expect(conflict).to.be.instanceOf(AuthzAdminFailure).and.deep.include({ code: 'caveat_conflict', field: 'tuple.caveat' });
+      expect(await store.read(d1, 'viewer')).to.deep.equal([dave(office)]);
+      expect(
+        await batch([
+          { kind: 'tuple.delete', tuple: dave() },
+          { kind: 'tuple.write', tuple: dave(other) },
+        ]),
+      ).to.equal(undefined);
+      expect(await store.read(d1, 'viewer')).to.deep.equal([dave(other)]);
+    });
+  });
+}
 
 describe('authz-rebac: DbTupleStore contract (sqlite)', function () {
   this.timeout(60_000);

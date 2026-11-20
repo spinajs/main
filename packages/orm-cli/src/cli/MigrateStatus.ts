@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
-import { CliCommand, Command } from '@spinajs/cli';
-import { IMigrationStatusEntry } from '@spinajs/orm';
+import { CliCommand, Command, Option } from '@spinajs/cli';
+import { compareMigrationNames, IMigrationStatusEntry } from '@spinajs/orm';
 import { resolveCliMigrator } from '../orm.js';
 
 /**
@@ -8,11 +8,64 @@ import { resolveCliMigrator } from '../orm.js';
  * command's OUTPUT - something an operator greps and a script pipes - and routing it through the
  * log would let a configured level or target silently swallow it.
  */
-@Command('migrate-status', 'Prints migration status for every configured connection')
-export class MigrateStatusCommand extends CliCommand {
-  public async execute(): Promise<void> {
-    const entries = await (await resolveCliMigrator()).Runner.status();
+export interface IMigrateStatusCommandOptions {
+  connection?: string;
+  json?: boolean;
+}
 
+@Command('migrate-status', 'Prints what is applied, when, and what is pending, per configured connection')
+@Option('-c, --connection [connection]', false, 'report one connection, by name')
+@Option('--json', false, 'print one JSON document instead of the table')
+export class MigrateStatusCommand extends CliCommand {
+  public async execute(options: IMigrateStatusCommandOptions = {}): Promise<void> {
+    // a logger target writing to the console would put log lines into the one document a script parses
+    const entries = options.json ? await this.withConsoleOnStderr(() => this.collect(options)) : await this.collect(options);
+    // the runner returns per-connection groups; the pending list is the order migrate-up applies them in
+    const pending = entries.filter((e) => e.pending).sort((a, b) => compareMigrationNames(a.name, b.name));
+
+    if (options.json) {
+      console.log(JSON.stringify({ entries: entries.map((e) => this.toJson(e)), pending: pending.map((e) => ({ name: e.name, connection: e.connection })) }, null, 2));
+    } else {
+      this.printTable(entries, pending);
+    }
+
+    if (entries.some((e) => e.failed) || pending.length > 0) {
+      process.exitCode = 1;
+    }
+  }
+
+  protected async collect(options: IMigrateStatusCommandOptions): Promise<IMigrationStatusEntry[]> {
+    return (await resolveCliMigrator()).Runner.status({ readOnly: true, connection: options.connection });
+  }
+
+  private async withConsoleOnStderr<T>(fn: () => Promise<T>): Promise<T> {
+    const { log, info } = console;
+
+    console.log = console.error;
+    console.info = console.error;
+
+    try {
+      return await fn();
+    } finally {
+      console.log = log;
+      console.info = info;
+    }
+  }
+
+  protected toJson(e: IMigrationStatusEntry) {
+    return { name: e.name, connection: e.connection, state: this.state(e), batch: e.batch, appliedAt: e.applied ? this.iso(e.finishedAt) : null, startedAt: this.iso(e.startedAt), checksumMismatch: e.checksumMismatch };
+  }
+
+  protected iso(d: Date | string | null): string | null {
+    if (!d) {
+      return null;
+    }
+
+    // a dialect that hands timestamps back as strings would make toISOString() throw out of a report
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d.toISOString() : String(d);
+  }
+
+  protected printTable(entries: IMigrationStatusEntry[], pendingInRunOrder: IMigrationStatusEntry[]): void {
     if (entries.length === 0) {
       console.log('No migrations are registered for any configured connection.');
       return;
@@ -20,7 +73,7 @@ export class MigrateStatusCommand extends CliCommand {
 
     const width = Math.max(...entries.map((e) => e.connection.length), 'CONNECTION'.length);
 
-    console.log(`   ${'STATE'.padEnd(12)} ${'BATCH'.padStart(5)}  ${'CONNECTION'.padEnd(width)} MIGRATION`);
+    console.log(`   ${'STATE'.padEnd(12)} ${'BATCH'.padStart(5)}  ${'APPLIED AT'.padEnd(24)} ${'CONNECTION'.padEnd(width)} MIGRATION`);
 
     for (const e of entries) {
       // `!!` in the leftmost column, not just the word FAILED: a failed row is the one line in
@@ -30,7 +83,9 @@ export class MigrateStatusCommand extends CliCommand {
       const marker = e.failed ? '!!' : e.interrupted ? '??' : '  ';
       const drift = e.checksumMismatch ? ' [checksum mismatch - the file changed after it was applied]' : '';
 
-      console.log(`${marker} ${this.state(e).padEnd(12)} ${String(e.batch ?? '-').padStart(5)}  ${e.connection.padEnd(width)} ${e.name}${drift}`);
+      const appliedAt = (e.applied ? this.iso(e.finishedAt) : null) ?? '-';
+
+      console.log(`${marker} ${this.state(e).padEnd(12)} ${String(e.batch ?? '-').padStart(5)}  ${appliedAt.padEnd(24)} ${e.connection.padEnd(width)} ${e.name}${drift}`);
     }
 
     const failed = entries.filter((e) => e.failed);
@@ -50,18 +105,21 @@ export class MigrateStatusCommand extends CliCommand {
     console.log('');
     console.log(`${entries.length} migration(s): ${entries.filter((e) => e.applied).length} applied, ${neverRun.length} pending, ${rolledBack.length} rolled back, ${interrupted.length} interrupted, ${failed.length} failed, ${entries.filter((e) => e.checksumMismatch).length} with a checksum mismatch`);
 
+    if (pendingInRunOrder.length > 0) {
+      console.log('');
+      console.log('Pending, in the order migrate-up applies them:');
+
+      for (const p of pendingInRunOrder) {
+        console.log(`  ${p.name} ( ${p.connection} )`);
+      }
+    }
+
     if (failed.length > 0) {
       this.explainFailed(failed);
     }
 
     if (interrupted.length > 0) {
       this.explainInterrupted(interrupted);
-    }
-
-    // Pending is an exit code too, not only failure: `migrate-status` is what a deploy gate calls
-    // to ask "is this database current?", and an un-run migration is a "no".
-    if (failed.length > 0 || pending.length > 0) {
-      process.exitCode = 1;
     }
   }
 
@@ -85,12 +143,7 @@ export class MigrateStatusCommand extends CliCommand {
 
     for (const i of interrupted) {
       console.log('');
-      // `startedAt` is typed Date, but a dialect that hands timestamps back as strings puts one
-      // here - and `new Date(<odd format>).toISOString()` THROWS, out of a report whose entire job
-      // is to be readable when something has gone wrong
-      const started = i.startedAt instanceof Date ? i.startedAt.toISOString() : String(i.startedAt);
-
-      console.log(`  ${i.name} ( ${i.connection} )${i.startedAt ? `, started ${started}` : ''}`);
+      console.log(`  ${i.name} ( ${i.connection} )${i.startedAt ? `, started ${this.iso(i.startedAt)}` : ''}`);
       console.log(`    migrate-resolve --name ${i.name} --applied       # the change IS in the database, do not run it again`);
       console.log(`    migrate-resolve --name ${i.name} --rolled-back   # the change is NOT, run it again on the next migrate-up`);
     }

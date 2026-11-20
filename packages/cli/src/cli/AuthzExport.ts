@@ -39,7 +39,7 @@ export class AuthzExport extends CliCommand {
 export interface AuthzIrModule {
   writeOpenFga(ir: unknown, options: { strict: boolean }): { dsl: string; warnings: string[] };
   readOpenFga(dsl: string): unknown;
-  irToRebacConfig(ir: unknown): { namespaces: unknown; permissions: unknown; problems: string[] };
+  irToRebacConfig(ir: unknown): { namespaces: unknown; permissions: unknown; caveats: Record<string, unknown>; problems: string[] };
 }
 
 const AUTHZ_IR = '@spinajs/authz-ir';

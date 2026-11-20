@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { SimReport } from './simulate.js';
-import { runSuite, type SuiteRegistry } from './suite.js';
+import { runSuite, type SimSuite, type SuiteRegistry } from './suite.js';
 
 export interface SimCliArgs {
   suites: string[];
@@ -9,14 +9,15 @@ export interface SimCliArgs {
   seeds: number;
   steps?: number;
   out?: string;
+  profile: boolean;
 }
 
 export class SimUsageError extends Error {}
 
-export const USAGE = 'usage: npm run sim -- (--suite <name> ... | --all) [--seed <n>] [--seeds <count>] [--steps <n>] [--out <dir>]';
+export const USAGE = 'usage: npm run sim -- (--suite <name> ... | --all) [--seed <n>] [--seeds <count>] [--steps <n>] [--out <dir>] [--profile]';
 
 export function parseArgs(argv: readonly string[], available: readonly string[]): SimCliArgs {
-  const args: SimCliArgs = { suites: [], seed: 1, seeds: 1, steps: undefined, out: undefined };
+  const args: SimCliArgs = { suites: [], seed: 1, seeds: 1, steps: undefined, out: undefined, profile: false };
   let all = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -49,6 +50,9 @@ export function parseArgs(argv: readonly string[], available: readonly string[])
       case '--out':
         args.out = value();
         break;
+      case '--profile':
+        args.profile = true;
+        break;
       default:
         throw new SimUsageError(`unknown option ${flag}`);
     }
@@ -80,6 +84,13 @@ export function summaryLine(suite: string, r: SimReport): string {
   return `${suite} seed=${r.seed} steps=${r.steps} faults=${r.faults.length} ${status}`;
 }
 
+export function profileLine(name: string, r: SimReport): string {
+  const p = r.profile;
+  if (!p) return `${name} seed ${r.seed} profile: off`;
+  const ms = (v: number) => `${Math.round(v)} ms`;
+  return `${name} seed ${r.seed} profile: total ${ms(p.totalMs)}, boot ${ms(p.bootMs)} (${p.bootFrom}), build ${ms(p.buildMs)}, steps ${ms(p.stepsMs)}, quiesce ${ms(p.quiesceMs)}, checks ${ms(p.checkMs)}, settle ${ms(p.settleMs)} over ${p.settleCalls} calls, shutdown ${ms(p.shutdownMs)}, ${p.ticks} ticks`;
+}
+
 interface JsonAncestor {
   original: unknown;
   written: unknown;
@@ -106,6 +117,10 @@ export function reportJson(r: SimReport): string {
   );
 }
 
+function withProfile(suite: SimSuite, args: SimCliArgs): SimSuite {
+  return { ...suite, options: { ...suite.options, profile: args.profile || process.env.SIM_PROFILE === '1' } };
+}
+
 export async function main(argv: readonly string[], registry: SuiteRegistry, io: SimCliIo = CONSOLE_IO): Promise<number> {
   let args: SimCliArgs;
   try {
@@ -120,11 +135,12 @@ export async function main(argv: readonly string[], registry: SuiteRegistry, io:
   const out = args.out === undefined ? undefined : resolve(process.env.INIT_CWD ?? process.cwd(), args.out);
   let failed = 0;
   for (const name of args.suites) {
-    const suite = await registry[name]();
+    const suite = withProfile(await registry[name](), args);
     for (let seed = args.seed; seed < args.seed + args.seeds; seed++) {
       const report = await runSuite(suite, seed, args.steps);
       if (report.failure && args.steps !== undefined) report.failure.replay += ` --steps ${args.steps}`;
       io.log(summaryLine(name, report));
+      if (report.profile) io.log(profileLine(name, report));
       if (!report.failure) continue;
       failed++;
       const json = reportJson(report);
