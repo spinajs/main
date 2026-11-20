@@ -16,10 +16,6 @@ const TABLES: Record<string, { key: string[]; columns: Col[] }> = {
     columns: [['id', 'varchar'], ['identity_type', 'varchar'], ['identity_id', 'varchar'], ['provider', 'varchar'], ['subject', 'varchar'], ['email', 'varchar', true], ['email_verified', 'tinyint'], ['attributes', 'text', true], ['linked_at', 'datetime'], ['last_used_at', 'datetime', true]],
   },
   authn_throttle: { key: ['k'], columns: [['k', 'varchar'], ['attempts', 'int'], ['last_attempt_at', 'datetime'], ['next_allowed_at', 'datetime'], ['updated_at', 'datetime']] },
-  authn_audit: {
-    key: ['id'],
-    columns: [['id', 'varchar'], ['at', 'datetime'], ['type', 'varchar'], ['outcome', 'varchar'], ['identity', 'varchar', true], ['actor', 'varchar', true], ['strategy', 'varchar', true], ['reason', 'varchar', true], ['ip', 'varchar', true], ['user_agent', 'varchar', true], ['session', 'varchar', true], ['data', 'text', true]],
-  },
   authn_secret: { key: ['id'], columns: [['id', 'varchar'], ['identity', 'varchar'], ['purpose', 'varchar'], ['secret_hash', 'varchar'], ['expires_at', 'datetime'], ['used_at', 'datetime', true], ['created_at', 'datetime']] },
   authn_mfa: { key: ['identity', 'step'], columns: [['identity', 'varchar'], ['step', 'varchar'], ['secret_enc', 'text'], ['secret_hash', 'varchar'], ['key_id', 'varchar'], ['confirmed_at', 'datetime', true], ['last_step', 'bigint', true], ['created_at', 'datetime']] },
   authn_recovery_code: { key: ['id'], columns: [['id', 'varchar'], ['identity', 'varchar'], ['code_hash', 'varchar'], ['used_at', 'datetime', true]] },
@@ -76,13 +72,14 @@ export interface FakeOrm {
 export async function bootFakeOrm(dialect: keyof typeof FAKE_DIALECTS): Promise<FakeOrm> {
   DI.setESMModuleSupport();
   const driverName = `orm-driver-fake-${dialect}`;
-  const connection = { Name: `n4-fake-${dialect}`, Driver: driverName, Migration: { OnStartup: false } };
+  const connection = { Name: `n4-fake-${dialect}`, Driver: driverName };
 
   class FakeOrmConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
       const config = this.Config;
-      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
+      // the recording driver keeps no tracking table: the boot must not ask it about the migrations this process registers
+      config.db = { ...(config.db as object), DefaultConnection: connection.Name, MigrationCheck: 'off', Connections: [connection] };
     }
   }
 

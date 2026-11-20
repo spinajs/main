@@ -363,7 +363,7 @@ describe('selectDenyReason', () => {
       expect(select({ votes: [v], truths: [truths(false)] })).to.deep.equal({ code: 'role_too_low', model: 'm' });
     });
 
-    it('skips a reason whose payload shares subtrees past the value budget, quickly', () => {
+    it('skips a reason whose payload shares subtrees past the value budget, quickly @timing', () => {
       let node: unknown = 'leaf';
       for (let i = 0; i < 40; i++) node = [node, node];
       const started = Date.now();

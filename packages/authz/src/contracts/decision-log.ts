@@ -1,6 +1,7 @@
 import type { Permission } from './permission.js';
 import type { ResourceRef } from './principal.js';
 import type { DecisionReadSet } from './tap.js';
+import type { AuthzService } from './service.js';
 
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
@@ -39,6 +40,8 @@ export abstract class DecisionLog {
  */
 export abstract class PolicyHashSource {
   public abstract policyHash(domain: string): string | undefined;
+  /** Awaited by the host once a domain with a decision log has booted, before its service resolves. */
+  public prepare?(domain: string, service: AuthzService): Promise<void>;
 }
 
 /** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */

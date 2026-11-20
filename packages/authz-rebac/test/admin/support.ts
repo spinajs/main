@@ -5,7 +5,7 @@ import { AdminGuard, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEven
 import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal } from '@spinajs/authz';
 
 import { MemoryTupleStore, RebacModel, TupleStore } from '../../src/index.js';
-import type { RebacLimits, Tuple } from '../../src/index.js';
+import type { RebacLimits, RebacModelOptions, Tuple } from '../../src/index.js';
 import { NAMESPACES, PERMISSIONS } from '../support/world.js';
 
 export const { config, installHost, uninstallHost, resetHost, domains, instance } = testHost;
@@ -66,14 +66,14 @@ export interface RebacDomain {
 }
 
 /** A child of root with a RebacModel over a MemoryTupleStore, the very instance registered as TupleStore. */
-export async function rebacDomain(name = 'test', opts: { readonly tuples?: readonly Tuple[]; readonly without?: readonly ('store' | 'model')[]; readonly limit?: RebacLimits } = {}): Promise<RebacDomain> {
+export async function rebacDomain(name = 'test', opts: { readonly tuples?: readonly Tuple[]; readonly without?: readonly ('store' | 'model')[]; readonly limit?: RebacLimits; readonly schema?: Pick<RebacModelOptions, 'namespaces' | 'permissions' | 'caveats'> } = {}): Promise<RebacDomain> {
   config().set(['authz', 'domains', name], { permissions: PERMISSION_DEFS, cache: { maxEntries: 0 } });
   config().set(['authz', 'admin'], { guard: { service: 'TestGuard' }, backend: 'TestBackend' });
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);
   const store = new MemoryTupleStore(opts.tuples ?? []);
-  const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS, ...(opts.limit ? { limit: opts.limit } : {}) });
+  const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS, ...opts.schema, ...(opts.limit ? { limit: opts.limit } : {}) });
   const bus = new RecordingChangeBus();
   const audit = new RecordingAudit();
   const sink = new RecordingSink();

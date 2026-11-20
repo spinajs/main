@@ -21,7 +21,7 @@ npm install @spinajs/authn
 | [Strategies](03-strategies.md) | `AuthenticationStrategy`, `StrategyRegistry`, `authn.strategies` and writing a login method |
 | [MFA policy and steps](04-mfa-policy-and-steps.md) | `MfaPolicy`, `DefaultMfaPolicy`, `MfaStep`, `MfaEnrolments` and `authn.mfa.*` |
 | [Throttling](05-throttling.md) | `AuthnThrottle`, `MemoryAuthnThrottle`, `StoreAuthnThrottle`, the keys and `authn.throttle.*` |
-| [Audit events](06-audit-events.md) | `AuthnEvent`, `AuthnEventSink`, `AuthnAudit`, `LogAuthnAuditSink` and `authn.audit.*` |
+| [Audit events](06-audit-events.md) | `AuthnEvent`, `AuthnEventListener`, `AuthnAudit`, recording with `@spinajs/audit-authn` and `authn.audit.*` |
 | [Principal and authorization](07-principal-and-authz.md) | `Principal`, `AuthnFacts`, `PrincipalFactory`, and how the principal reaches authz |
 | [Session contract](08-session-contract.md) | `SessionIssuer`, the `Session` class, `SessionKeys` and a custom session class |
 | [Fresh authentication](09-fresh-authentication.md) | `FreshAuthCheck`, `isFresh` and `authn.freshAuth.maxAgeSeconds` |
@@ -73,8 +73,9 @@ export async function signIn(login: string, password: string, ip: string): Promi
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): OIDC and OAuth2 single sign-on, one `oidc:<provider>` strategy per provider.
 - [`@spinajs/authn-totp`](../authn-totp/README.md): `TotpMfaStep` and recovery codes.
 - [`@spinajs/authn-session`](../authn-session/README.md): `DefaultSessionIssuer`, the session cookie and expiration.
-- [`@spinajs/authn-orm`](../authn-orm/README.md): the database stores: `DbAuthnThrottle`, `DbAuthnAuditSink`, `DbIdentityLinkStore`, `DbSecretStore`, `DbNonceStore`, `DbMfaEnrolments`.
+- [`@spinajs/audit-authn`](../../packages/audit-authn/README.md): records every authentication event in the audit trail. Without it, nothing records them.
+- [`@spinajs/authn-orm`](../authn-orm/README.md): the database stores: `DbAuthnThrottle`, `DbIdentityLinkStore`, `DbSecretStore`, `DbNonceStore`, `DbMfaEnrolments`.
 - [`@spinajs/session-provider-db`](../session-provider-db/README.md), [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): session stores for `authn-session`.
 - [`@spinajs/authn-testing`](../authn-testing/README.md): fakes, conformance suites and the behaviour rules for strategies and stores.
-- [`@spinajs/users`](../users/README.md): `IdentityStore`, `PasswordCredentialStore`, `PrincipalFactory`, the guards and the event sinks over the user model.
+- [`@spinajs/users`](../users/README.md): `IdentityStore`, `PasswordCredentialStore`, `PrincipalFactory`, the guards and the event listener over the user model.
 - [`@spinajs/authz`](../authz/README.md): decides what the principal may do; imports only the principal types from `@spinajs/authn/contracts`.

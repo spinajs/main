@@ -1,5 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
 import type { Condition, ConditionOp, ConditionOperand, ParsedCondition, Permission, PermissionRegistry } from '@spinajs/authz';
+import { storedPolicyName } from '@spinajs/authz-ir';
 import type { CaveatDef, CaveatParamType, FragmentBinding, IRFragment, OpaqueRef, Rewrite, TypeDef } from '@spinajs/authz-ir';
 
 import { PolicyIndex } from './model/policies.js';
@@ -8,6 +9,15 @@ import type { LoadedPolicy } from './model/policies.js';
 export interface AbacIROptions {
   /** Default 'abac'. */
   readonly model?: string;
+  /** Stores whose policies are not compiled (IRCompileContext.stored 'opaque'): each adds a stored placeholder to every permission. */
+  readonly storedStores?: readonly string[];
+}
+
+export interface AbacPolicyTerms {
+  readonly permit: Map<Permission, Rewrite[]>;
+  readonly deny: Map<Permission, Rewrite[]>;
+  readonly caveats: Record<string, CaveatDef>;
+  readonly opaque: OpaqueRef[];
 }
 
 /** Every principal: an intersection of nothing holds. */
@@ -23,18 +33,16 @@ const safe = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
  */
 export function abacToIR(policies: readonly LoadedPolicy[], registry: PermissionRegistry, options: AbacIROptions = {}): IRFragment {
   const model = options.model ?? 'abac';
-  const index = new PolicyIndex(policies, registry);
+  const { permit, deny, caveats, opaque } = abacPolicyTerms(policies, registry);
+  const placeholders = (options.storedStores ?? []).map((store) => opaqueTerm(storedPolicyName(model, store), opaque));
+  const names = placeholders.length > 0 ? registry.all().map((d) => d.name).sort() : [...permit.keys()];
   const types: Record<string, TypeDef> = {};
-  const caveats: Record<string, CaveatDef> = {};
-  const opaque: OpaqueRef[] = [];
   const permissions: Record<Permission, FragmentBinding> = {};
-  const term = (p: LoadedPolicy): Rewrite => policyTerm(p, caveats, opaque);
-  for (const permission of [...index.permissions()].sort()) {
+  for (const permission of names) {
     const type = registry.get(permission)?.types[0];
     if (type === undefined) continue;
-    const candidates = index.candidates(permission, type);
-    const permits = candidates.filter((p) => p.policy.effect === 'permit').map(term);
-    const denies = candidates.filter((p) => p.policy.effect === 'deny').map(term);
+    const permits = [...(permit.get(permission) ?? []), ...placeholders];
+    const denies = [...(deny.get(permission) ?? []), ...placeholders];
     if (permits.length + denies.length === 0) continue;
     const def = (types[type] ??= { relations: {}, permissions: {} });
     const binding: FragmentBinding = { type, list: registry.get(permission)?.list === true, source: { origin: `config:authz.${model}.policies` } };
@@ -43,6 +51,24 @@ export function abacToIR(policies: readonly LoadedPolicy[], registry: Permission
     permissions[permission] = binding;
   }
   return { model, types, permissions, caveats, opaque };
+}
+
+/** The permit and deny terms of each permission the policies apply to; `abacToIR` unions them, replay (L3) splices them into a stored placeholder. */
+export function abacPolicyTerms(policies: readonly LoadedPolicy[], registry: PermissionRegistry): AbacPolicyTerms {
+  const index = new PolicyIndex(policies, registry);
+  const caveats: Record<string, CaveatDef> = {};
+  const opaque: OpaqueRef[] = [];
+  const permit = new Map<Permission, Rewrite[]>();
+  const deny = new Map<Permission, Rewrite[]>();
+  const term = (p: LoadedPolicy): Rewrite => policyTerm(p, caveats, opaque);
+  for (const permission of [...index.permissions()].sort()) {
+    const type = registry.get(permission)?.types[0];
+    if (type === undefined) continue;
+    const candidates = index.candidates(permission, type);
+    permit.set(permission, candidates.filter((p) => p.policy.effect === 'permit').map(term));
+    deny.set(permission, candidates.filter((p) => p.policy.effect === 'deny').map(term));
+  }
+  return { permit, deny, caveats, opaque };
 }
 
 function policyTerm(p: LoadedPolicy, caveats: Record<string, CaveatDef>, opaque: OpaqueRef[]): Rewrite {

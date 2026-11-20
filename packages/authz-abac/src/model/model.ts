@@ -102,11 +102,17 @@ export class AbacModel extends AuthorizationModel {
     await this.load(false);
   }
 
-  /** This model's part of the policy IR, from the policies loaded last (config and stored alike). @throws AuthzConfigError before `init` */
+  /**
+   * This model's part of the policy IR, from the policies loaded last. With `ctx.stored` 'opaque' only config
+   * policies are compiled and every other store is a placeholder term. @throws AuthzConfigError before `init`
+   */
   toIR(ctx: IRCompileContext): IRFragment {
     const registry = this.registry ?? ctx.permissions;
     if (registry === undefined) throw new AuthzConfigError(`${this.name}: toIR needs the permission registry; call it after init`);
-    return abacToIR(this.loaded, registry, { model: this.name });
+    if (ctx.stored !== 'opaque') return abacToIR(this.loaded, registry, { model: this.name });
+    const stored = new Set((this.stores ?? []).filter((s) => !(s instanceof ConfigPolicyStore)).map((s) => s.name));
+    const config = this.loaded.filter((p) => !stored.has(this.storeOf.get(p.policy.id) ?? ''));
+    return abacToIR(config, registry, { model: this.name, storedStores: [...stored].sort() });
   }
 
   /**
