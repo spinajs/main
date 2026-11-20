@@ -7,4 +7,3 @@ export * from './links/index.js';
 export * from './nonces/index.js';
 export * from './mfa/index.js';
 export * from './audit/index.js';
-export * from './cli/PurgeAudit.js';
