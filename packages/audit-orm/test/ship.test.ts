@@ -4,6 +4,7 @@ import 'mocha';
 import { AuditConfigError, AuditEventSink, AuditNotSupported, AuditReader, AuditWriteFailed, audit, trailConfig } from '@spinajs/audit';
 import type { AuditBatch, AuditInput, AuditSubject, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
+import { FrameworkLogger } from '@spinajs/log';
 import type { OrmDriver } from '@spinajs/orm';
 import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, insertRows, shipAudit } from '../src/index.js';
 import { AuditShipError, AuditShipTask } from '../src/scheduler.js';
@@ -63,20 +64,45 @@ class DropSink extends AuditEventSink {
   }
 }
 
-const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink];
+class SlowSink extends AuditEventSink {
+  async deliver(batch: AuditBatch): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    RecordingSink.batches.push(batch);
+  }
+}
+
+const SINKS = [RecordingSink, DownSink, HangSink, GateSink, DropSink, SlowSink];
 
 class RecordingReader extends AuditReader {
   static redacted: AuditSubject[] = [];
+  static failNext = 0;
   list(): Promise<readonly StoredAuditEvent[]> {
     return Promise.resolve([]);
   }
   redact(_trail: TrailConfig, subject: AuditSubject): Promise<number> {
+    if (RecordingReader.failNext > 0) {
+      RecordingReader.failNext -= 1;
+      return Promise.reject(new Error('reader down'));
+    }
     RecordingReader.redacted.push(subject);
     return Promise.resolve(3);
   }
   prune(): Promise<number> {
     return Promise.resolve(0);
   }
+}
+
+// The audit warn lines written while `run` runs, as [fields, message].
+async function auditWarnings(run: () => Promise<void>): Promise<unknown[][]> {
+  const lines: unknown[][] = [];
+  const own = Object.getOwnPropertyDescriptor(FrameworkLogger.prototype, 'warn');
+  Object.defineProperty(FrameworkLogger.prototype, 'warn', { value: (...args: unknown[]) => void lines.push(args), configurable: true, writable: true });
+  try {
+    await run();
+  } finally {
+    if (own) Object.defineProperty(FrameworkLogger.prototype, 'warn', own);
+  }
+  return lines.filter(([, message]) => typeof message === 'string' && message.startsWith('audit:'));
 }
 
 describe('audit shipping', function () {
@@ -296,12 +322,14 @@ describe('audit shipping', function () {
     const ids = (...n: number[]): string[] => n.map((i) => event(i).id);
     const delivered = (): string[] => RecordingSink.batches.flatMap((b) => b.events.map((e) => e.id));
     const failure = [{ trail: 'shipped', connection: 'sqlite' }];
+    const c1 = { type: 'contract', id: 'c1' };
 
     beforeEach(async () => {
       RecordingSink.batches = [];
       RecordingSink.calls = 0;
       RecordingSink.failOnCall = 0;
       RecordingReader.redacted = [];
+      RecordingReader.failNext = 0;
       for (const d of [sqlite(), db.driver('pglite')]) await new AuditOutboxTableMigration().up(d);
     });
 
@@ -347,7 +375,6 @@ describe('audit shipping', function () {
 
     it('blanks an erased subject on every buffer, or on the source it names', async () => {
       const shippedTrail = trail('RecordingSink');
-      const c1 = { type: 'contract', id: 'c1' };
       await store().append({ trail: shippedTrail, events: [event(1, { subject: c1 })] });
       await store().append({ trail: shippedTrail, events: [event(2, { subject: c1 })], connection: 'pglite' });
       const reader = await store().reader(shippedTrail);
@@ -376,6 +403,119 @@ describe('audit shipping', function () {
         { type: 'contract', id: 'c1' },
         { type: 'contract', id: 'c1' },
       ]);
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('redacts the destination when an abandoned delivery lands after the erasure', async () => {
+      config().set(['audit', 'ship'], { deliverTimeoutMs: 50 });
+      const entered = new Promise<void>((resolve) => (GateSink.entered = resolve));
+      let release = (): void => undefined;
+      GateSink.release = new Promise<void>((resolve) => (release = resolve));
+      const gated = trail('GateSink');
+      await store().append({ trail: gated, events: [event(1)] });
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 0, failed: failure });
+      await entered;
+      await (await store().reader(gated))?.redact(gated, c1);
+      release();
+      await GateSink.release;
+      expect(RecordingSink.batches.map((b) => b.events[0].data)).to.deep.eq([{ version: 1 }]);
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
+      expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
+    });
+
+    it('starts no batch once the run budget is used up, and says what it left', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      await store().append({ trail: trail('SlowSink'), events: [event(1), event(2)] });
+      const results: unknown[] = [];
+      const warnings = await auditWarnings(async () => {
+        expect(await new AuditShipTask().execute({ result: (data: unknown): void => void results.push(data) })).to.deep.eq({ shipped: 1, failed: [], stoppedEarly: true });
+      });
+      expect(results).to.deep.eq([{ shipped: 1, failed: [], stoppedEarly: true }]);
+      expect(warnings).to.deep.eq([[{ budget: 200, left: 'shipped@sqlite' }, 'audit: the shipping run stopped at audit.ship.runBudgetMs (${budget} ms); left buffered for the next run: ${left}']]);
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+    });
+
+    it('starts the run after the trail the budget stopped the last run on', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      setTrail('other', { store: 'OutboxAuditStore', sink: 'SlowSink', connection: 'sqlite' });
+      try {
+        await store().append({ trail: trail('SlowSink'), events: [event(1), event(2)] });
+        await store().append({ trail: trailConfig('other'), events: [event(3), event(4)] });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        // Each trail's first event: without the rotation the second run would ship the same trail again.
+        expect([...delivered()].sort()).to.deep.eq(ids(1, 3));
+      } finally {
+        setTrail('other', undefined);
+      }
+    });
+
+    it('starts at a trail the budget stopped before it shipped anything; a narrowed run leaves the rotation alone', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      setTrail('other', { store: 'OutboxAuditStore', sink: 'SlowSink', connection: 'sqlite' });
+      try {
+        // `other` comes first: `trail()` writes `shipped` after it. A run that leaves nothing resets the rotation.
+        const shippedTrail = trail('SlowSink');
+        await shipAudit();
+        await store().append({ trail: shippedTrail, events: [event(1), event(2)] });
+        await store().append({ trail: trailConfig('other'), events: [event(3)] });
+        // `other` finishes past the budget, `shipped` never starts.
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        await store().append({ trail: trailConfig('other'), events: [event(4)] });
+        expect(await shipAudit({ trail: 'other' })).to.deep.eq({ shipped: 1, failed: [] });
+        await store().append({ trail: trailConfig('other'), events: [event(5)] });
+        expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+        expect(delivered()).to.deep.eq(ids(3, 4, 1));
+      } finally {
+        setTrail('other', undefined);
+      }
+    });
+
+    it('rotates the connections of one trail too', async () => {
+      config().set(['audit', 'ship'], { batchSize: 1, runBudgetMs: 200 });
+      const shippedTrail = trail('SlowSink');
+      await shipAudit();
+      for (const d of [sqlite(), db.driver('pglite')]) await store().append({ trail: shippedTrail, events: [event(1), event(2)], connection: d.Options.Name });
+      expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+      expect(await shipAudit()).to.deep.include({ shipped: 1, stoppedEarly: true });
+      expect(RecordingSink.batches.map((b) => b.source).sort()).to.deep.eq([db.connectionName('pglite'), db.connectionName('sqlite')].sort());
+    });
+
+    it('refuses a delivery deadline over two minutes, and limits that outlast the schedule timeout', async () => {
+      expect(() => config().set(['audit', 'ship'], { deliverTimeoutMs: 120001 })).to.throw();
+      config().set(['audit', 'ship'], { deliverTimeoutMs: 30000, runBudgetMs: 570001 });
+      await store().append({ trail: trail('RecordingSink'), events: [event(1)] });
+      await expect(shipAudit()).to.be.rejectedWith(AuditConfigError, 'audit: audit.ship.runBudgetMs (570001) plus audit.ship.deliverTimeoutMs (30000) is over the 600000 ms timeout of the audit.ship schedule; lower one of them');
+      expect(delivered()).to.deep.eq([]);
+    });
+
+    it('erases inside an open transaction: a rollback restores the buffer, not the destination', async () => {
+      const shippedTrail = trail('RecordingSink');
+      for (const d of [sqlite(), db.driver('pglite')]) {
+        await store().append({ trail: shippedTrail, events: [event(1)], connection: d.Options.Name });
+        const forget = d.transaction(async () => {
+          expect(await audit().trail('shipped').forget(c1, d.Options.Name)).to.eq(1 + 3);
+          throw new Error('caller failed');
+        });
+        await expect(forget).to.be.rejectedWith('caller failed');
+        expect((await tableRows(d, 'audit_outbox')).map((r) => r.data)).to.deep.eq(['{"version":1}']);
+      }
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
+    });
+
+    it('keeps erased events buffered until the destination was redacted', async () => {
+      const shippedTrail = trail('RecordingSink');
+      await store().append({ trail: shippedTrail, events: [event(1), event(2)] });
+      await (await store().reader(shippedTrail))?.redact(shippedTrail, c1);
+      RecordingReader.failNext = 1;
+
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: failure });
+      expect((await tableRows(sqlite(), 'audit_outbox')).map((r) => r.id)).to.deep.eq(ids(1));
+      expect(await shipAudit()).to.deep.eq({ shipped: 1, failed: [] });
+      expect(RecordingReader.redacted).to.deep.eq([c1, c1]);
       expect(await tableRows(sqlite(), 'audit_outbox')).to.have.length(0);
     });
   });
