@@ -282,8 +282,9 @@ the old and new `{ type, id }`, in the statement's transaction. It reads the row
 which runs the capture's key select as `SYSTEM`, so a row the writer cannot read is still logged; it is meant for that
 select only and is not exported. Turn the log off for one model with
 `@AccessResource('invoice', { changelog: false })` (or the same option of `registerAccessResource`); replays that need
-that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`). A model with
-relation columns and a composite primary key must opt out: the domain boot refuses it with an `AuthzConfigError`.
+that model's relations then report it as missing (`changeLog().covers('column', 'invoice') === false`). An
+`@AccessResource` model needs a single-column primary key: the domain boot refuses a composite one with an
+`AuthzConfigError`, as the write capture that keeps the ancestor table and the changelog keys rows by one column.
 
 `recordPolicyVersion(policyHash, irJson)` keeps the policy IR an app ran with in `authz_policy_version` (first
 instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Import `@spinajs/authz-orm/scheduler`
