@@ -148,6 +148,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const sqlQueries = run(extractSqlQueries);
   const sqlDialects = run(extractSqlDialects);
   for (const file of files) checkNPlusOne(ctx, file);
+  const queueMessages = run(extractQueueMessages);
   const fragment: ManifestFragment = {
     manifestVersion: MANIFEST_VERSION,
     package: {
@@ -172,12 +173,12 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     schedules: marked('schedules', schedules),
     commands: marked('commands', commands),
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
-    queueMessages: run(extractQueueMessages),
+    queueMessages,
     ...(workflows.length ? { workflows } : {}),
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
-    ...tenancyOf(ctx, files, { controllers, schedules, authz, models: tenantModels }),
+    ...tenancyOf(ctx, files, { controllers, schedules, queueMessages, authz, models: tenantModels }),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

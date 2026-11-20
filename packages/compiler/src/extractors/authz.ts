@@ -110,7 +110,8 @@ function systemEntry(kind: EntryPoint['kind'], id: string, source: SourceRef, sy
 
 function jobEntryPoint(st: ts.Statement, ctx: ExtractorContext, system: Map<string, string>): EntryPoint | undefined {
   if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st) || !ctx.isSubclassOf(st, 'QueueJob')) return undefined;
-  const options = literalValue(findDecorator(st, 'Job')?.args[0], ctx) as { access?: unknown } | undefined;
+  // extractQueueMessages notes a non-literal option of this decorator.
+  const options = literalValue(findDecorator(st, 'Job')?.args[0], { checker: ctx.checker, info: () => undefined }) as { access?: unknown } | undefined;
   return systemEntry('queue-handler', `job:${st.name.text}`, ctx.sourceRef(st), system, accessFromOptions(options?.access));
 }
 
