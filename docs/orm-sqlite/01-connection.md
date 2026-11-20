@@ -11,12 +11,14 @@
    1. Expands `Options.Filename` with `format({}, ...)` from `@spinajs/configuration`, so the path may hold configuration placeholders.
    2. Closes the writer handle left by an earlier `connect()` (a health-check reconnect), then opens the writer handle, `new sqlite3.Database(filename)`, read-write and create.
    3. On an open error it drops the handle without closing it and rejects with the `sqlite3` error (`SQLITE_CANTOPEN` for a missing directory or an unreadable file).
-   4. `openReadPool()` opens the read-only handles. See [Read handle pool](02-read-pool.md).
-   5. Sets `State` to `ConnectionState.Connected`.
+   4. With `ForeignKeys: true`, runs `PRAGMA foreign_keys = ON` on the new handle and reads it back. When the pragma fails, or reads anything but `1` (a SQLite build without foreign-key support ignores it silently), it closes the handle and rejects; the second case rejects with `OrmException('ForeignKeys is set, but this sqlite build does not enforce foreign keys')`.
+   5. Publishes the handle as `Db`. Statements reach the writer only from here on, so none runs before the pragma.
+   6. `openReadPool()` opens the read-only handles. See [Read handle pool](02-read-pool.md).
+   7. Sets `State` to `ConnectionState.Connected`.
 5. **Execute.** `SqlDriver.execute()` compiles the builder and calls `executeOnDb(stmt, params, queryContext)`. `executeOnDb()` holds a writer-handle statement issued from outside an open transaction until it ends (see [Transactions](03-transactions.md#important-behaviour)), then `runStatement()` converts the bindings with `SqlDriver.toDriverParams()` (see [Schema and DDL](04-schema-and-ddl.md#value-conversion)), picks a handle with `handleFor(queryContext)` and calls the `sqlite3` method listed in [Result shapes](#result-shapes). `SQLITE_BUSY` outside a transaction is retried, see [Errors](#errors).
 6. **`disconnect()`.** Stops the health check, sets `State` to `Disconnected`, closes every read handle, then closes the writer. A close error rejects.
 
-`executeOnDb()` throws `Error('cannot execute sqlite statement, no db connection avaible')` when called before `connect()` or after `disconnect()`.
+`executeOnDb()` throws `Error('cannot execute sqlite statement, no db connection avaible')` when called before `connect()` or after `disconnect()`, and while a reconnect runs: from closing the old writer until the new one is published.
 
 ### Result shapes
 
@@ -73,6 +75,7 @@ Keys under `db.Connections[]`. Keys shared by all drivers are described in [Conn
 | `db.Connections[].Driver` | `string` | required | `orm-driver-sqlite`, or the string of a subclass | Selects `SqliteOrmDriver`. |
 | `db.Connections[].Name` | `string` | required | | Connection name for `@Connection()` and logs. |
 | `db.Connections[].Filename` | `string` | required | file path, `:memory:`, `''` | Database file, expanded with `format()` (`${env:NAME}`, `${cwd}`, ...). `''` is an anonymous temporary database. The parent directory must exist. |
+| `db.Connections[].ForeignKeys` | `boolean` | `false` | | Enforces foreign keys on the writer, set before any statement can use it, on every connect and reconnect. See [Schema and DDL](04-schema-and-ddl.md#enforce-foreign-keys-on-every-connection). |
 | `db.Connections[].Pool.Max` | `number` | `10` | `>= 1` | Writer plus read-only handles: `Max - 1` read handles. See [Read handle pool](02-read-pool.md). |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated `Pool.Max`. |
 | `db.Connections[].Resilience.HealthCheckInterval` | `number` | `30000` | ms, `0` disables | Interval of the health probe. On SQLite the probe reads `PRAGMA schema_version` on the writer handle. |
@@ -125,7 +128,7 @@ Overridable members of `SqliteOrmDriver`:
 
 | Member | Visibility | Default behaviour | Override to |
 | --- | --- | --- | --- |
-| `connect()` | public | close a previous writer, open writer, open read pool, set `Connected` | configure every handle (busy timeout, pragmas) after `super.connect()` |
+| `connect()` | public | close a previous writer, open writer, set `ForeignKeys`, publish it as `Db`, open read pool, set `Connected` | configure every handle (busy timeout) after `super.connect()`; a statement can reach `Db` before your code runs, so use `ForeignKeys` instead of sending the pragma yourself |
 | `disconnect()` | public | close read pool, then writer | flush or checkpoint before `super.disconnect()` |
 | `execute(builder)` | public | rebuild the table for an `alterTable()` that modifies columns (see [Schema and DDL](04-schema-and-ddl.md#alter-table-limitations)), else `SqlDriver.execute()` | intercept other builders |
 | `executeOnDb(stmt, params, context)` | public | hold an outside writer statement while a transaction is open, then `runStatement()` | add tracing; call `super.executeOnDb()` |

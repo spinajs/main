@@ -80,7 +80,7 @@ for (const engine of ['sqlite', 'postgres'] as const) {
     before(async function () {
       db = await bootDb('lists_caveats', engine === 'postgres' ? this : undefined);
       model = new RebacModel({ store: new DbTupleStore(), namespaces: NAMESPACES, permissions: PERMISSIONS, caveats: CAVEATS, limit: { maxDepth: 4, maxCalls: 10_000 } });
-      await model.init(fakeModelInitContext({ permissions: INPUTS, model: model.name }));
+      await model.init(fakeModelInitContext({ permissions: INPUTS, model: model.name, container: db.container }));
       await db.driver.schema().createTable(DOCS, (t) => {
         t.string('id', 64).primaryKey();
       });

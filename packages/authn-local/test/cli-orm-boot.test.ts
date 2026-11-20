@@ -4,6 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Cli } from '@spinajs/cli';
 import { Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Connection, Migration, Model, ModelBase, Orm, OrmMigration, OrmMigrationGuard, OrmMigrator, PendingMigrationsException, Primary } from '@spinajs/orm';
@@ -158,9 +160,29 @@ describe('authn-local cli commands boot the Orm', function () {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('the commands refuse an unmigrated database and name migrate-up', async () => {
-    for (const command of [QuietSetUserPassword, ExpirePasswords]) {
-      await expect(DI.resolve(command)).to.be.rejectedWith(PendingMigrationsException, /npx spinajs migrate-up/);
+  it('the commands refuse an unmigrated database when they run, and name migrate-up', async () => {
+    await expect((await DI.resolve(QuietSetUserPassword)).execute('ann@example.com', { generate: true })).to.be.rejectedWith(PendingMigrationsException, /npx spinajs migrate-up/);
+    await expect((await DI.resolve(ExpirePasswords)).execute()).to.be.rejectedWith(PendingMigrationsException, /npx spinajs migrate-up/);
+  });
+
+  it('--help of each command works on an unmigrated database and boots no Orm', async () => {
+    const configuration = await DI.resolve<Configuration>(Configuration);
+    const dirs = configuration.get<unknown>('system.dirs.cli');
+    configuration.set('system.dirs.cli', [fileURLToPath(new URL('../src/cli', import.meta.url))]);
+    try {
+      for (const name of ['authn:password', 'authn:password-expire']) {
+        const argv = () => ['node', 'spinajs', name, '--help'];
+        DI.register(argv).as('__cli_argv_provider__');
+        try {
+          await DI.resolve(Cli);
+        } finally {
+          DI.unregister('__cli_argv_provider__', argv);
+          DI.uncache(Cli);
+        }
+        expect(DI.RootContainer.isResolved(Orm), name).to.equal(false);
+      }
+    } finally {
+      configuration.set('system.dirs.cli', dirs);
     }
   });
 

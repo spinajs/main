@@ -96,14 +96,14 @@ async function mysqlAdmin(ctx: Mocha.Context, sql: string): Promise<void> {
 }
 
 /** The connection of a dialect other than Postgres, with the driver class it needs; MySQL gets a database of its own. */
-async function otherConnection(ctx: Mocha.Context, kind: Exclude<Dialect, 'postgres'>, name: string, migration: object): Promise<{ connection: Record<string, unknown>; driver: typeof SqliteOrmDriver | typeof PgliteOrmDriver | typeof MySqlOrmDriver; drop?: string }> {
-  if (kind === 'pglite') return { connection: { Name: name, Driver: 'orm-driver-pglite', Filename: ':memory:', Migration: migration }, driver: (await import('@spinajs/orm-pglite')).PgliteOrmDriver };
+async function otherConnection(ctx: Mocha.Context, kind: Exclude<Dialect, 'postgres'>, name: string): Promise<{ connection: Record<string, unknown>; driver: typeof SqliteOrmDriver | typeof PgliteOrmDriver | typeof MySqlOrmDriver; drop?: string }> {
+  if (kind === 'pglite') return { connection: { Name: name, Driver: 'orm-driver-pglite', Filename: ':memory:' }, driver: (await import('@spinajs/orm-pglite')).PgliteOrmDriver };
   if (kind === 'mysql') {
     const database = `l2_${randomBytes(4).toString('hex')}`;
     await mysqlAdmin(ctx, `CREATE DATABASE ${database}`);
-    return { connection: { Name: name, Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Database: database, Migration: migration }, driver: (await import('@spinajs/orm-mysql')).MySqlOrmDriver, drop: database };
+    return { connection: { Name: name, Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Database: database }, driver: (await import('@spinajs/orm-mysql')).MySqlOrmDriver, drop: database };
   }
-  return { connection: { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration }, driver: SqliteOrmDriver };
+  return { connection: { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:' }, driver: SqliteOrmDriver };
 }
 
 /**
@@ -165,7 +165,7 @@ export async function bootDb<K extends Dialect>(ctx: Mocha.Context, kind: K, sui
     database = await createPgDatabase(suite);
     connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    const c = await otherConnection(ctx, kind, `l2-${suite}`, migration);
+    const c = await otherConnection(ctx, kind, `l2-${suite}`);
     connection = c.connection;
     other = c.driver;
     mysqlDatabase = c.drop;

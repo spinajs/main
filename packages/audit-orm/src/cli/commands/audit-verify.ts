@@ -127,7 +127,6 @@ export class AuditVerifyCommand extends CliCommand {
         if (!(orm instanceof Orm)) throw new Error('audit: the ORM could not be resolved');
         this.Orm = orm;
       }
-      await this.Orm.Migrator.ready();
       const { sources, failed } = options.source !== undefined ? { sources: [options.source], failed: [] } : await sourcesOf(trail);
       for (const line of failed) this.err(line);
       codes.push(...failed.map(() => FAILED));

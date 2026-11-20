@@ -38,7 +38,7 @@ sequenceDiagram
 | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `TableExistsCompiler` | `SqliteTableExistsCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | yes | [Schema and DDL](04-schema-and-ddl.md#default-values) |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter`: ISO 8601 UTC text | no, from `@spinajs/orm-sql` | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
+| `DatetimeValueConverter` | `SqliteDatetimeValueConverter`: ISO 8601 UTC text, Unix seconds for a numeric column | yes | [Schema and DDL](04-schema-and-ddl.md#value-conversion) |
 | `NowExpression` | `SqliteNowExpression` | yes | [Query dialect](06-query-dialect.md) |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
@@ -101,11 +101,11 @@ What to extend for a replacement:
 
 ### Driver class: custom implementation
 
-A reporting connection that enforces foreign keys and waits longer for locks; registered under its own string and checked in a test.
+A reporting connection that waits longer for locks; registered under its own string and checked in a test. Enforce foreign keys with the connection option `ForeignKeys: true`, not with a pragma after `super.connect()`: a statement can reach the writer before it runs (see [Connection and driver](01-connection.md#configuration)).
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @Injectable('orm-driver-sqlite-reporting')
@@ -114,7 +114,6 @@ export class ReportingSqliteDriver extends SqliteOrmDriver {
   public async connect(): Promise<OrmDriver> {
     await super.connect();
 
-    await this.executeOnDb('PRAGMA foreign_keys = ON', [], QueryContext.Schema);
     this.Db.configure('busyTimeout', 5000);
     this.ReadPool.forEach((handle) => handle.configure('busyTimeout', 5000));
 
@@ -136,26 +135,27 @@ export function assertReportingDialect(driver: OrmDriver) {
 
 ### Every SQLite connection: custom implementation
 
-Replace the driver for every connection whose `Driver` is `orm-driver-sqlite`, eg. to enforce foreign keys application-wide.
+Replace the driver for every connection whose `Driver` is `orm-driver-sqlite`, eg. to wait longer for locks application-wide.
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @Injectable()
 @NewInstance()
-export class ForeignKeysEverywhereDriver extends SqliteOrmDriver {
+export class PatientEverywhereDriver extends SqliteOrmDriver {
   public async connect(): Promise<OrmDriver> {
     await super.connect();
-    await this.executeOnDb('PRAGMA foreign_keys = ON', [], QueryContext.Schema);
+    this.Db.configure('busyTimeout', 5000);
+    this.ReadPool.forEach((handle) => handle.configure('busyTimeout', 5000));
     return this;
   }
 }
 
 export async function boot() {
   // must run before Orm resolves: Orm reads the registration when it creates connections
-  DI.register(ForeignKeysEverywhereDriver).as('orm-driver-sqlite');
+  DI.register(PatientEverywhereDriver).as('orm-driver-sqlite');
   return await DI.resolve(Orm);
 }
 ```

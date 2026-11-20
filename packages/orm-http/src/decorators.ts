@@ -1,16 +1,20 @@
 import { ColumnName, IModelDescriptor, ModelBase, RelationName, SortOrder, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor, extractModelDescriptorInherited } from '@spinajs/orm';
-import { FilterableOperators, IColumnFilter, IncludeRouteArgOptions, SortRouteArgOptions } from './interfaces.js';
+import { FilterableOperators, IColumnFilter, IFilterableOptions, IncludeRouteArgOptions, SortRouteArgOptions } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 
+export function Filterable(options: IFilterableOptions): ReturnType<typeof extractDecoratorPropertyDescriptor>;
 // `queryFunc` accepts null so that a column can opt out of a custom query while still
 // setting the trailing `isAggregate` flag.
-export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase>, queryFunc?: ((operator: FilterableOperators, value: any) => WhereFunction<unknown>) | null, isAggregate?: boolean) {
+export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase>, queryFunc?: ((operator: FilterableOperators, value: any) => WhereFunction<unknown>) | null, isAggregate?: boolean): ReturnType<typeof extractDecoratorPropertyDescriptor>;
+export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase> | IFilterableOptions, queryFunc?: ((operator: FilterableOperators, value: any) => WhereFunction<unknown>) | null, isAggregate?: boolean) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (model.FilterableColumns === undefined) {
       model.FilterableColumns = new Map<string, IColumnFilter<unknown>>();
     }
+
+    let aggregate = isAggregate;
 
     if (isConstructor(operatorsOrClass)) {
       // if we have @belonsgTo relation we add to this filter schema all avaible filters
@@ -25,22 +29,25 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
         model.FilterableColumns = new Map<string, IColumnFilter<unknown>>([...model.FilterableColumns.entries(), ...(ops as any)]);
       }
     } else {
-      if (!operatorsOrClass) {
+      const options: IFilterableOptions = Array.isArray(operatorsOrClass) || !operatorsOrClass ? { operators: operatorsOrClass, query: queryFunc } : operatorsOrClass;
+      if (!options.operators) {
         throw new Error(`Filterable decorator on ${model.Name} model, property ${propertyKey} must have operators defined`);
       }
+      aggregate = options.aggregate ?? aggregate;
       model.FilterableColumns.set(propertyKey, {
-        operators: operatorsOrClass,
-        query: queryFunc,
-      } as IColumnFilter<unknown>);
+        operators: options.operators,
+        query: options.query,
+        value: options.value,
+      });
     }
 
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
       // Filter-only property: nothing selects, writes or dehydrates it, so it is nullable by construction.
-      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Aggregate: isAggregate ?? false, Virtual: true, Nullable: true }));
+      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Aggregate: aggregate ?? false, Virtual: true, Nullable: true }));
     } else {
-      columnDesc.Aggregate = isAggregate ?? false;
+      columnDesc.Aggregate = aggregate ?? false;
     }
   });
 }

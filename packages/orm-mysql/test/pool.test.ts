@@ -76,21 +76,44 @@ describe('pool options', () => {
   });
 });
 
+/** The members of mysql2's server-side connection these tests use; it is not in mysql2's public typings. */
+interface FakeServerConnection {
+  clientHelloReply: { charsetNumber: number; connectAttributes: Record<string, string> };
+  serverHandshake(options: object): void;
+  on(event: string, listener: (sql: string) => void): void;
+  writeOk(): void;
+  writeError(error: { code: number; message: string }): void;
+}
+
 /**
  * A mysql2 protocol server that accepts any login and answers every query with OK, so
  * connect() can be exercised without a database.
  */
 async function fakeMySqlServer() {
-  const clients: any[] = [];
+  const clients: FakeServerConnection[] = [];
+  const statements: string[][] = [];
+  const state = { refuseSet: false };
   // createServer and its wrapped net server are not in mysql2's public typings
-  const server: { on(event: 'connection', listener: (conn: any) => void): void; listen(port: number, host: string, cb: () => void): void; _server: Server } = (mysql as any).createServer();
+  const server: { on(event: 'connection', listener: (conn: FakeServerConnection) => void): void; listen(port: number, host: string, cb: () => void): void; _server: Server } = (mysql as any).createServer();
 
-  server.on('connection', (conn: any) => {
+  server.on('connection', (conn) => {
+    const received: string[] = [];
+    statements.push(received);
     conn.serverHandshake({ protocolVersion: 10, serverVersion: '8.0.0', connectionId: clients.length + 1, statusFlags: 2, characterSet: 8, capabilityFlags: 0xffffff });
     conn.on('error', () => undefined);
-    conn.on('query', () => conn.writeOk());
+    conn.on('query', (sql: string) => {
+      received.push(sql);
+      conn.writeOk();
+    });
     // mysql2's server emits a SET query (the driver's per-connection `SET time_zone`) as stmt_prepare, not query
-    conn.on('stmt_prepare', () => conn.writeOk());
+    conn.on('stmt_prepare', (sql: string) => {
+      received.push(sql);
+      if (state.refuseSet) {
+        conn.writeError({ code: 1298, message: 'Unknown or incorrect time zone' });
+      } else {
+        conn.writeOk();
+      }
+    });
     clients.push(conn);
   });
 
@@ -98,6 +121,9 @@ async function fakeMySqlServer() {
 
   return {
     clients,
+    /** The statements each connection received, in connection order. */
+    statements,
+    state,
     port: (server._server.address() as AddressInfo).port,
     close: () => new Promise<void>((resolve) => server._server.close(() => resolve())),
   };
@@ -216,6 +242,24 @@ describe('connect', function () {
 
     expect(server.clients.length).to.equal(2);
     expect(driver.poolMetrics().Size).to.equal(1);
+  });
+
+  it('sets the session zone on a dedicated connection', async () => {
+    driver = silenced(new MySqlOrmDriver(options({ Pool: { Max: 1 }, TimeZone: 'UTC' })));
+    await driver.connect();
+
+    const dedicated = await driver.openDedicatedConnection();
+    dedicated.destroy();
+
+    expect(server.statements[server.statements.length - 1]).to.include("SET time_zone = '+00:00'");
+  });
+
+  it('refuses a dedicated connection whose session zone cannot be set', async () => {
+    driver = silenced(new MySqlOrmDriver(options({ Pool: { Max: 1 }, TimeZone: 'UTC' })));
+    await driver.connect();
+    server.state.refuseSet = true;
+
+    await expect(driver.openDedicatedConnection()).to.be.rejectedWith('could not set the session time zone of connection x to +00:00');
   });
 });
 

@@ -1,6 +1,7 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, NativeFilter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote, DenyReason } from '@spinajs/authz';
 import type { CaveatDef, IRFragment } from '@spinajs/authz-ir';
+import { Orm } from '@spinajs/orm';
 
 import type { CaveatConfig, NamespaceConfig, PermissionMap, RebacLimits, Tuple, TupleCaveat } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
@@ -103,6 +104,8 @@ export class RebacModel extends AuthorizationModel {
     this.registry = ctx.permissions;
     this.permissionsChecked = false;
     this.tuples = this.opts.store ?? (ctx.container.hasRegistered(TupleStore) ? await ctx.container.resolve(TupleStore) : storeFromConfig(this.name, ctx));
+    // DbTupleStore is built with `new`, so it cannot inject the Orm that binds its records.
+    if (this.tuples instanceof DbTupleStore) await ctx.container.resolve(Orm);
     // A store that drops `caveat` would turn conditional grants into unconditional ones.
     const conditional = [...this.compiled.namespaces.values()].some((ns) => [...ns.relations.values()].some((r) => r.conditional.length > 0));
     if (conditional && !this.tuples.caveats) throw new AuthzConfigError(`${this.name}: the namespaces declare conditional subject types, but the tuple store ${this.tuples.name} keeps no caveats`);

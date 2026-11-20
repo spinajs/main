@@ -150,9 +150,9 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = options.database ?? (created = await createPgDatabase(suite));
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: options.database ?? ':memory:', Migration: migration };
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: options.database ?? ':memory:' };
   }
 
   const container: IContainer = DI.child();
