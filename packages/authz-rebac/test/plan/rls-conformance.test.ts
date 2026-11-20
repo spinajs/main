@@ -68,9 +68,9 @@ describe('RLS conformance: ReBAC (postgres)', function () {
     db = await bootDb('rls_conformance', this);
     // maxDepth 4 keeps a world's three policy reads near a second; the RLS_BENCH case measures the default 8.
     model = new RebacModel({ store: new DbTupleStore(), namespaces: NAMESPACES, permissions: PERMISSIONS, limit: { maxDepth: Number(process.env.RLS_MAX_DEPTH ?? 4), maxCalls: 10_000 } });
-    await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name }));
+    await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name, container: db.container }));
     conditional = new RebacModel({ store: new DbTupleStore(), namespaces: CONDITIONAL, permissions: PERMISSIONS, caveats: CAVEATS, limit: { maxDepth: 4, maxCalls: 10_000 } });
-    await conditional.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: conditional.name }));
+    await conditional.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: conditional.name, container: db.container }));
     for (const table of [DOCS, BENCH, CDOCS]) {
       await db.driver.schema().createTable(table, (t) => {
         t.string('id', 64).primaryKey();
