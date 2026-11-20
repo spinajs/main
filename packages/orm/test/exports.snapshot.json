@@ -265,6 +265,7 @@
   "TableCloneQueryCompiler",
   "TableExistsCompiler",
   "TableExistsQueryBuilder",
+  "TableMigrationLock",
   "TableQueryBuilder",
   "TableQueryCompiler",
   "TextWrapper",
@@ -378,9 +379,9 @@
   "mergeInsertResults",
   "mergeMigrationEnv",
   "migrationChecksum",
-  "modelAuditSource",
   "migrationLockAdvisoryMark",
   "migrationLockKey",
+  "modelAuditSource",
   "modelDriver",
   "normalizePkTuple",
   "normalizeSqlType",
@@ -439,6 +440,7 @@
   "whereInGroups",
   "whereNotAnyPk",
   "wherePk",
+  "writeStatementOf",
   "writeTargetKeys",
   "wroteInScope"
 ]
