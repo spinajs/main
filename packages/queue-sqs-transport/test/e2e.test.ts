@@ -47,6 +47,11 @@ async function waitUntil(fn: () => boolean | Promise<boolean>, timeoutMs = 15000
  * queue URL is known (see `before`).
  */
 class E2EConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad(): unknown {
     return {
       db: {

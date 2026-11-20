@@ -87,6 +87,11 @@ function expectNoValue(err: unknown, values: string[], label: string): void {
 
 function validationConfig(validation: Record<string, unknown>) {
   return class extends FrameworkConfiguration {
+    // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+    protected loadSources(): void {
+      this.Sources = [];
+    }
+
     protected onLoad() {
       return {
         logger: {

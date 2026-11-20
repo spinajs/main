@@ -57,6 +57,11 @@ function raw(cn: OrmDriver): IRawSqlDriver {
 const EXPECTED_MIGRATIONS = ['Queue_2022_10_18_01_13_00', 'Queue_2026_06_30_00_00_00', 'Queue_2026_07_02_00_00_00', 'Queue_2026_07_10_00_00_00', 'Queue_2026_07_17_00_00_00', 'Queue_2026_10_03_00_00_00', 'Queue_2026_10_17_00_00_00'];
 
 class MysqlQueueConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       db: {

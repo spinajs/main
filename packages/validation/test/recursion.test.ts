@@ -9,6 +9,11 @@ import { ValidationFailed } from '../src/exceptions/index.js';
 
 function validationConfig(validation: Record<string, unknown>) {
   return class extends FrameworkConfiguration {
+    // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+    protected loadSources(): void {
+      this.Sources = [];
+    }
+
     protected onLoad() {
       return {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },

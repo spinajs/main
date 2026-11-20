@@ -4,6 +4,11 @@ import { StompQueueClient } from '../../../src/connection.js';
 import { retryConnect, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL } from './env.js';
 
 export class ItConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public static Current: Record<string, unknown> = {};
 
   protected onLoad(): unknown {

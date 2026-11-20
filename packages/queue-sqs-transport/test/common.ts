@@ -14,6 +14,11 @@ export const SQS_CREDENTIALS = { accessKeyId: 'test', secretAccessKey: 'test' };
  * and an empty routing table.
  */
 export class TestConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad(): unknown {
     return {
       queue: {
