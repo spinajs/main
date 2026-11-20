@@ -1,10 +1,11 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AuthzConfigError, CORE_FILTER_OPS, FALSE, TRUE } from '@spinajs/authz';
+import { AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, TRUE } from '@spinajs/authz';
 import type { PermissionDef, Principal, ResourceRef, Vote } from '@spinajs/authz';
-import { FakePermissionRegistry, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
+import { FakePermissionRegistry, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
-import { MemoryTupleStore, REBAC_CHECK_OP, RebacModel } from '../../src/index.js';
+import { MemoryTupleStore, REBAC_CHECK_OP, RebacModel, TupleStore } from '../../src/index.js';
+import type { Tuple } from '../../src/index.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, d3, f1, setup, tuple, user } from '../support/world.js';
 import type { Setup } from '../support/world.js';
 
@@ -164,11 +165,77 @@ describe('authz-rebac: RebacModel', () => {
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.include('maxDepth');
     });
+
+    it('refuses conditional subject types over a store that keeps no caveats', async () => {
+      class Bare extends TupleStore {
+        readonly name = 'bare';
+        read(): Promise<readonly Tuple[]> {
+          return Promise.resolve([]);
+        }
+        reverse(): Promise<readonly ResourceRef[]> {
+          return Promise.resolve([]);
+        }
+        write(): Promise<string> {
+          return Promise.resolve('0');
+        }
+        find(): Promise<{ items: readonly Tuple[]; total: number }> {
+          return Promise.resolve({ items: [], total: 0 });
+        }
+      }
+      const caveats = { c: { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } } as const;
+      const model = new RebacModel({ store: new Bare(), namespaces: { user: {}, doc: { relations: { viewer: ['user with c'] } } }, caveats });
+      let error: unknown;
+      await model.init(fakeModelInitContext()).catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.include('keeps no caveats');
+    });
+  });
+
+  describe('conditional tuples', () => {
+    const c = { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } as const;
+    const caveated = (t: Tuple): Tuple => ({ ...t, caveat: { name: 'c' } });
+    const namespaces = {
+      user: {},
+      group: { relations: { member: ['user', 'user with c'] } },
+      folder: { relations: { viewer: ['user'] } },
+      doc: { relations: { viewer: ['user', 'user with c', 'group#member'], parent: ['folder', 'folder with c'] }, permissions: { read: { union: ['viewer', 'parent->viewer'] } } },
+    };
+
+    async function conditional(): Promise<RebacModel> {
+      const store = new MemoryTupleStore([
+        caveated(tuple(d1, 'viewer', user('bob'))),
+        tuple(d2, 'viewer', { object: { type: 'group', id: 'eng' }, relation: 'member' }),
+        caveated(tuple({ type: 'group', id: 'eng' }, 'member', user('bob'))),
+        caveated(tuple(d3, 'parent', { type: 'folder', id: 'f1' })),
+        tuple(f1, 'viewer', user('bob')),
+      ]);
+      const model = new RebacModel({ store, namespaces, permissions: { 'doc:read': 'doc#read' }, caveats: { c } });
+      await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS }));
+      return model;
+    }
+
+    it('check() decides a caveat only with a request and a context: direct, through a subject set or an arrow', async () => {
+      const model = await conditional();
+      const ctx = fakeEvaluationContext({ permissions: PERMISSION_INPUTS, conditions: new DefaultConditionCompiler() });
+      for (const doc of [d1, d2, d3]) {
+        expect(await model.check(doc, 'read', user('bob')), doc.id).to.equal('unknown');
+        expect(await model.check(doc, 'read', user('bob'), ctx, { env: { x: 'y' } }), doc.id).to.equal('member');
+        expect(await model.check(doc, 'read', user('bob'), ctx, { env: { x: 'z' } }), doc.id).to.equal('not');
+      }
+    });
+
+    it('a list plan expands no conditional membership whose caveat it cannot decide', async () => {
+      const model = await conditional();
+      const ctx = fakeEvaluationContext({ permissions: PERMISSION_INPUTS, conditions: new DefaultConditionCompiler() });
+      const plan = await model.listPlan({ principal: userPrincipal('bob'), permission: def('doc:read'), type: 'doc' }, ctx);
+      expect(plan).to.deep.equal({ kind: 'terms', permit: [{ op: 'rebac.tuples', args: { any: [{ tuples: { relation: 'viewer', subjects: ['user:bob'] } }, { tuples: { relation: 'parent', subjects: ['folder:f1'] } }] } }], deny: [], validUntil: ctx.now });
+    });
   });
 
   describe('freshness', () => {
     it('a store write is live and moves the version', async () => {
       const before = s.model.version();
+      expect(before).to.equal('61dfdb1987bbb7f6#0');
       expect(await allowed(s, 'dave', 'doc:read', d1)).to.equal(false);
       await s.store.write([tuple(d1, 'viewer', user('dave'))], [], user('admin'));
       expect(await allowed(s, 'dave', 'doc:read', d1)).to.equal(true);
