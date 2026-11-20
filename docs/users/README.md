@@ -29,7 +29,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Lifecycle mails](05-lifecycle-mails.md) | `users.email.*` templates, `sendUserEmail()`, and the `PasswordMailer` users registers for authn-local. |
 | [User events](06-user-events.md) | `UserCreated`, `UserBanned`, `UserLogged` and the other queue events, who emits them, and where they are routed. |
 | [Identity and password stores](07-identity-and-password-stores.md) | `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserAccountStatusSource`: users as authn identities; `UserPasswordStateHook` keeps `PasswordSetAt` and invite activation in step. |
-| [Authn event sinks](08-authn-event-sinks.md) | `QueueAuthnEventSink`: keeps the user events in step with authn. |
+| [Authentication event listeners](08-authn-event-sinks.md) | `QueueAuthnEventListener`: keeps the user events in step with authn. |
 | [Principal factory](09-principal-factory.md) | `UserPrincipalFactory` builds `user:<Uuid>` and `agent:<id>` principals for authn, jobs and CLI code. |
 | [Principal attribute providers](10-principal-attribute-providers.md) | `PrincipalAttributeProvider`: derive ABAC attributes from the user record. |
 | [Authz resources and relations](11-authz-resources-and-relations.md) | The `user` resource, the `self` and `owner` relations, the permissions and roles users ships. |
@@ -38,6 +38,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Role switch and access response](14-role-switch-and-access-response.md) | `RbacRoleSource` for role switch and MFA, `OrderedActiveRoleHook` for the role a new session starts on, `AccessResponseExtension` adding `Access` to authn answers. |
 | [User profile](15-user-profile.md) | `UserProfileProvider` picked by `users.user.profile`, `BasicProfileProvider`. |
 | [Jobs run as their initiator](16-jobs-run-as-initiator.md) | `@spinajs/users/queue`: `UserInitiatorPrincipalFactory` reloads the user a job runs as. |
+| [Signals are checked as their signer](20-signals-checked-as-signer.md) | `@spinajs/users/workflow`: `UserSignalPrincipalFactory` reloads the user a permissioned workflow signal is checked as. |
 | [Self-service registration](18-self-service-registration.md) | `UserIdentityRegistrar` over `create()`, behind `users.registration.enabled`: what `POST /auth/register` of authn-http calls. |
 | [Email domains](19-email-domains.md) | `EmailDomainHook` and `users.emailDomains.apply`: refuse disposable or unwanted email domains on registration, user creation and email change. |
 | [CLI commands](17-cli-commands.md) | `rbac:user-create`, `rbac:user-find`, `rbac:user-activate`, `rbac:user-ban`, `rbac:user-delete`. |
@@ -64,7 +65,7 @@ export async function onboardAndSuspend(): Promise<boolean> {
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): the contracts users implements (`IdentityStore`, `PrincipalFactory`, guards, sinks).
+- [`@spinajs/authn`](../authn/README.md): the contracts users implements (`IdentityStore`, `PrincipalFactory`, guards, event listeners).
 - [`@spinajs/authz`](../authz/README.md): the engine that checks the `user` resource and the relations users registers.
 - [`@spinajs/orm`](../orm/README.md): models, metadata relations and migrations behind `User`.
 - [`@spinajs/email`](../email/README.md): sends the lifecycle mails and provides `EmailPasswordMailer`.

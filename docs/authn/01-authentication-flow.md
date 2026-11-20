@@ -2,7 +2,7 @@
 
 `AuthnService` turns credentials into a result: a session, a pending MFA session, a per-request success, or one opaque failure. `DefaultAuthnService` is the implementation. Every login method, HTTP route and CLI command goes through it.
 
-Use this page to see what runs, in which order, and what each step can refuse. The strategies, the MFA policy, the throttle and the audit sinks have their own pages.
+Use this page to see what runs, in which order, and what each step can refuse. The strategies, the MFA policy, the throttle and the audit listeners have their own pages.
 
 ## How it works
 
@@ -169,6 +169,7 @@ Audit reasons the core writes:
 | `completeMfa` | `login` | `unknown_identity`, `deleted`, `banned`, `inactive` |
 | `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `malformed`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error`, `hook:<code>`, `hook_error` |
 | `reauthenticate` | `reauth` | `not_active`, `impersonation`, `unsupported_credentials`, `other_identity`, the strategy's own reason, the status reasons, `store_error`, `hook:<code>`, `hook_error` |
+| `authenticate`, `completeMfa`, `stepUp` | the success events a blocking listener stopped (`login`, `session.issue`, `mfa.challenge`, `mfa.verify`, `session.rotate`) | `listener_failed` |
 
 An error thrown by a strategy or a store is audited by its class name only (`data.error`). Its message may echo the credential. A failing action hook is audited as `hook_error` with `data.hook` (the hook class) and `data.failure` (`error`, `timeout` or `depth`).
 

@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { MemorySessionIssuer, RecordingEventSink, UnsupportedConfig, runAuthnBehaviour, runStrategyConformance } from '@spinajs/authn-testing';
+import { MemorySessionIssuer, RecordingEventListener, UnsupportedConfig, runAuthnBehaviour, runStrategyConformance } from '@spinajs/authn-testing';
 import type { HarnessContext, StrategySubject } from '@spinajs/authn-testing';
 import type { Credentials } from '@spinajs/authn/contracts';
 
@@ -32,7 +32,7 @@ async function oidcSubject(): Promise<StrategySubject> {
       return [p.flow, p.query.code, p.query.state];
     },
     sessions: { count: async () => (await sessions.storage.storedKeys()).length },
-    events: new RecordingEventSink(),
+    events: new RecordingEventListener(),
   };
 }
 

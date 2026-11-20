@@ -40,6 +40,9 @@ export interface AuthzIrModule {
   writeOpenFga(ir: unknown, options: { strict: boolean }): { dsl: string; warnings: string[] };
   readOpenFga(dsl: string): unknown;
   irToRebacConfig(ir: unknown): { namespaces: unknown; permissions: unknown; problems: string[] };
+  canonicalize(ir: unknown): string;
+  policyHash(ir: unknown): string;
+  validateIR(ir: unknown): Array<{ code: string }>;
 }
 
 const AUTHZ_IR = '@spinajs/authz-ir';

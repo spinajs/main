@@ -72,6 +72,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 4000;
 const DEFAULT_PREFETCH = 1;
+const TOPIC_PREFIX = '/topic/';
 
 /**
  * STOMP header carrying the number of times a job has already been retried.
@@ -92,7 +93,7 @@ const FRAME_HEADERS = new Set(['destination', 'receipt', 'transaction', 'content
 interface ISubscriptionDescriptor {
   channel: string;
 
-  // runs every handler in `handlers`: one broker subscription per channel serves all of them,
+  // runs every handler in `handlers`: one broker subscription per subscription key serves all of them,
   // because on a queue a second subscription would split the messages between the two
   callback: (e: IQueueMessage) => Promise<void>;
 
@@ -424,6 +425,9 @@ export class StompQueueClient extends QueueClient {
       w.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
     }
 
+    // the live subscriptions end with the socket; deactivate() sends no UNSUBSCRIBE, so durable ones stay on the broker
+    this.Subscriptions.clear();
+
     if (!this.Client) {
       return;
     }
@@ -453,11 +457,9 @@ export class StompQueueClient extends QueueClient {
   public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, removeDurable = false) {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
-    channels.forEach((c) => {
-      const desc = this.Subscriptions.get(c);
-
-      if (!desc) {
-        return;
+    for (const [key, desc] of [...this.Subscriptions]) {
+      if (!channels.includes(desc.channel)) {
+        continue;
       }
 
       // a string drops the whole channel, a message class only its own handler
@@ -468,32 +470,45 @@ export class StompQueueClient extends QueueClient {
       }
 
       if (desc.handlers.size > 0) {
-        return;
+        continue;
       }
+
+      const frameId = this.frameIdOf(desc);
 
       if (!this.Connected) {
         // the live subscription went away with the socket; UNSUBSCRIBE cannot be sent without one
         if (desc.durable && removeDurable) {
-          this.Log.warn({ subscriptionId: desc.subscriptionId, channel: c }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
+          this.Log.warn({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
         }
-      } else if (desc.durable && removeDurable && desc.subscriptionId) {
+      } else if (desc.durable && removeDurable && desc.subscriptionId && frameId) {
         // delete the broker-side durable subscription, not just stop consuming.
         // ActiveMQ removes a durable sub when UNSUBSCRIBE carries its subscription name.
-        this.Client.unsubscribe(desc.subscriptionId, { 'activemq.subscriptionName': desc.subscriptionId });
-        this.Log.info({ subscriptionId: desc.subscriptionId, channel: c }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
+        this.Client.unsubscribe(frameId, { 'activemq.subscriptionName': desc.subscriptionId });
+        this.Log.info({ subscriptionId: desc.subscriptionId, channel: desc.channel }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
       } else {
         desc.active?.unsubscribe();
       }
 
-      this.Subscriptions.delete(c);
-    });
+      this.Subscriptions.delete(key);
+    }
+  }
+
+  /** Topic subscriptions with different subscription ids are separate broker subscriptions; everything else shares the channel's. */
+  protected subscriptionKey(channel: string, subscriptionId?: string): string {
+    return channel.startsWith(TOPIC_PREFIX) && subscriptionId ? `${channel}#${subscriptionId}` : channel;
+  }
+
+  /** stompjs routes a MESSAGE frame by the SUBSCRIBE id, so two subscriptions of one connection never share one. */
+  protected frameIdOf(desc: ISubscriptionDescriptor): string | undefined {
+    return desc.subscriptionId ? `${desc.subscriptionId}@${desc.channel}` : undefined;
   }
 
   public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
     channels.forEach((c) => {
-      const existing = this.Subscriptions.get(c);
+      const key = this.subscriptionKey(c, subscriptionId);
+      const existing = this.Subscriptions.get(key);
 
       if (existing?.handlers.has(channelOrMessage)) {
         this.Log.warn({ channel: c }, 'Channel ${channel} already subscribed !');
@@ -518,7 +533,7 @@ export class StompQueueClient extends QueueClient {
         subscriptionId,
         durable,
       };
-      this.Subscriptions.set(c, desc);
+      this.Subscriptions.set(key, desc);
 
       // if already connected subscribe now, otherwise it will be applied on next onConnect
       if (this.Client?.connected) {
@@ -536,8 +551,9 @@ export class StompQueueClient extends QueueClient {
   protected applySubscription(desc: ISubscriptionDescriptor) {
     const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': `${this.PrefetchSize}` };
 
-    if (desc.subscriptionId) {
-      headers.id = desc.subscriptionId;
+    const frameId = this.frameIdOf(desc);
+    if (frameId) {
+      headers.id = frameId;
     }
 
     if (desc.durable) {

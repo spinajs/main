@@ -18,7 +18,7 @@
 
 ## Migration
 
-The migration runs on the connection named by `emailVerification.orm.connection` (read when the migrations run), default `email-verification-connection`. Define that connection with `Migration.OnStartup: true`, or run the migration yourself.
+The migration runs on the connection named by `emailVerification.orm.connection` (read when the migrations run), default `email-verification-connection`. Define that connection and apply the migration with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations); the `Orm` refuses to resolve until it is applied.
 
 ### `email_verification_verdicts`
 
