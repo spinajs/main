@@ -6,7 +6,7 @@ import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import { AuditVerifyCommand } from '../../src/cli/commands/audit-verify.js';
 import { AuditSealTableMigration, TableAuditStore, insertRows, sealAudit, storedColumns } from '../../src/index.js';
-import { TestDb } from '../../src/testing.js';
+import { TestDb } from '../support/db.js';
 import { config, event, setTrail, tableRows } from '../support/events.js';
 
 const expect = chai.expect;

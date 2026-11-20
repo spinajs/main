@@ -7,7 +7,7 @@ import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
 import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import type { AuditRow } from '../src/index.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 import { config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);

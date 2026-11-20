@@ -10,8 +10,8 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestDatabase } from '@spinajs/testing-orm';
 import type { TestDatabase } from '@spinajs/testing-orm';
 
-import { AuditTrailTableMigration } from './migration.js';
-import { rowsOf } from './rows.js';
+import { AuditTrailTableMigration } from '../../src/migration.js';
+import { rowsOf } from '../../src/rows.js';
 
 export type Dialect = 'sqlite' | 'pglite' | 'postgres' | 'mysql';
 export const DIALECTS: readonly Dialect[] = ['sqlite', 'pglite', 'postgres', 'mysql'];

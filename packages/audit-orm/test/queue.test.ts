@@ -11,7 +11,7 @@ import { MemoryQueueClient } from '@spinajs/queue/testing';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, OutboxAuditStore, shipAudit } from '../src/index.js';
 import { AuditBatchRecorded, QueueAuditSink, archiveAuditBatch, consumeAuditBatches } from '../src/queue/index.js';
 import type { WireAuditEvent } from '../src/queue/index.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 import { config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);

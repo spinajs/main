@@ -6,7 +6,6 @@ The database side of `@spinajs/audit`:
 - `AuditTrailTableMigration`: creates a trail table; the package migrates `audit_event` on the default connection. For another table or connection, extend it, override `table()` and add `@Migration(connection)`.
 - `TableAuditReader`, `pruneAudit()` and `@spinajs/audit-orm/scheduler` (`AuditRetentionTask`). Retention applies per trail, to the trail's own table; a trail or connection that fails is reported after the others were pruned.
 - `Model.audit()` and `row.audit()`: the `default` trail unless named; when the model's connection is not the trail's, both are read and merged by time. They apply no authorization scoping: the application decides who may call them. A producer that writes events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` (composite keys as their escaped parts joined with `:`, binary keys as hex), passing the key as the loaded model holds it, after its converters, so these reads find them.
-- `@spinajs/audit-orm/testing`: `TestDb`, one ORM over sqlite, PGlite and the Postgres and MySQL servers that answer, for suites that write to trail tables.
 
 ## Confirmed writes inside a transaction
 
