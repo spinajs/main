@@ -56,7 +56,7 @@ function config(): Record<string, unknown> {
     'workflow.enabled': false,
     ...permissions,
     'db.DefaultConnection': 'default',
-    'db.Connections': [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { Table: 'orm_migrations', OnStartup: true } }],
+    'db.Connections': [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { Table: 'orm_migrations' } }],
     'db.Aliases': { workflow: 'default' },
   };
 }

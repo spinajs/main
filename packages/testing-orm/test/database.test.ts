@@ -6,11 +6,11 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import type { Class } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import '@spinajs/log';
-import { Migration, Orm, OrmDriver, OrmMigration, OrmMigrator, QueryContext, type IDriverOptions } from '@spinajs/orm';
+import { Migration, Orm, OrmDriver, OrmMigration, PendingMigrationsException, QueryContext, type IDriverOptions } from '@spinajs/orm';
 import type { PgliteOrmDriver } from '@spinajs/orm-pglite';
 import { createTestApp } from '@spinajs/testing';
 
-import { TEST_PGLITE_INSTANCE, createTestDatabase } from '../src/index.js';
+import { TEST_PGLITE_INSTANCE, createTestDatabase, type TestDatabase } from '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -42,10 +42,12 @@ function appConfiguration(connection: Partial<IDriverOptions>): Class<Configurat
   };
 }
 
-async function withApp(connection: Partial<IDriverOptions>, fn: (driver: PgliteOrmDriver) => Promise<void>): Promise<void> {
-  const app = await createTestApp({ configuration: appConfiguration(connection), resolve: [OrmMigrator] });
+/** Boots an app on `db` and migrates it, or with `migrate` false resolves its Orm as an application boot does. */
+async function withApp(db: TestDatabase, fn: (driver: PgliteOrmDriver) => Promise<void>, migrate = true): Promise<void> {
+  const app = await createTestApp({ configuration: appConfiguration(db.config) });
   try {
-    await fn((await app.resolve(Orm)).Connections.get('default') as PgliteOrmDriver);
+    const orm = migrate ? await db.migrate(app.container) : await app.resolve(Orm);
+    await fn(orm.Connections.get('default') as PgliteOrmDriver);
   } finally {
     await app.dispose();
   }
@@ -55,7 +57,7 @@ const optionsOf = (config: Partial<IDriverOptions>) => config.Options as { Share
 const names = (driver: PgliteOrmDriver) => driver.executeOnDb('SELECT "Name" FROM tdb_items', [], QueryContext.Select);
 
 describe('createTestDatabase', function () {
-  it('gives every call its own schema on one shared PGlite instance, migrated on the boot', async () => {
+  it('gives every call its own schema on one shared PGlite instance, which migrate() migrates', async () => {
     const a = await createTestDatabase();
     const b = await createTestDatabase();
 
@@ -63,12 +65,12 @@ describe('createTestDatabase', function () {
     expect(optionsOf(b.config).Shared).to.equal(TEST_PGLITE_INSTANCE);
     expect(optionsOf(a.config).Schema).to.match(/^tdb_\d+_[0-9a-f]{8}$/);
     expect(optionsOf(a.config).Schema).to.not.equal(optionsOf(b.config).Schema);
-    expect(a.config.Migration).to.deep.equal({ OnStartup: true });
+    expect(a.config.Migration).to.equal(undefined);
 
-    await withApp(a.config, async (driver) => {
+    await withApp(a, async (driver) => {
       await driver.executeOnDb('INSERT INTO tdb_items ("Name") VALUES (?)', ['in a'], QueryContext.Insert);
     });
-    await withApp(b.config, async (driver) => {
+    await withApp(b, async (driver) => {
       expect(await names(driver)).to.deep.equal([]);
     });
 
@@ -78,26 +80,30 @@ describe('createTestDatabase', function () {
 
   it('dispose() drops the schema', async () => {
     const db = await createTestDatabase();
-    await withApp(db.config, async (driver) => {
+    await withApp(db, async (driver) => {
       await driver.executeOnDb('INSERT INTO tdb_items ("Name") VALUES (?)', ['gone after dispose'], QueryContext.Insert);
     });
 
     await db.dispose();
 
-    // The same entry boots again into a recreated, freshly migrated schema.
-    await withApp(db.config, async (driver) => {
+    // The same entry migrates again into a recreated schema.
+    await withApp(db, async (driver) => {
       expect(await names(driver)).to.deep.equal([]);
     });
     await db.dispose();
   });
 
-  it('migrate: false gives an empty schema', async () => {
+  it('migrate: false gives an empty schema whose boot does not check the migrations', async () => {
     const db = await createTestDatabase({ migrate: false });
 
-    expect(db.config.Migration).to.deep.equal({ OnStartup: false });
-    await withApp(db.config, async (driver) => {
-      expect(await driver.tableInfo('tdb_items')).to.equal(null);
-    });
+    expect(db.config.Migration).to.deep.equal({ Check: 'off' });
+    await withApp(
+      db,
+      async (driver) => {
+        expect(await driver.tableInfo('tdb_items')).to.equal(null);
+      },
+      false,
+    );
     await db.dispose();
   });
 
@@ -108,12 +114,12 @@ describe('createTestDatabase', function () {
     expect(optionsOf(a.config).LoadDataDir).to.be.a('string').and.equal(optionsOf(b.config).LoadDataDir);
     expect(existsSync(optionsOf(a.config).LoadDataDir!)).to.equal(true);
 
-    await withApp(a.config, async (driver) => {
-      // The boot did not migrate again: a second CREATE TABLE would have failed it.
+    await withApp(a, async (driver) => {
+      // migrate() found nothing pending: a second CREATE TABLE would have failed it.
       expect(await driver.tableInfo('tdb_items')).to.not.equal(null);
       await driver.executeOnDb('INSERT INTO tdb_items ("Name") VALUES (?)', ['only here'], QueryContext.Insert);
     });
-    await withApp(a.config, async (driver) => {
+    await withApp(a, async (driver) => {
       expect(await names(driver)).to.deep.equal([]);
     });
   });
@@ -131,19 +137,30 @@ describe('createTestDatabase', function () {
     await expect(createTestDatabase({ strategy: 'template', migrate: false })).to.be.rejectedWith(InvalidArgument, /template is a migrated database; use migrate: false with strategy 'schema'/);
   });
 
-  it('sqlite is an in-memory connection the app migrates', async () => {
+  it('sqlite is an in-memory connection', async () => {
     const db = await createTestDatabase({ dialect: 'sqlite', connection: 'main' });
 
-    expect(db.config).to.deep.equal({ Driver: 'orm-driver-sqlite', Name: 'main', Filename: ':memory:', Migration: { OnStartup: true } });
+    expect(db.config).to.deep.equal({ Driver: 'orm-driver-sqlite', Name: 'main', Filename: ':memory:' });
   });
 
   it('works through createTestApp({ config }), which carries the entry as JSON', async () => {
     const db = await createTestDatabase();
     expect(JSON.parse(JSON.stringify(db.config))).to.deep.equal(db.config);
 
-    const app = await createTestApp({ config: { logger: SILENT, db: { DefaultConnection: 'default', StrictTableCheck: false, Connections: [db.config] } }, resolve: [OrmMigrator] });
+    const app = await createTestApp({ config: { logger: SILENT, db: { DefaultConnection: 'default', StrictTableCheck: false, Connections: [db.config] } } });
     try {
-      expect(await (await app.resolve(Orm)).Connections.get('default')!.tableInfo('tdb_items')).to.not.equal(null);
+      expect(await (await db.migrate(app.container)).Connections.get('default')!.tableInfo('tdb_items')).to.not.equal(null);
+    } finally {
+      await app.dispose();
+    }
+    await db.dispose();
+  });
+
+  it('an app that resolves the Orm before migrate() refuses to boot and names the pending migration', async () => {
+    const db = await createTestDatabase();
+    const app = await createTestApp({ configuration: appConfiguration(db.config) });
+    try {
+      await expect(app.resolve(Orm)).to.be.rejectedWith(PendingMigrationsException, /TestingOrmDatabase_2026_11_03_00_00_00/);
     } finally {
       await app.dispose();
     }

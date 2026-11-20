@@ -3,7 +3,8 @@ import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm, OrmDriver, OrmMigrator, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrator, QueryContext, resolveMigrationTool } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
@@ -34,7 +35,7 @@ export interface TestDb {
 }
 
 export interface BootOptions {
-  /** `Migration.OnStartup` of the connection; default true. `false` also boots with db.StrictTableCheck off: those suites create or seed the authz tables after the boot. */
+  /** Run migrateTestDatabase(); default true. `false` also boots with db.StrictTableCheck off: those suites create or seed the authz tables after the boot. */
   migrate?: boolean;
   /** Also boot a second connection (`TestDb.second`). */
   second?: boolean;
@@ -115,24 +116,24 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-  const migration = { OnStartup: options.migrate ?? true };
+  const migrate = options.migrate ?? true;
   let database: string | undefined;
   let connection: Record<string, unknown>;
 
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = await createPgDatabase(suite);
-    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
+    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
+    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:' };
   }
 
   const container: IContainer = DI.child();
   const secondName = `l2-${suite}-second`;
-  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true && migration.OnStartup } }] : [];
+  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:' }] : [];
   // The test database boots as an app does, against the core schema.
   container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined, migration.OnStartup)).as(Configuration);
+  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined, migrate)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
@@ -141,8 +142,12 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
-    migrator = (await container.resolve(Orm)).Migrator;
-    orm = await container.resolve(Orm);
+    if (migrate) {
+      ({ orm, migrator } = await migrateTestDatabase(container));
+    } else {
+      migrator = await resolveMigrationTool(container);
+      orm = await container.resolve(Orm);
+    }
   } catch (err) {
     if (database) {
       await dropPgDatabase(database);

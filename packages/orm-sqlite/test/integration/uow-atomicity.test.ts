@@ -11,6 +11,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
@@ -50,7 +51,7 @@ export class UowIntegrationConf extends FrameworkConfiguration {
               Driver: 'orm-driver-sqlite',
               Name: 'sqlite',
               Filename: dbFile,
-              Migration: { Table: 'orm_migrations_uow_integration', OnStartup: false },
+              Migration: { Table: 'orm_migrations_uow_integration' },
             },
           ],
         },
@@ -69,8 +70,7 @@ async function boot() {
     await b.bootstrap();
   }
 
-  const orm = await DI.resolve(Orm);
-  await (await DI.resolve(Orm)).Migrator.Runner.up();
+  const { orm } = await migrateTestDatabase();
   await orm!.reloadTableInfo();
 
   return orm!;

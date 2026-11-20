@@ -16,7 +16,7 @@ class PgliteStreamConf extends FrameworkConfiguration {
     await super.resolve();
     Object.assign(this.Config, {
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-      db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-pglite', Name: 'pglite', Filename: ':memory:', Migration: { OnStartup: false } }] },
+      db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-pglite', Name: 'pglite', Filename: ':memory:' }] },
     });
   }
 }
