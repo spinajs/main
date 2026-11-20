@@ -3,6 +3,7 @@ import type { AuditAppend, AuditReader, TrailConfig } from '@spinajs/audit';
 import { DI, Injectable } from '@spinajs/di';
 
 import { insertForWrite, joinsCallerOn, quoted, writeDriver } from './orm-store.js';
+import { assertOwnTable } from './own-tables.js';
 import { storedColumns } from './rows.js';
 import { TableAuditReader } from './table-reader.js';
 
@@ -20,6 +21,7 @@ export class TableAuditStore extends AuditStore {
   }
 
   async append(write: AuditAppend): Promise<void> {
+    assertOwnTable(write.trail, TableAuditStore);
     const driver = writeDriver(write, 'TableAuditStore');
     try {
       await insertForWrite(driver, write, write.trail.table, write.events.map(storedColumns));
@@ -29,7 +31,8 @@ export class TableAuditStore extends AuditStore {
     }
   }
 
-  reader(): Promise<AuditReader | undefined> {
+  reader(trail: TrailConfig): Promise<AuditReader | undefined> {
+    assertOwnTable(trail, TableAuditStore);
     return Promise.resolve(DI.resolve(TableAuditReader));
   }
 }

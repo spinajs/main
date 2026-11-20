@@ -12,12 +12,13 @@ import { DIALECTS, TestDb } from '../src/testing.js';
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-const TABLE = 'audit_t';
+// Each trail owns its table, also when the trails sit on different connections.
+const tableOf = (dialect: string): string => `audit_t_${dialect}`;
 const SOURCED = 'audit_sourced';
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 const patient = { type: 'patient', id: '17' };
 const trailOf = (dialect: string): string => `t_${dialect}`;
-const TRAILS = Object.fromEntries(DIALECTS.map((d) => [trailOf(d), { connection: d, table: TABLE, onFailure: 'reject', retry: { attempts: 1, delay: 1 } }]));
+const TRAILS = Object.fromEntries(DIALECTS.map((d) => [trailOf(d), { connection: d, table: tableOf(d), onFailure: 'reject', retry: { attempts: 1, delay: 1 } }]));
 const day = (n: number): Date => new Date(`2026-11-0${n}T10:00:00.000Z`);
 
 // The shape of a reader over an archive: one table on one connection, the events of several sources told apart by a column.
@@ -83,16 +84,16 @@ describe('TableAuditReader', function () {
   it("records the erasure on the source it redacted, also when the trail's own connection has no table", async function () {
     if (!db.has('pglite')) this.skip();
     const stored: AuditEvent = { id: 'e9', at: day(1), kind: 'data', action: 'update', subject: patient, outcome: 'ok', actor: 'user:u1', data: { n: 1 } };
-    await db.migrate('pglite', TABLE);
-    await insertRows(db.driver('pglite'), TABLE, [storedColumns(stored)]);
+    await db.migrate('pglite', tableOf('sqlite'));
+    await insertRows(db.driver('pglite'), tableOf('sqlite'), [storedColumns(stored)]);
 
     // The trail's connection is sqlite, where audit_t does not exist at this point, and the trail rejects a failed write.
     expect(await audit().trail(trailOf('sqlite')).forget(patient, 'pglite')).to.eq(1);
-    expect((await db.rows('pglite', TABLE)).map((r) => [r.action, r.data])).to.deep.eq([
+    expect((await db.rows('pglite', tableOf('sqlite'))).map((r) => [r.action, r.data])).to.deep.eq([
       ['update', ''],
       ['erasure', '{"redacted":1}'],
     ]);
-    await db.drop('pglite', TABLE);
+    await db.drop('pglite', tableOf('sqlite'));
   });
 
   for (const dialect of DIALECTS) {
@@ -104,7 +105,7 @@ describe('TableAuditReader', function () {
       });
 
       beforeEach(async () => {
-        await db.migrate(dialect, TABLE);
+        await db.migrate(dialect, tableOf(dialect));
         await as('u1', TRACE, () =>
           audit().record(
             [
@@ -118,7 +119,7 @@ describe('TableAuditReader', function () {
       });
 
       afterEach(async () => {
-        await db.drop(dialect, TABLE);
+        await db.drop(dialect, tableOf(dialect));
       });
 
       it('answers by actor, by subject and by trace, oldest first', async () => {
@@ -151,7 +152,7 @@ describe('TableAuditReader', function () {
       });
 
       it('redacts a subject, keeps the payload hashes and records the erasure', async () => {
-        const before = await db.rows(dialect, TABLE);
+        const before = await db.rows(dialect, tableOf(dialect));
         const events = audit().trail(trail);
         expect(await events.forget(patient)).to.eq(2);
 
@@ -160,7 +161,7 @@ describe('TableAuditReader', function () {
           ['update', true, {}],
           ['erasure', false, { redacted: 2 }],
         ]);
-        const rows = await db.rows(dialect, TABLE);
+        const rows = await db.rows(dialect, tableOf(dialect));
         expect(rows.map((r) => r.data)).to.deep.eq(['', '{}', '', '{"redacted":2}']);
         const withoutData = ({ data: _data, ...rest }: Record<string, unknown>): Record<string, unknown> => rest;
         expect(rows.slice(0, 3).map(withoutData)).to.deep.eq(before.map(withoutData));
@@ -168,9 +169,9 @@ describe('TableAuditReader', function () {
 
       it('prunes more than one chunk', async () => {
         const old = Array.from({ length: 501 }, (_unused, i): AuditEvent => ({ id: `p${i}`, at: day(4), kind: 'action', action: 'old', outcome: 'ok', actor: 'user:u1', data: {} }));
-        await insertRows(db.driver(dialect), TABLE, old.map(storedColumns));
+        await insertRows(db.driver(dialect), tableOf(dialect), old.map(storedColumns));
         expect(await new TableAuditReader().prune(trailConfig(trail), day(5))).to.eq(504);
-        expect(await db.rows(dialect, TABLE)).to.have.length(0);
+        expect(await db.rows(dialect, tableOf(dialect))).to.have.length(0);
       });
     });
   }

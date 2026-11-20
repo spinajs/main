@@ -13,18 +13,18 @@ import { DIALECTS, TestDb } from '../src/testing.js';
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-const TABLE = 'audit_t';
+const tableOf = (dialect: string): string => `audit_t_${dialect}`;
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 const trailOf = (dialect: string): string => `t_${dialect}`;
 const missingOf = (dialect: string): string => `m_${dialect}`;
 const lostOf = (dialect: string): string => `l_${dialect}`;
 const TRAILS = Object.fromEntries(
   DIALECTS.flatMap((d) => [
-    [trailOf(d), { connection: d, table: TABLE, onFailure: 'reject', retry: { attempts: 1, delay: 1 } }],
-    // Three tries: a joined write must still be tried once only. No two trails of one connection share a table, and
-    // audit_missing and audit_lost are never created.
-    [missingOf(d), { connection: d, table: 'audit_missing', onFailure: 'reject', retry: { attempts: 3, delay: 1 } }],
-    [lostOf(d), { store: 'CountingStore', connection: d, table: 'audit_lost', onFailure: 'continue', retry: { attempts: 3, delay: 1 } }],
+    [trailOf(d), { connection: d, table: tableOf(d), onFailure: 'reject', retry: { attempts: 1, delay: 1 } }],
+    // Three tries: a joined write must still be tried once only. Each trail has a table of its own, on every connection,
+    // and the audit_missing_* and audit_lost_* tables are never created.
+    [missingOf(d), { connection: d, table: `audit_missing_${d}`, onFailure: 'reject', retry: { attempts: 3, delay: 1 } }],
+    [lostOf(d), { store: 'CountingStore', connection: d, table: `audit_lost_${d}`, onFailure: 'continue', retry: { attempts: 3, delay: 1 } }],
   ]),
 );
 const SPARE = { Driver: 'orm-driver-sqlite', Name: 'spare', Filename: ':memory:' };
@@ -97,11 +97,11 @@ describe('TableAuditStore', function () {
 
   it("writes a confirmed event on the connection the write names instead of the trail's", async function () {
     if (!db.has('pglite')) this.skip();
-    // audit_t does not exist on sqlite here, the connection of this trail.
-    await db.migrate('pglite', TABLE);
+    // audit_t_sqlite does not exist on sqlite here, the connection of this trail.
+    await db.migrate('pglite', tableOf('sqlite'));
     await audit().record({ kind: 'custom', action: 'moved' }, { trail: trailOf('sqlite'), connection: 'pglite' });
-    expect((await db.rows('pglite', TABLE)).map((r) => r.action)).to.deep.eq(['moved']);
-    await db.drop('pglite', TABLE);
+    expect((await db.rows('pglite', tableOf('sqlite'))).map((r) => r.action)).to.deep.eq(['moved']);
+    await db.drop('pglite', tableOf('sqlite'));
   });
 
   for (const dialect of DIALECTS) {
@@ -113,11 +113,11 @@ describe('TableAuditStore', function () {
       });
 
       beforeEach(async () => {
-        await db.migrate(dialect, TABLE);
+        await db.migrate(dialect, tableOf(dialect));
       });
 
       afterEach(async () => {
-        await db.drop(dialect, TABLE);
+        await db.drop(dialect, tableOf(dialect));
       });
 
       it('stores every field, the payload as canonical JSON and its hash', async () => {
@@ -125,7 +125,7 @@ describe('TableAuditStore', function () {
         const input = { kind: 'read', action: 'patient.read', subject: { type: 'patient', id: '17' }, dataSubject: 'person:9', data: { columns: ['ssn'], because: 'ward round' } } as const;
         await (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>).run(request, () => audit().record(input, { trail }));
 
-        const [row] = await db.rows(dialect, TABLE);
+        const [row] = await db.rows(dialect, tableOf(dialect));
         const data = '{"because":"ward round","columns":["ssn"]}';
         expect(row).to.include({ kind: 'read', action: 'patient.read', subject_type: 'patient', subject_id: '17', outcome: 'ok', actor: 'user:u1', on_behalf_of: 'user:admin', trace_id: TRACE, origin: '10.0.0.7', tenant: null, decision_id: null, idempotency_key: null, data_subject: 'person:9', data });
         expect(row.data_hash).to.eq(createHash('sha256').update(data).digest('hex'));
@@ -138,7 +138,7 @@ describe('TableAuditStore', function () {
         await audit().record({ kind: 'custom', action: 'odd.text', data }, { trail });
         const [event] = await audit().trail(trail).since(0);
         expect(event.data).to.deep.eq(data);
-        expect((await db.rows(dialect, TABLE))[0].data_hash).to.eq(payloadHash(data));
+        expect((await db.rows(dialect, tableOf(dialect)))[0].data_hash).to.eq(payloadHash(data));
       });
 
       it('keeps a payload over the 64 kB of a MySQL TEXT column', async () => {
@@ -146,7 +146,7 @@ describe('TableAuditStore', function () {
         await audit().record({ kind: 'custom', action: 'large', data }, { trail });
         const [event] = await audit().trail(trail).since(0);
         expect(event.data).to.deep.eq(data);
-        expect((await db.rows(dialect, TABLE))[0].data_hash).to.eq(payloadHash(data));
+        expect((await db.rows(dialect, tableOf(dialect)))[0].data_hash).to.eq(payloadHash(data));
       });
 
       it('commits and rolls back a transactional event with the write', async () => {
@@ -157,10 +157,10 @@ describe('TableAuditStore', function () {
           throw new Error('caller failed');
         });
         await expect(failing).to.be.rejectedWith('caller failed');
-        expect(await db.rows(dialect, TABLE)).to.have.length(0);
+        expect(await db.rows(dialect, tableOf(dialect))).to.have.length(0);
 
         await driver.transaction(() => audit().record(input, { trail, mode: 'transactional', transaction: driver }));
-        expect(await db.rows(dialect, TABLE)).to.have.length(1);
+        expect(await db.rows(dialect, tableOf(dialect))).to.have.length(1);
       });
 
       it('refuses a transactional event outside a transaction, and a transaction that is no driver', async () => {
@@ -170,13 +170,13 @@ describe('TableAuditStore', function () {
       });
 
       it('fails the write when the table is missing, and says where to look', async () => {
-        await db.drop(dialect, TABLE);
+        await db.drop(dialect, tableOf(dialect));
         const error: unknown = await audit()
           .record({ kind: 'action', action: 'x' }, { trail })
           .catch((e: unknown) => e);
         expect(error).to.be.instanceOf(AuditWriteFailed);
         const inner = error instanceof AuditWriteFailed && error.inner instanceof Error ? error.inner.message : '';
-        expect(inner).to.eq(`audit: recording 1 event(s) of trail "${trail}" in ${TABLE} on connection "${dialect}" failed; is the table migrated there (AuditTrailTableMigration)?`);
+        expect(inner).to.eq(`audit: recording 1 event(s) of trail "${trail}" in ${tableOf(dialect)} on connection "${dialect}" failed; is the table migrated there (AuditTrailTableMigration)?`);
       });
 
       const input = { kind: 'read', action: 'patient.read' } as const;
@@ -188,14 +188,14 @@ describe('TableAuditStore', function () {
             const started = Date.now();
             await audit().record(input, { trail });
             expect(Date.now() - started).to.be.below(CONFIRM_TIMEOUT_MS);
-            expect(await db.rows(dialect, TABLE)).to.have.length(1);
+            expect(await db.rows(dialect, tableOf(dialect))).to.have.length(1);
             throw new Error('caller failed');
           });
           await expect(failing).to.be.rejectedWith('caller failed');
-          expect(await db.rows(dialect, TABLE)).to.have.length(0);
+          expect(await db.rows(dialect, tableOf(dialect))).to.have.length(0);
 
           await driver.transaction(() => audit().record(input, { trail }));
-          expect(await db.rows(dialect, TABLE)).to.have.length(1);
+          expect(await db.rows(dialect, tableOf(dialect))).to.have.length(1);
         });
 
         it("leaves the caller's transaction usable when a joined confirmed write fails, on a reject and on a continue trail", async () => {
@@ -209,14 +209,14 @@ describe('TableAuditStore', function () {
               await audit().record({ kind: 'data', action: 'insert' }, { trail, mode: 'transactional', transaction: driver });
             }),
           );
-          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.deep.eq(['insert']);
+          expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.deep.eq(['insert']);
           expect(CountingStore.calls).to.eq(1);
           expect(lines).to.deep.eq([[lostOf(dialect), 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
         });
 
         it('runs parallel joined confirmed writes of one transaction one after another', async () => {
           await db.driver(dialect).transaction(() => Promise.all(['a', 'b'].map((action) => audit().record({ kind: 'custom', action }, { trail }))));
-          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.have.members(['a', 'b']);
+          expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.have.members(['a', 'b']);
         });
 
         it('keeps the row of a parallel joined write when the other one fails', async () => {
@@ -224,7 +224,7 @@ describe('TableAuditStore', function () {
             const settled = await Promise.allSettled([audit().record(input, { trail: missingOf(dialect) }), audit().record({ kind: 'custom', action: 'kept' }, { trail })]);
             expect(settled.map((s) => s.status)).to.deep.eq(['rejected', 'fulfilled']);
           });
-          expect((await db.rows(dialect, TABLE)).map((r) => r.action)).to.deep.eq(['kept']);
+          expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.deep.eq(['kept']);
         });
       } else {
         it("keeps a confirmed event when the caller's transaction rolls back", async () => {
@@ -235,7 +235,7 @@ describe('TableAuditStore', function () {
             throw new Error('caller failed');
           });
           await expect(failing).to.be.rejectedWith('caller failed');
-          expect(await db.rows(dialect, TABLE)).to.have.length(1);
+          expect(await db.rows(dialect, tableOf(dialect))).to.have.length(1);
         });
       }
     });

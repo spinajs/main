@@ -40,14 +40,17 @@ export class TableAuditReader extends AuditReader {
     return false;
   }
 
-  async list(trail: TrailConfig, filter: AuditFilter): Promise<readonly StoredAuditEvent[]> {
+  /** `by` 'at' orders by time, then `seq`: what a merge of several connections by time needs. */
+  async list(trail: TrailConfig, filter: AuditFilter, by: 'seq' | 'at' = 'seq'): Promise<readonly StoredAuditEvent[]> {
     if (filter.kinds?.length === 0 || filter.actions?.length === 0) return [];
     const select: Select = this.driver(trail, filter.source).select().from(this.table(trail));
     if (this.hasSourceColumn()) select.where('source', filter.source ?? trail.connection);
     scope(select, filter);
     span(select, filter);
-    if (filter.order === 'desc') select.orderByDescending('seq');
-    else select.orderBy('seq');
+    for (const column of by === 'at' ? ['at', 'seq'] : ['seq']) {
+      if (filter.order === 'desc') select.orderByDescending(column);
+      else select.orderBy(column);
+    }
     return rowsOf(await select.take(filter.limit)).map(toStored);
   }
 

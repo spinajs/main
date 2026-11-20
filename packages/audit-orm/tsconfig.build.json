@@ -10,12 +10,15 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../audit/tsconfig.build.json" },
+    { "path": "../configuration/tsconfig.build.json" },
     { "path": "../di/tsconfig.build.json" },
+    { "path": "../log-common/tsconfig.build.json" },
     { "path": "../orm/tsconfig.build.json" },
     { "path": "../log/tsconfig.build.json" },
     { "path": "../orm-mysql/tsconfig.build.json" },
     { "path": "../orm-postgres/tsconfig.build.json" },
     { "path": "../orm-sqlite/tsconfig.build.json" },
+    { "path": "../scheduler/tsconfig.build.json" },
     { "path": "../testing/tsconfig.build.json" },
     { "path": "../testing-orm/tsconfig.build.json" }
   ]
