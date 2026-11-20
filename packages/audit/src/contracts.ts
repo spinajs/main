@@ -142,6 +142,24 @@ export interface AuditTamper {
   readonly toSeq: number;
 }
 
+/** A row inside a sealed range that its seal does not cover; its own content is protected by no seal. */
+export interface AuditUncoveredRow {
+  readonly seq: number;
+  /**
+   * late: committed after its range was sealed (a transaction that outlived audit.seal.settleSeconds), or inserted into
+   * the range later: the two look alike. pruned: present in a range retention removed, written after it or after a seq reset.
+   */
+  readonly reason: 'late' | 'pruned';
+  readonly fromSeq: number;
+  readonly toSeq: number;
+}
+
+/** A seal's end and hash kept outside the database, for example from the sealer's log. */
+export interface AuditPinnedHead {
+  readonly toSeq: number;
+  readonly hash: string;
+}
+
 export interface AuditVerifyReport {
   readonly trail: string;
   /** The connection and table whose seals were recomputed. */
@@ -161,6 +179,10 @@ export interface AuditVerifyReport {
   readonly unsealed: number;
   /** The last seal that verified; a copy of its hash kept outside the database pins the chain. */
   readonly head: { readonly toSeq: number; readonly hash: string } | undefined;
+  /** Rows in sealed ranges that their seal does not cover, up to where verification stopped; not tampering by themselves. */
+  readonly uncovered: readonly AuditUncoveredRow[];
+  /** Seqs of sealed events whose payload is erased with no `erasure` record of their subject at or after them: blanked outside `forget`. */
+  readonly unexplainedRedactions: readonly number[];
 }
 
 export abstract class AuditReader {
@@ -168,8 +190,8 @@ export abstract class AuditReader {
   /** Blanks the payload of every event of one subject and keeps its hash; returns how many. */
   abstract redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number>;
   abstract prune(trail: TrailConfig, before: Date, source?: string): Promise<number>;
-  /** Optional: recomputes the seals of the trail's table. A reader that cannot leaves it out. */
-  verify?(trail: TrailConfig, source?: string): Promise<AuditVerifyReport>;
+  /** Optional: recomputes the seals of the trail's table; a pinned head must be met on the chain. A reader that cannot leaves it out. */
+  verify?(trail: TrailConfig, source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;
 }
 
 export interface AuditBatch {
@@ -207,7 +229,7 @@ export interface AuditTrail {
   /** Redacts one subject and records an 'erasure' event, both on `source` when one is given. */
   forget(subject: AuditSubject, source?: string): Promise<number>;
   /** Recomputes the seals of a sealed trail; throws AuditNotSupported when the trail is not sealed, has no reader, or its reader cannot verify. */
-  verify(source?: string): Promise<AuditVerifyReport>;
+  verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport>;
 }
 
 /** A Service, so that disposing the container writes out the deferred buffer. */
