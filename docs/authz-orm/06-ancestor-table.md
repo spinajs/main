@@ -8,13 +8,13 @@ authz-orm keeps the table right on every ORM write of an `@AccessResource` model
 
 `AncestorObserver` is a `WriteObserver` on the [ORM write capture](../orm/25-write-capture.md), registered when `@spinajs/authz-orm` is imported. It never changes a query: the capture reads the rows a write reaches before and after it, once for every observer of the statement (the column changelog shares the same reads), and the observer writes the table in the write's transaction.
 
-1. `interest(query)` picks the writes it handles and asks for the primary key and the `@Parent` columns:
+1. `interest(statement)` picks the writes it handles and asks for the primary key and the `@Parent` columns:
    - a delete of any `@AccessResource` model;
    - an insert of a model with a `@Parent` column;
    - an update that writes a `@Parent` column.
    Other writes pass untouched.
-2. A delete, a `@Parent` update and an upsert (insert with ignore, replace or update) must run in a transaction. The observer asks for one, so the capture opens one when the caller has none. When none can be opened, `prepare(query)` fails the write with `AuthzConfigError`.
-3. `prepare(query)` also checks with `requireConnection(AncestorRecord, query.Driver, …)` that the write runs on the connection of `authz_resource_ancestor`. Another connection throws `AuthzConfigError` before any row is read or changed.
+2. A delete, a `@Parent` update and an upsert (insert with ignore, replace or update) must run in a transaction. The observer asks for one, so the capture opens one when the caller has none. When none can be opened, `prepare(statement)` fails the write with `AuthzConfigError`.
+3. `prepare(statement)` also checks with `requireConnection(AncestorRecord, query.Driver, …)` that the write runs on the connection of `authz_resource_ancestor`. Another connection throws `AuthzConfigError` before any row is read or changed.
 4. For an update or a delete, the capture's key select finds the ids the write reaches: the same where statements, as `SYSTEM`, soft-deleted and archived rows included. An upsert's rows are found by its key and unique columns.
 5. The statement runs.
 6. `observe(write)` updates the table from the rows the capture hands it:

@@ -5,8 +5,8 @@ import sinon from 'sinon';
 import { AuthzConfigError, ChangeBus, DecisionAudit, SYSTEM, ScopeForgetter } from '@spinajs/authz';
 import type { AdminContext, AuthzChange, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
 import { RecordingAudit, RecordingChangeBus, testHost } from '@spinajs/authz-testing';
-import { InsertBehaviour, InsertQueryBuilder, OrmDriver, SelectQueryBuilder, WriteObserver, createQuery } from '@spinajs/orm';
-import type { ModelBase, QueryBuilder } from '@spinajs/orm';
+import { InsertBehaviour, InsertQueryBuilder, OrmDriver, SelectQueryBuilder, WriteObserver, createQuery, writeStatementOf } from '@spinajs/orm';
+import type { ModelBase, QueryBuilder, WriteStatement } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 
 import { AncestorObserver } from '../../src/ancestors/middleware.js';
@@ -18,6 +18,12 @@ import type { Dialect } from '../support/db.js';
 import { ancestorLinks, createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 
 const expect = chai.expect;
+
+function statementOf(query: QueryBuilder): WriteStatement {
+  const statement = writeStatementOf(query);
+  if (!statement) throw new Error('not a write');
+  return statement;
+}
 
 type M = typeof ModelBase & { insert(v: object | object[], b?: InsertBehaviour): Promise<unknown>; update(v: object): { where(...a: unknown[]): Promise<unknown> } & Promise<unknown>; destroy(pk: unknown): Promise<unknown> };
 const ticks = async () => {
@@ -121,7 +127,7 @@ describe('AncestorObserver', function () {
         await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
         // The ORM compiles an update without a where clause to invalid SQL.
         const q = Task.update({ title: 'b' }).where('id', 1) as unknown as QueryBuilder;
-        expect(new AncestorObserver().interest(q)?.transactional ?? false).to.equal(false);
+        expect(new AncestorObserver().interest(statementOf(q))?.transactional ?? false).to.equal(false);
         await (q as unknown as Promise<unknown>);
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('task:1>'))).to.deep.equal(['task:1>org:o1@2', 'task:1>project:p1@1']);
       });
@@ -245,7 +251,7 @@ describe('AncestorObserver', function () {
         const q = Task.update({ project_id: 'p2' }) as unknown as QueryBuilder;
         let err: unknown;
         try {
-          new AncestorObserver().prepare(q);
+          new AncestorObserver().prepare(statementOf(q));
         } catch (e) {
           err = e;
         }

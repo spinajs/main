@@ -9,7 +9,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Connection, InsertBehaviour, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import '@spinajs/log';
 import { expect } from 'chai';
 import 'mocha';
@@ -76,8 +76,8 @@ const MODELS = [CapMember, CapPair, CapLower, CapPrefix];
 const writes: CapturedWrite[] = [];
 
 class Recorder extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return MODELS.some((m) => query.Model === m) ? { columns: '*', transactional: true } : undefined;
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return MODELS.some((m) => model === m) ? { columns: '*', transactional: true } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {

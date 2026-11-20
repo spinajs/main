@@ -5,8 +5,8 @@ import 'mocha';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, SqlExpressions, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import { Connection, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, SqlExpressions, UpdateQueryBuilder, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
@@ -19,8 +19,8 @@ const recorder = { writes: [] as CapturedWrite[], failWith: undefined as Error |
 const everything: CapturedWrite[] = [];
 
 class Recorder extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === UowTag ? { columns: ['Name'], transactional: true } : undefined;
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return model === UowTag ? { columns: ['Name'], transactional: true } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {
@@ -30,8 +30,8 @@ class Recorder extends WriteObserver {
 }
 
 class Everything extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === UowTag ? { columns: '*', transactional: true } : undefined;
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return model === UowTag ? { columns: '*', transactional: true } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {
@@ -74,14 +74,15 @@ class CapSoft extends ModelBase {
   public DeletedAt: DateTime;
 }
 
-const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false };
+const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false, prepared: [] as WriteStatement[] };
 
 class FixtureObserver extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft].some((m) => query.Model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return [CapMember, CapPair, CapSoft].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
-  prepare(): void {
+  prepare(statement: WriteStatement): void {
+    fixture.prepared.push(statement);
     if (fixture.prepareFails) throw new Error('prepare failed');
   }
 
@@ -268,6 +269,21 @@ describe('write capture on sqlite', function () {
       await CapMember.insert({ Email: 'x', Name: 'two' });
       fixture.writes = [];
       fixture.inTransaction = [];
+      fixture.prepared = [];
+    });
+
+    it('hands every hook the kind of the write together with its own builder', async () => {
+      await CapMember.insert({ Email: 'b', Name: 'three' });
+      await CapMember.update({ Name: 'b' }).where('Id', 1);
+      await CapMember.destroy(1);
+
+      expect(fixture.prepared.map((s) => [s.kind, s.query instanceof InsertQueryBuilder, s.query instanceof UpdateQueryBuilder, s.query instanceof DeleteQueryBuilder, s.model])).to.deep.eq([
+        ['insert', true, false, false, CapMember],
+        ['update', false, true, false, CapMember],
+        ['delete', false, false, true, CapMember],
+      ]);
+      const pairs = fixture.writes.map((w) => fixture.prepared.find((s) => s.query === w.query)?.kind === w.kind);
+      expect(pairs).to.deep.eq([true, true, true]);
     });
 
     it('locks the rows of the key select and the before read inside a transaction, and not without one', async () => {

@@ -1374,11 +1374,6 @@
       "count": 1
     }
   },
-  "packages/authz-orm/src/ancestors/middleware.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authz-orm/src/ancestors/store.ts": {
     "max-depth": {
       "count": 1

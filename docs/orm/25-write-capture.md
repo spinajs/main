@@ -6,19 +6,22 @@ Without a registered observer that is interested in a statement, the capture add
 
 ## An observer
 
-An observer is a class registered under `WriteObserver`. `interest()` is asked synchronously for every insert, update and delete of a model; it answers `undefined` for a statement it does not care about, or the columns it wants and whether it needs a transaction. `observe()` gets the rows after the statement ran.
+An observer is a class registered under `WriteObserver`. `interest()` is asked synchronously for every insert, update and delete of a model, with a `WriteStatement`: the write's `kind` (`insert`, `update`, `delete`), its builder as `query` and its `model`. `kind` narrows `query` to `InsertQueryBuilder`, `UpdateQueryBuilder` or `DeleteQueryBuilder`, so an observer reads `query.Value` of an update without `instanceof` or a cast. It answers `undefined` for a statement it does not care about, or the columns it wants and whether it needs a transaction. `observe()` gets the rows after the statement ran.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { ModelBase, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 
 class Invoice extends ModelBase {}
 
 @Injectable(WriteObserver)
 export class InvoiceStatusLog extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === Invoice ? { columns: ['status'], transactional: true } : undefined;
+  interest(statement: WriteStatement): CaptureInterest | undefined {
+    if (statement.model !== Invoice) return undefined;
+    // An update that leaves the status alone cannot change it.
+    if (statement.kind === 'update' && !('status' in (statement.query.Value ?? {}))) return undefined;
+    return { columns: ['status'], transactional: true };
   }
 
   async observe(write: CapturedWrite): Promise<void> {
@@ -31,9 +34,9 @@ export class InvoiceStatusLog extends WriteObserver {
 }
 ```
 
-`CapturedWrite` carries the statement's `kind` (`insert`, `update`, `delete`), the builder, the model, the driver the statement ran on (inside its transaction when one is open) and `rows`: one `RowChange` per row the statement reached, unchanged rows included. A `RowChange` has the primary key as text (`id`), `before` (undefined when the row did not exist) and `after` (undefined when the row is gone), each projected to the columns the observer asked for plus the primary key. `columns: '*'` reads the whole row.
+`CapturedWrite` is the `WriteStatement` plus the driver the statement ran on (inside its transaction when one is open) and `rows`: one `RowChange` per row the statement reached, unchanged rows included. A `RowChange` has the primary key as text (`id`), `before` (undefined when the row did not exist) and `after` (undefined when the row is gone), each projected to the columns the observer asked for plus the primary key. `columns: '*'` reads the whole row.
 
-The optional `prepare(query)` runs before any capture read, inside the transaction; throwing from it aborts the statement. Throwing from `observe()` rejects the write and rolls it back inside a transaction; without one the statement has already committed (see [Concurrent writers](#concurrent-writers)).
+The optional `prepare(statement)` gets the same `WriteStatement` and runs before any capture read, inside the transaction; throwing from it aborts the statement. Throwing from `observe()` rejects the write and rolls it back inside a transaction; without one the statement has already committed (see [Concurrent writers](#concurrent-writers)).
 
 ## What is read, and when
 
