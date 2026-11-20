@@ -70,7 +70,6 @@ Every token is an abstract class with `compile(): ICompilerOutput` (or `ICompile
 | `OnDuplicateQueryCompiler` | the dialect's insert compiler, for an upsert | `ICompilerOutput` |
 | `ColumnQueryCompiler`, `ForeignKeyQueryCompiler` | the dialect's table compilers | `ICompilerOutput` |
 | `AlterColumnQueryCompiler` | the dialect's alter-table compiler | `ICompilerOutput` |
-| `TableHistoryQueryCompiler` | the dialect's table compiler | `ICompilerOutput[]` |
 | `RecursiveQueryCompiler`, `GroupByQueryCompiler` | registered by the shipped drivers; the `@spinajs/orm-sql` select compiler mixes in `SqlWithRecursiveCompiler` and `SqlGroupByCompiler` directly | `ICompilerOutput` |
 | `JoinQueryCompiler` | declared; nothing in this repository registers or resolves it | |
 

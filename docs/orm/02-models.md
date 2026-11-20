@@ -145,7 +145,6 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@Hidden()` | property or relation | none | Adds the name to `Hidden`. `dehydrate()` and `dehydrateWithRelations()` always omit it, and `ResponseSchema` drops it. `Schema` keeps it. |
 | `@Ignore()` | property | none | Sets `Ignore: true` on the column: the property is not persisted. No insert, update, upsert, bulk insert or `save()` writes it, `dehydrate()` omits it, relation queries do not select it, and it is absent from `Schema` and `ResponseSchema`. Throws `InvalidArgument` on a `@Primary()` property. |
 | `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The constructor fills it with a v4 UUID. The converter stores 16-byte binary. |
-| `@Historical(targetModel)` | property | `targetModel: Constructor<ModelBase>` | Adds a `Many` relation to `targetModel`, joined on the source model's primary key column. |
 | `@JunctionTable()` | property | none | Records the property in `JunctionModelProperties`. See [Relations](06-relations.md). |
 | `@DiscriminationMap(field, entries)` | class | see [Discrimination maps](14-discrimination-maps.md) | Picks the class per row from a column value. |
 
@@ -267,7 +266,7 @@ updateModelDescriptor(Invoice, (d) => {
 - A composite key value is a tuple in declaration order. `PrimaryKeyValue` returns an array, and
   accepts an array in key order or an object keyed by column name.
 - A relation joins on one column. When the model a relation takes its default join column from has
-  a composite key, `@HasMany`, `@BelongsTo`, `@HasManyToMany` and `@Historical` throw
+  a composite key, `@HasMany`, `@BelongsTo` and `@HasManyToMany` throw
   `InvalidOperation` at class definition. Name the column explicitly.
 - `hydrate()` never overwrites the primary key of a model that has a snapshot, that is one loaded
   from or written to the database.
@@ -480,12 +479,8 @@ Neither writes into `AuditedModel`'s descriptor.
 
 ### History of a model
 
-`@Historical()` declares the relation to a history model. `TableQueryBuilder.trackHistory()` creates
-the `<table>__history` table and its triggers; see [Schema builder](09-schema-builder.md).
-`IHistoricalModel` and the abstract `HistoricalModel` class declare the history columns
-`__action__` (`'insert' | 'update' | 'delete'`), `__revision__`, `__start__` and `__end__`.
-
-<!-- TODO(docs-hook): verify how a history model is declared and populated end to end; HistoricalModel does not extend ModelBase and @Historical sets no RelationClass. -->
+`@spinajs/orm` records no history of its own rows. A model opts into row history with `@History()`
+from `@spinajs/orm-history`, which records every tracked insert, update and delete in the write's transaction.
 
 ## Column SQL specs, indexes and partial models
 
@@ -525,7 +520,7 @@ column as an error instead of a warning.
 - [Converters and hydration](04-converters-and-hydration.md): converter decorators and how columns are hydrated.
 - [Relations](06-relations.md): relation decorators and `@JunctionTable()`.
 - [Unit of work](07-unit-of-work.md): `save()`, snapshots and `@UpdatedAt()` stamping.
-- [Schema builder](09-schema-builder.md): `table.uuid()`, `trackHistory()`.
+- [Schema builder](09-schema-builder.md): `table.uuid()`.
 - [JSON schema](11-json-schema.md): how `Schema` and `ResponseSchema` use `Hidden` and `Ignore`.
 - [Discrimination maps](14-discrimination-maps.md): one table, several classes.
 - [`@spinajs/orm-sql`](../orm-sql/README.md): `tableInfo()` and the SQL drivers.
