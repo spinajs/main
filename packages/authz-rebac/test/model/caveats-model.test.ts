@@ -45,23 +45,23 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
   it('the type-level residual carries the request values of the reachable caveat parameters', async () => {
     const v = await vote('bob', { type: 'doc' }, { ip: '10.0.0.1', ua: 'x' });
     const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
-    expect(permit.args).to.deep.equal({ relation: 'read', principal: { type: 'user', id: 'bob' }, caveatInput: { 'env.ip': '10.0.0.1' } });
+    expect(permit.args).to.deep.equal({ relation: 'read', principal: { type: 'user', id: 'bob' }, caveatInput: { 'env.ip': '10.0.0.1' }, decided: ['not_expired', 'office_ip'] });
     expect(v.cacheable).to.equal(false);
     expect(await model.nativeFilter.matches(permit.args, {}, d1, ctx())).to.equal(true);
     expect(await model.nativeFilter.matches({ ...(permit.args as object), caveatInput: { 'env.ip': '10.0.0.2' } }, {}, d1, ctx())).to.equal(false);
   });
 
-  it('the type-level residual of a caveat without parameters is decided per row, not dropped', async () => {
+  it('the type-level residual leaves a caveat that calls a function undecided; the check decides it', async () => {
     const hours = { params: {}, expr: { fn: 'time.between', args: { from: '09:00', to: '17:00' } } };
     const m = new RebacModel({ store: new MemoryTupleStore([{ ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'hours' } }]), namespaces: { user: {}, doc: { relations: { viewer: ['user with hours'] } } }, permissions: { 'doc:read': 'doc#viewer' }, caveats: { hours } });
     await m.init(fakeModelInitContext({ permissions: INPUTS, model: m.name }));
     const at = (iso: string) => fakeEvaluationContext({ conditions: new DefaultConditionCompiler(), permissions: INPUTS, nativeFilters: [m.nativeFilter], now: new Date(iso) });
     const v = await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: {} }, at('2026-11-17T10:00:00Z'));
     const permit = v.permitWhen as Extract<ResourceFilter, { op: string; args: unknown }>;
-    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {}, caveatRequest: { env: {}, principal: userPrincipal('bob') } });
+    expect(permit.args).to.deep.equal({ relation: 'viewer', principal: { type: 'user', id: 'bob' }, caveatInput: {}, decided: [] });
     expect(v.cacheable).to.equal(false);
-    expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T10:00:00Z'))).to.equal(true);
-    expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T20:00:00Z'))).to.equal(false);
+    expect(await m.nativeFilter.matches(permit.args, {}, d1, at('2026-11-17T10:00:00Z'))).to.equal(false);
+    expect((await m.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: d1, env: {} }, at('2026-11-17T10:00:00Z'))).permitWhen).to.equal(TRUE);
   });
 
   describe('caveats that call a condition function', () => {
@@ -85,20 +85,17 @@ describe('authz-rebac: RebacModel with conditional tuples', () => {
       await fns.init(fakeModelInitContext({ permissions: INPUTS, model: fns.name }));
     });
 
-    it('the residual lists a row exactly when the check permits it, with the env and principal the check sees', async () => {
+    it('the residual lists none of their rows, while the check decides them with the request', async () => {
       for (const env of [{ ip: '6.6.6.6' }, { ip: '10.1.2.3' }, {}]) {
         const residual = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env }, fnCtx());
         expect(residual.cacheable).to.equal(false);
         for (const row of [d1, d2]) {
-          const check = (await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: row, env }, fnCtx())).permitWhen === TRUE;
           const listed = await evaluateFilter(residual.permitWhen, {}, { principal: userPrincipal('bob'), ref: row, env, nativeFilters: [fns.nativeFilter], context: fnCtx() });
-          expect(listed === true, `${row.id} ${JSON.stringify(env)}`).to.equal(check);
+          expect(listed === true, `${row.id} ${JSON.stringify(env)}`).to.equal(false);
         }
       }
-      const blocked = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: { ip: '6.6.6.6' } }, fnCtx());
-      expect(await fns.nativeFilter.matches((blocked.permitWhen as Extract<ResourceFilter, { args: unknown }>).args, {}, d1, fnCtx())).to.equal(false);
-      const office = await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: { type: 'doc' }, env: { ip: '10.1.2.3' } }, fnCtx());
-      expect(await fns.nativeFilter.matches((office.permitWhen as Extract<ResourceFilter, { args: unknown }>).args, {}, d2, fnCtx())).to.equal(true);
+      const check = async (row: typeof d1, ip: string) => (await fns.evaluate({ principal: userPrincipal('bob'), permission: 'doc:read', resource: row, env: { ip } }, fnCtx())).permitWhen;
+      expect([await check(d1, '10.1.2.3'), await check(d1, '6.6.6.6'), await check(d2, '10.1.2.3'), await check(d2, '6.6.6.6')]).to.deep.equal([TRUE, FALSE, TRUE, FALSE]);
     });
 
     it('listSubjects without a principal leaves a function caveat undecided', async () => {

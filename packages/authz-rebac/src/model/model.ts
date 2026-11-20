@@ -11,7 +11,7 @@ import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '..
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
 import { rebacListPlan, rebacListSupport } from './filter.js';
-import { RebacCaveats, overlayContext, pickCaveatInput } from './caveats.js';
+import { RebacCaveats, overlayContext } from './caveats.js';
 import type { CaveatRequest, CaveatTruth } from './caveats.js';
 import { rebacToIR } from '../ir.js';
 import { RebacWalk, expand } from '../expand.js';
@@ -132,9 +132,9 @@ export class RebacModel extends AuthorizationModel {
       const reachable = this.schema().caveatsReachable(target.type, target.name);
       if (reachable.length === 0) return this.vote({ op: REBAC_CHECK_OP, args: { relation: target.name, principal } });
       const caveats = new RebacCaveats(this.schema().caveats);
-      const args = { relation: target.name, principal, caveatInput: pickCaveatInput(caveats.paramsOf(reachable), request) };
-      // A condition function reads env and principal beyond the declared parameters: the row check gets the whole request.
-      return this.vote({ op: REBAC_CHECK_OP, args: caveats.callsFunction(reachable) ? { ...args, caveatRequest: { env: request.env, principal: req.principal } } : args }, false);
+      const { decided, caveatInput } = caveats.residualInput(reachable, request);
+      const args = { relation: target.name, principal, caveatInput, decided };
+      return this.vote({ op: REBAC_CHECK_OP, args }, false);
     }
     try {
       const { membership, tooDeep, cacheable, undecided } = await this.walk(req.resource, target.name, principal, ctx, request);
@@ -251,9 +251,9 @@ export class RebacModel extends AuthorizationModel {
    * Does `principal` hold `name` (a relation or permission) on `object`? Caveats read `request`, through `ctx`; without
    * both they are unknown. @throws RebacLimitExceeded past maxCalls
    */
-  async check(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext, request?: { readonly env?: Readonly<Record<string, unknown>>; readonly principal?: Principal }): Promise<Membership> {
+  async check(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext, request?: { readonly env?: Readonly<Record<string, unknown>>; readonly principal?: Principal; readonly decided?: readonly string[] }): Promise<Membership> {
     // A caveat reads neither the permission nor the resource (env.* and principal.* only), so neither field matters here.
-    const caveatRequest: CaveatRequest | undefined = request && { principal: request.principal ?? syntheticPrincipal(principal), permission: '', resource: object, env: request.env ?? {} };
+    const caveatRequest: CaveatRequest | undefined = request && { principal: request.principal ?? syntheticPrincipal(principal), permission: '', resource: object, env: request.env ?? {}, ...(request.decided ? { decided: request.decided } : {}) };
     return (await this.walk(object, name, principal, ctx, caveatRequest)).membership;
   }
 
@@ -460,12 +460,8 @@ class RebacCheckFilter extends NativeFilter {
   }
 
   async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
-    const { relation, principal, caveatInput, caveatRequest } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>>; caveatRequest?: { readonly env: Readonly<Record<string, unknown>>; readonly principal: Principal } };
-    const request = caveatRequest
-      ? { env: caveatRequest.env, principal: { ...caveatRequest.principal, type: principal.type, id: principal.id } }
-      : caveatInput === undefined
-        ? undefined
-        : overlayContext({ principal: residualPrincipal(principal, caveatInput), env: {} }, caveatInput);
+    const { relation, principal, caveatInput, decided } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>>; decided?: readonly string[] };
+    const request = caveatInput === undefined ? undefined : { ...overlayContext({ principal: residualPrincipal(principal, caveatInput), env: {} }, caveatInput), decided: decided ?? [] };
     try {
       return (await this.model.check(ref, relation, principal, ctx, request)) === 'member';
     } catch (e) {

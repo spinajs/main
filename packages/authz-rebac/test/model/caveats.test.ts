@@ -4,7 +4,7 @@ import { DefaultConditionCompiler } from '@spinajs/authz';
 import type { CaveatDef } from '@spinajs/authz-ir';
 import { fakeEvaluationContext, userPrincipal } from '@spinajs/authz-testing';
 
-import { RebacCaveats, overlayContext, pickCaveatInput } from '../../src/model/caveats.js';
+import { RebacCaveats, overlayContext } from '../../src/model/caveats.js';
 
 const expect = chai.expect;
 
@@ -56,7 +56,7 @@ describe('authz-rebac: caveat evaluation', () => {
     expect(principal.attributes).to.deep.equal({ level: 5 });
     expect(principal.id).to.equal('bob');
     expect(r.env).to.deep.equal({ ip: '10.0.0.1', ua: 'x' });
-    expect(pickCaveatInput(['env.ip', 'env.now', 'env.day', 'principal.attributes.level'], r)).to.deep.equal({ 'env.ip': '10.0.0.1', 'principal.attributes.level': 1 });
+    expect(caveats.residualInput(['not_expired', 'office_ip'], r)).to.deep.equal({ decided: ['not_expired', 'office_ip'], caveatInput: { 'env.ip': '10.0.0.1' } });
     expect(caveats.paramsOf(['not_expired', 'office_ip', 'nope'])).to.deep.equal(['env.day', 'env.ip', 'env.until']);
   });
 });

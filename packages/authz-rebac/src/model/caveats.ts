@@ -12,6 +12,8 @@ export interface CaveatRequest {
   readonly permission: Permission;
   readonly resource: ResourceRef;
   readonly env: Readonly<Record<string, unknown>>;
+  /** Set by a type-level residual: the only caveats it may decide at its rows; any other is `unknown` there. */
+  readonly decided?: readonly string[];
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
@@ -41,17 +43,68 @@ export function overlayContext(req: Pick<CaveatRequest, 'principal' | 'env'>, va
   return { principal: { ...req.principal, ...principal, type, id, authenticated, source }, env };
 }
 
-/** The request values of `paths` (`env.*` but `env.now`, `principal.*`), for a residual that is evaluated later. */
-export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const roots: Record<string, unknown> = { principal: req.principal, env: req.env };
-  for (const path of paths) {
-    if (path === 'env.now') continue;
-    let at: unknown = roots;
-    for (const s of path.split('.')) at = isRecord(at) && Object.hasOwn(at, s) ? at[s] : undefined;
-    if (at !== undefined) out[path] = at;
+const ABSENT = Symbol('absent');
+const THREW = Symbol('threw');
+
+/**
+ * The request value at a parameter path, read as the condition compiler's `readOwn` reads it: own properties only,
+ * through arrays and class instances alike. ABSENT where the compiler finds nothing; THREW where a getter throws (the
+ * compiler then finds nothing too, but the vote copy would fail on it).
+ */
+function readParam(req: Pick<CaveatRequest, 'principal' | 'env'>, path: string): unknown {
+  const [root, ...rest] = path.split('.');
+  let at: unknown = root === 'principal' ? req.principal : root === 'env' ? req.env : undefined;
+  try {
+    for (const s of rest) {
+      if (UNSAFE.has(s) || at === null || typeof at !== 'object' || !Object.hasOwn(at, s)) return ABSENT;
+      at = Reflect.get(at, s);
+    }
+  } catch {
+    return THREW;
   }
-  return out;
+  return at;
+}
+
+// What a residual's caveatInput may hold, so the vote stays under the engine's 10 000 values (`MAX_DATA_VALUES`).
+const RESIDUAL_VALUES = 8_000;
+
+const isPlain = (v: object): boolean => {
+  const proto: unknown = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
+
+// The engine refuses vote data nested deeper than 32 (`MAX_DATA_DEPTH`, counted from the args); a parameter value
+// sits two levels down (args, caveatInput).
+const MAX_VALUE_DEPTH = 30;
+
+/**
+ * How many values the engine's strict vote copy (`copyValue`) counts for `v`, visiting every array index as it does,
+ * or undefined when it would not keep `v` as it is (a class instance, function, bigint, invalid Date, cycle, undefined,
+ * data nested too deep) or `v` holds more than `limit`.
+ */
+function plainSize(v: unknown, limit: number): number | undefined {
+  let n = 0;
+  const walk = (x: unknown, depth: number, seen: Set<object>): boolean => {
+    if (++n > limit) return false;
+    if (x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') return true;
+    if (typeof x !== 'object' || depth > MAX_VALUE_DEPTH || seen.has(x)) return false;
+    if (x instanceof Date) return !Number.isNaN(Date.prototype.getTime.call(x));
+    if (!Array.isArray(x) && !isPlain(x)) return false;
+    seen.add(x);
+    try {
+      return childrenOf(x).every((item) => walk(item, depth + 1, seen));
+    } finally {
+      seen.delete(x);
+    }
+  };
+  return walk(v, 0, new Set()) ? n : undefined;
+}
+
+/** What the copy visits below an array or object: every index of an array, holes included. */
+function childrenOf(x: object): unknown[] {
+  if (!Array.isArray(x)) return Object.values(x);
+  const items: unknown[] = x;
+  return Array.from({ length: items.length }, (_, i) => (i in items ? items.at(i) : undefined));
 }
 
 function callsFunction(c: unknown): boolean {
@@ -80,9 +133,50 @@ export class RebacCaveats {
     return false;
   }
 
+  /**
+   * What a type-level residual carries for `names`: the caveats it can decide at its rows, and their parameter values.
+   * A caveat that calls a condition function (which may read anything of the request), or whose parameter values
+   * cannot travel in the vote unchanged or no longer fit in it, is left out, so it is `unknown` at the rows.
+   */
+  residualInput(names: readonly string[], req: Pick<CaveatRequest, 'principal' | 'env'>): { decided: string[]; caveatInput: Record<string, unknown> } {
+    const input = new Map<string, unknown>();
+    const decided: string[] = [];
+    let left = RESIDUAL_VALUES;
+    // What the check's compiler reads: the overlay's copies, which keep only enumerable own properties.
+    const seen = overlayContext(req, {});
+    for (const name of names) {
+      const def = this.defs.get(name);
+      if (def === undefined || callsFunction(def.expr)) continue;
+      const picked = new Map<string, unknown>();
+      let cost = 0;
+      const measure = (path: string): boolean => {
+        const v = path === 'env.now' || input.has(path) ? ABSENT : readParam(seen, path);
+        if (v === ABSENT) return true;
+        const size = v === THREW || v === undefined ? undefined : plainSize(v, left - cost);
+        if (size === undefined) return false;
+        picked.set(path, v);
+        cost += size;
+        return true;
+      };
+      let fits: boolean;
+      try {
+        fits = Object.keys(def.params).every(measure);
+      } catch {
+        // A getter inside the value threw: the vote copy would fail on it too.
+        fits = false;
+      }
+      if (!fits) continue;
+      for (const [path, v] of picked) input.set(path, v);
+      left -= cost;
+      decided.push(name);
+    }
+    return { decided, caveatInput: Object.fromEntries(input) };
+  }
+
   async evaluate(caveat: TupleCaveat, req: CaveatRequest, ctx: EvaluationContext): Promise<{ truth: CaveatTruth; cacheable: boolean }> {
     const def = this.defs.get(caveat.name);
     if (def === undefined) return { truth: 'unknown', cacheable: true };
+    if (req.decided !== undefined && !req.decided.includes(caveat.name)) return { truth: 'unknown', cacheable: false };
     // A stored context cannot move the clock, whatever store it came from.
     const context = Object.fromEntries(Object.entries(caveat.context ?? {}).filter(([path]) => path !== 'env.now'));
     const { principal, env } = overlayContext(req, context);
