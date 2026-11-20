@@ -4,7 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { MigrationSource, OrmException } from '@spinajs/orm';
-import { assertInsertOrIgnore, OutboxAmbiguousTransaction, OutboxConnectionNotCovered, OutboxMessageIdConflict, OutboxWriter, QueueHeaders, QueueOutboxMigrationSource, QueueService, startOutboxService } from '../src/index.js';
+import { assertInsertOrIgnore, OutboxAmbiguousTransaction, OutboxConnectionNotCovered, OutboxMessageIdConflict, OutboxWriter, QueueHeaders, QueueMessageType, QueueOutboxMigrationSource, QueueService, startOutboxService } from '../src/index.js';
 import { bootOutbox, bootOutboxDb, broker, BuildReport, disposeOutbox, eventually, faultsHit, OrderPlaced, outboxRows, T0 } from './support/outbox-env.js';
 
 /** The outbox migration source on a dialect without insert-or-ignore, as orm-mssql is before it implements orIgnore(). */
@@ -20,7 +20,8 @@ const { expect } = chai;
 const TRACEPARENT = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
 
 describe('queue outbox: writer and emit()', function () {
-  this.timeout(30_000);
+  // every case boots an Orm with three sqlite connections, which takes up to 30 s on a loaded machine
+  this.timeout(120_000);
   afterEach(disposeOutbox);
 
   it('writes a row in the ambient transaction and publishes nothing', async () => {
@@ -175,6 +176,32 @@ describe('queue outbox: writer and emit()', function () {
     await expect(env.orders.transaction(() => env.queue.emit(new OrderPlaced({ OrderId: '9', MessageId: id })))).to.be.rejectedWith(OutboxMessageIdConflict, /dead/);
     expect(await outboxRows(env.orders)).to.have.length(1);
     expect(broker.sent).to.deep.equal([]);
+  });
+
+  it('refuses a MessageId whose stored row has the same Name but another Type', async () => {
+    const env = await bootOutbox();
+    const id = '44444444-4444-4444-8444-444444444444';
+    await env.orders.transaction(() => env.queue.emit(new OrderPlaced({ OrderId: '10', MessageId: id })));
+    const writer = await DI.resolve(OutboxWriter);
+    const asJob = { ...new OrderPlaced({ OrderId: '10', MessageId: id }), Type: QueueMessageType.Job };
+    await expect(env.orders.transaction(() => writer.enlist(asJob))).to.be.rejectedWith(OutboxMessageIdConflict, /EVENT OrderPlaced, not the JOB OrderPlaced/);
+  });
+
+  it('stamps rows with database time', async () => {
+    const db = await bootOutboxDb();
+    db.clock.dbSkewMs = 5_000;
+    const queue = await DI.resolve(QueueService);
+    await db.orders.transaction(() => queue.emit(new OrderPlaced({ OrderId: 'db-time' })));
+    expect((await outboxRows(db.orders))[0]).to.include({ CreatedAt: T0 + 5_000, AvailableAt: T0 + 5_000 });
+  });
+
+  it('repeats the insert-or-ignore check when the queue service resolves', async () => {
+    // an Orm that resolved before @spinajs/queue was imported never ran the migration source's check
+    const db = await bootOutboxDb();
+    db.billing.insert = () => {
+      throw new OrmException('insert or ignore is not supported');
+    };
+    await expect(DI.resolve(QueueService)).to.be.rejectedWith(InvalidConfiguration, /"billing".*orIgnore\(\)/);
   });
 
   it('returns the JobId from emit() as without the outbox', async () => {
