@@ -9,7 +9,7 @@ import { FaultInjector } from '@spinajs/durable';
 import type * as Idempotency from '@spinajs/idempotency';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
-import { isPermanentJobFailure } from './hooks.js';
+import { assertDeliveryRouting, isNonRetryableFailure } from './delivery.js';
 import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
 import { RedeliverLater } from './redeliver.js';
@@ -22,10 +22,12 @@ export * from './redeliver.js';
 export { SystemTask, systemTaskOf } from '@spinajs/util';
 export * from './interfaces.js';
 export * from './headers.js';
+export * from './delivery.js';
 export * from './outbox/index.js';
 export * from './bootstrap.js';
 export { QUEUE_OUTBOX_CONFIGURATION_SCHEMA } from './schemas/queue.outbox.configuration.js';
 export { QUEUE_CONFIGURATION_SCHEMA } from './schemas/queue.configuration.js';
+export { QUEUE_ROUTING_CONFIGURATION_SCHEMA } from './schemas/queue.routing.configuration.js';
 export * from './tracing.js';
 export * from './decorators.js';
 export * from './hooks.js';
@@ -199,6 +201,7 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
+    this.assertDeliveryRoutingOf(event, connections);
     const dedupSubscription = await this.dedupSubscriptionOf(event, connections, subscriptionId);
 
     for (let c of connections) {
@@ -278,7 +281,7 @@ export class DefaultQueueService extends QueueService {
                 // authoritative across redeliveries ( a redelivered wire message could carry a different
                 // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
                 const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
-                jModel.Status = isPermanentJobFailure(err) || jModel.Attempt > maxRetries ? 'dead' : 'retrying';
+                jModel.Status = isNonRetryableFailure(err) || jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 if (jModel.Status === 'dead') {
                   jModel.FinishedAt = DateTime.now();
                 }
@@ -483,6 +486,14 @@ export class DefaultQueueService extends QueueService {
   /** The delivery is done with and what follows is the transport's ack; a crash here leaves it unsettled, so it comes again. */
   protected async beforeAck(message: IQueueMessage, subscriptionId: string | undefined): Promise<void> {
     await this.Faults.point('queue.before-ack', { messageId: message.MessageId, subscriptionId });
+  }
+
+  /** Every connection before the first subscribe: a route invalid on a later connection must not leave an earlier one subscribed. */
+  protected assertDeliveryRoutingOf(event: Constructor<QueueMessage>, connections: string[]): void {
+    for (const c of connections) {
+      const conn = this.Connections.get(c);
+      if (conn) assertDeliveryRouting(conn, event);
+    }
   }
 
   /** The subscription a consumed event is deduplicated under, or undefined when deduplication does not apply to it. */
