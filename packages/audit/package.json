@@ -8,6 +8,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing.d.ts",
+      "import": "./lib/testing.js"
     }
   },
   "type": "module",
@@ -48,6 +52,7 @@
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
+    "@spinajs/log-common": "3.0.23",
     "@spinajs/principal": "3.0.23"
   },
   "devDependencies": {
