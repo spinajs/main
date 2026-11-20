@@ -33,7 +33,7 @@ Pick the driver package for your database.
 | [Unit of work](07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
 | [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels and shared table locks |
 | [Schema builder](09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
-| [Migrations](10-migrations.md) | `OrmMigrator`: orders, locks and runs migrations and their seeds on startup and on demand, re-reads the touched models; `resolveMigrationTool()` |
+| [Migrations](10-migrations.md) | `OrmMigrator`: orders, locks and runs migrations and their seeds from `npx spinajs migrate-up`, re-reads the touched models; the boot check (`OrmMigrationGuard`, `db.MigrationCheck`); `resolveMigrationTool()`; `migrateTestDatabase()` |
 | [JSON schema](11-json-schema.md) | Builds a JSON schema from a model for validation |
 | [Architecture](12-architecture.md) | How a query becomes SQL, and the extension points a dialect driver implements |
 | [Observability and resilience](13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |

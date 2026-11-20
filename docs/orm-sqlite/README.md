@@ -44,7 +44,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: './data/app.sqlite',
             Pool: { Max: 4 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -62,7 +61,7 @@ export class Customer extends ModelBase<Customer> {
 }
 
 export async function listCustomers() {
-  // applies main's Migration.OnStartup migrations and installs the model statics
+  // installs the model statics; fails on pending migrations, so run `npx spinajs migrate-up` first
   await DI.resolve(Orm);
   return await Customer.where('Email', 'like', '%@example.com');
 }

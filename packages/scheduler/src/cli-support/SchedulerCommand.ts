@@ -27,8 +27,8 @@ export abstract class SchedulerCommand extends CliCommand {
   protected RawConfig: Partial<SchedulerConfig>;
 
   protected async service(): Promise<SchedulerService> {
-    // the cli resolves only the command; resolving the Orm applies the Migration.OnStartup migrations
-    await (await DI.resolve(Orm)).Migrator.ready();
+    // the cli resolves only the command; the scheduler's models need the Orm booted
+    await DI.resolve(Orm);
     return DI.resolve(SchedulerService);
   }
 
