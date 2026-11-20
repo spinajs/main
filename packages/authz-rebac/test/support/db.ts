@@ -12,9 +12,6 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import type { MySqlOrmDriver } from '@spinajs/orm-mysql';
 import type { PgliteOrmDriver } from '@spinajs/orm-pglite';
 import { randomBytes } from 'node:crypto';
-import { AuthzChangeLogHorizon_2026_11_06_00_00_00, AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
-
-import { AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00 } from '../../src/index.js';
 
 export interface TestDb {
   readonly orm: Orm;
@@ -90,13 +87,12 @@ export async function bootDb(suite: string, postgres?: Mocha.Context, dialect: D
   const database = dialect === 'postgres' && postgres ? await createPgDatabase(postgres, suite.replace(/[^a-z0-9_]/gi, '_')) : undefined;
   const mysqlDatabase = dialect === 'mysql' ? `rebac_${randomBytes(4).toString('hex')}` : undefined;
   if (mysqlDatabase !== undefined) await mysqlAdmin(postgres, `CREATE DATABASE ${mysqlDatabase}`);
-  const migration = { OnStartup: false };
   const connection =
     database !== undefined
-      ? { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration }
+      ? { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database }
       : mysqlDatabase !== undefined
-        ? { Name: name, Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Database: mysqlDatabase, Migration: migration }
-        : { Name: name, Driver: dialect === 'pglite' ? 'orm-driver-pglite' : 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
+        ? { Name: name, Driver: 'orm-driver-mysql', ...MYSQL_SERVER, Database: mysqlDatabase }
+        : { Name: name, Driver: dialect === 'pglite' ? 'orm-driver-pglite' : 'orm-driver-sqlite', Filename: ':memory:' };
   const connections = [connection];
   let extra: typeof PgliteOrmDriver | typeof MySqlOrmDriver | undefined;
   if (dialect === 'pglite') extra = (await import('@spinajs/orm-pglite')).PgliteOrmDriver;
@@ -121,13 +117,6 @@ export async function bootDb(suite: string, postgres?: Mocha.Context, dialect: D
   await container.resolve(Configuration);
   const { orm } = await migrateTestDatabase(container);
   const driver = orm.Connections.get('authz')!;
-  // By hand: the boot migration pass is not what these suites test.
-  await new AuthzRebac_2026_10_21_00_00_00().up(driver);
-  await new AuthzRebacCaveats_2026_11_06_00_00_00().up(driver);
-  await new AuthzChangeLog_2026_11_04_00_00_00().up(driver);
-  await new AuthzChangeLogHorizon_2026_11_06_00_00_00().up(driver);
-  // The Orm read the table info before authz_rebac_tuple existed.
-  await orm.reloadTableInfo();
 
   const dispose = async () => {
     await orm.dispose();
