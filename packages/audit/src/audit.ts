@@ -108,7 +108,7 @@ const idsOf = (events: readonly AuditEvent[]): string =>
 // Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString.
 function fallbackText(message: string, fields: Record<string, unknown>, err: unknown): string {
   try {
-    return `audit: the logger "audit-pipeline" failed (${inspect(err)}): ${message} ${inspect(fields, { breakLength: Infinity })}`;
+    return `audit: the logger "audit-pipeline" failed (${err instanceof Error ? String(err) : inspect(err)}): ${message} ${inspect(fields, { breakLength: Infinity })}`;
   } catch {
     return `audit: the logger "audit-pipeline" failed: ${message}`;
   }
