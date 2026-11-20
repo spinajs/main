@@ -3,9 +3,10 @@ import { Bootstrapper, Constructor, DI, Injectable, PerInstanceCheck, type Conta
 import { Clock, DbTimeSource, FaultInjector, type FaultPointName } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
-import { Event, hydrateOutboxMessage, IQueueMessage, OUTBOX_TABLE, OutboxRow, QueueClient, QueueEvent, QueueMessage, QueueService, toOutboxRow, type IQueueOutboxConfig } from '../../src/index.js';
+import { Event, hydrateOutboxMessage, IQueueMessage, Job, OUTBOX_TABLE, OutboxRow, QueueClient, QueueEvent, QueueJob, QueueMessage, QueueService, toOutboxRow, type IQueueOutboxConfig } from '../../src/index.js';
 
 export const T0 = Date.parse('2026-11-16T10:00:00.000Z');
 
@@ -28,6 +29,13 @@ export async function eventually(done: () => boolean | Promise<boolean>, withinM
 @Event()
 export class OrderPlaced extends QueueEvent {
   public OrderId: string;
+}
+
+@Job()
+export class BuildReport extends QueueJob {
+  public async execute(): Promise<unknown> {
+    return 'ok';
+  }
 }
 
 export function orderIdOf(message: IQueueMessage): string {
@@ -181,8 +189,7 @@ export async function bootOutboxDb(o: OutboxEnvOptions = {}): Promise<OutboxDb> 
     for (const bootstrapper of await DI.resolve(Array.ofType(Bootstrapper))) await bootstrapper.bootstrap();
   }
   await DI.resolve(Configuration);
-  const orm = await DI.resolve(Orm);
-  await orm.Migrator.ready();
+  const { orm } = await migrateTestDatabase();
   return { clock, faults, orders: connection(orm, 'orders'), billing: connection(orm, 'billing'), uncovered: connection(orm, 'queue') };
 }
 

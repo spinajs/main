@@ -1,10 +1,11 @@
-import { Config } from '@spinajs/configuration';
-import { Injectable } from '@spinajs/di';
+import { Config, InvalidConfiguration } from '@spinajs/configuration';
+import { DI, Injectable } from '@spinajs/di';
 import type { ClassInfo } from '@spinajs/di';
 import { MIGRATION_DESCRIPTION_SYMBOL, MIGRATION_DI_SOURCE, MigrationSource, OrmMigration } from '@spinajs/orm';
 import type { IMigrationDescriptor, OrmDriver } from '@spinajs/orm';
 import { outboxConfig, type IQueueOutboxConfig } from './config.js';
 import { OUTBOX_MESSAGE_ID_MAX, OUTBOX_TABLE } from './row.js';
+import { assertInsertOrIgnore, insertOrIgnoreProbe } from './targets.js';
 
 const STAMP = '2026_11_16_00_00_00';
 
@@ -72,11 +73,26 @@ export class QueueOutboxMigrationSource extends MigrationSource {
   @Config('db.Aliases', { defaultValue: {} })
   protected Aliases: Record<string, string>;
 
-  public getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
+  public async getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
     const config = outboxConfig(this.Outbox);
-    if (!config.enabled) return Promise.resolve([]);
+    if (!config.enabled) return [];
     const connections = [...new Set(config.connections.map((name) => this.connectionOf(name)))];
-    return Promise.resolve(connections.map((connection) => ({ file: MIGRATION_DI_SOURCE, name: outboxMigrationName(connection), type: outboxMigrationFor(connection) })));
+    for (const connection of connections) this.check(connection);
+    return connections.map((connection) => ({ file: MIGRATION_DI_SOURCE, name: outboxMigrationName(connection), type: outboxMigrationFor(connection) }));
+  }
+
+  /**
+   * Orm.resolve() awaits this source after it opened its connections and registered their factory, so a throw here
+   * fails the boot. The Orm itself is still resolving and cannot be asked for its connection map.
+   */
+  protected check(connection: string): void {
+    const driver = DI.resolve<OrmDriver | null>('OrmConnection', [connection]);
+    if (!driver) throw new InvalidConfiguration(`queue.outbox.connections: ORM connection "${connection}" does not exist`);
+    assertInsertOrIgnore({ connection, driver }, (probed) => this.probe(probed));
+  }
+
+  protected probe(driver: OrmDriver): void {
+    insertOrIgnoreProbe(driver);
   }
 
   /**
