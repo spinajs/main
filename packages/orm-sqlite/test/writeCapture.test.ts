@@ -4,8 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, WriteCaptureLimitExceeded, WriteObserver, createQuery, insertedKeys } from '@spinajs/orm';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
+import { Connection, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, SqlExpressions, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
@@ -270,12 +270,12 @@ describe('write capture on sqlite', function () {
       fixture.inTransaction = [];
     });
 
-    it('locks the rows of the key select inside a transaction, and not without one', async () => {
+    it('locks the rows of the key select and the before read inside a transaction, and not without one', async () => {
       const driver = db().Connections.get('sqlite')!;
       const locks: string[] = [];
       const execute = driver.execute.bind(driver);
       const stub = sinon.stub(driver, 'execute').callsFake((builder) => {
-        if (builder instanceof SelectQueryBuilder && builder.Model === CapMember) locks.push(builder.RowLock ?? 'none');
+        if (builder instanceof SelectQueryBuilder) locks.push(`${builder.Model === CapMember ? 'keys' : 'rows'}:${builder.RowLock ?? 'none'}`);
         return execute(builder);
       });
       try {
@@ -286,9 +286,28 @@ describe('write capture on sqlite', function () {
         stub.restore();
       }
 
-      expect(locks).to.deep.eq(['update', 'none']);
+      // keys, before, after: twice
+      expect(locks).to.deep.eq(['keys:update', 'rows:update', 'rows:none', 'keys:none', 'rows:none', 'rows:none']);
       expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b', 'c']);
       expect(fixture.inTransaction).to.deep.eq([true, false]);
+    });
+
+    it('takes no row lock where the dialect has none, and does not hide another failure of the lookup', async () => {
+      const expressions = db().Connections.get('sqlite')!.Container.resolve(SqlExpressions);
+      const unsupported = sinon.stub(expressions, 'rowLock').throws(new NotSupported('no row lock'));
+      try {
+        await CapMember.update({ Name: 'b' }).where('Id', 1);
+      } finally {
+        unsupported.restore();
+      }
+      const broken = sinon.stub(expressions, 'rowLock').throws(new Error('broken lookup'));
+      try {
+        await expect(CapMember.update({ Name: 'c' }).where('Id', 1)).to.be.rejectedWith('broken lookup');
+      } finally {
+        broken.restore();
+      }
+
+      expect(fixture.writes.map((w) => w.rows[0].after?.Name)).to.deep.eq(['b']);
     });
 
     it('refuses a model with a composite primary key', async () => {
@@ -385,6 +404,87 @@ describe('write capture on sqlite', function () {
         { id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: undefined },
         { id: '5', before: undefined, after: { Id: 5, Email: 'x', Name: 'new' } },
       ]);
+    });
+
+    it('reports an upsert that may conflict on a composite unique index as unknown, though its columns are marked unique', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_pair ON cap_member (Name, Email)');
+      // As PostgreSQL and MySQL report a member of a composite unique index.
+      const name = extractModelDescriptor(CapMember)!.Columns.find((c) => c.Name === 'Name')!;
+      name.Unique = true;
+      const { statements, restore } = captureStatements();
+      try {
+        await CapMember.insert({ Email: 'z', Name: 'one' }, InsertBehaviour.InsertOrIgnore);
+      } finally {
+        restore();
+        name.Unique = false;
+      }
+
+      expect(statements.filter((s) => s.context === QueryContext.Select)).to.deep.eq([]);
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
+    });
+
+    it('reports an upsert that may conflict through an expression index as unknown', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_lower ON cap_member (lower(Email))');
+
+      await CapMember.insert({ Id: 5, Email: 'X', Name: 'new' }, InsertBehaviour.InsertOrReplace);
+
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
+      expect((await rows<{ Id: number }>('cap_member')).map((r) => r.Id)).to.deep.eq([1, 5]);
+    });
+
+    it('reads an upsert by its ON CONFLICT target alone, whatever other unique indexes the table has', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE UNIQUE INDEX cap_member_pair ON cap_member (Name, Email)');
+      const { query } = createQuery(CapMember, InsertQueryBuilder);
+      query.values({ Id: 5, Email: 'x', Name: 'new' }).onDuplicate('Email').update(['Name']);
+      await query;
+
+      expect(fixture.writes[0].unknownKeys).to.eq(false);
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x', Name: 'new' } }]);
+    });
+
+    it('reads an upserted row again by its key when the statement changed its conflict value', async () => {
+      await db().Connections.get('sqlite')!.schema().raw("CREATE TRIGGER cap_member_mark AFTER UPDATE OF Name ON cap_member BEGIN UPDATE cap_member SET Email = NEW.Email || '!' WHERE Id = NEW.Id; END");
+
+      await CapMember.insert({ Id: 5, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrUpdate);
+
+      expect(fixture.writes[0].rows).to.deep.eq([{ id: '2', before: { Id: 2, Email: 'x', Name: 'two' }, after: { Id: 2, Email: 'x!', Name: 'new' } }]);
+    });
+
+    it('reads the index list of a table once until the ORM reloads it', async () => {
+      const driver = db().Connections.get('sqlite')!;
+      const spy = sinon.spy(driver, 'tableIndexes');
+      try {
+        await CapMember.insert({ Email: 'p', Name: 'p' }, InsertBehaviour.InsertOrIgnore);
+        await CapMember.insert({ Email: 'q', Name: 'q' }, InsertBehaviour.InsertOrIgnore);
+        await db().reloadTableInfo();
+        await CapMember.insert({ Email: 'r', Name: 'r' }, InsertBehaviour.InsertOrIgnore);
+      } finally {
+        spy.restore();
+      }
+
+      expect(spy.callCount).to.eq(2);
+    });
+
+    it('bounds the rows an upsert reads by db.WriteCapture.MaxRows', async () => {
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 1);
+      try {
+        await expect(CapMember.insert({ Id: 1, Email: 'x', Name: 'new' }, InsertBehaviour.InsertOrReplace)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an insert of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect((await rows<{ Name: string }>('cap_member')).map((r) => r.Name)).to.deep.eq(['one', 'two']);
+    });
+
+    it('reports an upsert whose unique value has no key text (a date) as unknown', async () => {
+      const { query } = createQuery(CapMember, InsertQueryBuilder);
+      await query.values({ Email: new Date(Date.UTC(2026, 0, 1)), Name: 'd' }).orIgnore();
+
+      expect(fixture.writes[0].unknownKeys).to.eq(true);
+      expect(fixture.writes[0].rows).to.deep.eq([]);
     });
   });
 });
