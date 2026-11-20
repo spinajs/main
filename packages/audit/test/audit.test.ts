@@ -4,10 +4,12 @@ import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { AuditConfigError, AuditContext, AuditStore, AuditWriteFailed, audit, trailConfig } from '../src/index.js';
-import type { AuditAppend, AuditReader } from '../src/index.js';
+import type { AuditAppend, AuditInput } from '../src/index.js';
 import { MemoryAuditStore, TestAuditContext } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
@@ -19,15 +21,16 @@ const TRACE = '0af7651916cd43dd8448eb211c80319c';
 // Stands in for a context of the caller's own, such as a driver's transaction storage.
 const callers = new AsyncLocalStorage<string>();
 
-class ProbeStore extends AuditStore {
+class ProbeStore extends MemoryAuditStore {
   static seen: (string | undefined)[] = [];
-  override readonly joinsTransaction = true;
-  append(_write: AuditAppend): Promise<void> {
+  static asked = 0;
+  override append(write: AuditAppend): Promise<void> {
     ProbeStore.seen.push(callers.getStore());
-    return Promise.resolve();
+    return super.append(write);
   }
-  reader(): Promise<AuditReader | undefined> {
-    return Promise.resolve(undefined);
+  override joinsCaller(): boolean {
+    ProbeStore.asked += 1;
+    return super.joinsCaller();
   }
 }
 
@@ -35,9 +38,41 @@ class ProbeStore extends AuditStore {
 class FlakyStore extends MemoryAuditStore {
   static calls = 0;
   static down = false;
-  override append(write: AuditAppend): Promise<void> {
+  static failure: unknown = new Error('store down');
+  override async append(write: AuditAppend): Promise<void> {
     FlakyStore.calls += 1;
-    return FlakyStore.down ? Promise.reject(new Error('store down')) : super.append(write);
+    if (FlakyStore.down) throw FlakyStore.failure;
+    await super.append(write);
+  }
+}
+
+// Holds the next `holds` appends until the test settles them.
+class SlowStore extends MemoryAuditStore {
+  static calls = 0;
+  static holds = 0;
+  static readonly held: { release: () => void; fail: () => void }[] = [];
+  override append(write: AuditAppend): Promise<void> {
+    SlowStore.calls += 1;
+    if (SlowStore.holds === 0) return super.append(write);
+    SlowStore.holds -= 1;
+    return new Promise<void>((resolve, reject) => {
+      SlowStore.held.push({ release: () => resolve(super.append(write)), fail: () => reject(new Error('store gave up')) });
+    });
+  }
+}
+
+class AskFailsStore extends MemoryAuditStore {
+  static failure: unknown = new Error('cannot tell');
+  override joinsCaller(): boolean {
+    throw AskFailsStore.failure;
+  }
+}
+
+class MisconfiguredStore extends MemoryAuditStore {
+  static calls = 0;
+  override append(): Promise<void> {
+    MisconfiguredStore.calls += 1;
+    return Promise.reject(new AuditConfigError('audit: no ORM connection "nope"'));
   }
 }
 
@@ -45,9 +80,43 @@ const TRAILS = {
   default: { store: 'MemoryAuditStore' },
   strict: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 }, mask: ['data.args.password'] },
   twice: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
+  flaky: { store: 'FlakyStore', retry: { attempts: 2, delay: 1 } },
+  slow: { store: 'SlowStore', retry: { attempts: 3, delay: 1 } },
+  slowStrict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
+  misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
+  misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
+  askFails: { store: 'AskFailsStore' },
   orphan: { store: 'NoSuchStore' },
 };
+
+type Line = { level: string; fields: Record<string, unknown>; message: string };
+
+// Answers every Log resolved from now on, the service's "audit-pipeline" logger included: records the lines, or, broken, records each resolution and throws as an app without @spinajs/log would.
+function pipelineLog(container: IContainer, broken = false): Line[] {
+  const lines: Line[] = [];
+  const logger = Object.fromEntries(['trace', 'debug', 'info', 'warn', 'error'].map((level) => [level, (fields: Record<string, unknown>, message: string) => lines.push({ level, fields, message })]));
+  const factory = (): typeof logger => {
+    if (broken) {
+      lines.push({ level: 'resolve', fields: {}, message: '' });
+      throw new Error('no logger');
+    }
+    return logger;
+  };
+  container.register(factory).as(Log);
+  return lines;
+}
+
+const boot = (deferred: Record<string, unknown> = {}, audit: Record<string, unknown> = {}): Promise<TestApp> =>
+  createTestApp({
+    config: { logger: SILENT, audit: { deferred: { flushMs: 20, ...deferred }, trails: TRAILS, ...audit } },
+    register: (container) => {
+      for (const store of [ProbeStore, FlakyStore, SlowStore, MisconfiguredStore, AskFailsStore]) container.register(store).as(AuditStore);
+    },
+  });
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const actions = (...names: string[]): AuditInput[] => names.map((action) => ({ kind: 'action', action }));
 
 describe('audit().record', function () {
   this.timeout(15000);
@@ -56,15 +125,10 @@ describe('audit().record', function () {
   beforeEach(async () => {
     MemoryAuditStore.reset();
     ProbeStore.seen = [];
+    ProbeStore.asked = 0;
     FlakyStore.calls = 0;
     FlakyStore.down = false;
-    app = await createTestApp({
-      config: { logger: SILENT, audit: { deferred: { flushMs: 20 }, trails: TRAILS } },
-      register: (container) => {
-        container.register(ProbeStore).as(AuditStore);
-        container.register(FlakyStore).as(AuditStore);
-      },
-    });
+    app = await boot();
   });
 
   afterEach(async () => {
@@ -142,10 +206,13 @@ describe('audit().record', function () {
     expect(MemoryAuditStore.events()).to.have.length(0);
   });
 
-  it('carries on when a continue trail cannot record', async () => {
+  it('carries on when a continue trail cannot record, and logs the event ids', async () => {
+    const lines = pipelineLog(app.container);
     MemoryAuditStore.failNext(3);
     await audit().record({ kind: 'action', action: 'x' }, { mode: 'confirmed' });
     expect(MemoryAuditStore.events()).to.have.length(0);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.fields.count])).to.deep.eq([['error', 'default', 1]]);
+    expect(lines[0].fields.ids).to.match(/^[0-9a-f-]{36}$/);
   });
 
   it('hands a transactional write and its transaction straight to the store', async () => {
@@ -191,20 +258,48 @@ describe('audit().record', function () {
     ]);
   });
 
-  it("keeps confirmed and deferred writes out of the caller's async context", async () => {
-    await callers.run('caller', async () => {
-      await audit().record({ kind: 'action', action: 'a' }, { trail: 'probe', mode: 'confirmed' });
-      await audit().record({ kind: 'action', action: 'b' }, { trail: 'probe' });
-      await audit().flush();
-      await audit().record({ kind: 'data', action: 'insert' }, { trail: 'probe', mode: 'transactional', transaction: {} });
-    });
-    expect(ProbeStore.seen).to.deep.eq([undefined, undefined, 'caller']);
+  it("keeps confirmed and deferred writes out of the caller's async context, unless the store joins the caller", async () => {
+    const run = (): Promise<void> =>
+      callers.run('caller', async () => {
+        await audit().record({ kind: 'action', action: 'a' }, { trail: 'probe', mode: 'confirmed' });
+        await audit().record({ kind: 'action', action: 'b' }, { trail: 'probe' });
+        await audit().flush();
+        await audit().record({ kind: 'data', action: 'insert' }, { trail: 'probe', mode: 'transactional', transaction: {} });
+      });
+    await run();
+    MemoryAuditStore.joinCaller(true);
+    await run();
+    expect(ProbeStore.seen).to.deep.eq([undefined, undefined, 'caller', 'caller', undefined, 'caller']);
+    // Asked once per confirmed write, never for a deferred or a transactional one.
+    expect(ProbeStore.asked).to.eq(2);
+  });
+
+  it('tries a write that joins the caller once: a reject trail rejects, a continue trail logs the loss', async () => {
+    const lines = pipelineLog(app.container);
+    MemoryAuditStore.joinCaller(true);
+    FlakyStore.down = true;
+    await expect(audit().record(actions('a'), { trail: 'twice' })).to.be.rejectedWith(AuditWriteFailed, 'audit: trail "twice" could not record 1 event(s) after 1 attempt(s)');
+    await audit().record(actions('b'), { trail: 'flaky', mode: 'confirmed' });
+    expect(FlakyStore.calls).to.eq(2);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'flaky', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
+  });
+
+  it('writes detached when joinsCaller throws, and says so once; a configuration error it raises fails the write', async () => {
+    const lines = pipelineLog(app.container);
+    await audit().record(actions('a'), { trail: 'askFails', mode: 'confirmed' });
+    await audit().record(actions('b'), { trail: 'askFails', mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b']);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['warn', 'askFails', 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached']]);
+    AskFailsStore.failure = new AuditConfigError('audit: no ORM connection "nope"');
+    await expect(audit().record(actions('c'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    AskFailsStore.failure = new Error('cannot tell');
   });
 
   it('refuses a misconfiguration at the call', async () => {
     const input = { kind: 'action', action: 'x' } as const;
     await expect(audit().record(input, { trail: 'nope' })).to.be.rejectedWith(AuditConfigError, 'audit: no trail named "nope"');
     await expect(audit().record(input, { trail: 'orphan' })).to.be.rejectedWith(AuditConfigError, 'audit: trail "orphan" names the store "NoSuchStore", and no AuditStore is registered under that name');
+    await expect(audit().record(input, { trail: 'history' })).to.be.rejectedWith(AuditConfigError, "); TableAuditStore is registered by @spinajs/audit-orm: install and import it, or set the trail's store to LogAuditStore");
     await expect(audit().record(input, { trail: 'strict', mode: 'deferred' })).to.be.rejectedWith(AuditConfigError, "audit: a deferred write cannot reject, and trail \"strict\" is written with onFailure 'reject'; use mode 'confirmed'");
     await expect(audit().record({ kind: 'action', action: '' })).to.be.rejectedWith(AuditConfigError, 'audit: action must be 1 to 128 characters');
     await expect(audit().record({ kind: 'action', action: 'x', subject: { type: 't', id: 'i'.repeat(256) } })).to.be.rejectedWith(AuditConfigError, 'audit: subject.id must be 1 to 255 characters');
@@ -213,6 +308,296 @@ describe('audit().record', function () {
   it('writes out the buffer when the service is disposed', async () => {
     await audit().record({ kind: 'action', action: 'late' });
     await app.dispose();
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['late']);
+  });
+});
+
+describe('audit(): confirmed deadline', function () {
+  this.timeout(15000);
+  let app: TestApp;
+
+  beforeEach(() => {
+    MemoryAuditStore.reset();
+    SlowStore.calls = 0;
+    SlowStore.held.length = 0;
+  });
+
+  afterEach(async () => {
+    await app.dispose();
+  });
+
+  it('fails a confirmed write that misses confirmTimeoutMs, and logs it when it lands later', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 2;
+    const failed: unknown = await audit()
+      .record(actions('a'), { trail: 'slowStrict' })
+      .catch((e: unknown) => e);
+    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slowStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+    await audit().record(actions('b'), { trail: 'slow', mode: 'confirmed' });
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message.includes('not confirmed in time')])).to.deep.eq([['error', 'slow', true]]);
+
+    for (const held of SlowStore.held) held.release();
+    await pause(20);
+    // The caller of a reject trail was told the write failed: its late landing is an error.
+    const stored = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
+    expect(lines.slice(1).map((l) => [l.level, l.fields.trail, l.fields.mode, l.fields.onFailure, l.message])).to.deep.eq([
+      ['error', 'slowStrict', 'confirmed', 'reject', stored],
+      ['warn', 'slow', 'confirmed', 'continue', stored],
+    ]);
+    expect(SlowStore.calls).to.eq(2);
+  });
+
+  it('gives a write that joins the caller no deadline: it settles with the caller', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    MemoryAuditStore.joinCaller(true);
+    SlowStore.holds = 1;
+    let settled = false;
+    const write = audit()
+      .record(actions('a'), { trail: 'slowStrict' })
+      .finally(() => (settled = true));
+    await pause(100);
+    expect(settled).to.eq(false);
+    SlowStore.held[0].release();
+    await write;
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a']);
+    expect(lines).to.deep.eq([]);
+  });
+});
+
+describe('audit(): deferred batches and failure paths', function () {
+  this.timeout(15000);
+  let app: TestApp | undefined;
+
+  beforeEach(() => {
+    MemoryAuditStore.reset();
+    FlakyStore.calls = 0;
+    FlakyStore.down = false;
+    SlowStore.calls = 0;
+    SlowStore.holds = 0;
+    SlowStore.held.length = 0;
+    MisconfiguredStore.calls = 0;
+  });
+
+  afterEach(async () => {
+    await app?.dispose();
+    app = undefined;
+  });
+
+  it('gives a batch up after timeoutMs, and nothing retries it later, not even after dispose', async () => {
+    app = await boot({ timeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a'), { trail: 'slow' });
+    await app.dispose();
+    app = undefined;
+    SlowStore.held[0].fail();
+    await pause(50);
+    expect(SlowStore.calls).to.eq(1);
+    expect(lines.map((l) => [l.level, l.fields.count])).to.deep.eq([
+      ['error', 1],
+      ['error', 1],
+    ]);
+    expect(lines[0].message).to.contain('not confirmed in time');
+    expect(lines[1].message).to.eq('audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}');
+  });
+
+  it('keeps the order of a call split at maxBatch when an append it gave up on lands late', async () => {
+    app = await boot({ timeoutMs: 1000, maxBatch: 2 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    const before = MemoryAuditStore.appends();
+    await audit().record(actions('a', 'b', 'c'), { trail: 'slow' });
+    await audit().record(actions('d'), { trail: 'slow' });
+    const flushed = audit().flush();
+    while (lines.length === 0) await pause(5);
+    SlowStore.held[0].release();
+    await flushed;
+    expect(MemoryAuditStore.appends().map((a) => a.events.map((e) => e.action))).to.deep.eq([
+      ['a', 'b'],
+      ['c', 'd'],
+    ]);
+    expect(SlowStore.calls).to.eq(2);
+    expect(before).to.have.length(0);
+  });
+
+  it('drops batches unsent behind an append that does not settle, says so once, and logs the append when it settles', async () => {
+    app = await boot({ timeoutMs: 50, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b', 'c'), { trail: 'slow' });
+    await audit().flush();
+    expect(SlowStore.calls).to.eq(1);
+    expect(lines.map((l) => [l.level, l.message])).to.deep.eq([
+      ['error', 'audit: trail ${trail} gave up ${count} event(s) not confirmed in time; an append already under way may still store them: ${ids}'],
+      ['warn', 'audit: trail ${trail} is blocked behind an append that has not settled; its deferred events are dropped until it settles or blockCeilingMs has passed'],
+      ['error', 'audit: trail ${trail} lost ${count} event(s): ${ids}'],
+      ['error', 'audit: trail ${trail} lost ${count} event(s): ${ids}'],
+    ]);
+
+    SlowStore.held[0].release();
+    await pause(20);
+    expect(lines.slice(4).map((l) => [l.level, l.message])).to.deep.eq([['warn', 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}']]);
+    await audit().record(actions('d'), { trail: 'slow' });
+    await audit().flush();
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['a', 'd']);
+  });
+
+  it('lifts a block when the held append fails', async () => {
+    app = await boot({ timeoutMs: 50, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b'), { trail: 'slow' });
+    await audit().flush();
+    SlowStore.held[0].fail();
+    await pause(20);
+    expect(lines.map((l) => l.level)).to.deep.eq(['error', 'warn', 'error', 'error']);
+    expect(lines[3].message).to.eq('audit: trail ${trail} could not store ${count} event(s) it had given up on: ${ids}');
+    await audit().record(actions('c'), { trail: 'slow' });
+    await audit().flush();
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+  });
+
+  it('gives up the order of a blocked target after blockCeilingMs, and blocks it again behind a new stuck append', async () => {
+    app = await boot({ timeoutMs: 50, blockCeilingMs: 150, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    const write = async (action: string): Promise<void> => {
+      await audit().record(actions(action), { trail: 'slow' });
+      await audit().flush();
+    };
+    SlowStore.holds = 1;
+    await write('a');
+    await write('b');
+    await pause(200);
+    await write('c');
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+    const released = lines.filter((l) => l.message.includes('out of order'));
+    expect(released.map((l) => [l.level, l.fields.trail])).to.deep.eq([['error', 'slow']]);
+
+    SlowStore.holds = 1;
+    await write('d');
+    await write('e');
+    SlowStore.held[0].release();
+    await pause(20);
+    expect(lines.filter((l) => l.message.includes('is blocked behind'))).to.have.length(2);
+    expect(lines.filter((l) => l.message.includes('stored ${count} event(s) it had given up on'))).to.have.length(1);
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c', 'a']);
+    SlowStore.held[1].release();
+  });
+
+  it('blocks only the connection whose append is held', async () => {
+    app = await boot({ timeoutMs: 50, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b'), { trail: 'slow', connection: 'x' });
+    await audit().record(actions('c'), { trail: 'slow', connection: 'y' });
+    await audit().flush();
+    expect(MemoryAuditStore.appends().map((a) => [a.connection, a.events.map((e) => e.action)])).to.deep.eq([['y', ['c']]]);
+    expect(lines.filter((l) => l.level === 'warn').map((l) => l.fields.connection)).to.deep.eq(['x']);
+    SlowStore.held[0].release();
+    await pause(20);
+  });
+
+  it('logs a failed batch with its event ids and drops it', async () => {
+    app = await boot();
+    const lines = pipelineLog(app.container);
+    FlakyStore.down = true;
+    await audit().record(actions('a', 'b'), { trail: 'flaky' });
+    await audit().flush();
+    expect(lines.map((l) => [l.level, l.fields.trail, l.fields.count])).to.deep.eq([['error', 'flaky', 2]]);
+    expect(lines[0].fields.ids).to.match(/^[0-9a-f-]{36},[0-9a-f-]{36}$/);
+
+    FlakyStore.down = false;
+    await audit().flush();
+    expect(FlakyStore.calls).to.eq(2);
+    expect(MemoryAuditStore.events()).to.have.length(0);
+  });
+
+  it('drops what does not fit in maxBuffered, with one warning per overflow', async () => {
+    app = await boot({ maxBuffered: 2 });
+    const lines = pipelineLog(app.container);
+    await audit().record(actions('a', 'b', 'c'));
+    await audit().record(actions('d'));
+    await audit().flush();
+    await audit().record(actions('e', 'f', 'g'));
+    await audit().flush();
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b', 'e', 'f']);
+    // The first drop of an overflow is reported at once, the episode's total when the drain makes room again.
+    expect(lines.map((l) => [l.level, l.fields.dropped, l.message.startsWith('audit: the deferred buffer is full')])).to.deep.eq([
+      ['warn', 1, true],
+      ['warn', 2, false],
+      ['warn', 1, true],
+      ['warn', 1, false],
+    ]);
+  });
+
+  it('neither retries nor swallows a configuration error the store raises', async () => {
+    app = await boot();
+    const lines = pipelineLog(app.container);
+    const confirmed: unknown = await audit()
+      .record(actions('a'), { trail: 'misconfigured', mode: 'confirmed' })
+      .catch((e: unknown) => e);
+    expect(confirmed).to.be.instanceOf(AuditConfigError).and.to.have.property('message', 'audit: no ORM connection "nope"');
+    await expect(audit().record(actions('b'), { trail: 'misconfiguredStrict' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    expect(MisconfiguredStore.calls).to.eq(2);
+
+    // A deferred write cannot reach its caller: it is tried once, dropped and logged as a misconfiguration.
+    await audit().record(actions('c'), { trail: 'misconfigured' });
+    await audit().flush();
+    expect(MisconfiguredStore.calls).to.eq(3);
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'misconfigured', 'audit: trail ${trail} is misconfigured; dropped ${count} event(s): ${ids}']]);
+    expect(lines[0].fields.error).to.be.instanceOf(AuditConfigError);
+  });
+
+  it('refuses a payload that cannot be written as JSON at the call, and writes a bigint', async () => {
+    app = await boot();
+    const lines = pipelineLog(app.container);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await expect(audit().record({ kind: 'action', action: 'x', data: circular })).to.be.rejectedWith(AuditConfigError, 'audit: data cannot be written as JSON');
+
+    const sparse: number[] = [];
+    sparse[0] = 1;
+    sparse[2] = 3;
+    await audit().record({ kind: 'security', action: 'login', data: { n: 7n, sparse } }, { trail: 'security' });
+    await audit().flush();
+    expect(lines.map((l) => [l.level, l.fields.data])).to.deep.eq([['info', '{"n":"7","sparse":[1,null,3]}']]);
+    expect(JSON.parse(String(lines[0].fields.data))).to.deep.eq({ n: '7', sparse: [1, null, 3] });
+  });
+
+  it('never fails a write or the background flush when the logger cannot be built', async () => {
+    app = await boot({ maxBuffered: 1 });
+    const resolutions = pipelineLog(app.container, true);
+    const unhandled: unknown[] = [];
+    const warnings: string[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    const emitWarning: unknown = Reflect.get(process, 'emitWarning');
+    Reflect.set(process, 'emitWarning', (warning: string, type: string) => void (type === 'AuditWarning' && warnings.push(warning)));
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      FlakyStore.down = true;
+      // Neither the logger's fallback may throw on a failure that JSON cannot hold.
+      FlakyStore.failure = { n: 1n };
+      await audit().record(actions('a', 'b'), { trail: 'flaky' });
+      await audit().record(actions('c'), { trail: 'flaky', mode: 'confirmed' });
+      await pause(150);
+      expect(unhandled).to.deep.eq([]);
+      expect(warnings).to.have.length(4);
+      for (const warning of warnings) expect(warning).to.contain('no logger');
+      expect(resolutions).to.have.length(1);
+    } finally {
+      FlakyStore.failure = new Error('store down');
+      Reflect.set(process, 'emitWarning', emitWarning);
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('writes a deferred event at once when the service is already disposed', async () => {
+    app = await boot();
+    const service = audit();
+    await service.dispose();
+    await service.record(actions('late'));
     expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['late']);
   });
 });

@@ -10,7 +10,8 @@ import { quoted } from './guards.js';
 export async function auditStore(trail: TrailConfig, container: IContainer = DI.RootContainer): Promise<AuditStore> {
   const registered = container.getRegisteredNames(AuditStore);
   if (!registered.includes(trail.store)) {
-    throw new AuditConfigError(`audit: trail ${quoted(trail.name)} names the store ${quoted(trail.store)}, and no AuditStore is registered under that name (registered: ${registered.join(', ') || 'none'})`);
+    const hint = trail.store === 'TableAuditStore' ? "; TableAuditStore is registered by @spinajs/audit-orm: install and import it, or set the trail's store to LogAuditStore" : '';
+    throw new AuditConfigError(`audit: trail ${quoted(trail.name)} names the store ${quoted(trail.store)}, and no AuditStore is registered under that name (registered: ${registered.join(', ') || 'none'})${hint}`);
   }
   return container.resolveNamed(AuditStore, trail.store);
 }

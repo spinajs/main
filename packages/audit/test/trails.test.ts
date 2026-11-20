@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { createTestApp } from '@spinajs/testing';
+import { configurationViolations, createTestApp } from '@spinajs/testing';
 import { AuditConfigError, SECURITY_HASH_PATHS, deferredConfig, trailConfig, trailNames } from '../src/index.js';
 
 const expect = chai.expect;
@@ -18,7 +18,7 @@ describe('trailConfig', function () {
     expect(trailConfig('security')).to.include({ store: 'LogAuditStore' });
     expect(trailConfig('security').hash).to.deep.eq(SECURITY_HASH_PATHS);
     expect(trailNames()).to.deep.eq(['default', 'history', 'security']);
-    expect(deferredConfig()).to.deep.eq({ flushMs: 1000, maxBatch: 500, maxBuffered: 10000, timeoutMs: 2000 });
+    expect(deferredConfig()).to.deep.eq({ flushMs: 1000, maxBatch: 500, maxBuffered: 10000, timeoutMs: 2000, blockCeilingMs: 20000 });
   });
 
   it('refuses an unknown trail', () => {
@@ -28,7 +28,7 @@ describe('trailConfig', function () {
 
   it('lays a configured trail over the built-in of its name and parses the retry delay', async () => {
     const restricted = { table: 'audit_restricted', onFailure: 'reject', retry: { attempts: 5, delay: '2s' }, integrity: 'sealed', mask: ['data.args.password'], sink: 'ArchiveAuditSink', archiveConnection: 'audit' };
-    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted } } } });
+    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5, timeoutMs: 300 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted } } } });
     try {
       expect(trailConfig('history')).to.include({ table: 'orm_history', retentionDays: 30 });
       expect(trailConfig('history').retry).to.deep.eq({ attempts: 3, delayMs: 250 });
@@ -36,7 +36,7 @@ describe('trailConfig', function () {
       expect(trailConfig('restricted').retry).to.deep.eq({ attempts: 5, delayMs: 2000 });
       expect(trailConfig('restricted').mask).to.deep.eq(['data.args.password']);
       expect(trailNames()).to.deep.eq(['default', 'history', 'security', 'restricted']);
-      expect(deferredConfig().flushMs).to.eq(5);
+      expect(deferredConfig()).to.include({ flushMs: 5, timeoutMs: 300, blockCeilingMs: 3000 });
     } finally {
       await app.dispose();
     }
@@ -53,11 +53,26 @@ describe('trailConfig', function () {
     }
   });
 
-  it('leaves the sections other packages keep under audit alone, and drops a trail key it does not know', async () => {
+  it('fails the boot on a misspelt trail or retry key, and boots a trail with every accepted key', async () => {
+    const bad = (trail: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit: { trails: { t: trail } } } });
+    expect(await bad({ onFailur: 'reject' })).to.include('audit.trails.t.onFailur');
+    expect(await bad({ retry: { atempts: 2 } })).to.include('audit.trails.t.retry.atempts');
+    const every = { store: 'MemoryAuditStore', table: 'audit_t', connection: 'default', onFailure: 'reject', retry: { attempts: 2, delay: '1s' }, integrity: 'sealed', omit: ['data.a'], mask: ['data.b'], hash: ['origin'], retentionDays: 30, sink: 'ArchiveAuditSink', reader: 'TableAuditReader', archiveConnection: 'audit' };
+    expect(await bad(every)).to.deep.eq([]);
+  });
+
+  it('fails the boot on a misspelt hashKey or deferred key', async () => {
+    const bad = (audit: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit } });
+    expect(await bad({ hashKey: { secrte: 'x'.repeat(32) } })).to.include('audit.hashKey.secrte');
+    expect(await bad({ deferred: { timeoutMS: 100 } })).to.include('audit.deferred.timeoutMS');
+    expect(await bad({ hashKey: { secret: 'x'.repeat(32) }, deferred: { flushMs: 1, maxBatch: 1, maxBuffered: 1, timeoutMs: 1, blockCeilingMs: 1 } })).to.deep.eq([]);
+  });
+
+  it('leaves the sections other packages keep under audit alone', async () => {
     const others = { http: { rules: [{ match: 'DELETE /admin/**', action: 'admin.delete' }] }, data: { rules: [{ models: '*', trail: 'history' }] }, authn: { trail: 'security' }, queue: { maxMessageBytes: 200000 }, seal: { settleSeconds: 30 } };
     // What a package that owns a section registers: its own schema, under the audit root.
     const ship = { $id: 'test/audit.ship.schema.json', $configurationModule: 'audit.ship', type: 'object', properties: { batchSize: { type: 'integer', minimum: 1 }, maxBatches: { type: 'integer', default: 50 } } };
-    const shipped = { store: 'OutboxAuditStore', archiveConnection: 'audit', archiveConection: 'misspelt' };
+    const shipped = { store: 'OutboxAuditStore', archiveConnection: 'audit' };
     const app = await createTestApp({ config: { logger: SILENT, audit: { ...others, ship: { batchSize: 200 }, trails: { shipped } } }, schemas: [ship] });
     try {
       const read = (name: string): unknown => app.config.get<unknown>(['audit', name]);
