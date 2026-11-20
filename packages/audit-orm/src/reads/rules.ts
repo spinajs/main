@@ -66,6 +66,11 @@ export function AuditReads(options: AuditReadsOptions = {}): ClassDecorator {
   };
 }
 
+/** Drops the rule a test registered: the map lives as long as the process and is keyed by class name. Not exported from the package. */
+export function forgetAuditReads(model: { readonly name: string }): void {
+  rules.delete(model.name);
+}
+
 export const hasAuditReads = (): boolean => rules.size !== 0;
 
 /** The rule of the model or of its nearest ancestor that has one: a discrimination map shares its table. */

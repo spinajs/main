@@ -27,24 +27,48 @@ the same for a model of another package.
 
 What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
 per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
-type, or through a relation's accessor) brings into a select of another model. A rule applies to the model's
-subclasses. Column names match without regard to case, as sqlite and MySQL resolve them; the ORM quotes every
-identifier, so Postgres only knows the declared spelling.
+type, or through a relation's accessor) or a `join()` brings into a select of another model. A rule applies to the
+model's subclasses and to every model of its table on its connection. Column names match without regard to case, as
+sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only knows the declared spelling.
 
-A raw or `CASE` select expression counts as every audited column. An aggregate over an audited column (`min`, `max`,
-`sum`, `avg`, `count(column)`) discloses it; `count(*)` and aggregates over other columns do not. Where no row can be
-named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event per statement in the
-query-mode shape with `keyless: true`. A binary key is written as hex.
+Each selected column belongs to the table its table alias names: the queried table, or a join of the query under the
+alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
+alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
+audited table. A raw or `CASE` select expression counts for every audited column of every table in the query; next to
+a `CASE` column, such as authz-orm's `withAccess()` and `withFields()` add, rows are still named by their key, but the
+event lists every audited column of those tables, selected or not. A raw join leaves the queried table without an
+alias, so an unqualified column next to one counts for every audited table of the connection with a column of that
+name, as an aggregate there does. An
+aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join
+for every table of the query with a column of that name, since its SQL names no table; `count(*)` and aggregates over
+other columns do not.
+
+Where no row can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event
+per statement in the query-mode shape with `keyless: true`. So does a select where another column returns under the
+key's name, or with a raw select column, whose name the builder cannot read. A binary key is written as hex.
+
+`mode: 'query'` without `columns` records every select of the model, `count()` and `exists()` included, with the
+columns it disclosed (none for those two). `mode: 'row'` records nothing for `count(*)`, `exists()` or a select that
+returns the key alone (`select('Id').where(...)`): they return a number or the keys, nothing else of the model.
 
 What it does not see:
 
 - raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
-- a column that a `join()` query callback selects, or that a `populate()` callback selects under an alias of its own:
-  it is counted for the queried model, not for the joined one;
-- the junction rows of a many-to-many relation;
+- a sub-select inside a raw select expression, which is raw SQL too: a raw expression counts for the tables of the
+  query only, so `Visit.query().select(RawQuery.create('(SELECT Ssn FROM patient WHERE patient.Id =
+  visit.patient_id) AS s'))` records nothing about `patient`;
 - what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
   condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
 - data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
+
+Limits a reader of the trail must know:
+
+- a raw select column (`select(RawQuery.create(...))`) makes the row-mode events of its statement keyless: its output
+  name cannot be read, so it could shadow the key, and the statement is recorded without naming rows;
+- `mode: 'query'` with `columns` records only the selects that return one of them; every select of the model is
+  recorded only by a query-mode rule without `columns`;
+- a column under an alias no join of the query names is treated as widely as it could reach: it counts for every
+  audited table of the connection with a column of that name, and `*` there for every audited table.
 
 `paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
 

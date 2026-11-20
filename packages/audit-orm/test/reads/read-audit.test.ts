@@ -1,16 +1,18 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { AuditConfigError, AuditStore, AuditWriteFailed, audit } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 // Relation is imported as a value: the decorators read the property's emitted design type.
-import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
+import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, RawQuery, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
 import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditSubjectType, registerAuditReads } from '../../src/index.js';
 import { DIALECTS, TestDb } from '../../src/testing.js';
 import type { Dialect } from '../../src/testing.js';
+import { forgetAuditReads } from '../../src/reads/rules.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
 
 chai.use(chaiAsPromised);
@@ -98,12 +100,13 @@ interface Models {
   readonly Visit: typeof Visit;
 }
 
-const MODELS: Record<Dialect, Models> = {
-  sqlite: { Patient, Visit },
-  pglite: { Patient: PglitePatient, Visit: PgliteVisit },
-  postgres: { Patient: PostgresPatient, Visit: PostgresVisit },
-  mysql: { Patient: MysqlPatient, Visit: MysqlVisit },
-};
+const SQLITE: Models = { Patient, Visit };
+const MODELS = new Map<Dialect, Models>([
+  ['sqlite', SQLITE],
+  ['pglite', { Patient: PglitePatient, Visit: PgliteVisit }],
+  ['postgres', { Patient: PostgresPatient, Visit: PostgresVisit }],
+  ['mysql', { Patient: MysqlPatient, Visit: MysqlVisit }],
+]);
 
 class Keyless extends ModelBase<Keyless> {
   public Name: string;
@@ -156,6 +159,43 @@ class Badge extends ModelBase<Badge> {
   public Holder: string;
 }
 
+// A second model of the audited table, with no rule of its own.
+@Connection('sqlite')
+@Model('patient')
+class PatientCard extends ModelBase<PatientCard> {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
+@Connection('sqlite')
+@Model('clinic')
+class Clinic extends ModelBase<Clinic> {
+  @Primary()
+  public Id: number;
+
+  public Title: string;
+}
+
+// A relation named like another model's class: Patient targets Clinic, Attendee targets Patient.
+@Connection('sqlite')
+@Model('appointment')
+class Appointment extends ModelBase<Appointment> {
+  @Primary()
+  public Id: number;
+
+  public clinic_id: number;
+
+  public patient_id: number;
+
+  @BelongsTo(Clinic, 'clinic_id', 'Id')
+  public Patient: SingleRelation<Clinic>;
+
+  @BelongsTo(Patient, 'patient_id', 'Id')
+  public Attendee: SingleRelation<Patient>;
+}
+
 // Its trail lives on its own single connection, where save() opens the transaction its reload runs in.
 @Connection('wedge')
 @Model('chart')
@@ -187,7 +227,6 @@ const AUDIT = {
     wedge: { connection: 'wedge', table: 'audit_wedge', onFailure: 'reject', retry: RETRY },
     held: { connection: 'wedge', table: 'audit_held', onFailure: 'reject', retry: RETRY },
   },
-  confirmTimeoutMs: 1500,
 };
 const WEDGE = { Driver: 'orm-driver-sqlite', Name: 'wedge', Filename: ':memory:' };
 
@@ -233,6 +272,7 @@ describe('read auditing', function () {
   });
 
   after(async () => {
+    forgetAuditReads(Keyless);
     await db?.close();
   });
 
@@ -254,14 +294,14 @@ describe('read auditing', function () {
     expect(() => registerAuditReads(Keyless, { mode: 'query' })).to.not.throw();
   });
 
-  for (const dialect of DIALECTS) {
+  for (const [dialect, models] of MODELS) {
     describe(dialect, () => {
-      const { Patient, Visit } = MODELS[dialect];
+      const { Patient, Visit } = models;
       const searched = () => audit().trail(searches(dialect)).since(0);
 
       before(async function () {
         if (!db.has(dialect)) this.skip();
-        await seed(db, dialect, MODELS[dialect]);
+        await seed(db, dialect, models);
       });
 
       beforeEach(async () => {
@@ -331,6 +371,14 @@ describe('read auditing', function () {
         expect(JSON.stringify(events[0])).to.not.contain('checkup');
       });
 
+      it('records a count and an exists in query mode, as statements that disclosed no column', async () => {
+        await Visit.query().where('Reason', 'checkup').selectCount();
+        // ModelBase declares exists() without the key it takes.
+        await Reflect.apply(Visit.exists.bind(Visit), undefined, [1]);
+
+        expect((await searched()).map((e) => (e.data as { columns: unknown[] }).columns)).to.deep.eq([[], []]);
+      });
+
       it('audits the columns a belongsTo populate joins in, once per related row', async () => {
         await Visit.query().populate('Patient');
 
@@ -340,10 +388,133 @@ describe('read auditing', function () {
         expect(events[0].data).to.deep.eq({ columns: ['Ssn'] });
       });
 
+      it('attributes a column to the table its alias names, when a join or a populate renames it', async () => {
+        const positiveId = function (this: { where(column: string, operator: string, value: number): unknown }) {
+          this.where('Id', '>', 0);
+        };
+        await Visit.query()
+          .leftJoin('Patient', positiveId, function () {
+            this.select('Ssn', 'PatientSsn');
+          })
+          .asRaw();
+        await Visit.query()
+          .populate('Patient', function () {
+            this.clearColumns();
+            this.select('Ssn', 'x');
+          })
+          .asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([
+          ['patient.read', undefined, keyless],
+          ['patient.read', undefined, keyless],
+        ]);
+      });
+
+      it('reads a join by the alias it is declared with, whatever model that alias also names', async () => {
+        const join = (joinTableAlias: string, column: string) => ({
+          joinModel: Patient,
+          joinTableAlias,
+          sourceTablePrimaryKey: 'patient_id',
+          joinTableForeignKey: 'Id',
+          callback: function (this: { where(column: string, operator: string, value: number): unknown }) {
+            this.where('Id', '>', 0);
+          },
+          queryCallback: function (this: { select(column: string, alias?: string): unknown }) {
+            this.select(column, column === '*' ? undefined : 'x');
+          },
+        });
+        await Visit.query().leftJoin(join('ward', 'Ssn')).asRaw();
+        await Visit.query().leftJoin(join('p', '*')).asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.action, e.data])).to.deep.eq([
+          ['patient.read', keyless],
+          ['patient.read', keyless],
+        ]);
+      });
+
+      it('reads a column of a join inside a populate callback, which no join of the query names, from every table that has it', async function () {
+        // sqlite cannot compile a join nested in a populated join (`no such column`).
+        if (dialect === 'sqlite') this.skip();
+        await Visit.query()
+          .populate('Patient', function () {
+            this.leftJoin({
+              joinModel: Patient,
+              sourceTablePrimaryKey: 'Id',
+              joinTableForeignKey: 'Id',
+              callback: function (this: { where(column: string, operator: string, value: number): unknown }) {
+                this.where('Id', '>', 0);
+              },
+              queryCallback: function (this: { select(column: string, alias: string): unknown }) {
+                this.select('Ssn', 'twin');
+              },
+            });
+          })
+          .asRaw();
+
+        const keyless = (await recorded('restricted')).filter((e) => e.subject === undefined);
+        expect(keyless.map((e) => [e.action, (e.data as { columns: string[]; keyless: boolean }).columns])).to.deep.eq([['patient.read', ['Ssn']]]);
+      });
+
+      it('reads a plain column next to a raw join from every table that has it', async () => {
+        const id = dialect === 'mysql' ? '`Id`' : '"Id"';
+        const raw = Visit.query().leftJoin(RawQuery.create(`patient ON patient.${id} = visit.patient_id`));
+        // Strict column typing refuses a joined column on Visit's builder; a package without it can write it.
+        Reflect.apply(raw.columns.bind(raw), undefined, [['Reason', 'Ssn']]);
+        await raw.asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([['patient.read', undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+      });
+
+      it('counts an aggregate in a query with a join for every table of the query that has the column', async () => {
+        const positive = function (this: { where(column: string, operator: string, value: number): unknown }) {
+          this.where('Id', '>', 0);
+        };
+        // Strict column typing refuses a joined column on Visit's builder; a package without it can write it.
+        const ungrouped = Visit.query().leftJoin('Patient', positive);
+        Reflect.apply(ungrouped.max.bind(ungrouped), undefined, ['Ssn', 'S']);
+        await ungrouped.asRaw();
+        const grouped = Visit.query().leftJoin('Patient', positive).select('Reason');
+        Reflect.apply(grouped.max.bind(grouped), undefined, ['Ssn', 'S']);
+        await grouped.groupBy('Reason').asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([
+          ['patient.read', undefined, { columns: ['Ssn'], rows: 1, filter: [], keyless: true }],
+          ['patient.read', undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }],
+        ]);
+      });
+
       it('audits an own column under an alias of its own', async () => {
         await Patient.query().select('Id').select('Ssn', 'x').where('Id', 1).asRaw();
 
         expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([['1', { columns: ['Ssn'] }]]);
+      });
+
+      it('names no row when another column takes the output name of the key', async () => {
+        await Patient.query().select('Id').select('Ssn').select('Name', 'Id').asRaw();
+        await Patient.query().select('Id').select('Ssn', 'Id').asRaw();
+
+        const keyless = { columns: ['Ssn'], rows: 3, filter: [], keyless: true };
+        expect((await recorded('restricted')).map((e) => [e.subject, e.data])).to.deep.eq([
+          [undefined, keyless],
+          [undefined, keyless],
+        ]);
+      });
+
+      it('keeps naming rows when a condition column sits next to the key', async () => {
+        await Patient.query()
+          .select('*')
+          .selectCondition('inWard4', function () {
+            this.where('Ward', 4);
+          })
+          .asRaw();
+
+        expect((await recorded('restricted')).map((e) => [e.subject?.id, e.data])).to.deep.eq([
+          ['1', { columns: ['Ssn'] }],
+          ['2', { columns: ['Ssn'] }],
+          ['3', { columns: ['Ssn'] }],
+        ]);
       });
 
       it('matches column names without regard to case', async () => {
@@ -383,6 +554,13 @@ describe('read auditing', function () {
 
         expect(seen).to.deep.eq([1, 2, 3]);
         expect(await recorded('restricted')).to.have.length(3);
+      });
+
+      it('rejects a select whose second record fails after its first was written', async () => {
+        MemoryAuditStore.failNext(2);
+
+        await expect(Visit.query().populate('Patient')).to.be.rejectedWith(AuditWriteFailed);
+        expect(await searched()).to.have.length(1);
       });
 
       it('rejects the select when the record cannot be written, after the retries', async () => {
@@ -428,6 +606,22 @@ describe('read auditing', function () {
         expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 0 : 1);
       });
 
+      it('records two audited reads in parallel inside one transaction, and keeps them as the transaction does', async () => {
+        const driver = db.driver(dialect);
+        const both = () => Promise.all([Visit.query().where('Id', 1), Visit.query().where('Id', 2)]);
+        await driver.transaction(async () => {
+          expect((await both()).map((rows) => rows.length)).to.deep.eq([1, 1]);
+        });
+        expect(await searched()).to.have.length(2);
+
+        const failing = driver.transaction(async () => {
+          await both();
+          throw new Error('caller failed');
+        });
+        await expect(failing).to.be.rejectedWith('caller failed');
+        expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 2 : 4);
+      });
+
       it('returns an audited read inside a transaction, and its record commits', async () => {
         await db.driver(dialect).transaction(async () => {
           expect(await Visit.query().where('Id', 1)).to.have.length(1);
@@ -441,7 +635,7 @@ describe('read auditing', function () {
   describe('relations, keys and limits (sqlite)', () => {
     before(async () => {
       const driver = db.driver('sqlite');
-      await seed(db, 'sqlite', MODELS.sqlite);
+      await seed(db, 'sqlite', SQLITE);
       await createTables(driver, {
         ward: (t) => {
           t.int('Id').primaryKey();
@@ -457,6 +651,15 @@ describe('read auditing', function () {
           t.binary('Id', 2).primaryKey();
           t.string('Holder');
         },
+        clinic: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.string('Title');
+        },
+        appointment: (t) => {
+          t.int('Id').primaryKey().autoIncrement();
+          t.int('clinic_id');
+          t.int('patient_id');
+        },
       });
       await createTables(db.driver('wedge'), {
         chart: (t) => {
@@ -467,7 +670,7 @@ describe('read auditing', function () {
       await db.migrate('sqlite', searches('sqlite'));
       await new NamedTrail('audit_wedge').up(db.driver('wedge'));
       await new NamedTrail('audit_held').up(db.driver('wedge'));
-      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart] });
+      await (await DI.resolve(Orm)).reloadTableInfo({ models: [Ward, Doctor, DoctorWard, Badge, Chart, Clinic, Appointment, PatientCard] });
 
       await Ward.insert({ Id: 4, Code: 'W4' });
       await Ward.insert({ Id: 5, Code: 'W5' });
@@ -475,6 +678,12 @@ describe('read auditing', function () {
       await DoctorWard.insert({ doctor_id: 1, ward_id: 4 });
       await Badge.insert({ Id: Buffer.from('ab01', 'hex'), Holder: 'Ada' });
       await Chart.insert({ Name: 'x' });
+      await Clinic.insert({ Title: 'C1' });
+      await Appointment.insert({ clinic_id: 1, patient_id: 2 });
+    });
+
+    after(() => {
+      for (const model of [DoctorWard, Doctor, PatientCard]) forgetAuditReads(model);
     });
 
     const of = async (type: string) => (await recorded('restricted')).filter((e) => e.subject?.type === type || (e.subject === undefined && e.action === `${type}.read`));
@@ -492,7 +701,7 @@ describe('read auditing', function () {
     });
 
     it('audits relations loaded through their accessors', async () => {
-      const visit = await MODELS.sqlite.Visit.get(1);
+      const visit = await SQLITE.Visit.get(1);
       const ward = await Ward.get(4);
       resetTrail();
 
@@ -502,10 +711,63 @@ describe('read auditing', function () {
       expect((await of('patient')).map((e) => e.subject?.id)).to.deep.eq(['1', '1', '2']);
     });
 
+    it('records no count, no exists and no select of the key alone in row mode: they return nothing the caller did not name', async () => {
+      await Badge.query().select('Id').asRaw();
+      await Badge.query().selectCount();
+      await Reflect.apply(Badge.exists.bind(Badge), undefined, [Buffer.from('ab01', 'hex')]);
+
+      expect(await of('badge')).to.deep.eq([]);
+    });
+
     it('names a row by a binary key as hex', async () => {
       await Badge.all();
 
       expect((await of('badge')).map((e) => e.subject?.id)).to.deep.eq(['ab01']);
+    });
+
+    it('counts an expression for every table of the query, and of no other', async () => {
+      await SQLITE.Visit.query()
+        .leftJoin('Patient', function () {
+          this.where('Id', '>', 0);
+        })
+        .select(RawQuery.create('1 AS one'))
+        .asRaw();
+
+      expect((await recorded('restricted')).map((e) => [e.action, e.data])).to.deep.eq([['patient.read', { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
+    });
+
+    it('applies a rule to every model of its table, and to a select from() that table', async () => {
+      await PatientCard.query().where('Id', 1).asRaw();
+      await SQLITE.Visit.query().from('patient').where('Id', 2).asRaw();
+
+      expect((await of('patient')).map((e) => [e.subject?.id, e.data])).to.deep.eq([
+        ['1', { columns: ['Ssn'] }],
+        ['2', { columns: ['Ssn'] }],
+      ]);
+    });
+
+    it('reads an aggregate next to a raw join from every table of the connection that has the column', async () => {
+      const raw = SQLITE.Visit.query().leftJoin(RawQuery.create('patient ON patient.Id = visit.patient_id'));
+      Reflect.apply(raw.max.bind(raw), undefined, ['Ssn', 'S']);
+      await raw.asRaw();
+
+      expect((await of('patient')).map((e) => [e.subject?.id, e.data])).to.deep.eq([[undefined, { columns: ['Ssn'], rows: 1, filter: [], keyless: true }]]);
+    });
+
+    it('reads a join under the alias of its model, not as the relation that alias also names', async () => {
+      await Appointment.query()
+        .leftJoin(
+          'Attendee',
+          function () {
+            this.where('Id', '>', 0);
+          },
+          function () {
+            this.select('Ssn', 'x');
+          },
+        )
+        .asRaw();
+
+      expect((await of('patient')).map((e) => e.data)).to.deep.eq([{ columns: ['Ssn'], rows: 1, filter: [], keyless: true }]);
     });
 
     it('records the reload of save({ reload: true }) in the transaction save() opens', async () => {
@@ -517,17 +779,24 @@ describe('read auditing', function () {
     });
 
     it('fails the select when its record cannot join a transaction and waits past audit.confirmTimeoutMs', async () => {
+      const config = DI.get(Configuration);
+      config?.set('audit.confirmTimeoutMs', 1500);
       registerAuditReads(DoctorWard, { trail: 'held', mode: 'query' });
       const held = db.driver('wedge').transaction(() => pause(3000));
-
-      await expect(DoctorWard.all()).to.be.rejectedWith(AuditWriteFailed);
-      await held;
+      try {
+        await expect(DoctorWard.all()).to.be.rejectedWith(AuditWriteFailed);
+      } finally {
+        config?.set('audit.confirmTimeoutMs', undefined);
+        await held;
+      }
     });
 
-    it('fails the first audited select of a rule that names a column the table lacks', async () => {
+    it('fails the first audited select of each rule that names a column its table lacks', async () => {
       registerAuditReads(Doctor, { trail: 'restricted', mode: 'query', columns: ['Nope'] });
 
       await expect(Doctor.all()).to.be.rejectedWith(AuditConfigError, '@AuditReads on Doctor: doctor has no column Nope');
+      registerAuditReads(PatientCard, { trail: 'restricted', mode: 'query', columns: ['Nope'] });
+      await expect(SQLITE.Patient.query()).to.be.rejectedWith(AuditConfigError, '@AuditReads on PatientCard: patient has no column Nope');
     });
   });
 });
