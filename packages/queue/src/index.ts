@@ -1,26 +1,31 @@
-import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound, InvalidOperation, toError } from '@spinajs/exceptions';
 import { Autoinject, Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob, PublishDirectOptions } from './interfaces.js';
 import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
-import { AutoinjectService } from '@spinajs/configuration';
+import { AutoinjectService, registerConfigurationSchema } from '@spinajs/configuration';
+import { FaultInjector } from '@spinajs/durable';
+import type * as Idempotency from '@spinajs/idempotency';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 import { isPermanentJobFailure } from './hooks.js';
 import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
+import { RedeliverLater } from './redeliver.js';
 import { context } from '@opentelemetry/api';
 import { withConsumerSpan, withProducerSpan } from './tracing.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './crash.js';
+export * from './redeliver.js';
 export { SystemTask, systemTaskOf } from '@spinajs/util';
 export * from './interfaces.js';
 export * from './headers.js';
 export * from './outbox/index.js';
 export * from './bootstrap.js';
 export { QUEUE_OUTBOX_CONFIGURATION_SCHEMA } from './schemas/queue.outbox.configuration.js';
+export { QUEUE_CONFIGURATION_SCHEMA } from './schemas/queue.configuration.js';
 export * from './tracing.js';
 export * from './decorators.js';
 export * from './hooks.js';
@@ -50,6 +55,14 @@ function truncate(value: string, max: number): string {
   return value.length > max ? value.substring(0, max) : value;
 }
 
+const ACK_REPLY = { kind: 'ack', body: null };
+
+interface EventDedup {
+  service: Idempotency.IdempotencyService;
+  inFlight: typeof Idempotency.IdempotencyInFlight;
+  ttlMs: number;
+}
+
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
   @Logger('queue')
@@ -70,6 +83,11 @@ export class DefaultQueueService extends QueueService {
   protected Outbox: OutboxWriter;
 
   protected Relay?: OutboxRelay;
+
+  @Autoinject(FaultInjector)
+  protected Faults: FaultInjector;
+
+  protected dedup?: Promise<EventDedup>;
 
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -181,6 +199,8 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
+    const dedupSubscription = await this.dedupSubscriptionOf(event, connections, subscriptionId);
+
     for (let c of connections) {
       const conn = this.Connections.get(c);
 
@@ -205,6 +225,80 @@ export class DefaultQueueService extends QueueService {
                       ev.RetryCount = routed;
                     }
                   }
+                  jModel = existing;
+                }
+              }
+
+              // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
+              if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
+                this.Log.warn({ jobName: ev.Name, jobId: ev.JobId }, 'Job ${jobName}:${jobId} dropped: its initiator differs from the one that owns the tracking row');
+                await this.beforeAck(ev, subscriptionId);
+                return;
+              }
+
+              // at-least-once delivery means a job can be redelivered after it already finished
+              // ( consumer crash before ack, broker failover ). Skip re-running a job whose tracking
+              // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.
+              if ((this.Configuration?.deduplicate ?? true) && JOB_TERMINAL_STATUSES.includes(jModel.Status)) {
+                this.Log.info({ jobName: ev.Name, jobId: ev.JobId, status: jModel.Status }, 'Job ${jobName}:${jobId} already in terminal state ${status}, skipping duplicate delivery');
+                await this.beforeAck(ev, subscriptionId);
+                return;
+              }
+
+              jModel.Status = 'executing';
+              jModel.ExecutedAt = DateTime.now();
+
+              // throttle progress persistence: skip writes smaller than the threshold and
+              // closer together than the min interval, so a chatty job doesn't hammer the DB.
+              let lastProgress = 0;
+              let lastProgressAt = 0;
+              const minProgressDelta = this.Configuration.progress?.minDelta ?? DEFAULT_PROGRESS_MIN_DELTA;
+              const minProgressInterval = this.Configuration.progress?.minInterval ?? DEFAULT_PROGRESS_MIN_INTERVAL_MS;
+
+              try {
+                // update executing state
+                await tracked(() => jModel.update());
+
+                jobResult = await runAroundHandle(ev, () => ev.execute(onProgress));
+
+                jModel.Result = jobResult;
+                jModel.Status = 'success';
+                jModel.FinishedAt = DateTime.now();
+                jModel.Progress = 100;
+
+                this.Log.trace({ jobName: event.name, result: jModel.Result }, 'Job ${jobName} processed with result ${result}');
+              } catch (err) {
+                this.Log.error({ error: err, jobName: event.name }, 'Cannot execute job ${jobName}');
+
+                // record the failed attempt and mark the job retrying / dead so the
+                // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
+                // the error goes to LastError - Result is reserved for the successful output.
+                jModel.Attempt = (jModel.Attempt ?? 0) + 1;
+                // derive the retry limit from the dispatch-time ceiling captured on the row so it stays
+                // authoritative across redeliveries ( a redelivered wire message could carry a different
+                // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
+                const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
+                jModel.Status = isPermanentJobFailure(err) || jModel.Attempt > maxRetries ? 'dead' : 'retrying';
+                if (jModel.Status === 'dead') {
+                  jModel.FinishedAt = DateTime.now();
+                }
+                jModel.LastError = truncate(err instanceof Error ? err.message : String(err), LAST_ERROR_MAX_LENGTH);
+
+                await tracked(() => jModel.update());
+
+                // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
+                // the hook must never mask the original error, so its own failure is only logged.
+                try {
+                  const failure = { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId };
+                  await runAroundHandle(ev, () => (ev as QueueJob).onFailed(err, failure));
+                } catch (hookErr) {
+                  this.Log.error({ error: hookErr, jobName: event.name }, 'onFailed hook for job ${jobName} threw');
+                }
+
+                // propagate so the transport sees the failure and can retry / dead-letter.
+                // ( previously the error was swallowed and the message silently acked )
+                throw err;
+              }
 
                   /**
                    * Handle job type of message
@@ -356,11 +450,103 @@ export class DefaultQueueService extends QueueService {
                     return runAroundHandle(ev, () => callback(ev as T));
                   }
                 }
-              }),
+
+                lastProgress = p;
+                lastProgressAt = now;
+                jModel.Progress = p;
+                await tracked(() => jModel.update());
+
+                self.Log.trace({ jobName: event.name, jobId: jModel.JobId, progress: p }, 'Job ${jobName}:${jobId} progress: ${progress}%');
+              }
+            }
+
+            if (!callback && ev instanceof QueueEvent) {
+              throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
+            }
+
+            this.Log.trace({ messageName: event.name }, 'Queue message ${messageName} processed');
+
+            if (callback) {
+              const handle = () => runAroundHandle(ev, () => callback(ev as T));
+              await (dedupSubscription === undefined ? handle() : this.handleEventOnce(dedupSubscription, ev, handle));
+            }
+
+            await this.beforeAck(ev, subscriptionId);
+          }
+        },
         subscriptionId,
         durable ?? eDurable ?? false,
       );
     }
+  }
+
+  /** The delivery is done with and what follows is the transport's ack; a crash here leaves it unsettled, so it comes again. */
+  protected async beforeAck(message: IQueueMessage, subscriptionId: string | undefined): Promise<void> {
+    await this.Faults.point('queue.before-ack', { messageId: message.MessageId, subscriptionId });
+  }
+
+  /** The subscription a consumed event is deduplicated under, or undefined when deduplication does not apply to it. */
+  protected async dedupSubscriptionOf(event: Constructor<QueueMessage>, connections: string[], subscriptionId: string | undefined): Promise<string | undefined> {
+    const options: unknown = Reflect.getMetadata('queue:options', event);
+    const isEvent = typeof options === 'object' && options !== null && 'type' in options && options.type === 'event';
+    if (!isEvent || !subscriptionId || this.Configuration.deduplicateEvents !== true || this.Configuration.deduplicate === false) {
+      return undefined;
+    }
+    for (const c of connections) {
+      if (this.Connections.get(c)?.RedeliversFailedEvents === false) {
+        throw new InvalidOperation(`queue.deduplicateEvents: connection ${c} acks a failed event instead of redelivering it (RedeliversFailedEvents is false), so an in-flight duplicate would be lost`);
+      }
+    }
+    await this.eventDedup();
+    return subscriptionId;
+  }
+
+  /** An event without a MessageId has nothing to be deduplicated by, so it is handled as it comes. */
+  protected async handleEventOnce(subscriptionId: string, message: QueueMessage, handle: () => Promise<void>): Promise<void> {
+    if (!(message instanceof QueueEvent) || !message.MessageId) {
+      return handle();
+    }
+    const { service, inFlight, ttlMs } = await this.eventDedup();
+    let started = false;
+    const run = () => {
+      started = true;
+      return handle();
+    };
+    try {
+      await service.run({ namespace: `queue:${subscriptionId}` }, message.MessageId, run, { ttl: ttlMs, toReply: () => ACK_REPLY, fromReply: () => undefined });
+    } catch (error) {
+      // run() rethrows the handler's own errors: only an in-flight claim means another copy holds the key
+      if (!started && error instanceof inFlight) throw new RedeliverLater(error.retryAfterMs, error);
+      throw error;
+    }
+  }
+
+  /** Imported on first use, as `@spinajs/http` does: apps that never deduplicate events need no __idempotency table. */
+  protected eventDedup(): Promise<EventDedup> {
+    if (this.dedup) return this.dedup;
+    const loading = this.loadEventDedup();
+    this.dedup = loading;
+    // a failed load is not kept: the next subscription tries again
+    loading.catch(() => {
+      if (this.dedup === loading) this.dedup = undefined;
+    });
+    return loading;
+  }
+
+  protected async loadEventDedup(): Promise<EventDedup> {
+    let idempotency: typeof Idempotency;
+    try {
+      idempotency = await import('@spinajs/idempotency');
+    } catch (err) {
+      throw new InvalidOperation('queue.deduplicateEvents needs the @spinajs/idempotency package installed', err);
+    }
+    // a wrong idempotency.* value fails the subscription, not the first delivery
+    registerConfigurationSchema(idempotency.IDEMPOTENCY_CONFIGURATION_SCHEMA, DI.RootContainer);
+    const service = await DI.resolve(idempotency.IdempotencyService);
+    if (service.Store instanceof idempotency.OrmIdempotencyStore && idempotency.ormModelRegistered(DI.RootContainer) === false) {
+      throw new InvalidOperation("queue.deduplicateEvents on OrmIdempotencyStore: the Orm resolved before @spinajs/idempotency was imported, so __idempotency has neither a model nor a migration. Add import '@spinajs/idempotency' to the app entry, before the boot");
+    }
+    return { service, inFlight: idempotency.IdempotencyInFlight, ttlMs: service.ttlOf(this.Configuration.deduplicateTtl ?? '7d', 'queue.deduplicateTtl') };
   }
 
   /**

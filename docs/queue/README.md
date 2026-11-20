@@ -32,6 +32,7 @@ Pick a transport:
 | [Job retention](08-job-retention.md) | `JobRetentionService`: periodic purge of old job rows, selected by `queue.retention.service` |
 | [Queue service](09-queue-service.md) | `QueueService` and `DefaultQueueService`: replacing or extending the emit and consume pipeline |
 | [Transactional outbox](10-outbox.md) | `queue.outbox`: the `queue_outbox` table per database and its configuration; off by default, built up over 4.x |
+| [Event deduplication](12-event-deduplication.md) | `queue.deduplicateEvents`: a named subscription handles an event once per `MessageId` through `@spinajs/idempotency`; `RedeliverLater` for an in-flight duplicate; off by default |
 | [Message ids and headers](13-message-ids-and-headers.md) | `MessageId`, `Headers`, `QueueHeaders`: how each transport carries them; `MemoryQueueClient` and the transport conformance suite in `@spinajs/queue/testing` |
 
 ## Quick start

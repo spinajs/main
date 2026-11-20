@@ -64,6 +64,10 @@ export async function requestResize(imageId: string) {
 }
 ```
 
+## Event deduplication
+
+`SqsQueueClient` declares `RedeliversFailedEvents`, so `queue.deduplicateEvents` accepts SQS connections ([Event deduplication](../queue/12-event-deduplication.md)). A failed event, and a duplicate that arrives while another consumer still handles the first copy (`RedeliverLater`), are not deleted: they come back after the visibility timeout. Each such redelivery counts toward the queue's `maxReceiveCount`, so a small one can move the only copy to the dead-letter queue while the first is still being handled. Keep `maxReceiveCount` at 5 or more for a deduplicated subscription.
+
 ## Related packages
 
 - [`@spinajs/queue`](../queue/README.md): `QueueService`, `QueueClient`, events, jobs, routing and job tracking; this package is one of its transports.

@@ -59,6 +59,7 @@ export class MemoryBroker {
 function wire<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
+export { wire as wireCopy };
 
 /** What a subscriber receives: the wire copy with the MessageId header the broker transports add. */
 function delivered(message: IQueueMessage): IQueueMessage {
@@ -93,6 +94,11 @@ export class MemoryQueueClient extends QueueClient {
 
   get Deferred(): boolean {
     return this.MemoryOptions.deferred === true;
+  }
+
+  // only deferred mode keeps a rejected delivery queued; the default mode has nothing to redeliver from
+  public get RedeliversFailedEvents(): boolean {
+    return this.Deferred;
   }
 
   async resolve(): Promise<void> {

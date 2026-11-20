@@ -439,6 +439,14 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   }
 
   /**
+   * Whether a rejected event handler leads to a later redelivery instead of an ack. Event dedup refuses a connection
+   * without it, because it would drop a duplicate that arrived while the first copy was still being handled.
+   */
+  public get RedeliversFailedEvents(): boolean {
+    return false;
+  }
+
+  /**
    * Items of an array route that belong to this connection. A string item, or one without
    * `connection`, belongs to `queue.default`, as in {@link QueueService.getConnectionsForMessage}.
    */
@@ -473,6 +481,16 @@ export interface IQueueConfiguration {
    * Defaults to `true`.
    */
   deduplicate?: boolean;
+
+  /**
+   * Suppress duplicate deliveries of an event per named subscription ( `subscriptionId` ), keyed by MessageId, through
+   * `@spinajs/idempotency`. Off by default in 4.x; `deduplicate: false` turns it off too. Handling stays at-least-once:
+   * see docs/queue/12-event-deduplication.md.
+   */
+  deduplicateEvents?: boolean;
+
+  /** How long a handled event's MessageId is remembered. Default '7d'. */
+  deduplicateTtl?: string | number;
 
   /**
    * Automatic cleanup of old tracked jobs ( {@link JobModel} rows ) so the table doesn't

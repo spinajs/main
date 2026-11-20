@@ -87,6 +87,11 @@ export class SqsQueueClient extends QueueClient {
     super(options);
   }
 
+  // a failed handler leaves the message in the queue; SQS delivers it again after the visibility timeout
+  public get RedeliversFailedEvents(): boolean {
+    return true;
+  }
+
   public async resolve(): Promise<void> {
     const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
 
