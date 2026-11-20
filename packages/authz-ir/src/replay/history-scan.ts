@@ -80,10 +80,11 @@ export class ReplayHistory {
   }
 
   *edges(kind: ChangeKind, decode: HistoryContributor['edges']): Iterable<HistoryEdge> {
-    for (const changes of this.byKey.values()) {
-      if (changes[0].kind !== kind) continue;
-      for (const c of changes) yield* decode(c);
-    }
+    for (const c of this.changesOf(kind)) yield* decode(c);
+  }
+
+  *changesOf(kind: ChangeKind): Iterable<ChangeRecord> {
+    for (const changes of this.byKey.values()) if (changes[0].kind === kind) yield* changes;
   }
 
   /**

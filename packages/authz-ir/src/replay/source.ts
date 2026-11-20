@@ -156,7 +156,8 @@ export class HistoricalTupleSource implements TupleSource {
 
   private settle<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
     const out: Resolved<T> = { present: [], gaps: [] };
-    for (const [key, cand] of candidates) {
+    // By key, so a replay walks subjects in the same order whatever the order of the writes that led to them.
+    for (const [key, cand] of [...candidates].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const state = moved.has(key) ? ({ known: false, reason: `${c.kind} ${key} changed during the replay` } as const) : this.stateOf(c, key, cand.image, befores.get(key), since);
       if (!state.known) {
         const read: ReplayRead = { kind: c.kind, key, origin: 'gap', reason: state.reason };

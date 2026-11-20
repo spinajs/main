@@ -1,10 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { Condition, DecisionRecord, Principal } from '@spinajs/authz';
+import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
 import { MemoryChangeLog, canonicalize, policyHash, replayDecision } from '../../src/index.js';
-import type { PolicyIR, ReplayDeps, Rewrite } from '../../src/index.js';
-import { TupleStore } from '../fixtures/history-store.js';
+import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
+import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
 
 const T = new Date('2026-11-17T12:00:00.000Z');
@@ -24,9 +24,29 @@ function irOf(edit: Rewrite = { computed: 'editor' }, caveats: PolicyIR['caveats
   };
 }
 
+/** Rules of a stored store, logged as kind `rule`; a gap item stays an opaque term named after it. */
+class Rules implements StoredPolicySplicer {
+  readonly kind = 'rule' as const;
+  items: Array<{ key: string; image: unknown }> = [];
+  locate(name: string): StoredPlaceholder | undefined {
+    return name === 'stored:rbac:db' ? { model: 'rbac', store: 'db', permission: 'doc:edit', side: 'deny' } : undefined;
+  }
+  current(): Promise<Array<{ key: string; image: unknown }>> {
+    return Promise.resolve(this.items);
+  }
+  edge(c: ChangeRecord): StoredEdge {
+    return { store: 'db', key: c.key };
+  }
+  splice(_at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>): { term: Rewrite } {
+    const gaps = items.filter((i) => !i.state.known).map((i): Rewrite => ({ opaque: `rbac rule ${i.key}` }));
+    return { term: gaps.length > 0 ? { union: gaps } : { priority: [] } };
+  }
+}
+
 interface World {
   log: MemoryChangeLog;
   tuples: TupleStore;
+  rules: Rules;
   ir: PolicyIR;
   deps: ReplayDeps;
   record(over?: Partial<DecisionRecord>): DecisionRecord;
@@ -34,14 +54,15 @@ interface World {
 
 async function world(ir = irOf(), at = T): Promise<World> {
   const since = new Date(at.getTime() - 2 * HOUR);
-  const log = new MemoryChangeLog().cover('tuple', since);
+  const log = new MemoryChangeLog().cover('tuple', since).cover('rule', since).cover('policy', since);
   const tuples = new TupleStore(log);
   await tuples.add(editor('u1'), new Date(at.getTime() - HOUR));
+  const rules = new Rules();
   const policies = new Map([[policyHash(ir), canonicalize(ir)]]);
   const limits = { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 1000, commitLagMs: 5000, timeoutMs: 15_000 };
-  const deps: ReplayDeps = { log, loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], limits, now: () => at.getTime() + HOUR };
+  const deps: ReplayDeps = { log, loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], splicers: [rules], limits, now: () => at.getTime() + HOUR };
   const base: DecisionRecord = { id: '0190c5f0-0000-7000-8000-000000000001', at: at.toISOString(), loggedAt: at.toISOString(), durationMs: 5, domain: 'default', principal: 'user:u1', permission: 'doc:edit', resource: { type: 'doc', id: 'd1' }, allowed: true, cached: false, policyHash: policyHash(ir), modelVersions: {}, inputsHash: 'h', facts: { principal: { type: 'user', id: 'u1' } } };
-  return { log, tuples, ir, deps, record: (over = {}) => ({ ...base, ...over }) };
+  return { log, tuples, rules, ir, deps, record: (over = {}) => ({ ...base, ...over }) };
 }
 
 const user = (attributes: Record<string, unknown> = {}): Principal => ({ type: 'user', id: 'u1', authenticated: true, source: 'test', attributes });
@@ -139,6 +160,67 @@ describe('replayDecision', function () {
     const report = await replayDecision(w.record(), w.deps);
     expect(report.replay).to.equal('unreplayable');
     expect(report.missing.map((m) => m.input)).to.include('resource.status');
+  });
+
+  describe('stored switches', () => {
+    const u9 = { principal: 'user:u9', facts: { principal: { type: 'user', id: 'u9' } } };
+    async function switched(): Promise<World & { switches: Switches }> {
+      const ir = irOf({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] });
+      ir.types.doc.permissions.other = { opaque: 'stored:abac:c' };
+      ir.permissions['doc:other'] = { type: 'doc', relation: 'other', list: false, source: { origin: 'test' } };
+      const w = await world(ir);
+      const switches = new Switches(w.log);
+      w.deps = { ...w.deps, splicers: [switches] };
+      return { ...w, switches };
+    }
+
+    it('a store takes only its own items, whatever other stores of the kind held at T', async () => {
+      const w = await switched();
+      await w.switches.set('rb', { store: 'b', open: true }, ms(-HOUR));
+      await w.switches.set('rb', undefined, ms(HOUR / 2));
+      const report = await replayDecision(w.record({ ...u9, allowed: false }), w.deps);
+      expect(report).to.deep.include({ replay: 'faithful', outcome: { recorded: 'deny', replayed: 'deny' } });
+    });
+
+    it('splices an item as it was at T, not as a later write left it', async () => {
+      const w = await switched();
+      await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
+      await w.switches.set('ra', { store: 'a', open: false }, ms(HOUR / 2));
+      const report = await replayDecision(w.record(u9), w.deps);
+      expect(report).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+      expect(report.reads).to.deep.include({ kind: 'policy', key: 'ra', origin: 'history', seq: 3 });
+    });
+
+    it('a change of the kind that names no store makes the store a gap, not a shorter set', async () => {
+      const w = await switched();
+      await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
+      w.switches.rows.delete('ra');
+      await w.log.append([{ kind: 'policy', op: 'remove', key: 'ra', payload: null, at: ms(HOUR / 2) }]);
+      const report = await replayDecision(w.record(u9), w.deps);
+      expect(report.replay).to.equal('unreplayable');
+      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('policy:policy:a');
+    });
+
+    it('splices only the placeholders the decision can reach', async () => {
+      const w = await switched();
+      await w.switches.set('rc', { store: 'c', open: true }, ms(-HOUR));
+      const report = await replayDecision(w.record({ ...u9, allowed: false }), w.deps);
+      expect(report.replay).to.equal('faithful');
+      expect(report.reads.map((r) => r.key)).to.not.include('rc');
+    });
+  });
+
+  it('splices stored items: none at T replays an allow faithfully, a gap item stays opaque and is named', async () => {
+    const w = await world(irOf({ exclusion: { base: { computed: 'editor' }, subtract: { opaque: 'stored:rbac:db' } } }));
+    expect((await replayDecision(w.record(), w.deps)).replay).to.equal('faithful');
+    await w.log.append([{ kind: 'rule', op: 'add', key: 'r1', payload: { id: 'r1', v: 1 }, at: ms(-HOUR) }]);
+    w.rules.items = [{ key: 'r1', image: { id: 'r1', v: 2 } }];
+    const report = await replayDecision(w.record(), w.deps);
+    expect(report.replay).to.equal('unreplayable');
+    expect(report.missing).to.deep.include({ input: 'opaque', key: 'rbac rule r1', reason: 'the IR cannot see it' });
+    expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('rule:r1');
+    const unspliced = await replayDecision(w.record(), { ...w.deps, splicers: [] });
+    expect(unspliced.missing).to.deep.include({ input: 'opaque', key: 'stored:rbac:db', reason: 'the IR cannot see it' });
   });
 
   it('maps the history budget and the timeout to unreplayable, and rethrows a cancel', async () => {

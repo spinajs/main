@@ -5,4 +5,5 @@ export * from './contributor.js';
 export * from './source.js';
 export * from './verdict.js';
 export * from './context.js';
+export * from './splice.js';
 export * from './replay.js';
