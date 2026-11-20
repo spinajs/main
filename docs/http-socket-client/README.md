@@ -10,7 +10,7 @@ It does **not** use the spinajs DI container: everything is a constructor option
 npm install @spinajs/http-socket-client
 ```
 
-Its runtime dependencies are `socket.io-client` and `@spinajs/http-socket-common`, whose exports it re-exports (`SocketException`, `defineContract`, `ERROR_CODES` and the wire types).
+Its runtime dependencies are `socket.io-client`, `@spinajs/http-socket-common`, whose exports it re-exports (`SocketException`, `defineContract`, `ERROR_CODES` and the wire types), and `@opentelemetry/api`, which sends the caller's trace context with each command and does nothing until an SDK registers a propagator.
 
 | Entry | What it adds | Runs in |
 | --- | --- | --- |

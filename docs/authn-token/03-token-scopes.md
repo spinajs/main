@@ -79,7 +79,7 @@ sequenceDiagram
 
 - Prefer `scope.permissions` and `scope.resources` over roles for integrations: they name exactly what the token may do, whatever roles the owner gains later.
 - Give an agent token the shortest expiry that covers its task, and one resource ref per task.
-- Show users the roles and profiles they may pick from `GET /user/tokens/roles` and `GET /user/tokens/profiles` of [`@spinajs/users-http`](../users-http/03-own-account.md); create accepts exactly those.
+- Show users the roles and profiles they may pick from `GET /user/tokens/roles` and `GET /user/tokens/profiles` of [`@spinajs/users-http`](../users-http/03-own-account.md); create accepts exactly those. `GET /user/tokens/permissions` lists what such a token is allowed, the names worth offering for `scope.permissions`.
 
 ## Patterns and antipatterns
 

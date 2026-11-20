@@ -160,6 +160,20 @@ describe('migrate-diff', function () {
     expect(process.exitCode).to.equal(undefined);
   });
 
+  it('--check reports an expression index as MIG007 and keeps exit code 0 when that note is all it finds', async () => {
+    const driver = await pg();
+    await driver.schema().createTable('cli_lower', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.text('Email');
+    });
+    await driver.schema().raw('CREATE INDEX "ix_cli_lower_Email" ON cli_lower (lower("Email"))');
+    const manifest = writeManifest('m', [model('Lower', 'cli_lower', [id(), col('Email', { family: 'text', inferred: true })], { indexes: [{ columns: ['Email'], unique: false }] })]);
+    const { out, err } = await capture(() => command.execute(undefined, { connection: 'pg', manifest, check: true }));
+    expect(out).to.deep.equal([]);
+    expect(err).to.deep.equal(['info MIG007: index ix_cli_lower_Email on cli_lower is an expression or prefix index and cannot be compared; check it by hand']);
+    expect(process.exitCode).to.equal(undefined);
+  });
+
   it('--check lists a column named by --prune as a DESTRUCTIVE drop', async () => {
     const driver = await pg();
     await driver.schema().createTable('cli_prune', (table) => {

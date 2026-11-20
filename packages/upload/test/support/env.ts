@@ -11,11 +11,12 @@ import { DI } from '@spinajs/di';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { Orm, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 
-import { Upload_2026_10_23_00_00_00, UploadService, UploadStore } from '../../src/index.js';
+import { UploadService, UploadStore } from '../../src/index.js';
 import { CaptureLogTarget, CaptureQueueClient } from './capture.js';
 import { TEST_ROOT, bootConfiguration } from './config.js';
 import { StrictFs } from './strict-fs.js';
@@ -34,12 +35,9 @@ let opened: Promise<UploadEnv> | undefined;
 async function open(): Promise<UploadEnv> {
   await bootConfiguration();
   await DI.resolve(fsService);
-  const orm = await DI.resolve(Orm);
+  const { orm } = await migrateTestDatabase();
   const driver = orm.Connections.get('default');
   if (!driver) throw new Error('upload test db: no connection default');
-  await new Upload_2026_10_23_00_00_00().up(driver);
-  // The Orm read the table info before the tables existed.
-  await orm.reloadTableInfo();
   CaptureQueueClient.Probe = () => driver.CurrentTransaction !== undefined;
   return { orm, driver, store: await DI.resolve(UploadStore), service: await DI.resolve(UploadService) };
 }

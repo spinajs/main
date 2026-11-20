@@ -28,6 +28,9 @@
     },
     {
       "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../tracing/tsconfig.json"
     }
   ]
 }

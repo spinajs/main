@@ -90,6 +90,19 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Isolation levels | All four |
 | Scheduled events | Not supported: `createEvent()` / `dropEvent()` throw `MethodNotImplemented` |
 
+## Testing
+
+Unit and live tests share one folder. The live ones connect to `localhost:1433` as `sa`, database `test`:
+
+```sh
+docker compose --profile test up -d mssql mssql-init
+cd packages/orm-mssql && npm test
+```
+
+CI runs the folder against a SQL Server 2022 service on every pull request that touches `orm`, `orm-sql` or `orm-mssql`
+(`.github/workflows/orm-mssql.yml`), without `test/mssql.test.ts`, which needs a table on a fresh database before it
+creates it.
+
 ## Related packages
 
 - [`@spinajs/orm`](../orm/README.md): models, builders, connections and transactions this driver serves.

@@ -148,8 +148,8 @@ describe('WorkflowService: cancel, retry, list, health', () => {
     fixable.broken = false;
     await service.retry(id);
     expect(pick(await instance(id), 'Status', 'Reason', 'Error', 'FinishedAt')).to.deep.equal({ Status: 'running', Reason: null, Error: null, FinishedAt: null });
-    // Meta.after stays: without it the whole journal would drop to the lenient replay check
-    expect(pick((await stepsOf(id))[0], 'Status', 'Attempt', 'Meta')).to.deep.equal({ Status: 'retrying', Attempt: 0, Meta: { after: 0 } });
+    // Meta.after and Meta.call stay: the replay gate and the replay check read them
+    expect(pick((await stepsOf(id))[0], 'Status', 'Attempt', 'Meta')).to.deep.equal({ Status: 'retrying', Attempt: 0, Meta: { after: 0, call: 1 } });
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'fixed' });
     expect(fixable.attempts).to.deep.equal([1, 1]);
@@ -158,14 +158,14 @@ describe('WorkflowService: cancel, retry, list, health', () => {
   it('retry() resets only failed step and emit rows and drops their stale backoff', async () => {
     await seedInstance('f1', { Workflow: 'svc-a', Status: 'failed', Reason: 'error' });
     await seedStep('f1', 1, 'step:ok#1', { Meta: { after: 0, order: 1 } });
-    await seedStep('f1', 2, 'step:bad#1', { Status: 'failed', Attempt: 3, Meta: { after: 1, order: 2, wakeAt: T0 } });
+    await seedStep('f1', 2, 'step:bad#1', { Status: 'failed', Attempt: 3, Meta: { after: 1, order: 2, call: 2, wakeAt: T0 } });
     await seedStep('f1', 3, 'emit:sent#1', { Status: 'failed', Attempt: 2, Meta: null });
     await seedStep('f1', 4, 'marker:now#1', { Status: 'failed', Meta: { after: 1 } });
     await service.retry('f1');
     const rows = (await stepsOf('f1')).map((s) => pick(s, 'Key', 'Status', 'Attempt', 'Meta'));
     expect(rows).to.deep.equal([
       { Key: 'step:ok#1', Status: 'succeeded', Attempt: 1, Meta: { after: 0, order: 1 } },
-      { Key: 'step:bad#1', Status: 'retrying', Attempt: 0, Meta: { after: 1 } },
+      { Key: 'step:bad#1', Status: 'retrying', Attempt: 0, Meta: { after: 1, call: 2 } },
       { Key: 'emit:sent#1', Status: 'retrying', Attempt: 0, Meta: null },
       { Key: 'marker:now#1', Status: 'failed', Attempt: 1, Meta: { after: 1 } },
     ]);

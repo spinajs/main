@@ -42,7 +42,8 @@ class PipelineConf extends ConnectionConf {
  */
 async function resolveOrm(): Promise<Orm> {
   const app = await createTestApp(ormApp({ configuration: PipelineConf, register: registerMigrationFakes }));
-  return await app.resolve(Orm);
+  // the tool's Orm: both migrations are pending here, which an application's boot guard refuses
+  return (await resolveMigrationTool(app.container)).Orm;
 }
 
 describe('Orm migration pipeline - a real .local.ts file on disk, end to end', () => {

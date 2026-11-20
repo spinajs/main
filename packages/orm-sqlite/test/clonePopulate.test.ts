@@ -3,11 +3,13 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { HasManyToManyRelationMiddleware, Orm, SelectQueryBuilder } from '@spinajs/orm';
-import type { IBuilderMiddleware, ICompilerOutput } from '@spinajs/orm';
+import { extractModelDescriptor, HasManyToManyRelationMiddleware, Orm, SelectQueryBuilder } from '@spinajs/orm';
+import type { IBuilderMiddleware, ICompilerOutput, IWhereBuilder } from '@spinajs/orm';
+import { Lazy } from '@spinajs/util';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db, migrations } from './common.js';
 import { Location } from './models/Location.js';
+import { LocationNetwork } from './models/LocationNetwork.js';
 import { Offer } from './models/Offer.js';
 import { OfferLocation } from './models/OfferLocation.js';
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
@@ -181,19 +183,6 @@ describe('clone() of a populated query', function () {
       expect(networksOf(original)).to.deep.equal(['Loc 1/Network 1', 'Loc 2/Network 1']);
       expect(networksOf(cloned)).to.deep.equal(['Loc 1/Network 1']);
     });
-
-    it('counts like a query without the populate', async () => {
-      const query = locationsWithNetworks();
-      const count = query.clone().count();
-
-      expect(sql(count)).to.eq('SELECT COUNT(*) as `count` FROM `offer_location`');
-      expect(await query.clone().selectCount()).to.eq(2);
-      expect(await query).to.have.length(2);
-    });
-  });
-
-  it('a count of a populated query reads no relation', () => {
-    expect(sql(locationsWithNetworks().count())).to.eq('SELECT COUNT(*) as `count` FROM `offer_location`');
   });
 
   it('a clone keeps a whereOnJoin() of a populate in the join, before and after the original compiles', async () => {
@@ -211,6 +200,110 @@ describe('clone() of a populated query', function () {
     expect((await late).map((r) => r.Id)).to.deep.equal(original.map((r) => r.Id));
   });
 
+  it('an OR in a belongs-to populate callback stays inside its own group', async () => {
+    // offer_location 1 joins Loc 1, offer_location 2 joins Loc 2
+    const query = () =>
+      OfferLocation.where('Id', 1).populate('Location', function () {
+        this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
+      });
+
+    expect((await query()).map((r) => r.Id)).to.deep.equal([1]);
+    expect((await query().clone()).map((r) => r.Id)).to.deep.equal([1]);
+
+    const executed = query();
+    await executed;
+    expect((await executed.clone()).map((r) => r.Id)).to.deep.equal([1]);
+  });
+
+  it('a clone of an executed query keeps a Lazy condition of the callback group on its relation query', async () => {
+    const query = OfferLocation.where('Id', 1).populate('Location', function () {
+      this.where('Name', 'zzz').orWhere(
+        new Lazy(function (this: IWhereBuilder<unknown>) {
+          this.where('Name', 'Loc 1');
+        }),
+      );
+    });
+
+    expect((await query).map((r) => r.Id)).to.deep.equal([1]);
+    expect((await query.clone()).map((r) => r.Id)).to.deep.equal([1]);
+  });
+
+  it('a populate callback that starts with orWhere() is joined to the owner conditions with AND', async () => {
+    const query = OfferLocation.where('Id', 1).populate('Location', function () {
+      this.orWhere('Name', 'Loc 2');
+    });
+
+    expect(sql(query)).to.contain('WHERE `$OfferLocation$`.`Id` = ? AND ( `$Location$`.`Name` = ? )');
+    expect(await query).to.deep.equal([]);
+  });
+
+  it('keeps a nested populate condition out of the group, on the query and on its clones', async () => {
+    const query = (network: string) =>
+      OfferLocation.select().populate('Location', function () {
+        this.where('Name', 'Loc 1').orWhere('Name', 'Loc 2');
+        this.populate('Network', function () {
+          this.where('Name', network);
+        });
+      });
+    const ids = async (rows: PromiseLike<Array<{ Id: number }>>) => (await rows).map((r) => r.Id).sort((a, b) => a - b);
+
+    // ( Loc 1 OR Loc 2 ) AND network: under the OR, `Loc 1 OR Loc 2 AND network` would keep row 1 for any network
+    expect(await ids(query('No such network'))).to.deep.equal([]);
+    expect(await ids(query('No such network').clone())).to.deep.equal([]);
+    expect(await ids(query('Network 1'))).to.deep.equal([1, 2]);
+    expect(await ids(query('Network 1').clone())).to.deep.equal([1, 2]);
+
+    // a clone of an executed query copies the group and the nested condition, each bound to its own relation query
+    const executed = query('Network 1');
+    await executed;
+    expect(await ids(executed.clone())).to.deep.equal([1, 2]);
+    const refused = query('No such network');
+    await refused;
+    expect(await ids(refused.clone())).to.deep.equal([]);
+  });
+
+  it('keeps an aggregate condition of a nested populate at the top level, where HAVING reads it', () => {
+    const name = extractModelDescriptor(LocationNetwork)!.Columns.find((c) => c.Name === 'Name')!;
+    name.Aggregate = true;
+    try {
+      const compiled = String(
+        sql(
+          OfferLocation.select().populate('Location', function () {
+            this.where('Id', 1).orWhere('Id', 2);
+            this.populate('Network', function () {
+              this.where('Name', 'Network 1');
+            });
+          }),
+        ),
+      );
+
+      expect(compiled).to.contain('WHERE ( `$Location$`.`Id` = ? OR `$Location$`.`Id` = ? )');
+      expect(compiled).to.contain('HAVING `Name` = ?');
+      expect(compiled).to.not.contain('`$Location$.$Network$`.`Name` = ?');
+    } finally {
+      name.Aggregate = false;
+    }
+  });
+
+  it('keeps an aggregate condition of the callback at the top level, where HAVING reads it', () => {
+    const name = extractModelDescriptor(Location)!.Columns.find((c) => c.Name === 'Name')!;
+    name.Aggregate = true;
+    try {
+      const compiled = String(
+        sql(
+          OfferLocation.select().populate('Location', function () {
+            this.where('Id', 1).orWhere('Id', 2).where('Name', 'Loc 1');
+          }),
+        ),
+      );
+
+      expect(compiled).to.contain('WHERE ( `$Location$`.`Id` = ? OR `$Location$`.`Id` = ? )');
+      expect(compiled).to.contain('HAVING `Name` = ?');
+    } finally {
+      name.Aggregate = false;
+    }
+  });
+
   it('a clone keeps orWhere() as OR, in the query and in a populate callback', async () => {
     const query = OfferLocation.where('Id', 1).orWhere('Id', 2);
     const populated = OfferLocation.select().populate('Location', function () {
@@ -224,15 +317,91 @@ describe('clone() of a populated query', function () {
     expect(await copy).to.have.length(2);
   });
 
-  it('a where inside a belongsTo populate narrows the rows but not the count', async () => {
-    const narrowed = () =>
-      OfferLocation.select().populate('Location', function () {
-        this.where('Name', 'Loc 1');
-      });
-    const query = narrowed();
+  describe('count() of a populated query', () => {
+    it('counts through the belongs-to joins of the populate, selecting no relation column', async () => {
+      const query = locationsWithNetworks();
+      const count = String(sql(query.clone().count()));
 
-    expect(await query.clone().selectCount()).to.eq(2);
-    expect(await narrowed().selectCount()).to.eq(2);
-    expect(await query).to.have.length(1);
+      expect(count.slice(0, count.indexOf(' FROM '))).to.eq('SELECT COUNT(*) as `count`');
+      expect(count.match(/LEFT JOIN/g)).to.have.length(2);
+      expect(await query.clone().selectCount()).to.eq(2);
+      expect(await query).to.have.length(2);
+    });
+
+    it('a count of a populated query selects only the count', () => {
+      const count = String(sql(locationsWithNetworks().count()));
+
+      expect(count.slice(0, count.indexOf(' FROM '))).to.eq('SELECT COUNT(*) as `count`');
+    });
+
+    it('counts a named column through the joins without ambiguity', async () => {
+      expect(await locationsWithNetworks().selectCount('Id')).to.eq(2);
+    });
+
+    it('a where inside a has-many populate does not narrow the count', async () => {
+      await db().Connections.get('sqlite')!.insert().into('locationmeta').values({ location_id: 1, Key: 'meta 3' });
+      const query = () =>
+        Location.select().populate('Metadata', function () {
+          this.where('Key', 'meta 1');
+        });
+
+      expect(sql(query().count())).to.not.contain('JOIN');
+      expect(await query().selectCount()).to.eq(2);
+      expect(await query()).to.have.length(2);
+    });
+
+    it('a many-to-many populate does not join into the count', async () => {
+      expect(sql(offerWithNetworks().count())).to.not.contain('JOIN');
+      expect(await offerWithNetworks().selectCount()).to.eq(1);
+      expect(await offerWithNetworks()).to.have.length(1);
+    });
+
+    it('a where inside a belongsTo populate narrows the rows and the count alike', async () => {
+      const narrowed = () =>
+        OfferLocation.select().populate('Location', function () {
+          this.where('Name', 'Loc 1');
+        });
+      const query = narrowed();
+
+      expect(await query.clone().selectCount()).to.eq(1);
+      expect(await narrowed().selectCount()).to.eq(1);
+      expect(await query).to.have.length(1);
+    });
+
+    it('a where inside a belongsTo nested in a belongsTo narrows the rows and the count alike', async () => {
+      const narrowed = () =>
+        OfferLocation.select().populate('Location', function () {
+          this.populate('Network', function () {
+            this.where('Name', 'Network 2');
+          });
+        });
+
+      expect(await narrowed().selectCount()).to.eq(0);
+      expect(await narrowed()).to.have.length(0);
+    });
+
+    it('a where on a belongs-to relation column narrows the count, as an orm-http filter builds it', async () => {
+      expect(await OfferLocation.where('Location.Name', '=', 'Loc 1').selectCount()).to.eq(1);
+      expect(await OfferLocation.where('Location.Name', '=', 'Loc 1')).to.have.length(1);
+    });
+
+    it('a whereOnJoin() of a belongsTo populate narrows neither the rows nor the count', async () => {
+      const query = () =>
+        OfferLocation.select().populate('Location', function () {
+          this.whereOnJoin(function () {
+            this.where('Name', 'Loc 1');
+          });
+        });
+
+      expect(await query().selectCount()).to.eq(2);
+      expect(await query()).to.have.length(2);
+    });
+
+    it('counts a row whose belongs-to target is missing, as the rows keep it', async () => {
+      await db().Connections.get('sqlite')!.insert().into('offer_location').values({ Localisation: 99, Offer_id: 1 });
+
+      expect(await locationsWithNetworks().selectCount()).to.eq(3);
+      expect(await locationsWithNetworks()).to.have.length(3);
+    });
   });
 });

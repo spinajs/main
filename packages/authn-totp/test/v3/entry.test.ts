@@ -37,11 +37,11 @@ function packagesImportedFrom(entry: string): Set<string> {
 async function registrationsAfterImport(withDb: boolean): Promise<Record<string, string[]>> {
   const script = `
     import { DI } from '@spinajs/di';
-    import { AuthnEventSink, AuthnThrottle } from '@spinajs/authn/contracts';
+    import { AuthnThrottle } from '@spinajs/authn/contracts';
     const root = await import('@spinajs/authn-totp');
     if (process.argv[1] === 'db') await import('@spinajs/authn-totp/db');
     const names = (t) => (DI.getRegisteredTypes(t) ?? []).map((x) => x.name);
-    process.stdout.write(JSON.stringify({ migrations: names('__migrations__'), throttles: names(AuthnThrottle), sinks: names(AuthnEventSink), stores: names(root.MfaSecretStore) }) + '\\n', () => process.exit(0));
+    process.stdout.write(JSON.stringify({ migrations: names('__migrations__'), throttles: names(AuthnThrottle), stores: names(root.MfaSecretStore) }) + '\\n', () => process.exit(0));
   `;
   const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, withDb ? 'db' : 'root'], { cwd: PKG, maxBuffer: 16 * 1024 * 1024 });
   const line = stdout
@@ -67,7 +67,6 @@ describe('v3 entry points: authn-orm is opt-in', function () {
     const r = await registrationsAfterImport(false);
     assert.ok(!r.migrations.includes('AuthnInitial_2026_10_02_00_00_00'), r.migrations.join());
     assert.ok(!r.throttles.includes('DbAuthnThrottle'), r.throttles.join());
-    assert.ok(!r.sinks.includes('DbAuthnAuditSink'), r.sinks.join());
     assert.deepStrictEqual(r.stores, []);
   });
 

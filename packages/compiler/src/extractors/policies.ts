@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { GlobalMiddlewareRef, MiddlewareRef, PolicyRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { decoratorsOf, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
-import { decoratorOrigin } from './decorator-origin.js';
+import { decoratorOrigin, originOf } from './decorator-origin.js';
 
 const refOf = (expr: ts.Expression | undefined, ctx: ExtractorContext): string => {
   const value = identifierName(expr) ?? literalValue(expr, ctx);
@@ -77,6 +77,9 @@ export const FACTORY_MIDDLEWARES: Readonly<Record<string, FactoryMiddleware>> = 
   Unscoped: { package: '@spinajs/authz-http', type: 'UnscopedMiddleware' },
   // `answer` (index 1) is a function, never a literal: skipping it keeps the flow and mode and spares a CMP001 note
   IpThrottle: { package: '@spinajs/authn-http', type: 'AuthnIpThrottleMiddleware', args: [0, 2] },
+  TenantRoute: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
+  NoTenant: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
+  AllTenants: { package: '@spinajs/tenancy-http', type: 'TenantMiddleware' },
 };
 
 /** The decorator names that mount a middleware, as declared; an import alias of one is not listed. */
@@ -104,17 +107,47 @@ function factoryMiddleware(d: DecoratorInfo, ctx: ExtractorContext): MiddlewareR
   return decoratorArgs ? { type: factory.type, decoratorArgs } : { type: factory.type };
 }
 
+const DEFAULT_EXPORT: string = ts.InternalSymbolName.Default;
+
+/** The declared name of the mounted class, as the factory decorators record it, so a name match also sees an import alias. */
+function mountedTypeOf(expr: ts.Expression | undefined, ctx: ExtractorContext): string {
+  const declared = originOf(expr, ctx)?.name;
+  return declared && declared !== DEFAULT_EXPORT ? declared : refOf(expr, ctx);
+}
+
+interface DecoratedMiddleware {
+  ref: MiddlewareRef;
+  /** `@Idempotent` replaces a gate already mounted; `@Middleware(IdempotencyMiddleware, ...)` adds one. */
+  replacesGate: boolean;
+}
+
+/**
+ * Replays the decorators bottom-up, as the runtime applies them: `@Idempotent` replaces the first gate already mounted,
+ * in place (http decorators.ts). So stacked ones leave one gate: the top one's arguments, where the bottom one mounted it.
+ */
+function asMounted(decorated: DecoratedMiddleware[]): MiddlewareRef[] {
+  const gate = FACTORY_MIDDLEWARES.Idempotent.type;
+  const mounted: MiddlewareRef[] = [];
+  for (const { ref, replacesGate } of [...decorated].reverse()) {
+    const at = replacesGate ? mounted.findIndex((m) => m.type === gate) : -1;
+    if (at >= 0) mounted.splice(at, 1, ref);
+    else mounted.push(ref);
+  }
+  return mounted.reverse();
+}
+
 /** In source order; see `MiddlewareRef`. */
 export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): MiddlewareRef[] {
-  const out = decoratorsOf(node).flatMap((d): MiddlewareRef[] => {
+  const decorated = decoratorsOf(node).flatMap((d): DecoratedMiddleware[] => {
     if (d.name === 'Middleware') {
-      const type = refOf(d.args[0], ctx);
+      const type = mountedTypeOf(d.args[0], ctx);
       const options = literalArgs(d.args.slice(1), ctx);
-      return [options ? { type, options } : { type }];
+      return [{ ref: options ? { type, options } : { type }, replacesGate: false }];
     }
     const factory = factoryMiddleware(d, ctx);
-    return factory ? [factory] : [];
+    return factory ? [{ ref: factory, replacesGate: factory.type === FACTORY_MIDDLEWARES.Idempotent.type }] : [];
   });
+  const out = asMounted(decorated);
   if (accessOf(node, ctx).fieldsFilter) out.push({ type: 'AuthzFieldsMiddleware', options: [] });
   return out;
 }

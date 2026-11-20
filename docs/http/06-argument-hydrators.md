@@ -25,6 +25,8 @@ Primitive types (`string`, `number`, `bigint`, `boolean`) never use a hydrator.
 
 An unparsable string gives an invalid `DateTime` (`isValid === false`), not an error.
 
+A number is always read as seconds, also for a model column declared `@DateTime({ unit: 'milliseconds' })` in `@spinajs/orm`. Clients that send epoch milliseconds need a custom hydrator, see [below](#datetimehydrator-custom-implementation).
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |
