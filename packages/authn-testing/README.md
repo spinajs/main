@@ -88,7 +88,7 @@ Lanes that do not own `AuthnService` (N3, N6, N7, N10) build the `service`
 port from kit fakes until N1 lands: `FakeAuthnService` (the login, MFA and
 re-authentication flow over the contracts) with `FakeBackoffThrottle`,
 `MemorySessionIssuer`, `FakeIdentityStore`, `MemoryLinkStore`,
-`EnrolledMfaPolicy`, `RecordingEventSink`, `RecordingPrincipalFactory` and
+`EnrolledMfaPolicy`, `RecordingEventListener`, `RecordingPrincipalFactory` and
 the lane's own strategy. `throttleParams(ctx.config)` gives the params to
 build the throttle with and to report in the `throttle` port. These are
 fakes, not N1's implementation.

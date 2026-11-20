@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventSink, AuthnThrottle, JwsVerifier, KeyRegistry, NonceStore, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnThrottle, JwsVerifier, KeyRegistry, NonceStore, SecretStore } from '@spinajs/authn/contracts';
 import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spinajs/authn/contracts';
-import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
+import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventListener, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/challenge/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
@@ -24,7 +24,7 @@ const AUD = 'https://keys.kit.test';
 function world(options = keysOptionsFor({ assertion: { audience: AUD } })) {
   const clock = new FakeClock();
   const secrets = new MemorySecretStore();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets, throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([events]), options });
   const ctx = (): AuthnContext => clock.ctx();
   const challenge = async (owner = ALICE): Promise<KeyChallenge> => {
@@ -44,7 +44,7 @@ const userReg = (kp: KitKeyPair, proof: unknown, owner = ALICE, over: object = {
 describe('DefaultKeyRegistry', () => {
   it('throttles login challenges on the IPv6 /64 of the client', async () => {
     const throttle = new FakeBackoffThrottle(throttleParams({ authn: { throttle: { login: { ip: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } }));
-    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle, audit: AuthnAudit.over([new RecordingEventSink()]), options: keysOptionsFor({ assertion: { audience: AUD } }) });
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle, audit: AuthnAudit.over([new RecordingEventListener()]), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const clock = new FakeClock();
     const at = (ip: string) => clock.ctx({ ip });
     const challenge = (ip: string) => registry.challenge({ purpose: 'login', kid: 'k' }, at(ip));
@@ -234,17 +234,17 @@ describe('DefaultKeyRegistry', () => {
   });
 
   it('a throwing or hanging sink fails neither a stored register nor a revoke', async () => {
-    class ThrowingSink extends AuthnEventSink {
-      publish(): Promise<void> {
+    class ThrowingSink extends AuthnEventListener {
+      on(): Promise<void> {
         throw new Error('sink down');
       }
     }
-    class HangingSink extends AuthnEventSink {
-      publish(): Promise<void> {
+    class HangingSink extends AuthnEventListener {
+      on(): Promise<void> {
         return new Promise(() => undefined);
       }
     }
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { listenerTimeoutMs: 20 }), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const ctx = new FakeClock().ctx();
     const started = Date.now();
@@ -285,7 +285,7 @@ describe('DefaultKeyRegistry', () => {
         super(throttleParams());
       }
     }
-    class SpySink extends RecordingEventSink {
+    class SpySink extends RecordingEventListener {
       static last: SpySink | undefined;
       constructor() {
         super();
@@ -301,7 +301,7 @@ describe('DefaultKeyRegistry', () => {
     DI.register(MemoryNonceStore).as(NonceStore);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(TestThrottle).as(AuthnThrottle);
-    DI.register(SpySink).as(AuthnEventSink);
+    DI.register(SpySink).as(AuthnEventListener);
     DI.uncache(AuthnAudit);
     try {
       const registry = await DI.resolve(KeyRegistry);
@@ -319,7 +319,7 @@ describe('DefaultKeyRegistry', () => {
       assert.strictEqual(assertion.nonces, httpsig.nonces);
       assert.ok(assertion.verifier instanceof StrictJwsVerifier);
     } finally {
-      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventSink, AuthnAudit, NonceStore, HttpSignatureStrategy, ...types] as unknown as (new () => unknown)[]) {
+      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventListener, AuthnAudit, NonceStore, HttpSignatureStrategy, ...types] as unknown as (new () => unknown)[]) {
         DI.uncache(t);
       }
       for (const t of types) {

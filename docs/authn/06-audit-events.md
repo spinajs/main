@@ -25,7 +25,7 @@ A detached delivery runs the same way: every listener gets the same frozen copy,
 
 The listeners are every `AuthnEventListener` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no listener, boot logs a warning: authentication events are then neither recorded nor acted on.
 
-A listener failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request, unless the listener is blocking. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
+A listener failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request, unless the listener is blocking. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `listeners` deps of `authn-local`, `authn-totp` and `authn-webauthn`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
 
 ## Blocking listeners
 
@@ -129,10 +129,9 @@ Listeners shipped with SpinaJS:
 | Listener | Package | What it does |
 | --- | --- | --- |
 | `AuthnAuditRecorder` | `@spinajs/audit-authn` | Records every event in the audit trail; blocking when its trail rejects |
-| `DbAuthnAuditSink` | `@spinajs/authn-orm` | One `authn_audit` row per event |
-| `WebhookAuthnEventSink` | `@spinajs/authn-http` | POSTs each event, signed, to `authn.webhooks` |
-| `SseSessionEndSink` | `@spinajs/authz-http` | Ends a session's event streams on logout, revoke and impersonation |
-| `QueueAuthnEventSink` | `@spinajs/users` | Re-emits user queue events such as `UserLogged` and `UserLoginFailed` |
+| `WebhookAuthnEventListener` | `@spinajs/authn-http` | POSTs each event, signed, to `authn.webhooks` |
+| `SseSessionEndListener` | `@spinajs/authz-http` | Ends a session's event streams on logout, revoke and impersonation |
+| `QueueAuthnEventListener` | `@spinajs/users` | Re-emits user queue events such as `UserLogged` and `UserLoginFailed` |
 
 ## Recording
 
@@ -226,5 +225,5 @@ class LoginCounter extends AuthnEventListener {
 
 - [Authentication flow](01-authentication-flow.md): the events of a login.
 - [`@spinajs/audit-authn`](../../packages/audit-authn/README.md): the recorder and its trail.
-- [`@spinajs/authn-orm`](../authn-orm/README.md): `DbAuthnAuditSink` and the `authn_audit` table.
+- [Login history](../authn-orm/06-audit-sink.md): what became of the 3.x `authn_audit` table of `@spinajs/authn-orm`.
 - [`@spinajs/users`](../users/README.md): the listener that re-emits authn events as user queue events.

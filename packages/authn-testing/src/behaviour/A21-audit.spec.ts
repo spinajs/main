@@ -7,13 +7,13 @@ export const A21: AuthnRule = defineRule('A21', 'every event reaches every sink 
   defineCase({
     name: 'A21 every event reaches every sink',
     facet: 'A21/core',
-    needs: ['service', 'seed', 'sinks'],
+    needs: ['service', 'seed', 'listeners'],
     async run(h, k) {
-      assert.ok(h.sinks.length >= 2, 'the harness registers at least two sinks');
+      assert.ok(h.listeners.length >= 2, 'the harness registers at least two listeners');
       await seedUser(h, ALICE);
       await auth(h, k, pw(ALICE.login, WRONG));
       expectSuccess(await auth(h, k, pw(ALICE.login, ALICE.password)));
-      const types = h.sinks.map((s) => s.all().map((e) => e.type));
+      const types = h.listeners.map((s) => s.all().map((e) => e.type));
       assert.ok(types[0].length >= 2, 'the flow published events');
       for (const t of types.slice(1)) {
         assert.deepStrictEqual(t, types[0]);

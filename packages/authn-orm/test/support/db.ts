@@ -29,7 +29,7 @@ export interface TestDb {
   container: IContainer;
   /** The `'default'` connection, which the authn-orm migrations and stores use. */
   driver: OrmDriver;
-  /** Postgres only: the database created for this run. */
+  /** Postgres only: the database this run booted on. */
   database?: string;
   dispose(): Promise<void>;
 }
@@ -44,6 +44,8 @@ export interface BootOptions {
   migrations?: Class<OrmMigration>[];
   /** Deep-merged into the configuration, e.g. `{ authn: { mfa: { encryptionKey: { secret } } } }`. */
   config?: Record<string, unknown>;
+  /** An existing Postgres database or sqlite file to boot on; `dispose()` leaves it in place. */
+  database?: string;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -142,14 +144,15 @@ export async function dropPgDatabase(name: string): Promise<void> {
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
   let database: string | undefined;
+  let created: string | undefined;
   let connection: Record<string, unknown>;
 
   if (kind === 'postgres') {
     await requirePostgres(ctx);
-    database = await createPgDatabase(suite);
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
+    database = options.database ?? (created = await createPgDatabase(suite));
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
-    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:' };
+    connection = { Name: `n4-${suite}`, Driver: 'orm-driver-sqlite', Filename: options.database ?? ':memory:', Migration: migration };
   }
 
   const container: IContainer = DI.child();
@@ -173,8 +176,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
       ({ orm, migrator } = await migrateTestDatabase(container));
     }
   } catch (err) {
-    if (database) {
-      await dropPgDatabase(database);
+    if (created) {
+      await dropPgDatabase(created);
     }
     throw err;
   }
@@ -190,8 +193,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
       try {
         await orm.dispose();
       } finally {
-        if (database) {
-          await dropPgDatabase(database);
+        if (created) {
+          await dropPgDatabase(created);
         }
       }
     },

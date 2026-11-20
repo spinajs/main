@@ -1,4 +1,4 @@
-import { AuthnAudit, AuthnService, AuthnThrottle, IdentityStore, MemoryAuthnThrottle, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthnService, AuthnThrottle, IdentityStore, MemoryAuthnThrottle, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
@@ -6,7 +6,7 @@ import { FakeIdentityStore, MemorySessionIssuer, RecordingPrincipalFactory } fro
 import { expect } from 'chai';
 import 'mocha';
 
-import { DbAuthnAuditSink, DbAuthnThrottle } from '../src/index.js';
+import { DbAuthnThrottle } from '../src/index.js';
 
 /** The app's own config adds nothing about the throttle; every package config is loaded the way an app loads it. */
 class StandardAppConfiguration extends FrameworkConfiguration {
@@ -54,7 +54,5 @@ describe('authn-orm with no throttle config (K6)', function () {
     const throttle = (service as unknown as { Throttle: unknown }).Throttle;
     expect(throttle).to.be.instanceOf(DbAuthnThrottle);
     expect(throttle).to.not.be.instanceOf(MemoryAuthnThrottle);
-    const audit = await child.resolve(AuthnAudit);
-    expect(audit.listeners().some((s) => s instanceof DbAuthnAuditSink), 'the DB sink gets every event').to.eq(true);
   });
 });

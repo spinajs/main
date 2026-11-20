@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { AuthnEventListener, AuthnEventSink } from '../../src/contracts/audit.js';
+import { AuthnEventListener } from '../../src/contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../../src/contracts/audit.js';
 import { ImpersonationGuard } from '../../src/contracts/impersonation.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
@@ -119,20 +119,6 @@ describe('audit and impersonation guard contracts', () => {
       }
     });
 
-    it('exports the deprecated AuthnEventSink as a listener whose on() calls publish()', async () => {
-      expect(index.AuthnEventSink).to.eq(AuthnEventSink);
-      expect(Object.getPrototypeOf(AuthnEventSink)).to.eq(AuthnEventListener);
-      const seen: AuthnEvent[] = [];
-      const sink = new (class extends AuthnEventSink {
-        async publish(e: AuthnEvent): Promise<void> {
-          seen.push(e);
-        }
-      })();
-      const e: AuthnEvent = { type: 'logout', at: new Date(0), outcome: 'success' };
-      await sink.on(e);
-      expect(seen).to.deep.eq([e]);
-    });
-
     it('every listener gets every event', async () => {
       const listeners: AuthnEventListener[] = [new ListListener(), new ListListener()];
       const events: AuthnEvent[] = [
@@ -153,7 +139,7 @@ describe('audit and impersonation guard contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('audit.ts holds AuthnEventListener with on, blocking, ready and flush, AuthnListenerFailed and the AuthnEventSink bridge', () => {
+    it('audit.ts holds AuthnEventListener with on, blocking, ready and flush, and AuthnListenerFailed', () => {
       expect(shape(classMembers('audit.ts'))).to.deep.eq({
         AuthnEventListener: {
           base: null,
@@ -167,13 +153,6 @@ describe('audit and impersonation guard contracts', () => {
         AuthnListenerFailed: {
           base: 'CodedHttpException',
           members: [{ name: '', modifiers: [], optional: false, params: null }],
-        },
-        AuthnEventSink: {
-          base: 'AuthnEventListener',
-          members: [
-            { name: 'publish', modifiers: ['abstract'], optional: false, params: ['e'] },
-            { name: 'on', modifiers: ['public'], optional: false, params: ['e'] },
-          ],
         },
       });
     });
@@ -204,7 +183,6 @@ describe('audit and impersonation guard contracts', () => {
       expect(classMembers('audit.ts').AuthnListenerFailed.doc).to.contain('503');
       expect(listener.members.find((m) => m.name === 'ready')?.doc).to.contain('a throw fails the boot');
       expect(listener.members.find((m) => m.name === 'flush')?.doc).to.contain('AuthnAudit.settled()');
-      expect(classMembers('audit.ts').AuthnEventSink.doc).to.contain('@deprecated');
       const guard = classMembers('impersonation.ts').ImpersonationGuard;
       expect(guard.doc).to.contain('users');
       expect(guard.doc).to.contain('D26');
@@ -217,7 +195,6 @@ describe('audit and impersonation guard contracts', () => {
       same<index.AuthnEvent, AuthnEvent>(true);
       same<index.AuthnEventType, AuthnEventType>(true);
       same<index.AuthnEventListener, AuthnEventListener>(true);
-      same<index.AuthnEventSink, AuthnEventSink>(true);
       same<index.ImpersonationGuard, ImpersonationGuard>(true);
     });
 
@@ -254,13 +231,11 @@ describe('audit and impersonation guard contracts', () => {
       expect([a, b, c]).to.have.length(3);
     });
 
-    it('AuthnEventListener, AuthnEventSink and ImpersonationGuard members have the design types', () => {
+    it('AuthnEventListener and ImpersonationGuard members have the design types', () => {
       same<Parameters<AuthnEventListener['on']>, [AuthnEvent]>(true);
       same<ReturnType<AuthnEventListener['on']>, Promise<void>>(true);
       same<AuthnEventListener['ready'], (() => void | Promise<void>) | undefined>(true);
       same<AuthnEventListener['flush'], (() => Promise<void>) | undefined>(true);
-      same<Parameters<AuthnEventSink['publish']>, [AuthnEvent]>(true);
-      same<ReturnType<AuthnEventSink['publish']>, Promise<void>>(true);
       same<Parameters<ImpersonationGuard['allowed']>, [Principal, IdentityRef]>(true);
       same<ReturnType<ImpersonationGuard['allowed']>, Promise<Verdict>>(true);
     });
@@ -278,13 +253,11 @@ describe('audit and impersonation guard contracts', () => {
       // @ts-expect-error abstract
       const l = (): unknown => new AuthnEventListener();
       // @ts-expect-error abstract
-      const a = () => new AuthnEventSink();
-      // @ts-expect-error abstract
       const b = () => new ImpersonationGuard();
       const g: ImpersonationGuard = new RoleGuard();
       // @ts-expect-error the actor is a Principal, not an IdentityRef
       const c = () => g.allowed(alice, alice);
-      expect([l, a, b, c]).to.have.length(4);
+      expect([l, b, c]).to.have.length(3);
     });
 
     it('a guard with an unknown code does not compile', () => {

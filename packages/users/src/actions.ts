@@ -293,7 +293,7 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
  * a reactivation or a restored row from bringing the tokens back. Errors propagate, as in {@link revokeUserSessions}.
  *
  * The `token.revoke` audit names the ambient principal as the actor, SYSTEM included; an unattended or anonymous
- * caller is no one to name. The call runs as that caller, not as SYSTEM: authn-token's audit sinks run inside it, and
+ * caller is no one to name. The call runs as that caller, not as SYSTEM: authn-token's event listeners run inside it, and
  * what they queue would be stamped with SYSTEM.
  *
  * @param user - the user whose tokens are revoked, or their numeric id (soft-deleted rows included)
@@ -959,7 +959,7 @@ const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request'
  * Makes the user's password unusable: `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`, which stores
  * authn-local's `'!expired'` marker, ends every authn session and, under `authn.local.reset.revokeTokens`, every API
  * token. The `UserLifecycleMailHook` then sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
- * from authn's event through `QueueAuthnEventSink`.
+ * from authn's event through `QueueAuthnEventListener`.
  *
  * The account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks the owner
  * to set a new password.

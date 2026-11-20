@@ -25,7 +25,7 @@ Validation of a presented token (`validate`) is described in [API token authenti
 7. When a `RoleSource` was injected, every requested role must be one the owner holds, or the result is `invalid_scope`. Without a `RoleSource`, the roles are stored as given.
 8. The `AccessTokenGenerationProvider` named by `authn.token.generation.service` mints `{ Plaintext, Hash }`. The plaintext must start with the prefix, carry at least the configured length of base64url and fit in 1024 characters, or `create` throws `UnexpectedServerError` and stores nothing.
 9. A new `AccessToken` row is inserted with the hash, never the plaintext.
-10. A `token.create` event goes through `AuthnAudit.publishIn` to every `AuthnEventSink`.
+10. A `token.create` event goes through `AuthnAudit.publishIn` to every `AuthnEventListener`.
 11. The result is `{ ok: true, plaintext, record }`. The plaintext is never stored, logged or returned again.
 
 With a hook on `authn.token.create`, steps 3 to 11 run on the `opts` the hooks left, and after step 4 the result must only narrow what the caller asked for, or it is `invalid_scope`. `ctx.now` and the caller's request are read before the hooks run.
@@ -173,7 +173,7 @@ authn: {
 | Role check at create | `RoleSource` (`@spinajs/authn/contracts`); optional `@Autoinject` property `Roles`, set only when one is registered when `DbTokenService` is resolved | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)` before `TokenService` is first resolved. |
 | Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service`; `@AutoinjectService` property `Generator` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |
 | Action hooks | `Hooks` (`@spinajs/hooks`); `@Autoinject` property `Hooks` | `DefaultHooks` | none | Register an `ActionHook` for the `authn.token.*` actions; see [Action hooks](10-action-hooks.md). A service built with `new` and no injection runs no hook. |
-| Audit | `AuthnAudit` (`@spinajs/authn/audit`); `@Autoinject` property `Audit`, delivering to every `AuthnEventListener` | none in this package | `AuthnAuditRecorder` of `@spinajs/audit-authn`, `@spinajs/authn-orm`'s `DbAuthnAuditSink` | Register a listener with `@Injectable(AuthnEventListener)`. |
+| Audit | `AuthnAudit` (`@spinajs/authn/audit`); `@Autoinject` property `Audit`, delivering to every `AuthnEventListener` | none in this package | `AuthnAuditRecorder` of `@spinajs/audit-authn` | Register a listener with `@Injectable(AuthnEventListener)`. |
 | ORM | `Orm`; `@Autoinject` property `Orm` | `@spinajs/orm` | none | Resolving the service resolves the `Orm`, so a CLI run that builds only this service can query `rbac_access_tokens`. A migration's `data()` can use the service: it runs once the `Orm` has resolved. `up()` cannot. |
 
 `DbTokenService` also has three methods outside the contract that shipped code finds by duck typing: `touch` (used by `TokenStrategy`), `revokeById` (used by `authn:token-delete`) and `deleteExpired` (used by `authn:token-delete-expired`). A replacement that drops them loses the last-use stamp and those two commands.
@@ -206,14 +206,14 @@ export class NotifyingTokenService extends DbTokenService {
 }
 ```
 
-The collaborators are `@Autoinject` properties of `DbTokenService`, so the subclass inherits them and needs no constructor. The constructor takes one optional argument, an `AuthnAuditor` (for example `AuthnAudit.over(sinks)`) that receives the events instead of the container's `AuthnAudit`, for tests.
+The collaborators are `@Autoinject` properties of `DbTokenService`, so the subclass inherits them and needs no constructor. The constructor takes one optional argument, an `AuthnAuditor` (for example `AuthnAudit.over(listeners)`) that receives the events instead of the container's `AuthnAudit`, for tests.
 
 ## Important behaviour
 
 - **Plaintext once.** Only the SHA-256 hex digest is stored, in a column hidden from `dehydrate()`. `TokenRecord`, events and logs never carry the plaintext or the hash.
 - **Expiry is mandatory.** There is no "never expires" token; `expiresAt` is required by the type and checked at run time. A non-finite cap (a broken config that skipped the schema) refuses every expiry.
 - **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner or an invalid `ctx.now` (`InvalidOperation`), a token format outside the limits (`InvalidOption`), a broken generator (`UnexpectedServerError`) or a database error throws. A refusal by an action hook throws `ActionRefused`, a failed hook `ActionHookFailed`.
-- **Events never undo a write.** `token.create`, `token.revoke`, `token.rotate` and `token.update` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.listenerTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A create, rotate or update refused by its own checks and a failed revoke (`revokeByPlaintext` included) publish nothing. A refusal by an action hook publishes the method's event with outcome `failure` and the reason `hook:<code>` or `hook_error`.
+- **Events never undo a write.** `token.create`, `token.revoke`, `token.rotate` and `token.update` are published after the row is written. `AuthnAudit` runs the listeners concurrently, each bounded by `authn.audit.listenerTimeoutMs`; a listener that fails or times out is logged, and the caller still gets the plaintext or `true`. Only a [blocking](../authn/06-audit-events.md#blocking-listeners) listener that fails a success event makes the call reject with `AuthnListenerFailed`, after the row is written. A create, rotate or update refused by its own checks and a failed revoke (`revokeByPlaintext` included) publish nothing. A refusal by an action hook publishes the method's event with outcome `failure` and the reason `hook:<code>` or `hook_error`.
 - **Status within the ttl.** A cached validation does not re-read the owner's status. A ban through `@spinajs/users` revokes the owner's tokens, which evicts them; any other status change counts once the entry is older than `authn.token.cache.ttlSeconds`, or at once when something publishes `{ kind: 'identity' }` on the bus.
 - **Revocation keeps the row.** `revoke` and `revokeAllFor` only set `RevokedAt`; `deleteExpired` removes the row later.
 - **`service` tokens.** In this package a `service` token behaves like a `pat`; the kind is stored and reported. Both belong to a user owner under the default resolver.
@@ -291,5 +291,5 @@ export async function expiringSoon(userUuid: string, now = new Date()): Promise<
 - [API token authentication](02-token-authentication.md): how `validate` and `TokenStrategy` use the stored rows.
 - [Token roles, scopes and agent tokens](03-token-scopes.md): what `roles`, `scope`, `profile` and `kind` do.
 - [Token storage and migrations](05-token-storage.md): the table the service writes.
-- [`@spinajs/authn` audit events](../authn/06-audit-events.md): the sinks that receive `token.create`, `token.revoke`, `token.rotate` and `token.update`.
+- [`@spinajs/authn` audit events](../authn/06-audit-events.md): the listeners that receive `token.create`, `token.revoke`, `token.rotate` and `token.update`.
 - [`@spinajs/authn-http`](../authn-http/README.md): `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` (fresh auth required), `PATCH /user/tokens/:uuid` and `DELETE /user/tokens/:uuid` over this service, and `POST /auth/tokens/revoke`, which needs no session.
