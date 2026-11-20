@@ -22,6 +22,8 @@ const expect = chai.expect;
 
 const tags = new WeakMap<QueryBuilder, string>();
 const clones: Array<[QueryBuilder, QueryBuilder]> = [];
+const merges: Array<[QueryBuilder, QueryBuilder]> = [];
+let refuseMerge = false;
 
 // One methods object, one class per builder: the shape authz-orm uses for its three builders.
 const taggingMethods: QueryExtension['methods'] = {
@@ -39,6 +41,10 @@ const TaggingSelect = defineQueryExtension({
     clones.push([source, clone]);
     const tag = tags.get(source);
     if (tag !== undefined) tags.set(clone, tag);
+  },
+  onMerge(source, target) {
+    if (refuseMerge) throw new InvalidArgument('merge refused');
+    merges.push([source, target]);
   },
 });
 
@@ -159,6 +165,30 @@ describe('Query extensions', () => {
       expect(clone).to.equal(copy);
       expect(tags.get(copy)).to.equal('kept');
     });
+
+    it('runs onMerge with the merged builder and the builder that takes it', () => {
+      const target = RawModel.query() as unknown as SelectQueryBuilder;
+      const source = RawModel.query() as unknown as SelectQueryBuilder;
+      target.mergeBuilder(source);
+
+      const [merged, into] = merges[merges.length - 1];
+      expect(merged).to.equal(source);
+      expect(into).to.equal(target);
+    });
+
+    it('an onMerge that throws stops the merge before the target changes', () => {
+      const target = RawModel.query() as unknown as SelectQueryBuilder;
+      const source = RawModel.query().select('Bar') as unknown as SelectQueryBuilder;
+      const columns = target.getColumns().length;
+
+      refuseMerge = true;
+      try {
+        expect(() => target.mergeBuilder(source)).to.throw(InvalidArgument, 'merge refused');
+      } finally {
+        refuseMerge = false;
+      }
+      expect(target.getColumns().length).to.equal(columns);
+    });
   });
 
   // Runs after the block above, in file order: that block left `tagged` installed.
@@ -168,6 +198,12 @@ describe('Query extensions', () => {
     it('removes the methods the previous install added', () => {
       expect(has(SelectQueryBuilder.prototype, 'tagged')).to.equal(false);
       expect(has(UpdateQueryBuilder.prototype, 'tagged')).to.equal(false);
+    });
+
+    it('removes the merge hooks the previous install added', () => {
+      const count = merges.length;
+      (RawModel.query() as unknown as SelectQueryBuilder).mergeBuilder(RawModel.query() as unknown as SelectQueryBuilder);
+      expect(merges.length).to.equal(count);
     });
   });
 
