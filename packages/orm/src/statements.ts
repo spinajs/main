@@ -355,6 +355,25 @@ export abstract class JoinStatement extends QueryStatement {
   public abstract build(): IQueryStatementResult;
 
   /**
+   * For `SelectQueryBuilder.clone()`: the columns this join's builder gave the query it was merged into, each paired
+   * with the same column of `copy`, the clone of this statement.
+   */
+  public columnCopiesIn(copy: JoinStatement): Map<IQueryStatement, IQueryStatement> {
+    const copies = new Map<IQueryStatement, IQueryStatement>();
+    if (this._whereBuilder === undefined || copy._whereBuilder === undefined) {
+      return copies;
+    }
+
+    const to = copy._whereBuilder.getColumns();
+    this._whereBuilder.getColumns().forEach((c, k) => {
+      if (k < to.length) {
+        copies.set(c, to[k]);
+      }
+    });
+    return copies;
+  }
+
+  /**
    * Namespaces this join under a populated relation's alias, and only when the alias was not
    * given explicitly: a `populate('Client', cb)` and `populate('Agency', cb)` that each join
    * the same model would otherwise both synthesise `$Model$` and collide in the parent query

@@ -5,7 +5,7 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement, JoinStatement } from '../statements.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
@@ -355,8 +355,15 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return c;
     };
 
-    builder._columns = this._columns.map(copy);
     builder._joinStatements = this._joinStatements.map(copy);
+    const joined = this._joinedColumnCopies(builder._joinStatements);
+    builder._columns = this._columns.map((s) => {
+      const c = joined.get(s);
+      if (c && this._merged.has(s)) {
+        builder._merged.add(c);
+      }
+      return c ?? copy(s);
+    });
     builder._statements = this._statements.map(copy);
     builder._groupStatements = this._groupStatements.map(copy);
 
@@ -383,6 +390,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     runCloneHooks(this, builder);
 
     return builder as any;
+  }
+
+  /**
+   * A join shares the columns its builder selected with this query, and its build() stamps the join alias on them.
+   * The clone takes them from the copy of that builder, so they follow the copy of the join, not the source's.
+   */
+  private _joinedColumnCopies(copies: IQueryStatement[]): Map<IQueryStatement, IQueryStatement> {
+    const joined = new Map<IQueryStatement, IQueryStatement>();
+    this._joinStatements.forEach((s, i) => {
+      const copy = copies[i];
+      if (s instanceof JoinStatement && copy instanceof JoinStatement) {
+        s.columnCopiesIn(copy).forEach((to, from) => joined.set(from, to));
+      }
+    });
+    return joined;
   }
 
   protected _getRelationInstance(relation: string) {
