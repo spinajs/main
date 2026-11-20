@@ -164,8 +164,8 @@ export interface EscapedHistory {
 
 /**
  * One key whose writes may escape the log. An escape is either noticed (a `lost` marker moves coverage to it) or comes
- * right after a logged change of the key while an earlier one is retained: the case the links between changes expose.
- * Two escapes in a row could restore a state unseen (R1), so the second one is always noticed. Coverage starts at the
+ * after a retained logged change of the key, which the links between changes expose. Escapes that restore the state
+ * the log last recorded (A→B→A) are invisible to any link (R1), so only those are always noticed. Coverage starts at the
  * latest of a drawn instant, the markers and a retention cutoff, which also drops the changes at or before it. T and
  * the window are drawn so that changes land on and around both window edges.
  */
@@ -186,7 +186,7 @@ export function escapedHistory(): fc.Arbitrary<EscapedHistory> {
       let state: Image = h.initial === undefined ? undefined : { v: h.initial };
       let since = h.since;
       let retainedLog = false;
-      let prevLogged = false;
+      let logged: Image;
       const at = (i: number): number => 10 * (i + 1);
       const tMs = at(h.anchor) + h.shift;
       let truth = state;
@@ -199,8 +199,8 @@ export function escapedHistory(): fc.Arbitrary<EscapedHistory> {
         if (e.logged) {
           rows.push({ seq: i + 1, at: new Date(BASE + at(i)), kind: 'tuple', op, key: 'k', payload: op === 'remove' ? was : state, before: op === 'put' ? was : null, actor: null, traceId: null });
           retainedLog ||= kept;
-        } else if (e.lost || !retainedLog || !prevLogged) since = Math.max(since, at(i));
-        prevLogged = e.logged;
+          logged = state;
+        } else if (e.lost || !retainedLog || JSON.stringify(state) === JSON.stringify(logged)) since = Math.max(since, at(i));
         if (at(i) <= tMs) truth = state;
       });
       if (h.cutoff !== undefined) since = Math.max(since, h.cutoff);
