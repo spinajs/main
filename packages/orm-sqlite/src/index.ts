@@ -16,6 +16,7 @@ export * from './statements.js';
 export * from './builders.js';
 export * from './converters.js';
 export * from './expressions.js';
+export * from './explain.js';
 
 // Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
 // IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
@@ -26,14 +27,16 @@ import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, Que
 import { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 export { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 import sqlite3 from 'sqlite3';
-import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import { Class, Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteNowExpression, SqliteStartsWithStatement } from './statements.js';
 import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
-import { SqliteModelToSqlConverter } from './converters.js';
+import { SqliteDatetimeValueConverter, SqliteModelToSqlConverter } from './converters.js';
+import type { QueryPlan } from '@spinajs/orm';
+import { normalizeSqlitePlan } from './explain.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -76,6 +79,28 @@ function parseSqliteDefault(sql: unknown): unknown {
   const value = Number(sql);
   // an int64 default past 2^53 keeps its digits
   return Number.isInteger(value) && !Number.isSafeInteger(value) ? sql : value;
+}
+
+// A build without foreign-key support ignores the pragma without an error, so it is read back.
+function enableForeignKeys(db: sqlite3.Database): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    db.exec('PRAGMA foreign_keys = ON', (err: Error | null) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      db.get('PRAGMA foreign_keys', (readErr: Error | null, row: { foreign_keys?: number } | undefined) => {
+        if (readErr) {
+          reject(readErr);
+        } else if (row?.foreign_keys !== 1) {
+          reject(new OrmException('ForeignKeys is set, but this sqlite build does not enforce foreign keys'));
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
 }
 
 @SqlDialect(SQLITE_SQL_DIALECT)
@@ -364,6 +389,10 @@ export class SqliteOrmDriver extends SqlDriver {
     return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
   }
 
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizeSqlitePlan(await this.runExplain('EXPLAIN QUERY PLAN', sql, bindings, rawSql));
+  }
+
   public async ping(): Promise<boolean> {
     if (!this.Db) {
       return false;
@@ -384,8 +413,8 @@ export class SqliteOrmDriver extends SqlDriver {
       await new Promise<void>((resolve) => stale.close(() => resolve()));
     }
 
-    await new Promise<void>((resolve, reject) => {
-      this.Db = new sqlite3.Database(filename, (err: unknown) => {
+    const writer = await new Promise<sqlite3.Database>((resolve, reject) => {
+      const db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
           // Drop the handle, do NOT close it. sqlite3 never invokes the close callback for a
           // database that failed to open, so closing here left this promise unsettled and
@@ -393,14 +422,25 @@ export class SqliteOrmDriver extends SqlDriver {
           // missing directory waited indefinitely instead of being told SQLITE_CANTOPEN.
           // sqlite3 has already released whatever it allocated for a failed open; there is
           // nothing here for us to clean up.
-          this.Db = null as any;
           reject(err);
           return;
         }
 
-        resolve();
+        resolve(db);
       });
     });
+
+    // Published only once set up: a statement must never reach a writer without its pragma.
+    if (this.Options.ForeignKeys) {
+      try {
+        await enableForeignKeys(writer);
+      } catch (err) {
+        await new Promise<void>((resolve) => writer.close(() => resolve()));
+        throw err;
+      }
+    }
+
+    this.Db = writer;
 
     // read, never set: the journal mode is a persistent property of the file
     this._walJournal = await new Promise<boolean>((resolve) => this.Db.get('PRAGMA journal_mode', (err: unknown, row?: { journal_mode?: string }) => resolve(!err && row?.journal_mode === 'wal')));
@@ -491,7 +531,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
-    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(SqliteDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(SqliteNowExpression).as(NowExpression);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
@@ -656,17 +696,9 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    // An absent converter map is a normal state here, not a bug to assert away. The map lives in
-    // the container CACHE and is put there by `Orm.registerDefaultConverters()`, which runs AFTER
-    // the boot migration pass - and the migration service calls `tableInfo` from `ensureStorage()`
-    // to find out which tracking columns an EXISTING table is missing. So the first `tableInfo` of
-    // a boot against an already-migrated database arrives before any converter exists, and the `!`
-    // that used to stand here turned that into `Cannot read properties of undefined (reading
-    // 'get')` - a crash on every restart, invisible on the first boot because a table that had to
-    // be created skips the probe entirely.
-    //
-    // Falling back to an empty map degrades exactly as an unrecognised column type already does:
-    // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
+    // The map is cached by `Orm.registerDefaultConverters()`; a driver used without a booted Orm ( a bare
+    // MigrationRunner's `ensureStorage()` probe, a driver resolved on its own ) has none. An empty map degrades as an
+    // unrecognised column type does: `DefaultValue` keeps the raw `dflt_value`.
     const converters = this.Container.get(ORM_DB_VALUE_CONVERTERS) ?? new Map<string, Class<ValueConverter>>();
 
     const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)});`, [] as any, QueryContext.Select)) as ITableInfo[];
@@ -722,7 +754,11 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async tableIndexes(name: string, _schema?: string): Promise<LiveIndex[]> {
-    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => ({ name: i.name, columns: i.columns, unique: i.unique === 1, primary: i.origin === 'pk' }));
+    // PRAGMA index_info names an expression part null; it is left out, as the other drivers leave it out.
+    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => {
+      const columns = i.columns.filter((c) => typeof c === 'string');
+      return { name: i.name, columns, unique: i.unique === 1, primary: i.origin === 'pk', ...(columns.length < i.columns.length ? { inexact: true } : {}) };
+    });
 
     if (!indexes.some((i) => i.primary)) {
       // An INTEGER PRIMARY KEY is the rowid itself and has no index of its own to list.

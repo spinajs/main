@@ -126,7 +126,7 @@ export class NoCaseSetsSqliteDriver extends SqliteOrmDriver {
 - Set membership never matches a `NULL` column, so `whereNotInSet` returns rows whose column is `NULL`.
 - `skip()` without `take()` renders `LIMIT -1 OFFSET ?`.
 - `like` comparisons follow SQLite: case-insensitive for ASCII letters only.
-- `whereIn()` / `whereNotIn()` with more than 1000 strings or numbers binds the list as one JSON parameter, `` `col` IN (SELECT value FROM json_each(?)) ``, so a key list is not capped by the 32766-parameter limit. Values are converted first (a `Date` becomes ISO text, a `boolean` `1` / `0`); a list still holding anything else, eg. `null` or a `Buffer`, keeps one `?` per value.
+- `whereIn()` / `whereNotIn()` with more than 1000 strings or numbers binds the list as one JSON parameter, `` `col` IN (SELECT value FROM json_each(?)) ``, so a key list is not capped by the 32766-parameter limit. Values are converted first (a `Date` becomes ISO text, or Unix seconds for a numeric column; a `boolean` `1` / `0`); a list still holding anything else, eg. `null` or a `Buffer`, keeps one `?` per value.
 - `whereStartsWith()` is case-sensitive (`GLOB`), unlike a `like` comparison.
 - `driver.now()` is evaluated by SQLite in UTC; the process time zone does not matter.
 

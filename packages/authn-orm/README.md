@@ -6,7 +6,7 @@ ORM stores and migrations for SpinaJS authentication (design §22.12, §22.13, �
 ## Migrations
 
 Importing the package registers `AuthnInitial_2026_10_02_00_00_00` on the `default` connection. It
-creates `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
+creates `authn_identity`, `authn_throttle`, `authn_secret`, `authn_mfa`,
 `authn_recovery_code` and `authn_nonce`. Nothing is carried over from 2.x `users_metadata`: 2.x TOTP
 enrolments, pending resets and invites do not survive the upgrade.
 
@@ -19,7 +19,6 @@ Each one is registered under its class name, so configuration can name it:
 | `AuthnThrottle` | `DbAuthnThrottle` | used when `authn.throttle.service` is unset (or named) |
 | `SecretStore` | `DbSecretStore` | — |
 | `IdentityLinkStore` | `DbIdentityLinkStore` | — |
-| `AuthnEventSink` | `DbAuthnAuditSink` | gets every event |
 | — | `DbNonceStore` (`NonceStore`, `MemoryNonceStore`) | — |
 | — | `DbMfaStore` | for MFA steps (authn-totp) |
 
@@ -27,7 +26,7 @@ Once this package is imported, the core uses `DbAuthnThrottle` when `authn.throt
 it takes the only registered throttle besides `MemoryAuthnThrottle`. An app that wants the memory
 throttle names it. The package ships no config file: config files load whether or not their package
 is imported, so a shipped service name would break an app that has this package installed but unused
-(authn-totp depends on it). `DbAuthnAuditSink` gets every event once registered.
+(authn-totp depends on it). The package stores no authentication events: `@spinajs/audit-authn` records them in the audit trail.
 
 The MFA cipher (`mfaKeyFrom`, `encryptMfaSecret`, `decryptMfaSecret`) uses AES-256-GCM.
 The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is
@@ -38,7 +37,7 @@ The cipher and `identityKey` are also exported from the side-effect-free subpath
 `@spinajs/authn-orm/cipher` and `@spinajs/authn-orm/identity`, which register nothing.
 
 Every store reads and writes through the package's models (`AuthnIdentity`, `AuthnSecret`,
-`AuthnNonce`, `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`), which name the
+`AuthnNonce`, `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`), which name the
 table and the `default` connection. The stores take no driver: each injects the Orm, so resolving a store
 resolves the Orm and binds the models, and a test boots an Orm whose `default` connection is the database under test.
 The stores, `DbAuthnThrottle` and `DbMfaEnrolments` are `@PerChildInstance`: each container that

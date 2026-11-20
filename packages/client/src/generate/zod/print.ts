@@ -11,6 +11,8 @@ export type Check =
       path?: string[];
       /** Set for `additionalProperties: false` next to `patternProperties`, which an opened root drops. */
       closes?: boolean;
+      /** The check reads the value as it was sent, not as the node parsed it. */
+      onInput?: boolean;
     }
   | { kind: 'gte' | 'lte' | 'gt' | 'lt'; value: number }
   | { kind: 'maxItems'; value: number }
@@ -26,6 +28,12 @@ export interface Property {
   getter?: string;
 }
 
+/** A function that reads schemas, written into it at `use(i)` like the function of a refine. */
+export interface Before {
+  fn: string;
+  uses: ZodNode[];
+}
+
 interface Modifiers {
   checks?: Check[];
   nullable?: boolean;
@@ -34,8 +42,14 @@ interface Modifiers {
   acceptsUndefined?: boolean;
   /** Checks of the value as sent, before the schema parses it: zod's output drops an own `__proto__` key, Ajv does not. */
   inputChecks?: Check[];
+  /** Checks of the value before anything, its `before` functions included: Ajv's coercion has not touched it. */
+  outerChecks?: Check[];
   /** A function the value goes through first: Ajv's type coercion, or an ajv-keywords `transform`. Outermost first. */
-  before?: string[];
+  before?: (string | Before)[];
+  /** Functions the value goes through after the input checks, just before the schema parses it. */
+  replays?: Before[];
+  /** Set on a reference to a declaration that prints a closed object, which the other parts of a node must not open. */
+  closedRef?: boolean;
   /** A recursion that wraps a scalar in an array without end: the declaration refuses what overflows the stack. */
   guarded?: boolean;
 }
@@ -66,7 +80,7 @@ export const use = (i: number): string => `${i}`;
 
 /** A declaration `z.looseObject(X.shape)` can open: a strict object and nothing around it. */
 export function isPlainObject(node: ZodNode): boolean {
-  return node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.inputChecks?.length && !node.before?.length && !node.guarded && !node.nullable;
+  return node.kind === 'object' && node.mode === 'strict' && !node.checks?.length && !node.inputChecks?.length && !node.outerChecks?.length && !node.before?.length && !node.guarded && !node.nullable;
 }
 
 const opens = (checks: Check[] | undefined): Check[] | undefined => checks?.filter((c) => c.kind !== 'refine' || !c.closes);
@@ -90,7 +104,7 @@ export function nodesIn(node: ZodNode): ZodNode[] {
   const found: ZodNode[] = [];
   const walk = (n: ZodNode): void => {
     found.push(n);
-    for (const check of [...(n.checks ?? []), ...(n.inputChecks ?? [])]) if (check.kind === 'refine') check.uses?.forEach(walk);
+    readers(n).forEach(walk);
     if (n.kind === 'call') {
       for (const arg of n.args ?? []) {
         if ('node' in arg) walk(arg.node);
@@ -104,6 +118,12 @@ export function nodesIn(node: ZodNode): ZodNode[] {
   };
   walk(node);
   return found;
+}
+
+/** The schemas the checks and the `before` functions of a node read. */
+function readers(node: ZodNode): ZodNode[] {
+  const checks = [...(node.checks ?? []), ...(node.inputChecks ?? []), ...(node.outerChecks ?? [])];
+  return [...checks.flatMap((check) => (check.kind === 'refine' ? (check.uses ?? []) : [])), ...(node.before ?? []).flatMap((entry) => (typeof entry === 'string' ? [] : entry.uses)), ...(node.replays ?? []).flatMap((entry) => entry.uses)];
 }
 
 const CONSTRUCTORS = { strict: 'strictObject', loose: 'looseObject', strip: 'object' } as const;
@@ -127,17 +147,23 @@ export class Printer {
     let code = this.base(node, indent);
     if (node.checks?.length) code = this.checked(code, node.checks, indent);
     if (node.nullable) code = this.nullable(code);
-    if (node.inputChecks?.length) {
-      const input = this.checked('z.unknown()', node.inputChecks, indent);
-      code = this.mini ? `z.pipe(${input}, ${code})` : `${input}.pipe(${code})`;
-    }
-    for (const fn of [...(node.before ?? [])].reverse()) code = this.before(fn, code);
+    for (const entry of [...(node.replays ?? [])].reverse()) code = this.before(this.fill(entry, indent), code);
+    code = this.piped(node.inputChecks, code, indent);
+    for (const entry of [...(node.before ?? [])].reverse()) code = this.before(typeof entry === 'string' ? entry : this.fill(entry, indent), code);
+    code = this.piped(node.outerChecks, code, indent);
     if (node.guarded) code = `guardDepth(${code})`;
     if (node.description !== undefined) {
       const text = literal(node.description);
       code = this.mini ? `${code}.register(z.globalRegistry, { description: ${text} })` : `${code}.describe(${text})`;
     }
     return code;
+  }
+
+  /** `code` behind checks of the value as it comes. */
+  private piped(checks: Check[] | undefined, code: string, indent: string): string {
+    if (!checks?.length) return code;
+    const input = this.checked('z.unknown()', checks, indent);
+    return this.mini ? `z.pipe(${input}, ${code})` : `${input}.pipe(${code})`;
   }
 
   public optional(code: string): string {
@@ -189,6 +215,10 @@ export class Printer {
     if (!node.catchall) return object;
     const rest = this.print(node.catchall, indent);
     return this.mini ? `z.catchall(${object}, ${rest})` : `${object}.catchall(${rest})`;
+  }
+
+  private fill(entry: Before, indent: string): string {
+    return entry.fn.replace(/(\d+)/g, (_m, i: string) => this.print(entry.uses[Number(i)], indent));
   }
 
   private refine(check: Extract<Check, { kind: 'refine' }>, indent: string): string {

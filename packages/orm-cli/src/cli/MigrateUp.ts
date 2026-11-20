@@ -8,23 +8,33 @@ export interface IMigrateUpCommandOptions {
   name?: string;
   fake?: boolean;
   connection?: string;
+  skipSeed?: boolean;
+  dryRun?: boolean;
 }
 
 /**
- * Runs `OrmMigrator.migrate()`, the same pass an application's boot runs: the pending migrations, a re-read of the
- * table info they touched, then their `data()` seeds ( none with `--fake` ).
+ * Runs `OrmMigrator.migrate()`, the deploy step an application's boot checks for: the pending migrations, a re-read of
+ * the table info they touched, then their `data()` seeds ( none with `--fake` or `--skip-seed` ).
  */
 @Command('migrate-up', 'Runs pending ORM migrations and their data() seeds on every configured connection')
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
 @Option('-c, --connection [connection]', false, 'limit the run to one connection, by name')
 @Option('-f, --fake', false, 'record the migrations as applied without executing them')
+@Option('--skip-seed', false, "apply without running the migrations' data() seeds")
+@Option('--dry-run', false, 'print what would be applied, in order, and apply nothing')
 export class MigrateUpCommand extends CliCommand {
   @Logger('ORM-CLI')
   protected Log: Log;
 
   public async execute(options: IMigrateUpCommandOptions): Promise<void> {
     const migrator = await resolveCliMigrator();
-    const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection });
+
+    if (options.dryRun) {
+      await this.printPlan(migrator, options);
+      return;
+    }
+
+    const executed = await migrator.migrate({ name: options.name, fake: options.fake, connection: options.connection, skipSeed: options.skipSeed });
     const orm = await DI.resolve(Orm);
 
     await this.reportRun(migrator, executed, options);
@@ -33,6 +43,30 @@ export class MigrateUpCommand extends CliCommand {
     if (!options.name && !options.connection) {
       await this.checkModelTables(orm, options.fake);
     }
+  }
+
+  /** `--dry-run`: the plan on stdout, like `migrate-status`, and exit code 1 when something would run or is blocked. */
+  protected async printPlan(migrator: OrmMigrator, options: IMigrateUpCommandOptions): Promise<void> {
+    const plan = await migrator.plan({ name: options.name, connection: options.connection });
+    const applying = plan.filter((e) => !e.failed);
+    const failed = plan.filter((e) => e.failed);
+
+    if (plan.length === 0) {
+      console.log('Nothing to apply');
+      return;
+    }
+
+    if (applying.length > 0) {
+      console.log(`Would apply ${applying.length} migration(s), in this order ( BATCH  CONNECTION  MIGRATION ):`);
+      applying.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}`));
+    }
+
+    if (failed.length > 0) {
+      console.log(`Blocked by ${failed.length} FAILED migration(s), the run stops at the first one ( BATCH  CONNECTION  MIGRATION ):`);
+      failed.forEach((e) => console.log(`  ${e.batch}  ${e.connection}  ${e.name}  FAILED - blocks ${e.connection}, run migrate-resolve`));
+    }
+
+    process.exitCode = 1;
   }
 
   /** Logs what the run applied; an empty named run goes to `explainEmptyNamedRun()`. */

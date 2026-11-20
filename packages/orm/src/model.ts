@@ -3,7 +3,7 @@ import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
-import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
 import type { LiteralColumn, OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
@@ -21,6 +21,8 @@ import type { IModelChange, IModelSnapshot } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
+import { modelAuditSource } from './audit-port.js';
+import type { ModelAudit, RowAudit } from './audit-port.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -382,6 +384,11 @@ export class ModelBase<M = unknown> implements IModelBase {
     return driver!;
   }
 
+  /** Audit events about this row; throws as the static does, and when this instance has no primary key value yet. */
+  public audit(trail?: string): RowAudit {
+    return modelAuditSource().ofRow(this, trail);
+  }
+
   /**
    * Recursivelly takes all relation data and returns as single array
    */
@@ -627,6 +634,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>, _options?: ITransactionOptions): Promise<R> {
     throw new Error('Not implemented');
+  }
+
+  /** Audit events about this model's rows in `trail` (default `default`); throws without `@spinajs/audit-orm`. */
+  public static audit<T extends typeof ModelBase>(this: T, trail?: string): ModelAudit {
+    return modelAuditSource().of(this, trail);
   }
 
   constructor(data?: Partial<M>) {
@@ -1242,13 +1254,6 @@ function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, 
   } else if (description.Timestamps?.UpdatedAt) {
     query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
   }
-}
-
-export abstract class HistoricalModel implements IHistoricalModel {
-  public readonly __action__: 'update' | 'insert' | 'delete';
-  public readonly __revision__: number;
-  public readonly __start__: DateTime;
-  public readonly __end__: DateTime;
 }
 
 

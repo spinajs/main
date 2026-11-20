@@ -456,7 +456,7 @@ describe('cache-key', () => {
       expect(principalState(user({ authn }))).to.not.equal(principalState(user()));
     });
 
-    it('is undefined when shared subtrees exceed the value budget', () => {
+    it('is undefined when shared subtrees exceed the value budget @timing', () => {
       let node: unknown = 1;
       for (let level = 0; level < 8; level++) {
         const next: Record<string, unknown> = {};

@@ -59,6 +59,6 @@ export interface DiffOptions {
   foreignKeysEnforced?: boolean;
   /** DESTRUCTIVE changes will run, so MIG006 checks them too. */
   allowDestructive?: boolean;
-  /** Receives MIG002–MIG005. */
+  /** Receives MIG002–MIG007. */
   diagnostics?: Diagnostic[];
 }
