@@ -31,6 +31,7 @@ npm install @spinajs/http-socket
 | [Configuration](15-configuration.md) | Every `http.socket.*` key, the schema and the startup checks |
 | [Observability](16-observability.md) | Debug lines, telemetry metrics, trace context |
 | [Running several instances](17-several-instances.md) | socket.io adapters and what stays per instance |
+| [Connection context](18-connection-context.md) | `SocketConnectionContext`: per-connection keys set in the handshake and added to every call's store |
 
 ## Quick start
 

@@ -17,7 +17,8 @@
    2. refuses a disallowed `Origin` with `forbidden` (see [origins](08-principal-sources.md#origins));
    3. refuses an `auth.protocol` other than `PROTOCOL_VERSION` with `version_mismatch`;
    4. refuses an `auth.clientId` that is missing, empty, longer than `MAX_ID_LENGTH` (128) or not printable ASCII with `invalid_argument`;
-   5. asks the `SocketPrincipalSource`s for a principal (see [principal sources](08-principal-sources.md)).
+   5. asks the `SocketPrincipalSource`s for a principal (see [principal sources](08-principal-sources.md));
+   6. asks every registered `SocketConnectionContext` for the keys of the connection's call stores (see [Connection context](18-connection-context.md)).
 3. A refusal reaches the client as a socket.io `connect_error` whose `data` is the `SocketError`.
 4. An accepted socket becomes a `SocketConnection`, is registered with `SocketHub`, and `SocketDispatcher.attach()` starts its connect hooks and listens for commands, events, cancels and credits.
 5. On disconnect, the connection's signal aborts, its running commands are answered `unavailable`, its disconnect hooks run and the hub forgets it.
@@ -80,7 +81,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `SocketHttpHost` | `SocketHttpHost`, singleton; resolved once by `SocketServer` (`@Autoinject()`) | `HttpServerHost` (`@Injectable(SocketHttpHost)`): the `Server` of `@spinajs/http`'s `HttpServer` | Any node `http.Server` or `https.Server`: a dedicated port, a test server | `DI.register(MyHost).as(SocketHttpHost)` before `SocketServer` resolves |
-| `SocketServer` | `SocketServer` (self), singleton, `AsyncService` | `SocketServer` | Your subclass | Subclass, override `ioOptions()` (socket.io options) or `identify()` (principal lookup), `DI.register(MyServer).as(SocketServer)` before the first resolve |
+| `SocketServer` | `SocketServer` (self), singleton, `AsyncService` | `SocketServer` | Your subclass | Subclass, override `ioOptions()` (socket.io options), `identify()` (principal lookup) or `connectionContext()` (the per-connection store keys), `DI.register(MyServer).as(SocketServer)` before the first resolve |
 
 ### `SocketHttpHost`: serve sockets on another http server
 
