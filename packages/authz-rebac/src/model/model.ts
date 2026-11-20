@@ -129,9 +129,12 @@ export class RebacModel extends AuthorizationModel {
     const principal: PrincipalRef = { type: req.principal.type, id: req.principal.id };
     const request: CaveatRequest = { principal: req.principal, permission: req.permission, resource: req.resource, env: req.env ?? {} };
     if (req.resource.id == null) {
-      const paths = new RebacCaveats(this.schema().caveats).paramsOf(this.schema().caveatsReachable(target.type, target.name));
-      const args = paths.length === 0 ? { relation: target.name, principal } : { relation: target.name, principal, caveatInput: pickCaveatInput(paths, request) };
-      return this.vote({ op: REBAC_CHECK_OP, args }, paths.length === 0);
+      const reachable = this.schema().caveatsReachable(target.type, target.name);
+      if (reachable.length === 0) return this.vote({ op: REBAC_CHECK_OP, args: { relation: target.name, principal } });
+      const caveats = new RebacCaveats(this.schema().caveats);
+      const args = { relation: target.name, principal, caveatInput: pickCaveatInput(caveats.paramsOf(reachable), request) };
+      // A condition function reads env and principal beyond the declared parameters: the row check gets the whole request.
+      return this.vote({ op: REBAC_CHECK_OP, args: caveats.callsFunction(reachable) ? { ...args, caveatRequest: { env: request.env, principal: req.principal } } : args }, false);
     }
     try {
       const { membership, tooDeep, cacheable, undecided } = await this.walk(req.resource, target.name, principal, ctx, request);
@@ -216,7 +219,7 @@ export class RebacModel extends AuthorizationModel {
     // The listed subjects are not the request's principal: without one given, principal.* caveats stay unknown.
     const caveatRequest: CaveatRequest = { principal: request.principal ?? syntheticPrincipal({ type: subjectType, id: '' }), permission: '', resource: object, env: request.env ?? {} };
     const ctx = request.ctx ?? this.caveatContext();
-    const undecidable = (c: TupleCaveat): boolean => request.principal === undefined && readsAbsentPrincipal(this.schema().caveats.get(c.name), c);
+    const undecidable = (c: TupleCaveat): boolean => request.principal === undefined && (readsAbsentPrincipal(this.schema().caveats.get(c.name), c) || caveats.callsFunction([c.name]));
     return listSubjects(walk, object, name, subjectType, async (c) => (undecidable(c) ? 'unknown' : (await caveats.evaluate(c, caveatRequest, ctx)).truth));
   }
 
@@ -457,8 +460,12 @@ class RebacCheckFilter extends NativeFilter {
   }
 
   async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
-    const { relation, principal, caveatInput } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>> };
-    const request = caveatInput === undefined ? undefined : overlayContext({ principal: residualPrincipal(principal, caveatInput), env: {} }, caveatInput);
+    const { relation, principal, caveatInput, caveatRequest } = args as { relation: string; principal: PrincipalRef; caveatInput?: Readonly<Record<string, unknown>>; caveatRequest?: { readonly env: Readonly<Record<string, unknown>>; readonly principal: Principal } };
+    const request = caveatRequest
+      ? { env: caveatRequest.env, principal: { ...caveatRequest.principal, type: principal.type, id: principal.id } }
+      : caveatInput === undefined
+        ? undefined
+        : overlayContext({ principal: residualPrincipal(principal, caveatInput), env: {} }, caveatInput);
     try {
       return (await this.model.check(ref, relation, principal, ctx, request)) === 'member';
     } catch (e) {

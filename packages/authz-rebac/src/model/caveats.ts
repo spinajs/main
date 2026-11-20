@@ -54,6 +54,12 @@ export function pickCaveatInput(paths: readonly string[], req: Pick<CaveatReques
   return out;
 }
 
+function callsFunction(c: unknown): boolean {
+  if (!isRecord(c)) return false;
+  if (typeof c.fn === 'string') return true;
+  return [c.all, c.any].some((items) => Array.isArray(items) && items.some(callsFunction)) || callsFunction(c.not);
+}
+
 /**
  * Caveats through the domain's own ConditionCompiler, so a caveat reads env and principal exactly as an ABAC condition
  * does. Anything that keeps it from an answer is `unknown`, as in the IR evaluator (`authz-ir/src/eval/caveats.ts`).
@@ -66,6 +72,12 @@ export class RebacCaveats {
     const out = new Set<string>();
     for (const n of names) for (const p of Object.keys(this.defs.get(n)?.params ?? {})) out.add(p);
     return [...out].sort();
+  }
+
+  /** Whether any of the caveats named calls a condition function, which may read env and principal beyond its parameters. */
+  callsFunction(names: Iterable<string>): boolean {
+    for (const n of names) if (callsFunction(this.defs.get(n)?.expr)) return true;
+    return false;
   }
 
   async evaluate(caveat: TupleCaveat, req: CaveatRequest, ctx: EvaluationContext): Promise<{ truth: CaveatTruth; cacheable: boolean }> {
