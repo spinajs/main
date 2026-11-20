@@ -82,7 +82,8 @@ export async function replayDecision(record: DecisionRecord, deps: ReplayDeps, o
 /** A limit the replay ran into; anything else is a fault and rethrown. */
 function stopped(e: unknown, timeout: AbortSignal, timeoutMs: number): ReplayMissing {
   if (e instanceof ReplayBudgetExceeded) return { input: 'history-budget', key: e.limit, reason: `the replay read ${e.count} ${e.limit === 'maxChanges' ? 'changes' : 'keys'}, past its ${e.limit}` };
-  if (timeout.aborted) return { input: 'timeout', reason: `the replay ran past timeoutMs ${timeoutMs}` };
+  // Only the timeout's own abort: a fault that happens to come after the deadline is still a fault.
+  if (timeout.aborted && e === timeout.reason) return { input: 'timeout', reason: `the replay ran past timeoutMs ${timeoutMs}` };
   throw e;
 }
 
