@@ -1,8 +1,8 @@
 import { AuthzConfigError, changeLog, resourceKey } from '@spinajs/authz';
 import type { ChangeEntry, ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder, RowChange } from '@spinajs/orm';
+import { WriteObserver } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, RowChange, WriteStatement } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
 import { idText } from '../ids.js';
@@ -19,19 +19,16 @@ interface Work {
   readonly columns: readonly RelationColumn[];
 }
 
-function workOf(query: QueryBuilder): Work | undefined {
-  const model = query.Model as ModelClass | undefined;
+function workOf({ kind, model, query }: WriteStatement): Work | undefined {
   const entry = entryOf(model);
-  if (!entry || !model || entry.changelog === false) return undefined;
+  if (!entry || entry.changelog === false) return undefined;
   const columns = changelogColumns(entry);
   if (columns.length === 0) return undefined;
-  if (query instanceof InsertQueryBuilder) return { kind: 'insert', model, entry, columns };
-  if (query instanceof DeleteQueryBuilder) return { kind: 'delete', model, entry, columns };
-  if (query instanceof UpdateQueryBuilder) {
+  if (kind === 'update') {
     const written = Object.keys(query.Value ?? {});
-    return columns.some((c) => written.includes(c.column) || (c.typeColumn !== undefined && written.includes(c.typeColumn))) ? { kind: 'update', model, entry, columns } : undefined;
+    if (!columns.some((c) => written.includes(c.column) || (c.typeColumn !== undefined && written.includes(c.typeColumn)))) return undefined;
   }
-  return undefined;
+  return { kind, model, entry, columns };
 }
 
 function refOf(c: RelationColumn, row: Readonly<Record<string, unknown>> | undefined): ResourceRef | null {
@@ -73,14 +70,15 @@ export class ColumnChangeObserver extends WriteObserver {
   private readonly work = new WeakMap<object, Work | null>();
   private readonly warned = new WeakSet<ModelClass>();
 
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    const work = this.workOf(query);
+  interest(statement: WriteStatement): CaptureInterest | undefined {
+    const work = this.workOf(statement);
     return work ? { columns: columnNames(work), transactional: true } : undefined;
   }
 
-  prepare(query: QueryBuilder): void {
-    const work = this.workOf(query);
+  prepare(statement: WriteStatement): void {
+    const work = this.workOf(statement);
     if (!work) return;
+    const { query } = statement;
     if (query.Driver.CurrentTransaction === undefined) {
       throw new AuthzConfigError(`authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}') must run in a transaction so its relation columns reach the changelog with it, and none could be opened on connection ${JSON.stringify(query.Driver.Options.Name)}`);
     }
@@ -88,7 +86,7 @@ export class ColumnChangeObserver extends WriteObserver {
   }
 
   async observe(write: CapturedWrite): Promise<void> {
-    const work = this.workOf(write.query);
+    const work = this.workOf(write);
     if (!work) return;
     if (write.unknownKeys) {
       await changeLog().lost('column', work.entry.type, 'insert without returned ids');
@@ -97,9 +95,9 @@ export class ColumnChangeObserver extends WriteObserver {
     await changeLog().append(changesOf(work, write.rows));
   }
 
-  private workOf(query: QueryBuilder): Work | undefined {
-    if (!this.work.has(query)) this.work.set(query, workOf(query) ?? null);
-    return this.work.get(query) ?? undefined;
+  private workOf(statement: WriteStatement): Work | undefined {
+    if (!this.work.has(statement.query)) this.work.set(statement.query, workOf(statement) ?? null);
+    return this.work.get(statement.query) ?? undefined;
   }
 
   /** An insert whose ids the driver did not report: its relation columns cannot be read back. */

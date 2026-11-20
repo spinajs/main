@@ -2,7 +2,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { Connection, InsertQueryBuilder, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver, createQuery } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import { PgliteOrmDriver } from '../src/index.js';
@@ -31,8 +31,8 @@ class PglCapMember extends ModelBase {
 const writes: CapturedWrite[] = [];
 
 class Recorder extends WriteObserver {
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    return query.Model === PglCapMember ? { columns: '*', transactional: true } : undefined;
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return model === PglCapMember ? { columns: '*', transactional: true } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {

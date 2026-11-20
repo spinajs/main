@@ -1,8 +1,8 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, WriteObserver, upsertKeys } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
+import { WriteObserver, upsertKeys } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
 import { requireConnection } from '../records.js';
@@ -19,18 +19,18 @@ interface Work {
   readonly transactional: boolean;
 }
 
-function workOf(query: QueryBuilder): Work | undefined {
-  const model = query.Model as ModelClass | undefined;
+function workOf(statement: WriteStatement): Work | undefined {
+  const { model } = statement;
   const entry = entryOf(model);
-  if (!entry || !model) return undefined;
-  if (query instanceof DeleteQueryBuilder) return { kind: 'delete', model, entry, transactional: true };
+  if (!entry) return undefined;
+  if (statement.kind === 'delete') return { kind: 'delete', model, entry, transactional: true };
   if (entry.parents.length === 0) return undefined;
-  if (query instanceof InsertQueryBuilder) return { kind: 'insert', model, entry, transactional: query.Ignore === true || query.Replace || query.Update };
-  if (query instanceof UpdateQueryBuilder) {
-    const written = Object.keys((query.Value ?? {}) as Record<string, unknown>);
-    return entry.parents.some((p) => written.includes(p.column)) ? { kind: 'update', model, entry, transactional: true } : undefined;
+  if (statement.kind === 'insert') {
+    const { query } = statement;
+    return { kind: 'insert', model, entry, transactional: query.Ignore === true || query.Replace || query.Update };
   }
-  return undefined;
+  const written = Object.keys(statement.query.Value ?? {});
+  return entry.parents.some((p) => written.includes(p.column)) ? { kind: 'update', model, entry, transactional: true } : undefined;
 }
 
 /**
@@ -42,14 +42,15 @@ export class AncestorObserver extends WriteObserver {
   private readonly work = new WeakMap<object, Work | null>();
   private readonly warned = new WeakSet<ModelClass>();
 
-  interest(query: QueryBuilder): CaptureInterest | undefined {
-    const work = this.workOf(query);
+  interest(statement: WriteStatement): CaptureInterest | undefined {
+    const work = this.workOf(statement);
     return work ? { columns: [work.entry.idColumn, ...new Set(work.entry.parents.map((p) => p.column))], transactional: work.transactional } : undefined;
   }
 
-  prepare(query: QueryBuilder): void {
-    const work = this.workOf(query);
+  prepare(statement: WriteStatement): void {
+    const work = this.workOf(statement);
     if (!work) return;
+    const { query } = statement;
     if (work.transactional && query.Driver.CurrentTransaction === undefined) {
       throw new AuthzConfigError(`authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}') must run in a transaction so authz_resource_ancestor changes with it, and none could be opened on connection ${JSON.stringify(query.Driver.Options.Name)}`);
     }
@@ -57,13 +58,13 @@ export class AncestorObserver extends WriteObserver {
   }
 
   async observe(write: CapturedWrite): Promise<void> {
-    const work = this.workOf(write.query);
+    const work = this.workOf(write);
     if (!work) return;
     const refsOf = (ids: readonly string[]): ResourceRef[] => ids.map((id) => ({ type: work.entry.type, id }));
     if (write.unknownKeys) {
       this.insertWithoutIds(work);
       // An upsert still names the keys of rows it may have moved under another parent; access must not keep the old one.
-      if (write.query instanceof InsertQueryBuilder) await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
+      if (write.kind === 'insert') await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
       return;
     }
     if (work.kind === 'update') {
@@ -77,9 +78,9 @@ export class AncestorObserver extends WriteObserver {
     await cleanupDeleted(write.driver, gone);
   }
 
-  private workOf(query: QueryBuilder): Work | undefined {
-    if (!this.work.has(query)) this.work.set(query, workOf(query) ?? null);
-    return this.work.get(query) ?? undefined;
+  private workOf(statement: WriteStatement): Work | undefined {
+    if (!this.work.has(statement.query)) this.work.set(statement.query, workOf(statement) ?? null);
+    return this.work.get(statement.query) ?? undefined;
   }
 
   /** An insert whose ids the driver did not report, or an upsert whose rows the capture could not find. */

@@ -1,6 +1,5 @@
 import { Configuration } from '@spinajs/configuration-common';
 import { DI, Injectable } from '@spinajs/di';
-import type { Constructor } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
@@ -9,10 +8,9 @@ import { extractModelDescriptor } from '../descriptor.js';
 import type { LiveIndex } from '../introspection.js';
 import { WriteCaptureLimitExceeded } from '../exceptions.js';
 import { QueryMiddleware } from '../interfaces.js';
-import type { ModelBase } from '../model.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
-import type { CaptureInterest, CaptureKind, CapturedRow, RowChange } from './contracts.js';
+import type { CaptureInterest, CapturedRow, RowChange, WriteStatement } from './contracts.js';
 import { captureKeyText, insertedKeys, lockedReads, upsertKeys, writeTargetKeys } from './keys.js';
 import { readRows } from './read.js';
 
@@ -22,8 +20,7 @@ interface Watch {
 }
 
 interface Plan {
-  readonly kind: CaptureKind;
-  readonly model: Constructor<ModelBase>;
+  readonly statement: WriteStatement;
   readonly table: string;
   readonly pk: string;
   readonly watches: readonly Watch[];
@@ -37,10 +34,13 @@ interface Pending {
   readonly conflict: readonly string[] | undefined;
 }
 
-function kindOf(query: QueryBuilder): CaptureKind | undefined {
-  if (query instanceof InsertQueryBuilder) return 'insert';
-  if (query instanceof UpdateQueryBuilder) return 'update';
-  if (query instanceof DeleteQueryBuilder) return 'delete';
+/** The write a builder runs, undefined for a builder that writes no model rows. */
+export function writeStatementOf(query: QueryBuilder): WriteStatement | undefined {
+  const model = query.Model;
+  if (!model) return undefined;
+  if (query instanceof InsertQueryBuilder) return { kind: 'insert', query, model };
+  if (query instanceof UpdateQueryBuilder) return { kind: 'update', query, model };
+  if (query instanceof DeleteQueryBuilder) return { kind: 'delete', query, model };
   return undefined;
 }
 
@@ -58,17 +58,16 @@ function unionColumns(watches: readonly Watch[]): readonly string[] | '*' {
 const observers = (): WriteObserver[] => DI.resolve(Array.ofType(WriteObserver));
 
 function planOf(query: QueryBuilder): Plan | undefined {
-  const kind = kindOf(query);
-  const model = query.Model;
-  if (!kind || !model) return undefined;
+  const statement = writeStatementOf(query);
+  if (!statement) return undefined;
   const watches = observers().flatMap((observer) => {
-    const interest = observer.interest(query);
+    const interest = observer.interest(statement);
     return interest ? [{ observer, interest }] : [];
   });
   if (watches.length === 0) return undefined;
-  const d = extractModelDescriptor(model);
-  if (!d || d.PrimaryKey.length !== 1) throw new InvalidOperation(`write capture: ${model.name} needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
-  return { kind, model, table: d.TableName, pk: d.PrimaryKey[0], watches, columns: unionColumns(watches) };
+  const d = extractModelDescriptor(statement.model);
+  if (!d || d.PrimaryKey.length !== 1) throw new InvalidOperation(`write capture: ${statement.model.name} needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
+  return { statement, table: d.TableName, pk: d.PrimaryKey[0], watches, columns: unionColumns(watches) };
 }
 
 function maxRows(): number {
@@ -93,7 +92,7 @@ const indexCache = new WeakMap<object, Promise<LiveIndex[] | undefined>>();
 
 function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] | undefined> {
   const read = async () => query.Driver.tableIndexes?.(plan.table);
-  const key = extractModelDescriptor(plan.model)?.Columns;
+  const key = extractModelDescriptor(plan.statement.model)?.Columns;
   if (!key) return read();
   const cached =
     indexCache.get(key) ??
@@ -111,7 +110,7 @@ function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] |
  */
 async function uniqueKeys(query: InsertQueryBuilder, plan: Plan): Promise<string[][] | undefined> {
   const live = await indexesOf(query, plan);
-  if (!live) return [...(extractModelDescriptor(plan.model)?.Indexes?.values() ?? [])].filter((i) => i.unique).map((i) => i.columns);
+  if (!live) return [...(extractModelDescriptor(plan.statement.model)?.Indexes?.values() ?? [])].filter((i) => i.unique).map((i) => i.columns);
   const unique = live.filter((i) => i.unique && !i.primary);
   return unique.some((i) => i.inexact === true) ? undefined : unique.map((i) => i.columns);
 }
@@ -145,7 +144,7 @@ async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<s
 async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: readonly string[]): Promise<Map<string, CapturedRow>> {
   const out = new Map<string, CapturedRow>();
   for (const column of columns) {
-    for (const [key, row] of await readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column)) out.set(key, row);
+    for (const [key, row] of await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column)) out.set(key, row);
   }
   refuseAbove(plan, out.size, maxRows());
   return out;
@@ -158,7 +157,7 @@ function everyRowConflicts(query: InsertQueryBuilder, columns: readonly string[]
 }
 
 function refuseAbove(plan: Plan, rows: number, max: number): void {
-  if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.kind} of ${plan.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
+  if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.statement.kind} of ${plan.statement.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
 }
 
 async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly string[] | undefined): Promise<Map<string, CapturedRow>> {
@@ -170,12 +169,12 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
   const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk, max === Infinity ? undefined : max + 1) : [];
   refuseAbove(plan, keys.length, max);
-  return readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys, plan.pk, lockedReads(query.Driver));
+  return readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys, plan.pk, lockedReads(query.Driver));
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
 async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pending, result: unknown): Promise<ReadonlyMap<string, CapturedRow> | undefined> {
-  const byBeforeKeys = () => readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, [...before.keys()]);
+  const byBeforeKeys = () => readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, [...before.keys()]);
   if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before, result) ? new Map<string, CapturedRow>() : byBeforeKeys();
   if (conflict === undefined) return undefined;
   const upsert = conflict.length > 0;
@@ -184,7 +183,7 @@ async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pendin
   if (upsert && everyRowConflicts(query, conflict)) return conflicting;
   const keys = insertedKeys(query, result, plan.pk);
   if (keys === undefined) return undefined;
-  const inserted = await readRows(query.Driver, plan.model, plan.table, plan.pk, plan.columns, keys.filter((k) => !conflicting.has(k)));
+  const inserted = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys.filter((k) => !conflicting.has(k)));
   return new Map([...conflicting, ...inserted]);
 }
 
@@ -192,7 +191,7 @@ function rowsAffected(result: unknown): unknown {
   return typeof result === 'object' && result !== null && 'RowsAffected' in result ? result.RowsAffected : undefined;
 }
 
-const allDeleted = (plan: Plan, before: ReadonlyMap<string, CapturedRow>, result: unknown): boolean => plan.kind === 'delete' && rowsAffected(result) === before.size;
+const allDeleted = (plan: Plan, before: ReadonlyMap<string, CapturedRow>, result: unknown): boolean => plan.statement.kind === 'delete' && rowsAffected(result) === before.size;
 
 /**
  * Reads the rows a write reaches before and after it, once for every interested `WriteObserver`, and hands each its
@@ -214,7 +213,7 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
   async beforeQueryExecution(query: QueryBuilder): Promise<void> {
     const plan = this.plan(query);
     if (!plan) return;
-    for (const w of plan.watches) await w.observer.prepare?.(query);
+    for (const w of plan.watches) await w.observer.prepare?.(plan.statement);
     const conflict = query instanceof InsertQueryBuilder && isUpsert(query) ? await conflictColumns(query, plan) : [];
     this.pending.set(query, { plan, conflict, before: await targetRows(query, plan, conflict) });
   }
@@ -228,9 +227,7 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
     const changes = after === undefined ? [] : changesOf(before, after);
     for (const { observer, interest } of plan.watches) {
       await observer.observe({
-        kind: plan.kind,
-        query,
-        model: plan.model,
+        ...plan.statement,
         driver: query.Driver,
         unknownKeys: after === undefined,
         rows: changes.map((c) => ({ id: c.id, before: project(c.before, plan.pk, interest.columns), after: project(c.after, plan.pk, interest.columns) })),
