@@ -328,13 +328,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return read === undefined ? super._materialize(result) : withReadRoute(this._driver, read, () => super._materialize(result));
   }
 
-  /** @spinajs copy */
-  public clone(): this {
-    return this._cloneOwnedBy(this._owner);
-  }
-
-  // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
-  protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
+  /**
+   * `owner` is passed by a relation that is copied together with its query: the copy of the relation owns the clone.
+   * @spinajs copy
+   */
+  public clone(owner: IOrmRelation | undefined = this._owner): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
     // Through the container, like every other select builder: a subclass registered for SelectQueryBuilder survives a clone.
     const builder = this._container.resolve<SelectQueryBuilder<T>>('SelectQueryBuilder', [this._driver, this._model, owner, false, this._execution]);

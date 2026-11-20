@@ -15,7 +15,6 @@ import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { registerRelation } from './relation-registry.js';
-import { cloneOwnedBy } from './builders/internal.js';
 import type { BuilderExecution } from './extensions.js';
 
 
@@ -160,7 +159,7 @@ export abstract class NativeOrmRelation extends OrmRelation {
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
     const copy = super.cloneFor(query, owner) as this;
     if (copy !== this) {
-      copy._relationQuery = cloneOwnedBy(this._relationQuery, copy);
+      copy._relationQuery = this._relationQuery.clone(copy);
     }
 
     return copy;
@@ -393,7 +392,7 @@ export class ManyToManyRelation extends NativeOrmRelation {
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
     const copy = super.cloneFor(query, owner) as this;
     if (copy !== this) {
-      copy._joinQuery = cloneOwnedBy(this._joinQuery, copy);
+      copy._joinQuery = this._joinQuery.clone(copy);
     }
 
     return copy;

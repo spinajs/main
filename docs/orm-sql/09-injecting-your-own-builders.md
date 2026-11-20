@@ -47,12 +47,12 @@ Constructor signatures to keep:
 - A root registration is global: every connection, every model, every relation query gets your class.
 - Query scope methods are bound onto the instance by `createQuery()` only; your subclass methods are on the prototype and work on every DI-created instance.
 - `SelectQueryBuilderC` is an empty subclass in `@spinajs/orm`; nothing resolves it.
-- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()`.
+- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()` of their own. The one they carry comes from the `WhereBuilder` mixin and returns a plain `WhereBuilder` with their conditions, not a copy of the update or delete.
 
 ## Best practices
 
 - Keep the base constructor; add no required constructor parameters. A constructor of your own passes every argument to `super`: the ORM hands relation and join builders their `execution` as the last argument, and a subclass that drops it makes every merged builder read `{ kind: 'own' }` (see [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md)).
-- Override `clone()` when your subclass has fields of its own: call `super.clone()` and copy them.
+- Override `clone()` when your subclass has fields of its own: take the `owner` argument, pass it to `super.clone(owner)` and copy your fields. The ORM passes an owner when it copies a populated relation together with its query; an override that drops the argument gives that relation a query owned by the relation it was copied from.
 - Declare your methods on `ISelectQueryBuilder<T>` with module augmentation so model statics expose them with types.
 - Register the subclass once, at startup, before `Orm` resolves, in the same module that declares it.
 - Prefer a prototype extension when the method keeps no state, and `QueryMiddleware` when callers must not be able to skip it. See [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md).
@@ -65,8 +65,8 @@ const query = (Invoice.where('Status', 'unpaid') as PagedSelectQueryBuilder).pag
 query.clone().page(2); // skips 50 rows, not 100
 
 // Do: override clone() to copy the fields your subclass adds
-public clone(): this {
-  const copy = super.clone();
+public clone(owner?: IOrmRelation): this {
+  const copy = super.clone(owner);
   copy.PageSize = this.PageSize;
   return copy;
 }
@@ -89,6 +89,7 @@ constructor(...args: ConstructorParameters<typeof SelectQueryBuilder>) {
 ```ts sample
 import { DI, NewInstance } from '@spinajs/di';
 import { Connection, Model, ModelBase, Primary, SelectQueryBuilder } from '@spinajs/orm';
+import type { IOrmRelation } from '@spinajs/orm';
 
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
@@ -113,8 +114,8 @@ export class PagedSelectQueryBuilder<T = any> extends SelectQueryBuilder<T> {
     return this.skip(index * this.PageSize).take(this.PageSize);
   }
 
-  public clone(): this {
-    const copy = super.clone();
+  public clone(owner?: IOrmRelation): this {
+    const copy = super.clone(owner);
     copy.PageSize = this.PageSize;
     return copy;
   }
@@ -144,6 +145,7 @@ export async function unpaidInvoicesPage(index: number): Promise<Invoice[]> {
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SelectQueryBuilder } from '@spinajs/orm';
+import type { IOrmRelation } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @NewInstance()
@@ -155,8 +157,8 @@ export class AuditedSelectQueryBuilder<T = any> extends SelectQueryBuilder<T> {
     return this;
   }
 
-  public clone(): this {
-    const copy = super.clone();
+  public clone(owner?: IOrmRelation): this {
+    const copy = super.clone(owner);
     copy.Purpose = this.Purpose;
     return copy;
   }

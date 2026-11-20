@@ -1318,8 +1318,6 @@ export interface IWhereBuilder<T> {
 
   Op: WhereBoolean;
 
-  clone<P extends IWhereBuilder<any>>(parent: P): IWhereBuilder<T>;
-
   /** False when every statement is a group with no condition inside, so the builder compiles to nothing. */
   hasCondition(): boolean;
 
@@ -1553,7 +1551,7 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   forShare(): this;
   get RowLock(): RowLockMode | undefined;
   /** @spinajs copy */
-  clone(): this;
+  clone(owner?: IOrmRelation): this;
 
   /**
    * The outer builder this query is correlated to when it is the sub-select of a correlated
