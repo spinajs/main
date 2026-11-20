@@ -150,10 +150,10 @@ for (const target of REAL_DB_TARGETS) {
 
     it('retry() resets the failed step rows in one transaction', async () => {
       await seedInstance('f', { Workflow: 'it-svc', Status: 'failed', Reason: 'error' });
-      await seedStep('f', 1, 'step:bad#1', { Status: 'failed', Attempt: 3, Meta: { after: 0, order: 1 } });
+      await seedStep('f', 1, 'step:bad#1', { Status: 'failed', Attempt: 3, Meta: { after: 0, order: 1, call: 1 } });
       await (await DI.resolve(WorkflowService)).retry('f');
       expect(pick(await instance('f'), 'Status', 'Reason')).to.deep.equal({ Status: 'running', Reason: null });
-      expect(pick((await stepsOf('f'))[0], 'Status', 'Attempt', 'Meta')).to.deep.equal({ Status: 'retrying', Attempt: 0, Meta: { after: 0 } });
+      expect(pick((await stepsOf('f'))[0], 'Status', 'Attempt', 'Meta')).to.deep.equal({ Status: 'retrying', Attempt: 0, Meta: { after: 0, call: 1 } });
     });
   });
 }

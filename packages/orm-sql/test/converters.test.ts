@@ -58,6 +58,31 @@ describe('SqlBooleanValueConverter', () => {
     expect(converter.fromDB(1n)).to.equal(true);
     expect(converter.fromDB(0n)).to.equal(false);
   });
+
+  it('a nullable boolean keeps NULL in both directions', () => {
+    const options = { nullable: true };
+
+    expect(converter.toDB(null, undefined, undefined, options)).to.equal(null);
+    expect(converter.toDB(undefined, undefined, undefined, options)).to.equal(null);
+    expect(converter.toDB(true, undefined, undefined, options)).to.equal(1);
+    expect(converter.toDB(false, undefined, undefined, options)).to.equal(0);
+    expect(converter.toDB(null, undefined, undefined, options, {})).to.equal(null);
+    expect(converter.toDB(null, undefined, undefined, options, undefined)).to.equal(null);
+    expect(converter.toDB(1, undefined, undefined, options, undefined)).to.equal(true);
+
+    expect(converter.fromDB(null, undefined, options)).to.equal(null);
+    expect(converter.fromDB(undefined, undefined, options)).to.equal(null);
+    expect(converter.fromDB(0, undefined, options)).to.equal(false);
+    expect(converter.fromDB(1, undefined, options)).to.equal(true);
+  });
+
+  it('without the option NULL still reads and writes as false', () => {
+    expect(converter.toDB(null)).to.equal(0);
+    expect(converter.toDB(null, undefined, undefined, null)).to.equal(0);
+    expect(converter.toDB(null, undefined, undefined, undefined, undefined)).to.equal(false);
+    expect(converter.fromDB(null)).to.equal(false);
+    expect(converter.fromDB(null, undefined, null)).to.equal(false);
+  });
 });
 
 /**

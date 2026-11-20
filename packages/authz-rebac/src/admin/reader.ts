@@ -58,10 +58,12 @@ export class RebacExpandReader extends AuthzAdminReader {
     const relation = nameOf(raw.relation, 'relation');
     const model = modelFor(ctx, object, relation);
     if (q.kind === 'tuples.expand') return { items: [await model.expand(object, relation)], total: 1 };
-    const out = await model.listSubjects(object, relation, nameOf(raw.subjectType, 'subjectType'));
+    if (raw.env !== undefined && !isRecord(raw.env)) throw new AuthzAdminFailure('invalid_query', 'env must be an object', 'env');
+    const out = await model.listSubjects(object, relation, nameOf(raw.subjectType, 'subjectType'), raw.env === undefined ? undefined : { env: raw.env });
     // A list cut short by maxDepth would show holders as missing; an admin UI must not read it as the answer.
     if (!out.complete) throw new AuthzAdminFailure('limit_exceeded', `${object.type}#${relation} nests deeper than maxDepth; its subjects cannot be listed in full`, 'relation');
-    return { items: out.subjects, total: out.subjects.length };
+    const items = [...out.subjects, ...out.conditional.map((s) => ({ ...s, conditional: true }))];
+    return { items, total: items.length };
   }
 }
 

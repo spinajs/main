@@ -107,8 +107,10 @@ describe('route and policy spans', function () {
     await spans.waitFor('GET /tracing-t3/broken');
 
     const [route] = spans.byName('route GuardedController.broken');
-    expect(route.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'broken' });
-    expect(route.events.map((e) => e.name)).to.deep.eq(['exception']);
+    expect(route.status.code).to.eq(SpanStatusCode.ERROR);
+    expect(route.status.message).to.eq(route.attributes['error.type']);
+    expect(route.status.message).to.not.eq('broken');
+    expect(route.events).to.deep.eq([]);
   });
 
   it('records a 4xx the action throws on the route span without ERROR', async () => {
@@ -117,6 +119,7 @@ describe('route and policy spans', function () {
 
     const [route] = spans.byName('route GuardedController.invalid');
     expect(route.status.code).to.eq(SpanStatusCode.UNSET);
-    expect(route.events.map((e) => e.name)).to.deep.eq(['exception']);
+    expect(route.attributes['error.type']).to.be.a('string');
+    expect(route.events).to.deep.eq([]);
   });
 });

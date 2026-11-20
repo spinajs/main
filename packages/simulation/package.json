@@ -58,6 +58,7 @@
     "@spinajs/idempotency": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/scheduler": "3.0.23",
+    "@spinajs/workflow": "3.0.23",
     "@types/node": "^22.14.1",
     "uuid": "^9.0.0"
   },

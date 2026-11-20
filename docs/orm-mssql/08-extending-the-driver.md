@@ -81,6 +81,7 @@ Methods a subclass overrides:
 | `InSetStatement` | `MsSqlInSetStatement` | `SqlInSetStatement` | [Query dialect](05-query-dialect.md) |
 | `InStatement` | `MsSqlInStatement` (`OPENJSON` above 200 values) | `SqlInStatement` | [Query dialect](05-query-dialect.md) |
 | `StartsWithStatement` | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` | [Query dialect](05-query-dialect.md) |
+| `WhereStatement` | `MsSqlWhereStatement` (escapes `[` in a `LikeLiteral`) | `SqlWhereStatement` | [Query dialect](05-query-dialect.md) |
 | `TextWrapper` | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | `SqlTextWrapper` | [Query dialect](05-query-dialect.md) |
 | `InsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `SqlInsertQueryCompiler` | [Inserts and upserts](04-inserts-and-upserts.md) |
 | `OnDuplicateQueryCompiler` | `MsSqlOnDuplicateQueryCompiler` | nothing | [Inserts and upserts](04-inserts-and-upserts.md#upsert-compiler-custom-implementation) |
@@ -105,7 +106,6 @@ Tokens the driver leaves **unregistered**, each a place to add your own:
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
 | `TableCloneQueryCompiler`, `RecursiveQueryCompiler` | the feature throws a `TypeError` on first use | [Schema dialect](06-schema-dialect.md) |
-| `TableHistoryQueryCompiler` | `trackHistory()` throws `MethodNotImplemented` in `MsSqlTableQueryCompiler` before it is resolved | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation
 
@@ -152,7 +152,7 @@ export class OfflineMsSqlDriver extends MsSqlOrmDriver {
 - **Register after `super.resolve()`.** A registration made before it is overwritten.
 - **A subclass is not registered under the parent's string.** Give it its own `@Injectable('<string>')`, or register it explicitly.
 - **Keep constructor signatures.** Compilers are resolved with fixed arguments (the builder, sometimes the container first); a replacement must accept the same.
-- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container. Subclasses of `SqlJoinStatement`, `SqlInStatement` and `SqlStartsWithStatement` need no override: their `clone()` constructs `this.constructor`.
+- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container. Subclasses of `SqlJoinStatement`, `SqlInStatement`, `SqlStartsWithStatement` and `SqlWhereStatement` need no override when they keep the parent's constructor arguments: their `clone()` constructs `this.constructor`.
 - **The MSSQL compilers are not exported.** Extend the shared `Sql*` class and re-implement the T-SQL part, as the examples do.
 
 ## Best practices

@@ -9,7 +9,7 @@ import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
 import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent, Relation } from '@spinajs/authz-orm';
 import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
-import { AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
+import { AuthzChangeLogHorizon_2026_11_06_00_00_00, AuthzChangeLog_2026_11_04_00_00_00 } from '@spinajs/authz-orm/changelog';
 import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
 // authz-rbac's test database helpers import only libraries.
@@ -127,12 +127,17 @@ export interface E2eHarness extends BehaviourHarness {
   model(name: string): ModelClass;
 }
 
+export interface E2eHarnessOptions {
+  /** More lane wiring, after the stack's own and before the services boot. */
+  register?(host: HostSetup): Promise<void>;
+}
+
 /**
  * hostHarness over TestDb (`kind`): the real authz migrations, the world's ORM models, RBAC from `world.rbac` (roles in
  * config, assignments as rows, `RbacModel` listed in the domain's models), ABAC from `world.abac` (config policies plus a DbPolicyStore that
  * AuthzAdmin writes), the DB admin backend, and the app env `test` (the runtime guard throws).
  */
-export function e2eHarness(kind: Dialect): E2eHarness {
+export function e2eHarness(kind: Dialect, options: E2eHarnessOptions = {}): E2eHarness {
   let db: TestDb | undefined;
   let lane: E2eOrm | undefined;
   const need = <T>(v: T | undefined, what: string): T => v ?? (() => { throw new Error(`e2eHarness: ${what} (beforeAll did not run)`); })();
@@ -173,6 +178,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         host.setConfig(['authz', 'domains', host.domain, 'models'], [...listed(), abac.name]);
         c.register(testHost.instance(written)).as(PolicyStore);
       }
+      await options.register?.(host);
     },
     extend(_host: HostSetup, session: HarnessSession) {
       return { admin: (session.authz as unknown as AuthzService).admin(), lane: { orm: need(lane, 'no orm lane') } } as Partial<HarnessSession>;
@@ -200,7 +206,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         db = await TestDb.open({ postgres: kind === 'postgres', authz: kind });
         activeDb = db;
         const driver = db.driver(kind);
-        for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00(), new AuthzChangeLog_2026_11_04_00_00_00()]) await m.up(driver);
+        for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00(), new AuthzChangeLog_2026_11_04_00_00_00(), new AuthzChangeLogHorizon_2026_11_06_00_00_00()]) await m.up(driver);
         // The Orm read the table info before the tables existed.
         await db.orm.reloadTableInfo();
         lane = new E2eOrm(db, kind);

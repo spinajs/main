@@ -1,0 +1,355 @@
+import * as chai from 'chai';
+import 'mocha';
+import { randomUUID } from 'node:crypto';
+import sinon from 'sinon';
+
+import { DecisionLogTap, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
+import type { AuthzTx, ChangeRecord, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
+import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
+import type { ObjectRef, PolicyIR, ReplayDeps, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
+import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
+import { DI } from '@spinajs/di';
+import { QueryContext } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
+
+import { AssignmentHistoryContributor, DbAssignmentStore, DbRuleStore, RuleSplicer, compileGrants, compileRoles, rbacDenyRelation, rbacToIR } from '../src/index.js';
+import { ALL_DB_KINDS, DB_KINDS, bootDb, rawQuery } from './support/db.js';
+import type { Dialect, TestDb } from './support/db.js';
+
+const expect = chai.expect;
+
+const WINDOW = 100;
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A whole second ahead of the wall clock: the frozen Date of an expiry case, after the coverage the suites record. */
+const frozenStart = (): number => Math.ceil(Date.now() / 1000) * 1000 + 1000;
+const source = { kind: 'tuples', store: 'authz_assignment' } as const;
+const user = (id: string): PrincipalRef => ({ type: 'user', id });
+const G1_MEMBERS = { set: { role: 'member', scope: { type: 'group', id: 'g1' } } };
+
+function irOf(permissions: Record<string, Rewrite> = {}, caveats: PolicyIR['caveats'] = {}): PolicyIR {
+  return {
+    version: 1,
+    types: {
+      [GLOBAL_TYPE]: { relations: { admin: { allowed: ['user'], source } }, permissions: {} },
+      project: { relations: { editor: { allowed: ['user', 'group#member'], source } }, permissions },
+      group: { relations: { member: { allowed: ['user'], source } }, permissions: {} },
+    },
+    permissions: Object.fromEntries(Object.keys(permissions).map((p) => [`project:${p}`, { type: 'project', relation: p, list: false, source: { origin: 'test' } }])),
+    caveats,
+    combine: { default: { algorithm: 'deny-overrides' } },
+    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: {} },
+    opaque: [],
+  };
+}
+
+const label = (s: TupleSubjectRef | ObjectRef): string => `${s.type}:${s.id}${'relation' in s && s.relation !== undefined ? `#${s.relation}` : ''}`;
+
+async function collect<T extends TupleSubjectRef | ObjectRef>(it: AsyncIterable<T>): Promise<string[]> {
+  const out: string[] = [];
+  for await (const s of it) out.push(label(s));
+  return out.sort();
+}
+
+describe('AssignmentHistoryContributor', function () {
+  this.timeout(180000);
+
+  it('is registered as the history contributor of the assignment kind', () => {
+    expect(DI.getRegisteredTypes(HistoryContributors)).to.include(AssignmentHistoryContributor);
+    expect(new AssignmentHistoryContributor().serves(source)).to.equal(true);
+    expect(new AssignmentHistoryContributor().serves({ kind: 'tuples', store: 'authz_rebac_tuple' })).to.equal(false);
+  });
+
+  it('reads a change or an image it cannot decode as unreadable, never as a grant that is absent or not live', () => {
+    const c = new AssignmentHistoryContributor();
+    const image = { role: 'editor', scope: { type: 'project', id: 'p1' }, subject: { type: 'user' }, expiresAt: null };
+    const change: ChangeRecord = { seq: 7, at: new Date(), kind: 'assignment', op: 'remove', key: 'a1', payload: image, before: null, actor: null, traceId: null };
+    expect(() => c.edges(change)).to.throw(StoreUnreadable, /assignment change seq 7/);
+    expect(() => c.subjectAt(image, new Date())).to.throw(StoreUnreadable);
+    expect(() => c.subjectAt({ ...image, subject: { type: 'user', id: 'u1' }, expiresAt: 'not an instant' }, new Date())).to.throw(StoreUnreadable);
+  });
+
+  for (const kind of ALL_DB_KINDS) {
+    describe(kind, () => {
+      let db: TestDb<Dialect>;
+      let store: DbAssignmentStore;
+      const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
+      const assign = (subject: PrincipalRef | typeof G1_MEMBERS, role: string, scope: { type: string; id?: string }, expiresAt?: Date, tags: string[] = []) =>
+        inTx((tx) => store.assign({ subject, role, scope, tags, ...(expiresAt === undefined ? {} : { expiresAt }) }, user('root'), tx));
+
+      before(async function () {
+        db = await bootDb(this, kind, 'rbac_replay');
+        store = db.container.resolve(DbAssignmentStore);
+        await recordCoverage(['assignment'], [], [], new Date(Date.now() - 3_600_000));
+      });
+
+      after(async () => {
+        await db?.dispose();
+      });
+
+      it('rebuilds role relations at T from current rows and the changelog, expiry and null kept apart, without a gap', async () => {
+        // Every instant comes from the frozen Date, so no expiry depends on how long the writes take: the store judges
+        // liveness on the JS clock (`whereLive` binds a Date), never on the database's.
+        const start = frozenStart();
+        const clock = sinon.useFakeTimers({ now: start, toFake: ['Date'] });
+        try {
+          const numeric = '42';
+          const uuid = randomUUID();
+          // An instant with milliseconds: the store column must keep them, or the history would not match the row.
+          const aliceUntil = new Date(start + 2537);
+          await assign(user('alice'), 'editor', { type: 'project', id: 'p1' }, aliceUntil);
+          const bob = await assign(user('bob'), 'editor', { type: 'project', id: numeric }, undefined, ['x']);
+          const set = await assign(G1_MEMBERS, 'editor', { type: 'project', id: 'p1' });
+          const member = await assign(user('alice'), 'member', { type: 'group', id: 'g1' });
+          const carol = await assign(user('carol'), 'admin', GLOBAL);
+          const dave = await assign(user('dave'), 'editor', { type: 'project', id: 'p1' }, new Date(start + 40));
+          const erin = await assign(user(uuid), 'editor', { type: 'project', id: uuid });
+          await inTx((tx) => store.revoke(erin.id, user('root'), tx));
+          await inTx((tx) => store.setTags(bob.id, ['y'], tx));
+          clock.tick(3 * WINDOW);
+          const T = new Date();
+          clock.tick(3 * WINDOW);
+
+          const reads = async () => {
+            const history = await ReplayHistory.load(changeLog(), T, ['assignment'], { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: WINDOW, afterMs: WINDOW } });
+            const s = new HistoricalTupleSource(irOf(), T, [new AssignmentHistoryContributor()], history);
+            const out = {
+              p1: await collect(s.read({ type: 'project', id: 'p1' }, 'editor')),
+              numeric: await collect(s.read({ type: 'project', id: numeric }, 'editor')),
+              uuid: await collect(s.read({ type: 'project', id: uuid }, 'editor')),
+              admin: await collect(s.read(GLOBAL_OBJECT, 'admin')),
+              g1: await collect(s.read({ type: 'group', id: 'g1' }, 'member')),
+              alice: await collect(s.reverse(user('alice'), 'editor', 'project')),
+              set: await collect(s.reverse({ type: 'group', id: 'g1', relation: 'member' }, 'editor', 'project')),
+              carol: await collect(s.reverse(user('carol'), 'admin', GLOBAL_TYPE)),
+            };
+            return { out, reads: s.reads };
+          };
+          const atT = { p1: ['group:g1#member', 'user:alice'], numeric: ['user:bob'], uuid: [], admin: ['user:carol'], g1: ['user:alice'], alice: ['project:p1'], set: ['project:p1'], carol: ['$global:$global'] };
+          expect((await reads()).out).to.deep.equal(atT);
+
+          await inTx((tx) => store.setExpiry(bob.id, new Date(Date.now() + 12_345), tx));
+          await inTx((tx) => store.revoke(set.id, user('root'), tx));
+          await inTx((tx) => store.revoke(carol.id, user('root'), tx));
+          await assign(user('carol'), 'admin', GLOBAL, new Date(Date.now() + 60_000));
+          await assign(user('frank'), 'editor', { type: 'project', id: 'p1' });
+          await inTx((tx) => store.update(member.id, { tags: ['z'] }, user('root'), tx));
+          await inTx((tx) => store.revoke(dave.id, user('root'), tx));
+          // Alice's assignment has expired by now and was live at T: the current read must keep expired rows.
+          clock.setSystemTime(aliceUntil.getTime() + WINDOW);
+
+          const replayed = await reads();
+          expect(replayed.out).to.deep.equal(atT);
+          expect(replayed.reads.filter((r) => r.origin === 'gap')).to.deep.equal([]);
+          expect(replayed.reads.filter((r) => r.origin === 'history').map((r) => r.key)).to.include.members([bob.id, set.id, carol.id, member.id, dave.id]);
+        } finally {
+          clock.restore();
+        }
+      });
+    });
+  }
+});
+
+describe('replay of RBAC decisions end to end (scenarios 3 and 9)', function () {
+  this.timeout(180000);
+
+  for (const kind of DB_KINDS) {
+    describe(kind, () => {
+      let db: TestDb<Dialect>;
+      let store: DbAssignmentStore;
+      const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
+
+      before(async function () {
+        db = await bootDb(this, kind, 'rbac_replay_e2e');
+        store = db.container.resolve(DbAssignmentStore);
+        await recordCoverage(['assignment'], [], [], new Date(Date.now() - 3_600_000));
+      });
+
+      after(async () => {
+        await db?.dispose();
+      });
+
+      // Scenario 9 logs on a clock ahead of the wall clock: its rows must not reach the next case's window.
+      beforeEach(async () => {
+        for (const table of ['authz_assignment', CHANGE_LOG_TABLE]) await rawQuery(db.driver, `DELETE FROM ${table}`, [], QueryContext.Delete);
+      });
+
+      const ir = irOf({ edit: { computed: 'editor' }, publish: { caveat: 'published', of: { computed: 'editor' } } }, { published: { params: {}, expr: { attr: 'scope.project.status', eq: 'published' } } });
+      const deps = (): ReplayDeps => ({
+        log: changeLog(),
+        loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
+        contributors: [new AssignmentHistoryContributor()],
+        splicers: [],
+        limits: { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 50, commitLagMs: WINDOW, timeoutMs: 15_000 },
+      });
+
+      /** The record the real tap writes for u's decision on `project:<id>`. */
+      async function decide(u: string, permission: string, id: string, allowed: boolean, captureInputs = false, attributes: DecisionReadSet['attributes'] = [], env: Record<string, unknown> = {}): Promise<DecisionRecord> {
+        const out: DecisionRecord[] = [];
+        const sink: DecisionLog = { write: (r) => Promise.resolve(void out.push(...r)) };
+        const tap = new DecisionLogTap({ domain: 'default', sink, mode: 'all', allowSampleRate: 1, captureInputs, batch: { size: 1, flushMs: 1000 }, policy: { policyHash: () => policyHash(ir) }, log: { error: () => undefined } });
+        const resource = { type: 'project', id };
+        const decision = { allowed, permission, resource, principal: user(u), residual: allowed ? TRUE : FALSE, fields: { read: [], write: [] }, roles: {}, domain: 'default' };
+        tap.onDecision({ principal: { ...user(u), authenticated: true, source: 'test', attributes: {} }, permission, resource, env }, decision, { env, attributes, relations: [], modelVersions: {} }, { cached: false, durationMs: 3 });
+        await tap.flush();
+        return out[0];
+      }
+
+      it('9: an assignment that expired after the decision still allows it, one expired before it denies it', async () => {
+        // The decisions are logged at a frozen instant between the two expiries, however long the writes take.
+        const start = frozenStart();
+        const clock = sinon.useFakeTimers({ now: start, toFake: ['Date'] });
+        try {
+          const until = new Date(start + 1500);
+          await inTx((tx) => store.assign({ subject: user('ann'), role: 'editor', scope: { type: 'project', id: 'e1' }, expiresAt: until }, user('root'), tx));
+          const benUntil = new Date(start + 50);
+          await inTx((tx) => store.assign({ subject: user('ben'), role: 'editor', scope: { type: 'project', id: 'e2' }, expiresAt: benUntil }, user('root'), tx));
+          clock.tick(4 * WINDOW);
+          const allowed = await decide('ann', 'project:edit', 'e1', true);
+          const denied = await decide('ben', 'project:edit', 'e2', false);
+          // The engine judges expiry at the caller's env.now, the record's `at`, over the rows as they were when logged.
+          const asOf = await decide('ben', 'project:edit', 'e2', true, false, [], { now: new Date(benUntil.getTime() - 10) });
+          clock.setSystemTime(until.getTime() + WINDOW);
+          expect(await replayDecision(allowed, deps())).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+          expect(await replayDecision(denied, deps())).to.deep.include({ replay: 'faithful', outcome: { recorded: 'deny', replayed: 'deny' } });
+          expect(await replayDecision(asOf, deps())).to.deep.include({ replay: 'faithful', outcome: { recorded: 'allow', replayed: 'allow' } });
+          const flipped = await replayDecision({ ...denied, allowed: true }, deps());
+          expect(flipped.replay).to.equal('divergent');
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('3: a caveat over a captured scope attribute replays by the inputs hash; without the capture it is unreplayable, naming it', async () => {
+        await inTx((tx) => store.assign({ subject: user('cid'), role: 'editor', scope: { type: 'project', id: 's1' } }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const read = [{ ref: { type: 'project', id: 's1' }, path: '', value: { status: 'published' } }];
+        const captured = await decide('cid', 'project:publish', 's1', true, true, read);
+        const blind = await decide('cid', 'project:publish', 's1', true, false, read);
+        await pause(4 * WINDOW);
+        expect(await replayDecision(captured, deps())).to.deep.include({ replay: 'faithful', evidence: 'inputs-hash' });
+        const report = await replayDecision(blind, deps());
+        expect(report.replay).to.equal('unreplayable');
+        expect(report.missing.map((m) => m.input)).to.include('scope.project.status');
+      });
+    });
+  }
+});
+
+/** The RBAC model's IR with a DB rule store, as `RbacModel.toIR` compiles it. */
+function rulesIR(): PolicyIR {
+  const registry = new PermissionRegistryImpl();
+  registry.register([{ name: 'project:edit' }, { name: 'project:view' }], 'test');
+  registry.freeze();
+  const graph = compileRoles([{ name: 'editor', extends: [], assignable: true, scopeTypes: ['project'], source: 'test', grants: [{ permission: 'project:edit' }, { permission: 'project:view' }] }]);
+  return mergeFragments([rbacToIR(graph, compileGrants(graph, registry), registry, { storedRules: 'DbRuleStore' })]).ir;
+}
+
+/** The record the tap writes for an allowed or denied check of `user:<u>` on `project:<id>` under `ir`. */
+async function recordOf(ir: PolicyIR, u: string, permission: string, id: string, allowed: boolean): Promise<DecisionRecord> {
+  const out: DecisionRecord[] = [];
+  const sink: DecisionLog = { write: (r) => Promise.resolve(void out.push(...r)) };
+  const tap = new DecisionLogTap({ domain: 'default', sink, mode: 'all', allowSampleRate: 1, captureInputs: false, batch: { size: 1, flushMs: 1000 }, policy: { policyHash: () => policyHash(ir) }, log: { error: () => undefined } });
+  const resource = { type: 'project', id };
+  const decision = { allowed, permission, resource, principal: user(u), residual: allowed ? TRUE : FALSE, fields: { read: [], write: [] }, roles: {}, domain: 'default' };
+  tap.onDecision({ principal: { ...user(u), authenticated: true, source: 'test', attributes: {} }, permission, resource, env: {} }, decision, { env: {}, attributes: [], relations: [], modelVersions: {} }, { cached: false, durationMs: 3 });
+  await tap.flush();
+  return out[0];
+}
+
+describe('RuleSplicer', function () {
+  this.timeout(180000);
+
+  it('is registered as a stored-policy splicer and locates the rule store in the deny relation of each permission', () => {
+    expect(DI.getRegisteredTypes(StoredPolicySplicers)).to.include(RuleSplicer);
+    const ir = rulesIR();
+    const name = storedPolicyName('rbac', 'DbRuleStore');
+    for (const permission of ['project:edit', 'project:view']) {
+      expect(ir.types.project.permissions[rbacDenyRelation(permission)]).to.deep.equal({ opaque: name });
+      expect(new RuleSplicer().locate(name, 'project', rbacDenyRelation(permission), ir)).to.deep.equal({ model: 'rbac', store: 'DbRuleStore', permission, side: 'deny' });
+    }
+    expect(new RuleSplicer().locate(name, 'project', 'can_project_edit', ir)).to.equal(undefined);
+    expect(new RuleSplicer().locate('rbac rule r1', 'project', rbacDenyRelation('project:edit'), ir)).to.equal(undefined);
+    // Two permissions that share a deny relation leave the placeholder to neither.
+    expect(rbacDenyRelation('project.edit')).to.equal(rbacDenyRelation('project:edit'));
+    const shared = { ...ir, permissions: { ...ir.permissions, 'project.edit': ir.permissions['project:edit'] } };
+    expect(new RuleSplicer().locate(name, 'project', rbacDenyRelation('project:edit'), shared)).to.equal(undefined);
+  });
+
+  it('drops a rule only where the engine would not select it: another resource type, or threshold globs that miss', () => {
+    const rule = (id: string, def: Record<string, unknown>) => ({ key: id, state: { known: true, value: { id, scope: GLOBAL, source: 'db', ...def }, origin: 'current' } as const });
+    const items = [
+      rule('other-type', { kind: 'restrict', resourceTypes: ['folder'] }),
+      rule('on-type', { kind: 'cap', resourceTypes: ['project'] }),
+      rule('glob', { kind: 'threshold', permissions: ['project:*'], minRole: 'editor' }),
+      rule('glob-miss', { kind: 'threshold', permissions: ['folder:*'], minRole: 'editor' }),
+      rule('bad-glob', { kind: 'threshold', permissions: ['**'], minRole: 'editor' }),
+    ];
+    const spliced = new RuleSplicer().splice({ model: 'rbac', store: 'DbRuleStore', permission: 'project:edit', side: 'deny' }, items, rulesIR());
+    expect(spliced.term).to.deep.equal({ union: [{ opaque: 'rbac rule on-type' }, { opaque: 'rbac rule glob' }, { opaque: 'rbac rule bad-glob' }] });
+  });
+
+  for (const kind of DB_KINDS) {
+    describe(kind, () => {
+      let db: TestDb<Dialect>;
+      let assignments: DbAssignmentStore;
+      let rules: DbRuleStore;
+      const ir = rulesIR();
+      const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
+      const grant = (u: string, id: string) => inTx((tx) => assignments.assign({ subject: user(u), role: 'editor', scope: { type: 'project', id } }, user('root'), tx));
+      const deps = (): ReplayDeps => ({
+        log: changeLog(),
+        loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
+        contributors: [new AssignmentHistoryContributor()],
+        splicers: [new RuleSplicer()],
+        limits: { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 50, commitLagMs: WINDOW, timeoutMs: 15_000 },
+      });
+
+      before(async function () {
+        db = await bootDb(this, kind, 'rbac_replay_rules');
+        assignments = db.container.resolve(DbAssignmentStore);
+        rules = db.container.resolve(DbRuleStore);
+        await recordCoverage(['assignment', 'rule'], [], [], new Date(Date.now() - 3_600_000));
+      });
+
+      after(async () => {
+        await db?.dispose();
+      });
+
+      beforeEach(async () => {
+        for (const table of ['authz_assignment', 'authz_rule_subject', 'authz_rule', CHANGE_LOG_TABLE]) await rawQuery(db.driver, `DELETE FROM ${table}`, [], QueryContext.Delete);
+      });
+
+      it('replays an allow faithfully with no rule at T, a threshold rule of another permission, and a rule added after T', async () => {
+        await grant('ann', 'a1');
+        await inTx((tx) => rules.put({ id: 'view-only', kind: 'threshold', scope: { type: 'project', id: 'a1' }, permissions: ['project:view'], minRole: 'editor' }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'ann', 'project:edit', 'a1', true);
+        await pause(4 * WINDOW);
+        await inTx((tx) => rules.put({ id: 'late', kind: 'restrict', scope: { type: 'project', id: 'a1' }, allow: [] }, user('root'), tx));
+        await inTx((tx) => rules.remove('view-only', tx));
+        const report = await replayDecision(record, deps());
+        expect(report).to.deep.include({ replay: 'faithful', evidence: 'outcome', outcome: { recorded: 'allow', replayed: 'allow' } });
+        expect(report.reads.filter((r) => r.kind === 'rule').map((r) => [r.key, r.origin])).to.have.deep.members([
+          ['late', 'history'],
+          ['view-only', 'history'],
+        ]);
+      });
+
+      it('leaves an applicable rule opaque, and names a rule whose state at T is a gap', async () => {
+        await grant('bo', 'b1');
+        await inTx((tx) => rules.put({ id: 'narrow', kind: 'restrict', scope: { type: 'project', id: 'b1' }, allow: [user('bo')] }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'bo', 'project:edit', 'b1', true);
+        await pause(4 * WINDOW);
+        const opaque = await replayDecision(record, deps());
+        expect(opaque.replay).to.equal('unreplayable');
+        expect(opaque.missing).to.deep.include({ input: 'opaque', key: 'rbac rule narrow', reason: 'the IR cannot see it' });
+
+        await rawQuery(db.driver, 'UPDATE authz_rule SET kind = ? WHERE id = ?', ['cap', 'narrow'], QueryContext.Update);
+        const gap = await replayDecision(record, deps());
+        expect(gap.replay).to.equal('unreplayable');
+        expect(gap.missing.map((m) => [m.input, m.key])).to.deep.include(['rule', 'narrow']);
+      });
+    });
+  }
+});

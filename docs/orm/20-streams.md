@@ -25,11 +25,11 @@ for await (const order of Order.where('Status', 'open').order('Id').populate('It
 | postgres | `pg-cursor`, `batchSize` rows per fetch, parsed with the pool's own type parsers (`timestamp` as UTC). Leaving early closes the cursor and returns the client to the pool. A connection lost mid-stream rejects the loop and is dropped from the pool. |
 | mysql | mysql2 row events, with the connection paused while a batch waits. Leaving before the result ends destroys the pooled connection and closes its socket, so the server stops sending. |
 | mssql | tedious stream mode, with the request paused while a batch waits. Leaving early cancels the request. |
-| PGlite | No cursor: pages by keyset (below). |
+| PGlite | A `WITH HOLD` cursor: `DECLARE`, one `FETCH batchSize` per batch, `CLOSE` when the loop ends, breaks or throws. PGlite computes the whole result when the `DECLARE` commits, so the stream holds it in memory; the one session stays free between batches, so the loop body may query. A query without an order streams too. An iterator dropped without `return()` (driven by hand with `next()`) leaves the cursor and its result open until the PGlite instance closes: at `disconnect()`, or with `Options.Shared` when the last connection on the instance lets go. |
 | any other driver without a cursor | Pages by keyset (below) |
 | every driver, inside `transaction()` | Pages by keyset (below): a cursor would hold the transaction's connection, and the relation load of the next batch or a statement in the loop body would wait for it for ever. |
 
-A stream on a cursor holds one pooled connection until the loop ends, so a loop body that runs a statement on the same connection name needs a second pool slot: with `Pool.Max` 1 it waits for ever. On postgres the open cursor also holds its snapshot and an `ACCESS SHARE` lock on the tables it reads.
+A stream on a cursor holds one pooled connection until the loop ends, so a loop body that runs a statement on the same connection name needs a second pool slot: with `Pool.Max` 1 it waits for ever. PGlite is the exception: its cursor is held by the session, not by a statement in progress, so its one session is free between batches. On postgres the open cursor also holds its snapshot and an `ACCESS SHARE` lock on the tables it reads.
 
 A driver that has a cursor sets `supportedFeatures().streaming` and implements `executeStreamOnDb(stmt, params, { batchSize })`. A driver whose client pushes rows as events can buffer them in `RowQueue` (`@spinajs/orm-sql`), which pauses the source while `batchSize` rows wait.
 

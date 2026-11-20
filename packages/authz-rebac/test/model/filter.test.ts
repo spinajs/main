@@ -1,9 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
+import { DefaultConditionCompiler } from '@spinajs/authz';
 import type { PermissionDef, Principal } from '@spinajs/authz';
-import { FakePermissionRegistry, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
+import { FakePermissionRegistry, fakeEvaluationContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
-import { REBAC_TUPLES_PLAN_OP, parseRebacPlanArgs, rebacListPlan, subjectKey } from '../../src/index.js';
+import { REBAC_TUPLES_PLAN_OP, caveatKey, parseRebacPlanArgs, rebacListPlan, subjectKey } from '../../src/index.js';
+import type { RebacModel } from '../../src/index.js';
+import { INPUTS, caveatModel } from '../support/caveat-world.js';
 import { PERMISSION_INPUTS, setup, user } from '../support/world.js';
 import type { Setup } from '../support/world.js';
 
@@ -75,6 +78,54 @@ describe('authz-rebac: list plans', () => {
     expect(() => parseRebacPlanArgs({ any: 'x' })).to.throw('rebac.tuples');
     expect(() => parseRebacPlanArgs({ tuples: { relation: 'owner', subjects: ['user:a'] }, extra: 1 })).to.throw('rebac.tuples');
     expect(() => parseRebacPlanArgs(null)).to.throw('rebac.tuples');
+  });
+
+  it('plan args parse conditional groups, and refuse malformed ones', () => {
+    const K = caveatKey({ name: 'office_ip' });
+    const args = { tuples: { relation: 'viewer', subjects: [], conditional: [{ caveat: K, subjects: ['user:a'] }] } };
+    expect(parseRebacPlanArgs(JSON.parse(JSON.stringify(args)))).to.deep.equal(args);
+    for (const conditional of [[], [{ caveat: 'x', subjects: ['user:a'] }], [{ caveat: K, subjects: [] }], [{ caveat: K, subjects: ['user:a'], extra: 1 }]]) {
+      expect(() => parseRebacPlanArgs({ tuples: { relation: 'viewer', subjects: [], conditional } }), JSON.stringify(conditional)).to.throw('rebac.tuples');
+    }
+    expect(() => parseRebacPlanArgs({ tuples: { relation: 'viewer', subjects: [], extra: 1 } })).to.throw('rebac.tuples');
+  });
+});
+
+describe('authz-rebac: list plans with conditional tuples', () => {
+  const NOW = new Date('2026-11-17T10:00:00.000Z');
+  const OFFICE = caveatKey({ name: 'office_ip' });
+  let model: RebacModel;
+  const plan = (who: string, env: Record<string, unknown>) => model.listPlan({ principal: userPrincipal(who), permission: { name: 'doc:read' } as PermissionDef, type: 'doc', env }, fakeEvaluationContext({ permissions: INPUTS, conditions: new DefaultConditionCompiler(), now: NOW }));
+  const conditional = (relation: string, subjects: string[], groups: { caveat: string; subjects: string[] }[]) => ({ tuples: { relation, subjects, conditional: groups } });
+
+  before(async () => {
+    model = await caveatModel();
+  });
+
+  it('keeps the conditional tuples of a caveat that holds for the request, valid until this instant', async () => {
+    expect(await plan('bob', { ip: '10.0.0.1' })).to.deep.equal({ ...terms(conditional('viewer', ['user:bob'], [{ caveat: OFFICE, subjects: ['user:bob'] }])), validUntil: NOW });
+    expect(await plan('carl', { ip: '10.0.0.1' })).to.deep.equal({ ...terms(conditional('viewer', ['user:carl'], [{ caveat: OFFICE, subjects: ['group:eng#member', 'user:carl'] }])), validUntil: NOW });
+  });
+
+  it('leaves out the conditional groups of a caveat that is false or unknown', async () => {
+    expect(await plan('bob', { ip: '10.0.0.2' })).to.deep.equal({ ...terms(leaf('viewer', ['user:bob'])), validUntil: NOW });
+    expect(await plan('carl', {})).to.deep.equal({ ...terms(leaf('viewer', ['user:carl'])), validUntil: NOW });
+  });
+
+  it('an arrow through a conditional tupleset lists its objects in a group of their own, the tuple context included', async () => {
+    const expired = caveatKey({ name: 'not_expired', context: { 'env.until': 20 } });
+    expect(await plan('dora', { day: 10 })).to.deep.equal({ ...terms({ any: [leaf('viewer', ['user:dora']), conditional('parent', [], [{ caveat: expired, subjects: ['folder:f1'] }])] }), validUntil: NOW });
+    expect(await plan('dora', { day: 25 })).to.deep.equal({ ...terms(leaf('viewer', ['user:dora'])), validUntil: NOW });
+  });
+
+  it('a plan that evaluated a caveat without an instant is valid until the epoch, so never reused', async () => {
+    const p = await rebacListPlan({ schema: model.schema(), store: model.store(), principal: user('bob'), permission: 'doc:read', type: 'doc', maxDepth: 8, caveat: () => Promise.resolve('allow') });
+    expect(p).to.deep.include({ validUntil: new Date(0) });
+  });
+
+  it('a plan that evaluated no caveat stays reusable, and every rewrite but exclusion can still be planned', async () => {
+    expect(await plan('erin', { ip: '10.0.0.1' })).to.deep.equal(terms(leaf('viewer', ['user:erin'])));
+    expect(model.listSupport({ name: 'doc:read' } as PermissionDef, 'doc')).to.equal(true);
   });
 });
 

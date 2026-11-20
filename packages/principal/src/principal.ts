@@ -61,6 +61,7 @@ export interface Ceiling {
 }
 
 // Singletons: the engine recognises them by identity, not by shape.
+/** @spinajs system-principal */
 export const SYSTEM: Principal = Object.freeze({
   type: 'system',
   id: 'system',
@@ -80,6 +81,15 @@ export const UNATTENDED: Principal = Object.freeze({
 // Feeds cache keys and invalidation tags, so it must be injective: the type
 // part never contains ':', which leaves the first ':' as the separator.
 export const principalKey = (p: PrincipalRef): string => `${p.type.replace(/%/g, '%25').replace(/:/g, '%3A')}:${p.id}`;
+
+/** The inverse of `principalKey` for a non-empty type and id; undefined for any other string. */
+export function parsePrincipalKey(key: string): PrincipalRef | undefined {
+  const at = key.indexOf(':');
+  if (at <= 0 || at === key.length - 1) return undefined;
+  const type = key.slice(0, at);
+  if (/%(?!25|3A)/.test(type)) return undefined;
+  return { type: type.replace(/%3A/g, ':').replace(/%25/g, '%'), id: key.slice(at + 1) };
+}
 
 export const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
 

@@ -22,6 +22,7 @@
     { "path": "../orm-postgres/tsconfig.json" },
     { "path": "../queue/tsconfig.json" },
     { "path": "../reflection/tsconfig.json" },
-    { "path": "../durable/tsconfig.json" }
+    { "path": "../durable/tsconfig.json" },
+    { "path": "../tracing/tsconfig.json" }
   ]
 }
