@@ -1,11 +1,9 @@
-import { companionHeader, manifestHashCheck } from './companion.js';
+import { companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from './companion.js';
 import type { ClientModel } from './model.js';
 
-export interface NextOptions {
+export interface NextOptions extends SiblingImports {
   /** Import path of the runtime, default `@spinajs/client/runtime`. */
   moduleName?: string;
-  /** File name of the client without extension, default `client`. */
-  basename?: string;
 }
 
 const BODY = `type ControllerName = keyof typeof appTags;
@@ -80,14 +78,13 @@ export function updateController(name: ControllerName): void {
 
 /** `client.next.ts`: cache tags and revalidation for the Next.js App Router. Server-safe: no React, no Next type. */
 export function emitNext(model: ClientModel, options: NextOptions = {}): string {
-  const basename = options.basename ?? 'client';
   const lines = [
     companionHeader('next', model),
     "import { revalidateTag, updateTag } from 'next/cache';",
     `import type { ClientOptions } from '${options.moduleName ?? '@spinajs/client/runtime'}';`,
-    `import { appTags } from './${basename}.keys.js';`,
-    `import { createServerAppClient, type ServerAppClientOptions } from './${basename}.server.js';`,
-    `import type { AppClient, manifestHash } from './${basename}.js';`,
+    `import { appTags } from '${siblingSpecifier(options, '.keys')}';`,
+    `import { createServerAppClient, type ServerAppClientOptions } from '${siblingSpecifier(options, '.server')}';`,
+    `import type { AppClient, manifestHash } from '${siblingSpecifier(options)}';`,
     '',
     ...manifestHashCheck(model),
     '',

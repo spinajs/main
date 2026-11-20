@@ -532,7 +532,7 @@ describe('filter contracts', () => {
     const BOUND_MS = 2000;
     const atom = (i: number) => cmp(`f${i}`, i);
 
-    it(`simplifies a ${DEPTH}-deep alternating and/or chain fast`, () => {
+    it(`simplifies a ${DEPTH}-deep alternating and/or chain fast @timing`, () => {
       let f = atom(0);
       for (let i = 1; i < DEPTH; i++) f = { op: i % 2 ? 'and' : 'or', args: [f, atom(i), atom(i - 1)] };
       const start = performance.now();
@@ -541,7 +541,7 @@ describe('filter contracts', () => {
       expect(simplify(out)).to.eq(out);
     });
 
-    it(`grows trees through ${DEPTH} successive constructor calls fast`, () => {
+    it(`grows trees through ${DEPTH} successive constructor calls fast @timing`, () => {
       let start = performance.now();
       let flat = atom(0);
       for (let i = 1; i < DEPTH; i++) flat = and(flat, atom(i));

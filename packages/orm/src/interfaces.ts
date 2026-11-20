@@ -11,7 +11,6 @@ import { NewInstance, Singleton } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import type { DateTime } from 'luxon';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -384,9 +383,22 @@ export interface IDriverOptions {
   Encoding?: string;
 
   /**
+   * Session time zone of the connection's datetimes: `SYSTEM` ( default ) keeps the server's zone and expects the
+   * node process to run in the same one, `UTC` or an offset such as `+02:00` is set on every session. Read by
+   * `@spinajs/orm-mysql`.
+   */
+  TimeZone?: string;
+
+  /**
    * Database filename eg. for Sqlite driver
    */
   Filename?: string;
+
+  /**
+   * SQLite only. Enforces foreign keys ( `PRAGMA foreign_keys = ON` ) on the writer handle before any statement
+   * can use it, on every connect and reconnect. Default `false`.
+   */
+  ForeignKeys?: boolean;
 
   /**
    * Driver name eg. mysql, sqlite, mssql etc.
@@ -417,10 +429,8 @@ export interface IDriverOptions {
   };
 
   Migration?: {
-    /**
-     * Should run migration on startup
-     */
-    OnStartup?: boolean;
+    /** What the boot guard does with pending or failed migrations on this connection; overrides db.MigrationCheck. Default 'fail'. */
+    Check?: 'fail' | 'warn' | 'off';
 
     /**
      * Migration table name, if not set default is spinajs_migration
@@ -453,14 +463,27 @@ export interface IDriverOptions {
       Enabled?: boolean;
 
       /**
-       * Ms to wait for the lock before failing. Default 30_000.
+       * Ms to wait for the lock before failing. Default 30_000. A session lock ( postgres, mysql,
+       * mssql ) that finds a crashed run's lock-table row unrefreshed waits for it up to 10.5 s past
+       * this, so a shorter value still takes that row over. Against a live holder that still refreshes
+       * its row it fails at that holder's next refresh, up to 5 s past this.
        */
       Timeout?: number;
 
       /**
-       * Ms after which a held lock counts as stale and is stolen. Default 600_000.
+       * Ms after which a lock-table row counts as stale and is stolen. Default 600_000. The holder
+       * refreshes its row every StaleAfter / 3, so only a dead holder goes stale. A row written under
+       * a session lock is taken over by the next holder of that lock once it goes 10 s unrefreshed,
+       * whatever its age. A session lock also takes its intervals from this: it refreshes its row
+       * every min(StaleAfter / 3, 5 s) and queries its session every min(StaleAfter / 3, 30 s).
        */
       StaleAfter?: number;
+
+      /**
+       * 'table' forces the lock-table row even where the driver offers an advisory lock: PgBouncer
+       * transaction pooling does not keep a session. Default 'auto', the driver's `MigrationLock`.
+       */
+      Mode?: 'auto' | 'table';
     };
   };
 
@@ -1300,8 +1323,6 @@ export interface IWhereBuilder<T> {
 
   Op: WhereBoolean;
 
-  clone<P extends IWhereBuilder<any>>(parent: P): IWhereBuilder<T>;
-
   /** False when every statement is a group with no condition inside, so the builder compiles to nothing. */
   hasCondition(): boolean;
 
@@ -1472,6 +1493,9 @@ export interface IJoinBuilder {
 
 export interface IBuilder<T> extends PromiseLike<T> {
   middleware(middleware: IBuilderMiddleware<T>): this;
+
+  /** The result middlewares registered with `middleware()`, in registration order. */
+  readonly Middlewares: readonly IBuilderMiddleware<T>[];
   toDB(): ICompilerOutput | ICompilerOutput[];
 
   /**
@@ -1484,14 +1508,17 @@ export interface IBuilder<T> extends PromiseLike<T> {
   execute(): Promise<T>;
 }
 
+/** @spinajs query update */
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
   increment(column: DeclaredColumn<Unbox<T>>, by?: number): this;
   increment<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, by?: number): this;
 }
 
+/** @spinajs query delete */
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
+/** @spinajs query select */
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
@@ -1528,7 +1555,8 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   forShare(): this;
   get RowLock(): RowLockMode | undefined;
-  clone(): this;
+  /** @spinajs copy */
+  clone(owner?: IOrmRelation): this;
 
   /**
    * The outer builder this query is correlated to when it is the sub-select of a correlated
@@ -1587,6 +1615,15 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   onPrimary(): this;
 
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
+
+  /** Appends `builder`'s relations and result middlewares to this query's. */
+  mergeRelations(builder: ISelectQueryBuilder): void;
+
+  /** Merges `builder`'s joins, and the WHERE statements `filter` keeps as one AND group an `orWhere()` cannot widen this query through. */
+  mergeStatementsAsGroup(builder: ISelectQueryBuilder, filter: (statement: IQueryStatement) => boolean): void;
+
+  /** Wraps the WHERE statements this query has so far into one AND group, so that an OR among them cannot widen a condition added afterwards. */
+  groupWhere(): this;
 }
 
 export interface ICompilerOutput {
@@ -1703,11 +1740,6 @@ export abstract class OnDuplicateQueryCompiler implements IQueryCompiler {
 @NewInstance()
 export abstract class TableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput[] | ICompilerOutput;
-}
-
-@NewInstance()
-export abstract class TableHistoryQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
 }
 
 @NewInstance()
@@ -1970,13 +2002,6 @@ export interface IUniversalConverterOptions {
  */
 export abstract class QueryScope { }
 
-export interface IHistoricalModel {
-  readonly __action__: 'insert' | 'update' | 'delete';
-  readonly __revision__: number;
-  readonly __start__: DateTime;
-  readonly __end__: DateTime;
-}
-
 export abstract class ModelToSqlConverter {
   public abstract toSql(model: ModelBase<unknown>): unknown;
 }
@@ -2019,6 +2044,13 @@ export interface IDehydrateOptions {
    * - unix - Unix timestamp (seconds since epoch)
    */
   dateTimeFormat?: 'iso' | 'sql' | 'unix';
+}
+
+/** What a join reads: the joined table, the alias its columns are read under, and its model when it names one. */
+export interface IJoinedTable {
+  readonly table: string | undefined;
+  readonly alias: string | undefined;
+  readonly model: Constructor<ModelBase> | undefined;
 }
 
 export interface IJoinStatementOptions<R = ModelBase> {

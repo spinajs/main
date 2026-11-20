@@ -8,7 +8,7 @@ Full documentation is in [docs/users](../../docs/users/README.md):
 
 - [User model and metadata](../../docs/users/01-user-model.md) and a [custom user model](../../docs/users/02-custom-user-model.md)
 - [User actions](../../docs/users/03-user-actions.md), [action hooks](../../docs/users/04-action-hooks.md), [lifecycle mails](../../docs/users/05-lifecycle-mails.md), [user events](../../docs/users/06-user-events.md)
-- authn integration: [identity and password stores](../../docs/users/07-identity-and-password-stores.md), [authn event sinks](../../docs/users/08-authn-event-sinks.md), [principal factory](../../docs/users/09-principal-factory.md), [principal attribute providers](../../docs/users/10-principal-attribute-providers.md)
+- authn integration: [identity and password stores](../../docs/users/07-identity-and-password-stores.md), [authn event listeners](../../docs/users/08-authn-event-sinks.md), [principal factory](../../docs/users/09-principal-factory.md), [principal attribute providers](../../docs/users/10-principal-attribute-providers.md)
 - authz integration: [resources and relations](../../docs/users/11-authz-resources-and-relations.md), [default roles](../../docs/users/12-default-roles.md), [impersonation and credential admin guards](../../docs/users/13-impersonation-and-credential-admin-guards.md), [role switch and access response](../../docs/users/14-role-switch-and-access-response.md)
 - [User profile](../../docs/users/15-user-profile.md), [jobs run as their initiator](../../docs/users/16-jobs-run-as-initiator.md), [CLI commands](../../docs/users/17-cli-commands.md)
 
@@ -26,3 +26,9 @@ a job with `runAs: 'initiator'` reloads its user: one deactivated, banned or del
 `job:read`: for the `job` resource and the `user` role's `job:read` grant on the jobs it started, also
 `import '@spinajs/authz-queue/jobs'` (it needs `@spinajs/authz-orm`) before the `Configuration` resolves, or the grant
 waits for the next resolve.
+
+## Signals are checked as their signer
+
+Install `@spinajs/authz-workflow` (an optional peer dependency) and import `@spinajs/users/workflow` (it loads
+authz-workflow) so a workflow wait with a `permission` reloads the user who signed the signal: one deactivated, banned
+or deleted since signing is rejected, and an active one is checked with its current attributes.

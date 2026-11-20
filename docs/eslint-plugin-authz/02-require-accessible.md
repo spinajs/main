@@ -1,6 +1,6 @@
 # The `require-accessible` rule
 
-`@spinajs/authz/require-accessible` reports a multi-row read of an `@AccessResource` model that runs without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(...)`. Rule type: `problem`. It needs type information. It is the edit-time twin of the `@spinajs/authz-orm` runtime guard.
+`@spinajs/authz/require-accessible` reports a multi-row read of an `@AccessResource` model that runs without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(SYSTEM, reason)`. Rule type: `problem`. It needs type information. It is the edit-time twin of the `@spinajs/authz-orm` runtime guard.
 
 **Why it matters.** `@spinajs/authz-orm` never filters a query on its own. A select without `.accessible()` returns every matching row, whatever the caller may read. The run-time guard throws only in the `test` env, warns in `development` and is off in production ([The runtime guard](../authz-orm/07-runtime-guard.md)). The rule catches the leak in the editor and in CI, before it reaches production.
 
@@ -11,7 +11,7 @@ The rule visits every `CallExpression` (`requireAccessible.create()`).
 1. **Root.** The call must be `<Model>.<member>(...)`, where `<Model>` is an identifier (`Task`) or a member expression (`models.Task`). `this.where(...)` and computed members (`Task['where']`) are skipped.
 2. **Member filter.** `get` and `getOrFail` return at once (single-object loads). Members outside `QUERY_ROOTS`, `KEY_LIST_READS` and `READ_SHORTCUTS` are skipped, which includes writes such as `create`, `insert`, `update` and `destroy`.
 3. **Model.** `isAccessResourceClass()` resolves the type of `<Model>` and looks for `@AccessResource(...)` on the class or any class it extends. Names in the `resources` option count too ([Configuration](#configuration)).
-4. **`runAs` exemption.** When the call sits inside an arrow function or function expression passed as an argument to `runAs(...)` or `<anything>.runAs(...)`, the rule stops.
+4. **`runAs(SYSTEM)` exemption.** When the call sits inside an arrow function or function expression passed as an argument to `runAs(SYSTEM, ...)` or `<anything>.runAs(SYSTEM, ...)`, the rule stops. `SYSTEM` is the identifier `SYSTEM` or a member access ending in `.SYSTEM`, read from the first argument. A `runAs` of any other principal does not exempt: its queries read only what that principal may, so they still need `.accessible()` or `.unscoped(reason)`.
 5. **Shortcut reads.** A root in `READ_SHORTCUTS`, or `find` / `findOrFail` with anything but a one-element array literal, is reported as `unscopedShortcut`. These return a promise at once, so there is no builder to scope.
 6. **Builder chains.** For a root in `QUERY_ROOTS`, the rule collects the calls chained on it (`Task.where(...).populate(...).first()`):
    - `where('<primary key>', value)` with no other `*where*` member in the chain is a single-object load: not reported. The primary key is the `@Primary()` property `primaryKeyOf()` finds;
@@ -49,6 +49,10 @@ Messages:
 
 `{{model}}` is the source text of the model expression (`Task`, `models.Task`, an import alias `T`). `{{call}}` is `.first()`, `.then()`, `await` and so on. The rule reports at most once per root call.
 
+| Reported example | Why |
+| --- | --- |
+| `runAs(user, 'job', async () => Task.where(...).first())` | A `runAs` of a principal other than `SYSTEM`. |
+
 ## What it does not report
 
 | Code | Why |
@@ -58,7 +62,7 @@ Messages:
 | `Task.where('id', id).first()`, `await Task.where('id', id)` | `'id'` is the `@Primary()` property of `Task` or a class it extends, the value is not an array or object literal, and no other `*where*` member follows. |
 | `Task.query().accessible('task:read').all()` | Scoped by the access plan. |
 | `Task.query().unscoped('nightly export').all()` | Unscoped on purpose; `authz-orm` audits it. |
-| `runAs(SYSTEM, 'job', async () => Task.where(...).first())` | Inside a `runAs(...)` callback. |
+| `runAs(SYSTEM, 'job', async () => Task.where(...).first())` | Inside a `runAs(SYSTEM, ...)` callback. |
 | `Task.create(...)`, `Task.destroy(id)` | Writes are not checked. |
 | `const q = Task.where('a', 1); return q;` | The chain is neither executed nor awaited where it is built. |
 | `Note.where('a', 1).first()` | `Note` is not an access resource. |
@@ -69,7 +73,7 @@ Single-object loads match what the run-time guard lets through (`isSingleObjectL
 
 - **The model is found by type, not by name.** An import alias (`import { Task as T }`), a namespace object (`models.Task`) and a subclass of an access resource are all checked.
 - **Any decorator named `AccessResource` counts.** The rule resolves the decorator's symbol through import aliases and compares its name; it does not check the module it comes from. `@authz.AccessResource('task')` counts too.
-- **Any `runAs` exempts.** The rule matches the callee name only; it does not check the principal. The run-time guard exempts the `SYSTEM` principal, not a user, so `authz().runAs(user, reason, fn)` passes lint and still throws in the `test` env.
+- **Only `runAs(SYSTEM, ...)` exempts.** The rule reads the first argument and accepts the identifier `SYSTEM` or `<x>.SYSTEM`; a principal held in another variable is not recognised, even when it is `SYSTEM`. The run-time guard exempts the `SYSTEM` principal the same way. The compiler's doctor is authoritative across files; this rule is the one-file editor path.
 - **Only inline callbacks are exempt.** `runAs(SYSTEM, 'job', loadAll)` does not exempt the body of `loadAll`, declared elsewhere.
 - **`.accessible()` must come before the executing member.** `Task.where('a', 1).first().then(...)` is reported at `.first()`, whatever follows.
 - **The primary-key exemption is strict.** The column must be a string literal equal to the `@Primary()` property name. `Task.where('id', [1, 2])`, `Task.where('id', id).where('a', 1)` and `Task.findOrFail(ids)` are reported.
@@ -146,7 +150,7 @@ const teamTasks = await Task.query().within({ type: 'team', id: teamId }).access
 ```
 
 ```ts
-// Don't: lint accepts any runAs, but the run-time guard exempts only SYSTEM and throws in the test env
+// Don't: a runAs of a user exempts nothing; lint reports the query and the run-time guard throws in the test env
 const report = await authz().runAs(user, 'weekly-report', async () => await Task.where('status', 'open'));
 
 // Do: acting as a user, the user's grants decide the rows

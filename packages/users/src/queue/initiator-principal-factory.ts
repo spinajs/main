@@ -4,12 +4,12 @@ import { UNATTENDED } from '@spinajs/authz';
 import type { Ceiling, Principal } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import { Autoinject, Injectable } from '@spinajs/di';
-import { _check_arg, _is_uuid, _trim } from '@spinajs/util';
 
 import { userModel } from '../model-token.js';
 import type { User } from '../models/User.js';
 import { UserPrincipalFactory } from '../principal/user-principal-factory.js';
 import { runAsSystem } from '../system.js';
+import { isUserUuid } from '../user-uuid.js';
 
 /** The `source` of a principal a job runs as. */
 export const QUEUE_PRINCIPAL_SOURCE = 'queue';
@@ -68,15 +68,5 @@ export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
   /** The application's PrincipalFactory when it is a UserPrincipalFactory (a subclass, say), else users' own. */
   protected async users(): Promise<UserPrincipalFactory> {
     return this.Principals instanceof UserPrincipalFactory ? this.Principals : this.Users;
-  }
-}
-
-/** Whether `whereUuid` accepts `id`; it throws otherwise, which would turn a malformed stamp into a retried job. */
-function isUserUuid(id: string): boolean {
-  try {
-    _check_arg(_trim(), _is_uuid())(id, 'uuid');
-    return true;
-  } catch {
-    return false;
   }
 }

@@ -1,6 +1,6 @@
 # Explain
 
-Two debugging aids show why a check was decided the way it was: the `GET /authz/explain` route explains a check for any principal, and a 403 from `@Access` can carry the trace of the denial. Both are off in production, whatever the configuration says.
+Two debugging aids show why a check was decided the way it was: the `GET /authz/explain` route explains a check for any principal, and a 403 from `@Access` can carry the trace of the denial. Both are off in production, whatever the configuration says. A third, `GET /authz/decisions/:id/explain`, replays a decision that was logged, and is allowed in production.
 
 ## How it works
 
@@ -37,13 +37,29 @@ When `AccessPolicy` denies a request, `AccessPolicy.trace()` adds `trace` to the
 
 The trace is the one `AuthzService.explain()` returns for the denied permission and resource.
 
+### The decisions route
+
+`GET /authz/decisions/:id/explain?format=report|tree` replays the logged decision `:id` (the `decisionId` of a 403) through the registered `DecisionReplay`, which `@spinajs/authz-orm/replay` provides ([Decision replay](../authz-orm/10-decision-replay.md)).
+
+1. `DecisionsControllerSource` hands `DecisionsController` to http when `authz.http.decisionsRoute.enabled` is exactly `true`, in production too: it replays only decisions that happened, so it cannot probe arbitrary checks. Enabled with no `DecisionReplay` registered, the boot fails with an `AuthzConfigError` naming `@spinajs/authz-orm/replay`.
+2. `DecisionsPolicy` refuses an unauthenticated caller with 401, and one without an unconditional grant of `authz.http.decisionsRoute.permission` (default `authz:replay`) in the access domain with 403. `authz:explain` does not open it.
+3. `:id` must be a UUID and `format` one of `''`, `report`, `tree`; anything else is a 400. The replay runs outside any transaction and gets `req.storage.signal` while `http.deadline` is enabled.
+4. A record of another domain needs the same permission there. Without it, or for a domain this node does not run, the answer is the 404 of an unknown id, so ids of other domains are not confirmed.
+   A check that fails there (the domain does not declare the permission) counts as not held. The replay has run by then, so the 404 hides the answer, not the replay's duration; a replay that fails after the record is read is a 500, for a hidden domain too.
+5. The answer is a 200 with the `ReplayReport` (`ReplayReportDto` in OpenAPI) for every verdict, `unreplayable` included, or its `tree` with `format=tree` (an empty body for a report without one). Each one writes an `explain` entry (`reason: 'replay <id>'`, the record's permission and resource) through `AuthzService.audit()`, to the `DecisionAudit` the access domain selected (`authz.audit.service`); a hidden domain's 404 writes a `deny` entry naming the refused permission on its type-level resource (`reason: 'replay <id> refused: domain <name>'`), unless `authz.audit.denials` is off. No other answer is audited by the route: an unknown id's 404, a 400, a 429 or a 500 writes nothing, and a 401 or 403 comes from the policy.
+6. While `authz.replay.concurrency` replays run, the answer is 429 `{ error: 'replay_busy' }` with `Retry-After: 5`. A replay refused inside a transaction (`ReplayInTransaction`) is a 500 `{ error: 'replay_refused', message }`, answered rather than thrown so production keeps the message; any other error of the replay is an ordinary 500.
+
+A report holds the principal's facts, its captured inputs and the other holders of the relations read. Declare `authz:replay` in `authz.permissions` of the access domain and of every domain whose records it replays (or of their common parent), and grant it like an admin permission.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.http.explainRoute.enabled` | `boolean` | `false` | `true`, `false` | `true` mounts `GET /authz/explain` outside production. Any other value (`'true'`, `1`) keeps it off. |
 | `authz.http.explainRoute.permission` | `string` | `'authz:explain'` | a permission name | What a caller must hold, unconditionally, to use the route and to see traces in a 403. |
-| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain the route explains in and checks its permission in; the fallback of the `AuthzDomainResolver`. |
+| `authz.http.decisionsRoute.enabled` | `boolean` | `false` | `true`, `false` | `true` mounts `GET /authz/decisions/:id/explain`, in production too. |
+| `authz.http.decisionsRoute.permission` | `string` | `'authz:replay'` | a permission name | What a caller must hold, unconditionally, in the access domain and in the record's domain. |
+| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain the routes explain in and check their permission in; the fallback of the `AuthzDomainResolver`. |
 | `authz.engine.explain` | `boolean` | `false` | | Per domain: lets a 403 carry the trace. |
 | `configuration.isProduction` | `boolean` | `false` | | `true` turns both aids off. When it is not a boolean, `APP_ENV` (else `NODE_ENV`) naming production does. |
 
@@ -68,12 +84,14 @@ Declare the explain permission in `authz.permissions` and grant it to the people
 | `ExplainControllerSource` | `ControllerSource` list, `@Injectable(ControllerSource)` | `ExplainControllerSource` | | See [Controller discovery](../http/03-controller-discovery.md). |
 | `ExplainController` | `BaseController`, `@BasePath('authz')`, handed to http only by `ExplainControllerSource` | `ExplainController` | | Not meant to be replaced. |
 | `ExplainPolicy` | plain `BasePolicy` on the explain route | `ExplainPolicy` | | Not meant to be replaced. |
+| `DecisionsControllerSource`, `DecisionsController`, `DecisionsPolicy` | as their explain counterparts | | | Not meant to be replaced; `DecisionReplay` is the extension point. |
 | `explainTree(decision)` | exported function returning `ExplainNode` | | | Render a decision you got from `authz().explain()` in your own tools. |
 | `ExplainQueryArg(name)`, `ExplainQuery`, `EXPLAIN_QUERY_PROPERTIES` | parameter decorator over `@Query()`, the query's type, and the property schemas | | | Reuse them on your own explain-like route; `principal` and `permission` are required. |
 
 ## Important behaviour
 
-- **Never in production.** `configuration.isProduction: true` wins over every switch; the route is not even registered.
+- **The explain route is never in production.** `configuration.isProduction: true` wins over every switch; the route is not even registered.
+- **The decisions route is allowed in production.** It replays only logged decisions, under its own permission; every 200 and every hidden-domain 404 is audited.
 - **The route explains a bare principal.** It knows only `<type>:<id>`: no attributes, no ceiling, no session facts. A decision that depends on them can differ from the real request's.
 - **The route can explain anyone.** Whoever holds the explain permission sees how any principal is decided; grant it like an admin permission.
 - **Only an unconditional grant counts.** A conditional grant of the explain permission is a 403 on the route and no trace in a 403.
