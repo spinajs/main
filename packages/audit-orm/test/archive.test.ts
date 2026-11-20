@@ -6,8 +6,8 @@ import type { AuditReader, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { ArchiveAuditReader, ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditPruneFailed, OutboxAuditStore, pruneAudit, shipAudit } from '../src/index.js';
-import { TestDb } from '../src/testing.js';
-import type { Dialect } from '../src/testing.js';
+import { TestDb } from './support/db.js';
+import type { Dialect } from './support/db.js';
 import { TRACE, config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);

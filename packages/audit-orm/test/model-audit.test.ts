@@ -5,7 +5,7 @@ import { AuditConfigError, audit } from '@spinajs/audit';
 import { Connection, Migration, Model, ModelBase, OrmMigration, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { AuditTrailTableMigration, auditSubjectId, auditSubjectType } from '../src/index.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

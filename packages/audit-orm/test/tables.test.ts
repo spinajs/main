@@ -6,7 +6,7 @@ import type { AuditReader } from '@spinajs/audit';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { AuditPruneFailed, insertRows, pruneAudit, storedColumns } from '../src/index.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

@@ -8,7 +8,7 @@ import type { AuditAppend, AuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { FrameworkLogger } from '@spinajs/log';
 import { TableAuditStore } from '../src/index.js';
-import { DIALECTS, TestDb } from '../src/testing.js';
+import { DIALECTS, TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

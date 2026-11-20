@@ -8,7 +8,7 @@ import { instantFromDb } from '@spinajs/orm';
 import { AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, TableAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import { rowDigest } from '../src/seal/seals.js';
 import { archiveEvents } from '../src/ship/archive-sink.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 import { config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);

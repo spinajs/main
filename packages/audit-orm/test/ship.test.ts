@@ -8,7 +8,7 @@ import { FrameworkLogger } from '@spinajs/log';
 import type { OrmDriver } from '@spinajs/orm';
 import { AuditOutboxTableMigration, OutboxAuditStore, auditBacklog, insertRows, shipAudit } from '../src/index.js';
 import { AuditShipError, AuditShipTask } from '../src/scheduler.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 import { TRACE, config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);

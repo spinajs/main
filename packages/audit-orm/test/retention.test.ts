@@ -8,7 +8,7 @@ import { Log } from '@spinajs/log-common';
 import { getScheduleDeclarations } from '@spinajs/scheduler';
 import { AuditPruneFailed, pruneAudit } from '../src/index.js';
 import { AUDIT_RETENTION_SCHEDULE, AuditRetentionTask } from '../src/scheduler.js';
-import { TestDb } from '../src/testing.js';
+import { TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

@@ -13,7 +13,6 @@ Nothing is recorded until code asks for it: `@spinajs/audit` and `@spinajs/audit
 | `@spinajs/audit-orm` | `TableAuditStore`, `TableAuditReader`, the trail table migration, `Model.audit()` and `row.audit()`, retention (`pruneAudit`), shipping (`OutboxAuditStore`, `shipAudit`, `auditBacklog`, `ArchiveAuditSink`, `ArchiveAuditReader`), sealing (`sealAudit`, `verifyTable`) and the `spinajs audit:verify` command. |
 | `@spinajs/audit-orm/scheduler` | `AuditRetentionTask`, `AuditShipTask`, `AuditSealTask` for `@spinajs/scheduler`. |
 | `@spinajs/audit-orm/queue` | `QueueAuditSink`, `AuditBatchRecorded` and `consumeAuditBatches()` for `@spinajs/queue`. |
-| `@spinajs/audit-orm/testing` | `TestDb`: one ORM over sqlite, PGlite and the Postgres and MySQL servers that answer. |
 
 Importing `@spinajs/audit-orm` registers `TableAuditStore`, `OutboxAuditStore`, the readers and sinks, and the migration `AuditEvent_2026_11_16_00_00_00`, which creates `audit_event` on the `default` connection.
 
