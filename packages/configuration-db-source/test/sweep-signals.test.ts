@@ -54,11 +54,13 @@ describe('DbConfigSourceBotstrapper signals', function () {
     await DI.dispose();
   });
 
-  it('does not sweep on di.resolved.OrmMigrator; the Orm resolves after its migrations', () => {
-    DI.emit('di.resolved.OrmMigrator', DI.RootContainer, { MigrateOnStartup: true });
+  it('sweeps on the Orm only: neither the migrator nor the boot guard is a signal', () => {
+    DI.emit('di.resolved.OrmMigrator', DI.RootContainer, {});
+    DI.emit('di.resolved.OrmMigrationGuard', DI.RootContainer, { Enabled: true });
 
     expect(swept).to.have.length(0);
     expect(DI.listenerCount('di.resolved.OrmMigrator')).to.equal(0);
+    expect(DI.listenerCount('di.resolved.OrmMigrationGuard')).to.equal(0);
   });
 
   it('removes the DI listeners it added once the container is disposed', async () => {

@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "node16", "moduleResolution": "node16", "rootDir": "./src",
+    "strict": true, "skipLibCheck": true, "noEmit": true, "types": []
+  },
+  "include": ["src/**/*"]
+}

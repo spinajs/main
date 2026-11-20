@@ -1302,11 +1302,14 @@ export interface ThrottleParams {
 export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
 /** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
 export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
-/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
-export declare const ipv6PrefixOf: (configured: unknown) => number;
+/**
+ * The IPv6 prefix of the ip keys: `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix` (the prefix `@RateLimit`
+ * and `http.throttle` count), else 64. Each is taken as a config read delivers it: only a number counts.
+ */
+export declare const ipv6PrefixOf: (configured: unknown, httpPrefix?: unknown) => number;
 /**
  * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
- * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ * ({@link ipv6PrefixOf}), so its addresses share one row (L3).
  */
 export declare function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null;
 /**

@@ -14,6 +14,7 @@ import { OrmException, StreamNotSupported } from './exceptions.js';
 import { SqlExpressions } from './expressions.js';
 import { IdentifierQuoter } from './quoting.js';
 import type { IntervalUnit } from './expressions.js';
+import { MigrationLock, TableMigrationLock } from './migration-lock.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, isRetryableErrorCode } from './resilience.js';
 import type { IConnectionResilienceOptions } from './resilience.js';
@@ -213,6 +214,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
     this.Container.register(Int64ValueConverter).as(Int64ValueConverter);
     this.Container.register(SqlExpressions).as(SqlExpressions);
+    this.Container.register(TableMigrationLock).as(MigrationLock);
   }
 
   /**
