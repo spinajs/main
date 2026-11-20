@@ -54,6 +54,7 @@ describe('users authn event listeners', function () {
 
     emit.rejects(new Error('queue down'));
     await audit.publish(event('login', ref));
+    expect(emit.callCount, 'the rejecting queue was called').to.eq(2);
   });
 
   describe('QueueAuthnEventListener', () => {

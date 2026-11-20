@@ -5,6 +5,7 @@ import { AuthnAudit, AuthnEventListener } from '../../src/index.js';
 import type { AuthnEvent } from '../../src/index.js';
 import { bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
+import { TestLog } from './test-log.js';
 
 const AT = new Date('2026-11-16T10:00:00Z');
 const login = (): AuthnEvent => ({ type: 'login', at: AT, outcome: 'success', identity: { type: 'user', id: 'u-1' } });
@@ -41,6 +42,22 @@ class FailingFlush extends AuthnEventListener {
     throw new TypeError('store down');
   }
 }
+
+class HangingFlush extends AuthnEventListener {
+  flushes = 0;
+
+  async on(): Promise<void> {}
+
+  flush(): Promise<void> {
+    this.flushes++;
+    return new Promise(() => undefined);
+  }
+}
+
+const flushWarnings = (): string[] =>
+  TestLog.of('authn-audit')
+    .filter((e) => e.level === 'warn' && e.message.includes('could not flush'))
+    .map((e) => e.message);
 
 describe('AuthnEventListener', function () {
   this.timeout(30000);
@@ -87,6 +104,22 @@ describe('AuthnEventListener', function () {
     await audit.settled();
 
     assert.deepStrictEqual(listener.calls, ['ready', 'flush']);
+    assert.deepStrictEqual(flushWarnings(), ['AuthnAudit: listener FailingFlush could not flush (TypeError)']);
+  });
+
+  it('bounds a flush that never settles by listenerTimeoutMs, and disposing the container flushes too', async () => {
+    const hanging = new HangingFlush();
+    parts = await buildCore({}, { raw: { authn: { audit: { listenerTimeoutMs: 50 } } }, register: (c) => bind(c, AuthnEventListener, 'HangingFlush', hanging) });
+    const audit = await parts.child.resolve(AuthnAudit);
+
+    await audit.settled();
+    assert.strictEqual(hanging.flushes, 1);
+    assert.strictEqual(flushWarnings().length, 1);
+    assert.match(flushWarnings()[0], /^AuthnAudit: listener HangingFlush could not flush/);
+
+    await parts.dispose();
+    parts = undefined;
+    assert.strictEqual(hanging.flushes, 2);
   });
 
   it('over() delivers to the listeners it is given, bounded by listenerTimeoutMs', async () => {

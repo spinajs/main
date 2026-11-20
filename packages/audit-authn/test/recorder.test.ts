@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import 'mocha';
 import { AuditConfigError, AuditWriteFailed, SECURITY_HASH_PATHS, trailConfig } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventListener, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { createTestApp } from '@spinajs/testing';
@@ -30,6 +32,10 @@ const event = (over: Partial<AuthnEvent> = {}): AuthnEvent => ({
   ...over,
 });
 
+// Path forms the core accepts, each on a trail of its own: the recorder decides on the subject with its own copy of the core's matching rule.
+const MASK_PATHS = ['data.identity', 'data.identity.id', 'data.identity.type', 'data.identity.*', 'data.identity.0', 'data.*', 'data.*.id', 'data.*.type', 'data.*.kid', 'data.Identity', 'data.0', 'data.ip'];
+const PATH_TRAILS = Object.fromEntries(MASK_PATHS.map((path, i) => [`path${i}`, { store: 'MemoryAuditStore', hash: [path] }]));
+
 const TRAILS = {
   // the built-in security trail, with its hash list, on a store the test can read
   security: { store: 'MemoryAuditStore' },
@@ -42,6 +48,7 @@ const TRAILS = {
   ipHashed: { store: 'MemoryAuditStore', hash: ['data.ip'] },
   plainLog: { store: 'LogAuditStore', hash: [] },
   unstored: { store: 'NoSuchAuditStore' },
+  ...PATH_TRAILS,
 };
 
 const appWith = (authn?: Record<string, unknown>): Promise<TestApp> => createTestApp({ bootstrap: false, config: { audit: { trails: TRAILS, ...(authn ? { authn } : {}) } } });
@@ -178,6 +185,27 @@ describe('AuthnAuditRecorder on audit.authn.trail', function () {
       assert.ok(!JSON.stringify(stored).includes('u-1'));
     });
   }
+
+  it('agrees with the core on every path form: a trail whose mask reaches the identity gets no subject', async () => {
+    app = await appWith({ trail: 'path0' });
+    const configuration = await app.resolve(Configuration);
+    const recorder = await app.resolve(AuthnAuditRecorder);
+    const reached: string[] = [];
+
+    for (const [i, path] of MASK_PATHS.entries()) {
+      configuration.set('audit.authn.trail', `path${i}`);
+      await recorder.on(event());
+      await recorder.flush();
+
+      const [stored] = MemoryAuditStore.events(`path${i}`);
+      if (isDeepStrictEqual((stored.data as { identity?: unknown }).identity, IDENTITY)) continue;
+      reached.push(path);
+      assert.strictEqual(stored.subject, undefined, `${path} reaches the identity, so the subject must not repeat it`);
+    }
+
+    // A change here means the core matches paths differently: check the recorder's rule against it.
+    assert.deepStrictEqual(reached, ['data.identity', 'data.identity.id', 'data.identity.type', 'data.identity.*', 'data.*', 'data.*.id', 'data.*.type']);
+  });
 
   it('keeps the subject on a trail whose rules leave the identity alone', async () => {
     app = await appWith({ trail: 'ipHashed' });

@@ -20,7 +20,7 @@ It is a test double. It is **not** the `AuthnService` that `@spinajs/authn` regi
 6. Checks `IdentityStore.status()`. An unknown, deleted, banned or inactive identity publishes a failure with that reason and answers `invalid_credentials`.
 7. For an interactive login, with `hooks` given, runs the rest of the login (steps 8 to 10) through `authn.login.identified`, as the core does: the input carries `identity`, `strategy`, `method`, `external` (an external login only), `attributes` and `ctx`, and only `attributes` is mutable. A refusal publishes a `login` failure with reason `hook:<code>`, a hook that throws or times out one with `hook_error` and `data: { hook, failure }` (authn's `hookRefusalOf`); both answer `invalid_credentials`. Hooks get frozen copies of the identity, the external subject and the context. The fake runs no other action.
 8. Calls `throttle.succeed(keys, 'login')`.
-9. Per-request strategy: publishes `token.use` detached, as the core does (no listener can stop or hold the request; `await service.settled()` before asserting on it), and answers success with no session, carrying the outcome's `ceiling`, `delegation` and `attributes`.
+9. Per-request strategy: publishes `token.use` (`key.use` for a `jws-assertion` or `http-signature` strategy) detached, as the core does (no listener can stop or hold the request; `await service.settled()` before asserting on it; like `AuthnAudit.settled()`, it also flushes every listener that buffers), and answers success with no session, carrying the outcome's `ceiling`, `delegation` and `attributes`.
 10. Interactive strategy: asks `MfaPolicy.required()`. Steps required: issues a pending session, publishes `mfa.challenge` and answers `mfa_required` with `pending` and `steps`. Otherwise: issues a session, publishes `login` and `session.issue`, and answers success with `session` and `facts.sessionHandle`.
 
 `completeMfa(pending, step, response, ctx)` restores the pending session, finds the step (or every step with `verifyRecovery` when `step` is `'recovery'`), counts in the `mfa` flow, verifies, then elevates the session to `aal2` with `mfa: [step]`. A wrong code, an unknown step or a session that is not pending answers `invalid_credentials`.
@@ -82,7 +82,8 @@ Protected members meant for subclasses:
 | --- | --- | --- |
 | `countBeforeVerify` | `true` | `false` claims the throttle slot only after `verify`. It exists to prove that rule A05 catches that bug |
 | `statusReason(status)` | `unknown_identity`, `deleted`, `banned`, `inactive` or `null` | Refuse more statuses, or report other audit reasons |
-| `audit(ctx, event)` | Adds `at`, `ip` and `userAgent` from `ctx`, then publishes to every listener as `AuthnAudit` does: a failing listener is dropped, a failing blocking one rejects with `AuthnListenerFailed` | Filter or enrich events |
+| `audit(ctx, event)` | Adds `at`, `ip` and `userAgent` from `ctx`, then publishes to every listener as `AuthnAudit` does: a failing listener is logged on `log` (dropped silently without it), a failing blocking one rejects with `AuthnListenerFailed` | Filter or enrich events |
+| `auditDetached(ctx, event)` | Stamps the event as `audit` does and publishes it detached: returns at once, no listener can stop it, failures are logged on `log`, and `settled()` waits for it. Used for `token.use` and `key.use` | Filter or enrich the per-request events |
 | `d` | The constructor deps | Read the wired fakes from a subclass |
 
 ### Authentication flow: custom implementation
