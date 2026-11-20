@@ -1,7 +1,7 @@
 import { AuthzConfigError, isPermission } from '@spinajs/authz';
 import type { Permission, ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryExtension, JoinStatement, RelationType, SelectQueryBuilder, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
+import { DeleteQueryExtension, RelationType, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
 import type { QueryBuilder, QueryExtension } from '@spinajs/orm';
 
 import { marksOf, setMarks } from '../marker.js';
@@ -78,28 +78,37 @@ declare module '@spinajs/orm' {
   }
 }
 
-function requireResource(builder: object, what: string): void {
-  const model = (builder as { Model?: unknown }).Model;
-  if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${typeof model === 'function' && model.name ? model.name : 'no model'})`);
+function requireResource(builder: QueryBuilder, what: string): void {
+  const model = builder.Model;
+  if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${model !== undefined && model.name !== '' ? model.name : 'no model'})`);
 }
 
 const POPULATE_INSTEAD = 'Instead, filter the parent query, populate through a hasMany relation, or load the related rows with their own .accessible() query';
 
-/** Why a mark on this builder would not filter what the query returns, or undefined when it does. */
-function markIgnored(builder: object): string | undefined {
-  const owner = builder instanceof SelectQueryBuilder ? builder.Owner : undefined;
-  if (owner === undefined) return undefined;
-  // A join callback's builder is owned by its JoinStatement, which the Owner type does not admit.
-  if (owner instanceof JoinStatement) return 'in a join callback: the join query is merged into the parent query and never runs on its own, so the call would have no effect. Instead, filter the parent query or load the joined rows with their own .accessible() query';
-  const { Name, Type, Recursive } = owner.Descriptor;
-  const relation = `in a populate callback: relation "${Name}"`;
-  if (Recursive) return `${relation} is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
-  if (Type === RelationType.One) return `${relation} is a belongsTo: its query is merged into the parent query and never runs on its own, so the call would have no effect. ${POPULATE_INSTEAD}`;
-  if (Type === RelationType.ManyToMany) return `${relation} is many-to-many: its junction query runs instead of this one, so the call would have no effect. ${POPULATE_INSTEAD}`;
-  return undefined;
+function manyToMany(relationName: string): string {
+  return `in a populate callback: relation "${relationName}" is many-to-many: its junction query runs instead of this one, so the call would have no effect. ${POPULATE_INSTEAD}`;
 }
 
-function requireOwnQuery(builder: object, what: string): void {
+function recursive(relationName: string): string {
+  return `in a populate callback: relation "${relationName}" is recursive: the recursive part of its query is built without the where, so its descendants would not be filtered. ${POPULATE_INSTEAD}`;
+}
+
+/** Why a mark on this builder would not filter what the query returns, or undefined when it does. */
+function markIgnored(builder: QueryBuilder): string | undefined {
+  const { execution, owner } = builder.state();
+  if (execution.kind === 'own') {
+    // Fallback on the owner relation: the junction query of a many-to-many relation runs on its own but selects from the junction table, and a builder subclass that drops the constructor's execution argument reads 'own' for a recursive relation query.
+    if (owner?.Descriptor.Type === RelationType.ManyToMany) return manyToMany(owner.Descriptor.Name);
+    if (owner?.Descriptor.Recursive === true) return recursive(owner.Descriptor.Name);
+    return undefined;
+  }
+  if (execution.kind === 'recursive') return recursive(execution.relation.Name);
+  if (execution.into === 'join') return 'in a join callback: the join query is merged into the parent query and never runs on its own, so the call would have no effect. Instead, filter the parent query or load the joined rows with their own .accessible() query';
+  if (execution.into === 'parent') return `in a populate callback: relation "${execution.relation.Name}" is a belongsTo: its query is merged into the parent query and never runs on its own, so the call would have no effect. ${POPULATE_INSTEAD}`;
+  return manyToMany(execution.relation.Name);
+}
+
+function requireOwnQuery(builder: QueryBuilder, what: string): void {
   const why = markIgnored(builder);
   if (why !== undefined) throw new AuthzConfigError(`${what} ${why}`);
 }
@@ -117,7 +126,7 @@ function onNoneOf(opts: AccessibleOptions | undefined, what: string): { onNone?:
   throw new AuthzConfigError(`${what}: onNone must be 'deny' or 'empty', got ${JSON.stringify(v)}`);
 }
 
-function accessible(this: object, permission: Permission, opts?: AccessibleOptions): object {
+function accessible(this: QueryBuilder, permission: Permission, opts?: AccessibleOptions): QueryBuilder {
   const what = `.accessible(${JSON.stringify(permission)})`;
   requireResource(this, what);
   requireOwnQuery(this, what);
@@ -129,7 +138,7 @@ function accessible(this: object, permission: Permission, opts?: AccessibleOptio
   return this;
 }
 
-function unscoped(this: object, reason: string): object {
+function unscoped(this: QueryBuilder, reason: string): QueryBuilder {
   const what = `.unscoped(${JSON.stringify(reason)})`;
   requireResource(this, what);
   if (typeof reason !== 'string' || reason.trim() === '') throw new AuthzConfigError('.unscoped() needs a reason');
@@ -151,7 +160,7 @@ function refsOf(v: unknown): readonly ResourceRef[] {
   );
 }
 
-function within(this: object, ref: ResourceRef | readonly ResourceRef[]): object {
+function within(this: QueryBuilder, ref: ResourceRef | readonly ResourceRef[]): QueryBuilder {
   requireResource(this, '.within()');
   requireOwnQuery(this, '.within()');
   const refs = refsOf(ref);
@@ -160,7 +169,7 @@ function within(this: object, ref: ResourceRef | readonly ResourceRef[]): object
   return this;
 }
 
-function withAccess(this: object, permissions: readonly Permission[], opts?: WithAccessOptions): object {
+function withAccess(this: QueryBuilder, permissions: readonly Permission[], opts?: WithAccessOptions): QueryBuilder {
   const what = '.withAccess()';
   requireResource(this, what);
   requireOwnQuery(this, what);
@@ -170,7 +179,7 @@ function withAccess(this: object, permissions: readonly Permission[], opts?: Wit
   return this;
 }
 
-function withFields(this: object, permission: Permission, opts?: WithAccessOptions): object {
+function withFields(this: QueryBuilder, permission: Permission, opts?: WithAccessOptions): QueryBuilder {
   const what = `.withFields(${JSON.stringify(permission)})`;
   requireResource(this, what);
   requireOwnQuery(this, what);

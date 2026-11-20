@@ -5,7 +5,10 @@ import sinon from 'sinon';
 import { AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { BelongsTo, HasMany, HasManyToMany, ModelBase, Recursive, Relation, SingleRelation } from '@spinajs/orm';
+import { NewInstance } from '@spinajs/di';
+import type { Constructor, IContainer } from '@spinajs/di';
+import { BelongsTo, HasMany, HasManyToMany, ManyToManyRelation, ModelBase, Recursive, Relation, SelectQueryBuilder, SingleRelation } from '@spinajs/orm';
+import type { IOrmRelation, OrmDriver } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -23,14 +26,15 @@ type Q = PromiseLike<ModelBase[]> & {
   within(r: object): Q;
   withAccess(p: string[]): Q;
   withFields(p: string): Q;
-  populate(relation: string, callback: (this: Q) => void): Q;
+  populate(relation: string, callback: (this: Q, relation: IOrmRelation) => void): Q;
   leftJoin(relation: string, on: (this: Q) => void, queryCallback: (this: Q) => void): Q;
   where(column: string, value: unknown): Q;
 };
 type ListPopulate = { populate(callback: (this: Q) => void): Promise<void> };
 type M = Omit<typeof ModelBase, 'query'> & { query(): Q };
+type Markable = { accessible(p: string): unknown; within(r: object): unknown; withAccess(p: string[]): unknown; withFields(p: string): unknown };
 
-const marks: Record<string, (q: Q, permission: string) => void> = {
+const marks: Record<string, (q: Markable, permission: string) => void> = {
   accessible: (q, p) => {
     q.accessible(p);
   },
@@ -189,6 +193,14 @@ describe('authz marks in a populate callback', function () {
         }),
       ).to.throw(AuthzConfigError, /relation "tags" is many-to-many/);
     });
+
+    it(`.${name}() on the junction query of a many-to-many relation throws and names the relation`, () => {
+      expect(() =>
+        Campaign.query().populate('tags', function (relation) {
+          if (relation instanceof ManyToManyRelation && relation.TableJoinQuery instanceof SelectQueryBuilder) mark(relation.TableJoinQuery, 'tag:read');
+        }),
+      ).to.throw(AuthzConfigError, /relation "tags" is many-to-many/);
+    });
   }
 
   it('.accessible() on a belongsTo relation nested in a hasMany throws', () => {
@@ -266,5 +278,51 @@ describe('authz marks in a populate callback', function () {
         this.accessible('tag:read');
       }),
     ).to.throw(AuthzConfigError, /filter the parent query, populate through a hasMany relation, or load the related rows with their own \.accessible\(\) query/);
+  });
+
+  describe('with a builder subclass that drops the execution argument', () => {
+    @NewInstance()
+    class LegacySelectQueryBuilder<T = unknown> extends SelectQueryBuilder<T> {
+      constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>, owner?: IOrmRelation, applyMiddlewares = true) {
+        super(container, driver, model, owner, applyMiddlewares);
+      }
+    }
+
+    let unregister: () => void;
+
+    before(() => {
+      unregister = testHost.registerInRoot(SelectQueryBuilder, LegacySelectQueryBuilder);
+    });
+
+    after(async () => {
+      unregister();
+      await testHost.resetRoot();
+    });
+
+    it('.accessible() on a recursive relation still throws', () => {
+      let inner: unknown;
+      const keep = (builder: unknown): void => {
+        inner = builder;
+      };
+      Branch.query().populate('tag', function () {
+        keep(this);
+      });
+      expect(inner).to.be.instanceOf(LegacySelectQueryBuilder);
+      expect(inner instanceof LegacySelectQueryBuilder ? inner.state().execution.kind : undefined).to.equal('own');
+
+      expect(() =>
+        Branch.query().populate('tag', function () {
+          this.accessible('tag:read');
+        }),
+      ).to.throw(AuthzConfigError, /relation "tag" is recursive/);
+    });
+
+    it('.accessible() on a hasMany relation is still accepted', () => {
+      expect(() =>
+        Campaign.query().populate('offers', function () {
+          this.accessible('offer:read');
+        }),
+      ).not.to.throw();
+    });
   });
 });
