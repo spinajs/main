@@ -70,7 +70,6 @@ Every token is an abstract class with `compile(): ICompilerOutput` (or `ICompile
 | `OnDuplicateQueryCompiler` | the dialect's insert compiler, for an upsert | `ICompilerOutput` |
 | `ColumnQueryCompiler`, `ForeignKeyQueryCompiler` | the dialect's table compilers | `ICompilerOutput` |
 | `AlterColumnQueryCompiler` | the dialect's alter-table compiler | `ICompilerOutput` |
-| `TableHistoryQueryCompiler` | the dialect's table compiler | `ICompilerOutput[]` |
 | `RecursiveQueryCompiler`, `GroupByQueryCompiler` | registered by the shipped drivers; the `@spinajs/orm-sql` select compiler mixes in `SqlWithRecursiveCompiler` and `SqlGroupByCompiler` directly | `ICompilerOutput` |
 | `JoinQueryCompiler` | declared; nothing in this repository registers or resolves it | |
 
@@ -135,7 +134,7 @@ Statement implementations that qualify a column or resolve `outer()` use three e
 | `TableAliasCompiler` | Table references. | `SqlTableAliasCompiler`; `MsSqlTableAliasCompiler`, `PostgresTableAliasCompiler` | Register in the driver's `resolve()`. |
 | `ServerResponseMapper` | Normalizes a raw insert response to `DbServerResponse`. | Base class throws `MethodNotImplemented`; `SqliteServerResponseMapper`, `MysqlServerResponseMapper`, `PostgresServerResponseMapper`, `MsSqlServerResponseMapper`. | Subclass, implement `read(response, pkNames?)`, register in the driver's `resolve()`. |
 | `DefaultValueBuilder<T>` | Column defaults in DDL: `date()`, `dateTime()`, `value(val)`, `raw(query)`; fields `Query`, `Value`. Resolved by `ColumnQueryBuilder.default()`. | abstract; `SqlDefaultValueBuilder` (MySQL), `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder`, `MsSqlDefaultValueBuilder`. | Register in the driver's `resolve()`. See [Schema builder](09-schema-builder.md). |
-| `NowExpression` | The database's current instant as SQL; `OrmDriver.now()` wraps it in a `RawQuery`. | abstract; `SqliteNowExpression`, `MySqlNowExpression` (`UTC_TIMESTAMP(3)`), `MsSqlNowExpression`, `PostgresNowExpression` | Register in the driver's `resolve()`. |
+| `NowExpression` | The database's current instant as SQL; `OrmDriver.now()` wraps it in a `RawQuery`. | abstract; `SqliteNowExpression`, `MySqlSessionNowExpression` (`NOW(3)`), `MySqlNowExpression` (`UTC_TIMESTAMP(3)`), `MsSqlNowExpression`, `PostgresNowExpression` | Register in the driver's `resolve()`. |
 | `ModelToSqlConverter`, `ObjectToSqlConverter` | Model or object to column values for writes. | `StandardModelToSqlConverter`, `StandardObjectToSqlConverter` (SQLite overrides the model converter) | See [Converters and hydration](04-converters-and-hydration.md). |
 | `OrmDriver` | Executes builders on one connection. | Dialect drivers | Extend a dialect driver or `SqlDriver`; register under a token named in `db.Connections[].Driver`. See [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md). |
 

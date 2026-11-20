@@ -39,6 +39,15 @@ spinajs doctor --manifest dist/app.manifest.json
 | SOCK004 | warning | the contract named in `@SocketController(prefix, { contract })` cannot be resolved: it is not a `defineContract()` variable of this package and no dependency with a manifest fragment exports it, so the controller is left unbound |
 | SOCK005 | error | two `defineContract` declarations share one contract id |
 | SOCK006 | warning | a `$data` pointer in a contract payload schema names no property, or an optional one: Ajv then skips the rule without an error |
+| AUTHZ003 | error / warning | a socket command or event with no `@SocketAccess` or `@SocketPolicy` on it or on its class: the server denies it (a warning while `http.socket.access.default` is `'allow'`) |
+| AUTHZ004 | warning | a queue handler of the app that declares neither `@Job({ access })` nor `@SystemTask(reason)`; `runAs: 'system'` alone does not count |
+| AUTHZ005 | warning | a permission an entry point of the app checks that is not in the catalogue (`--config`) |
+| AUTHZ007 | warning | the resource extractor of an entry point yields a type its permissions are not checked on, or `fromModel` names a model that is no access resource |
+| AUTHZ008 | warning | a route that checks a permission declared with `fields: true` and does not filter its fields with `@Access(…, { fields: 'filter' })` (`--config`) |
+| AUTHZ009 | warning | a schedule, CLI command or `runAs: 'system'` job of the app with no `@SystemTask(reason)` saying why it runs as SYSTEM |
+| AUTHZ001 | warning | No entry point reaches a multi-row read of an access resource without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM, reason)`, across helpers and injected services |
+| AUTHZ002 | warning | No entry point reaches an update or delete builder of an access resource without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM, reason)` |
+| AUTHZ006 | warning | Every `runAs(SYSTEM, reason)` an entry point reaches gives a literal reason |
 | WF001 | error | two `@Workflow` classes declare the same name and version |
 | WF002 | warning | a workflow waits for a signal with a `permission`, but no `SignalAuthorizer` other than `DenyAllSignalAuthorizer` is registered: every such signal is rejected |
 | WF003 | info | a workflow has more than three registered versions; remove the ones no instance runs on |
@@ -89,6 +98,15 @@ by package and export name. When the dependency has no fragment, or its fragment
 reported and the controller is unbound in the manifest. Fix it with an explicit id, `defineContract('<id>')`, or export
 the contract from a package that ships a manifest fragment. At runtime `system.manifest.mode: require` refuses to boot
 such a controller ("contract of X is not in the manifest").
+
+### AUTHZ001-AUTHZ009 details
+
+The `AUTHZ` rules other than AUTHZ003 report the entry points and findings of the app's own package: a dependency's are its
+maintainers' to fix. AUTHZ003 covers every package, since the server denies an unguarded socket entry wherever it is declared.
+A `// spinajs-authz-ignore <code>: <reason>` comment on the reported line, or on the line above it, silences that code there
+and nothing else; the reason is required. AUTHZ001, AUTHZ002 and AUTHZ006 read the findings the compiler's flow pass writes
+to `authz.findings` at build time ([Authz flow findings](authz-flow.md)); an ignored finding stays in the manifest and is
+left out of the report. `spinajs doctor --fail-on warning` makes them fail a CI run.
 
 ### SQL001-SQL011 details
 

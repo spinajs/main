@@ -57,6 +57,11 @@ describe('engine/combinators', () => {
       expect(BUILTIN_COMBINATORS[1]).to.be.instanceOf(PermitOverrides);
       expect(BUILTIN_COMBINATORS[2]).to.be.instanceOf(FirstApplicable);
     });
+
+    it('name every new instance after its algorithm', () => {
+      // Built inside the test: instances built at module load keep their name under a Stryker mutant.
+      expect([new DenyOverrides(), new PermitOverrides(), new FirstApplicable()].map((c) => c.name)).to.deep.equal(['deny-overrides', 'permit-overrides', 'first-applicable']);
+    });
   });
 
   describe('two concrete votes, all 16 P/D combinations', () => {
