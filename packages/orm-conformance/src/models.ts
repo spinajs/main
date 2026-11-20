@@ -108,3 +108,17 @@ export class CfVersioned extends ModelBase {
   @Version()
   public Version: number;
 }
+
+@Connection(CONFORMANCE_CONNECTION)
+@Model('cf_comments')
+export class CfComment extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public PostId: number;
+
+  public Body: string;
+
+  @BelongsTo(CfPost, 'PostId', 'Id')
+  public Post: SingleRelation<CfPost>;
+}

@@ -66,14 +66,14 @@ describe('belongsTo populate callback conditions', function () {
     expect(rows[0].Order.Value.Total).to.eq(10);
   });
 
-  it('a nested belongsTo callback stays inside the group of its parent relation', async () => {
+  it('a nested belongsTo callback keeps a group of its own, ANDed to the parent query', async () => {
     const query = UowOrderItem.where('Sku', 'NOPE').populate('Order', function () {
       this.populate('Client', function () {
         this.where('Name', 'none').orWhere('Name', 'acme');
       });
     });
 
-    expect(sql(query)).to.contain('WHERE `$UowOrderItem$`.`Sku` = ? AND ( ( `$Order$.$Client$`.`Name` = ? OR `$Order$.$Client$`.`Name` = ? ) )');
+    expect(sql(query)).to.contain('WHERE `$UowOrderItem$`.`Sku` = ? AND ( `$Order$.$Client$`.`Name` = ? OR `$Order$.$Client$`.`Name` = ? )');
     expect(skus(await query)).to.deep.equal([]);
   });
 
