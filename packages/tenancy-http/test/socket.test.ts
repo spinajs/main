@@ -18,6 +18,8 @@ const alice = user('alice', { tenants: ['acme'] });
 
 const connectHooks: Array<string | null> = [];
 
+const counted = { runs: 0 };
+
 /** Fails to build `failures` times, then proposes acme. */
 class FlakyTenantResolver extends RequestTenantResolver {
   public static failures = 0;
@@ -49,6 +51,11 @@ export class TenantProbeSocket extends BaseSocketController {
     const before = currentTenant()?.id ?? null;
     await new Promise((resolve) => setTimeout(resolve, typeof wait === 'number' ? wait : 0));
     return [before, tenantScope()?.kind ?? null, currentTenant()?.id ?? null];
+  }
+
+  @Command('count', { idempotent: true })
+  public count(): Promise<[string | null, number]> {
+    return Promise.resolve([currentTenant()?.id ?? null, ++counted.runs]);
   }
 }
 
@@ -180,6 +187,27 @@ describe('tenant of a socket connection, over a real handshake', function () {
       // Each handshake ran in the server's ambient context, which no earlier connection's tenant reached.
       expect(handshakeScopes).to.deep.eq([null, null, null]);
       expect(tenantScope()).to.eq(undefined);
+    });
+
+    it("runs one principal's idempotency key once in each tenant of one client, and replays each tenant its own reply", async () => {
+      counted.runs = 0;
+      const acme = await open({ user: 'erin', tenant: 'acme', clientId: 'erin-app' });
+      const globex = await open({ user: 'erin', tenant: 'globex', clientId: 'erin-app' });
+
+      expect(await call(acme, 'tenant.count', undefined, 'k-1')).to.deep.eq(['acme', 1]);
+      expect(await call(globex, 'tenant.count', undefined, 'k-1')).to.deep.eq(['globex', 2]);
+      expect(await call(acme, 'tenant.count', undefined, 'k-1')).to.deep.eq(['acme', 1]);
+      expect(await call(globex, 'tenant.count', undefined, 'k-1')).to.deep.eq(['globex', 2]);
+    });
+
+    it('runs an anonymous idempotency key once in each tenant of one client', async () => {
+      counted.runs = 0;
+      const acme = await open({ clientId: 'kiosk' }, { 'x-forwarded-host': 'acme-inc.app.example.com' });
+      const globex = await open({ clientId: 'kiosk' }, { 'x-forwarded-host': 'globex.app.example.com' });
+
+      expect(await call(acme, 'tenant.count', undefined, 'k-1')).to.deep.eq(['acme', 1]);
+      expect(await call(globex, 'tenant.count', undefined, 'k-1')).to.deep.eq(['globex', 2]);
+      expect(await call(globex, 'tenant.count', undefined, 'k-1')).to.deep.eq(['globex', 2]);
     });
 
     it('takes the tenant of the forwarded host from a trusted peer', async () => {

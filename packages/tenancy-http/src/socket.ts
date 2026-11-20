@@ -11,6 +11,8 @@ import { TENANCY_DEFAULTS, TenantUnavailable, applyTenantScope, tenantScopeOf } 
 import type { TenantResolver, TenantScope } from '@spinajs/tenancy';
 import { resolveTenant } from './admission.js';
 import { requestHost } from './host.js';
+// a socket-only app imports only this entry, and its connections' idempotency keys must stay in their tenant too
+import './idempotency.js';
 import { tenantResolvers } from './resolvers.js';
 import type { TenantRequestSource } from './source.js';
 

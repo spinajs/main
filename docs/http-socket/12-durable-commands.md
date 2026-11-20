@@ -9,7 +9,7 @@ A command declared `idempotent` runs once per idempotency key, however often the
 1. A request without `idempotencyKey` continues; with `after` but no key it answers `invalid_argument`.
 2. A key on a command that is not `idempotent` answers `failed_precondition`: the client would believe it is deduplicated.
    A key held with another command name or payload answers `failed_precondition` too, `details.reason: 'idempotency_key_reuse'`.
-3. `SocketIdempotency.begin()` claims the scoped key in the store (see [Idempotency storage](04-command-pipeline.md#idempotency-storage)): `idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principalKey, clientId]) }, key)`, or `principalKey:clientId:key` (each part URI-encoded) on a 3.x store:
+3. `SocketIdempotency.begin()` claims the scoped key in the store (see [Idempotency storage](04-command-pipeline.md#idempotency-storage)): `idempotencyKey({ namespace: 'socket', principal: JSON.stringify([principalKey, clientId]), parts }, key)`, or `principalKey:clientId:key[:part...]` (each part URI-encoded) on a 3.x store. `parts` are what every registered `IdempotencyScopePart` of `@spinajs/http` reads from the connection's context, sorted; `@spinajs/tenancy-http` registers the tenant, so one principal's key in two tenants is two keys. A connection with no part keeps the key it had before parts existed:
    - free: the command runs under the claim;
    - completed: the stored reply is answered (a stored error is thrown again, with its `errorId`);
    - running on this instance: the call waits for that run's reply, or claims again if that run released the key;
@@ -173,23 +173,22 @@ export class KvIdempotencyStore extends IdempotencyStore {
 // config: http.socket.idempotency = { service: 'KvIdempotencyStore', ttlMs: 900_000, maxEntries: 100_000, prefix: 'app1:' }
 ```
 
-### `SocketIdempotency`: scope keys by tenant as well
+### `IdempotencyScopePart`: scope keys by more than the principal
 
-`scope(connection, key)` builds the store key for both the claim and the `after` fence. A subclass can add a part; keep the principal key in it, because a `clientId` is not a secret.
+`scope(connection, key)` builds the store key for both the claim and the `after` fence, from the principal, the `clientId` and the parts every registered `IdempotencyScopePart` reads from the connection's context. `@spinajs/tenancy-http` registers the tenant. Register your own part for another boundary; the same part scopes `@Idempotent` http routes, where it reads `req.storage`. Name the kind in the part, so two kinds never meet.
 
 ```ts sample
-import { DI, Injectable } from '@spinajs/di';
-import { SocketConnection, SocketIdempotency } from '@spinajs/http-socket';
+import { Injectable } from '@spinajs/di';
+import { IdempotencyScopePart } from '@spinajs/http';
 
-@Injectable()
-export class TenantScopedIdempotency extends SocketIdempotency {
-  public scope(connection: SocketConnection, key: string): string {
-    const tenant = connection.handshake.auth.tenant;
-    return `${encodeURIComponent(typeof tenant === 'string' ? tenant : '-')}:${super.scope(connection, key)}`;
+/** `Region` is set by a SocketConnectionContext in the handshake, and by a 'beforePolicy' middleware over http. */
+@Injectable(IdempotencyScopePart)
+export class RegionIdempotencyScope extends IdempotencyScopePart {
+  public partOf(store: object): string | undefined {
+    const region: unknown = Reflect.get(store, 'Region');
+    return typeof region === 'string' ? `region:${region}` : undefined;
   }
 }
-
-DI.register(TenantScopedIdempotency).as(SocketIdempotency);
 ```
 
 ## Important behaviour

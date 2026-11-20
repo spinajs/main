@@ -25,7 +25,7 @@ class TestHttpHost extends SocketHttpHost {
 /** The scope the server's ambient context had in each handshake this source saw. */
 export const handshakeScopes: Array<TenantScope | null> = [];
 
-/** `auth.user`: alice (member of acme, attribute `tenant: acme`), carol (member of globex), bob (member of none). */
+/** `auth.user`: alice (member of acme, attribute `tenant: acme`), carol (member of globex), erin (member of both), bob (member of none). */
 class TestPrincipalSource extends SocketPrincipalSource {
   public readonly name = 'tenancy-test';
   public readonly order = -100;
@@ -35,6 +35,7 @@ class TestPrincipalSource extends SocketPrincipalSource {
     const members = new Map<unknown, Principal>([
       ['alice', user('alice', { tenants: ['acme'], tenant: 'acme' })],
       ['carol', user('carol', { tenants: ['globex'] })],
+      ['erin', user('erin', { tenants: ['acme', 'globex'] })],
       ['bob', user('bob')],
     ]);
     return Promise.resolve(members.get(handshake.auth.user) ?? null);
@@ -136,8 +137,8 @@ export function handshakeOutcome(socket: ClientSocket): Promise<SocketError | 'c
   );
 }
 
-export async function call<R>(socket: ClientSocket, name: string, payload?: unknown): Promise<R> {
-  const reply = (await socket.timeout(5000).emitWithAck(WIRE_EVENTS.command, { id: `${name}-${Math.random()}`, name, payload })) as CommandReply<R>;
+export async function call<R>(socket: ClientSocket, name: string, payload?: unknown, idempotencyKey?: string): Promise<R> {
+  const reply = (await socket.timeout(5000).emitWithAck(WIRE_EVENTS.command, { id: `${name}-${Math.random()}`, name, payload, idempotencyKey })) as CommandReply<R>;
   if (!reply.ok || !('result' in reply)) throw new Error(`expected a result reply, got ${JSON.stringify(reply)}`);
   return reply.result;
 }
