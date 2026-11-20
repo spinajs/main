@@ -19,9 +19,15 @@ export interface AccessibleOptions extends WithAccessOptions {
 
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
-    /** Only rows `permission` allows the current principal (design §6.2). */
+    /**
+     * Only rows `permission` allows the current principal (design §6.2).
+     * @spinajs authz-scope accessible
+     */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
-    /** No access filter, audited (`authz.audit.unscoped`). */
+    /**
+     * No access filter, audited (`authz.audit.unscoped`).
+     * @spinajs authz-scope unscoped
+     */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
@@ -29,7 +35,9 @@ declare module '@spinajs/orm' {
     withAccess(permissions: readonly Permission[], opts?: WithAccessOptions): this;
   }
   interface SelectQueryBuilder<T> {
+    /** @spinajs authz-scope accessible */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
@@ -37,25 +45,33 @@ declare module '@spinajs/orm' {
     withFields(permission: Permission, opts?: WithAccessOptions): this;
   }
   interface IUpdateQueryBuilder<T> {
+    /** @spinajs authz-scope accessible */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
   }
   interface UpdateQueryBuilder<T> {
+    /** @spinajs authz-scope accessible */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
   }
   interface IDeleteQueryBuilder<T> {
+    /** @spinajs authz-scope accessible */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
   }
   interface DeleteQueryBuilder<T> {
+    /** @spinajs authz-scope accessible */
     accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;

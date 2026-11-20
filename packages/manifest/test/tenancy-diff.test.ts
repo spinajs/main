@@ -8,7 +8,7 @@ const withTenancy = (over: Partial<TenancySection>): Manifest => manifestWith({ 
 const rows = (base: Manifest, head: Manifest): Change[] => diffManifest(base, head).changes.filter((c) => c.section === 'tenancy');
 const tenant = (model: string, state: ModelTenant = {}): TenancyModel => ({ model, tenant: state, source: src() });
 const route = (id: string, over: Partial<TenancyEntryPoint> = {}): TenancyEntryPoint => ({ kind: 'route', id, tenancy: 'none', source: src(), ...over });
-const routes = (...ids: string[]): AuthzSection => ({ resources: [], permissions: [], entryPoints: ids.map((id) => ({ kind: 'route' as const, id, access: [], source: src() })), findings: [], ignores: [] });
+const routes = (...ids: string[]): AuthzSection => ({ resources: [], permissions: [], entryPoints: ids.map((id) => ({ kind: 'route' as const, id, access: [], source: src() })), findings: [], ignores: [], flow: { entryPoints: 0, unresolvedRoots: 0, opaqueCalls: 0, externalCalls: 0, foreignModelQueries: 0 } });
 const escape = (reason: string | undefined, over: Partial<TenancyEscape> = {}): TenancyEscape => ({ kind: 'acrossTenants', ...(reason === undefined ? {} : { reason }), model: 'Invoice', source: src(), ...over });
 
 describe('diffManifest tenancy', () => {

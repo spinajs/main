@@ -4,7 +4,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, Controllers, HttpServer, RealIp, ServerMiddleware } from '@spinajs/http';
 import type { IMiddlewareContext } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
@@ -59,7 +60,7 @@ describe('ClientIp behind an app RealIp subclass (RL-2 I-1, I-2)', function () {
     for (const b of bootstrappers) await b.bootstrap();
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   after(async () => {
@@ -70,6 +71,7 @@ describe('ClientIp behind an app RealIp subclass (RL-2 I-1, I-2)', function () {
     DI.uncache(Configuration);
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   it('ClientIp runs after the subclass and copies the client it resolved through http.trustProxy', async () => {
