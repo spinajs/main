@@ -302,7 +302,7 @@ describe('audit shipping', function () {
         const ctx = { result: (data: unknown): void => void results.push(data) };
 
         RecordingSink.failNext = 1;
-        await expect(new AuditShipTask().execute(ctx)).to.be.rejectedWith(AuditShipError, `audit: shipping failed for shipped@${connection()}`);
+        await expect(new AuditShipTask().execute(ctx)).to.be.rejectedWith(AuditShipError, `audit: shipping failed for shipped@${connection()}`).and.eventually.have.property('name', 'AuditShipError');
         expect(await new AuditShipTask().execute(ctx)).to.deep.eq({ shipped: 1, failed: [] });
         expect(results).to.deep.eq([
           { shipped: 0, failed: [{ trail: 'shipped', connection: connection() }] },
