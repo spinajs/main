@@ -29,6 +29,7 @@
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "c8 npm run test",
+    "mutation": "stryker run stryker.config.json",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/authz-rebac",

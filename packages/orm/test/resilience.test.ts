@@ -163,6 +163,20 @@ describe('connection resilience', () => {
     expect(d.states).to.include(ConnectionState.Degraded);
     expect(d.State).to.equal(ConnectionState.Connected);
   });
+
+  it('is Disconnected once its retries ran out, and keeps its state after a query error', async () => {
+    const lost = driver();
+    lost.failTimes = 99;
+    await expect(lost.run()).to.be.rejectedWith('transport down');
+    expect(lost.State).to.equal(ConnectionState.Disconnected);
+
+    const refused = driver();
+    await refused.run();
+    refused.failTimes = 99;
+    refused.failCode = 'ER_PARSE_ERROR';
+    await expect(refused.run()).to.be.rejectedWith('transport down');
+    expect(refused.State).to.equal(ConnectionState.Connected);
+  });
 });
 
 describe('periodic health check', () => {

@@ -62,7 +62,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Name: 'main',
             Driver: 'orm-driver-sqlite',
             Filename: './data/app.sqlite',
-            Migration: { OnStartup: true },
           },
         ],
       },

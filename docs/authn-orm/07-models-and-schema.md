@@ -45,7 +45,7 @@ The `db.*` keys are owned by `@spinajs/orm`; see [Connections](../orm/01-connect
 ```ts
 db: {
   DefaultConnection: 'main',
-  Connections: [{ Name: 'main', Driver: 'orm-driver-postgres', Migration: { OnStartup: true } }],
+  Connections: [{ Name: 'main', Driver: 'orm-driver-postgres' }],
 },
 ```
 
@@ -163,7 +163,7 @@ No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, inv
 
 ## Best practices
 
-- Run the migration before the app serves traffic (`Migration.OnStartup`, applied when the `Orm` resolves, or `migrate-up` in the deploy step), so the strict table check passes.
+- Run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) in the deploy step, before the app serves traffic: the app refuses to boot until the migration is applied, and the strict table check then passes.
 - Read the tables through the exported models from a service that injects the `Orm`, not with raw SQL: the models hydrate datetimes the same way the stores write them.
 - Build `identity` filters with `identityKey()`, so a query matches what the stores wrote.
 
@@ -201,6 +201,6 @@ export class TotpReport {
 ## Related
 
 - [`@spinajs/orm` Connections](../orm/01-connections.md): `db.DefaultConnection`, `db.StrictTableCheck` and `@Connection`.
-- [`@spinajs/orm` Migrations](../orm/10-migrations.md): migrating on startup and `Migration.OnStartup`.
+- [`@spinajs/orm` Migrations](../orm/10-migrations.md): deploying migrations with `migrate-up` and the boot check.
 - [`@spinajs/orm` Converters and hydration](../orm/04-converters-and-hydration.md): how `@DT()` columns become `DateTime` values.
 - [Authentication internals: authn-orm tables](../authn-orm/07-models-and-schema.md): the tables in the login flow.

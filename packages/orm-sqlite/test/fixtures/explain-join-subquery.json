@@ -1,0 +1,6 @@
+[
+  { "id": 3, "parent": 0, "notused": 0, "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)" },
+  { "id": 7, "parent": 0, "notused": 0, "detail": "LIST SUBQUERY 1" },
+  { "id": 10, "parent": 7, "notused": 0, "detail": "SCAN explain_order" },
+  { "id": 25, "parent": 0, "notused": 0, "detail": "SEARCH o USING INDEX explain_order_user (UserId=?)" }
+]

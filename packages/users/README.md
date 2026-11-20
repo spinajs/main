@@ -26,3 +26,9 @@ a job with `runAs: 'initiator'` reloads its user: one deactivated, banned or del
 `job:read`: for the `job` resource and the `user` role's `job:read` grant on the jobs it started, also
 `import '@spinajs/authz-queue/jobs'` (it needs `@spinajs/authz-orm`) before the `Configuration` resolves, or the grant
 waits for the next resolve.
+
+## Signals are checked as their signer
+
+Install `@spinajs/authz-workflow` (an optional peer dependency) and import `@spinajs/users/workflow` (it loads
+authz-workflow) so a workflow wait with a `permission` reloads the user who signed the signal: one deactivated, banned
+or deleted since signing is rejected, and an active one is checked with its current attributes.

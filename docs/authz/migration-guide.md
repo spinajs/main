@@ -719,7 +719,9 @@ role grants (`relation: 'owner'`). Check: the compiler finds no `@Permission`, `
   commands, `@Task` bodies, migrations, and `configuration-db-source` polling when its model has
   `@AccessResource`. users runs its own identity lookups (session restore, login, password reset) as
   `SYSTEM`. A queue handler runs unattended unless its job says `@Job({ runAs: 'initiator' })` or
-  `@Job({ runAs: 'system' })` (`authz-queue`).
+  `@Job({ runAs: 'system' })` (`authz-queue`). A `runAs: 'system'` job without `access` also needs
+  `@SystemTask(reason)` on its class; otherwise it is refused (`system_task_missing`) unless
+  `authz.queue.systemTask` is `'warn'`.
 - Remove every read of `users.Role` and `user.Role`.
 - Put `@UnfilteredInput(reason)` on routes that must accept a `neverRead` field.
 

@@ -74,7 +74,6 @@ Every token below is an abstract class from `@spinajs/orm`. "SqlDriver" means `S
 | `TableQueryCompiler` | `TableQueryBuilder.toDB()` (`createTable`) | `SqlTableQueryCompiler` | SqlDriver; SQLite, MSSQL override | array |
 | `ColumnQueryCompiler` | the table and alter-column compilers | `SqlColumnQueryCompiler` | driver | one |
 | `ForeignKeyQueryCompiler` | the table compiler | `SqlForeignKeyQueryCompiler` | SqlDriver | one |
-| `TableHistoryQueryCompiler` | the table compiler, for `trackHistory()` | `SqlTableHistoryQueryCompiler` | MySQL | array |
 | `AlterTableQueryCompiler` | `AlterTableQueryBuilder.toDB()` | `SqlAlterTableQueryCompiler` | SQLite, MySQL, PostgreSQL | array |
 | `AlterColumnQueryCompiler` | the alter-table compiler | `SqlAlterColumnQueryCompiler` | driver | one |
 | `TableCloneQueryCompiler` | `CloneTableQueryBuilder.toDB()` | `SqlTableCloneQueryCompiler` | MySQL | array |
@@ -124,14 +123,13 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 
 | Class | SQL | Notes |
 | --- | --- | --- |
-| `SqlTableQueryCompiler` | `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <t> (<cols> ,PRIMARY KEY (...) ,<fks>)` | Columns via `ColumnQueryCompiler`, keys via `ForeignKeyQueryCompiler`. Returns an array; `trackHistory()` appends the `TableHistoryQueryCompiler` outputs. |
+| `SqlTableQueryCompiler` | `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <t> (<cols> ,PRIMARY KEY (...) ,<fks>)` | Columns via `ColumnQueryCompiler`, keys via `ForeignKeyQueryCompiler`. Returns an array of one statement. |
 | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL \| <explicitNull()>] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` | See the type table below. The character set and collation come from the protected `charsetName()` and `collationName()`: `charset()` / `collation()`, else for an `exact()` column `utf8mb4` and `<charset>_bin`. A column without `notNull()` gets the text of the protected `explicitNull()`: `''` here, which leaves nullability to the database; `MySqlColumnQueryCompiler` answers `NULL` for a `TIMESTAMP`. Dialects override the three hooks. String literals go through `escapeStringLiteral()`. |
 | `SqlForeignKeyQueryCompiler` | `FOREIGN KEY (`c`) REFERENCES `schema`.`t`(`pk`) ON DELETE <a> ON UPDATE <a>` | The referenced table goes through `quoteQualified()`, so `schema.table` works. Throws `Error('foreign key query builder cannot be null')`. |
 | `SqlIndexQueryCompiler` | `` CREATE [UNIQUE] INDEX `name` ON `t` (`a`,`b`); ``, or `` DROP INDEX `name` ON `t` `` after `drop()` | The create ends with `;`. The drop comes from the protected `_drop()`; SQLite and PostgreSQL override it to name no table. |
 | `SqlAlterTableQueryCompiler` | one `ALTER TABLE <t> ...` per change | `DROP COLUMN <c>` (quoted with `IdentifierQuoter`), the table rename from the protected `_renameTable()` (`RENAME TO <t>`), then each column via `AlterColumnQueryCompiler`. A column that compiles to an empty string is skipped; one whose compiler reports `IsStandaloneStatement` is emitted without the `ALTER TABLE` prefix. MSSQL overrides `compile()` instead, to write renames with `sp_rename`. |
 | `SqlAlterColumnQueryCompiler` | `ADD <def> [AFTER `c`]`, `MODIFY <def>`, `` RENAME COLUMN `old` TO `new` `` | Hooks `_add()`, `_modify()`, `_rename()` return `null` to emit nothing. `_columnDefinition()` resolves `ColumnQueryCompiler`, so the dialect's column syntax is used. |
 | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE <t> LIKE <src>`, then `INSERT INTO <t> <filter or SELECT * FROM src>` | A shallow clone emits only the first statement. |
-| `SqlTableHistoryQueryCompiler` | `CREATE TABLE <t>__history LIKE <t>`, key and column changes, triggers | MySQL only. Adds `__action__`, `__revision__`, `__start__`, `__end__`. The trigger bodies compare the table's primary key column. |
 | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <t>` | |
 | `SqlDropTableQueryCompiler`, `SqlDropViewQueryCompiler` | `DROP TABLE|VIEW [IF EXISTS] <t>` | Name through `TableAliasCompiler`, so a schema prefix applies. |
 | `SqlCreateDatabaseQueryCompiler` | `` CREATE DATABASE [IF NOT EXISTS] `db` [CHARACTER SET cs] [COLLATE col] `` | `assertCharsetName()` refuses any name outside `[A-Za-z0-9_]`. |

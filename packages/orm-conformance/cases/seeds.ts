@@ -33,3 +33,13 @@ export const BASE: FixtureSeed = {
 };
 
 export const EMPTY: FixtureSeed = {};
+
+/** The names of manyUsers(n), in key order: u01, u02, … */
+export function userNames(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `u${String(i + 1).padStart(2, '0')}`);
+}
+
+/** n users, every other one active. */
+export function manyUsers(n: number): FixtureSeed {
+  return { cf_users: userNames(n).map((Name, i) => ({ Name, Active: i % 2 === 0 })) };
+}
