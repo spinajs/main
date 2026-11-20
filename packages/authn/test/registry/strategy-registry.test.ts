@@ -114,19 +114,26 @@ class NotAStrategy {
 
 const ALL: Class<unknown>[] = [LocalPassword, PrefixBearer, JwtBearer, PlainBearer, ThrowingBearer, RefusedConfigBearer, TruthyBearer, KeysMulti, KeysJws, NoKinds, BadKinds, NonBooleanInteractive];
 
-class RegistryTestConfiguration extends FrameworkConfiguration {
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
+class RegistryTestConfiguration extends NoSourcesConfiguration {
   protected onLoad(): unknown {
     return { authn: { strategies: [] } };
   }
 }
 
-class ChildTestConfiguration extends FrameworkConfiguration {
+class ChildTestConfiguration extends NoSourcesConfiguration {
   protected onLoad(): unknown {
     return { authn: { strategies: [{ name: 'child', service: 'ChildOnly' }] } };
   }
 }
 
-class ChildMixedConfiguration extends FrameworkConfiguration {
+class ChildMixedConfiguration extends NoSourcesConfiguration {
   protected onLoad(): unknown {
     return {
       authn: {

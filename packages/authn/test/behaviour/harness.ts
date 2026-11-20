@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { BaseFileSource, CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
@@ -100,7 +100,8 @@ function deepMerge(base: Record<string, unknown>, over: Readonly<Record<string, 
 /**
  * A Configuration class per container, so each boot reads its own values. `env` is the app env it resolves
  * (`process.env.APP_ENV`); undefined leaves it to the process, as an app started without `--env`. Unless `isolated`,
- * the file sources run as in an app; they load the package configs of node_modules/@spinajs only in ESM mode.
+ * the sources run as in an app, the file sources only in ESM mode, where they load the package configs of
+ * node_modules/@spinajs.
  */
 export function configurationOf(values: Record<string, unknown>, env?: string, isolated = false): Class<Configuration> {
   const json = JSON.stringify(values);
@@ -111,8 +112,13 @@ export function configurationOf(values: Record<string, unknown>, env?: string, i
     }
 
     protected loadSources(): void {
-      if (isolated) this.Sources = [];
-      else super.loadSources();
+      if (isolated) {
+        this.Sources = [];
+        return;
+      }
+      super.loadSources();
+      // An ESM test process cannot require the CommonJS package configs.
+      if (!DI.get<{ mjs: boolean }>('__esmMode__')) this.Sources = this.Sources.filter((s) => !(s instanceof BaseFileSource));
     }
 
     protected onLoad(): unknown {

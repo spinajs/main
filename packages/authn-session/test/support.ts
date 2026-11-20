@@ -9,6 +9,11 @@ let registered = false;
 
 /** Config for authn-session tests: the shipped config plus per-test overrides, with a silent logger. */
 export class SessionTestConfiguration extends FrameworkConfiguration {
+  // The shipped session config is merged below; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
     // Tests run from the package folder, where the configuration loader finds no package configs; start from ours.
