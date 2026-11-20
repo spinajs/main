@@ -17,8 +17,12 @@ const isRow = (v: unknown): v is AuditRow => v !== null && typeof v === 'object'
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 const oneOf = <T extends string>(allowed: readonly T[], v: unknown, fallback: T): T => allowed.find((a) => a === v) ?? fallback;
 
+export function findConnection(name: string): OrmDriver | undefined {
+  return DI.get(Orm)?.Connections.get(name);
+}
+
 export function auditConnection(name: string): OrmDriver {
-  const driver = DI.get(Orm)?.Connections.get(name);
+  const driver = findConnection(name);
   if (!driver) throw new AuditConfigError(`audit: no ORM connection ${JSON.stringify(name)}`);
   return driver;
 }
