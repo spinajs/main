@@ -5,7 +5,8 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthzAdminQuery, AuthzCommand, AuthzCommandOf } from '@spinajs/authz';
 
 import { RebacExpandReader, RebacScopeForgetter, RebacTupleHandler, RebacTupleReader } from '../../src/index.js';
-import type { TupleDeleteCommand, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
+import type { Tuple, TupleDeleteCommand, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
+import { CAVEATS, CAVEAT_TUPLES, NS } from '../support/caveat-world.js';
 import { TUPLES, d1, d2, ref, set, tuple, user } from '../support/world.js';
 import { AuthzAdminFailure, failure, installHost, ok, rebacDomain, remove, resetHost, uninstallHost, write } from './support.js';
 import type { RebacDomain } from './support.js';
@@ -157,6 +158,56 @@ describe('authz-rebac: tuple commands through AuthzAdmin', function () {
     });
   });
 
+  describe('conditional tuples', () => {
+    const office = { name: 'office_ip' };
+    const dave = (caveat?: { name: string; context?: Record<string, string> }): Tuple => ({ ...tuple(d1, 'viewer', user('dave')), ...(caveat ? { caveat } : {}) });
+    const stored = async () => (await d.store.find({ object: d1, relation: 'viewer', subject: user('dave') })).items;
+    const events = () => d.sink.events.map((e) => e.data);
+
+    beforeEach(async () => {
+      await resetHost();
+      d = await rebacDomain('test', { schema: { namespaces: NS, permissions: { 'doc:read': 'doc#read' }, caveats: CAVEATS } });
+    });
+
+    it('tuple.write stores the caveat and TupleChanged carries it; the same caveat again is a no-op', async () => {
+      expect(ok(await d.admin.execute(alice, [write(dave(office))]))[0].affected).to.equal(1);
+      expect(events()).to.deep.equal([{ object: d1, relation: 'viewer', subject: user('dave'), op: 'write', caveat: office }]);
+      expect(ok(await d.admin.execute(alice, [write(dave(office))]))[0].affected).to.equal(0);
+      expect(await stored()).to.deep.equal([dave(office)]);
+    });
+
+    it('tuple.delete without a caveat removes the stored tuple, and TupleChanged carries the stored caveat', async () => {
+      ok(await d.admin.execute(alice, [write(dave(office))]));
+      expect(ok(await d.admin.execute(alice, [remove(dave())]))[0].affected).to.equal(1);
+      expect(events()[1]).to.deep.equal({ object: d1, relation: 'viewer', subject: user('dave'), op: 'delete', caveat: office });
+      expect(await stored()).to.deep.equal([]);
+    });
+
+    it('another caveat on a stored tuple is caveat_conflict and rolls the batch back; delete and write in one batch changes it', async () => {
+      ok(await d.admin.execute(alice, [write(dave(office))]));
+      const other = { name: 'office_ip', context: { 'env.ip': '10.0.0.9' } };
+      const erin = tuple(d1, 'viewer', user('erin'));
+      expect(failure(await d.admin.execute(alice, [write(erin), write(dave(other))]))).to.deep.equal({ at: 1, code: 'caveat_conflict', field: 'tuple.caveat' });
+      expect(d.store.has(erin)).to.equal(false);
+      ok(await d.admin.execute(alice, [remove(dave()), write(dave(other))]));
+      expect(await stored()).to.deep.equal([dave(other)]);
+    });
+
+    it('refuses an unknown caveat, a context that does not fit it, and one too long to store', async () => {
+      expect(failure(await d.admin.execute(alice, [write(dave({ name: 'nope' }))]))).to.deep.equal({ at: 0, code: 'subject_not_allowed', field: 'tuple.subject' });
+      expect(failure(await d.admin.execute(alice, [write(dave({ name: 'office_ip', context: { 'env.day': '1' } }))]))).to.deep.equal({ at: 0, code: 'invalid_caveat_context', field: 'tuple.caveat.context' });
+      expect(failure(await d.admin.execute(alice, [write(dave({ name: 'office_ip', context: { 'env.ip': 'x'.repeat(5000) } }))]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'tuple.caveat.context' });
+      expect(failure(await d.admin.execute(alice, [{ kind: 'tuple.write', tuple: { ...dave(), caveat: { name: 'office_ip', x: 1 } } } as unknown as AuthzCommand]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'tuple.caveat' });
+    });
+
+    it('scope.forget removes conditional tuples and its events carry the caveat', async () => {
+      ok(await d.admin.execute(alice, [write(dave(office))]));
+      ok(await d.admin.execute(alice, [{ kind: 'scope.forget', scope: d1 }]));
+      expect(await stored()).to.deep.equal([]);
+      expect(events()[1]).to.deep.equal({ object: d1, relation: 'viewer', subject: user('dave'), op: 'delete', caveat: office });
+    });
+  });
+
   describe('the tuples.expand and tuples.subjects queries', () => {
     beforeEach(async () => {
       await resetHost();
@@ -189,6 +240,14 @@ describe('authz-rebac: tuple commands through AuthzAdmin', function () {
       let error: unknown;
       await shallow.admin.list(alice, { kind: 'tuples.subjects', scope: d2, relation: 'read', subjectType: 'user' }).catch((e: unknown) => (error = e));
       expect((error as AuthzAdminFailure).code).to.equal('limit_exceeded');
+    });
+
+    it('tuples.subjects decides caveats against env and marks the holders it cannot decide conditional', async () => {
+      const c = await rebacDomain('caveats', { tuples: CAVEAT_TUPLES, schema: { namespaces: NS, permissions: { 'doc:read': 'doc#read' }, caveats: CAVEATS } });
+      const subjects = (env?: unknown) => c.admin.list(alice, { kind: 'tuples.subjects', scope: d1, relation: 'read', subjectType: 'user', ...(env === undefined ? {} : { env }) } as AuthzAdminQuery);
+      expect(await subjects({ ip: '10.0.0.1' })).to.deep.equal({ items: [user('bob'), user('carl')], total: 2 });
+      expect(await subjects()).to.deep.equal({ items: [{ ...user('bob'), conditional: true }, { ...user('carl'), conditional: true }], total: 2 });
+      expect(await subjects('x').catch((e: unknown) => (e as AuthzAdminFailure).code)).to.equal('invalid_query');
     });
   });
 

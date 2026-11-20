@@ -31,7 +31,8 @@ authz: {
 }
 ```
 
-- `relations`: relation to its allowed subject types. `'user'` admits a principal (or an object) of that type; `'group#member'` admits the subject set `group:<id>#member`; `'folder'` (a namespace) admits an object as subject, which is what a tuple-to-userset follows.
+- `relations`: relation to its allowed subject types. `'user'` admits a principal (or an object) of that type; `'group#member'` admits the subject set `group:<id>#member`; `'folder'` (a namespace) admits an object as subject, which is what a tuple-to-userset follows. Any of them followed by ` with <caveat>` (`'user with office_ip'`) admits that shape only with that caveat ([Conditional tuples](06-conditional-tuples.md)).
+- `caveats` (next to `namespaces`): caveat name to `{ params, expr }`, the conditions conditional tuples name.
 - `permissions`: permission to its rewrite.
 - `permissions` at the top: a SpinaJS permission to `<namespace>#<relation or permission>`. Only mapped permissions route to the model.
 
@@ -58,13 +59,17 @@ A relation's own tuples ("this" in Zanzibar) are not a node: naming the relation
 - a tupleset is not a relation, admits no namespace type, or one of those types lacks the computed name;
 - computed usersets form a cycle (`a -> b -> a`): it would never reach a tuple;
 - a union or intersection is empty, or a value is not a rewrite;
-- a permission maps to no target, or not in the form `<namespace>#<name>`.
+- a permission maps to no target, or not in the form `<namespace>#<name>`;
+- a caveat reads a parameter outside `env.*` and `principal.*`, fails `validateCaveats` (`IR004`), or a subject type names a caveat that is not declared;
+- a relation admits a conditional subject type while the store does not keep caveats (`TupleStore.caveats` is false).
 
 The JSON schema `AUTHZ_REBAC_CONFIGURATION_SCHEMA` (`authz.rebac`) checks the shape of the config section; the compiler checks the rest, also for options passed in code.
 
 ### Tuples that fit
 
-`NamespaceSchema.problem(tuple)` tells why a tuple does not fit: `unknown_relation` (no namespace, no such relation, or a permission) or `subject_not_allowed` (a subject type or subject set the relation does not list). The `tuple.write` command refuses such tuples.
+`NamespaceSchema.problem(tuple)` tells why a tuple does not fit: `unknown_relation` (no namespace, no such relation, or a permission), `subject_not_allowed` (a subject type or subject set the relation does not list, or does not list with the tuple's caveat), or `invalid_caveat_context` (a context that does not fit the caveat's parameters). The `tuple.write` command refuses such tuples.
+
+The schema hash (`RebacModel.version()`) includes the caveats; a schema without caveats hashes as before they existed.
 
 ## See also
 

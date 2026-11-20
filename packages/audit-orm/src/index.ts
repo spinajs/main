@@ -13,3 +13,4 @@ export type { ShipFailure, ShipOptions, ShipResult } from './ship/ship.js';
 export { auditBacklog } from './ship/backlog.js';
 export type { AuditBacklog } from './ship/backlog.js';
 import './ship/schema.js';
+export * from './reads/index.js';

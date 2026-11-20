@@ -5,6 +5,8 @@ export interface LiveIndex {
   columns: string[];
   unique: boolean;
   primary: boolean;
+  /** A part is an expression or a column prefix: `columns` does not name exactly what the index compares. */
+  inexact?: boolean;
 }
 
 /** One column of a live foreign key; a composite key is one entry per column, in key order. */
@@ -23,9 +25,12 @@ export interface LiveForeignKey {
 /** One column of one index, as a catalog query returns it, in key order. */
 export interface IndexColumnRow {
   name: string;
-  column: string;
+  /** Null for an expression part, which `columns` leaves out. */
+  column: string | null;
   unique: boolean;
   primary: boolean;
+  /** Only a prefix of the column is indexed. */
+  prefix?: boolean;
 }
 
 export function compareByName(a: { name: string }, b: { name: string }): number {
@@ -38,8 +43,9 @@ export function compareByName(a: { name: string }, b: { name: string }): number 
 export function groupIndexColumns(rows: readonly IndexColumnRow[]): LiveIndex[] {
   const byName = new Map<string, LiveIndex>();
   for (const row of rows) {
-    const index = byName.get(row.name) ?? { name: row.name, columns: [], unique: row.unique, primary: row.primary };
-    index.columns.push(row.column);
+    const index: LiveIndex = byName.get(row.name) ?? { name: row.name, columns: [], unique: row.unique, primary: row.primary };
+    if (row.column !== null) index.columns.push(row.column);
+    if (row.column === null || row.prefix === true) index.inexact = true;
     byName.set(row.name, index);
   }
 

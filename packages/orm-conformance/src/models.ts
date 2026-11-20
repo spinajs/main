@@ -1,4 +1,4 @@
-import { BelongsTo, Bool, Connection, DateTime as DateTimeColumn, HasMany, HasManyToMany, Json, Model, ModelBase, Primary, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, Bool, Connection, DateTime as DateTimeColumn, HasMany, HasManyToMany, Json, Model, ModelBase, Primary, Relation, SingleRelation, Version } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 export const CONFORMANCE_CONNECTION = 'conformance';
@@ -95,4 +95,16 @@ export class CfEvent extends ModelBase {
 
   @DateTimeColumn()
   public Day: DateTime;
+}
+
+@Connection(CONFORMANCE_CONNECTION)
+@Model('cf_versioned')
+export class CfVersioned extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+
+  @Version()
+  public Version: number;
 }

@@ -8,7 +8,7 @@ import { pathToFileURL } from 'url';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthzConfigError, AuthzContributor, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { QueryMiddleware } from '@spinajs/orm';
+import { QueryMiddleware, WriteObserver } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
 import type { ActionName, AfterContext } from '@spinajs/hooks';
@@ -86,7 +86,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   after(() => {
     // What the import registered (the package does not export these classes).
     for (const [service, name] of [
-      [QueryMiddleware, 'AncestorMiddleware'],
+      [WriteObserver, 'AncestorObserver'],
       [QueryMiddleware, 'AccessGuardMiddleware'],
       [QueryMiddleware, 'AccessListMiddleware'],
       [ResourceAdapter, 'OrmResourceAdapter'],
