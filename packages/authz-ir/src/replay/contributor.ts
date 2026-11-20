@@ -1,4 +1,4 @@
-import type { ChangeKind, ChangeRecord, Permission, ResourceType } from '@spinajs/authz';
+import type { ChangeKind, ChangeRecord, Permission, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import type { CaveatDef, ObjectRef, OpaqueRef, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef, TypeName } from '../ir.js';
 import type { KeyState } from './history.js';
@@ -79,6 +79,32 @@ export interface StoredPolicySplicer {
    */
   edge(change: ChangeRecord): StoredEdge | undefined;
   splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
+}
+
+/** One scope attribute leaf as the `attribute` kind logs it: `value` absent when the stored leaf does not parse. */
+export interface AttributeLeafImage {
+  scope: string;
+  path: string;
+  value?: unknown;
+}
+
+/**
+ * Serves the leaves of scope attribute nodes for the captured-state check of replay (section 3.5 of the L3 plan): it
+ * serves values, not relations, so it is no `HistoryContributor`. Changes of the kind carry `AttributeLeafImage`s.
+ */
+export interface AttributeHistoryContributor {
+  readonly kind: 'attribute';
+  /** The changelog key of the leaf at `path` of the node `scope`. */
+  key(scope: ResourceRef, path: string): string;
+  /** The node's leaves now, read on the primary. */
+  current(scope: ResourceRef): Promise<AttributeLeafImage[]>;
+}
+
+/** DI token of the scope attribute contributor; at most one is registered. */
+export abstract class AttributeHistoryContributors implements AttributeHistoryContributor {
+  abstract readonly kind: 'attribute';
+  abstract key(scope: ResourceRef, path: string): string;
+  abstract current(scope: ResourceRef): Promise<AttributeLeafImage[]>;
 }
 
 /** DI token of the history contributors; the packages that register them carry the `@Injectable` decorators. */

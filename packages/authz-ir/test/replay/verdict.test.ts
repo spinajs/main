@@ -48,6 +48,9 @@ describe('replayVerdict (section 3.6)', () => {
     expect(v({ blocked: [policyMissing], policyHash: { recorded: 'h1', replayed: 'h2' } }).replay).to.equal('unreplayable');
     expect(v({ truth: 'unknown', recorded: denied }).replay, 'unknown with an outcome mismatch').to.equal('unreplayable');
     expect(v({ truth: 'deny', inputsHash: { recorded: 'a', replayed: 'b' } }).divergence.map((d) => d.part)).to.deep.equal(['outcome']);
+    const state = { part: 'captured-state' as const, recorded: '3', replayed: '2', key: 'org:o1#level' };
+    expect(v({ truth: 'deny', captured: [state] }).divergence.map((d) => d.part), 'an outcome mismatch wins over captured state').to.deep.equal(['outcome']);
+    expect(v({ truth: 'unknown', unknowns: [policyMissing], captured: [state] }).replay).to.equal('unreplayable');
   });
 
   it(`reads a recorded ${CAVEAT_UNKNOWN} denial as unknown: unreplayable, never divergent`, () => {
