@@ -1,5 +1,6 @@
 {
   "extensions": ["ts"],
   "spec": ["test/**/*.test.ts"],
+  "grep": "^(?!.*@timing)",
   "require": ["../../scripts/mutation/mocha-setup.mjs"]
 }

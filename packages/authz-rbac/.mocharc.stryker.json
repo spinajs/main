@@ -1,6 +1,7 @@
 {
   "extensions": ["ts"],
   "spec": ["test/**/*.test.ts"],
+  "grep": "^(?!.*@timing)",
   "ignore": [
     "test/admin/db/**",
     "test/cli/discovery.test.ts",
