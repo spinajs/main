@@ -60,6 +60,8 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18"
   },
@@ -67,6 +69,7 @@
     "@opentelemetry/api": "^1.9.0",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
+    "@spinajs/durable": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/orm": "3.0.23",
