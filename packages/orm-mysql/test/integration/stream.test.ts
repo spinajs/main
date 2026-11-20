@@ -37,7 +37,7 @@ class StreamMySqlConf extends FrameworkConfiguration {
       this.Config,
       {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-        db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql-stream', ...SERVER, Database: TX_DATABASE, Migration: { OnStartup: false } }] },
+        db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-mysql', Name: 'mysql-stream', ...SERVER, Database: TX_DATABASE }] },
       },
       (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),
     );

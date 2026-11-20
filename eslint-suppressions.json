@@ -1856,7 +1856,7 @@
   },
   "packages/authz-rbac/test/admin/db/backend.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/unbound-method": {
       "count": 4
@@ -5833,7 +5833,7 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 2
@@ -6631,12 +6631,6 @@
     },
     "complexity": {
       "count": 3
-    },
-    "max-depth": {
-      "count": 1
-    },
-    "promise/param-names": {
-      "count": 1
     }
   },
   "packages/orm/src/migration-sources.ts": {
@@ -7196,9 +7190,6 @@
   },
   "packages/orm/test/orm.test.ts": {
     "@typescript-eslint/ban-ts-comment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     },
     "prettier/prettier": {
@@ -7779,11 +7770,6 @@
   "packages/teams/test/invitations/create.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
-    }
-  },
-  "packages/teams/test/support/db.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/teams/test/support/stack.ts": {

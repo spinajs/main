@@ -46,6 +46,20 @@ The way `@spinajs/orm-http` (`.filter()`), `@spinajs/intl-orm` (`.translate()`) 
 
 A builder that is used as a sub-query also reads `{ kind: 'own' }`: the one a belongsTo or hasMany `whereExist(relation, callback)` callback gets, and a `Model.query()` you pass to `whereExist()` or `whereIn()`. It is compiled into the outer statement, and `beforeQueryExecution` runs for that statement only. `execution` does not tell such a builder from one that is sent.
 
+`state().execution` of a builder:
+
+| Value | Which builder | What happens to it |
+| --- | --- | --- |
+| `{ kind: 'own' }` | a model query, `driver.select()`, a hasMany relation query, the junction query of a many-to-many relation | Built as a statement of its own, and sent as one unless you use it as a sub-query. Query middlewares run on it when it is sent. |
+| `{ kind: 'merged', into: 'parent', relation }` | the query inside a belongsTo `populate()` callback | Never sent. Its conditions, columns and sorts are folded into the query it was populated on, which joins the table. |
+| `{ kind: 'merged', into: 'junction', relation }` | the query inside a many-to-many `populate()` callback | Never sent. It is folded into the junction query, which is the statement that runs. |
+| `{ kind: 'merged', into: 'join' }` | the query of a join's third argument | Never sent. Its columns go to the query that declared the join, its conditions to the ON clause. |
+| `{ kind: 'recursive', relation }` | the query inside a `@Recursive` relation's `populate()` callback | Sent as a recursive CTE. Its WHERE picks the rows the recursion starts from; the rows the recursion adds are not filtered by it. |
+
+`relation` is the relation's descriptor (`Name`, `Type`, `TargetModel`, ...). A clone and an execution copy read the same value as their source.
+
+A builder that is used as a sub-query also reads `{ kind: 'own' }`: the one a belongsTo or hasMany `whereExist(relation, callback)` callback gets, and a `Model.query()` you pass to `whereExist()` or `whereIn()`. It is compiled into the outer statement, and `beforeQueryExecution` runs for that statement only. `execution` does not tell such a builder from one that is sent.
+
 ### Builder subclass
 
 `OrmDriver` and `createQuery()` resolve builders from DI (`SelectQueryBuilder`, `UpdateQueryBuilder`, ...). Registering a subclass under the base class makes DI return it everywhere, relation queries included. See the caveats in [Important behaviour](#important-behaviour); prefer a query extension. The full guide, including how to keep your class across `clone()`, is [Injecting your own builders](../orm-sql/09-injecting-your-own-builders.md).

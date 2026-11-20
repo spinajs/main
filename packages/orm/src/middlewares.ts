@@ -4,7 +4,7 @@ import type { IRelationDescriptor, IModelDescriptor, IBuilderMiddleware, ISelect
 import type { ModelBase } from './model.js';
 import _ from 'lodash';
 import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
-import type { BelongsToRelation, NativeOrmRelation } from './relations.js';
+import type { NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { OrmException } from './exceptions.js';
@@ -294,7 +294,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) { }
+  constructor(protected _description: IRelationDescriptor, protected _relationQuery: ISelectQueryBuilder) { }
 
   afterQuery(data: any[]): any[] {
     return data;
@@ -305,28 +305,9 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
   afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
     const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null && x !== undefined);
 
-    // Every relation created on a builder stores that builder as `_query`
-    // ( SelectQueryBuilder._getRelationInstance passes `this` ), so N nested relations under
-    // one belongsTo all point at the *same* `_middlewares` array. Concatenating per relation
-    // therefore repeated the whole array N times — the duplication a `_.uniqBy` on relation
-    // name used to paper over, too coarsely ( it collapsed two genuinely distinct middlewares
-    // that happened to share a relation name ) and unsafely
-    // ( BelongsToRelationResultTransformMiddleware has no `_description` at all, and
-    // DiscriminationMapMiddleware's is an IModelDescriptor, so the key compared a *model*
-    // name against a *relation* name ).
-    //
-    // Collect each distinct middleware object once, in first-seen order.
-    const seen = new Set<IBuilderMiddleware>();
-    const middlewares: IBuilderMiddleware[] = [];
-
-    for (const relation of (this.relation as any)._relationQuery.Relations as any[]) {
-      for (const middleware of (relation._query?._middlewares ?? []) as IBuilderMiddleware[]) {
-        if (!seen.has(middleware)) {
-          seen.add(middleware);
-          middlewares.push(middleware);
-        }
-      }
-    }
+    // Every relation populated on the relation query registers its middlewares on that one builder, so they are
+    // read from it once. A Set, because a middleware object registered twice must still run once.
+    const middlewares = this._relationQuery.Relations.length === 0 ? [] : [...new Set(this._relationQuery.Middlewares)];
 
     return Promise.all(
       middlewares.map((x) => {
