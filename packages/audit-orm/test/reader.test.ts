@@ -3,11 +3,13 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { audit, trailConfig } from '@spinajs/audit';
-import type { AuditEvent } from '@spinajs/audit';
+import type { AuditEvent, AuditInput } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
-import { TableAuditReader, auditEventColumns, insertRows, storedColumns } from '../src/index.js';
+import { TableAuditReader, auditEventColumns, insertRows, rowsOf, storedColumns } from '../src/index.js';
 import { DIALECTS, TestDb } from '../src/testing.js';
+import { trailTableOn } from '../src/trail-tables.js';
+import type { Dialect } from '../src/testing.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -96,6 +98,90 @@ describe('TableAuditReader', function () {
     await db.drop('pglite', tableOf('sqlite'));
   });
 
+  for (const other of DIALECTS.filter((d) => d !== 'sqlite')) {
+    it(`forgets a subject on every connection that holds the trail table, sqlite and ${other}, recording the erasure on each`, async function () {
+      if (!db.has(other)) this.skip();
+      const trail = trailOf('sqlite');
+      const table = tableOf('sqlite');
+      const update = (n: number): AuditInput => ({ kind: 'data', action: 'update', subject: patient, data: { n }, at: day(n) });
+      await db.migrate('sqlite', table);
+      await db.migrate(other, table);
+      try {
+        await audit().record(update(1), { trail });
+        await audit().record([update(2), update(3)], { trail, connection: db.connectionName(other) });
+
+        expect(await audit().trail(trail).forget(patient)).to.eq(3);
+        const actions = async (dialect: Dialect): Promise<unknown[][]> => (await db.rows(dialect, table)).map((r) => [r.action, r.data]);
+        expect(await actions('sqlite')).to.deep.eq([
+          ['update', ''],
+          ['erasure', '{"redacted":1}'],
+        ]);
+        expect(await actions(other)).to.deep.eq([
+          ['update', ''],
+          ['update', ''],
+          ['erasure', '{"redacted":2}'],
+        ]);
+
+        // Nothing of this subject on the other connection: its erasure is recorded on the trail's connection only.
+        expect(await audit().trail(trail).forget({ type: 'patient', id: '99' })).to.eq(0);
+        expect(await db.rows('sqlite', table)).to.have.length(3);
+        expect(await db.rows(other, table)).to.have.length(3);
+      } finally {
+        await db.drop('sqlite', table);
+        await db.drop(other, table);
+      }
+    });
+  }
+
+  it('names a connection it cannot look at, and erases nothing', async function () {
+    if (!db.has('pglite')) this.skip();
+    const trail = trailOf('sqlite');
+    const table = tableOf('sqlite');
+    await db.migrate('sqlite', table);
+    const pglite = db.driver('pglite');
+    try {
+      await audit().record({ kind: 'data', action: 'update', subject: patient, data: { n: 1 }, at: day(1) }, { trail });
+      Reflect.set(pglite, 'tableInfo', () => Promise.reject(new Error('catalog refused')));
+      await expect(audit().trail(trail).forget(patient)).to.be.rejectedWith(`audit: forget on trail "${trail}" could not look for table ${table} on connection "${pglite.Options.Name}", so nothing was erased: catalog refused`);
+      expect((await db.rows('sqlite', table)).map((r) => r.data)).to.deep.eq(['{"n":1}']);
+    } finally {
+      Reflect.deleteProperty(pglite, 'tableInfo');
+      await db.drop('sqlite', table);
+    }
+  });
+
+  it('reads a missing table as none, also from a driver that answers null for it (MSSQL)', async () => {
+    expect(await trailTableOn({ tableInfo: () => Promise.resolve(null) }, 'audit_missing')).to.eq('none');
+    expect(await trailTableOn(db.driver('sqlite'), 'audit_missing')).to.eq('none');
+  });
+
+  it('leaves a table of the trail name without the trail columns alone', async function () {
+    if (!db.has('pglite')) this.skip();
+    const trail = trailOf('sqlite');
+    const table = tableOf('sqlite');
+    await db.migrate('sqlite', table);
+    await db.driver('pglite').schema().dropTable(table).ifExists();
+    await db
+      .driver('pglite')
+      .schema()
+      .createTable(table, (t) => {
+        t.string('subject_type', 64);
+        t.string('subject_id', 64);
+        t.longtext('data');
+      });
+    try {
+      await db.driver('pglite').insert().into(table).values({ subject_type: patient.type, subject_id: patient.id, data: 'kept' });
+      await audit().record({ kind: 'data', action: 'update', subject: patient, data: { n: 1 }, at: day(1) }, { trail });
+
+      expect(await audit().trail(trail).forget(patient)).to.eq(1);
+      expect((await db.rows('sqlite', table)).map((r) => r.data)).to.deep.eq(['', '{"redacted":1}']);
+      expect(rowsOf(await db.driver('pglite').select().from(table)).map((r) => r.data)).to.deep.eq(['kept']);
+    } finally {
+      await db.drop('sqlite', table);
+      await db.driver('pglite').schema().dropTable(table).ifExists();
+    }
+  });
+
   for (const dialect of DIALECTS) {
     describe(dialect, () => {
       const trail = trailOf(dialect);
@@ -149,6 +235,20 @@ describe('TableAuditReader', function () {
         expect(await events.since(0, { kinds: [] })).to.deep.eq([]);
         expect((await events.since(0, { subjectType: 'patient', order: 'desc' })).map((e) => e.action)).to.deep.eq(['update', 'patient.read']);
         expect((await events.of(patient, { order: 'desc', limit: 1 })).map((e) => e.action)).to.deep.eq(['update']);
+      });
+
+      it('blanks an event of another kind named erasure, and keeps the erasure records forget wrote', async () => {
+        const events = audit().trail(trail);
+        await events.forget(patient);
+        await audit().record({ kind: 'action', action: 'erasure', subject: patient, data: { email: 'a@example.com' } }, { trail });
+
+        expect(await events.forget(patient)).to.eq(1);
+        const erasures = (await db.rows(dialect, tableOf(dialect))).filter((r) => r.action === 'erasure').map((r) => [r.kind, r.data]);
+        expect(erasures).to.deep.eq([
+          ['custom', '{"redacted":2}'],
+          ['action', ''],
+          ['custom', '{"redacted":1}'],
+        ]);
       });
 
       it('redacts a subject, keeps the payload hashes and records the erasure', async () => {

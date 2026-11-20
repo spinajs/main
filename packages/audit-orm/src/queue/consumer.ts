@@ -7,7 +7,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 
 import { isTableTrail } from '../own-tables.js';
-import { REDACTED_DATA, auditConnection, rowsOf } from '../rows.js';
+import { REDACTED_DATA, auditConnection, erasureRecords, exceptErasureRecords, isErasureRecord, rowsOf } from '../rows.js';
 import { archiveDriver } from '../ship/archive.js';
 import { ArchiveAuditSink } from '../ship/archive-sink.js';
 import { OutboxAuditStore } from '../ship/outbox-store.js';
@@ -15,7 +15,6 @@ import { AUDIT_OUTBOX_TABLE } from '../ship/table.js';
 import { AuditBatchRecorded } from './event.js';
 
 // What `forget` records; the core has no constant for it.
-const ERASURE = { kind: 'custom', action: 'erasure' } as const;
 // A publisher's clock may run ahead of ours, but an event far in the future would escape retention and skew reads by time.
 const MAX_AHEAD_MS = 5 * 60 * 1000;
 const MALFORMED = 'audit: malformed AuditBatchRecorded message';
@@ -92,7 +91,6 @@ function fromWire(e: unknown, index: number): AuditEvent {
 }
 
 const keyOf = (type: unknown, id: unknown): string => JSON.stringify([type, id]);
-const isErasure = (e: AuditEvent): boolean => e.action === ERASURE.action && e.kind === ERASURE.kind;
 
 function erasuresOf(driver: OrmDriver, table: string, subjects: readonly AuditSubject[]): SelectQueryBuilder<unknown> {
   return driver
@@ -101,8 +99,7 @@ function erasuresOf(driver: OrmDriver, table: string, subjects: readonly AuditSu
     .columns(['subject_type', 'subject_id', 'at'])
     .whereIn('subject_type', [...new Set(subjects.map((s) => s.type))])
     .whereIn('subject_id', [...new Set(subjects.map((s) => s.id))])
-    .where('action', ERASURE.action)
-    .where('kind', ERASURE.kind);
+    .where(erasureRecords);
 }
 
 // This service's own `forget` buffers its erasure record on the trail's connection until its shipper archives it.
@@ -150,7 +147,7 @@ async function blankIds(driver: OrmDriver, table: string, ids: readonly string[]
 async function blankErased(trailName: string, events: readonly AuditEvent[]): Promise<void> {
   const trail = trailConfig(trailName);
   const driver = archiveDriver(trail);
-  const arriving = events.filter((e) => !isErasure(e) && e.subject !== undefined);
+  const arriving = events.filter((e) => !isErasureRecord(e) && e.subject !== undefined);
   if (arriving.length > 0) {
     const latest = await erasedAt(
       trail,
@@ -163,10 +160,10 @@ async function blankErased(trailName: string, events: readonly AuditEvent[]): Pr
       covered.map((e) => e.id),
     );
   }
-  const erasures = events.flatMap((e) => (isErasure(e) && e.subject !== undefined ? [{ subject: e.subject, at: e.at }] : []));
+  const erasures = events.flatMap((e) => (isErasureRecord(e) && e.subject !== undefined ? [{ subject: e.subject, at: e.at }] : []));
   // spinajs-orm-ignore ORM102: one UPDATE per erasure in the batch, which are rare
   for (const { subject, at } of erasures) {
-    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where('subject_type', subject.type).where('subject_id', subject.id).where('at', '<=', at).where('action', '<>', ERASURE.action).where('data', '<>', REDACTED_DATA);
+    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where('subject_type', subject.type).where('subject_id', subject.id).where('at', '<=', at).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
   }
 }
 

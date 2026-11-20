@@ -47,9 +47,12 @@ export class StoreAuditTrail implements AuditTrail {
 
   async forget(subject: AuditSubject, source?: string): Promise<number> {
     const reader = await readerOf(this.config, 'forget', this.container);
-    const redacted = await reader.redact(this.config, subject, source);
-    await this.service.record({ kind: 'custom', action: 'erasure', subject, data: { redacted } }, { trail: this.config.name, mode: 'confirmed', connection: source });
-    return redacted;
+    let total = 0;
+    for await (const { connection, redacted } of reader.redactEach(this.config, subject, source)) {
+      await this.service.record({ kind: 'custom', action: 'erasure', subject, data: { redacted } }, { trail: this.config.name, mode: 'confirmed', connection });
+      total += redacted;
+    }
+    return total;
   }
 
   async verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {

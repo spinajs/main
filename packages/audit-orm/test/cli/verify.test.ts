@@ -107,6 +107,23 @@ describe('audit:verify', function () {
     expect(process.exitCode).to.eq(2);
   });
 
+  it('passes over a table of the trail name without the trail columns, as forget and retention do', async () => {
+    const pglite = db.driver('pglite');
+    await pglite.schema().dropTable(TABLE).ifExists();
+    await pglite.schema().createTable(TABLE, (t) => {
+      t.string('name', 64);
+    });
+    try {
+      await append(event(1));
+      await sealAudit({ settleMs: 0 });
+
+      const command = await run('sealed');
+      expect([command.lines.filter((l) => l.startsWith('trail') || l.startsWith('result')), command.errors, process.exitCode]).to.deep.eq([[`trail sealed: table ${TABLE} on connection ${db.connectionName('sqlite')}`, 'result: intact'], [], undefined]);
+    } finally {
+      await pglite.schema().dropTable(TABLE).ifExists();
+    }
+  });
+
   it('verifies every connection that holds the trail table, and fails when one is tampered', async () => {
     const other = db.connectionName('pglite');
     await db.migrate('pglite', TABLE);

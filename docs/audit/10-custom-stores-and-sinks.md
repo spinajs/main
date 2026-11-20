@@ -75,7 +75,7 @@ Two optional members change how the service treats a store:
 
 ## An `AuditReader`
 
-`list(trail, filter)` answers one page (`filter.limit`, `filter.order` by `seq`, and the optional filters of [Reading the trail](02-reading-the-trail.md)). `redact(trail, subject, source?)` blanks the payloads of one subject, keeps every other field, and returns how many it blanked. `prune(trail, before, source?)` deletes events older than `before` and returns how many. `verify` is optional: a reader without it makes `verify()` throw `AuditNotSupported`.
+`list(trail, filter)` answers one page (`filter.limit`, `filter.order` by `seq`, and the optional filters of [Reading the trail](02-reading-the-trail.md)). `redact(trail, subject, source?)` blanks the payloads of one subject, keeps every other field, and returns how many it blanked. `prune(trail, before, source?)` deletes events older than `before` and returns how many. `forget` iterates `redactEach(trail, subject, source?)`, an async generator that yields one `{ connection, redacted }` per connection that needs its own `erasure` record (`connection` undefined for the trail's); `forget` records each before it asks for the next. By default it calls `redact` once and the record goes to `source`. Override it when one erasure spans several stores that `verify` checks apart. `verify` is optional: a reader without it makes `verify()` throw `AuditNotSupported`.
 
 ```ts sample
 import { AuditReader } from '@spinajs/audit';
@@ -133,4 +133,4 @@ export class LegacyAuditReader extends TableAuditReader {
 
 - A sink that does not deduplicate on `id` stores duplicates: delivery is at least once.
 - A store without `joinsTransaction` cannot take transactional writes, and one without a reader cannot be read, erased, pruned or verified from the application.
-- A custom reader's `redact` must keep `data_hash` and every sealed field, or the seals of a sealed trail fail after an erasure.
+- A custom reader's `redact` must keep `data_hash` and every sealed field, or the seals of a sealed trail fail after an erasure, and must leave erasure records (`kind: 'custom'`, `action: 'erasure'`) alone.

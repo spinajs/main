@@ -2,15 +2,13 @@ import { AuditWriteFailed, auditStore, trailConfig, trailNames } from '@spinajs/
 import type { AuditReader, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
-import { Orm } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
 
 import { assertOwnTable } from './own-tables.js';
+import { distinctConnections } from './ship/services.js';
 import { TableAuditStore } from './table-store.js';
+import { trailTableOn } from './trail-tables.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// A table of the trail's name that lacks these is not a trail table, and retention leaves it alone.
-const TRAIL_COLUMNS = ['seq', 'at', 'data_hash'];
 
 export interface PruneAuditOptions {
   readonly now?: Date;
@@ -36,17 +34,6 @@ export class AuditPruneFailed extends AuditWriteFailed {
   }
 }
 
-function columnNames(columns: unknown): string[] {
-  if (!Array.isArray(columns)) return [];
-  const list: readonly unknown[] = columns;
-  const names: string[] = [];
-  for (const column of list) {
-    const name: unknown = column !== null && typeof column === 'object' ? Reflect.get(column, 'Name') : undefined;
-    if (typeof name === 'string') names.push(name);
-  }
-  return names;
-}
-
 interface Run {
   deleted: number;
   readonly failed: PruneFailure[];
@@ -62,13 +49,12 @@ function fail(run: Run, trail: string, connection: string | undefined, error: un
 
 // Transactional events sit beside the data they describe, so a trail's table can exist on any connection.
 async function sourcesOf(trail: TrailConfig, run: Run): Promise<string[]> {
-  const drivers = new Set<OrmDriver>(DI.get(Orm)?.Connections.values() ?? []);
   const sources: string[] = [];
-  for (const driver of drivers) {
+  for (const driver of distinctConnections()) {
     try {
-      const names = columnNames(await driver.tableInfo(trail.table));
-      if (TRAIL_COLUMNS.every((c) => names.includes(c))) sources.push(driver.Options.Name);
-      else if (names.length > 0) log().warn({ trail: trail.name, table: trail.table, connection: driver.Options.Name }, 'audit: retention of trail ${trail} skips table ${table} on ${connection}: it has no trail columns seq, at and data_hash');
+      const held = await trailTableOn(driver, trail.table);
+      if (held === 'trail') sources.push(driver.Options.Name);
+      else if (held === 'other') log().warn({ trail: trail.name, table: trail.table, connection: driver.Options.Name }, 'audit: retention of trail ${trail} skips table ${table} on ${connection}: it has no trail columns seq, at and data_hash');
     } catch (error) {
       fail(run, trail.name, driver.Options.Name, error);
     }

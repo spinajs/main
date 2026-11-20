@@ -1,11 +1,13 @@
-import { AuditReader } from '@spinajs/audit';
-import type { AuditFilter, AuditPinnedHead, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import { AuditReader, AuditWriteFailed } from '@spinajs/audit';
+import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
+import { REDACTED_DATA, exceptErasureRecords, auditConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
+import { distinctConnections } from './ship/services.js';
+import { trailTableOn } from './trail-tables.js';
 
 const DELETE_CHUNK = 500;
 
@@ -57,10 +59,51 @@ export class TableAuditReader extends AuditReader {
   }
 
   /** Without a `source`, a table with a source column is redacted for every source. */
-  async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
-    const update = this.driver(trail, source).update().in(this.table(trail)).update({ data: REDACTED_DATA });
+  redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+    return this.redactOn(this.driver(trail, source), trail, subject, source);
+  }
+
+  /**
+   * Without a `source`, a table without a source column is redacted on every connection that holds it, the trail's own
+   * first: transactional events sit on the connection of each audited write. Every connection is looked at before
+   * anything is blanked. Another connection gets an erasure record where the subject has a row, so running `forget`
+   * again writes a record whose write failed the first time.
+   */
+  override async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
+    if (source !== undefined || this.hasSourceColumn()) {
+      yield* super.redactEach(trail, subject, source);
+      return;
+    }
+    const own = this.driver(trail, undefined);
+    const others: OrmDriver[] = [];
+    for (const driver of distinctConnections()) {
+      if (driver !== own && (await this.holdsTable(driver, trail))) others.push(driver);
+    }
+    yield { connection: undefined, redacted: await this.redactOn(own, trail, subject) };
+    for (const driver of others) {
+      const redacted = await this.redactOn(driver, trail, subject);
+      if (redacted > 0 || (await this.holds(driver, trail, subject))) yield { connection: driver.Options.Name, redacted };
+    }
+  }
+
+  private async holdsTable(driver: OrmDriver, trail: TrailConfig): Promise<boolean> {
+    try {
+      return (await trailTableOn(driver, this.table(trail))) === 'trail';
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      throw new AuditWriteFailed(`audit: forget on trail ${JSON.stringify(trail.name)} could not look for table ${this.table(trail)} on connection ${JSON.stringify(driver.Options.Name)}, so nothing was erased: ${why}`, err);
+    }
+  }
+
+  private async holds(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject): Promise<boolean> {
+    const select: Select = driver.select().from(this.table(trail)).columns(['seq']).where('subject_type', subject.type).where('subject_id', subject.id);
+    return rowsOf(await select.take(1)).length > 0;
+  }
+
+  private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+    const update = driver.update().in(this.table(trail)).update({ data: REDACTED_DATA });
     if (source !== undefined && this.hasSourceColumn()) update.where('source', source);
-    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where('data', '<>', REDACTED_DATA);
+    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
     return RowsAffected;
   }
 

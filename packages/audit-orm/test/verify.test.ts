@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AuditNotSupported, AuditReader, AuditStore, audit, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
+import { AuditNotSupported, AuditReader, AuditStore, AuditWriteFailed, audit, payloadHash, sealHash, trailConfig } from '@spinajs/audit';
 import type { AuditEvent, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { instantFromDb } from '@spinajs/orm';
@@ -63,6 +63,84 @@ describe('audit verification', function () {
     } finally {
       setTrail('blind', undefined);
     }
+  });
+
+  describe('a subject on two connections', () => {
+    const both = ['sqlite', 'pglite'] as const;
+    const subject = { type: 'contract', id: 'c1' };
+    const forget = () => audit().trail('sealed').forget(subject);
+    const verifyOn = (dialect: (typeof both)[number]) => audit().trail('sealed').verify(db.connectionName(dialect));
+
+    beforeEach(async () => {
+      setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: db.connectionName('sqlite'), integrity: 'sealed' });
+      for (const dialect of both) {
+        await db.migrate(dialect, TABLE);
+        await new AuditSealTableMigration().down(db.driver(dialect));
+        await new AuditSealTableMigration().up(db.driver(dialect));
+      }
+      const store = DI.resolve(TableAuditStore);
+      await store.append({ trail: trailConfig('sealed'), events: [event(1, { subject }), event(2)] });
+      await store.append({ trail: trailConfig('sealed'), events: [event(3, { subject })], connection: db.connectionName('pglite') });
+      await sealAudit({ settleMs: 0 });
+    });
+
+    afterEach(async () => {
+      setTrail('sealed', undefined);
+      for (const dialect of both) {
+        await db.drop(dialect, TABLE);
+        await new AuditSealTableMigration().down(db.driver(dialect));
+      }
+    });
+
+    it('finds the erasure record on every connection a subject was forgotten on', async () => {
+      expect(await forget()).to.eq(2);
+      for (const dialect of both) {
+        expect(await verifyOn(dialect)).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
+    });
+
+    it('records the erasure of a connection it blanked before another connection failed', async () => {
+      const pglite = db.driver('pglite');
+      Reflect.set(pglite, 'update', () => {
+        throw new Error('update refused');
+      });
+      try {
+        await expect(forget()).to.be.rejectedWith('update refused');
+      } finally {
+        Reflect.deleteProperty(pglite, 'update');
+      }
+      expect(await verifyOn('sqlite')).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      expect(await verifyOn('pglite')).to.deep.include({ intact: 1, redacted: 0, tampered: undefined });
+    });
+
+    it('never blanks an earlier erasure record when the subject is forgotten again', async () => {
+      await forget();
+      await forget();
+      for (const dialect of both) {
+        const erasures = (await tableRows(db.driver(dialect), TABLE)).filter((r) => r.action === 'erasure').map((r) => r.data);
+        expect(erasures).to.deep.eq(['{"redacted":1}', '{"redacted":0}']);
+        expect(await verifyOn(dialect)).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
+    });
+
+    it('writes a missing erasure record when forget runs again after the record failed', async () => {
+      setTrail('sealed', { store: 'TableAuditStore', table: TABLE, connection: db.connectionName('sqlite'), integrity: 'sealed', onFailure: 'reject', retry: { attempts: 1, delay: 1 } });
+      const pglite = db.driver('pglite');
+      Reflect.set(pglite, 'insert', () => {
+        throw new Error('insert refused');
+      });
+      try {
+        await expect(forget()).to.be.rejectedWith(AuditWriteFailed);
+      } finally {
+        Reflect.deleteProperty(pglite, 'insert');
+      }
+      expect((await verifyOn('pglite')).unexplainedRedactions).to.deep.eq([1]);
+
+      await forget();
+      for (const dialect of both) {
+        expect(await verifyOn(dialect)).to.deep.include({ redacted: 1, tampered: undefined, unexplainedRedactions: [] });
+      }
+    });
   });
 
   for (const dialect of TestDb.dialects()) {
