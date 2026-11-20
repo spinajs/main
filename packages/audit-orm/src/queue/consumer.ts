@@ -13,6 +13,7 @@ import { ArchiveAuditSink } from '../ship/archive-sink.js';
 import { OutboxAuditStore } from '../ship/outbox-store.js';
 import { AUDIT_OUTBOX_TABLE } from '../ship/table.js';
 import { AuditBatchRecorded } from './event.js';
+import { checkBatchSignature } from './signing.js';
 
 // What `forget` records; the core has no constant for it.
 // A publisher's clock may run ahead of ours, but an event far in the future would escape retention and skew reads by time.
@@ -173,6 +174,7 @@ export async function archiveAuditBatch(message: AuditBatchRecorded): Promise<vo
   if (typeof message.Source !== 'string') throw new InvalidOperation(`${MALFORMED}: Source is not a string`);
   const raw: unknown = message.Events;
   if (!Array.isArray(raw)) throw new InvalidOperation(`${MALFORMED}: Events is not an array`);
+  checkBatchSignature(message);
   const events = raw.map(fromWire);
   // The sink opens its own transaction: a duplicate a concurrent delivery stored is retried there instead of aborting a transaction of ours.
   await DI.resolve(ArchiveAuditSink).deliver({ trail: message.Trail, source: message.Source, events });

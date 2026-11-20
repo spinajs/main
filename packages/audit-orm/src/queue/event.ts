@@ -10,4 +10,8 @@ export class AuditBatchRecorded extends QueueEvent {
   public Trail!: string;
   public Source!: string;
   public Events!: WireAuditEvent[];
+  /** Set only when the publisher signs (`audit.queue.signing`): the id of the key `Sig` was made with. */
+  public KeyId?: string;
+  /** Base64url HMAC-SHA256 of the canonical JSON of `{ trail, source, events }`. */
+  public Sig?: string;
 }
