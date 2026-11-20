@@ -188,3 +188,40 @@ export async function c21() { await c20(); }
 export async function c22() { await c21(); }
 export async function warmChain() { await c1(); await c2(); await c3(); await c4(); await c5(); await c6(); await c7(); await c8(); await c9(); await c10(); await c11(); await c12(); await c13(); await c14(); await c15(); await c16(); await c17(); await c18(); await c19(); await c20(); await c21(); await c22(); }
 export async function lastOnly() { await c22(); }
+
+export class PassedByName {
+  public async forEachByName() {
+    [Invoice.where('Status', 'each')].forEach(this.exec);
+  }
+
+  public async mappedByName(queries: Selected[]) {
+    await Promise.all(queries.map(this.exec));
+  }
+
+  public async madeByName(statuses: string[]) {
+    await Promise.all(statuses.map(this.make));
+  }
+
+  public async withThis() {
+    await this.execWithThis(Invoice.query().accessible('invoice:read'), Invoice.where('Status', 'this2'));
+  }
+
+  public async redeclared() {
+    var q = Invoice.query();
+    q.accessible('invoice:read');
+    await q;
+    var q = Invoice.where('Status', 'var2');
+    await q;
+  }
+
+  private exec = async (q: Selected) => {
+    await q;
+  };
+
+  private make = (status: string) => Invoice.where('Status', status);
+
+  private async execWithThis(this: PassedByName, scoped: Selected, q: Selected) {
+    void scoped;
+    await q;
+  }
+}

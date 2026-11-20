@@ -209,6 +209,25 @@ describe('flow: summarize', () => {
     expect(chain.opaqueCalls).to.equal(0);
   });
 
+  it('a function passed by name runs the builders it is handed and hands back nothing a caller sees', () => {
+    for (const [root, via] of [
+      ['PassedByName.forEachByName', 'PassedByName.exec:reference'],
+      ['PassedByName.mappedByName', 'PassedByName.exec:reference'],
+      ['PassedByName.madeByName', 'PassedByName.make:reference'],
+    ]) {
+      expect(effectsOf(root), root).to.deep.equal([['read-many', 'Invoice', 'none', null, via]]);
+    }
+  });
+
+  it('a this parameter does not shift the parameters a call hands builders to', () => {
+    expect(effectsOf('PassedByName.withThis')).to.deep.equal(UNSCOPED_READ);
+    expect(sitesOf('PassedByName.withThis')).to.deep.equal(["Invoice.where('Status', 'this2')"]);
+  });
+
+  it('a var declared twice takes no scoping statement', () => {
+    expect(effectsOf('PassedByName.redeclared').map((e) => e[2])).to.include('none').and.not.include('accessible');
+  });
+
   it('the shapes the tracer reads conservatively stay unscoped where a root runs them', () => {
     // A returned `??` runs operand by operand: the scoped default is an effect of its own.
     for (const root of ['OptionalShapes.nullishOptional', 'CastShapes.castChoiceFromAny']) {
