@@ -9,7 +9,7 @@ import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, Primary, QueryMiddleware, RawQuery, Relation, SortOrder, extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
-import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditSubjectType, registerAuditReads } from '../../src/index.js';
+import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditReadsOf, auditSubjectType, registerAuditReads } from '../../src/index.js';
 import { DIALECTS, TestDb } from '../../src/testing.js';
 import type { Dialect } from '../../src/testing.js';
 import { forgetAuditReads } from '../../src/reads/rules.js';
@@ -292,6 +292,23 @@ describe('read auditing', function () {
   it('refuses row mode on a model without a primary key, where the rule is declared', () => {
     expect(() => registerAuditReads(Keyless)).to.throw(AuditConfigError, "@AuditReads on Keyless: mode 'row' needs a primary key, and Keyless declares none; use mode 'query'");
     expect(() => registerAuditReads(Keyless, { mode: 'query' })).to.not.throw();
+  });
+
+  it('refuses a second rule for a model and keeps the first', () => {
+    expect(() => registerAuditReads(Patient, { trail: 'other' })).to.throw(AuditConfigError, '@AuditReads on Patient: Patient already has a read rule, declared by @AuditReads; a model takes one rule');
+    expect(() => AuditReads({ trail: 'other', mode: 'query' })(class Patient extends ModelBase<unknown> {})).to.throw(
+      AuditConfigError,
+      '@AuditReads on Patient: Patient already has a read rule, declared by @AuditReads on another class named Patient; a model takes one rule',
+    );
+    expect(auditReadsOf(Patient)?.trail).to.eq('restricted');
+
+    class Ledger extends ModelBase<Ledger> {}
+    try {
+      registerAuditReads(Ledger, { mode: 'query' });
+      expect(() => registerAuditReads(Ledger, { mode: 'query' })).to.throw(AuditConfigError, '@AuditReads on Ledger: Ledger already has a read rule, declared by registerAuditReads; a model takes one rule');
+    } finally {
+      forgetAuditReads(Ledger);
+    }
   });
 
   for (const [dialect, models] of MODELS) {

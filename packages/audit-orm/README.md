@@ -23,7 +23,8 @@ A confirmed write that is not joined and cannot finish fails at `audit.confirmTi
 their values). `columns` limits auditing to selects that return one of them. The record is written, confirmed, before
 the rows are returned; when it cannot be written after the trail's retries the select rejects with `AuditWriteFailed`,
 unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
-the same for a model of another package.
+the same for a model of another package. A model takes one rule: a second `@AuditReads` or `registerAuditReads` for a
+class of that name throws `AuditConfigError` and leaves the first in force.
 
 What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
 per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation

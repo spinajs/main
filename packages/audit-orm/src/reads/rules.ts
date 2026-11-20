@@ -27,8 +27,16 @@ export interface ReadRule {
 const MODES: readonly string[] = ['row', 'query'];
 const FAILURES: readonly string[] = ['continue', 'reject'];
 
+type Entry = '@AuditReads' | 'registerAuditReads';
+
+interface Registration {
+  readonly rule: ReadRule;
+  readonly target: object;
+  readonly entry: Entry;
+}
+
 // Keyed by class name: the ORM hands a builder the registered model of that name (createQuery).
-const rules = new Map<string, ReadRule>();
+const rules = new Map<string, Registration>();
 
 function ruleOf(target: { readonly name: string }, options: AuditReadsOptions): ReadRule {
   const model = target.name;
@@ -55,14 +63,25 @@ function ruleOf(target: { readonly name: string }, options: AuditReadsOptions): 
   return { model, trail: options.trail ?? 'default', mode, columns: columns ? [...columns] : undefined, onFailure };
 }
 
+function register(target: { readonly name: string }, options: AuditReadsOptions, entry: Entry): void {
+  const rule = ruleOf(target, options);
+  const earlier = rules.get(rule.model);
+  if (earlier) {
+    const where = earlier.target === target ? '' : ` on another class named ${rule.model}`;
+    throw new AuditConfigError(`@AuditReads on ${rule.model}: ${rule.model} already has a read rule, declared by ${earlier.entry}${where}; a model takes one rule`);
+  }
+
+  rules.set(rule.model, { rule, target, entry });
+}
+
 /** Declares read auditing for a model of another package. */
 export function registerAuditReads(model: Constructor<ModelBase>, options: AuditReadsOptions = {}): void {
-  rules.set(model.name, ruleOf(model, options));
+  register(model, options, 'registerAuditReads');
 }
 
 export function AuditReads(options: AuditReadsOptions = {}): ClassDecorator {
   return (target) => {
-    rules.set(target.name, ruleOf(target, options));
+    register(target, options, '@AuditReads');
   };
 }
 
@@ -76,8 +95,8 @@ export const hasAuditReads = (): boolean => rules.size !== 0;
 /** The rule of the model or of its nearest ancestor that has one: a discrimination map shares its table. */
 export function auditReadsOf(model: Constructor<ModelBase> | undefined): ReadRule | undefined {
   for (let type: unknown = model; typeof type === 'function' && type.name !== ''; type = Object.getPrototypeOf(type)) {
-    const rule = rules.get(type.name);
-    if (rule) return rule;
+    const registered = rules.get(type.name);
+    if (registered) return registered.rule;
   }
 
   return undefined;
