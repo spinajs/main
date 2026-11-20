@@ -93,7 +93,7 @@ function config(opts: IBootOptions): Record<string, unknown> {
         Driver: 'orm-driver-sqlite',
         Filename: ':memory:',
         Name: 'default',
-        Migration: { Table: 'orm_migrations', OnStartup: true },
+        Migration: { Table: 'orm_migrations' },
       },
       ...(opts.connections ?? []),
     ],

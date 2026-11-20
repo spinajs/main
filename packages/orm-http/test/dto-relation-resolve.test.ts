@@ -1,7 +1,8 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { OrmNotFoundException, Orm } from '@spinajs/orm';
+import { OrmNotFoundException } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { TestConfiguration } from './common.js';
 import { Relation, RelationResolverHydrator } from './../src/dto-relation.js';
 import { CampaignDTO } from './dto/CampaignDTO.js';
@@ -42,7 +43,7 @@ describe('DTO @Relation resolution (orm integration)', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) { await b.bootstrap(); }
-    await (await DI.resolve(Orm)).Migrator.ready(); // auto-runs migrations, incl. users + campaign
+    await migrateTestDatabase(); // auto-runs migrations, incl. users + campaign
   });
 
   const resolveDto = (input: any): Promise<CampaignDTO> => {

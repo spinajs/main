@@ -5,7 +5,7 @@ import type { RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { subjectKey } from '../keys.js';
-import { rebacHolders, rebacListSupport } from '../model/filter.js';
+import { reachFind, rebacHolders, rebacListSupport } from '../model/filter.js';
 import { RebacModel } from '../model/model.js';
 import type { CompiledRewrite, NamespaceSchema } from '../namespace/compile.js';
 import { AUTHZ_REBAC_TUPLE_TABLE } from '../stores/db.js';
@@ -54,15 +54,67 @@ export function rebacRlsExpr(schema: NamespaceSchema, t: ResourceType, name: str
   return named(t, name, budget);
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function refuse(path: string, what: string): never {
+  throw new AuthzConfigError(`${REBAC_RLS_PLAN_OP}: ${path} ${what}`);
+}
+
+function text(v: unknown, path: string): string {
+  if (typeof v !== 'string' || v === '') refuse(path, 'must be a non-empty string');
+  return v;
+}
+
+function fields(v: unknown, keys: readonly string[], path: string): Record<string, unknown> {
+  if (!isRecord(v)) refuse(path, 'must be an object');
+  for (const k of Object.keys(v)) if (!keys.includes(k)) refuse(`${path}.${k}`, 'is not a known key');
+  return v;
+}
+
+function list(v: unknown, path: string): RebacRlsExpr[] {
+  if (!Array.isArray(v)) refuse(path, 'must be an array');
+  const items: unknown[] = v;
+  // Array.from visits holes, which map skips and render would join as empty SQL.
+  return Array.from(items, (item, i) => parseRebacRlsExpr(item, `${path}[${i}]`));
+}
+
+/**
+ * The term as `rebacRlsExpr` builds it, checked node by node: a plan hands its args over as `unknown`.
+ * @throws AuthzConfigError naming the path of the first malformed node (`any[1].tuples`)
+ */
+export function parseRebacRlsExpr(args: unknown, path = ''): RebacRlsExpr {
+  const here = path === '' ? 'args' : path;
+  const at = (key: string): string => (path === '' ? key : `${path}.${key}`);
+  if (!isRecord(args)) refuse(here, 'must be an object');
+  const entries = Object.entries(args);
+  if (entries.length !== 1) refuse(here, 'must have exactly one of tuples, arrow, any, all');
+  const [[kind, value]] = entries;
+  switch (kind) {
+    case 'tuples':
+      return { tuples: text(value, at('tuples')) };
+    case 'any':
+      return { any: list(value, at('any')) };
+    case 'all':
+      return { all: list(value, at('all')) };
+    case 'arrow': {
+      const { tupleset, type, expr } = fields(value, ['tupleset', 'type', 'expr'], at('arrow'));
+      return { arrow: { tupleset: text(tupleset, at('arrow.tupleset')), type: text(type, at('arrow.type')), expr: parseRebacRlsExpr(expr, at('arrow.expr')) } };
+    }
+    default:
+      return refuse(at(kind), 'is not a known key');
+  }
+}
+
+// RLS has no request env to evaluate a caveat with: conditional tuples (caveat_key set) never hold.
 function render(e: RebacRlsExpr, ns: string, id: string, ctx: RlsSqlContext, next: () => number): string {
   if ('tuples' in e) {
     const a = `rt${next()}`;
-    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(e.tuples)} AND ${a}.subject_key IN (${ctx.subjectKeys}))`;
+    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(e.tuples)} AND ${a}.subject_key IN (${ctx.subjectKeys}) AND ${a}.caveat_key IS NULL)`;
   }
   if ('arrow' in e) {
     const a = `rp${next()}`;
     const { tupleset, type, expr } = e.arrow;
-    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(tupleset)} AND ${a}.subject_type = ${ctx.literal(type)} AND ${a}.subject_relation = '' AND ${render(expr, ctx.literal(type), `${a}.subject_id`, ctx, next)})`;
+    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(tupleset)} AND ${a}.subject_type = ${ctx.literal(type)} AND ${a}.subject_relation = '' AND ${a}.caveat_key IS NULL AND ${render(expr, ctx.literal(type), `${a}.subject_id`, ctx, next)})`;
   }
   const [parts, glue, empty] = 'any' in e ? [e.any, ' OR ', 'FALSE'] : [e.all, ' AND ', 'TRUE'];
   return parts.length === 0 ? empty : `(${parts.map((p) => render(p, ns, id, ctx, next)).join(glue)})`;
@@ -80,7 +132,7 @@ export class RebacRlsTerm extends PlanTermCompiler {
 
   renderSql(args: unknown, ctx: RlsSqlContext): string {
     let n = 0;
-    return render(args as RebacRlsExpr, ctx.literal(ctx.type), ctx.id, ctx, () => n++);
+    return render(parseRebacRlsExpr(args), ctx.literal(ctx.type), ctx.id, ctx, () => n++);
   }
 }
 
@@ -100,11 +152,16 @@ export class RebacRlsPlanSource extends RlsPlanSource {
     const support = rebacListSupport(schema, permission.name, type);
     if (support !== true) throw new Error(support.reason);
     const target = schema.targets.get(permission.name)!;
+    const conditional = reachFind(schema, type, target.name, { relation: (rel) => rel.conditional.length > 0 });
+    if (conditional !== undefined) throw new Error(`rebac: ${permission.name} on ${type} reaches the conditional relation ${conditional}, whose caveats read the request; the database has no request to read`);
     return { kind: 'terms', permit: [{ op: REBAC_RLS_PLAN_OP, args: rebacRlsExpr(schema, type, target.name, m.limit().maxDepth) }], deny: [] };
   }
 }
 
-/** ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1 hops. */
+/**
+ * ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1
+ * hops. Without a request no caveat can be decided, so a conditional membership gives no key.
+ */
 @Singleton()
 @Injectable(RlsSubjectKeys)
 export class RebacRlsSubjectKeys extends RlsSubjectKeys {

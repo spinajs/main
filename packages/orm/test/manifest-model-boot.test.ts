@@ -31,7 +31,7 @@ class ManifestSourceConf extends FrameworkConfiguration {
     await super.resolve();
     this.Config = {
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-      db: { Models: { Source: source }, Connections: [{ Driver: 'manifest-source-driver', Name: CONNECTION, Migration: { OnStartup: false } }] },
+      db: { Models: { Source: source }, Connections: [{ Driver: 'manifest-source-driver', Name: CONNECTION }] },
     };
   }
 }

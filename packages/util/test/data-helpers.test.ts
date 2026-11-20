@@ -3,6 +3,8 @@ import { runInNewContext } from 'node:vm';
 import {
   allMaybe,
   asciiLower,
+  asPlainObject,
+  asString,
   chunk,
   compareCodePoints,
   compareStrings,
@@ -28,6 +30,7 @@ import {
   stableStringify,
   thenMaybe,
   toEpochMs,
+  toFiniteNumber,
   truncate,
   UNSAFE_KEYS,
 } from '../src/index.js';
@@ -136,6 +139,29 @@ describe('type guards', () => {
     expect(isNonNegativeInt(1.5)).to.be.false;
     expect(isNonNegativeInt(2 ** 53)).to.be.false;
     expect(isNonNegativeInt('1')).to.be.false;
+  });
+
+  it('asPlainObject and asString', () => {
+    const row = { a: 1 };
+    expect(asPlainObject(row)).to.equal(row);
+    expect(asPlainObject([])).to.be.undefined;
+    expect(asPlainObject(null)).to.be.undefined;
+    expect(asPlainObject('a')).to.be.undefined;
+    expect(asString('')).to.equal('');
+    expect(asString(1)).to.be.undefined;
+  });
+
+  it('toFiniteNumber reads numbers and numeric strings', () => {
+    expect(toFiniteNumber(1.5)).to.equal(1.5);
+    expect(toFiniteNumber(' 12.25 ')).to.equal(12.25);
+    expect(toFiniteNumber('1e3')).to.equal(1000);
+    expect(toFiniteNumber('')).to.be.undefined;
+    expect(toFiniteNumber('  ')).to.be.undefined;
+    expect(toFiniteNumber('12 rows')).to.be.undefined;
+    expect(toFiniteNumber(NaN)).to.be.undefined;
+    expect(toFiniteNumber('Infinity')).to.be.undefined;
+    expect(toFiniteNumber(null)).to.be.undefined;
+    expect(toFiniteNumber(true)).to.be.undefined;
   });
 });
 

@@ -15,3 +15,4 @@ export type { AuditBacklog } from './ship/backlog.js';
 import './ship/schema.js';
 export { ArchiveAuditSink } from './ship/archive-sink.js';
 export { ArchiveAuditReader } from './ship/archive-reader.js';
+export * from './reads/index.js';

@@ -23,3 +23,70 @@ A trail with `store: 'OutboxAuditStore'` buffers its events in `audit_outbox` (d
 `AuditShipTask` runs every 10 seconds on the leader once `@spinajs/audit-orm/scheduler` is imported; `scheduler.schedules['audit.ship'].enabled: false` turns it off. A delivery that takes longer than `audit.ship.deliverTimeoutMs` (default 30000, at most 120000) fails and its events stay buffered; no batch starts after `audit.ship.runBudgetMs` (default 300000), and a run refuses the two when together they exceed the schedule's `timeout` of 10 minutes. A run the budget stops logs the trails and connections it left buffered and returns `stoppedEarly: true`; the next run starts at the trail and connection the budget stopped before it shipped anything, or after the one it interrupted; a run narrowed by `trail` or `connection` leaves that order alone. One failing sink or connection fails the whole run, so `pauseAfterFailures` on `audit.ship` pauses shipping for every trail.
 
 Call `forget` on a shipping trail outside a transaction. Inside one, the buffer of the transaction's connection is blanked in that transaction while the destination is redacted at once: a rollback restores the buffered payloads, which are then shipped, and on sqlite and PGlite also drops the `erasure` event. Without a `source`, `forget` reads every connection that buffers, so it waits for a connection that shares one PGlite instance with an open transaction.
+`AuditShipTask` runs every 10 seconds on the leader once `@spinajs/audit-orm/scheduler` is imported; `scheduler.schedules['audit.ship'].enabled: false` turns it off. A delivery that takes longer than `audit.ship.deliverTimeoutMs` (default 30000) fails and its events stay buffered. One failing sink or connection fails the whole run, so `pauseAfterFailures` on `audit.ship` pauses shipping for every trail.
+## Read auditing
+
+`@AuditReads({ trail, mode, columns, onFailure })` on a model records who read it. `mode: 'row'` (default) writes one
+`read` event per returned row, `mode: 'query'` one per statement with the row count and the filter columns (never
+their values). `columns` limits auditing to selects that return one of them. The record is written, confirmed, before
+the rows are returned; when it cannot be written after the trail's retries the select rejects with `AuditWriteFailed`,
+unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
+the same for a model of another package. A model takes one rule: a second `@AuditReads` or `registerAuditReads` for a
+class of that name throws `AuditConfigError` and leaves the first in force.
+
+What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
+per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
+type, or through a relation's accessor) or a `join()` brings into a select of another model. A rule applies to the
+model's subclasses and to every model of its table on its connection. Column names match without regard to case, as
+sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only knows the declared spelling.
+
+Each selected column belongs to the table its table alias names: the queried table, or a join of the query under the
+alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
+alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
+audited table. A raw or `CASE` select expression counts for every audited column of every table in the query; next to
+a `CASE` column, such as authz-orm's `withAccess()` and `withFields()` add, rows are still named by their key, but the
+event lists every audited column of those tables, selected or not. A raw join leaves the queried table without an
+alias, so an unqualified column next to one counts for every audited table of the connection with a column of that
+name, as an aggregate there does. An
+aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join
+for every table of the query with a column of that name, since its SQL names no table; `count(*)` and aggregates over
+other columns do not.
+
+Where no row can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event
+per statement in the query-mode shape with `keyless: true`. So does a select where another column returns under the
+key's name, or with a raw select column, whose name the builder cannot read. A binary key is written as hex.
+
+`mode: 'query'` without `columns` records every select of the model, `count()` and `exists()` included, with the
+columns it disclosed (none for those two). `mode: 'row'` records nothing for `count(*)`, `exists()` or a select that
+returns the key alone (`select('Id').where(...)`): they return a number or the keys, nothing else of the model.
+
+What it does not see:
+
+- raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
+- a sub-select inside a raw select expression, which is raw SQL too: a raw expression counts for the tables of the
+  query only, so `Visit.query().select(RawQuery.create('(SELECT Ssn FROM patient WHERE patient.Id =
+  visit.patient_id) AS s'))` records nothing about `patient`;
+- what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
+  condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
+- data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
+
+Limits a reader of the trail must know:
+
+- a raw select column (`select(RawQuery.create(...))`) makes the row-mode events of its statement keyless: its output
+  name cannot be read, so it could shadow the key, and the statement is recorded without naming rows;
+- `mode: 'query'` with `columns` records only the selects that return one of them; every select of the model is
+  recorded only by a query-mode rule without `columns`;
+- a column under an alias no join of the query names is treated as widely as it could reach: it counts for every
+  audited table of the connection with a column of that name, and `*` there for every audited table.
+
+`paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
+
+Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one
+event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
+
+A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
+stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
+connection, the record joins the open transaction, also one the ORM opened itself (the reload of
+`save({ reload: true })`, relations loaded there, authz-orm's update and delete checks). It is tried once, commits with
+that transaction and rolls back with it: there a read inside a transaction that rolls back leaves no record. Every other
+confirmed record has a deadline, `audit.confirmTimeoutMs` (10 s by default); past it a `reject` rule fails the select.

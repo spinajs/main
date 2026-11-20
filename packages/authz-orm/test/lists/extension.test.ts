@@ -1,10 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
+import { AuthzConfigError } from '@spinajs/authz';
 import { DeleteQueryExtension, SelectQueryExtension, UpdateQueryExtension } from '@spinajs/orm';
 import type { QueryBuilder } from '@spinajs/orm';
 
 import { AuthzAccessFieldsExtension, AuthzDeleteExtension, AuthzSelectExtension, AuthzUpdateExtension } from '../../src/index.js';
 import { marksOf, setMarks } from '../../src/marker.js';
+import type { AccessMarks } from '../../src/marker.js';
 
 const expect = chai.expect;
 
@@ -43,5 +45,21 @@ describe('authz-orm query extensions', () => {
     const clone = {};
     new AuthzSelectExtension().onClone({} as QueryBuilder, clone as QueryBuilder);
     expect(marksOf(clone)).to.equal(undefined);
+  });
+
+  it('refuse the merge of a query that carries a filtering mark', () => {
+    const filtering: AccessMarks[] = [{ accessible: 'task:read' }, { within: [[{ type: 'project', id: 'p1' }]] }, { withAccess: ['task:read'] }, { withFields: 'task:read' }];
+    for (const marks of filtering) {
+      const source = {};
+      setMarks(source, marks);
+      expect(() => new AuthzSelectExtension().onMerge(source as QueryBuilder)).to.throw(AuthzConfigError, 'merged into another query');
+    }
+  });
+
+  it('let an unmarked query and an unscoped one be merged', () => {
+    const unscoped = {};
+    setMarks(unscoped, { unscoped: 'nightly export' });
+    expect(() => new AuthzSelectExtension().onMerge({} as QueryBuilder)).not.to.throw();
+    expect(() => new AuthzSelectExtension().onMerge(unscoped as QueryBuilder)).not.to.throw();
   });
 });
