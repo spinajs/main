@@ -191,6 +191,7 @@ export class NamespaceSchema {
   /** Permission -> the relation or permission it asks for. */
   readonly targets: ReadonlyMap<Permission, { readonly type: ResourceType; readonly name: string }>;
   private readonly digest: string;
+  private readonly reachable = new Map<string, readonly string[]>();
 
   private constructor(
     readonly namespaces: ReadonlyMap<ResourceType, CompiledNamespace>,
@@ -244,6 +245,41 @@ export class NamespaceSchema {
     }
     const def = tuple.caveat && this.caveats.get(tuple.caveat.name);
     return tuple.caveat && def ? contextProblem(def, tuple.caveat) : undefined;
+  }
+
+  /** The caveats of the conditional entries on every relation `type#name` reaches through rewrites, subject sets and arrows, sorted. */
+  caveatsReachable(type: ResourceType, name: string): readonly string[] {
+    const key = `${type}#${name}`;
+    let out = this.reachable.get(key);
+    if (out === undefined) {
+      const found = new Set<string>();
+      this.collectCaveats(type, name, new Set(), found);
+      out = [...found].sort();
+      this.reachable.set(key, out);
+    }
+    return out;
+  }
+
+  private collectCaveats(type: ResourceType, name: string, seen: Set<string>, found: Set<string>): void {
+    const key = `${type}#${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const rel = this.relation(type, name);
+    if (rel) {
+      for (const c of rel.conditional) found.add(c.caveat);
+      for (const s of [...rel.sets, ...rel.conditional]) if (s.relation !== undefined) this.collectCaveats(s.type, s.relation, seen, found);
+      return;
+    }
+    for (const node of walk(this.permission(type, name) ?? { kind: 'union', children: [] })) {
+      if (node.kind === 'computed') {
+        this.collectCaveats(type, node.name, seen, found);
+        continue;
+      }
+      const tupleset = this.relation(type, node.tupleset);
+      if (!tupleset) continue;
+      for (const c of tupleset.conditional) if (c.relation === undefined) found.add(c.caveat);
+      for (const t of objectTypesOf(tupleset)) if (this.has(t, node.computed)) this.collectCaveats(t, node.computed, seen, found);
+    }
   }
 
   /** Changes with any namespace, permission-map or caveat change. */

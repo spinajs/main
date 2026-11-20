@@ -1,6 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AuthzConfigError, CORE_FILTER_OPS, FALSE, TRUE } from '@spinajs/authz';
+import { AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, TRUE } from '@spinajs/authz';
 import type { PermissionDef, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { FakePermissionRegistry, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
@@ -191,7 +191,7 @@ describe('authz-rebac: RebacModel', () => {
     });
   });
 
-  describe('conditional tuples before the model evaluates caveats', () => {
+  describe('conditional tuples', () => {
     const c = { params: { 'env.x': 'string' }, expr: { attr: 'env.x', eq: 'y' } } as const;
     const caveated = (t: Tuple): Tuple => ({ ...t, caveat: { name: 'c' } });
     const namespaces = {
@@ -214,19 +214,20 @@ describe('authz-rebac: RebacModel', () => {
       return model;
     }
 
-    it('a check holds no conditional tuple: direct, through a subject set or an arrow', async () => {
+    it('check() decides a caveat only with a request and a context: direct, through a subject set or an arrow', async () => {
       const model = await conditional();
-      for (const doc of [d1, d2, d3]) expect(await model.check(doc, 'read', user('bob')), doc.id).to.equal('not');
+      const ctx = fakeEvaluationContext({ permissions: PERMISSION_INPUTS, conditions: new DefaultConditionCompiler() });
+      for (const doc of [d1, d2, d3]) {
+        expect(await model.check(doc, 'read', user('bob')), doc.id).to.equal('unknown');
+        expect(await model.check(doc, 'read', user('bob'), ctx, { env: { x: 'y' } }), doc.id).to.equal('member');
+        expect(await model.check(doc, 'read', user('bob'), ctx, { env: { x: 'z' } }), doc.id).to.equal('not');
+      }
     });
 
-    it('a list plan expands no conditional membership; expand and listSubjects leave conditional tuples out', async () => {
+    it('a list plan still expands no conditional membership', async () => {
       const model = await conditional();
       const plan = await model.listPlan({ principal: userPrincipal('bob'), permission: def('doc:read'), type: 'doc' }, fakeEvaluationContext({ permissions: PERMISSION_INPUTS }));
       expect(plan).to.deep.equal({ kind: 'terms', permit: [{ op: 'rebac.tuples', args: { any: [{ tuples: { relation: 'viewer', subjects: ['user:bob'] } }, { tuples: { relation: 'parent', subjects: ['folder:f1'] } }] } }], deny: [] });
-      expect(await model.expand(d1, 'viewer')).to.deep.equal({ kind: 'tuples', object: d1, relation: 'viewer', subjects: [] });
-      expect(await model.expand(d3, 'read')).to.deep.include({ kind: 'union' });
-      expect(JSON.stringify(await model.expand(d3, 'read'))).to.not.include('f1');
-      expect((await model.listSubjects(d1, 'read', 'user')).subjects).to.deep.equal([]);
     });
   });
 

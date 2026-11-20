@@ -136,6 +136,8 @@ describe('authz-rebac: namespace compiler', () => {
         { type: 'group', relation: 'member', caveat: 'office_ip' },
       ]);
       expect(objectTypesOf(s.relation('doc', 'parent')!)).to.deep.equal(['folder']);
+      expect(s.caveatsReachable('doc', 'read')).to.deep.equal(['not_expired', 'office_ip']);
+      expect(s.caveatsReachable('folder', 'view')).to.deep.equal([]);
     });
 
     it('admits a tuple by its shape and caveat name', () => {
