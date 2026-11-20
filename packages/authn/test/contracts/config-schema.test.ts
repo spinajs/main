@@ -196,7 +196,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
+      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, listenerTimeoutMs: 2000 } });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -244,7 +244,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, listenerTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -260,7 +260,7 @@ describe('authn.* configuration schema', () => {
         token: TOKEN_DEFAULTS,
         keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
-        audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
+        audit: { hashIdentifiers: true, listenerTimeoutMs: 2000 },
         http: {},
         strategies: [],
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] },
@@ -303,7 +303,7 @@ describe('authn.* configuration schema', () => {
     it('refuses zero lifetimes', () => {
       refused({ impersonation: { maxMinutes: 0 } }, '/impersonation/maxMinutes');
       refused({ impersonation: { clockSkewSeconds: 301 } }, '/impersonation/clockSkewSeconds');
-      refused({ audit: { sinkTimeoutMs: 0 } }, '/audit/sinkTimeoutMs');
+      refused({ audit: { listenerTimeoutMs: 0 } }, '/audit/listenerTimeoutMs');
     });
 
     it('refuses duplicate strategy or mfa step names', () => {

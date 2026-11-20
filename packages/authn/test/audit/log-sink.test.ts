@@ -224,7 +224,7 @@ describe('LogAuthnAuditSink', function () {
     it('is selected by name, resolved as a singleton and writes to the DI Log', async () => {
       const child = await childWith({ hashKey: { secret: KEY } });
       const audit = await child.resolve(AuthnAudit);
-      const s = audit.sinks().find((x) => x instanceof LogAuthnAuditSink);
+      const s = audit.listeners().find((x) => x instanceof LogAuthnAuditSink);
       expect(s).to.equal(await child.resolve(LogAuthnAuditSink));
       await audit.publish(event());
       expect(written()).to.have.length(1);

@@ -41,7 +41,7 @@ const authn = {
     },
     audit: {
       hashIdentifiers: true,
-      sinkTimeoutMs: 2000,
+      listenerTimeoutMs: 2000,
     },
   },
 };

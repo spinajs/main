@@ -6,7 +6,7 @@ import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, 
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/boot/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
@@ -250,8 +250,8 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
     for (const [name, base, value] of neighbours) if (!omit.has(name)) bind(child, base, `Kit${name}`, value);
     bind(child, MfaStep, KIT_MFA_STEP, step);
     for (const s of strategies) if (s.instance) bind(child, AuthenticationStrategy, s.service, s.instance);
-    bind(child, AuthnEventSink, 'KitEvents', events);
-    bind(child, AuthnEventSink, 'KitEvents2', second);
+    bind(child, AuthnEventListener, 'KitEvents', events);
+    bind(child, AuthnEventListener, 'KitEvents2', second);
     // A runner per case: the root's would read the hooks of the root only.
     child.register(DefaultHooks).as(Hooks);
     if (opts.startHook !== false && !omit.has('ImpersonationGuard')) bind(child, ActionHook, 'KitImpersonationStartHook', new FakeImpersonationStartHook(() => guard));

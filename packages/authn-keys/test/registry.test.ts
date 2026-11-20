@@ -245,7 +245,7 @@ describe('DefaultKeyRegistry', () => {
       }
     }
     const events = new RecordingEventSink();
-    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { sinkTimeoutMs: 20 }), options: keysOptionsFor({ assertion: { audience: AUD } }) });
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { listenerTimeoutMs: 20 }), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const ctx = new FakeClock().ctx();
     const started = Date.now();
     const r = await registry.register({ owner: SVC, actor: ADMIN, jwk: generateKeyPair('EdDSA').publicJwk }, ctx);
