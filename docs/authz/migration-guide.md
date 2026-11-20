@@ -81,7 +81,7 @@ Rules for the move (§4.1.1):
   `LocalPasswordStrategy`, `TwoFactorAuthProvider` is now `MfaStep`, `RbacMiddleware` is now
   `AuthnMiddleware`.
 - The 2.x queue events `UserRoleGranted` and `UserRoleRevoked` become `RoleAssigned` and
-  `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventSink`.
+  `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventListener`.
 - Logger names (`rbac`, `rbac-http-token`) and the queue connection `rbac-user-empty-queue` stay
   as they were. The QR command logged as `rbac-http-user`; it now logs as `authn-totp`.
 
@@ -182,8 +182,8 @@ password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name
 **Core keys as built (N1).** `@spinajs/authn` ships defaults for `strategies`, `mfa.policy`,
 `throttle`, `freshAuth`, `linking`, `impersonation`, `audit` and `config`. They equal the schema and
 code defaults. The package lists **no strategy and no MFA step**, because a configured array replaces
-the default in 4.0: you list each strategy once, in one file. Every registered `AuthnEventSink` gets the audit
-events; `authn.audit` has no sink list.
+the default in 4.0: you list each strategy once, in one file. Every registered `AuthnEventListener` gets the audit
+events; `authn.audit` has no listener list.
 `authn.throttle.service` has no default. Left out, the only registered throttle runs, or the only one
 besides `MemoryAuthnThrottle`. `@spinajs/authn` registers `MemoryAuthnThrottle`; importing
 `@spinajs/authn-orm` adds `DbAuthnThrottle`, which then runs (K6) and needs `authn.audit.hashKey.secret`
@@ -199,7 +199,7 @@ services, never values.
 | Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env fails boot as `InvalidConfiguration` with the full path of each bad value (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a `previous` version that repeats or equals the current `version`) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
-| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
+| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `listenerTimeoutMs` or `hashKey` (under 32 characters) | No listener registered at all |
 | Neighbours | No `IdentityStore`, `PrincipalFactory` or `SessionIssuer` (also when only per-request strategies are listed) | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, but authn treats the deployment as production, with the strict secret checks. The warning says so. |
 
@@ -364,7 +364,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `user.Role`, raw SQL on `users.Role`, `withRole` | `RbacService.rolesOf(principal)`, `AssignmentStore.holders(role, scope)`, or a join on `authz_assignment` |
 | `import { ... } from '@spinajs/rbac'` and the other `rbac*` packages | the new names of section 2 |
 | `UserRoleGranted`, `UserRoleRevoked` subscribers | `RoleAssigned`, `RoleRevoked` (`subject`, `role`, `scope`, `actor`, `expiresAt`) through an `AuthzEventSink`; 3.0 ships no queue sink ([section 11](#11-open-items-in-300-rc1)) |
-| `User2Fa*` queue events | gone; the audit events `mfa.enrol` and `mfa.disable` reach every `AuthnEventSink` |
+| `User2Fa*` queue events | gone; the audit events `mfa.enrol` and `mfa.disable` reach every `AuthnEventListener` |
 | `login(email, password)`, `SimpleDbAuthProvider.authenticate` | `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` (`DefaultAuthnService`) |
 | `passwordChangeRequest`, `confirmPasswordReset`, `changeUserPassword` | `PasswordService.requestReset`, `.redeemReset`, `.change` (`LocalPasswordService` in `authn-local`) |
 | `SessionProvider`, `UserSession`, `regenerateSession`, `revokeUserSessions` | `SessionProvider` from `@spinajs/authn-session`; `SessionIssuer.rotate`, `.revokeAll(subject)` |
@@ -381,7 +381,7 @@ Removed with no replacement (§11.5): `@Resource`, `@Permission`, `RbacPolicy`,
 `checkRbacPermission`, `checkUserPermission`, `checkRoutePermission`, `GrantsController`,
 `IGrantsMap`, `FilterAttribute`, `@SkipModelPermission`, `ACL_CONTROLLER_DESCRIPTOR`, the swagger
 `x-rbac-*` keys (use `x-authz-permission` and `x-authz-resource`), the `LogoutHandler` extension point
-(listen for the `logout` event in an `AuthnEventSink`) and the `orm-api` package.
+(listen for the `logout` event in an `AuthnEventListener`) and the `orm-api` package.
 
 ### 5.2 What the HTTP layer adds
 
@@ -719,7 +719,9 @@ role grants (`relation: 'owner'`). Check: the compiler finds no `@Permission`, `
   commands, `@Task` bodies, migrations, and `configuration-db-source` polling when its model has
   `@AccessResource`. users runs its own identity lookups (session restore, login, password reset) as
   `SYSTEM`. A queue handler runs unattended unless its job says `@Job({ runAs: 'initiator' })` or
-  `@Job({ runAs: 'system' })` (`authz-queue`).
+  `@Job({ runAs: 'system' })` (`authz-queue`). A `runAs: 'system'` job without `access` also needs
+  `@SystemTask(reason)` on its class; otherwise it is refused (`system_task_missing`) unless
+  `authz.queue.systemTask` is `'warn'`.
 - Remove every read of `users.Role` and `user.Role`.
 - Put `@UnfilteredInput(reason)` on routes that must accept a `neverRead` field.
 
@@ -771,8 +773,8 @@ Set these before the first 3.0 start:
   outside development and test;
 - `authn.audit.hashKey.secret` (32 characters or more), so throttle keys in `authn_throttle` are keyed
   hashes. Outside development and test, `DbAuthnThrottle` fails boot without it; in development and
-  test it uses a random key per process and warns once. `LogAuthnAuditSink` without it also uses a
-  random key per process, so the hashes in your logs change on each restart and differ between nodes;
+  test it uses a random key per process and warns once. The hashes of authentication events that
+  `@spinajs/audit-authn` writes to the `security` trail use `audit.hashKey.secret` instead;
 - `authn.throttle.service` only when you register a throttle of your own (section 3.4);
 - `http.trustProxy`: the proxy hops, or their addresses and CIDRs (section 3.4). Without it, every
   client behind the proxy shares one address for throttling and audit, and the CSRF guard sees the
@@ -1128,7 +1130,7 @@ Config, boot checks and old keys are in [section 3.4](#34-keys-that-other-config
 The flow is in the [authentication flow](../authn/01-authentication-flow.md). What an app sees:
 
 - **Class names.** `DefaultAuthnService`, `StrategyRegistry`, `DefaultMfaPolicy`,
-  `MemoryAuthnThrottle`, `AuthnAudit`, `LogAuthnAuditSink`, `AccountLinkService`, `FreshAuthCheck` and
+  `MemoryAuthnThrottle`, `AuthnAudit`, `AccountLinkService`, `FreshAuthCheck` and
   `AuthnImpersonationService`. DI keys classes by name, so the last two avoid the plain names: the
   `FreshAuth` policy and the 2.x `ImpersonationService` of `authn-http` would clash with them.
 - **Service names are class names.** `authn.strategies` entries and `authn.throttle.service`,
@@ -1153,8 +1155,9 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
   `requirePassword` means fresh auth or an inline re-authentication. An impersonation session is never
   fresh, `reauthenticate` refuses it, and its lifetime is bounded by `maxMinutes` and by
   `authn.session.expiration.maxLifetime`.
-- **Audit.** Each event goes to every sink concurrently, each bounded by `authn.audit.sinkTimeoutMs`
-  (default 2000). A sink that fails or times out is logged by error class only and never fails a login.
+- **Audit.** Each event goes to every listener concurrently, each bounded by `authn.audit.listenerTimeoutMs`
+  (default 2000). A listener that fails or times out is logged by error class only and fails a login only
+  when it is blocking.
   `token.use` and `key.use` successes are no longer sampled; `authn.audit.sampleUse` is gone and a config that still sets it fails boot.
 - **Boot.** Services that read config are per child container, so a child boot reads its own list.
 - **Per-request credentials count failures only (K5).** See the K5 subsection below; the parallel-load
@@ -1210,20 +1213,20 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
 
 ### N4: authn-orm
 
-- Tables: `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
-  `authn_recovery_code`, `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm
-  migration. No migration carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)).
+- Tables: `authn_identity`, `authn_throttle`, `authn_secret`, `authn_mfa`, `authn_recovery_code`,
+  `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm migration. No migration
+  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)). 4.0 no longer creates `authn_audit`
+  ([upgrade note](../upgrading/4.0.md#removed-the-authn_audit-table-of-spinajsauthn-orm)).
 - Throttle keys are an HMAC under `authn.audit.hashKey.secret`. Time always comes from Node, never SQL
   `now()`.
-- The audit sink never fails on event content. An identity that does not fit goes into `data`.
 - Reads check identity, step, purpose, provider and subject for exact equality in Node, because MySQL
   and MSSQL collations ignore case.
 - Recovery codes are unsalted SHA-256, so codes need at least 80 bits.
 - `DbSecretStore.redeem` costs the same for an unknown identity as for a wrong secret.
 - The stores work through the package's models (`AuthnIdentity`, `AuthnSecret`, `AuthnNonce`,
-  `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`) on the `default` connection. Their
+  `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`) on the `default` connection. Their
   3.0 alpha constructors took a driver and `StoreOptions`; now `new DbSecretStore()`,
-  `new DbIdentityLinkStore()`, `new DbNonceStore()`, `new DbMfaStore()` and `new DbAuthnAuditSink()`
+  `new DbIdentityLinkStore()`, `new DbNonceStore()` and `new DbMfaStore()`
   take no arguments, `StoreOptions` is gone, and `DbAuthnThrottle` takes `(params?, options?)`:
   without `params`, or with `options.container`, it reads `authn.throttle` and the hash key from the
   configuration. `DbThrottleStoreOptions` has no `driver`.
@@ -1447,7 +1450,7 @@ The full description is in the [authn-totp docs](../authn-totp/README.md).
 - **Throttle.** Confirming and disabling count into the `mfa` throttle, in the same budget as the
   login. Pick the `mfa` limits with that in mind.
 - `User2FaEnabled` and the other 2.x 2FA queue events are gone; listen for `mfa.enrol` and
-  `mfa.disable` in an `AuthnEventSink`.
+  `mfa.disable` in an `AuthnEventListener`.
 - Known limits: parallel regeneration can leave two live recovery-code sets (the store has no
   transaction), and `TotpService` finds the MFA steps in the root container.
 
@@ -1499,10 +1502,10 @@ field and error code a client sees. For an app:
 ### C1, C2, C2b, C3 and C3b: users and users-http
 
 - users implements authn's ports: `UserIdentityStore`, `UserPasswordStore` (compare-and-set),
-  `UserPasswordAgeSource`, `UserPrincipalFactory`, `UserAccountStatusSource`, `QueueAuthnEventSink`,
+  `UserPasswordAgeSource`, `UserPrincipalFactory`, `UserAccountStatusSource`, `QueueAuthnEventListener`,
   and the authz-backed hooks `AuthzImpersonationGuard`, `AccessResponseExtension`, `RbacRoleSource`
   and `AuthzCredentialAdminGuard`. `import '@spinajs/users'` registers them.
-- `QueueAuthnEventSink` re-emits `UserLogged`, `UserLoginFailed`, `UserPasswordChanged`,
+- `QueueAuthnEventListener` re-emits `UserLogged`, `UserLoginFailed`, `UserPasswordChanged`,
   `UserPasswordExpired`, `UserPasswordChangeRequest`, `UserImpersonationStarted` and
   `UserImpersonationEnded`. A redeemed invite no longer emits `UserPasswordChanged`; `create()` with a
   password does. `LastLoginAt` is no longer written.
@@ -1615,11 +1618,11 @@ upgrades.**
 | SR-08 | A reset revokes API tokens. Minting a token needs fresh auth and an expiry of at most `authn.token.maxTtlDays` (90). |
 | SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest, and recovery codes are SHA-256 only. |
 | SR-10 | `TotpService.adminReset` and `authn:mfa-reset` return no secret. The credential admin routes (`/authn/admin/users/:uuid/*`) need `users:credentials`, a target the caller covers, no protected role on the target, and fresh auth. |
-| SR-11 | An audit trail (log and database) is on by default. `DbAuthnAuditSink` stores raw subject refs, IP and user agent. |
+| SR-11 | Every authentication event reaches every `AuthnEventListener`. Recording them needs `@spinajs/audit-authn`, which writes to the `security` trail by default; without it nothing is recorded. |
 | SR-12 | The CSRF origin guard checks every cookie request with an unsafe method, and CORS with an empty list allows nothing (step 8). |
 | SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once, and an older time step is refused (`TotpMfaStep`, SR-15). |
 | SR-16 | Cookie flags and secret checks follow the app env, not `NODE_ENV=production` alone, and a missing env counts as production. |
-| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. `LogAuthnAuditSink` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
+| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. The `security` trail of `@spinajs/audit-authn` logs keyed hashes of identifiers. Re-authentication counts into the throttle. |
 
 ## 11. Open items in 3.0.0-rc.1
 

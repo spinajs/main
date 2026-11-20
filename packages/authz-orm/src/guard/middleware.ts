@@ -30,9 +30,7 @@ export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEnt
       return false;
     }
     if (s instanceof InStatement) {
-      // InStatement keeps its column and values in protected fields (statements.ts:288-302).
-      const x = s as unknown as { _column: string; _val: unknown[]; _not: boolean };
-      if (x._column === entry.idColumn && !x._not && x._val.length === 1 && isScalar(x._val[0])) {
+      if (s.Column === entry.idColumn && !s.Not && s.Values.length === 1 && isScalar(s.Values[0])) {
         keys++;
         continue;
       }

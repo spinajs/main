@@ -19,6 +19,7 @@ npm install @spinajs/authz-rebac
 | [Tuple stores](03-tuple-stores.md) | `TupleStore`, `MemoryTupleStore`, `DbTupleStore` and the `authz_rebac_tuple` table. |
 | [Lists](04-lists.md) | Type-level residuals for `filter()`, SQL list plans for `.accessible()`, and why exclusion is not planned. |
 | [Tuple administration](05-tuple-administration.md) | `tuple.write`, `tuple.delete`, the `tuples` query and `scope.forget` through `AuthzAdmin`, and the HTTP command schemas. |
+| [Conditional tuples](06-conditional-tuples.md) | Caveats (OpenFGA conditions): `authz.rebac.caveats`, `'user with c'` subject types, tuple contexts, three-valued answers, lists, RLS and OpenFGA interop. |
 
 ## Quick start
 
@@ -58,7 +59,7 @@ authz: {
 }
 ```
 
-Write tuples through `AuthzAdmin` (`tuple.write`, [Tuple administration](05-tuple-administration.md)) or the store, and run the `AuthzRebac_2026_10_21_00_00_00` migration on the `authz` connection.
+Write tuples through `AuthzAdmin` (`tuple.write`, [Tuple administration](05-tuple-administration.md)) or the store, and run the migrations `AuthzRebac_2026_10_21_00_00_00` and `AuthzRebacCaveats_2026_11_06_00_00_00` on the `authz` connection.
 
 ## Related packages
 

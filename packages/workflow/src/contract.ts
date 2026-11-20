@@ -2,7 +2,13 @@ import type { RetryPolicyOptions } from '@spinajs/durable';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
 
-export type WorkflowStatus = 'running' | 'sleeping' | 'waiting' | 'compensating' | 'completed' | 'failed' | 'compensated' | 'cancelled';
+export const WORKFLOW_STATUSES = ['running', 'sleeping', 'waiting', 'compensating', 'completed', 'failed', 'compensated', 'cancelled'] as const;
+
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+
+const STATUSES: ReadonlySet<string> = new Set(WORKFLOW_STATUSES);
+
+export const isWorkflowStatus = (value: string): value is WorkflowStatus => STATUSES.has(value);
 
 export const TERMINAL_STATUSES: readonly WorkflowStatus[] = ['completed', 'failed', 'compensated', 'cancelled'];
 
@@ -34,6 +40,8 @@ export interface StepMeta {
   after?: number;
   /** Delivery position among the instance's results; a replay hands them back in this order. */
   order?: number;
+  /** The call's number among the calls of its branch, from 1; a replay finds the recorded call by it. */
+  call?: number;
 }
 
 export interface WorkflowOptions {
@@ -68,6 +76,11 @@ export interface WorkflowEvent<T = unknown> {
   receivedAt: number;
 }
 
+export interface WorkflowAllOptions {
+  /** How many branches run at a time; all of them when absent. An item keeps the branch of its index either way. */
+  concurrency?: number;
+}
+
 export interface WorkflowContext<TInput = unknown> {
   readonly instanceId: string;
   readonly workflow: string;
@@ -81,6 +94,14 @@ export interface WorkflowContext<TInput = unknown> {
   /** Consumes the oldest pending event of `name` in insert order; `undefined` on timeout. */
   waitForEvent<T = unknown>(name: string, opts?: WaitForEventOptions): Promise<WorkflowEvent<T> | undefined>;
   emit(name: string, message: QueueEvent | QueueJob): Promise<void>;
+  /** Runs `fn` in a branch of its own, named by `name`: its durable calls are counted apart, whatever `fn` awaits first. Writes no journal row. */
+  branch<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * One branch per item, named by its index, with the results in item order. Use it instead of
+   * `Promise.all(items.map(...))` when a branch may await non-durable work before its first durable call, and
+   * instead of a concurrency limiter.
+   */
+  all<T, R>(items: readonly T[], fn: (item: T, index: number) => Promise<R> | R, opts?: WorkflowAllOptions): Promise<R[]>;
   now(): number;
   uuid(): string;
   random(): number;
@@ -111,4 +132,28 @@ export interface WorkflowInstanceView {
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
+}
+
+export interface WorkflowStepView {
+  seq: number;
+  key: string;
+  kind: StepKind;
+  status: StepStatus;
+  attempt: number;
+  error: SerializedError | null;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
+/** Payloads are left out: an operator reading the instance need not see what a signaller sent. */
+export interface WorkflowEventView {
+  id: string;
+  name: string;
+  principal: string | null;
+  receivedAt: number;
+}
+
+export interface WorkflowInstanceDetail extends WorkflowInstanceView {
+  steps: WorkflowStepView[];
+  pendingEvents: WorkflowEventView[];
 }

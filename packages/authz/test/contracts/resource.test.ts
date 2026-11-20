@@ -4,6 +4,8 @@ import fc from 'fast-check';
 
 import * as root from '../../src/index.js';
 import { GLOBAL, resourceKey } from '../../src/contracts/resource.js';
+import { parseResourceKey } from '../../src/contracts/resource-key.js';
+import { AuthzConfigError } from '../../src/contracts/errors.js';
 import type { ResourceRef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -106,6 +108,36 @@ describe('resource contracts', () => {
 
       fc.assert(fc.property(refOf(tricky(8)), (r) => same(decode(resourceKey(r)), r)));
       fc.assert(fc.property(refOf(fc.string()), (r) => same(decode(resourceKey(r)), r)));
+    });
+  });
+
+  describe('parseResourceKey', () => {
+    const tricky = (maxLength: number) => fc.string({ unit: fc.constantFrom('a', ':', '/', '%', '2', 'F', '3', 'A', '5'), maxLength });
+    const refOf = (s: fc.Arbitrary<string>) => fc.record({ type: s, id: fc.option(s, { nil: undefined }) }, { requiredKeys: ['type'] });
+
+    it('is the inverse of resourceKey, types with %, : and / included', () => {
+      const back = (r: ResourceRef) => parseResourceKey(resourceKey(r));
+      expect(back({ type: 'a:b/c%d', id: 'x:y/z' })).to.deep.equal({ type: 'a:b/c%d', id: 'x:y/z' });
+      expect(back({ type: 'doc' })).to.deep.equal({ type: 'doc' });
+      expect(back({ type: 'doc', id: '' })).to.deep.equal({ type: 'doc', id: '' });
+      expect(parseResourceKey('$global')).to.deep.equal({ type: '$global' });
+      const roundTrips = (r: ResourceRef) => {
+        const parsed = back(r);
+        return parsed.type === r.type && parsed.id === r.id && ('id' in parsed) === (r.id !== undefined);
+      };
+      fc.assert(fc.property(refOf(tricky(8)), roundTrips));
+      fc.assert(fc.property(refOf(fc.string()), roundTrips));
+    });
+
+    it('is exported from the package root', () => {
+      expect(root.parseResourceKey).to.eq(parseResourceKey);
+    });
+
+    it('rejects what resourceKey never produces', () => {
+      for (const bad of ['a/b:c', 'a%:c', 'a%2', 'a%41', 'a%2f:x']) {
+        expect(() => parseResourceKey(bad), bad).to.throw(AuthzConfigError, /is not a resource key/);
+      }
+      expect(() => parseResourceKey(42 as unknown as string)).to.throw(AuthzConfigError);
     });
   });
 });

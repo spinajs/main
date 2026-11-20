@@ -32,6 +32,23 @@ export interface ResourceEntry {
   readonly changelog: boolean;
 }
 
+/** One relation column of a resource: `@Parent` (relation `parent`), `@Owner` or `@Relation`. */
+export interface RelationColumn {
+  readonly relation: string;
+  readonly column: string;
+  /** The type of the referenced object, when the column alone says it. */
+  readonly type?: string;
+  readonly typeColumn?: string;
+}
+
+/** The relation columns whose writes the changelog records. */
+export function changelogColumns(entry: ResourceEntry): RelationColumn[] {
+  const out: RelationColumn[] = entry.parents.map((p) => ({ relation: 'parent', column: p.column, type: p.type }));
+  if (entry.owner) out.push({ relation: 'owner', column: entry.owner.column, ...(entry.owner.typeColumn ? { typeColumn: entry.owner.typeColumn } : { type: 'user' }) });
+  for (const [relation, c] of Object.entries(entry.relations ?? {})) out.push({ relation, column: c.column, ...(c.typeColumn ? { typeColumn: c.typeColumn } : { type: 'user' }) });
+  return out;
+}
+
 export interface OwnerColumns {
   readonly column: string;
   readonly typeColumn?: string;

@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import type { Int64Mode } from './converters.js';
+import type { IBoolConverterOptions, IDateTimeConverterOptions, Int64Mode } from './converters.js';
 import { DI, declaredPropertyType, getInheritedDescriptor, notePendingProperty } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import { RelationType, BooleanValueConverter, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
@@ -747,21 +747,6 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
   });
 }
 
-export function Historical(targetModel: Constructor<ModelBase>) {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    model.Relations.set(propertyKey, {
-      Name: propertyKey,
-      Type: RelationType.Many,
-      SourceModel: target,
-      TargetModelType: targetModel,
-      TargetModel: undefined as any,
-      ForeignKey: _relationDefaultKey(model, propertyKey, 'primaryKey'),
-      PrimaryKey: _relationDefaultKey(model, propertyKey, 'primaryKey'),
-      Recursive: false,
-    });
-  });
-}
-
 /**
  * Creates many to many relation with separate join table
  *
@@ -823,13 +808,20 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
 /**
  * Mark field as datetime type. It will ensure that conversion to & from DB is valid, eg. sqlite DB
  * saves datetime as TEXT and ISO8601 strings
+ *
+ * @param options - `unit`: what a numeric column counts since the epoch, `'seconds'` by default; `nullable`: allows a
+ *                  property typed `DateTime | null`, whose design type is `Object`
  */
-export function DateTime() {
+export function DateTime(options?: IDateTimeConverterOptions & { nullable?: boolean }) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     // Absent in a build without decorator metadata, where nothing checks the declared type.
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type && type.name !== 'DateTime') {
+    if (type && type.name !== 'DateTime' && !(options?.nullable && type === Object)) {
       throw Error(`Proprety  ${propertyKey} must be DateTime type, but is ${type.name}`);
+    }
+
+    if (options?.unit !== undefined && options.unit !== 'seconds' && options.unit !== 'milliseconds') {
+      throw new InvalidArgument(`property ${propertyKey}: unit must be 'seconds' or 'milliseconds', got ${String(options.unit)}`);
     }
 
     if (model.Converters.has(propertyKey)) {
@@ -838,6 +830,7 @@ export function DateTime() {
 
     model.Converters.set(propertyKey, {
       Class: DatetimeValueConverter,
+      Options: { unit: options?.unit ?? 'seconds' },
     });
   });
 }
@@ -862,11 +855,17 @@ export function DateTime() {
  * It also fixes the PUBLISHED type: `columnToSchema` maps `tinyint` to `{ type: 'integer' }` on the
  * SQL type alone, and overrides that to `{ type: 'boolean' }` when the column's declared converter
  * is a `BooleanValueConverter`.
+ *
+ * Without options NULL reads as `false` and `null` writes as `0`. `{ nullable: true }` keeps NULL
+ * in both directions, for a `boolean | null` property over a nullable column.
+ *
+ * @param options - `nullable`: keep NULL instead of coercing it to `false`
  */
-export function Bool() {
+export function Bool(options?: IBoolConverterOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
-    if (type && type.name !== 'Boolean') {
+    // TypeScript emits `Object` as the design type of `boolean | null`
+    if (type && type.name !== 'Boolean' && !(options?.nullable && type === Object)) {
       throw new InvalidArgument(`property ${propertyKey} must be boolean type, but is ${type?.name}`);
     }
 
@@ -876,6 +875,7 @@ export function Bool() {
 
     model.Converters.set(propertyKey, {
       Class: BooleanValueConverter,
+      Options: options,
     });
   });
 }

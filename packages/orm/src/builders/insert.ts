@@ -10,6 +10,7 @@ import type { IColumnsBuilder, ICompilerOutput, IUpdateResult } from '../interfa
 import type { ColumnStatement } from '../statements.js';
 import type { OrmDriver } from '../driver.js';
 import { extractModelDescriptor } from '../descriptor.js';
+import { adoptStatements } from '../explain/execution.js';
 import { RawQuery } from './raw.js';
 import { QueryBuilder } from './base.js';
 import { ColumnsBuilder } from './columns.js';
@@ -42,6 +43,7 @@ export function mergeInsertResults(results: unknown[]): unknown {
   };
 }
 
+/** @spinajs query insert */
 @NewInstance()
 export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
@@ -270,6 +272,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
       const results: unknown[] = [];
       for (const chunk of chunks) {
         results.push(await this._driver.execute(chunk));
+        adoptStatements(this, chunk);
       }
 
       return mergeInsertResults(results) as IUpdateResult;

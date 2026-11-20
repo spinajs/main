@@ -7,9 +7,9 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand } from '@spinajs/authz';
 import { ACTIVE_ROLE_KEY, AuthnImpersonationService, FreshAuthCheck } from '@spinajs/authn';
-import { AuthnEventSink, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnEventListener, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
-import { MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { rootAdmin } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser } from './support/users-db.js';
@@ -56,7 +56,7 @@ describe('impersonation by an actor narrowed by a role switch (users guard, auth
 
   let child: IContainer;
   let sessions: MemorySessionIssuer;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
 
   before(async () => {
     registerUsersTestHost();
@@ -71,11 +71,11 @@ describe('impersonation by an actor narrowed by a role switch (users guard, auth
 
   beforeEach(() => {
     sessions = new MemorySessionIssuer();
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     child = DI.RootContainer.child();
     bind(child, SessionIssuer, 'RoleSwitchTestSessions', sessions);
     bind(child, FreshAuthCheck, 'RoleSwitchTestFresh', { check: async () => true });
-    bind(child, AuthnEventSink, 'RoleSwitchTestEvents', events);
+    bind(child, AuthnEventListener, 'RoleSwitchTestEvents', events);
   });
 
   afterEach(async () => {

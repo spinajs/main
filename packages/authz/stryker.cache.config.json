@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "mocha",
+  "mochaOptions": {
+    "config": ".mocharc.stryker.json"
+  },
+  "testRunnerNodeArgs": [
+    "--experimental-specifier-resolution=node",
+    "--loader=ts-node/esm"
+  ],
+  "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
+  "inPlace": true,
+  "mutate": [
+    "src/engine/{cache-key,cache,context,plan,registry,routes}.ts",
+    "src/engine/{cache,context,plan}/**/*.ts"
+  ],
+  "reporters": [
+    "json",
+    "progress",
+    "clear-text"
+  ],
+  "jsonReporter": {
+    "fileName": "reports/mutation/cache/mutation.json"
+  },
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "dryRunTimeoutMinutes": 20,
+  "tempDirName": "../../.stryker-tmp/authz-cache"
+}

@@ -930,6 +930,12 @@ export interface IReplyContext extends IMiddlewareContext {
 export interface IFinishContext extends IMiddlewareContext {
   /** The client went away before the response finished. */
   readonly aborted: boolean;
+  /**
+   * Resolves once the action ended, with the error it threw; for a request whose action did not run, once the chain
+   * answered or stopped without it, with the error it answered (a refusal). After `aborted` the response is gone and the
+   * action may still run. Resolves once per request, the same promise for every hook, and never rejects.
+   */
+  readonly settled: Promise<{ readonly error?: unknown }>;
 }
 
 /** What an around middleware gets for one request. */
@@ -1001,12 +1007,22 @@ export interface IDocumentedAnswer {
   contentType?: string;
 }
 
+/** A request header a route middleware reads, for API documents. */
+export interface IDocumentedRequestHeader {
+  description: string;
+  required: boolean;
+  /** JSON schema of the value. */
+  schema: Record<string, unknown>;
+}
+
 /** What a route middleware adds to the API document of a route it is mounted on. */
 export interface IRouteMiddlewareDoc {
   /** Answers this middleware gives instead of the route, by status code. */
   responses?: Record<string, IDocumentedAnswer>;
   /** Headers this middleware sets on the route's own success answers. */
   headers?: Record<string, IDocumentedHeader>;
+  /** Request headers this middleware reads; a document generator adds them as header parameters. */
+  requestHeaders?: Record<string, IDocumentedRequestHeader>;
   /** `x-` extensions; arrays concatenate across middlewares. */
   extensions?: Record<`x-${string}`, unknown>;
 }

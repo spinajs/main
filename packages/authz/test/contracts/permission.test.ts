@@ -198,7 +198,7 @@ describe('permission contracts', () => {
       }
     });
 
-    it('matches in linear time, whatever the glob', function () {
+    it('matches in linear time, whatever the glob @timing', function () {
       this.timeout(1000);
       const name = `${'a'.repeat(127)}:${'a'.repeat(128)}`;
       const spaced = `${'a*'.repeat(30)}c`;
