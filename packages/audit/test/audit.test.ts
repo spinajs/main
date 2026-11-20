@@ -87,6 +87,7 @@ const TRAILS = {
   misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
   askFails: { store: 'AskFailsStore' },
+  askFailsToo: { store: 'AskFailsStore' },
   orphan: { store: 'NoSuchStore' },
 };
 
@@ -284,14 +285,19 @@ describe('audit().record', function () {
     expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'flaky', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
   });
 
-  it('writes detached when joinsCaller throws, and says so once; a configuration error it raises fails the write', async () => {
+  it('writes detached when joinsCaller throws, and says so once per trail; a configuration error it raises fails the write', async () => {
     const lines = pipelineLog(app.container);
     await audit().record(actions('a'), { trail: 'askFails', mode: 'confirmed' });
     await audit().record(actions('b'), { trail: 'askFails', mode: 'confirmed' });
-    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b']);
-    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['warn', 'askFails', 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached']]);
+    await audit().record(actions('c'), { trail: 'askFailsToo', mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b', 'c']);
+    const unknown = 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached';
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([
+      ['warn', 'askFails', unknown],
+      ['warn', 'askFailsToo', unknown],
+    ]);
     AskFailsStore.failure = new AuditConfigError('audit: no ORM connection "nope"');
-    await expect(audit().record(actions('c'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    await expect(audit().record(actions('d'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
     AskFailsStore.failure = new Error('cannot tell');
   });
 
