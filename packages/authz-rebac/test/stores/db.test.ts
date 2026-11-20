@@ -1,13 +1,15 @@
 import * as chai from 'chai';
 import 'mocha';
 import { AsyncResource } from 'node:async_hooks';
-import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzAdminFailure, AuthzConfigError, SYSTEM } from '@spinajs/authz';
+import type { AdminCallContext, AuthzCommand, AuthzService } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, TupleCaveatConflict, caveatKey } from '../../src/index.js';
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -232,6 +234,55 @@ for (const pg of [false, true]) {
       expect(await race({ ...t, caveat: { name: 'a' } }, [{ ...t, caveat: { name: 'b' } }])).to.be.instanceOf(TupleCaveatConflict);
       // On SQLite the rival wrote inside the transaction the conflict rolled back.
       expect(await store.read(d2, 'viewer')).to.deep.equal(pg ? [{ ...t, caveat: { name: 'a' } }] : []);
+    });
+  });
+}
+
+for (const pg of [false, true]) {
+  describe(`authz-rebac: caveat_conflict through the tuple handler on DbTupleStore (${pg ? 'postgres' : 'sqlite'})`, function () {
+    this.timeout(60_000);
+    let db: TestDb;
+    const store = new DbTupleStore();
+    const handler = new RebacTupleHandler();
+    const office = { name: 'office_ip' };
+    const other = { name: 'office_ip', context: { 'env.ip': '10.0.0.9' } };
+    const dave = (caveat?: Tuple['caveat']): Tuple => ({ ...tuple(d1, 'viewer', user('dave')), ...(caveat ? { caveat } : {}) });
+    const erin = tuple(d1, 'viewer', user('erin'));
+    before(async function () {
+      db = await bootDb('tuple_admin', pg ? this : undefined);
+    });
+    after(async () => {
+      await db?.dispose();
+    });
+    /** A batch the way AuthzAdmin runs it: every command in one transaction of the connection, which a failure rolls back. */
+    async function batch(commands: readonly AuthzCommand[]): Promise<unknown> {
+      const container = DI.child();
+      container.register(() => store).as(TupleStore);
+      const ctx: AdminCallContext = { domain: 'test', now: new Date(), authz: { models: () => [] } as unknown as AuthzService, actor: SYSTEM, container, dryRun: false };
+      try {
+        await db.driver.transaction(async (tx) => {
+          for (const c of commands) await handler.apply(c, ctx, { driver: tx });
+        });
+        return undefined;
+      } catch (e) {
+        return e;
+      }
+    }
+    it('another caveat is caveat_conflict and rolls the batch back; delete and write in one batch changes it', async () => {
+      expect(await batch([{ kind: 'tuple.write', tuple: dave(office) }])).to.equal(undefined);
+      const conflict = await batch([
+        { kind: 'tuple.write', tuple: erin },
+        { kind: 'tuple.write', tuple: dave(other) },
+      ]);
+      expect(conflict).to.be.instanceOf(AuthzAdminFailure).and.deep.include({ code: 'caveat_conflict', field: 'tuple.caveat' });
+      expect(await store.read(d1, 'viewer')).to.deep.equal([dave(office)]);
+      expect(
+        await batch([
+          { kind: 'tuple.delete', tuple: dave() },
+          { kind: 'tuple.write', tuple: dave(other) },
+        ]),
+      ).to.equal(undefined);
+      expect(await store.read(d1, 'viewer')).to.deep.equal([dave(other)]);
     });
   });
 }

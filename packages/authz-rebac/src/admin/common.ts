@@ -1,7 +1,7 @@
 import { AuthzAdminFailure, AuthzConfigError, adminActor, adminContainer, memoryTx } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, PrincipalRef } from '@spinajs/authz';
 
-import { TupleStore } from '../contracts.js';
+import { TupleCaveatConflict, TupleStore } from '../contracts.js';
 import type { Tuple, TupleSubject } from '../contracts.js';
 import { readTuple } from '../keys.js';
 import { RebacModel } from '../model/model.js';
@@ -36,13 +36,16 @@ export function actorRef(ctx: AdminContext): PrincipalRef {
   return { type: a.type, id: a.id };
 }
 
+/** The field a malformed tuple's TypeError names. */
+const fieldOf = (message: string): string => (message.includes('.caveat.context') ? 'tuple.caveat.context' : message.includes('.caveat') ? 'tuple.caveat' : 'tuple');
+
 /** A tuple a command carries, as a plain copy; a malformed one is `invalid_command`. */
 export function commandTuple(v: unknown): Tuple {
   try {
     return readTuple(v, 'tuple');
   } catch (e) {
     if (!(e instanceof TypeError)) throw e;
-    throw new AuthzAdminFailure('invalid_command', e.message, 'tuple', { cause: e });
+    throw new AuthzAdminFailure('invalid_command', e.message, fieldOf(e.message), { cause: e });
   }
 }
 
@@ -62,15 +65,24 @@ export function tupleTags(ctx: AdminContext, namespaces: Iterable<string>): stri
 }
 
 export function tupleChanged(ctx: AdminContext, tuple: Tuple, op: 'write' | 'delete'): AuthzEvent {
-  return { type: 'TupleChanged', domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data: { object: tuple.object, relation: tuple.relation, subject: tuple.subject, op } };
+  return { type: 'TupleChanged', domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data: { object: tuple.object, relation: tuple.relation, subject: tuple.subject, op, ...(tuple.caveat ? { caveat: tuple.caveat } : {}) } };
 }
 
-/** Adds and removes in the store inside `tx`; memory writes register their undo. Returns what changed, `removed` as stored. */
+/**
+ * Adds and removes in the store inside `tx`; memory writes register their undo. Returns what changed, `removed` as stored.
+ * A stored tuple with another caveat is `caveat_conflict`: the memory store refuses before it changes anything, and
+ * AuthzAdmin rolls back the transaction the DB store wrote in.
+ */
 export async function writeTuples(store: WritableTupleStore, tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], ctx: AdminContext): Promise<{ readonly added: readonly Tuple[]; readonly removed: readonly Tuple[] }> {
   const actor = actorRef(ctx);
-  if (store instanceof DbTupleStore) return store.writeIn(tx, add, remove, actor, ctx.now);
-  const undo = memoryTx(tx);
-  const out = store.writeNow(add, remove, actor);
-  undo.onRollback(() => store.writeNow(out.removed, out.added, actor));
-  return out;
+  try {
+    if (store instanceof DbTupleStore) return await store.writeIn(tx, add, remove, actor, ctx.now);
+    const undo = memoryTx(tx);
+    const out = store.writeNow(add, remove, actor);
+    undo.onRollback(() => store.writeNow(out.removed, out.added, actor));
+    return out;
+  } catch (e) {
+    if (e instanceof TupleCaveatConflict) throw new AuthzAdminFailure('caveat_conflict', e.message, 'tuple.caveat', { cause: e });
+    throw e;
+  }
 }
