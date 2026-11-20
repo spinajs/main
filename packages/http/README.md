@@ -353,13 +353,13 @@ Registration is fail-fast — the app refuses to start instead of silently skipp
 | unknown route type ( broken decorator ) | `RouteRegistrationException` |
 | string policy config key not resolvable | `RouteRegistrationException` |
 
-Routes inherited from a base class declared in another file are fine — parameter names fall back to runtime extraction.
+Routes inherited from a base class declared in the same file or another are fine — parameter names fall back to runtime extraction.
 
 ## Controller cache & CLI
 
 Route parameter names and JSDoc documentation ( used by `@spinajs/http-swagger` ) are extracted from `.d.ts` files with the TypeScript compiler and cached under `__cache__/__controllers__` ( configurable via the `__fs_controller_cache__` fs provider ).
 
-Entries are keyed by `<@spinajs/http version>_<content hash of the .d.ts>`. The hash covers "did the controller change?", the version covers "did the extractor that reads it change?" — installing a new package build lands on keys nothing was ever written under, so a release that learns to read a new JSDoc tag never serves documents written before it could.
+Entries are keyed by `<@spinajs/http version>_<hash>`, where the hash covers the content of the `.d.ts` and the class name, so each controller of a file has its own entry. The content hash covers "did the controller change?", the version covers "did the extractor that reads it change?" — installing a new package build lands on keys nothing was ever written under, so a release that learns to read a new JSDoc tag never serves documents written before it could.
 
 First app start pays the parsing cost. To avoid that ( e.g. docker images ), pre-build the cache at image build time:
 

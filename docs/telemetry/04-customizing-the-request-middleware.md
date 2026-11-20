@@ -21,7 +21,7 @@ Both steps must happen after both modules are imported (decorators register at i
 
 | Member | Default | Override to |
 | --- | --- | --- |
-| `routeLabel(ctx)` | mounted path of the matched route (`ctx.path`), else the raw path | collapse unmatched paths, strip versions, group routes |
+| `routeLabel(ctx)` | mounted path of the matched route (`ctx.path`), else `'<unmatched>'` (`UNMATCHED_ROUTE`) | strip versions, group routes |
 | `record(ctx)` | records the metrics and calls `Store.record()` for a finished, not aborted request | add a metric, skip some responses; call `super.record(ctx)` |
 | `onBefore(ctx)` | starts the clock and the in-flight gauge | skip requests entirely: return without calling `super.onBefore(ctx)`; `onFinish` then leaves the request alone |
 | `ensureMetrics()` | defines the three series once per instance | define extra series; call `super.ensureMetrics()` first |
@@ -30,9 +30,9 @@ Both steps must happen after both modules are imported (decorators register at i
 
 Protected state a subclass can use: `Store` (`TelemetryStore`), `metrics` (`Metrics`), `requestsTotal`, `requestDuration`, `inFlight`, `Buckets`, `ConfiguredPrefix`, `Log`.
 
-### `TelemetryMiddleware`: collapse unmatched paths into one series
+### `TelemetryMiddleware`: one series for every API version of a route
 
-The route label falls back to the raw path when no route matched (`ctx.path` is unset). A bot that scans 10 000 URLs then creates 10 000 histogram series. This subclass labels every unmatched request `__unmatched__`.
+`/v1/orders/:id` and `/v2/orders/:id` are two series by default. This subclass strips the version segment so both count as `/orders/:id`. Requests no route matched keep the `'<unmatched>'` label.
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
@@ -41,17 +41,15 @@ import type { IMiddlewareContext } from '@spinajs/http';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
 
 @Injectable(ServerMiddleware)
-export class BoundedTelemetry extends TelemetryMiddleware {
+export class VersionlessTelemetry extends TelemetryMiddleware {
   protected routeLabel(ctx: IMiddlewareContext): string {
-    return ctx.path ? super.routeLabel(ctx) : '__unmatched__';
+    return super.routeLabel(ctx).replace(/^\/v\d+(?=\/)/, '');
   }
 }
 
 // Required: without it both middlewares run and every request is counted twice.
 DI.unregister(TelemetryMiddleware);
 ```
-
-The JSON per-route view is already capped by `telemetry.routes.maxEntries`; this override bounds the Prometheus side too.
 
 ### `TelemetryMiddleware`: leave probe traffic out
 

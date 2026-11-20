@@ -3,7 +3,8 @@ import 'mocha';
 
 import { AuthzConfigError } from '@spinajs/authz';
 
-import { d1, d2, d3, f0, f1, ref, setup, user } from '../support/world.js';
+import { CAVEAT_TUPLES, caveatModel } from '../support/caveat-world.js';
+import { d1, d2, d3, f0, f1, ref, set, setup, tuple, user } from '../support/world.js';
 
 const USERS = ['alice', 'bob', 'carol', 'frank', 'olga', 'zed'];
 const ids = (out: { subjects: readonly { id: string }[] }) => out.subjects.map((s) => s.id);
@@ -32,7 +33,7 @@ describe('RebacModel.listSubjects', () => {
 
   it('a cycle of subject sets ends the walk; a cut at maxDepth makes the list incomplete', async () => {
     const { model } = await setup();
-    expect(await model.listSubjects(d3, 'read', 'user')).to.deep.equal({ subjects: [], complete: true });
+    expect(await model.listSubjects(d3, 'read', 'user')).to.deep.equal({ subjects: [], conditional: [], complete: true });
     const shallow = await setup({ limit: { maxDepth: 1 } });
     expect((await shallow.model.listSubjects(d2, 'read', 'user')).complete).to.equal(false);
   });
@@ -91,5 +92,32 @@ describe('RebacModel.expand', () => {
     });
     const deeper = await model.expand(d2, 'read');
     expect(JSON.stringify(deeper)).to.contain(JSON.stringify({ kind: 'truncated', object: f0, relation: 'view' }));
+  });
+});
+
+describe('expand and listSubjects with conditional tuples', () => {
+  const ip = { name: 'office_ip' };
+
+  it('expand lists conditional subjects apart and wraps an arrow through a conditional tuple', async () => {
+    const model = await caveatModel();
+    expect(await model.expand(d1, 'viewer')).to.deep.equal({ kind: 'tuples', object: d1, relation: 'viewer', subjects: [], conditional: [{ subject: user('bob'), caveat: ip }, { subject: set('group', 'eng', 'member'), caveat: ip }] });
+    const read = await model.expand(d2, 'read');
+    const caveat = { name: 'not_expired', context: { 'env.until': 20 } };
+    if (read.kind !== 'union') throw new Error('expected a union');
+    expect(read.children[1]).to.deep.equal({ kind: 'tupleToUserset', object: d2, tupleset: 'parent', computed: 'view', children: [{ kind: 'caveat', caveat, child: await model.expand(f1, 'view') }] });
+  });
+
+  it('listSubjects decides caveats against a request; without one their holders are conditional', async () => {
+    const model = await caveatModel();
+    expect(await model.listSubjects(d1, 'read', 'user')).to.deep.equal({ subjects: [], conditional: [user('bob'), user('carl')], complete: true });
+    expect(await model.listSubjects(d1, 'read', 'user', { env: { ip: '10.0.0.1' } })).to.deep.equal({ subjects: [user('bob'), user('carl')], conditional: [], complete: true });
+    expect(await model.listSubjects(d1, 'read', 'user', { env: { ip: '10.0.0.2' } })).to.deep.equal({ subjects: [], conditional: [], complete: true });
+    expect((await model.listSubjects(d2, 'read', 'user', { env: { day: 10 } })).subjects).to.deep.equal([user('dora')]);
+  });
+
+  it('an exclusion keeps a holder for certain only when no caveat could subtract it', async () => {
+    const model = await caveatModel([...CAVEAT_TUPLES, tuple(d1, 'viewer', user('erin')), { ...tuple(d1, 'banned', user('bob')), caveat: ip }]);
+    expect(await model.listSubjects(d1, 'blocked_read', 'user')).to.deep.equal({ subjects: [user('erin')], conditional: [user('bob'), user('carl')], complete: true });
+    expect(await model.listSubjects(d1, 'blocked_read', 'user', { env: { ip: '10.0.0.1' } })).to.deep.equal({ subjects: [user('carl'), user('erin')], conditional: [], complete: true });
   });
 });
