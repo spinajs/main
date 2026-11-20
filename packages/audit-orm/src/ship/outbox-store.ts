@@ -1,9 +1,11 @@
 import { AuditConfigError, AuditNotSupported, AuditReader, AuditStore, AuditWriteFailed } from '@spinajs/audit';
-import type { AuditAppend, AuditFilter, AuditPinnedHead, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
-import { Injectable } from '@spinajs/di';
+import type { AuditAppend, AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditVerifyReport, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
+import { DI, Injectable } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
+import type { OrmDriver } from '@spinajs/orm';
 
 import { insertForWrite, joinsCallerOn, quoted, writeDriver } from '../orm-store.js';
-import { auditConnection } from '../rows.js';
+import { findConnection } from '../rows.js';
 import { blankBuffered, bufferRows } from './outbox.js';
 import { distinctConnections, namedService } from './services.js';
 import { AUDIT_OUTBOX_TABLE, AUDIT_TRAIL_WIDTH } from './table.js';
@@ -22,9 +24,28 @@ export class ShippedAuditReader extends AuditReader {
     return this.shipped.list(trail, filter);
   }
 
-  async redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+  /** A `source` that is no connection here names a shipping application's connection: only the destination holds its events. */
+  redact(trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
+    return this.erase(trail, subject, source, source === undefined ? undefined : findConnection(source));
+  }
+
+  /**
+   * The erasure record of a foreign `source` is buffered on the trail's connection, where the queue consumer looks for
+   * pending erasures. A foreign name the destination holds nothing under may be a mistyped connection: it is logged.
+   */
+  override async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
+    const local = source === undefined ? undefined : findConnection(source);
+    const foreign = source !== undefined && local === undefined;
+    if (foreign && (await this.shipped.list(trail, { source, order: 'asc', limit: 1 })).length === 0) {
+      DI.resolve(Log, ['audit-ship']).warn({ trail: trail.name, source }, 'audit: forget on trail ${trail} names source ${source}, which is neither a connection of this application nor a source the destination holds events of; nothing was erased under it');
+    }
+    yield { connection: foreign ? undefined : source, redacted: await this.erase(trail, subject, source, local) };
+  }
+
+  /** `local` is the connection `source` names here, if any; without a `source` every connection that buffers. */
+  private async erase(trail: TrailConfig, subject: AuditSubject, source: string | undefined, local: OrmDriver | undefined): Promise<number> {
     let pending = 0;
-    for (const driver of source === undefined ? distinctConnections() : [auditConnection(source)]) {
+    for (const driver of source === undefined ? distinctConnections() : local === undefined ? [] : [local]) {
       if (await driver.schema().tableExists(AUDIT_OUTBOX_TABLE)) pending += await blankBuffered(driver, trail.name, subject);
     }
     return pending + (await this.shipped.redact(trail, subject, source));

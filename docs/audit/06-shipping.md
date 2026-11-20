@@ -101,7 +101,7 @@ export async function startAuditService(): Promise<void> {
 }
 ```
 
-`consumeAuditBatches(subscriptionId?)` subscribes durably (`audit-archive` by default) and stores each batch through `ArchiveAuditSink`. A redelivered or duplicated message stores each event once. After storing a batch it blanks the arriving events of subjects erased at or after them; it looks for pending erasures in the archive and in the service's `audit_outbox` on the trail's own connection only, so after `forget(subject, source)` in the receiving service the window lasts until its next shipping run ([Erasure](08-erasure.md#a-trail-shipped-through-a-queue)).
+`consumeAuditBatches(subscriptionId?)` subscribes durably (`audit-archive` by default) and stores each batch through `ArchiveAuditSink`. A redelivered or duplicated message stores each event once. After storing a batch it blanks the arriving events of subjects erased at or after them; it looks for pending erasures in the archive and in the service's `audit_outbox` on the trail's own connection only, so after `forget(subject, source)` in the receiving service, with one of its own connections other than the trail's as `source`, the window lasts until its next shipping run ([Erasure](08-erasure.md#a-trail-shipped-through-a-queue)).
 
 **Trust boundary.** The consumer stores every well-formed `AuditBatchRecorded` message as genuine audit events, with the publisher's `id`, `source`, `actor` and `at`. Whoever can publish to the route can add, backdate or misfile events in the archive, and a seal proves integrity only from archiving on. Make the route writable by the shipping applications only.
 
