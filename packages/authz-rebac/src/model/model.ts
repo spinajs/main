@@ -2,7 +2,7 @@ import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFil
 import type { DecisionRequest, EvaluationContext, FilterOp, IRCompileContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PermissionRegistry, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 import type { IRFragment } from '@spinajs/authz-ir';
 
-import type { NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
+import type { CaveatConfig, NamespaceConfig, PermissionMap, RebacLimits, Tuple } from '../contracts.js';
 import { TupleStore } from '../contracts.js';
 import { isSubjectSet, objectKey } from '../keys.js';
 import { NamespaceSchema } from '../namespace/compile.js';
@@ -33,6 +33,8 @@ export interface RebacModelOptions {
   readonly permissions?: PermissionMap;
   /** Default `authz.<name>.limit`, then maxDepth 8 and maxCalls 10000. */
   readonly limit?: RebacLimits;
+  /** Default `authz.<name>.caveats`. */
+  readonly caveats?: CaveatConfig;
 }
 
 /** A check ran past `limit.maxCalls`. */
@@ -90,10 +92,13 @@ export class RebacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     this.limits = readLimits({ ...REBAC_DEFAULT_LIMITS, ...ctx.config<RebacLimits>('limit', {}), ...this.opts.limit });
-    this.compiled = NamespaceSchema.compile(this.opts.namespaces ?? ctx.config<NamespaceConfig>('namespaces', {}), this.opts.permissions ?? ctx.config<PermissionMap>('permissions', {}));
+    this.compiled = this.compileFrom(ctx);
     this.registry = ctx.permissions;
     this.permissionsChecked = false;
     this.tuples = this.opts.store ?? (ctx.container.hasRegistered(TupleStore) ? await ctx.container.resolve(TupleStore) : storeFromConfig(this.name, ctx));
+    // A store that drops `caveat` would turn conditional grants into unconditional ones.
+    const conditional = [...this.compiled.namespaces.values()].some((ns) => [...ns.relations.values()].some((r) => r.conditional.length > 0));
+    if (conditional && !this.tuples.caveats) throw new AuthzConfigError(`${this.name}: the namespaces declare conditional subject types, but the tuple store ${this.tuples.name} keeps no caveats`);
     this.unsubscribe?.();
     this.unsubscribe = this.tuples instanceof MemoryTupleStore ? this.tuples.onWrite(() => this.generation++) : undefined;
     this.unbindSchema?.();
@@ -154,8 +159,12 @@ export class RebacModel extends AuthorizationModel {
 
   /** This model's part of the policy IR; before init it compiles the namespaces from config. */
   toIR(ctx: IRCompileContext): IRFragment {
-    const schema = this.compiled ?? NamespaceSchema.compile(this.opts.namespaces ?? ctx.config<NamespaceConfig>('namespaces', {}), this.opts.permissions ?? ctx.config<PermissionMap>('permissions', {}));
+    const schema = this.compiled ?? this.compileFrom(ctx);
     return rebacToIR(schema, { model: this.name, ...(ctx.permissions === undefined ? {} : { permissions: ctx.permissions }) });
+  }
+
+  private compileFrom(ctx: Pick<ModelInitContext, 'config'>): NamespaceSchema {
+    return NamespaceSchema.compile(this.opts.namespaces ?? ctx.config<NamespaceConfig>('namespaces', {}), this.opts.permissions ?? ctx.config<PermissionMap>('permissions', {}), this.opts.caveats ?? ctx.config<CaveatConfig>('caveats', {}));
   }
 
   /** The compiled namespaces. @throws AuthzConfigError before init */
@@ -236,6 +245,8 @@ export class RebacModel extends AuthorizationModel {
     let unknown = false;
     let cut = false;
     for (const t of await w.read(object, name)) {
+      // Fails closed until caveats are evaluated: a conditional tuple is not held.
+      if (t.caveat) continue;
       const s = t.subject;
       if (!isSubjectSet(s)) {
         if (rel.direct.includes(s.type) && s.type === w.principal.type && s.id === w.principal.id) return { m: 'member', cut: false };
@@ -284,7 +295,7 @@ export class RebacModel extends AuthorizationModel {
   private async arrow(object: ResourceRef, tupleset: string, computed: string, depth: number, w: Walk): Promise<Result> {
     const rel = this.schema().relation(object.type, tupleset);
     if (!rel) return NOT;
-    const objects = (await w.read(object, tupleset)).flatMap((t) => (!isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema().namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
+    const objects = (await w.read(object, tupleset)).flatMap((t) => (!t.caveat && !isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema().namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
     return this.any(objects.map((o) => () => this.hop(o, computed, depth, w)));
   }
 

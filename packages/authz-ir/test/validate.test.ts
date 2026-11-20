@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { validateIR } from '../src/index.js';
+import { validateCaveats, validateIR } from '../src/index.js';
 import type { IRCode, PolicyIR } from '../src/index.js';
 import { docsIR } from './fixtures/docs.js';
 
@@ -129,6 +129,11 @@ describe('validateIR', () => {
       const ir = docsIR();
       ir.caveats.broken = { params: {}, expr: { attr: 'resource.x', between: 1 } };
       expect(codes(ir)).to.deep.equal([['IR004', 'caveats.broken']]);
+    });
+
+    it('validateCaveats checks caveat definitions alone', () => {
+      expect(validateCaveats({ ok: { params: { 'env.ip': 'string' }, expr: { attr: 'env.ip', eq: '10.0.0.1' } } })).to.deep.equal([]);
+      expect(validateCaveats({ bad: { params: {}, expr: { attr: 'env.ip', eq: 'x' } } }).map((d) => d.code)).to.deep.equal(['IR004']);
     });
   });
 

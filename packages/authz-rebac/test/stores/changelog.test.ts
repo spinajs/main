@@ -64,6 +64,42 @@ describe('authz-rebac: DbTupleStore changelog (sqlite)', function () {
     expect(rows.map((r) => [r.op, r.key, r.actor])).to.deep.equal([entry('remove', 'a'), entry('remove', 'b'), ...['a', 'b', 'd', 'e', 'f'].map((n) => entry('add', n))]);
   });
 
+  it('logs the caveat, and on remove the stored tuple, not the requested one', async () => {
+    const store = new DbTupleStore();
+    const bob = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'not_expired', context: { 'env.until': 20 } } };
+    await store.write([bob], [], user('admin'));
+    await store.write([], [tuple(d1, 'viewer', user('bob'))], user('admin'));
+    const rows = await changeLog().since(0);
+    expect(rows.map((r) => [r.op, r.key])).to.deep.equal([
+      ['add', hash(bob)],
+      ['remove', hash(bob)],
+    ]);
+    expect(rows[0].payload).to.deep.equal(bob);
+    expect(rows[1].payload).to.deep.equal(bob);
+  });
+
+  it('changing a caveat in one write logs the old tuple removed, then the new one added', async () => {
+    const store = new DbTupleStore();
+    const ip = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'office_ip' } };
+    const until = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'not_expired', context: { 'env.until': 20 } } };
+    await store.write([ip], [], user('admin'));
+    await store.write([until], [tuple(d1, 'viewer', user('bob'))], user('admin'));
+    const rows = await changeLog().since(0);
+    expect(rows.map((r) => [r.op, r.payload])).to.deep.equal([
+      ['add', ip],
+      ['remove', ip],
+      ['add', until],
+    ]);
+  });
+
+  it('writeIn returns the stored tuples it removed and added', async () => {
+    const store = new DbTupleStore();
+    const bob = { ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'office_ip' } };
+    await store.write([bob], [], user('admin'));
+    const out = await db.driver.transaction((tx) => store.writeIn({ driver: tx }, [tuple(d1, 'viewer', user('carol'))], [tuple(d1, 'viewer', user('bob'))], user('admin')));
+    expect(out).to.deep.equal({ added: [tuple(d1, 'viewer', user('carol'))], removed: [bob] });
+  });
+
   it('a rolled-back writeIn records nothing', async () => {
     const store = new DbTupleStore();
     await db.driver
