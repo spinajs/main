@@ -35,10 +35,17 @@ function targetsOf(log: Log): Array<{ instance: any; rule: any }> {
   return (log as any).Targets;
 }
 
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // BUG 2: two rules routing to the SAME target -> one record, not two.
 // ---------------------------------------------------------------------------
-class SameTargetDupConfiguration extends FrameworkConfiguration {
+class SameTargetDupConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -92,7 +99,7 @@ describe("routing - BUG 2 same-target de-dup", () => {
 // ---------------------------------------------------------------------------
 // BUG 2 min-level boundary: an entry below BOTH levels is dropped.
 // ---------------------------------------------------------------------------
-class MinLevelBoundaryConfiguration extends FrameworkConfiguration {
+class MinLevelBoundaryConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -135,7 +142,7 @@ describe("routing - BUG 2 collapsed min-level boundary", () => {
 // ---------------------------------------------------------------------------
 // BUG 2 negative: two rules -> two DISTINCT targets, each gets the entry once.
 // ---------------------------------------------------------------------------
-class DistinctTargetsConfiguration extends FrameworkConfiguration {
+class DistinctTargetsConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -180,7 +187,7 @@ describe("routing - BUG 2 negative ( distinct targets not over-collapsed )", () 
 // ---------------------------------------------------------------------------
 // BUG 3: a rule referencing a non-existent target fails fast.
 // ---------------------------------------------------------------------------
-class MissingTargetConfiguration extends FrameworkConfiguration {
+class MissingTargetConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -223,7 +230,7 @@ describe("routing - BUG 3 missing-target validation", () => {
 // ( the old "specific rule drops `*`" behavior silently excluded it ), unless a
 // `final: true` rule short-circuits later rules.
 // ---------------------------------------------------------------------------
-class AdditiveRulesConfiguration extends FrameworkConfiguration {
+class AdditiveRulesConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -279,7 +286,7 @@ describe("routing - additive rule matching ( footgun fix )", () => {
 
 // A `final: true` specific rule placed BEFORE the `*` catch-all short-circuits it,
 // restoring this-rule-only routing ( while non-matching loggers still fall through ).
-class FinalRuleConfiguration extends FrameworkConfiguration {
+class FinalRuleConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },

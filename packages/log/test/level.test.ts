@@ -10,6 +10,11 @@ import { MemoryTarget } from "../src/targets/MemoryTarget.js";
 // Dedicated config: a single MemoryTarget sink capturing every level ( rule
 // level trace => MinLevel = Trace ) so we can assert on gating.
 class LevelConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       logger: {

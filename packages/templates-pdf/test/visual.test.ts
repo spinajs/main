@@ -51,6 +51,11 @@ const PIXEL_THRESHOLD = 0.1;
 const MAX_MISMATCH_RATIO = 0.005;
 
 export class ConnectionConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       logger: {

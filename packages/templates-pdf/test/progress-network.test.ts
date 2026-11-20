@@ -21,6 +21,11 @@ const IMAGE_COUNT = 100;
 const runOnline = !!process.env.RUN_NETWORK_TESTS;
 
 class ConnectionConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       logger: {

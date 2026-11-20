@@ -15,6 +15,11 @@ function dir(path: string) {
 
 // single Memory sink capturing every level so we can read entry Variables back.
 class ContextConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: {

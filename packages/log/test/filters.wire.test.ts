@@ -15,6 +15,11 @@ function dir(path: string) {
 // A logger with a filter pipeline: level gate ( warn+ ) then a drop-on-match
 // filter. Routed to a single Memory sink.
 class FiltersPipelineConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: {
@@ -68,6 +73,10 @@ describe("filter pipeline wire-in", () => {
 // A separate config exercising backward compat: legacy logger.whenRepeated still
 // suppresses repeats ( mapped to a prepended WhenRepeatedFilter ).
 class WhenRepeatedCompatConfiguration extends FrameworkConfiguration {
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: {

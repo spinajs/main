@@ -40,6 +40,11 @@ const aMail = (over: Partial<IPasswordMail> = {}): IPasswordMail => ({
 });
 
 class TemplatesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       intl: { defaultLocale: 'en', locales: ['en'] },

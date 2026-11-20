@@ -15,6 +15,11 @@ function dir(path: string) {
 // SplitGroupTarget fans one configured target out to two DIFFERENT inner types
 // ( Memory + BlackHole ) so their @Singleton prototypes can be spied separately.
 class SplitGroupConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: {
@@ -43,6 +48,10 @@ class SplitGroupConfiguration extends FrameworkConfiguration {
 
 // AutoFlushTarget wrapping a single MemoryTarget with flushLevel error.
 class AutoFlushConfiguration extends FrameworkConfiguration {
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: {

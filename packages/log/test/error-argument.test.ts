@@ -13,6 +13,11 @@ function dir(path: string) {
 }
 
 class ErrorArgumentConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },

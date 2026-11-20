@@ -55,10 +55,17 @@ export class SpyTarget extends LogTarget<ICommonTargetOptions> {
 }
 void SpyTarget;
 
+class NoSourcesConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Feature 1: disabled targets are not instantiated / not routed.
 // ---------------------------------------------------------------------------
-class DisabledTargetConfiguration extends FrameworkConfiguration {
+class DisabledTargetConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -108,7 +115,7 @@ describe("lifecycle - disabled targets are not instantiated", () => {
 });
 
 // A rule referencing a target NAME that does not exist AT ALL still throws.
-class MissingNameConfiguration extends FrameworkConfiguration {
+class MissingNameConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -148,7 +155,7 @@ describe("lifecycle - missing target name still throws ( vs disabled skip )", ()
 // ---------------------------------------------------------------------------
 // Feature 2: flush / flushAll / clearLoggers drain buffered targets.
 // ---------------------------------------------------------------------------
-class FlushConfiguration extends FrameworkConfiguration {
+class FlushConfiguration extends NoSourcesConfiguration {
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },

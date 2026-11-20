@@ -18,6 +18,11 @@ const MEMORY_TARGET = { name: "Memory", type: "MemoryTarget" };
 
 // --- config whose Memory layout DOES reference ${callsite} -> gating ON ---
 class CallsiteOnConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
@@ -31,6 +36,10 @@ class CallsiteOnConfiguration extends FrameworkConfiguration {
 
 // --- config whose Memory layout does NOT reference ${callsite} -> gating OFF ---
 class CallsiteOffConfiguration extends FrameworkConfiguration {
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       system: { dirs: { schemas: [dir("./../src/schemas")] } },
