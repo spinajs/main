@@ -384,6 +384,13 @@ export interface IDriverOptions {
   Encoding?: string;
 
   /**
+   * Session time zone of the connection's datetimes: `SYSTEM` ( default ) keeps the server's zone and expects the
+   * node process to run in the same one, `UTC` or an offset such as `+02:00` is set on every session. Read by
+   * `@spinajs/orm-mysql`.
+   */
+  TimeZone?: string;
+
+  /**
    * Database filename eg. for Sqlite driver
    */
   Filename?: string;
@@ -417,10 +424,8 @@ export interface IDriverOptions {
   };
 
   Migration?: {
-    /**
-     * Should run migration on startup
-     */
-    OnStartup?: boolean;
+    /** What the boot guard does with pending or failed migrations on this connection; overrides db.MigrationCheck. Default 'fail'. */
+    Check?: 'fail' | 'warn' | 'off';
 
     /**
      * Migration table name, if not set default is spinajs_migration
@@ -453,14 +458,27 @@ export interface IDriverOptions {
       Enabled?: boolean;
 
       /**
-       * Ms to wait for the lock before failing. Default 30_000.
+       * Ms to wait for the lock before failing. Default 30_000. A session lock ( postgres, mysql,
+       * mssql ) that finds a crashed run's lock-table row unrefreshed waits for it up to 10.5 s past
+       * this, so a shorter value still takes that row over. Against a live holder that still refreshes
+       * its row it fails at that holder's next refresh, up to 5 s past this.
        */
       Timeout?: number;
 
       /**
-       * Ms after which a held lock counts as stale and is stolen. Default 600_000.
+       * Ms after which a lock-table row counts as stale and is stolen. Default 600_000. The holder
+       * refreshes its row every StaleAfter / 3, so only a dead holder goes stale. A row written under
+       * a session lock is taken over by the next holder of that lock once it goes 10 s unrefreshed,
+       * whatever its age. A session lock also takes its intervals from this: it refreshes its row
+       * every min(StaleAfter / 3, 5 s) and queries its session every min(StaleAfter / 3, 30 s).
        */
       StaleAfter?: number;
+
+      /**
+       * 'table' forces the lock-table row even where the driver offers an advisory lock: PgBouncer
+       * transaction pooling does not keep a session. Default 'auto', the driver's `MigrationLock`.
+       */
+      Mode?: 'auto' | 'table';
     };
   };
 
@@ -1484,14 +1502,17 @@ export interface IBuilder<T> extends PromiseLike<T> {
   execute(): Promise<T>;
 }
 
+/** @spinajs query update */
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
   /** Adds `column = column + by` to the SET list; calls on one column add up. */
   increment(column: DeclaredColumn<Unbox<T>>, by?: number): this;
   increment<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, by?: number): this;
 }
 
+/** @spinajs query delete */
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
+/** @spinajs query select */
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
 
@@ -1528,6 +1549,7 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   forShare(): this;
   get RowLock(): RowLockMode | undefined;
+  /** @spinajs copy */
   clone(): this;
 
   /**
@@ -1587,6 +1609,9 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
   onPrimary(): this;
 
   mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
+
+  /** Merges `builder`'s joins, and the WHERE statements `filter` keeps as one AND group an `orWhere()` cannot widen this query through. */
+  mergeStatementsAsGroup(builder: ISelectQueryBuilder, filter: (statement: IQueryStatement) => boolean): void;
 }
 
 export interface ICompilerOutput {

@@ -228,7 +228,8 @@ export class BelongsToRelation extends NativeOrmRelation {
     // merge relation builder into parent, but skip join-scoped conditions ( routed to ON above )
     // todo: fix this cast
     (this._query as any).mergeBuilder(this._relationQuery, false);
-    (this._query as any).mergeStatements(this._relationQuery, (s: IQueryStatement) => !s.OnJoin);
+    // grouped: compile() runs after every beforeQueryExecution hook, so a flat orWhere would escape what they added
+    this._query.mergeStatementsAsGroup(this._relationQuery, (s) => !s.OnJoin);
 
     this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
     if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {

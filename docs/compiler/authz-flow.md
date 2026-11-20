@@ -82,7 +82,7 @@ In the code an entry point reaches, no call and no builder is silently safe. Wha
 
 ## When a builder counts as executed
 
-- It is awaited, returned from an `async` function, returned as a promise, or called with an executing member (`first`, `all`, `then` and the rest of the set `require-accessible` uses). A static read that returns a promise at once (`Model.find(pks)`) is the same.
+- It is awaited, returned from an `async` function, returned as a promise, or a call is made on it whose result runs the query: a part of the result is `any` or `unknown`, or is no select, update or delete builder and can be awaited or iterated with `for await` (`first`, `all`, `then`, `stream`, `paginate`), or the result is a type parameter with no constraint. The rule is in [Declaration markers](markers.md). A static read that returns a promise at once (`Model.find(pks)`) is the same.
 - It leaves what the pass can follow: it is passed to a callee the pass does not follow (`Promise.all([q1, q2])`, `new Ok(q)`), put into an array or object literal that is returned, assigned to a property or an element, or returned by a function written inline. Such a builder may never run; then silence the finding with an ignore comment.
 - A builder passed to a followed callee is judged by the callee: it is not executed when the callee neither runs nor returns it. A parameter not typed as a builder (`any`, a type parameter, `PromiseLike`) hides what the callee does with it, so there the builder counts as executed at the call.
 - What an entry point's handler returns, the framework runs: a builder returned by a handler that is not `async` is executed there.
@@ -93,9 +93,12 @@ What a static model member starts is read from what it returns: a builder gives 
 
 ## Scope
 
-- `.accessible(...)` scopes the builder, in its chain or by a statement (`q.accessible(p);`) on a variable that is never reassigned.
-- `.unscoped(reason)` scopes it as deliberately unscoped: not reported.
-- Inside the callback of `runAs(SYSTEM, reason, fn)` every query, also those of the functions it calls, runs as SYSTEM and is not reported. `runAs` must be the one `@spinajs/authz` declares and `SYSTEM` the one `@spinajs/principal` declares (`@spinajs/authz` re-exports it), so an app's own function called `runAs` exempts nothing. Without a literal reason the call is `AUTHZ006`.
+Scoping, copying and system runs are read from [declaration markers](markers.md), not from names.
+
+- `.accessible(...)` scopes the builder, in its chain or by a statement (`q.accessible(p);`) on a variable that is never reassigned. It is the member marked `@spinajs authz-scope accessible`; an app's own `accessible()`, also one that overrides it, scopes nothing.
+- `.unscoped(reason)` (marked `@spinajs authz-scope unscoped`) scopes it as deliberately unscoped: not reported.
+- Calls after `clone()` (marked `@spinajs copy`, or a member that overrides it) scope the copy: `q.clone().accessible(p);` leaves `q` unscoped.
+- Inside the callback of `runAs(SYSTEM, reason, fn)` every query, also those of the functions it calls, runs as SYSTEM and is not reported. `runAs` must be a member marked `@spinajs run-as` (the `runAs` of `@spinajs/authz`) and `SYSTEM` a principal marked `@spinajs system-principal` (the `SYSTEM` of `@spinajs/principal`, which `@spinajs/authz` re-exports), so an app's own function called `runAs` or constant called `SYSTEM` exempts nothing. Without a literal reason the call is `AUTHZ006`.
 - `runAs(otherPrincipal, ...)` changes nothing.
 
 ## What the pass does not see
@@ -104,7 +107,7 @@ What a static model member starts is read from what it returns: a builder gives 
 - Writes through a model instance (`invoice.update()`, `invoice.destroy()`) and raw driver queries: they have no builder of a model.
 - Control flow inside one body. `.accessible()` applied on one branch or in a loop counts as applied for the rest of the body, when nothing writes the variable after its declaration. A closure scopes only the builders it declares.
 - A builder put into an array or object held in a variable before it leaves.
-- A value typed only as the ORM's base `QueryBuilder` (or `IQueryBuilder`, `IBuilder`, `IWhereBuilder`). It has no kind and no model, so it is not reported. The pass knows the six select, update and delete builder types of `@spinajs/orm`.
+- A value typed only as the ORM's base `QueryBuilder` (or `IQueryBuilder`, `IBuilder`, `IWhereBuilder`). It has no kind and no model, so it is not reported. The pass knows the types marked `@spinajs query select`, `update` or `delete` (the six builder types of `@spinajs/orm`) and their subclasses.
 - Getters declared in a dependency and setters. A property read typed as a builder is still read from its type.
 - `PromiseLike` and other structural stand-ins for a builder. A class that matches an interface only by its shape (no `implements`, no `@Injectable(Token)`) is not a target of a call through that interface.
 
@@ -128,6 +131,12 @@ const rows = await Invoice.where('Status', 'paid');
 ```
 
 The reason after the colon is required and must be on the same line; the marker, its code and its reason are one `//` comment that starts with the marker. The same text in a string, a template literal or JSX text is no ignore. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
+
+## In `spinajs doctor`
+
+Three doctor rules report the findings, one per code: `AUTHZ001` (`flowUnscopedRead`), `AUTHZ002` (`flowUnscopedWrite`) and `AUTHZ006` (`flowSystemWithoutReason`), all warnings ([doctor](doctor.md#rules)). They read `authz.findings` of the app manifest and report the findings of the app's own package only: a dependency's fragment carries findings for its own entry points, and they are its maintainers' to fix. An ignore comment silences its code at its own line and the line below, nothing else; the silenced finding stays in the manifest.
+
+`spinajs doctor --fail-on warning` makes the findings fail a CI run.
 
 ## In `spinajs doctor`
 

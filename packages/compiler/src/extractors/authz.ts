@@ -1,11 +1,12 @@
 import ts from 'typescript';
-import type { AuthzSection, CliCommandEntry, ControllerEntry, PolicyRef, ScheduleEntry, SocketControllerEntry, SourceRef } from '@spinajs/manifest';
+import type { AuthzSection, CliCommandEntry, ControllerEntry, PolicyRef, RouteEntry, ScheduleEntry, SocketControllerEntry, SourceRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import { extendsFrameworkClass } from '../schema/framework-members.js';
 import { isAbstractClass } from './abstract.js';
 import { accessOptionsOf, classAccessOptionsOf, classesBySource, methodOf, type AccessOptions } from './access-options.js';
 import { classSymbolOf } from './access-resources.js';
+import { ignoreCommentsIn } from './ignore-comments.js';
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 type Resource = AuthzSection['resources'][number];
@@ -48,7 +49,10 @@ function withPermissions(groups: PolicyRef[][], scopes: { class: ScopeAccess; ro
   );
 }
 
-const sourceKey = (s: SourceRef): string => `${s.file}:${s.line}:${s.col}`;
+export const sourceKey = (s: SourceRef): string => `${s.file}:${s.line}:${s.col}`;
+
+/** The id of a route in every `entryPoints` list of the manifest. */
+export const routeEntryId = (r: RouteEntry): string => `${r.method.toUpperCase()} ${r.fullPath}`;
 
 /** A route nothing guards still says what it is: open to anonymous callers, or public with a reason. */
 function declaredOpen(access: PolicyRef[][], anonymous: boolean, reason: string | undefined): PolicyRef[][] {
@@ -66,7 +70,7 @@ function routeEntryPoints(controllers: ControllerEntry[], classes: Map<string, t
       const flag = anonymous ? { allowAnonymous: true as const } : {};
       const scopes = { class: { permissions: c.access, options: { ...classOptions, ...flag } }, route: { permissions: r.access, options: { ...accessOptionsOf(methodOf(cls, r.handler, ctx), ctx), ...flag } } };
       const access = withPermissions(combineScopes(c.policies, r.policies), scopes);
-      return { kind: 'route' as const, id: `${r.method.toUpperCase()} ${r.fullPath}`, access: declaredOpen(access, anonymous, r.public ?? c.public), source: r.source };
+      return { kind: 'route' as const, id: routeEntryId(r), access: declaredOpen(access, anonymous, r.public ?? c.public), source: r.source };
     });
   });
 }
@@ -202,6 +206,6 @@ export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceF
     ...inputs.schedules.map((s) => systemEntry('schedule', s.name, s.source, system)),
     ...inputs.commands.map((c) => systemEntry('cli', c.name, c.source, system)),
   ];
-  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoresIn(files, ctx) };
+  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoreCommentsIn(files, ctx, IGNORE) };
   return section.resources.length || section.entryPoints.length || section.ignores.length ? section : undefined;
 }

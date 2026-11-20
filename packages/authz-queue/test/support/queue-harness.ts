@@ -1,9 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
-import { DefaultQueueService, Job, QueueClient, QueueJob, QueueMessageHook, QueueService, QueueTrackingHook } from '@spinajs/queue';
+import { DefaultQueueService, Job, QueueClient, QueueJob, QueueMessageHook, QueueService, QueueTrackingHook, SystemTask } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { BehaviourHarness, HarnessSession, JobRun, JobSpec, QueueHandle, QueueMessage, QueuePeer } from '@spinajs/authz-testing';
 import { hostHarness, instantiateWorld, testHost } from '@spinajs/authz-testing';
@@ -18,7 +19,7 @@ import { NodeBus, PeerQueueService } from './nodes.js';
 import { MemoryBroker, MemoryQueueClient } from './memory-client.js';
 import './memory-client.js';
 
-const MIGRATION = { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: 'PerMigration' } };
+const MIGRATION = { Table: 'orm_migrations', Transaction: { Mode: 'PerMigration' } };
 
 interface Active {
   readonly authz: AuthzService;
@@ -51,6 +52,7 @@ function jobClass(name: string, runAs?: 'initiator' | 'system'): typeof QueueJob
   }
   Object.defineProperty(Spec, 'name', { value: name });
   Job(runAs ? { runAs } : undefined)(Spec);
+  if (runAs === 'system') SystemTask('a behaviour spec job that runs as SYSTEM')(Spec);
   classes.set(name, { cls: Spec as unknown as typeof QueueJob, runAs });
   return Spec as unknown as typeof QueueJob;
 }
@@ -146,8 +148,7 @@ export function queueHarness(): BehaviourHarness {
         jobs.set(spec.name, jobClass(spec.name, spec.runAs));
       }
 
-      const orm = await DI.resolve(Orm);
-      await (await DI.resolve(Orm)).Migrator.ready();
+      const { orm } = await migrateTestDatabase();
       const queue = await DI.resolve(QueueService);
       for (const cls of jobs.values()) await queue.consume(cls as never);
       const client = queue.get(connection) as unknown as MemoryQueueClient;
@@ -194,6 +195,7 @@ export function queueHarness(): BehaviourHarness {
           DI.uncache(MemoryQueueClient);
           DI.uncache(Orm);
           DI.uncache(OrmMigrator);
+          DI.uncache(OrmMigrationGuard);
           forgetHooks();
         },
       };

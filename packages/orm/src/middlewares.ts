@@ -9,7 +9,7 @@ import { DI } from '@spinajs/di';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { OrmException } from './exceptions.js';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
-import { executionCopy } from './builders/internal.js';
+import { executionCopy, groupWhereStatements } from './builders/internal.js';
 
 export { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 
@@ -70,6 +70,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
 
     if (pks.length !== 0) {
       const query = executionCopy(this._relationQuery);
+      groupWhereStatements(query);
       query.whereIn(this._description.ForeignKey, pks);
       query.middleware(hydrateMiddleware);
       return (await query) as any;
@@ -146,6 +147,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
     };
 
     const query = executionCopy(this._relationQuery);
+    groupWhereStatements(query);
     query.whereIn(this._description.PrimaryKey, pks);
     query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
     query.middleware(hydrateMiddleware);
@@ -251,6 +253,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
     if (pks.length !== 0) {
       const query = executionCopy(this._relationQuery);
+      groupWhereStatements(query);
       query.whereIn(this._description.ForeignKey, pks);
       query.middleware(new BelongsToRelationResultTransformMiddleware());
       query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));

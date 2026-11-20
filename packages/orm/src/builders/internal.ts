@@ -5,6 +5,7 @@ import type { ISelectQueryBuilder, ISort } from '../interfaces.js';
 import type { IQueryStatement } from '../statements.js';
 import type { IOrmRelation } from '../relations.js';
 import { QueryBuilder } from './base.js';
+import type { WhereBuilder } from './where.js';
 
 /**
  * A `Relation.column` sort is compiled on the relation query, so the owner keeps an empty-column
@@ -80,4 +81,25 @@ export function executionCopy<Q extends object>(query: Q): Q {
   copy._executionPromise = null;
 
   return copy as Q;
+}
+
+/**
+ * Moves the where statements of `copy`, an {@link executionCopy}, into one AND group, so an OR among them cannot
+ * widen a key filter ANDed after it. HAVING statements stay where they are. The source query is not changed.
+ */
+export function groupWhereStatements(copy: ISelectQueryBuilder): void {
+  const statements = copy.Statements;
+  const isAggregate = (s: IQueryStatement) => (s as { IsAggregate?: boolean }).IsAggregate === true;
+  const conditions = statements.filter((s) => !isAggregate(s));
+  if (conditions.length === 0) {
+    return;
+  }
+
+  const aggregates = statements.filter(isAggregate);
+  statements.length = 0;
+  // adopted, not rebound: the recursive CTE clones the copy, and a moved Lazy must keep its own context
+  copy.where(function () {
+    (this as WhereBuilder<unknown>).adopt(conditions);
+  });
+  statements.push(...aggregates);
 }

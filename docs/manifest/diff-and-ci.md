@@ -61,7 +61,7 @@ Result: **BREAKING** (5 breaking of 6 changes)
 
 This is the snapshot `packages/manifest/test/__snapshots__/breaking.md`, rendered from the `app-basic` fixture and an edited copy of it.
 
-The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `services`, `commands`, `socket`, `workflows`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
+The verdict line is one of `no changes`, `non-breaking (<n> changes)` or `**BREAKING** (<b> breaking of <n> changes)`. The sections appear in this order, and only when they have changes: `routes`, `permissions`, `schemas`, `config`, `migrations`, `models`, `services`, `commands`, `socket`, `workflows`, `tenancy`. Rows are sorted by id, then by change kind, by code unit, so two runs over the same pair of manifests give the same text. A `|` in a detail is escaped.
 
 `--format json` prints `{ "base": "<hash>", "head": "<hash>", "changes": [...], "breaking": <boolean> }` with two-space indentation. A change is `{ "section", "kind", "id", "breaking", "detail"? }`; `kind` is `added`, `removed` or `changed`.
 
@@ -104,6 +104,21 @@ A route that returns the `@spinajs/http` `Page<T>` or `CursorPage<T>` carries `p
 | Pagination added | no | `now paginated (offset)` |
 
 Adding pagination is not breaking on its own, but the reply changes with it: an array reply that becomes `{ items, total }` is reported as breaking by the schema rules below, in the same row. A page parameter that moves to another argument or property is not compared as pagination: a removed value argument shows as a removed parameter, but a property dropped from a JSON query object is only a request schema change, which is not breaking. `item` and `size` are not compared.
+
+### Idempotency
+
+A route behind `@Idempotent` carries `idempotency` in the manifest. A client that retries with an `Idempotency-Key`
+relies on the gate, so the routes section compares it too:
+
+| Change | Breaking | Detail |
+| --- | --- | --- |
+| `@Idempotent` removed | yes | `@Idempotent removed: a retried request runs again` |
+| `@Idempotent` added with `required: true` | yes | `@Idempotent added with a required Idempotency-Key` |
+| The key became required | yes | `Idempotency-Key is now required` |
+| `@Idempotent` added, the key optional | no | `@Idempotent added` |
+| The key is no longer required | no | `Idempotency-Key is no longer required` |
+
+The other options (`ttl`, `fingerprint`, `maxReplyBytes`, `sharedScope`) are not compared.
 
 ### Schema directions
 
@@ -155,6 +170,21 @@ A route that is served only by a registration (an entry with `mountedBy`) is com
 | `workflows` | A workflow version removed: its unfinished instances are left without code to run on. Within one version, `signals changed` when a signal is removed or newly needs a permission (added or changed): its senders are rejected | Each `name@version` is a row of its own, so a new version is `added`. `class changed` and a signal that is only added or loses its permission are non-breaking. Signal order does not count |
 
 Socket changes are reported, not classified. Review them by hand.
+
+### Tenancy
+
+The `tenancy` section compares the manifest `tenancy` sections (see [Tenancy facts](README.md#tenancy-facts)). Its rows are for a reviewer; one of them is breaking. A manifest without the section is compared as one whose entry points all have no scope, so turning tenancy on for every route shows each route as `tenancy changed from none to required`, and turning it off shows the reverse.
+
+| Row | Id | Breaking | Detail |
+| --- | --- | --- | --- |
+| A model becomes a tenant model | `model <id>` | no | `now a tenant model (isolation default, column org_id, rls default)` |
+| A model stops being one | `model <id>` | no | `no longer a tenant model: its rows are not confined to a tenant` |
+| Its isolation, column or RLS changes | `model <id>` | no | `isolation changed from row to schema` |
+| The tenancy of an entry point changes | `<kind> <id>` | yes when a route now requires a tenant (by its decorator or by the global `TenantMiddleware`), because a client that sends none is refused; no otherwise | `tenancy changed from none to required` |
+| An entry point that declares its tenancy appears | `<kind> <id>` | no | `declares tenancy all (operator console)` |
+| An escape is added or removed | `acrossTenants <package>:<file> on <Model>`, `runAcrossTenants <package>:<file>` | no | `reason: nightly dunning report`, or `no literal reason` |
+
+An escape is matched by its file, its model and its reason, not by its line: moving code inside a file is not a change, and a reworded reason is a removal plus an addition. Identical escapes in one file are counted: adding or removing more than one gives a single row with `(<n> call sites)` after the reason. `all` is always shown with its reason. An entry point that disappears is reported by its own section (`routes`, `socket`, `commands`). A change that weakens isolation (a model that stops being a tenant model, a new escape, a route that goes from `required` to `none` or `all`) is listed and never fails `--fail-on breaking`.
 
 ## Exit codes
 

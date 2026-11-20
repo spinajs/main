@@ -13,6 +13,8 @@ export const AUTHZ_QUEUE_CONFIGURATION_SCHEMA = {
     domain: { ...name, default: 'root' },
     // Whether StampedInitiatorPrincipalFactory warns, once, that jobs run from the stamp alone; false for an app that accepts that.
     stampedInitiatorWarning: { type: 'boolean', default: true },
+    // 'deny' refuses a runAs: 'system' job with no access and no @SystemTask(reason) before it runs; 'warn' lets it run and logs once per job class.
+    systemTask: { type: 'string', enum: ['warn', 'deny'], default: 'deny' },
   },
 };
 

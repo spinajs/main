@@ -1,9 +1,10 @@
 import ts from 'typescript';
+import { symbolMarker } from '../markers.js';
 import { builderOf, buildersOf, staticKind } from './authz-effects.js';
 import type { BuilderKind, BuilderVariant, FunctionSummary, ReturnedBuilder } from './authz-effects.js';
 import { parametersOf } from './call-graph.js';
 import type { CallGraph, FunctionLike } from './call-graph.js';
-import { QueryTracer, chainOf, unwrap } from './query-values.js';
+import { QueryTracer, chainOf, memberMarker, scopeBy, unwrap } from './query-values.js';
 import type { Chain, QueryValue, Traced } from './query-values.js';
 
 const CHOICES: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken]);
@@ -43,6 +44,32 @@ function distinct(variants: readonly Named[]): Named[] {
   const out: Named[] = [];
   for (const v of variants) if (!out.some((o) => o.kind === v.kind && o.model === v.model && o.origin === v.origin)) out.push(v);
   return out;
+}
+
+function baseCopyMarker(checker: ts.TypeChecker, type: ts.Type, name: string, seen = new Set<ts.Symbol>()): string | undefined {
+  for (const part of type.isUnionOrIntersection() ? type.types : [type]) {
+    const symbol = part.getSymbol();
+    if (symbol === undefined || seen.has(symbol)) continue;
+    seen.add(symbol);
+    const declared = checker.getDeclaredTypeOfSymbol(symbol);
+    if (!declared.isClassOrInterface()) continue;
+    for (const base of checker.getBaseTypes(declared)) {
+      const marker = symbolMarker(checker, checker.getPropertyOfType(base, name), 'copy') ?? baseCopyMarker(checker, base, name, seen);
+      if (marker !== undefined) return marker;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The member called is marked `copy`, or overrides one that is: missing a copy would let the calls after it scope the
+ * original builder. `authz-scope` is not inherited this way, since inheriting it could only hide a query.
+ */
+function isCopy(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
+  if (memberMarker(checker, call, 'copy') !== undefined) return true;
+  if (!ts.isPropertyAccessExpression(call.expression)) return false;
+  const receiver = checker.getApparentType(checker.getTypeAtLocation(call.expression.expression));
+  return baseCopyMarker(checker, receiver, call.expression.name.text) !== undefined;
 }
 
 /**
@@ -181,7 +208,7 @@ export class FlowTracer extends QueryTracer {
 
   /** Calls after a `clone()` change the copy, not the builder the statement starts from. */
   protected override extendBuilder(expr: ts.Expression): void {
-    const clone = chainOf(expr)?.calls.find((c) => c.name === 'clone')?.call.expression;
+    const clone = chainOf(expr)?.calls.find((c) => isCopy(this.checker, c.call))?.call.expression;
     super.extendBuilder(clone !== undefined && ts.isPropertyAccessExpression(clone) ? clone.expression : expr);
   }
 
@@ -244,7 +271,7 @@ export class FlowTracer extends QueryTracer {
     const value = this.typed(e, this.checker.getTypeAtLocation(e));
     if (value === undefined) return undefined;
     // `helper.accessible().builder()`: a call before the builder exists scopes nothing.
-    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(value, call);
+    for (const { call } of chainOf(e)?.calls ?? []) if (this.onBuilder(call)) scopeBy(this.checker, value, call);
     return { value, pending: true };
   }
 
@@ -259,7 +286,7 @@ export class FlowTracer extends QueryTracer {
     for (const [index, call] of chain.entries()) {
       const value = this.returnedBy(call);
       if (value === undefined) continue;
-      for (const outer of chain.slice(0, index)) scopeBy(value, outer);
+      for (const outer of chain.slice(0, index)) scopeBy(this.checker, value, outer);
       return { value, pending: true };
     }
     return undefined;
@@ -316,10 +343,4 @@ function assignedNames(target: ts.Expression): ts.Identifier[] {
     if (ts.isShorthandPropertyAssignment(p)) return [p.name];
     return ts.isPropertyAssignment(p) ? assignedNames(p.initializer) : ts.isSpreadAssignment(p) ? assignedNames(p.expression) : [];
   });
-}
-
-function scopeBy(value: QueryValue, call: ts.CallExpression): void {
-  const name = ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : undefined;
-  if (name === 'accessible') value.scoped.accessible = true;
-  if (name === 'unscoped') value.scoped.unscoped = true;
 }

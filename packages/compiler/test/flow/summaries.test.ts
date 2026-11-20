@@ -237,4 +237,24 @@ describe('flow: summarize', () => {
       expect(effectsOf(root), root).to.deep.equal(UNSCOPED_READ);
     }
   });
+
+  const scopes = (root: string) => effectsOf(root).map(([, model, scoped]) => [model, scoped]);
+
+  it('a builder runs by a member the old list did not name, and through a receiver typed any', () => {
+    expect(scopes('Vocabulary.streamAll')).to.deep.equal([['Invoice', 'none']]);
+    expect(scopes('Vocabulary.untypedFirst')).to.deep.equal([['Invoice', 'none']]);
+    expect(scopes('Vocabulary.untypedFirstStatement')).to.deep.equal([['Invoice', 'none']]);
+  });
+
+  it('a subclass with a fixed type argument reads as a builder of its model', () => {
+    expect(effectsOf('Vocabulary.fixedModel').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'Invoice', 'none']]);
+  });
+
+  it('a subclass whose base argument names no model reads as an unknown model, never as its own first argument', () => {
+    expect(effectsOf('Vocabulary.joinedRows').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'unknown', 'none']]);
+  });
+
+  it('scoping a copy made by an overriding clone() leaves the builder it copies unscoped', () => {
+    expect(effectsOf('Vocabulary.viaOverride').map(([kind, model, scoped]) => [kind, model, scoped])).to.deep.equal([['read-many', 'Invoice', 'none']]);
+  });
 });

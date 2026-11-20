@@ -30,6 +30,12 @@ declare module '@spinajs/orm' {
     translated: boolean;
     AllowTranslate: boolean;
   }
+  interface SelectQueryBuilder<T> {
+    /** Set by translate(): the translations are already part of the query. */
+    translated?: ISelectQueryBuilder<T>['translated'];
+    /** false: IntlQueryMiddleware leaves the query untranslated. */
+    AllowTranslate?: ISelectQueryBuilder<T>['AllowTranslate'];
+  }
   interface IColumnDescriptor {
     Translate: boolean;
   }
@@ -121,11 +127,13 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     };
 
     if (pks.length !== 0) {
-      this._relationQuery.whereIn('ResourceId', pks);
-      this._relationQuery.where('Resource', this._description.Name);
-      this._relationQuery.where('Lang', this._lang);
-      this._relationQuery.middleware(hydrateMiddleware);
-      return (await this._relationQuery) as SelectQueryBuilder;
+      // a clone of an executed query shares this middleware, and a builder runs only once
+      const query = this._relationQuery.clone();
+      query.whereIn('ResourceId', pks);
+      query.where('Resource', this._description.Name);
+      query.where('Lang', this._lang);
+      query.middleware(hydrateMiddleware);
+      return (await query) as SelectQueryBuilder;
     }
 
     return [];
@@ -171,6 +179,13 @@ export function translateQuery(this: QueryBuilder, lang: string): QueryBuilder {
 export class IntlQueryExtension extends SelectQueryExtension {
   public readonly name = 'intl-orm';
   public readonly methods: SelectQueryExtension['methods'] = { translate: translateQuery };
+
+  public onClone(source: QueryBuilder, clone: QueryBuilder): void {
+    if (source instanceof SQB && clone instanceof SQB) {
+      clone.translated = source.translated;
+      clone.AllowTranslate = source.AllowTranslate;
+    }
+  }
 }
 
 function noTranslateInAsyncStore(): boolean {

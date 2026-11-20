@@ -1,5 +1,6 @@
 import ts from 'typescript';
-import { isDeclaredIn } from '../schema/framework-members.js';
+import { declarationMarker, markedType, symbolMarker } from '../markers.js';
+import { isAsyncIterable, isAwaitable } from '../type-shapes.js';
 import type { EdgeVia } from './call-graph.js';
 import { modelShape } from './query-values.js';
 
@@ -47,32 +48,21 @@ export interface FunctionSummary {
   readonly executes: ReadonlyMap<number, BuilderKind>;
 }
 
-const ORM = '@spinajs/orm';
-const AUTHZ = '@spinajs/authz';
-/** `@spinajs/authz` re-exports `SYSTEM` from here. */
-const PRINCIPAL = '@spinajs/principal';
+type QueryKind = Exclude<BuilderKind, 'other'>;
+/** The `@spinajs query` values the pass follows. */
+const FOLLOWED: ReadonlySet<string> = new Set(['select', 'update', 'delete']);
+const isFollowed = (value: string): value is QueryKind => FOLLOWED.has(value);
 
-const BUILDERS: ReadonlyMap<string, BuilderKind> = new Map<string, BuilderKind>([
-  ['SelectQueryBuilder', 'select'],
-  ['ISelectQueryBuilder', 'select'],
-  ['UpdateQueryBuilder', 'update'],
-  ['IUpdateQueryBuilder', 'update'],
-  ['DeleteQueryBuilder', 'delete'],
-  ['IDeleteQueryBuilder', 'delete'],
-]);
+const isUntyped = (t: ts.Type): boolean => (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
 
-/** Builder members that run the query: the set `eslint-plugin-authz` uses (`rules/require-accessible.ts`). */
-export const EXECUTING_MEMBERS: ReadonlySet<string> = new Set(['first', 'firstOrFail', 'firstOrThrow', 'orThrow', 'all', 'execute', 'asRaw', 'resultExists', 'selectCount', 'then']);
-
-const isReference = (t: ts.Type): t is ts.TypeReference => 'objectFlags' in t && typeof t.objectFlags === 'number' && (t.objectFlags & ts.ObjectFlags.Reference) !== 0;
-
-/** `type` without `null`/`undefined`, a type parameter as its constraint, and unions and intersections as their members. */
+/** `type` without `null`/`undefined`, an open type as its constraint, and unions and intersections as their members. */
 function partsOf(checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>()): ts.Type[] {
   if (seen.has(type)) return [];
   seen.add(type);
-  if (type.isTypeParameter()) {
+  // Open: a type parameter, and a conditional or indexed type over one (`StrictAliasNarrowed<B, …>` inside a generic function).
+  if ((type.flags & ts.TypeFlags.Instantiable) !== 0) {
     const constraint = checker.getBaseConstraintOfType(type);
-    return constraint === undefined ? [] : partsOf(checker, constraint, seen);
+    return constraint === undefined || constraint === type ? [] : partsOf(checker, constraint, seen);
   }
   // A type parameter comes back as `T & {}`, so its members go through this function again.
   const value = checker.getNonNullableType(type);
@@ -81,18 +71,36 @@ function partsOf(checker: ts.TypeChecker, type: ts.Type, seen = new Set<ts.Type>
 }
 
 /**
- * Every ORM builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`,
- * the builder members of a union), with the model of its type argument.
+ * The kind `part` is marked with and the type arguments `part` gives the marked builder. The ORM authorizes no
+ * insert, so an insert builder is not followed.
+ */
+function markedQuery(checker: ts.TypeChecker, part: ts.Type): { kind: QueryKind; typeArguments: readonly ts.Type[] } | undefined {
+  const marked = markedType(checker, part, 'query');
+  if (marked === undefined || marked.value === 'insert') return undefined;
+  // Reading an unknown value as `other` would hide every query of that builder.
+  if (!isFollowed(marked.value)) {
+    const file = marked.declaration.getSourceFile();
+    const { line } = file.getLineAndCharacterOfPosition(marked.declaration.getStart());
+    throw new Error(`${file.fileName}:${line + 1}: @spinajs query: unknown value '${marked.value}' (expected select, update, delete or insert)`);
+  }
+  return { kind: marked.value, typeArguments: marked.typeArguments };
+}
+
+const modelOf = (checker: ts.TypeChecker, argument: ts.Type | undefined): string | undefined =>
+  argument === undefined ? undefined : modelShape(checker, argument)?.model;
+
+/**
+ * Every builder `type` is or may be (`Builder & T['_queryScopes']`, `Builder | undefined`, `B extends Builder`, the
+ * builder members of a union, a subclass of one), with the model of its type argument.
  */
 export function buildersOf(checker: ts.TypeChecker, type: ts.Type): Array<{ kind: BuilderKind; model: string | undefined }> {
   const out: Array<{ kind: BuilderKind; model: string | undefined }> = [];
   for (const part of partsOf(checker, type)) {
-    const symbol = part.getSymbol() ?? part.aliasSymbol;
-    const kind = symbol !== undefined && isDeclaredIn(symbol.declarations?.[0], ORM) ? BUILDERS.get(symbol.name) : undefined;
-    if (kind === undefined) continue;
-    const [argument] = isReference(part) ? checker.getTypeArguments(part) : [];
-    const model = argument === undefined ? undefined : modelShape(checker, argument)?.model;
-    if (!out.some((b) => b.kind === kind && b.model === model)) out.push({ kind, model });
+    const query = markedQuery(checker, part);
+    if (query === undefined) continue;
+    // A composed base argument (`T[]`) is not mapped, so it names no model.
+    const model = modelOf(checker, query.typeArguments[0]);
+    if (!out.some((b) => b.kind === query.kind && b.model === model)) out.push({ kind: query.kind, model });
   }
   return out;
 }
@@ -114,14 +122,21 @@ export function staticKind(checker: ts.TypeChecker, call: ts.CallExpression): Bu
   return awaited !== undefined && modelShape(checker, awaited) !== undefined ? 'select' : 'other';
 }
 
-/** `x.runAs(SYSTEM, reason, fn)`, `runAs` being declared by `@spinajs/authz` and `SYSTEM` by `@spinajs/principal`. */
+/**
+ * A call on a traced builder ran the query when its result says nothing (no part, as an unconstrained type parameter),
+ * or any part is untyped, or is no followed builder and can be awaited or iterated asynchronously.
+ */
+export function runsQuery(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
+  const result = checker.getTypeAtLocation(call);
+  const parts = partsOf(checker, result);
+  return isUntyped(result) || parts.length === 0 || parts.some((part) => isUntyped(part) || (markedQuery(checker, part) === undefined && (isAwaitable(checker, part) || isAsyncIterable(checker, part))));
+}
+
+/** `x.runAs(SYSTEM, reason, fn)`: the member called is marked `@spinajs run-as` and its principal `@spinajs system-principal`. */
 export function isSystemRunAs(call: ts.CallExpression, checker: ts.TypeChecker): boolean {
-  const callee = ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : ts.isIdentifier(call.expression) ? call.expression.text : undefined;
-  if (callee !== 'runAs' || call.arguments.length < 3 || !isDeclaredIn(checker.getResolvedSignature(call)?.getDeclaration(), AUTHZ)) return false;
+  if (call.arguments.length < 3 || declarationMarker(checker.getResolvedSignature(call)?.getDeclaration(), 'run-as') === undefined) return false;
   const first = call.arguments[0];
-  const symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(first) ? first.name : first);
-  const target = symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol;
-  return target?.name === 'SYSTEM' && isDeclaredIn(target.declarations?.[0], PRINCIPAL);
+  return symbolMarker(checker, checker.getSymbolAtLocation(ts.isPropertyAccessExpression(first) ? first.name : first), 'system-principal') !== undefined;
 }
 
 /** A string literal or a template without substitutions, when it is not blank. */

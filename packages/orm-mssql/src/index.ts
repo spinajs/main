@@ -1,5 +1,5 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement } from '@spinajs/orm';
 import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 /* eslint-disable security/detect-object-injection */
@@ -9,12 +9,15 @@ import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, Un
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
-import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper } from './statements.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper, MsSqlWhereStatement } from './statements.js';
 import { mapMsSqlError } from './errors.js';
+import { MsSqlMigrationLock } from './migration-lock.js';
 
 export * from './errors.js';
+export { MsSqlStartsWithStatement, MsSqlWhereStatement } from './statements.js';
 
 export * from './expressions.js';
+export * from './migration-lock.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
   transaction: mssql.Transaction;
@@ -35,6 +38,11 @@ const MSSQL_ISOLATION_LEVELS: Record<IsolationLevel, mssql.IIsolationLevel> = {
  */
 function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
+}
+
+/** The row count an `orIgnore()` batch selects as `INSERTED`; a plain insert has no such column. */
+function insertedCountOf(row: unknown): number | undefined {
+  return typeof row === 'object' && row !== null && 'INSERTED' in row && typeof row.INSERTED === 'number' ? row.INSERTED : undefined;
 }
 
 /**
@@ -143,7 +151,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         };
       case QueryContext.Insert:
         return {
-          RowsAffected: result.rowsAffected[0],
+          RowsAffected: insertedCountOf(result.recordset?.[0]) ?? result.rowsAffected[0],
           // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
           LastInsertId: result.recordset?.[0]?.ID ?? 0,
           Returning: [],
@@ -241,6 +249,27 @@ export class MsSqlOrmDriver extends SqlDriver {
     };
   }
 
+  /** Exactly one connection: a session-owned lock must not move to another session. */
+  protected dedicatedPoolConfig(appName?: string): mssql.config {
+    const config = this.connectionConfig();
+    return { ...config, ...(appName ? { options: { ...config.options, appName } } : {}), pool: { ...config.pool, min: 1, max: 1 } };
+  }
+
+  /**
+   * A pool of one connection of this database, outside the driver's own pool. The caller closes it.
+   *
+   * @param appName - its application name, `program_name` in `sys.dm_exec_sessions`
+   */
+  public async openDedicatedPool(appName?: string): Promise<mssql.ConnectionPool> {
+    const pool = new mssql.ConnectionPool(this.dedicatedPoolConfig(appName));
+    pool.on('error', (err: unknown) => {
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'mssql dedicated pool error for ${connection}');
+    });
+
+    await pool.connect();
+    return pool;
+  }
+
   public async connect(): Promise<OrmDriver> {
     try {
       // A pool of its own: `mssql.connect()` hands every caller the one package-global pool.
@@ -285,6 +314,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlInStatement).as(InStatement);
     this.Container.register(MsSqlTextWrapper).as(TextWrapper);
     this.Container.register(MsSqlStartsWithStatement).as(StartsWithStatement);
+    this.Container.register(MsSqlWhereStatement).as(WhereStatement);
 
     // T-SQL spells database DDL its own way - no CHARACTER SET, no IF NOT EXISTS.
     this.Container.register(MsSqlCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
@@ -309,6 +339,8 @@ export class MsSqlOrmDriver extends SqlDriver {
     // No native scheduler in this engine, and nothing is simulated in its place.
     this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
     this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
+
+    this.Container.register(MsSqlMigrationLock).as(MigrationLock);
   }
 
   public async disconnect(): Promise<OrmDriver> {

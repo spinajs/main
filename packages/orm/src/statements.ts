@@ -9,6 +9,7 @@ import type { ModelBase } from './model.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
+import { noteRawSql } from './explain/raw-sql.js';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -77,13 +78,19 @@ export abstract class QueryStatement implements IQueryStatement {
 
 @NewInstance()
 export abstract class RawQueryStatement extends QueryStatement {
-  protected _query: string;
+  private readonly _text: string;
   protected _bindings: any[];
+
+  // where(RawQuery) copies the text in when the query is built, so the compile marks it here, not on RawQuery.Query
+  protected get _query(): string {
+    noteRawSql();
+    return this._text;
+  }
 
   constructor(query: string, bindings?: any[]) {
     super();
 
-    this._query = query || '';
+    this._text = query || '';
     this._bindings = bindings || [];
   }
 
@@ -197,6 +204,10 @@ export abstract class WhereStatement extends QueryStatement {
     this._container = builder.Container;
     this._model = builder.Model;
     this._builder = builder;
+
+    if (LikeLiteral.is(value) && String(operator).toLowerCase() !== String(SqlOperator.LIKE)) {
+      throw new InvalidArgument(`a LikeLiteral is an operand of the like operator only, got ${operator}`);
+    }
 
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
@@ -552,6 +563,57 @@ export const LIKE_ESCAPE_CHARACTER = '~';
 export function escapeLikeValue(value: string): string {
   return value.replace(new RegExp(`[${LIKE_ESCAPE_CHARACTER}%_]`, 'g'), (c) => `${LIKE_ESCAPE_CHARACTER}${c}`);
 }
+
+export type LikeMatch = 'contains' | 'startsWith' | 'endsWith';
+
+const LIKE_LITERAL = Symbol.for('@spinajs/orm:LikeLiteral');
+
+/**
+ * A `like` operand taken literally: `where('Name', 'like', LikeLiteral.contains(text))`. No character of the text is a
+ * wildcard, and each dialect escapes its own. Unlike `whereStartsWith()`, the dialect's LIKE still decides whether case
+ * variants match. A plain string operand stays a raw pattern.
+ */
+export class LikeLiteral {
+  constructor(
+    public readonly Text: string,
+    public readonly Match: LikeMatch = 'contains',
+  ) {
+    if (typeof Text !== 'string') {
+      throw new InvalidArgument(`LikeLiteral takes a string, got ${Text === null ? 'null' : typeof Text}`);
+    }
+  }
+
+  /** `instanceof` fails for a literal from a second loaded copy of the ORM (cjs next to mjs); the registry symbol does not. */
+  public static is(value: unknown): value is LikeLiteral {
+    return (value as Record<symbol, unknown> | null | undefined)?.[LIKE_LITERAL] === true;
+  }
+
+  public static contains(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'contains');
+  }
+
+  public static startsWith(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'startsWith');
+  }
+
+  public static endsWith(text: string): LikeLiteral {
+    return new LikeLiteral(text, 'endsWith');
+  }
+
+  /** The pattern to bind, given the text with the dialect's wildcards escaped. */
+  public pattern(escaped: string): string {
+    switch (this.Match) {
+      case 'startsWith':
+        return `${escaped}%`;
+      case 'endsWith':
+        return `%${escaped}`;
+      default:
+        return `%${escaped}%`;
+    }
+  }
+}
+Object.defineProperty(LikeLiteral.prototype, LIKE_LITERAL, { value: true });
+
 @NewInstance()
 export abstract class ColumnStatement extends QueryStatement {
   protected _column: string | RawQuery;

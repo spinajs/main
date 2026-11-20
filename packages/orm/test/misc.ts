@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
-import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter } from './../src/interfaces.js';
+import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter, QueryMiddleware } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME, SlowQueryMiddleware } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
 import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -25,6 +25,12 @@ export function logText(call: sinon.SinonSpyCall): string {
     return first instanceof Error ? second : renderTemplate(second, first ?? {});
   }
   return String(first);
+}
+
+export function slowQueryMiddleware(): SlowQueryMiddleware {
+  const found = DI.resolve(Array.ofType(QueryMiddleware)).find((m): m is SlowQueryMiddleware => m instanceof SlowQueryMiddleware);
+  if (!found) throw new Error('SlowQueryMiddleware is not registered');
+  return found;
 }
 
 export function mergeArrays(target: any, source: any) {
@@ -1049,22 +1055,19 @@ export class ConnectionConf extends FrameworkConfiguration {
       db: {
         // relation.test.ts and model.test.ts stub tableInfo() for the tables they describe only.
         StrictTableCheck: false,
+        // the fake drivers keep no tracking table, and the mock migrations every file can see stay registered for the
+        // whole run; boot-guard.test.ts and migration.test.ts test the check with their own configurations
+        MigrationCheck: 'off',
         Connections: [
           {
             Driver: 'sqlite',
             Filename: 'foo.sqlite',
             Name: 'sqlite',
-            Migration: {
-              OnStartup: false,
-            },
           },
           {
             Driver: 'sqlite',
             Filename: 'sample.sqlite',
             Name: 'SampleConnection1',
-            Migration: {
-              OnStartup: false,
-            },
           },
           {
             Driver: 'mysql',
@@ -1074,9 +1077,6 @@ export class ConnectionConf extends FrameworkConfiguration {
             Host: 'localhost',
             Port: 1234,
             Name: 'main_connection',
-            Migration: {
-              OnStartup: false,
-            },
           },
         ],
       },
