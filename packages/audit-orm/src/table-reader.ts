@@ -4,6 +4,7 @@ import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { REDACTED_DATA, auditConnection, rowsOf, toStored } from './rows.js';
+import { pruneSealed } from './seal/prune.js';
 
 const DELETE_CHUNK = 500;
 
@@ -62,8 +63,9 @@ export class TableAuditReader extends AuditReader {
     return RowsAffected;
   }
 
-  /** Without a `source`, a table with a source column is pruned for every source. */
+  /** Without a `source`, a table with a source column is pruned for every source. A sealed table loses whole sealed ranges only, of every source. */
   async prune(trail: TrailConfig, before: Date, source?: string): Promise<number> {
+    if (trail.integrity === 'sealed') return pruneSealed(this.driver(trail, source), this.table(trail), before);
     const driver = this.driver(trail, source);
     const table = this.table(trail);
     let deleted = 0;
