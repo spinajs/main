@@ -29,6 +29,7 @@ const uncovered = (u: AuditUncoveredRow): string => `seq ${u.seq} (${u.reason ==
 const TAMPERED = 1;
 const SUSPECT = 2;
 const FAILED = 3;
+const UNVERIFIABLE = 4;
 
 function doubtsOf(r: AuditVerifyReport): string[] {
   const doubts: [number, string][] = [
@@ -37,17 +38,20 @@ function doubtsOf(r: AuditVerifyReport): string[] {
     [r.earlyPrunes.length, 'seal(s) pruned earlier than retention here explains'],
     [r.staleUnsealed, 'row(s) older than the sealing window not sealed'],
   ];
-  return doubts.filter(([n]) => n > 0).map(([n, what]) => `${n} ${what}`);
+  const counted = doubts.filter(([n]) => n > 0).map(([n, what]) => `${n} ${what}`);
+  return r.keylessHead ? [...counted, 'the newest seal is keyless although audit.seal.keys is set'] : counted;
 }
 
 function resultOf(r: AuditVerifyReport): string {
   if (r.tampered) return `result: TAMPERED at seq ${r.tampered.seq} (${REASONS[r.tampered.reason]}), seal ${r.tampered.fromSeq}..${r.tampered.toSeq}`;
+  if (r.unverifiable) return `result: CANNOT VERIFY, seal ${r.unverifiable.fromSeq}..${r.unverifiable.toSeq} is signed with key ${JSON.stringify(r.unverifiable.keyId)}, which is not in audit.seal.keys here`;
   const doubts = doubtsOf(r);
   return doubts.length > 0 ? `result: SUSPECT, ${doubts.join(', ')}` : 'result: intact';
 }
 
 function exitCodeOf(r: AuditVerifyReport): number {
   if (r.tampered) return TAMPERED;
+  if (r.unverifiable) return UNVERIFIABLE;
   return doubtsOf(r).length > 0 ? SUSPECT : 0;
 }
 
@@ -95,7 +99,7 @@ async function sourcesOf(name: string): Promise<Sources> {
   return { sources: held.length === 0 && failed.length === 0 ? [undefined] : held, failed };
 }
 
-@Command('audit:verify', 'Recomputes the seals of a sealed audit trail on every connection that holds its table; exit code 0 intact, 1 tampered on any connection, else 3 when one could not be verified, 2 suspect (rows no seal covers, payloads blanked without an erasure record, prunes retention does not explain, old unsealed rows)')
+@Command('audit:verify', 'Recomputes the seals of a sealed audit trail on every connection that holds its table; exit code 0 intact, 1 tampered on any connection, else 4 when a seal is signed with a key not configured here, 3 when one could not be verified, 2 suspect (rows no seal covers, payloads blanked without an erasure record, prunes retention does not explain, old unsealed rows, a keyless newest seal although keys are set)')
 @Argument('trail', true, 'trail name')
 @Option('-s, --source <connection>', false, 'verify only this connection; default: every connection that holds the trail table')
 @Option('--head <toSeq:hash>', false, 'a head the sealer logged, kept outside the database; the chain must pass through it, and is protected up to it only')

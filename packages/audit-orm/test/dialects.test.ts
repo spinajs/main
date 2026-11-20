@@ -8,7 +8,7 @@ import { instantFromDb } from '@spinajs/orm';
 import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, insertRows, sealAudit, shipAudit, storedColumns } from '../src/index.js';
 import type { AuditRow } from '../src/index.js';
 import { TestDb } from '../src/testing.js';
-import { event, setTrail, tableRows } from './support/events.js';
+import { config, event, setTrail, tableRows } from './support/events.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -121,6 +121,22 @@ describe('audit-orm dialect parity', function () {
         const [seal] = await tableRows(driver(), 'audit_seal', 'id');
         expectSealOver(seal, [eventDigest({ ...precise, source: 'app' }, payloadHash(precise.data))]);
         expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 1, tampered: undefined });
+      });
+
+      it('stores the key id of a keyed seal and verifies its HMAC', async () => {
+        const key = { id: 'ключ-2026-11', secret: 'k'.repeat(32) };
+        config().set(['audit', 'seal'], { keys: [key] });
+        try {
+          await sink.deliver({ trail: 'shipped', source: 'app', events: [event(1)] });
+          await sealNow();
+          const [seal] = await tableRows(driver(), 'audit_seal', 'id');
+          const events = eventsHash([eventDigest({ ...event(1), source: 'app' }, payloadHash(event(1).data))]);
+          const sealedAt = instantFromDb(seal.sealed_at)?.toJSDate() ?? new Date(Number.NaN);
+          expect([seal.key_id, seal.hash]).to.deep.eq([key.id, sealHash(null, sealedAt, events, key.secret)]);
+          expect(await audit().trail('shipped').verify()).to.deep.include({ intact: 1, tampered: undefined, unverifiable: undefined, keylessHead: false });
+        } finally {
+          config().set(['audit', 'seal'], undefined);
+        }
       });
 
       it('refuses a second archive row with the same id', async () => {

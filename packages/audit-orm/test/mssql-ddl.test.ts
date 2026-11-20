@@ -43,7 +43,7 @@ describe('audit-orm DDL on mssql', function () {
   it('creates audit_seal with its unique range index', async () => {
     const ddl = await ddlOf(new AuditSealTableMigration());
     expect(ddl).to.contain('[id] BIGINT IDENTITY(1,1) PRIMARY KEY');
-    for (const column of [`[trail_table] NVARCHAR(128) ${BIN2} NOT NULL`, '[from_seq] BIGINT NOT NULL', '[to_seq] BIGINT NOT NULL', `[events_hash] NVARCHAR(64) ${BIN2} NOT NULL`, `[hash] NVARCHAR(64) ${BIN2} NOT NULL`, `[previous_hash] NVARCHAR(64) ${BIN2}`]) expect(ddl).to.contain(column);
+    for (const column of [`[trail_table] NVARCHAR(128) ${BIN2} NOT NULL`, '[from_seq] BIGINT NOT NULL', '[to_seq] BIGINT NOT NULL', `[events_hash] NVARCHAR(64) ${BIN2} NOT NULL`, `[hash] NVARCHAR(64) ${BIN2} NOT NULL`, `[previous_hash] NVARCHAR(64) ${BIN2}`, `[key_id] NVARCHAR(64) ${BIN2},`]) expect(ddl).to.contain(column);
     expect(ddl).to.contain('CREATE UNIQUE INDEX [audit_seal_range] ON [audit_seal] ([trail_table],[from_seq])');
   });
 

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -35,7 +35,11 @@ export function eventsHash(digests: readonly string[]): string {
   return sha256(digests.join('\n'));
 }
 
-/** The hash of a seal: the previous seal's hash, its own time as epoch milliseconds, and its events hash. */
-export function sealHash(previous: string | null, sealedAt: Date, events: string): string {
-  return sha256([previous ?? '', String(sealedAt.getTime()), events].join('\n'));
+/**
+ * The hash of a seal: the previous seal's hash, its own time as epoch milliseconds, and its events hash. With a key it is
+ * an HMAC-SHA256 of the same text, which only a holder of the key can recompute.
+ */
+export function sealHash(previous: string | null, sealedAt: Date, events: string, key?: string | Uint8Array): string {
+  const text = [previous ?? '', String(sealedAt.getTime()), events].join('\n');
+  return key === undefined ? sha256(text) : createHmac('sha256', key).update(text, 'utf8').digest('hex');
 }

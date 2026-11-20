@@ -28,6 +28,16 @@ describe('seal hashing', () => {
     expect(sealHash(digest, sealedAt, events)).to.eq('52f7ed8ef72b9845f3b1154fcd351edda0d2045a768a7dff7fc26a92a4b1f236');
   });
 
+  it('signs with a key: an HMAC-SHA256 over the same text, which the key changes', () => {
+    const events = eventsHash([eventDigest(sealed, payloadHash({ v: 1 }))]);
+    const key = '0123456789abcdef0123456789abcdef';
+    const signed = sealHash(null, sealedAt, events, key);
+    expect(signed).to.eq('12d969dbe820674a03e25a087bb3e3a1aa867093830585c126fabc8b301ab296');
+    expect(sealHash(null, sealedAt, events, Buffer.from(key, 'utf8'))).to.eq(signed);
+    expect(sealHash(null, sealedAt, events, key.toUpperCase())).to.not.eq(signed);
+    expect(sealHash(null, sealedAt, events)).to.eq('778e385dad9d7aec629128894758c6d5cb65dc5da1c6fe5d0506283d86cced8a');
+  });
+
   it('chains a seal to the one before it, and covers its own time and its events in order', () => {
     const events = eventsHash(['a', 'b']);
     expect(eventsHash(['b', 'a'])).to.not.eq(events);
