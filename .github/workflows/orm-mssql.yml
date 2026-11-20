@@ -51,7 +51,7 @@ jobs:
       - name: install
         run: npm ci
 
-      # ts-mocha resolves @spinajs/* to their built lib; this builds orm-mssql and its reference graph.
+      # The ESM test loader resolves @spinajs/* to lib; this builds orm-mssql and its reference graph.
       - name: build orm-mssql + deps
         run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-mssql/tsconfig.build.json
 
@@ -60,7 +60,8 @@ jobs:
         run: |
           docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'yourStrong(!)Password' -C -Q "IF DB_ID('test') IS NULL CREATE DATABASE [test];"
 
-      # mssql.test.ts truncates user_test in beforeEach, before any of its migrations has created it, so it fails on a fresh database
+      # mssql.test.ts truncates user_test in beforeEach, before any of its migrations has created it, so it fails on a fresh database.
+      # --no-config: packages/orm-mssql/.mocharc.json adds its own spec glob to the files given here.
       - name: unit and live suite
         working-directory: packages/orm-mssql
-        run: npx ts-mocha -p tsconfig.json 'test/**/*.test.ts' --ignore test/mssql.test.ts
+        run: TS_NODE_PROJECT=tsconfig.json npx mocha --no-config --extension ts --node-option experimental-specifier-resolution=node --node-option loader=ts-node/esm --timeout 60000 --exit 'test/**/*.test.ts' --ignore test/mssql.test.ts
