@@ -42,7 +42,8 @@ function put(owner: object, name: string, value: object | undefined): void {
 /**
  * Adds a member to one model class (`onModel`) and to its rows (`onRow`); subclasses inherit it, other models do not
  * get it. The typing is the model's own: an interface merged with the class for the rows, a `declare static` line for
- * the class.
+ * the class. A column or field of the same name shadows the row member, because columns are own properties of a
+ * hydrated row and are not on the prototype chain.
  *
  * @throws ExtensionMethodCollision when the model, its base classes or its prototype chain have a member of that name that this function did not install
  */

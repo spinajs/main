@@ -43,13 +43,16 @@ describe('extendModel', () => {
   it('replaces what it installed and removes it again', () => {
     class Again extends ModelBase {
       declare static nameOf: Named['nameOf'];
+      declare nameOf: Named['nameOf'];
     }
-    extendModel(Again, 'nameOf', { onModel: () => 'first' });
-    extendModel(Again, 'nameOf', { onModel: () => 'second' });
+    extendModel(Again, 'nameOf', { onModel: () => 'first', onRow: () => 'first row' });
+    extendModel(Again, 'nameOf', { onModel: () => 'second', onRow: () => 'second row' });
     expect(Again.nameOf()).to.eq('second');
+    expect(Again.prototype.nameOf()).to.eq('second row');
 
     unextendModel(Again, 'nameOf');
     expect('nameOf' in Again).to.eq(false);
+    expect('nameOf' in Again.prototype).to.eq(false);
   });
 
   it('refuses a name the model already has, on either side, and installs nothing then', () => {

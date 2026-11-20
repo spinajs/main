@@ -500,8 +500,9 @@ Retention applies per trail, and each trail owns its table.
 `extendModel(model, name, { onModel, onRow })` puts a member on one model class (`onModel`, called with the class as
 `this`) and on its rows (`onRow`, called with the row as `this`). Subclasses inherit it; other models do not get it.
 The member is not enumerable, a second `extendModel` of the same name replaces it, and `unextendModel(model, name)`
-removes it again. A name the model already has, declared or inherited (`where`, `update`, a method of its own), is
-refused with `ExtensionMethodCollision` and nothing is installed.
+removes it again. A name the model already has at run time, its own or inherited (`where`, `update`, a method of its
+own), is refused with `ExtensionMethodCollision` and nothing is installed. A column or field of the same name is not
+refused, but it shadows the row member: columns are own properties of a hydrated row, not on its prototype chain.
 
 `extendModel` installs the member at run time only. Its typing is written on the model: an interface merged with the
 class for the rows, and a `declare static` line for the class.
@@ -533,10 +534,7 @@ extendModel(Ticket, 'label', {
 export const both = `${Ticket.label()} / ${new Ticket().label()}`;
 ```
 
-Applications rarely call it themselves; a package's decorator does, on the models marked with it:
-
-- `@spinajs/audit-orm`: `@Auditable()` gives a model `Model.audit()` and `row.audit()` ([Reading the trail](../audit/02-reading-the-trail.md)).
-- `@spinajs/orm-history`: `@History()` gives a model `Model.history()` and `row.history()` ([`@spinajs/orm-history`](../orm-history/README.md)).
+Applications rarely call it themselves; a package's decorator does, on the models marked with it.
 
 ## Column SQL specs, indexes and partial models
 
