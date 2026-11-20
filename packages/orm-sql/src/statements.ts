@@ -1,4 +1,4 @@
-import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver, ConcatExpression, SqlExpressions } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver, ConcatExpression, SqlExpressions, LikeLiteral } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -248,16 +248,23 @@ export class SqlWhereStatement extends WhereStatement {
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
     return _carryQuoter(
-      new SqlWhereStatement(this._column, this._operator, this._value, (_builder ?? this._builder) as WhereBuilder<unknown>),
+      new (this.constructor as new (column: string | Wrap, operator: SqlOperator, value: any, builder: WhereBuilder<unknown>) => SqlWhereStatement)(this._column, this._operator, this._value, (_builder ?? this._builder) as WhereBuilder<unknown>),
       this,
     );
   }
 
+  /** The text of a {@link LikeLiteral} with every wildcard of this dialect's LIKE escaped. */
+  protected escapeLike(text: string): string {
+    return escapeLikeValue(text);
+  }
+
   public build(): IQueryStatementResult {
     const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
-    const binding = isNullableQuery ? '' : ' ?';
+    const literal = LikeLiteral.is(this._value) ? this._value : null;
+    const binding = isNullableQuery ? '' : literal ? ` ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'` : ' ?';
+    const value = literal ? literal.pattern(this.escapeLike(literal.Text)) : this._value;
     let column = this._column;
-    let val = this._value;
+    let val = value;
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const rel = desc!.Relations.get(column as string);
@@ -294,14 +301,14 @@ export class SqlWhereStatement extends WhereStatement {
           converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string)!.Class);
         } else {
           const converters = this._container.get(ORM_DB_VALUE_CONVERTERS);
-          const converterType = this._value ? converters?.get(this._value.constructor.name) : undefined;
+          const converterType = value ? converters?.get(value.constructor.name) : undefined;
           if (converterType) {
             converter = this._container.resolve<ValueConverter>(converterType);
             val = converter.toDB(val, null as any, null as any, null);
           }
         }
 
-        val = converter ? converter.toDB(this._value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : this._value;
+        val = converter ? converter.toDB(value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : value;
       }
     }
 
@@ -372,13 +379,17 @@ export class SqlJoinStatement extends JoinStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
     // `this.constructor`, so a dialect subclass clones as itself, not as the MySQL spelling
     const ctor = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
-    return _carryQuoter(
-      new ctor({
-        ...this._options,
-        builder: (parent as SelectQueryBuilder) ?? this._options.builder,
-      }),
-      this,
-    );
+    // The callbacks ran and merged when the join was made; the copy takes a copy of the builder they filled instead.
+    const copy = new ctor({
+      ...this._options,
+      builder: (parent as SelectQueryBuilder) ?? this._options.builder,
+      callback: undefined,
+      queryCallback: undefined,
+    });
+    if (this._whereBuilder !== undefined) {
+      copy._whereBuilder = this._whereBuilder.clone();
+    }
+    return _carryQuoter(copy, this);
   }
 
   /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */
@@ -732,7 +743,9 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
     if (this.IsWildcard) {
       _exprr = `${this._method}(${this._column})`;
     } else {
-      _exprr = `${this._method}(${this.Quoter.quote(this._column as string)})`;
+      const column = this.Quoter.quote(this._column as string);
+      // a joined table may have the same column (a count through belongs-to joins)
+      _exprr = `${this._method}(${this._tableAlias ? `${this.Quoter.quote(this._tableAlias)}.${column}` : column})`;
     }
 
     if (this._alias) {

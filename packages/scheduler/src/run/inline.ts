@@ -1,3 +1,5 @@
+import { context } from '@opentelemetry/api';
+import type { Context } from '@opentelemetry/api';
 import { v4 as uuidv4 } from 'uuid';
 import { Autoinject, DI, Injectable, NewInstance, Singleton } from '@spinajs/di';
 import { DbClock } from '@spinajs/durable';
@@ -48,6 +50,11 @@ export class InlineRunExecutor extends RunExecutor {
       this.bodies.delete(run.Id);
       this.ends.delete(run.Id);
     }
+  }
+
+  /** An inline run executes inside the call that started it, so its span is that caller's child. */
+  protected override spanParent(): Context {
+    return context.active();
   }
 
   protected override invoke(def: ScheduleDefinition, ctx: RunContext): Promise<unknown> {

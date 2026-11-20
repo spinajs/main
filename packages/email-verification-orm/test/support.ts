@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { EmailVerificationStore } from '@spinajs/email-verification';
@@ -18,9 +19,9 @@ export class OrmStoreTestConfiguration extends FrameworkConfiguration {
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DEFAULT_CONNECTION, Migration: { OnStartup: true } },
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other-connection', Migration: { OnStartup: true } },
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DEFAULT_CONNECTION },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other-connection' },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' },
         ],
       },
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
@@ -30,7 +31,7 @@ export class OrmStoreTestConfiguration extends FrameworkConfiguration {
 
 // Configuration stays cached: InternalLogger flushes its buffer only on the first resolve, so a re-resolved
 // Configuration would leave its boot log in the buffer to be dumped on exit.
-const OWNED: unknown[] = [Orm, OrmMigrator, EmailVerificationStore, OrmEmailVerificationStore];
+const OWNED: unknown[] = [Orm, OrmMigrator, OrmMigrationGuard, EmailVerificationStore, OrmEmailVerificationStore];
 let registered = false;
 let current: { orm: Orm; store: OrmEmailVerificationStore } | undefined;
 
@@ -55,8 +56,7 @@ export async function bootStore(connection = DEFAULT_CONNECTION): Promise<OrmEma
   }
   (await DI.resolve(Configuration)).set('emailVerification.orm.connection', connection);
   connectionName = connection;
-  const orm = await DI.resolve(Orm);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  const { orm } = await migrateTestDatabase();
   const store = await DI.resolve(OrmEmailVerificationStore);
   current = { orm, store };
   return store;

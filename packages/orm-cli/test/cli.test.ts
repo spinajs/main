@@ -3,7 +3,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, resolveMigrationTool } from '@spinajs/orm';
+import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, PendingMigrationsException, Primary, resolveMigrationTool } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
+import { IMigrateStatusCommandOptions, MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateSeedCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -39,16 +39,8 @@ function applyConnectionConf(config: any, connection: Record<string, unknown>) {
 
 /**
  * One in-memory sqlite connection, named and with its own tracking table.
- *
- * `OnStartup: false` is the load-bearing part for the suites that take the default: the
- * migrator's boot pass runs with `force: false` and honours that gate, so the migrations are
- * still PENDING when the first command runs. With it on, a test that resolved the migrator would
- * assert against a database it had already migrated, and the commands would be tested against nothing.
- *
- * `onStartup: true` is the opposite fixture - the configuration this branch's docs ship as the
- * example - and the suites that pass it are testing exactly what a command does on its way in.
  */
-function connectionConf(name: string, table: string, onStartup = false): Class<FrameworkConfiguration> {
+function connectionConf(name: string, table: string): Class<FrameworkConfiguration> {
   return class extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
@@ -57,7 +49,7 @@ function connectionConf(name: string, table: string, onStartup = false): Class<F
         Driver: 'orm-driver-sqlite',
         Filename: ':memory:',
         Name: name,
-        Migration: { Table: table, OnStartup: onStartup },
+        Migration: { Table: table },
       });
     }
   };
@@ -89,8 +81,8 @@ async function captureStdout(fn: () => Promise<void>): Promise<string[]> {
 
 /**
  * The STATE column of one `migrate-status` line. The report is `<marker> <state> <batch>
- * <connection> <migration>`, and the marker is blank for everything but a failed row - so the
- * first token of the trimmed line is the state, or `!!` when it is FAILED.
+ * <applied at> <connection> <migration>`, and the marker is blank unless the row is failed (`!!`)
+ * or interrupted (`??`) - so the first token of the trimmed line is the state, or that marker.
  *
  * Worth the parse: connection names and migration names sit on the same line, so asserting that
  * a line *contains* `pending` passes on a connection called `reporting-pending` no matter what
@@ -193,7 +185,7 @@ describe('orm-cli migration commands against sqlite', function () {
 
     DI.register(Conf).as(Configuration);
 
-    orm = await DI.resolve(Orm);
+    orm = (await resolveCliMigrator()).Orm;
   });
 
   after(async () => {
@@ -245,6 +237,35 @@ describe('orm-cli migration commands against sqlite', function () {
     expect(out.join('\n')).to.not.contain(ORPHAN_MIGRATION);
   });
 
+  it('migrate-status --json prints one JSON document with entries and the pending list', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+    const report = JSON.parse(lines.join('\n'));
+
+    expect(report.pending).to.eql([{ name: TEST_MIGRATION, connection: CONNECTION_NAME }]);
+    expect(report.entries[0]).to.include({ name: TEST_MIGRATION, state: 'pending', appliedAt: null });
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-status creates no tracking table on a fresh database', async () => {
+    await captureStdout(() => new MigrateStatusCommand().execute({}));
+
+    expect(await connection().schema().tableExists(TRACKING_TABLE)).to.equal(false);
+  });
+
+  it('migrate-status lists the pending migrations in run order', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+    const at = lines.indexOf('Pending, in the order migrate-up applies them:');
+
+    expect(at).to.be.greaterThan(-1);
+    expect(lines[at + 1]).to.contain(TEST_MIGRATION).and.to.contain(CONNECTION_NAME);
+  });
+
+  it('migrate-status --connection refuses a connection nothing answers to', async () => {
+    const err = await thrownBy(() => new MigrateStatusCommand().execute({ connection: 'typo' }));
+
+    expect((err as Error).message).to.contain('Connection typo is not configured');
+  });
+
   it('migrate-up applies the migration and records it in the tracking table', async () => {
     expect(await markerTableExists(), 'marker table existed before migrate-up ran').to.equal(false);
 
@@ -279,6 +300,14 @@ describe('orm-cli migration commands against sqlite', function () {
     expect(line).to.contain('applied');
     expect(line).to.not.contain('FAILED');
     expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-status prints when each applied migration was applied', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+
+    expect(lines[0]).to.match(/STATE\s+BATCH\s+APPLIED AT\s+CONNECTION\s+MIGRATION/);
+    expect(lines.find((l) => l.includes(TEST_MIGRATION))).to.match(/applied\s+1\s+\d{4}-\d{2}-\d{2}T/);
+    expect(lines.join('\n')).to.not.contain('Pending, in the order');
   });
 
   it("migrate-up --name does not report success when the migration's connection is not configured", async () => {
@@ -359,7 +388,7 @@ describe('orm-cli against a FAILED migration', function () {
     DI.clearCache();
     defineMigration();
     DI.register(Conf).as(Configuration);
-    orm = await DI.resolve(Orm);
+    orm = (await resolveCliMigrator()).Orm;
   });
 
   after(async () => {
@@ -459,8 +488,8 @@ describe('orm-cli --connection', function () {
     public async resolve(): Promise<void> {
       await super.resolve();
 
-      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: FIRST_CONNECTION, Migration: { Table: FIRST_TABLE, OnStartup: false } });
-      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: SECOND_CONNECTION, Migration: { Table: SECOND_TABLE, OnStartup: false } });
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: FIRST_CONNECTION, Migration: { Table: FIRST_TABLE } });
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: SECOND_CONNECTION, Migration: { Table: SECOND_TABLE } });
     }
   }
 
@@ -509,7 +538,7 @@ describe('orm-cli --connection', function () {
     DI.clearCache();
     defineMigrations();
     DI.register(TwoConnectionConf).as(Configuration);
-    orm = await DI.resolve(Orm);
+    orm = (await resolveCliMigrator()).Orm;
   });
 
   after(async () => {
@@ -553,8 +582,7 @@ describe('orm-cli --connection', function () {
     expect(stateOf(out.find((l) => l.includes(FIRST_MIGRATION))!)).to.equal('applied');
     expect(stateOf(out.find((l) => l.includes(SECOND_MIGRATION))!)).to.equal('pending');
 
-    // the report has no --connection of its own: hiding a connection is exactly how a deploy
-    // gate comes to answer "nothing to see" about the one that is behind
+    // without --connection every configured connection is listed
     expect(text).to.contain(FIRST_CONNECTION);
     expect(text).to.contain(SECOND_CONNECTION);
 
@@ -626,7 +654,7 @@ describe('orm-cli against an INTERRUPTED migration', function () {
     DI.clearCache();
     defineMigration();
     DI.register(Conf).as(Configuration);
-    orm = await DI.resolve(Orm);
+    orm = (await resolveCliMigrator()).Orm;
 
     // nothing has migrated this connection, so its tracking tables do not exist yet. `status()`
     // calls `ensureStorage()` and changes nothing else.
@@ -706,11 +734,10 @@ describe('orm-cli against an INTERRUPTED migration', function () {
 });
 
 /**
- * The trap: a connection with `Migration.OnStartup: true` - the configuration the ORM docs ship
- * as their example - holding a migration in the FAILED state.
+ * A connection holding a migration in the FAILED state.
  *
- * The migrator's boot pass refuses to run at all while such a row is there. A command that
- * resolved it with that pass would die on the row it was called about - including
+ * An application's Orm refuses to boot while such a row is there. A command that resolved the
+ * Orm the way an application does would die on the row it was called about - including
  * `migrate-resolve`, the one command that can clear it, and the one the error message names as
  * the remedy.
  *
@@ -718,7 +745,7 @@ describe('orm-cli against an INTERRUPTED migration', function () {
  * the command resolves opens the connection, and every sqlite handle gets its own private
  * in-memory database - so the row would be invisible. Hence the temp file.
  */
-describe('orm-cli against a FAILED row on a Migration.OnStartup connection', function () {
+describe('orm-cli against a FAILED row', function () {
   this.timeout(20000);
 
   /**
@@ -734,14 +761,6 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
   let scratch = '';
   let dbFile = '';
 
-  /**
-   * Read at configuration-resolve time, so one registered class covers both phases: the fixture
-   * is planted through a gated connection this suite can hold and dispose, and the commands then
-   * run against the same database with the gate ON. Two classes would not work - see
-   * `applyConnectionConf`.
-   */
-  let onStartup = false;
-
   class StartupFailedConf extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
@@ -754,7 +773,7 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
         // one handle per Orm, so as little as possible is left holding the file at cleanup
         Pool: { Max: 1 },
 
-        Migration: { Table: TRACKING_TABLE, OnStartup: onStartup },
+        Migration: { Table: TRACKING_TABLE },
       });
     }
   }
@@ -790,10 +809,11 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
     DI.register(StartupFailedConf).as(Configuration);
 
     // Phase 1 - plant the failed row the way a real failure does: a real migration whose `up()`
-    // throws, through the real service. The gate is off only so this Orm can be resolved, held
-    // and disposed; what the tests need is the row it leaves behind.
-    const seed = await DI.resolve(Orm);
-    const err = await thrownBy(async () => (await resolveMigrationTool()).Runner.up());
+    // throws, through the real service, from a tool Orm this suite can hold and dispose; what the
+    // tests need is the row it leaves behind.
+    const migrator = await resolveMigrationTool();
+    const seed = migrator.Orm;
+    const err = await thrownBy(async () => migrator.Runner.up());
 
     expect(err, 'the fixture needs a migration that really failed').to.be.instanceOf(OrmException);
 
@@ -809,9 +829,8 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 
     await seed.dispose();
 
-    // Phase 2 - same database, now with migrations running at boot. Nothing resolves an Orm from
-    // here on: the commands have to be the first thing that does, exactly as in a CLI process.
-    onStartup = true;
+    // Phase 2 - same database, a fresh process. Nothing resolves an Orm from here on: the commands
+    // have to be the first thing that does, exactly as in a CLI process.
     DI.clearCache();
   });
 
@@ -847,23 +866,24 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 
   // MUST RUN FIRST, with the one below it: it asserts on the failed row, which the
   // `migrate-resolve` test clears. Add new cases after those two, never between them.
-  it("an application's Orm boot is still blocked by the failed row", async () => {
+  it("an application's Orm boot is blocked by the failed row with the migrate-resolve hint", async () => {
     // Nothing weakens what a failed migration does to an application that boots its Orm. It
-    // is also what makes the next test non-vacuous - the fixture really does refuse a boot pass.
+    // is also what makes the next test non-vacuous - the fixture really does refuse a boot.
     const err = await thrownBy(() => DI.resolve(Orm));
 
-    expect(err, 'a failed migration no longer blocks the boot pass').to.be.instanceOf(OrmException);
-    expect((err as Error).message).to.contain('blocks migration runs');
-    expect((err as Error).message).to.contain(FAILING_MIGRATION);
+    expect(err, 'a failed migration no longer blocks the boot').to.be.instanceOf(PendingMigrationsException);
+    expect((err as PendingMigrationsException).failed).to.deep.equal([{ name: FAILING_MIGRATION, connection: CONNECTION_NAME }]);
+    expect((err as Error).message).to.contain(`Migration ${FAILING_MIGRATION} on connection ${CONNECTION_NAME} FAILED in an earlier run and blocks migrate-up`);
+    expect((err as Error).message).to.contain(`npx spinajs migrate-resolve --name ${FAILING_MIGRATION} --applied`);
 
-    // the rejected resolve closed its own connections and cached no Orm; the commands below start as a fresh cli
-    // process would
+    // the rejected resolve closed its own connections and cached no Orm; clearing the cache drops the enabled guard
+    // too, so the commands below start as a fresh cli process would
     DI.clearCache();
   });
 
   it('migrate-resolve clears the failed row instead of dying on it', async () => {
-    // The command resolves its migrator without the boot pass, so it gets as far as the command
-    // body instead of dying on `Migration ... failed previously and blocks migration runs`.
+    // The command resolves its Orm without the boot guard, so it gets as far as the command body
+    // instead of dying on the FAILED row.
     await (await DI.resolve(MigrateResolveCommand)).execute({ name: FAILING_MIGRATION, rolledBack: true });
 
     // the Orm the command resolved, from the cache - not a second one
@@ -895,16 +915,15 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 });
 
 /**
- * Consequence B, the one that fails silently: `migrate-status` is sold as a deploy gate - "is
- * this database current?" - and a migrator resolved with its boot pass would apply every pending
- * migration on every `Migration.OnStartup` connection BEFORE `status()` is called. The report
- * would then truthfully say "all applied" and exit 0, having itself run the DDL the gate existed
- * to hold back.
+ * `migrate-status` is sold as a deploy gate - "is this database current?" - so the command's own
+ * boot must neither apply the pending migrations ( the report would then truthfully say "all
+ * applied" and exit 0, having itself run the DDL the gate existed to hold back ) nor refuse to
+ * start over them, as an application's boot does.
  *
  * `:memory:` is enough here, unlike the suite above: nothing has to survive between two Orms -
  * the command's own resolve is the only one, which is the point.
  */
-describe('migrate-status against a Migration.OnStartup connection with pending work', function () {
+describe('migrate-status against a connection with pending work', function () {
   this.timeout(20000);
 
   /** No state word in the name - see the note on the suite above. */
@@ -913,7 +932,7 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
   const MARKER_TABLE = 'orm_cli_startup_marker';
   const PENDING_MIGRATION = 'OrmCliStartupPending_2021_05_01_00_00_00';
 
-  const Conf = connectionConf(CONNECTION_NAME, TRACKING_TABLE, true);
+  const Conf = connectionConf(CONNECTION_NAME, TRACKING_TABLE);
 
   let pendingType: any;
   let orm: Orm | undefined;
@@ -979,7 +998,7 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
 
   // MUST RUN FIRST - the migrate-up below applies the very migration this one asserts is still
   // pending and unapplied.
-  it('reports the pending migration without applying it', async () => {
+  it('migrate-status reports pending work without applying it', async () => {
     const cmd = await DI.resolve(MigrateStatusCommand);
     const out = await captureStdout(() => cmd.execute());
 
@@ -988,8 +1007,7 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
     expect(line, `no status line for ${PENDING_MIGRATION} in:\n${out.join('\n')}`).to.be.a('string');
     expect(stateOf(line!), 'the report describes a database it had just migrated itself').to.equal('pending');
 
-    // the deploy gate: an un-run migration means "this database is not current". A migrator boot
-    // pass would have made it current first, and this would be 0.
+    // the deploy gate: an un-run migration means "this database is not current"
     expect(process.exitCode).to.equal(1);
 
     expect(upRuns, 'migrate-status ran the migration it was asked to report on').to.equal(0);
@@ -1001,14 +1019,11 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
 
     expect(await markerTableExists(connection), `${MARKER_TABLE} exists, so up() executed`).to.equal(false);
 
-    const rows = await connection.select().from(TRACKING_TABLE).asRaw<any[]>();
-    expect(
-      rows.find((r) => r.Migration === PENDING_MIGRATION),
-      'a tracking row exists, so the report recorded a migration as applied',
-    ).to.equal(undefined);
+    // status is read-only: with no tracking table there is no row that could record it as applied
+    expect(await connection.schema().tableExists(TRACKING_TABLE), 'the report created the tracking table').to.equal(false);
   });
 
-  it('migrate-up still applies it - the suppression is about booting, not about migrating', async () => {
+  it('migrate-up applies it - the tool boot skips the check, not the migrations', async () => {
     const cmd = await DI.resolve(MigrateUpCommand);
     await cmd.execute({});
 
@@ -1388,5 +1403,471 @@ describe('orm-cli migrate-up and db.StrictTableCheck', function () {
     await cmd.execute({});
 
     expect(process.exitCode).to.equal(0);
+  });
+});
+
+const noopMigration = {
+  up: (_c: OrmDriver): Promise<void> => Promise.resolve(),
+  down: (_c: OrmDriver): Promise<void> => Promise.resolve(),
+};
+
+describe('migrate-status pending order across connections', function () {
+  this.timeout(20000);
+
+  const FIRST_CONNECTION = 'orm-cli-order-one';
+  const SECOND_CONNECTION = 'orm-cli-order-two';
+
+  class OrderConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: FIRST_CONNECTION, Migration: { Table: 'orm_cli_order_one' } });
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: SECOND_CONNECTION, Migration: { Table: 'orm_cli_order_two' } });
+    }
+  }
+
+  let orm: Orm;
+  let types: any[] = [];
+
+  function defineMigrations() {
+    // the first connection owns the 1st, 3rd and 5th by timestamp, the second the 2nd and 4th;
+    // 'Zeta' sorts after 'Alpha' by name but runs before it
+    @Migration(FIRST_CONNECTION)
+    class OrmCliOrderA_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(SECOND_CONNECTION)
+    class OrmCliOrderB_2021_09_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(FIRST_CONNECTION)
+    class OrmCliOrderC_2021_09_03_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(SECOND_CONNECTION)
+    class Zeta_2021_09_04_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    @Migration(FIRST_CONNECTION)
+    class Alpha_2021_09_05_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    types = [OrmCliOrderA_2021_09_01_00_00_00, OrmCliOrderB_2021_09_02_00_00_00, OrmCliOrderC_2021_09_03_00_00_00, Zeta_2021_09_04_00_00_00, Alpha_2021_09_05_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(OrderConf).as(Configuration);
+    orm = (await resolveCliMigrator()).Orm;
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(OrderConf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  const EXPECTED_ORDER = ['OrmCliOrderA_2021_09_01_00_00_00', 'OrmCliOrderB_2021_09_02_00_00_00', 'OrmCliOrderC_2021_09_03_00_00_00', 'Zeta_2021_09_04_00_00_00', 'Alpha_2021_09_05_00_00_00'];
+
+  it('the table lists pending migrations by timestamp across connections, not grouped by connection or sorted by name', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({}));
+    const at = lines.indexOf('Pending, in the order migrate-up applies them:');
+
+    expect(at).to.be.greaterThan(-1);
+    expect(lines.slice(at + 1).map((l) => l.trim().split(' ')[0])).to.eql(EXPECTED_ORDER);
+  });
+
+  it('--json lists the same pending order', async () => {
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+
+    const report = JSON.parse(lines.join('\n')) as { pending: Array<{ name: string }> };
+
+    expect(report.pending.map((p) => p.name)).to.eql(EXPECTED_ORDER);
+  });
+});
+
+describe('migrate-status --json output', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-json-clean';
+  const MIGRATION_NAME = 'OrmCliJsonClean_2021_09_01_00_00_00';
+  const Conf = connectionConf(CONNECTION_NAME, 'orm_cli_json_clean');
+
+  let orm: Orm;
+  let type: any;
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliJsonClean_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    type = OrmCliJsonClean_2021_09_01_00_00_00;
+    DI.register(Conf).as(Configuration);
+    orm = (await resolveCliMigrator()).Orm;
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      DI.unregister(type);
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  class NoisyStatusCommand extends MigrateStatusCommand {
+    protected async collect(options: IMigrateStatusCommandOptions) {
+      console.log('log line from a console target');
+      console.info('info line from a console target');
+
+      return super.collect(options);
+    }
+  }
+
+  it('stdout holds only the JSON document when something logs to the console while the report is collected', async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const { log, info, error } = console;
+
+    console.log = (...args: unknown[]) => void stdout.push(args.map(String).join(' '));
+    console.info = console.log;
+    console.error = (...args: unknown[]) => void stderr.push(args.map(String).join(' '));
+    try {
+      await new NoisyStatusCommand().execute({ json: true });
+    } finally {
+      console.log = log;
+      console.info = info;
+      console.error = error;
+    }
+    const report = JSON.parse(stdout.join('\n')) as { entries: Array<{ name: string }> };
+
+    expect(report.entries.map((e) => e.name)).to.eql([MIGRATION_NAME]);
+    expect(stderr).to.eql(['log line from a console target', 'info line from a console target']);
+  });
+});
+
+describe('migrate-status against a legacy tracking table', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-legacy-table';
+  const TABLE = 'orm_cli_legacy_migrations';
+  const MIGRATION_NAME = 'OrmCliLegacy_2021_09_01_00_00_00';
+  const Conf = connectionConf(CONNECTION_NAME, TABLE);
+
+  let orm: Orm;
+  let type: any;
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliLegacy_2021_09_01_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    type = OrmCliLegacy_2021_09_01_00_00_00;
+    DI.register(Conf).as(Configuration);
+    orm = (await resolveCliMigrator()).Orm;
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      DI.unregister(type);
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it('reads a row of the two-column table as applied and leaves the table as it was', async () => {
+    const db = orm.Connections.get(CONNECTION_NAME)!;
+
+    await db.schema().createTable(TABLE, (table) => {
+      table.string('Migration', 255).primaryKey();
+      table.dateTime('CreatedAt');
+    });
+    await db.insert().into(TABLE).values({ Migration: MIGRATION_NAME, CreatedAt: new Date('2021-09-01T00:00:00.000Z') });
+
+    process.exitCode = 0;
+    const lines = await captureStdout(() => new MigrateStatusCommand().execute({ json: true }));
+    const report = JSON.parse(lines.join('\n'));
+
+    expect(report.entries[0]).to.include({ name: MIGRATION_NAME, state: 'applied', batch: 1 });
+    expect(report.pending).to.eql([]);
+    expect(process.exitCode).to.equal(0);
+
+    const rows = await db.select().from(TABLE).asRaw<any[]>();
+    expect(Object.keys(rows[0]).sort(), 'status added a column to the legacy table').to.eql(['CreatedAt', 'Migration']);
+    expect(await db.schema().tableExists('spinajs_migration_lock')).to.equal(false);
+  });
+});
+
+// These tests run in order on one in-memory database: fresh, then applied without seeds, then seeded.
+describe('migrate-seed, migrate-up --skip-seed and migrate-up --dry-run', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-seed';
+  const TRACKING_TABLE = 'orm_cli_seed_migrations';
+  const MARKER_TABLE = 'orm_cli_seed_marker';
+  const FIRST = 'OrmCliSeedA_2021_10_01_00_00_00';
+  const SECOND = 'OrmCliSeedB_2021_10_02_00_00_00';
+
+  const Conf = class OrmCliSeedConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: TRACKING_TABLE } });
+    }
+  };
+
+  let orm: Orm;
+  let types: any[] = [];
+  let seeds: string[] = [];
+
+  function defineMigrations() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliSeedA_2021_10_01_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver): Promise<void> {
+        await connection.schema().createTable(MARKER_TABLE, (table) => {
+          table.int('Id').primaryKey();
+        });
+      }
+
+      public down = noopMigration.down;
+
+      public async data(): Promise<void> {
+        seeds.push(this.constructor.name);
+        const db = (await DI.resolve(Orm)).Connections.get(CONNECTION_NAME)!;
+
+        if ((await db.select().from(MARKER_TABLE).where('Id', 1).asRaw<any[]>()).length === 0) {
+          await db.insert().into(MARKER_TABLE).values({ Id: 1 });
+        }
+      }
+    }
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliSeedB_2021_10_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+
+      public async data(): Promise<void> {
+        seeds.push(this.constructor.name);
+      }
+    }
+
+    types = [OrmCliSeedA_2021_10_01_00_00_00, OrmCliSeedB_2021_10_02_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(Conf).as(Configuration);
+    orm = (await resolveCliMigrator()).Orm;
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+    seeds = [];
+  });
+
+  function db(): OrmDriver {
+    return orm.Connections.get(CONNECTION_NAME)!;
+  }
+
+  it('migrate-up --dry-run prints the plan, applies nothing and sets exit code 1 when something would run', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines.slice(1)).to.eql([`  1  ${CONNECTION_NAME}  ${FIRST}`, `  1  ${CONNECTION_NAME}  ${SECOND}`]);
+    expect(await db().schema().tableExists(TRACKING_TABLE), 'a dry run creates no tracking table').to.equal(false);
+    expect(await db().schema().tableExists(`${TRACKING_TABLE}_lock`), 'a dry run creates no lock table').to.equal(false);
+    expect(await db().schema().tableExists(MARKER_TABLE)).to.equal(false);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-seed on a fresh database says nothing is applied and creates no tracking table', async () => {
+    const cmd = new MigrateSeedCommand();
+    const logged: string[] = [];
+    const record = (_vars: unknown, message: string) => logged.push(message);
+    Object.defineProperty(cmd, 'Log', { value: { info: record, success: record } });
+
+    await cmd.execute({});
+
+    expect(logged).to.eql(['Nothing is applied - nothing to seed']);
+    expect(await db().schema().tableExists(TRACKING_TABLE)).to.equal(false);
+    expect(await db().schema().tableExists(`${TRACKING_TABLE}_lock`)).to.equal(false);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-seed --name <pending> exits with the "not applied" error', async () => {
+    const err = await thrownBy(() => new MigrateSeedCommand().execute({ name: SECOND }));
+
+    expect((err as Error).message).to.equal(`Migration ${SECOND} is not applied on any configured connection - nothing to seed`);
+    expect(seeds).to.eql([]);
+  });
+
+  it('migrate-up --skip-seed applies without running data()', async () => {
+    await (await DI.resolve(MigrateUpCommand)).execute({ skipSeed: true });
+
+    expect(await db().schema().tableExists(MARKER_TABLE)).to.equal(true);
+    expect(await db().select().from(MARKER_TABLE).asRaw<any[]>()).to.eql([]);
+    expect(seeds).to.eql([]);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-up --dry-run on a current database prints "Nothing to apply" and exits 0', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines).to.eql(['Nothing to apply']);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-seed runs the data() of the applied migrations and exits 0', async () => {
+    await (await DI.resolve(MigrateSeedCommand)).execute({});
+    await new MigrateSeedCommand().execute({});
+
+    expect(seeds).to.eql([FIRST, SECOND, FIRST, SECOND]);
+    expect(await db().select().from(MARKER_TABLE).asRaw<any[]>(), 'a rerun of an idempotent seed adds nothing').to.eql([{ Id: 1 }]);
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-seed --name <applied> runs that one', async () => {
+    await new MigrateSeedCommand().execute({ name: SECOND, connection: CONNECTION_NAME });
+
+    expect(seeds).to.eql([SECOND]);
+  });
+});
+
+describe('migrate-up --dry-run against a FAILED migration', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-dry-failed';
+  const BOOM = 'OrmCliDryBoom_2021_11_01_00_00_00';
+  const NEXT = 'OrmCliDryNext_2021_11_02_00_00_00';
+
+  const Conf = class OrmCliDryFailedConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: CONNECTION_NAME, Migration: { Table: 'orm_cli_dry_failed_migrations' } });
+    }
+  };
+
+  let orm: Orm;
+  let types: any[] = [];
+
+  function defineMigrations() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliDryBoom_2021_11_01_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        return Promise.reject(new Error('orm-cli dry-run fixture failed on purpose'));
+      }
+
+      public down = noopMigration.down;
+    }
+
+    @Migration(CONNECTION_NAME)
+    class OrmCliDryNext_2021_11_02_00_00_00 extends OrmMigration {
+      public up = noopMigration.up;
+      public down = noopMigration.down;
+    }
+
+    types = [OrmCliDryBoom_2021_11_01_00_00_00, OrmCliDryNext_2021_11_02_00_00_00];
+  }
+
+  const originalExitCode = process.exitCode;
+  const blockedPlan = ['Blocked by 1 FAILED migration(s), the run stops at the first one ( BATCH  CONNECTION  MIGRATION ):', `  1  ${CONNECTION_NAME}  ${BOOM}  FAILED - blocks ${CONNECTION_NAME}, run migrate-resolve`];
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(Conf).as(Configuration);
+    orm = (await resolveCliMigrator()).Orm;
+
+    const err = await thrownBy(() => new MigrateUpCommand().execute({}));
+    expect((err as Error).message, 'the fixture leaves a FAILED row').to.contain(BOOM);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      types.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  it('prints the FAILED migration as blocking its connection, and nothing after it as applied', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true }));
+
+    expect(lines).to.eql(blockedPlan);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('--name of a pending migration on that connection prints the same block, as the real run refuses it', async () => {
+    const lines = await captureStdout(() => new MigrateUpCommand().execute({ dryRun: true, name: NEXT }));
+
+    expect(lines).to.eql(blockedPlan);
+    expect(process.exitCode).to.equal(1);
+
+    const err = await thrownBy(() => new MigrateUpCommand().execute({ name: NEXT }));
+    expect((err as Error).message).to.contain(`Migration ${BOOM} on connection ${CONNECTION_NAME} failed previously and blocks migration runs`);
   });
 });

@@ -60,6 +60,7 @@ describe('authz-rebac: rebac.tuples on the query builders (sqlite)', function ()
         tuple(d('d4'), 'owner', user('bob')),
         // Same object id in another namespace: must not leak into docs.
         tuple(ref('folder', 'd4'), 'owner', user('alice')),
+        { ...tuple(d('d1'), 'owner', user('carol')), caveat: { name: 'c' } },
       ],
       [],
       user('admin'),
@@ -79,6 +80,11 @@ describe('authz-rebac: rebac.tuples on the query builders (sqlite)', function ()
     expect(await ids(leaf('viewer', ['group:eng#member', 'user:alice']))).to.deep.equal(['d2', 'd3']);
     expect(await ids(leaf('parent', ['folder:f1']))).to.deep.equal(['d3']);
     expect(await ids(leaf('owner', ['user:carol']))).to.deep.equal([]);
+  });
+
+  it('a leaf keeps no row through a conditional tuple', async () => {
+    expect(await ids(leaf('owner', ['user:carol']))).to.deep.equal([]);
+    expect(await ids(leaf('owner', ['user:alice', 'user:carol']))).to.deep.equal(['d1']);
   });
 
   it('a leaf without subjects keeps no row', async () => {

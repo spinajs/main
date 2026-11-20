@@ -1,8 +1,9 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import { Clock, DbTimeSource } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, resolveMigrationTool } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
 // Registers JobModel and the queue_jobs migrations on the `queue` connection.
@@ -16,6 +17,10 @@ export interface TestEnvOptions {
   extra?: Record<string, unknown>;
   /** Runs before anything resolves. DI keeps registrations across boots, so register only switchable test doubles. */
   register?: () => void;
+  /** Runs every registered Bootstrapper before the Configuration resolves, as an application boot does: the registered schemas then validate and coerce it. */
+  bootstrap?: boolean;
+  /** Runs on the migration tool's Orm before the migrations apply, e.g. to drop what a previous run left. */
+  beforeMigrate?: () => Promise<void>;
 }
 
 let current: TestEnvOptions = {};
@@ -24,7 +29,7 @@ export const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 class WorkflowTestConf extends FrameworkConfiguration {
@@ -61,9 +66,14 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   DI.register(() => clock).as(Clock);
   DI.register(() => clock.dbSource).as(DbTimeSource);
   options.register?.();
+  if (options.bootstrap) for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   DI.register(WorkflowTestConf).as(Configuration);
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  if (options.beforeMigrate) {
+    await resolveMigrationTool();
+    await options.beforeMigrate();
+  }
+  await migrateTestDatabase();
   return { clock };
 }
 
