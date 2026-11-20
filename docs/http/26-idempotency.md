@@ -219,6 +219,24 @@ The lease is renewed while the route runs, but http has no abort signal an actio
 long enough for the lease to end during a slow action (a lost database connection, a paused process), another
 replica may claim the key and run the action a second time while the first one is still running.
 
+## API documents
+
+Both OpenAPI builders document an `@Idempotent` route the same way:
+
+- the `Idempotency-Key` header parameter, required when the route sets `required: true`; its schema bounds the header
+  value at 512 characters, the longest quoted form of a 255-character key
+- the 400, 409 (with `Retry-After`) and 422 problem answers
+- the `Idempotent-Replayed` header on its success answers
+
+A status the route already answers stays as it is: one from a `@response` tag or `@Access`, and in the manifest
+builder also one from the controller's error map and the 400 of a route with request arguments. `Retry-After` is
+documented only on a 409 the builder added.
+
+The JSDoc builder of `@spinajs/http-swagger` reads them from the middleware `@Idempotent` mounts. The manifest
+builder of `@spinajs/openapi` reads them from the manifest's `RouteEntry.idempotency`. A route middleware of your own
+can document the request headers it reads through `documentation()`, with `requestHeaders`
+([In API documents](14-route-middlewares.md#in-api-documents)).
+
 ## Migrating to random keys in shared scopes
 
 An `@Idempotent` route refuses a key that is not a UUID of version 4 or 7 from an anonymous caller or a share link

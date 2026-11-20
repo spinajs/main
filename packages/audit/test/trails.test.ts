@@ -1,8 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
+import { createHmac } from 'node:crypto';
 import '@spinajs/log';
 import { configurationViolations, createTestApp } from '@spinajs/testing';
-import { AuditConfigError, SECURITY_HASH_PATHS, deferredConfig, trailConfig, trailNames } from '../src/index.js';
+import { AuditConfigError, SECURITY_HASH_PATHS, auditHash, deferredConfig, trailConfig, trailNames } from '../src/index.js';
 
 const expect = chai.expect;
 const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
@@ -28,14 +29,15 @@ describe('trailConfig', function () {
 
   it('lays a configured trail over the built-in of its name and parses the retry delay', async () => {
     const restricted = { table: 'audit_restricted', onFailure: 'reject', retry: { attempts: 5, delay: '2s' }, integrity: 'sealed', mask: ['data.args.password'], sink: 'ArchiveAuditSink', archiveConnection: 'audit' };
-    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5, timeoutMs: 300 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted } } } });
+    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5, timeoutMs: 300 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted, ms: { retry: { delay: '100ms' } }, minute: { retry: { delay: '1m' } }, bare: { retry: { delay: '100' } } } } } });
     try {
+      expect(['ms', 'minute', 'bare'].map((name) => trailConfig(name).retry.delayMs)).to.deep.eq([100, 60000, 100]);
       expect(trailConfig('history')).to.include({ table: 'orm_history', retentionDays: 30 });
       expect(trailConfig('history').retry).to.deep.eq({ attempts: 3, delayMs: 250 });
       expect(trailConfig('restricted')).to.include({ store: 'TableAuditStore', table: 'audit_restricted', connection: 'default', onFailure: 'reject', integrity: 'sealed', sink: 'ArchiveAuditSink', archiveConnection: 'audit' });
       expect(trailConfig('restricted').retry).to.deep.eq({ attempts: 5, delayMs: 2000 });
       expect(trailConfig('restricted').mask).to.deep.eq(['data.args.password']);
-      expect(trailNames()).to.deep.eq(['default', 'history', 'security', 'restricted']);
+      expect(trailNames()).to.deep.eq(['default', 'history', 'security', 'restricted', 'ms', 'minute', 'bare']);
       expect(deferredConfig()).to.include({ flushMs: 5, timeoutMs: 300, blockCeilingMs: 3000 });
     } finally {
       await app.dispose();
@@ -98,5 +100,19 @@ describe('trailConfig', function () {
     } finally {
       await app.dispose();
     }
+  });
+
+  it('hashes under audit.hashKey.secret, alike in every container that configures it', async () => {
+    const secret = 'k'.repeat(32);
+    const expected = createHmac('sha256', secret).update('user:u1').digest('base64url');
+    for (let i = 0; i < 2; i++) {
+      const app = await createTestApp({ scope: 'child', bootstrap: false, config: { logger: SILENT, audit: { hashKey: { secret } } } });
+      try {
+        expect(auditHash('user:u1', app.container)).to.eq(expected);
+      } finally {
+        await app.dispose();
+      }
+    }
+    expect(auditHash('user:u1')).to.not.eq(expected);
   });
 });

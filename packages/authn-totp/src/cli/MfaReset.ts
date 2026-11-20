@@ -10,15 +10,9 @@ import { TotpService } from '../service/totp-service.js';
 @Command('authn:mfa-reset', 'Removes the MFA enrolment and recovery codes of an account; prints no secret')
 @Argument('login', true, 'login or email')
 export class MfaReset extends CliCommand {
-  // Boots the ORM, which applies its Migration.OnStartup migrations, before the command runs; the identity store needs it.
+  /** Injecting the Orm boots it for exactly the command being run; the boot fails while a migration is pending (run migrate-up first). */
   @Autoinject(Orm)
   protected Orm: Orm;
-
-  /** Waits for the Orm's `data()` seeds too: an app process serves only after them. */
-  public async resolve(): Promise<void> {
-    await super.resolve();
-    await this.Orm.Migrator.ready();
-  }
 
   @Logger('authn-totp')
   protected Log: Log;

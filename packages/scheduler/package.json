@@ -49,6 +49,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/cli": "3.0.23",
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
@@ -60,6 +61,7 @@
     "@spinajs/queue": "3.0.23",
     "@spinajs/reflection": "3.0.23",
     "@spinajs/telemetry-common": "3.0.23",
+    "@spinajs/tracing": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "cron": "^4.3.0",
     "luxon": "^3.6.1",

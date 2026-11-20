@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [scheduler]
+        suite: [scheduler, workflow]
         shard: [0, 1, 2, 3]
 
     steps:

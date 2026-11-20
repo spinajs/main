@@ -10,6 +10,8 @@ import { Log } from '@spinajs/log-common';
 import { auditContext } from './context.js';
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AUDIT_WIDTHS, AuditService } from './contracts.js';
 import type { AuditEvent, AuditInput, AuditStore, AuditTrail, AuditWriteMode, AuditWriteOptions, TrailConfig } from './contracts.js';
+import { ERASURE } from './erasure.js';
+import type { RecordErasure } from './erasure.js';
 import { AuditConfigError, AuditWriteFailed } from './errors.js';
 import { quoted } from './guards.js';
 import { canonicalJson } from './hash.js';
@@ -43,6 +45,13 @@ interface Flight {
 const DEFERRED: Way = { mode: 'deferred', onFailure: 'continue' };
 
 const isList = (input: AuditInput | readonly AuditInput[]): input is readonly AuditInput[] => Array.isArray(input);
+
+// MySQL's PAD SPACE collations and MSSQL compare an action with trailing U+0020 equal to the reserved one.
+function takesErasurePair(input: AuditInput): boolean {
+  if (input.kind !== ERASURE.kind || typeof input.action !== 'string' || !input.action.startsWith(ERASURE.action)) return false;
+  const padding = input.action.slice(ERASURE.action.length);
+  return padding === ' '.repeat(padding.length);
+}
 
 function sized(name: string, value: string | undefined, max: number): void {
   if (value !== undefined && (value.length === 0 || value.length > max)) throw new AuditConfigError(`audit: ${name} must be 1 to ${max} characters`);
@@ -105,10 +114,14 @@ const idsOf = (events: readonly AuditEvent[]): string =>
     .map((e) => e.id)
     .join(',');
 
-// Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString.
+// Must not throw: a rejection value or a field may hold a bigint, a cycle or a throwing toString. An Error is written
+// by name and message: a stack would take several lines per warning.
 function fallbackText(message: string, fields: Record<string, unknown>, err: unknown): string {
+  const brief = (v: unknown): unknown => (v instanceof Error ? String(v) : v);
   try {
-    return `audit: the logger "audit-pipeline" failed (${inspect(err)}): ${message} ${inspect(fields, { breakLength: Infinity })}`;
+    const named = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, brief(value)]));
+    const why = err instanceof Error ? String(err) : inspect(err);
+    return `audit: the logger "audit-pipeline" failed (${why}): ${message} ${inspect(named, { breakLength: Infinity })}`;
   } catch {
     return `audit: the logger "audit-pipeline" failed: ${message}`;
   }
@@ -155,9 +168,16 @@ export class DefaultAuditService extends AuditService {
   // Events dropped in the current overflow of the buffer.
   private dropped = 0;
   private disposed = false;
-  private joinUnknownLogged = false;
+  // Trails whose store could not tell whether it joins the caller; each is reported once.
+  private readonly joinUnknown = new Set<string>();
 
   async record(input: AuditInput | readonly AuditInput[], options: AuditWriteOptions = {}): Promise<void> {
+    const inputs = isList(input) ? input : [input];
+    if (inputs.some(takesErasurePair)) throw new AuditConfigError(`audit: kind '${ERASURE.kind}' with action '${ERASURE.action}' is reserved for the record AuditTrail.forget writes; record this event under another action`);
+    return this.submit(inputs, options);
+  }
+
+  private async submit(inputs: readonly AuditInput[], options: AuditWriteOptions): Promise<void> {
     const trail = trailConfig(options.trail, this.Container);
     const { mode, onFailure } = wayOf(trail, options);
     const store = await auditStore(trail, this.Container);
@@ -165,7 +185,7 @@ export class DefaultAuditService extends AuditService {
       throw new AuditConfigError(`audit: a transactional write to trail ${quoted(trail.name)} needs a store that joins the caller's transaction, and ${store.constructor.name} does not`);
     }
 
-    const events = stamped(isList(input) ? input : [input], this.Container).map(maskOf(trail, options, this.Container));
+    const events = stamped(inputs, this.Container).map(maskOf(trail, options, this.Container));
     if (events.length === 0) return;
     if (mode === 'transactional') return this.joined(store, trail, events, options.transaction);
     if (mode === 'deferred') return this.defer(trail, store, events, options.connection);
@@ -175,7 +195,8 @@ export class DefaultAuditService extends AuditService {
   }
 
   trail(name?: string): AuditTrail {
-    return new StoreAuditTrail(this, trailConfig(name, this.Container), this.Container);
+    const recordErasure: RecordErasure = (subject, redacted, options) => this.submit([{ ...ERASURE, subject, data: { redacted } }], { ...options, mode: 'confirmed' });
+    return new StoreAuditTrail(recordErasure, trailConfig(name, this.Container), this.Container);
   }
 
   flush(): Promise<void> {
@@ -252,11 +273,11 @@ export class DefaultAuditService extends AuditService {
     const events = group.map((p) => p.event);
     const { timeoutMs, blockCeilingMs } = deferredConfig(this.Container);
     const since = this.blocked.get(key);
-    if (since !== undefined && Date.now() - since < blockCeilingMs) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
+    if (since !== undefined && performance.now() - since < blockCeilingMs) return this.lost(trail, events, new AuditWriteFailed(`audit: trail ${quoted(trail.name)} is blocked behind an append that has not settled`));
     if (since !== undefined) {
       this.blocked.delete(key);
       this.late.delete(key);
-      this.report('error', { trail: trail.name, connection, blockedMs: Date.now() - since }, UNORDERED);
+      this.report('error', { trail: trail.name, connection, blockedMs: Math.round(performance.now() - since) }, UNORDERED);
     }
     const limit = deadline(timeoutMs);
     const flight = { appending: false, tries: 0 };
@@ -278,7 +299,7 @@ export class DefaultAuditService extends AuditService {
   private block(key: string, trail: TrailConfig, connection: string | undefined): void {
     // A late append that settled meanwhile has already unblocked the target; a block set now would never be lifted.
     if (!this.late.has(key)) return;
-    this.blocked.set(key, Date.now());
+    this.blocked.set(key, performance.now());
     this.report('warn', { trail: trail.name, connection }, BLOCKED);
   }
 
@@ -312,8 +333,8 @@ export class DefaultAuditService extends AuditService {
       return store.joinsCaller?.(trail, connection) === true;
     } catch (err) {
       if (err instanceof AuditConfigError) throw err;
-      if (!this.joinUnknownLogged) this.report('warn', { error: err, trail: trail.name }, UNKNOWN_JOIN);
-      this.joinUnknownLogged = true;
+      if (!this.joinUnknown.has(trail.name)) this.report('warn', { error: err, trail: trail.name }, UNKNOWN_JOIN);
+      this.joinUnknown.add(trail.name);
       return false;
     }
   }

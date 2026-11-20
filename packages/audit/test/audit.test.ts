@@ -81,12 +81,15 @@ const TRAILS = {
   strict: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 }, mask: ['data.args.password'] },
   twice: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
   flaky: { store: 'FlakyStore', retry: { attempts: 2, delay: 1 } },
+  sleepy: { store: 'FlakyStore', retry: { attempts: 3, delay: '1s' } },
+  sleepyStrict: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 3, delay: '1s' } },
   slow: { store: 'SlowStore', retry: { attempts: 3, delay: 1 } },
   slowStrict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
   misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
   askFails: { store: 'AskFailsStore' },
+  askFailsToo: { store: 'AskFailsStore' },
   orphan: { store: 'NoSuchStore' },
 };
 
@@ -117,6 +120,7 @@ const boot = (deferred: Record<string, unknown> = {}, audit: Record<string, unkn
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const actions = (...names: string[]): AuditInput[] => names.map((action) => ({ kind: 'action', action }));
+const patientOf = (id: string) => ({ type: 'patient', id });
 
 describe('audit().record', function () {
   this.timeout(15000);
@@ -147,6 +151,13 @@ describe('audit().record', function () {
     expect(event.data).to.deep.eq({ version: 2 });
     expect(event.id).to.match(/^[0-9a-f-]{36}$/);
     expect(event.at).to.be.instanceOf(Date);
+  });
+
+  it('cuts what the context supplies to its column width', async () => {
+    const request = { Principal: { type: 'user', id: 'u'.repeat(200) }, realIp: '1'.repeat(100) };
+    await (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>).run(request, () => audit().record(actions('wide'), { mode: 'confirmed' }));
+    const [event] = MemoryAuditStore.events();
+    expect([event.actor, event.origin]).to.deep.eq([`user:${'u'.repeat(95)}`, '1'.repeat(64)]);
   });
 
   it('flushes the deferred buffer in the background', async () => {
@@ -189,7 +200,7 @@ describe('audit().record', function () {
     expect(MemoryAuditStore.events()).to.have.length(0);
   });
 
-  it('flush() on an empty buffer settles on microtasks alone: it starts no timer', async () => {
+  it('flush() on an empty buffer settles on microtasks alone', async () => {
     let settled = false;
     void audit()
       .flush()
@@ -233,6 +244,22 @@ describe('audit().record', function () {
     expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "default" could not record 1 event(s) in the transaction of the audited write', 'MemoryAuditStore: failing as asked']);
     expect(MemoryAuditStore.appends()).to.have.length(1);
     await expect(audit().record({ kind: 'data', action: 'update' }, { mode: 'transactional' })).to.be.rejectedWith(AuditConfigError, 'audit: a transactional write to trail "default" needs options.transaction');
+  });
+
+  it('passes an audit error the store raises in a transactional write through unchanged', async () => {
+    FlakyStore.down = true;
+    try {
+      for (const failure of [new AuditWriteFailed('audit: the store gave up'), new AuditConfigError('audit: no ORM connection "nope"')]) {
+        FlakyStore.failure = failure;
+        const raised: unknown = await audit()
+          .record({ kind: 'data', action: 'update' }, { trail: 'flaky', mode: 'transactional', transaction: {} })
+          .catch((e: unknown) => e);
+        expect(raised).to.eq(failure);
+      }
+      expect(FlakyStore.calls).to.eq(2);
+    } finally {
+      FlakyStore.failure = new Error('store down');
+    }
   });
 
   it('refuses a transactional write to a store that cannot join the transaction', async () => {
@@ -284,14 +311,19 @@ describe('audit().record', function () {
     expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'flaky', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
   });
 
-  it('writes detached when joinsCaller throws, and says so once; a configuration error it raises fails the write', async () => {
+  it('writes detached when joinsCaller throws, and says so once per trail; a configuration error it raises fails the write', async () => {
     const lines = pipelineLog(app.container);
     await audit().record(actions('a'), { trail: 'askFails', mode: 'confirmed' });
     await audit().record(actions('b'), { trail: 'askFails', mode: 'confirmed' });
-    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b']);
-    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['warn', 'askFails', 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached']]);
+    await audit().record(actions('c'), { trail: 'askFailsToo', mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b', 'c']);
+    const unknown = 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached';
+    expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([
+      ['warn', 'askFails', unknown],
+      ['warn', 'askFailsToo', unknown],
+    ]);
     AskFailsStore.failure = new AuditConfigError('audit: no ORM connection "nope"');
-    await expect(audit().record(actions('c'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    await expect(audit().record(actions('d'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
     AskFailsStore.failure = new Error('cannot tell');
   });
 
@@ -303,6 +335,29 @@ describe('audit().record', function () {
     await expect(audit().record(input, { trail: 'strict', mode: 'deferred' })).to.be.rejectedWith(AuditConfigError, "audit: a deferred write cannot reject, and trail \"strict\" is written with onFailure 'reject'; use mode 'confirmed'");
     await expect(audit().record({ kind: 'action', action: '' })).to.be.rejectedWith(AuditConfigError, 'audit: action must be 1 to 128 characters');
     await expect(audit().record({ kind: 'action', action: 'x', subject: { type: 't', id: 'i'.repeat(256) } })).to.be.rejectedWith(AuditConfigError, 'audit: subject.id must be 1 to 255 characters');
+  });
+
+  it('refuses the reserved erasure pair on every write mode, and writes nothing of the call', async () => {
+    const reserved = { kind: 'custom', action: 'erasure', subject: patientOf('9'), data: { email: 'a@b.c' } } as const;
+    const REFUSED = "audit: kind 'custom' with action 'erasure' is reserved for the record AuditTrail.forget writes; record this event under another action";
+    for (const options of [{ mode: 'transactional', transaction: {} }, { mode: 'confirmed' }, { mode: 'deferred' }, {}] as const) {
+      await expect(audit().record(reserved, options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+      await expect(audit().record([{ kind: 'action', action: 'kept' }, reserved], options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+      // MySQL's PAD SPACE and MSSQL compare 'erasure ' equal to the pair.
+      await expect(audit().record({ ...reserved, action: 'erasure  ' }, options)).to.be.rejectedWith(AuditConfigError, REFUSED);
+    }
+    await audit().flush();
+    expect(MemoryAuditStore.appends()).to.deep.eq([]);
+
+    // Only the pair is reserved.
+    await audit().record({ kind: 'action', action: 'erasure', subject: patientOf('9') }, { mode: 'confirmed' });
+    await audit().record({ kind: 'custom', action: 'erasure.requested', subject: patientOf('9') }, { mode: 'confirmed' });
+    await audit().record({ kind: 'custom', action: ' erasure', subject: patientOf('9') }, { mode: 'confirmed' });
+    expect(MemoryAuditStore.events().map((e) => [e.kind, e.action])).to.deep.eq([
+      ['action', 'erasure'],
+      ['custom', 'erasure.requested'],
+      ['custom', ' erasure'],
+    ]);
   });
 
   it('writes out the buffer when the service is disposed', async () => {
@@ -346,6 +401,41 @@ describe('audit(): confirmed deadline', function () {
       ['warn', 'slow', 'confirmed', 'continue', stored],
     ]);
     expect(SlowStore.calls).to.eq(2);
+  });
+
+  it('gives a confirmed write 10000 ms without audit.confirmTimeoutMs', async () => {
+    app = await boot();
+    const delays: unknown[] = [];
+    const setTimer = globalThis.setTimeout;
+    const spy = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
+      delays.push(args[1]);
+      return setTimer(...args);
+    };
+    try {
+      Reflect.set(globalThis, 'setTimeout', spy);
+      await audit().record(actions('a'), { mode: 'confirmed' });
+    } finally {
+      Reflect.set(globalThis, 'setTimeout', setTimer);
+    }
+    expect(delays).to.include(10000);
+  });
+
+  it('logs a confirmed write whose deadline fires between two tries as lost, after the tries it made', async () => {
+    app = await boot({}, { confirmTimeoutMs: 50 });
+    const lines = pipelineLog(app.container);
+    FlakyStore.calls = 0;
+    FlakyStore.down = true;
+    try {
+      const failed: unknown = await audit()
+        .record(actions('a'), { trail: 'sleepyStrict' })
+        .catch((e: unknown) => e);
+      expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "sleepyStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+      await audit().record(actions('b'), { trail: 'sleepy', mode: 'confirmed' });
+      expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'sleepy', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
+      expect(FlakyStore.calls).to.eq(2);
+    } finally {
+      FlakyStore.down = false;
+    }
   });
 
   it('gives a write that joins the caller no deadline: it settles with the caller', async () => {
@@ -444,6 +534,22 @@ describe('audit(): deferred batches and failure paths', function () {
     expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['a', 'd']);
   });
 
+  it('drops a batch behind a block at once, without waiting out timeoutMs', async () => {
+    app = await boot({ timeoutMs: 1000, maxBatch: 1 });
+    const lines = pipelineLog(app.container);
+    SlowStore.holds = 1;
+    await audit().record(actions('a', 'b', 'c', 'd'), { trail: 'slow' });
+    const flushed = audit().flush();
+    while (!lines.some((l) => l.message.includes('is blocked behind'))) await pause(5);
+    const blockedAt = Date.now();
+    await flushed;
+    // Two batches behind the block: waiting out timeoutMs each would take 2000 ms.
+    expect(Date.now() - blockedAt).to.be.below(500);
+    expect(lines.filter((l) => l.message === 'audit: trail ${trail} lost ${count} event(s): ${ids}')).to.have.length(3);
+    SlowStore.held[0].release();
+    await pause(20);
+  });
+
   it('lifts a block when the held append fails', async () => {
     app = await boot({ timeoutMs: 50, maxBatch: 1 });
     const lines = pipelineLog(app.container);
@@ -484,6 +590,29 @@ describe('audit(): deferred batches and failure paths', function () {
     expect(lines.filter((l) => l.message.includes('stored ${count} event(s) it had given up on'))).to.have.length(1);
     expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c', 'a']);
     SlowStore.held[1].release();
+  });
+
+  it('measures blockCeilingMs on a monotonic clock, so a wall clock set back does not prolong a block', async () => {
+    app = await boot({ timeoutMs: 50, blockCeilingMs: 150, maxBatch: 1 });
+    pipelineLog(app.container);
+    const write = async (action: string): Promise<void> => {
+      await audit().record(actions(action), { trail: 'slow' });
+      await audit().flush();
+    };
+    SlowStore.holds = 1;
+    await write('a');
+    await write('b');
+    const now = Date.now;
+    try {
+      Date.now = () => 0;
+      await pause(200);
+      await write('c');
+    } finally {
+      Date.now = now;
+    }
+    expect(MemoryAuditStore.events('slow').map((e) => e.action)).to.deep.eq(['c']);
+    SlowStore.held[0].release();
+    await pause(20);
   });
 
   it('blocks only the connection whose append is held', async () => {
@@ -584,8 +713,14 @@ describe('audit(): deferred batches and failure paths', function () {
       await pause(150);
       expect(unhandled).to.deep.eq([]);
       expect(warnings).to.have.length(4);
-      for (const warning of warnings) expect(warning).to.contain('no logger');
       expect(resolutions).to.have.length(1);
+
+      // A store that fails with an Error: the line names it, and neither its stack nor the logger's is printed.
+      FlakyStore.failure = new Error('store down');
+      await audit().record(actions('d'), { trail: 'flaky', mode: 'confirmed' });
+      expect(warnings).to.have.length(5);
+      expect(warnings[4]).to.contain('Error: store down');
+      for (const warning of warnings) expect(warning).to.contain('Error: no logger').and.not.match(/^\s+at /m);
     } finally {
       FlakyStore.failure = new Error('store down');
       Reflect.set(process, 'emitWarning', emitWarning);

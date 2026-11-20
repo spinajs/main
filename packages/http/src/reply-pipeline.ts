@@ -35,8 +35,8 @@ export interface IDeliverOptions extends ISendReplyOptions {
   /** The container whose `http.contractTesting` checks the reply; else the route's, else the root container. */
   readonly container?: IContainer;
   /**
-   * false: the reply is not the route's own answer (the error map's or the global error answer), so the contract check
-   * holds it to the problem document schema only, never to the route's response schema.
+   * false: the reply is not the route's own answer (the error map's, the global error answer, one sent in place),
+   * so the contract check holds it to the problem document schema only, never to the route's response schema.
    */
   readonly routeContract?: boolean;
 }
@@ -352,7 +352,8 @@ export function sendReplyInPlace(req: express.Request, res: express.Response, re
   state.final = true;
   state.started = true;
   state.early = response;
-  return send(req, res, state, response, options);
+  // answers for the server, not the route: only a problem document is checked
+  return send(req, res, state, response, { ...options, routeContract: false });
 }
 
 async function send(req: express.Request, res: express.Response, state: IReplyState, response: Response, options: IDeliverOptions): Promise<void> {

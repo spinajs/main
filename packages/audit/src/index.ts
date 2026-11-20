@@ -5,6 +5,8 @@ export * from './schema.js';
 export * from './trails.js';
 export { MASKED, auditHash } from './mask.js';
 export * from './hash.js';
+export { ERASURE, isErasureRecord } from './erasure.js';
+export * from './seal.js';
 export * from './stores.js';
 export * from './audit.js';
 export * from './log-store.js';
