@@ -167,7 +167,7 @@ The `authz` section lists what the build can read about authorization. `resource
 | `externalCalls` | Calls into dependencies, which the pass does not follow. |
 | `foreignModelQueries` | Unscoped query sites of models another package declares; whether those are access resources is not visible in declaration files. |
 
-`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. Permissions declared in configuration and the compiled policy IR (`ir`, `policyHash`) are not in the manifest yet; an app manifest with an `authz` section says so with the info diagnostic `AUTHZ010`.
+`ModelEntry.accessResource` is the resource type (`'post'`), absent on a model that is no access resource. `ir` is the canonical policy IR of `authz.ir.json` (written by `spinajs authz:compile`, read by `spinajs build --authz-ir`) and `policyHash` its SHA-256, the hash the app's decision records cite when it was built and booted from the same commit. Without the file the build says so with the info diagnostic `AUTHZ010`; a file that is not a valid policy IR gives the warning `AUTHZ011` and is left out. Permissions declared in configuration are in the IR, not listed separately.
 
 ### Tenancy facts
 
